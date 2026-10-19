@@ -722,11 +722,10 @@ language = "c"
 standard = "c11"
 symbols = [
 	"HWND", "HINSTANCE", "HFONT", "HGDIOBJ", "HDC", "HANDLE", "ATOM", "WCHAR", "UINT", "ULONG", "DWORD", "WPARAM", "LPARAM", "LRESULT", "ULONG_PTR",
-	"RECT", "SIZE", "MSG", "MINMAXINFO", "SCROLLINFO", "TEXTMETRICW", "NONCLIENTMETRICSW", "WNDCLASSEXW", "ACTCTXW", "INITCOMMONCONTROLSEX",
+	"RECT", "SIZE", "MSG", "MINMAXINFO", "SCROLLINFO", "TEXTMETRICW", "NONCLIENTMETRICSW", "WNDCLASSEXW", "ACTCTXW",
 	"GetModuleHandleW", "GetCurrentThreadId", "GetLastError", "GetSystemDirectoryW", "CreateEventW", "SetEvent", "CloseHandle", "INVALID_HANDLE_VALUE",
 	"MultiByteToWideChar", "WideCharToMultiByte", "CP_UTF8", "MB_ERR_INVALID_CHARS", "lstrlenW",
 	"CreateActCtxW", "ActivateActCtx", "DeactivateActCtx", "ReleaseActCtx", "ACTCTX_FLAG_RESOURCE_NAME_VALID", "ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID",
-	"InitCommonControlsEx", "ICC_STANDARD_CLASSES", "ICC_WIN95_CLASSES",
 	"SetProcessDpiAwarenessContext", "GetThreadDpiAwarenessContext", "AreDpiAwarenessContextsEqual", "DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2",
 	"GetDpiForWindow", "GetDpiForSystem", "AdjustWindowRectExForDpi", "SystemParametersInfoForDpi", "SystemParametersInfoW", "SPI_GETNONCLIENTMETRICS", "SPI_GETWHEELSCROLLLINES",
 	"RegisterClassExW", "DefWindowProcW", "LoadCursorW", "GetSysColorBrush", "COLOR_WINDOW", "CS_HREDRAW", "CS_VREDRAW", "ERROR_CLASS_ALREADY_EXISTS",

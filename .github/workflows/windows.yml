@@ -595,6 +595,7 @@ jobs:
       # object counts after every teardown, 100 fresh-process restores and the
       # UI Automation tree its COM client reads.
       - name: Run the Win32 GUI shell journey through each compiler's program
+        if: ${{ !cancelled() }}
         env:
           BTRC_WIN32_EVIDENCE_DIR: win32
         run: |

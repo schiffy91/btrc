@@ -243,7 +243,7 @@ def cross_environment(target, tmp_path, monkeypatch):
     return dll
 
 
-def compile_probe_units(target, directory, units):
+def compile_probe_units(target, directory, units, includes=()):
     """The probe's C units for the row, strict C11 through zig with the Windows overlay."""
     zig = shutil.which("zig")
     assert zig, "the dev shell provides zig"
@@ -269,6 +269,7 @@ def compile_probe_units(target, directory, units):
             str(REPO / "src/runtime/windows/btrc_win_compat.h"),
             f"-I{REPO / 'src/stdlib'}",
             f"-I{PROBE}",
+            *(f"-I{path}" for path in includes),
             "-c",
             str(unit),
             "-o",
@@ -308,7 +309,9 @@ def build_shell(tmp_path, frontend, target, request, monkeypatch):
     assert "warning:" not in result.stderr.lower(), result.stderr
     libraries = [record["name"] for record in json.loads(plan.read_text())["libraries"]]
     assert {"user32", "gdi32", "comctl32"} <= set(libraries), libraries
-    objects = compile_probe_units(target, tmp_path, [PROBE / "ShellProbe.c", SHELL / "ShellState.c"])
+    # The probe reports the adapter its own WebGPU instance finds.
+    webgpu = dll.parent.parent / "include/webgpu"
+    objects = compile_probe_units(target, tmp_path, [PROBE / "ShellProbe.c", SHELL / "ShellState.c"], [webgpu])
     executable = link(plan, generated, tmp_path / f"native-shell-{FRONTENDS[frontend]}-{target}.exe", objects)
     return executable, dll
 
@@ -382,7 +385,16 @@ def test_windows_native_shell_builds(tmp_path, request, monkeypatch, frontend, t
 
 def run_shell(command, environment, timeout):
     try:
-        return subprocess.run(command, capture_output=True, text=True, env=environment, timeout=timeout, check=False)
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+            timeout=timeout,
+            check=False,
+        )
     except subprocess.TimeoutExpired as error:
         stdout = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout or ""
         stderr = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else error.stderr or ""
@@ -391,13 +403,13 @@ def run_shell(command, environment, timeout):
 
 @pytest.mark.parametrize("target", sorted(TARGETS))
 @pytest.mark.parametrize("frontend", sorted(FRONTENDS))
-def test_windows_native_shell_runs(tmp_path, frontend, target):
+def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target):
     if sys.platform != "win32":
         pytest.skip("requires Windows: windows.yml's win32-native job runs the executables the build tests publish")
     evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
     if not evidence:
         pytest.skip("BTRC_WIN32_EVIDENCE_DIR names no published Windows shell executables")
-    directory = Path(evidence) / f"native-shell-{target}"
+    directory = (Path(evidence) / f"native-shell-{target}").resolve()
     executable = directory / f"native-shell-{FRONTENDS[frontend]}-{target}.exe"
     assert executable.is_file(), sorted(path.name for path in directory.iterdir()) if directory.is_dir() else directory
     cycles = int(os.environ.get("BTRC_UI_SHELL_CYCLES", "100"))
@@ -437,6 +449,8 @@ def test_windows_native_shell_runs(tmp_path, frontend, target):
     assert [row[0] for row in resources] == list(range(1, cycles + 1)), message
     assert all(row[3] == 0 for row in resources), resources
     probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+    trees = [probe["accessibility"] for probe in probes]
+    (artifacts / "uia-trees.json").write_text(json.dumps(trees, indent=1), encoding="utf-8")
     assert len(probes) == cycles, message
     assert all(probe["probe"] == "windows-win32" for probe in probes)
     assert all(probe["dpi_awareness_v2"] and probe["comctl32_v6_cue_banner"] for probe in probes), probes[0]
@@ -456,9 +470,8 @@ def test_windows_native_shell_runs(tmp_path, frontend, target):
         )
         assert restored_teardown and int(restored_teardown[1]) == int(restored_teardown[3]) == 0, restored.stdout
         assert (state / "journal").read_bytes() == journal
-    trees = [probe["accessibility"] for probe in probes]
-    (artifacts / "uia-trees.json").write_text(json.dumps(trees, indent=1), encoding="utf-8")
     gpu = re.findall(r"^GPU: (.*)$", result.stdout, re.MULTILINE)
+    monkeypatch.setenv("BTRC_TEST_RUNNER", os.environ.get("BTRC_TEST_RUNNER", "windows"))
     write_evidence(
         "native-shell" if cycles == 100 else "native-shell-smoke",
         target,

@@ -18,8 +18,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <webgpu.h>
 
 static int drains;
+static int dumps;
 
 static int isClass(HWND window, const WCHAR *name) {
     WCHAR actual[64];
@@ -257,6 +259,67 @@ static void accessibility(HWND top) {
     free(text);
 }
 
+/* The adapter this process's WebGPU finds, from an instance of the probe's
+ * own: metadata for the GPU child's evidence, never a rendering result. */
+typedef struct AdapterRequest { int completed; WGPURequestAdapterStatus status; WGPUAdapter adapter; } AdapterRequest;
+static void adapterReady(WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView message, void *data, void *unused) {
+    (void)message;
+    (void)unused;
+    AdapterRequest *request = data;
+    request->status = status;
+    request->adapter = adapter;
+    request->completed = 1;
+}
+static void text(WGPUStringView view) {
+    putchar('"');
+    size_t length = view.length == WGPU_STRLEN ? (view.data ? strlen(view.data) : 0) : view.length;
+    for (size_t index = 0; view.data && index < length; index++) {
+        unsigned char unit = (unsigned char)view.data[index];
+        if (unit == '"' || unit == '\\') printf("\\%c", unit);
+        else if (unit < 0x20 || unit > 0x7e) printf("\\u%04x", (unsigned)unit);
+        else putchar(unit);
+    }
+    putchar('"');
+}
+static void gpuAdapter(void) {
+    WGPUInstance instance = wgpuCreateInstance(NULL);
+    if (!instance) { printf("{\"instance\":false}"); return; }
+    AdapterRequest request = {0};
+    WGPURequestAdapterCallbackInfo callback = {0};
+    callback.mode = WGPUCallbackMode_AllowProcessEvents;
+    callback.callback = adapterReady;
+    callback.userdata1 = &request;
+    (void)wgpuInstanceRequestAdapter(instance, NULL, callback);
+    ULONGLONG started = GetTickCount64();
+    while (!request.completed && GetTickCount64() - started < 10000) {
+        wgpuInstanceProcessEvents(instance);
+        Sleep(10);
+    }
+    printf("{\"instance\":true,\"callback_returned\":%s,\"status\":%d,\"adapter\":", request.completed ? "true" : "false", (int)request.status);
+    if (request.adapter) {
+        WGPUAdapterInfo info;
+        memset(&info, 0, sizeof info);
+        if (wgpuAdapterGetInfo(request.adapter, &info) == WGPUStatus_Success) {
+            printf("{\"vendor\":");
+            text(info.vendor);
+            printf(",\"device\":");
+            text(info.device);
+            printf(",\"description\":");
+            text(info.description);
+            printf(",\"backend_type\":%d,\"adapter_type\":%d,\"vendor_id\":%u,\"device_id\":%u}", (int)info.backendType,
+                (int)info.adapterType, (unsigned)info.vendorID, (unsigned)info.deviceID);
+            wgpuAdapterInfoFreeMembers(info);
+        } else {
+            printf("\"no info\"");
+        }
+        wgpuAdapterRelease(request.adapter);
+    } else {
+        printf("null");
+    }
+    printf("}");
+    wgpuInstanceRelease(instance);
+}
+
 void shellProbeDump(void) {
     HWND top = window();
     Controls found = controls();
@@ -275,7 +338,12 @@ void shellProbeDump(void) {
     control("button", found.button, top, 0);
     control("scroll", found.scroll, top, 0);
     control("gpu", found.gpu, top, 1);
-    printf("],\"accessibility\":");
+    printf("]");
+    if (dumps++ == 0) {
+        printf(",\"gpu_adapter\":");
+        gpuAdapter();
+    }
+    printf(",\"accessibility\":");
     fflush(stdout);
     accessibility(top);
     printf("}\n");

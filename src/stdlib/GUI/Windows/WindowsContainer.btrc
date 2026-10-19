@@ -31,11 +31,10 @@ class WindowsContainerChild {
 }
 
 /* A native grouping window with BTRC-owned children. Children are reparented
- * into its HWND (or a layout's child parent, such as a scroll document) and
- * keep their own logical frames; children never retain their parent owner. */
+ * into its HWND and keep their own logical frames; children never retain
+ * their parent owner. */
 class WindowsContainer implements IContainer, IWindowsView {
 	private WindowsView _view;
-	private HWND _childParent;
 	private Vector<WindowsContainerChild> _children = [];
 	private bool _mutating = false;
 	private bool _closing = false;
@@ -43,7 +42,6 @@ class WindowsContainer implements IContainer, IWindowsView {
 
 	public WindowsContainer(WindowsContext context, DWORD style = (DWORD)0) {
 		self._view = WindowsView(context, WindowsClasses.viewName(), style | (DWORD)WS_CLIPCHILDREN, (DWORD)WS_EX_CONTROLPARENT, "");
-		self._childParent = self._view.nativeHandle();
 		SetWindowSubclass(self._view.nativeHandle(), WindowsCommandHost(context.commands), self._view.nativeCallbacks());
 	}
 
@@ -52,16 +50,6 @@ class WindowsContainer implements IContainer, IWindowsView {
 	public HWND nativeHandle() {
 		if (self._closing) { throw "Native container shutdown has started"; }
 		return self._view.nativeHandle();
-	}
-
-	/* Where children are reparented: this window, or a document inside it. */
-	public HWND childParent() { self.nativeHandle(); return self._childParent; }
-
-	/* A layout (the scroll view) moves children into a document window it owns. */
-	public void setChildParent(HWND parent) {
-		self.nativeHandle();
-		if (self._children.len != 0) { throw "Choose the child parent before attaching children"; }
-		self._childParent = parent;
 	}
 
 	private IWindowsView projection(IView child) {
@@ -99,7 +87,7 @@ class WindowsContainer implements IContainer, IWindowsView {
 		// Retain before publishing to Win32, so allocation cannot fail after the
 		// native attachment has transferred the child's lifecycle to this tree.
 		self._children.push(WindowsContainerChild(child));
-		try { native.attachTo(self._childParent); }
+		try { native.attachTo(self._view.nativeHandle()); }
 		catch (string error) { self._children.pop(); self._mutating = false; throw error; }
 		self._mutating = false;
 	}
@@ -109,7 +97,7 @@ class WindowsContainer implements IContainer, IWindowsView {
 		int index = self.childIndex(child);
 		self._mutating = true;
 		try {
-			self.projection(child).detachFrom(self._childParent);
+			self.projection(child).detachFrom(self._view.nativeHandle());
 			self._children.remove(index);
 		} catch (string error) {
 			self._children.get(index).failed = true;
@@ -164,7 +152,7 @@ class WindowsContainer implements IContainer, IWindowsView {
 				try {
 					CallbackCancellation state = CALLBACK_CANCELLATION_PENDING;
 					if (!child.closing) {
-						self.projection(child.view).detachFrom(self._childParent);
+						self.projection(child.view).detachFrom(self._view.nativeHandle());
 						child.closing = true;
 						state = child.view.close();
 					} else { state = child.view.pollClose(); }

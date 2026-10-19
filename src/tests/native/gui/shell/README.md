@@ -64,6 +64,31 @@ crash recovery, power-loss durability, or a transaction spanning the checkpoint
 and external side effects. The stdlib restoration contract remains missing.
 
 Per-provider/frontend/build-mode JSONL under `build/ui-shell/` is validated by
-`LedgerDocument`. Mobile rows are unavailable until their shell packets land;
-Windows checks the actual missing-provider compile diagnostic. These are
-stand-in test records, not passed acceptance-case catalog slots.
+`LedgerDocument`. Mobile rows are unavailable until their shell packets land.
+These are stand-in test records, not passed acceptance-case catalog slots.
+
+## Windows (CX-UIA-15)
+
+`test_native_ui_shell_windows.py` cross-builds the fixture for
+`windows-x86_64` and `windows-aarch64` through both compilers on a Linux or
+macOS host, with zig and the native header reader, and links it against
+wgpu-native v27.0.4.0's prebuilt DLL: the release asset
+`nix/wgpu-native-prebuilt.nix` pins, fetched and checked against its SHA-256.
+The x64 slice links the MinGW import library and the ARM64 slice the MSVC
+build's import library (the only ARM64 asset), so each program keeps its own
+C runtime. windows.yml's win32-native job runs the published rows on hosted
+Windows x64 and ARM64 runners.
+
+`probes/windows/ShellProbe.c` posts input to the queue of the HWND a content
+point hit-tests to (mouse buttons, characters, Tab, Enter, the wheel and
+WM_CLOSE), the Win32 counterpart of the SDL pushes and posted NSEvents above.
+It counts the UI thread's windows by class: provider windows (`BtrcWindow`,
+`BtrcView` and their descendants) apart from system ones such as the IME
+windows, which count as private. After each teardown it prints the process's
+GDI and USER object counts (`GetGuiResources`) for the harness's leak check.
+Its dump records the window's DPI, per-monitor awareness v2 and the Common
+Controls 6 cue banner. The UI Automation tree comes from
+`UIAutomationProbe.btrc`, a separate COM client process built through the
+same compiler: UI Automation from the target's own UI thread hangs, so the
+probe serves the client's requests by pumping messages until it exits, and an
+unavailable tree is recorded with its reason rather than replaced.

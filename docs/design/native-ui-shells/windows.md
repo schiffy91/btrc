@@ -1,10 +1,12 @@
 # Win32 native-shell design note
 
-**Status:** CX-UIA-13, docs-only proposal for `ui-1-windows-shell`; no native
-implementation or execution evidence. Baseline `f4317455de1e567d4d6290139e5ba28fbada7d0c`.
-The provider packet is [CX-UIA-15](../../workstreams/codex.md#cx-uia-15).
-Review this note in the UI1 feasibility/parity review and reconcile the UI2/UI3
-surface through CL-UIA-22 when the real shell exists.
+**Status:** CX-UIA-13 wrote this note as the proposal for `ui-1-windows-shell`
+(baseline `f4317455de1e567d4d6290139e5ba28fbada7d0c`). The provider packet,
+[CX-UIA-15](../../workstreams/codex.md#cx-uia-15), implements it in
+`src/stdlib/GUI/Windows/`; [Implementation](#implementation-cx-uia-15) records
+what landed, how it maps onto this note and what stays open. Review it in the
+UI1 feasibility/parity review and reconcile the UI2/UI3 surface through
+CL-UIA-22.
 
 The [foreign interop ownership design](../native-interop-ownership.md) is the
 reviewed Stage 27 design, not a claim that its steps are implemented. Its
@@ -120,5 +122,35 @@ bugs: CL-P2-06 must provide the checked callback/entry-lifetime route; CL-P2-10
 must provide UIA's COM shape and apartment cleanup; CL-P1-14/15 must prevent
 foreign-provider imports/cache reuse. If a minimal real-shell repro shows a
 gap, file the targeted REQUEST before adding any wrapper or unsafe bypass.
-Feasibility review remains pending; this note does not claim all dependencies
-are met or that the Win32 shell runs today.
+Feasibility review remains pending.
+
+## Implementation (CX-UIA-15)
+
+`src/stdlib/GUI/Windows/` is the provider; `GUI/btrc.toml` selects it for the
+`windows` rows. It needed no compiler change: the Win32 declarations come from
+zig's MinGW-w64 headers through one binding, and every window procedure entry
+is a checked stored `SetWindowSubclass` registration.
+
+| Note's route | As implemented |
+| --- | --- |
+| Host-owned loop | `WindowsApplication.run` waits in `MsgWaitForMultipleObjectsEx` (`MWMO_INPUTAVAILABLE`, through the header adapter `btrcWin32WaitForInput`, because the importer refuses `CONST HANDLE*`) on one wake event, queued input or the next deadline, dispatches at most 4,096 messages, then runs delayed and posted work, queued button actions and close requests. WM_QUIT from anywhere is a quit request. |
+| Window procedures | Every provider class's procedure is `DefWindowProcW`; each owner subclasses its HWND with a stored registration in its own `CallbackScope`, and cancels it (RemoveWindowSubclass) before `DestroyWindow`. Receivers hold shared state or the application's WM_COMMAND routes, never an owner, and nothing is cast into window user data. |
+| WM_CLOSE | Recorded as a close request; the application closes the window after dispatch, so a subtree is never torn down inside its own message. E46's veto is still missing, as on macOS and Linux. |
+| DPI | `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)` before the first window (a process that chose another awareness is refused); logical points scale by the window's own DPI; WM_DPICHANGED applies the suggested frame. |
+| Common Controls 6 | An activation context from the comctl32 v6 manifest that `shell32.dll` carries (resource 124) stays active on the UI thread for the application's lifetime; EDIT's cue banner (`EM_SETCUEBANNER`, v6 only) is the check. |
+| Views | Top-level `BtrcWindow`; `BtrcView` containers; a scroll view whose viewport (`WS_VSCROLL`) clips a document container; Unicode EDIT, BUTTON and STATIC. Detached views are parked under a hidden popup the application owns. |
+| GPU child | A `BtrcView` child HWND with its own WebGPU instance, surface (`WGPUSurfaceSourceWindowsHWND`) and device, as on macOS. Library.GPU's WebGPU binding reaches Windows through per-architecture pkg-config records naming wgpu-native v27.0.4.0's pinned prebuilt DLL: the MinGW import library on x64, the MSVC build's import library on ARM64 (the only ARM64 asset), so each program keeps its own C runtime. |
+| UI Automation | A separate COM client process (`probes/windows/UIAutomationProbe.btrc`, through each compiler) reads the control-view tree with checked Library.COM claims while the shell's probe pumps messages. |
+
+Every other portable operation throws `unsupported: <operation> is not
+implemented by the Windows GUI provider`: rows, columns, grids, panels, image
+views, indicators, sliders, selects, pointer and scroll subscriptions, window
+key subscriptions, button styling, symbols and tool tips, label and field
+fonts, image handles, the directory picker, text rasterization and capture.
+Their catalog rows stay missing.
+
+Open for CL-UIA-22 and the Windows track: keyboard traversal (no
+`IsDialogMessageW` yet, so Tab stays in the field, as on the other providers),
+re-laying out children and fonts after a DPI change, input composition,
+real-input (`SendInput`) delivery on a desktop session, Narrator, and Win32
+versus WinUI, which this shell's evidence informs but does not decide.

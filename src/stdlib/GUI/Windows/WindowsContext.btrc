@@ -99,7 +99,11 @@ class WindowsContext {
 	/* Common Controls 6 (EDIT cue banners, themed BUTTON and EDIT) comes from
 	 * an activation context, here the comctl32 v6 manifest shell32.dll carries
 	 * as resource 124. It stays active on the UI thread for the application's
-	 * lifetime, so every control the application creates is the v6 class. */
+	 * lifetime, so CreateWindowExW resolves EDIT, BUTTON and STATIC to v6's
+	 * versioned classes, which user32 registers by loading comctl32 v6 on
+	 * first use. The comctl32 the program imports (SetWindowSubclass) is the
+	 * unversioned one the loader binds, whose InitCommonControlsEx rejects
+	 * v6's class flags, so nothing here calls it. */
 	private void activateCommonControls() {
 		WCHAR directory[260];
 		UINT length = GetSystemDirectoryW(directory, (UINT)260);
@@ -119,11 +123,6 @@ class WindowsContext {
 		if (ActivateActCtx(activation, &cookie) == 0) { throw f"Cannot activate the Common Controls 6 activation context ({(int)GetLastError()})"; }
 		self._cookie = cookie;
 		self._activated = true;
-		INITCOMMONCONTROLSEX controls;
-		memset(&controls, 0, sizeof(INITCOMMONCONTROLSEX));
-		controls.dwSize = (DWORD)sizeof(INITCOMMONCONTROLSEX);
-		controls.dwICC = (DWORD)(ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES);
-		if (InitCommonControlsEx(&controls) == 0) { throw "Cannot initialize Common Controls 6"; }
 	}
 
 	/* The message font of the system DPI. Controls take it through WM_SETFONT;

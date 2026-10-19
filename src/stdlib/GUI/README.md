@@ -2,9 +2,14 @@
 
 `import Library.GUI;` selects the native provider for the compilation target
 through the `[[package.providers]]` entries in `btrc.toml`: `MacOS.GUIProvider`
-(AppKit) for `macos` and `Linux.GUIProvider` (SDL3 windows drawn with WebGPU)
-for `linux`. Any other target, Windows included, fails at compile time with a
-missing-provider error. Call `GUI.initialize()`, create a window and controls
+(AppKit) for `macos`, `Linux.GUIProvider` (SDL3 windows drawn with WebGPU)
+for `linux` and `Windows.GUIProvider` (Win32 windows with Common Controls 6
+controls) for `windows`. The Windows provider implements the UI1 shell
+surface: windows, containers, the scroll view, text fields, buttons, labels
+and a WebGPU child window. Each of its other operations throws the typed
+error `unsupported: <operation> is not implemented by the Windows GUI
+provider`. iOS and Android fail at compile time with a missing-provider
+error. Call `GUI.initialize()`, create a window and controls
 with `GUI.createWindow`, `GUI.createColumn`, `GUI.createRow`,
 `GUI.createButton`, `GUI.createTextField` and the other `GUI.create*`
 factories, attach them, then enter `GUI.run()`.
@@ -14,7 +19,7 @@ view factory, so providers agree on one contract. `GUI` owns capacity
 validation, the single application slot (`ApplicationSlot`) and run/close; a
 provider's private `GUIProvider` supplies only the application and the native
 services (image handles, the directory picker, text rasterization and
-capture). Both providers drain a closing subtree in `run()` for at most 10 s,
+capture). The providers drain a closing subtree in `run()` for at most 10 s,
 then throw `Native subtree shutdown did not complete`; on macOS the pending
 owners stay retained so a later `GUI.close()` can finish them.
 
