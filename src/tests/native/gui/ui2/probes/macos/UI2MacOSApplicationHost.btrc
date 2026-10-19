@@ -28,11 +28,11 @@ class HostedApplicationWork implements IApplicationWork {
 }
 int main() {
 	var native = NSApplication.sharedApplication(); var delegateScope = CallbackScope();
-	native.setDelegate(ExistingApplicationDelegate(), delegateScope); var original = native.delegate(); assert(original != null);
-	var application = MacOSApplication(4); assert(native.delegate() == original);
+	native.setDelegate(ExistingApplicationDelegate(), delegateScope); var original = btrcUI2ApplicationDelegate(); assert(original != (uintptr_t)0);
+	var application = MacOSApplication(4); assert(btrcUI2ApplicationDelegate() == original);
 	var host = AttachedApplicationHost(); var owner = CallbackScope(); var attached = application.attachHost(host, owner);
 	assert(attached.kind == APPLICATION_HOST_ATTACHED && attached.attachment != null && application.isRunning());
-	assert(native.delegate() == original);
+	assert(btrcUI2ApplicationDelegate() == original);
 	assert(application.attachHost(host, owner).kind == APPLICATION_HOST_ALREADY_ATTACHED);
 	bool nested = false; try { application.run(); } catch (string error) { nested = true; } assert(nested);
 	Vector<int> trace = [];
@@ -47,11 +47,11 @@ int main() {
 	assert(trace.len == 2 && trace.get(0) == 2 && trace.get(1) == 4);
 	assert(attached.attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && !application.isRunning());
 	assert(deferred.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
-	assert(native.delegate() == original);
+	assert(btrcUI2ApplicationDelegate() == original);
 	var direct = MacOSApplication(1); var directOwner = CallbackScope(); var directAttachment = direct.attachHost(host, directOwner);
 	assert(directAttachment.kind == APPLICATION_HOST_ATTACHED && direct.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(!direct.isRunning() && directAttachment.attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
-	assert(directOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && native.delegate() == original);
+	assert(directOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && btrcUI2ApplicationDelegate() == original);
 	assert(delegateScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	print("PASS: UI2 macOS host attachment preserves delegate and drains application work"); return 0;
 }

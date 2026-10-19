@@ -73,6 +73,16 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
     (source.parent / "Foundation.btrc").write_text("")
     root = Path(__file__).resolve().parents[3]
     source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
+    if fixture == "UI2MacOSApplicationHost":
+        for suffix in ("h", "m"):
+            name = f"{fixture}.{suffix}"
+            (package / name).write_text((root / "src/tests/native/gui/ui2/probes/macos" / name).read_text())
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "UI2MacOSApplicationHost.h"\n'
+            'language = "c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["btrcUI2ApplicationDelegate"]\n'
+            '[[native.sources]]\npath = "UI2MacOSApplicationHost.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        )
     (source.parent / "PublisherChecks.btrc").write_text(
         (root / "src/tests/native/gui/ui2/PublisherChecks.btrc").read_text()
     )
