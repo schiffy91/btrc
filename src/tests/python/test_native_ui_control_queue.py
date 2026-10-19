@@ -13,9 +13,41 @@ from src.tests.python.asan_toolchain import asan_environment, find_asan_compiler
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 def test_ui2_semantic_queue(tmp_path, request, frontend, sanitized):
+    _run_fixture(
+        tmp_path,
+        request,
+        frontend,
+        sanitized,
+        "ControlEventQueue",
+        "PASS: UI2 semantic order reservations cancellation and eligibility",
+    )
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_ui2_slider_value(tmp_path, request, frontend, sanitized):
+    _run_fixture(
+        tmp_path,
+        request,
+        frontend,
+        sanitized,
+        "SliderValue",
+        "PASS: UI2 double slider ranges and atomic model publication",
+    )
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_ui2_slider_interaction(tmp_path, request, frontend, sanitized):
+    _run_fixture(
+        tmp_path, request, frontend, sanitized, "SliderInteraction", "PASS: UI2 slider interactions and queued intents"
+    )
+
+
+def _run_fixture(tmp_path, request, frontend, sanitized, fixture, marker):
     root = Path(__file__).resolve().parents[3]
     data = request.getfixturevalue("gui_provider_root")
-    source = root / "src/tests/native/gui/ui2/ControlEventQueue.btrc"
+    source = root / "src/tests/native/gui/ui2" / f"{fixture}.btrc"
     generated = tmp_path / "Queue.c"
     environment = os.environ | {"BTRC_HOME": str(data)}
     if frontend == "python":
@@ -68,4 +100,4 @@ def test_ui2_semantic_queue(tmp_path, request, frontend, sanitized):
     (tmp_path / "stdout.txt").write_text(result.stdout)
     (tmp_path / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "PASS: UI2 semantic order reservations cancellation and eligibility" in result.stdout
+    assert marker in result.stdout

@@ -1,0 +1,63 @@
+import Library.GUI.SliderValue;
+
+#include <assert.h>
+#include <math.h>
+
+class SliderValueChecks {
+	class void unchanged(SliderValue value, double minimum, double maximum, double step, double current, long long model, long long range) {
+		var snapshot = value.range();
+		assert(snapshot.minimum == minimum && snapshot.maximum == maximum && snapshot.step == step);
+		assert(value.value() == current && value.modelRevision() == model && value.rangeRevision() == range);
+	}
+
+	class void rejected(SliderValue value, double minimum, double maximum, double step, double current) {
+		var before = value.range();
+		double old = value.value(); long long model = value.modelRevision(); long long range = value.rangeRevision();
+		bool failed = false;
+		try { value.setRangeValue(minimum, maximum, step, current); } catch (string error) { failed = true; }
+		assert(failed);
+		SliderValueChecks.unchanged(value, before.minimum, before.maximum, before.step, old, model, range);
+	}
+}
+
+int main() {
+	var value = SliderValue.fromIntervals(0.0, 10.0, 1001);
+	assert(value.range().step == 10.0 / 1001.0);
+	assert(value.setRangeValue(0.0, 10.0, 3.0, 4.5));
+	assert(value.value() == 6.0); // ties go upward
+	assert(value.setValue(9.5) && value.value() == 10.0); // endpoint is reachable
+	assert(value.setValue(9.4) && value.value() == 9.0);
+	long long model = value.modelRevision(); long long range = value.rangeRevision();
+	assert(!value.setValue(9.1));
+	assert(!value.setRange(0.0, 10.0, 3.0));
+	SliderValueChecks.unchanged(value, 0.0, 10.0, 3.0, 9.0, model, range);
+	assert(value.setUserValue(4.5) && value.value() == 6.0);
+	assert(!value.setUserValue(6.1));
+	SliderValueChecks.unchanged(value, 0.0, 10.0, 3.0, 6.0, model, range);
+	assert(value.setUserValue(9.0));
+	var snapshot = value.range(); snapshot.minimum = -100.0; snapshot.maximum = 200.0; snapshot.step = 9.0;
+	SliderValueChecks.unchanged(value, 0.0, 10.0, 3.0, 9.0, model, range);
+	SliderValueChecks.rejected(value, 10.0, 0.0, 1.0, 5.0);
+	SliderValueChecks.rejected(value, 0.0, 10.0, -1.0, 5.0);
+	SliderValueChecks.rejected(value, -1.0e308, 1.0e308, 0.0, 0.0);
+	SliderValueChecks.rejected(value, 0.0, 10.0, 1.0e-300, 5.0);
+	SliderValueChecks.rejected(value, 0.0, 10.0, 0.0, -1.0);
+	SliderValueChecks.rejected(value, 0.0, 10.0, 0.0, 11.0);
+	SliderValueChecks.rejected(value, NAN, 10.0, 0.0, 5.0);
+	SliderValueChecks.rejected(value, 0.0, INFINITY, 0.0, 5.0);
+	SliderValueChecks.rejected(value, 0.0, 10.0, INFINITY, 5.0);
+	SliderValueChecks.rejected(value, 0.0, 10.0, 0.0, NAN);
+	assert(value.setRange(3.0, 3.0, 0.0) && value.value() == 3.0);
+	assert(value.inert());
+	var inert = SliderValue.fromIntervals(7.0, 7.0, 1001); assert(inert.value() == 7.0 && inert.inert());
+	assert(value.setRangeValue(9007199254740992.0, 9007199254741012.0, 4.0, 9007199254740994.0));
+	assert(value.value() == 9007199254740996.0);
+	SliderValueChecks.rejected(value, 9007199254740992.0, 9007199254741012.0, 1.0, 9007199254740992.0);
+	assert(value.setRangeValue(-10.0, -1.0, 4.0, -4.0) && value.value() == -2.0);
+	assert(value.setValue(-1.5) && value.value() == -1.0);
+	assert(value.setRangeValue(1.0e308, 1.1e308, 1.7e308, 1.1e308) && value.value() == 1.1e308);
+	assert(value.setRangeValue(-1.0e-300, 1.0e-300, 0.0, 1.0e-301));
+	assert(value.value() == 1.0e-301);
+	print("PASS: UI2 double slider ranges and atomic model publication");
+	return 0;
+}

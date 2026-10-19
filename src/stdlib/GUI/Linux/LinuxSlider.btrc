@@ -1,40 +1,32 @@
 import Library.Math;
 import Library.App;
+import Library.Callback;
+import Library.UI.Element;
+import Library.GUI.ControlEvents;
+import Library.GUI.SliderInteraction;
 import Library.GUI.ISlider;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
 
-/* A horizontal drawn slider. Dragging updates the value; the consumer reads
- * it after dispatch. Programmatic values never synthesize input. */
+/* A horizontal projection of the shared double model and interaction owner.
+ * User events enter the window queue after native input returns. */
 class LinuxSlider extends LinuxNodeView implements ISlider {
-	private double _minimum;
-	private double _maximum;
-	private int _intervals;
-	private double _value;
+	private SliderInteraction _interaction;
 	private bool _enabled = true;
-	private bool _dragging = false;
 	private bool _hovered = false;
 
 	public LinuxSlider(LinuxContext context, double minimum, double maximum, int intervals) {
 		self.adoptNode(LinuxViewNode(context));
-		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || maximum <= minimum || !Math.isFinite(maximum - minimum) || intervals < 0 || intervals > 1000) { throw "Invalid native slider range"; }
-		self._minimum = minimum;
-		self._maximum = maximum;
-		self._intervals = intervals;
-		self._value = minimum;
+		self._interaction = SliderInteraction(minimum, maximum, intervals);
+		self.node().focusable = true;
 	}
 
 	private double knobRadius() { return Math.minDouble(10.0, Math.maxDouble(4.0, self.node().height * 0.42)); }
 
-	private double fraction() { return (self._value - self._minimum) / (self._maximum - self._minimum); }
-
-	private double snap(double value) {
-		if (self._intervals > 0) {
-			double step = (self._maximum - self._minimum) / (double)self._intervals;
-			value = self._minimum + Math.round((float)((value - self._minimum) / step)) * step;
-		}
-		return value < self._minimum ? self._minimum : (value > self._maximum ? self._maximum : value);
+	private double fraction() {
+		var range = self._interaction.range();
+		return self._interaction.inert() ? 0.0 : (self._interaction.value() - range.minimum) / (range.maximum - range.minimum);
 	}
 
 	private void valueFromX(double x) {
@@ -42,8 +34,10 @@ class LinuxSlider extends LinuxNodeView implements ISlider {
 		double track = Math.maxDouble(1.0, self.node().width - radius * 2.0);
 		double fraction = (x - radius) / track;
 		fraction = fraction < 0.0 ? 0.0 : (fraction > 1.0 ? 1.0 : fraction);
-		double next = self.snap(self._minimum + fraction * (self._maximum - self._minimum));
-		if (next != self._value) { self._value = next; self.node().invalidate(); }
+		var range = self._interaction.range();
+		double next = range.minimum + fraction * (range.maximum - range.minimum);
+		if (!self._interaction.preview(next)) { throw "Slider preview queue cannot admit native input"; }
+		self.node().invalidate();
 	}
 
 	public void paint(LinuxPainter painter, double x, double y) {
@@ -55,47 +49,90 @@ class LinuxSlider extends LinuxNodeView implements ISlider {
 		double filled = trackWidth * self.fraction();
 		painter.fillRect(trackX, centerY - 2.0, trackWidth, 4.0, theme.track, 2.0);
 		painter.fillRect(trackX, centerY - 2.0, filled, 4.0, self._enabled ? theme.accent : theme.disabledText, 2.0);
-		if (self._intervals > 0 && self._intervals <= 64) {
-			for (int tick = 0; tick <= self._intervals; tick++) {
-				double tickX = trackX + trackWidth * (double)tick / (double)self._intervals;
+		var range = self._interaction.range();
+		double span = range.maximum - range.minimum;
+		if (span > 0.0 && range.step > 0.0 && span / range.step <= 64.0) {
+			int ticks = (int)Math.floorDouble(span / range.step);
+			for (int tick = 0; tick <= ticks; tick++) {
+				double tickX = trackX + trackWidth * ((double)tick * range.step / span);
 				painter.fillRect(tickX - 0.5, centerY + 5.0, 1.0, 4.0, theme.secondaryText, 0.0);
 			}
 		}
 		double knobX = trackX + filled;
-		painter.fillCircle(knobX, centerY, radius, self._enabled ? (self._dragging ? theme.controlPressed : theme.controlFill) : theme.controlPressed);
-		painter.strokeCircle(knobX, centerY, radius, self._dragging || self._hovered ? theme.accent : theme.controlBorder, 1.0);
+		painter.fillCircle(knobX, centerY, radius, self._enabled ? (self._interaction.active() ? theme.controlPressed : theme.controlFill) : theme.controlPressed);
+		painter.strokeCircle(knobX, centerY, radius, self._interaction.active() || self._hovered ? theme.accent : theme.controlBorder, 1.0);
 	}
 
 	public bool pointer(AppPointerEvent event) {
 		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; self.node().invalidate(); return false; }
 		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self.node().invalidate(); return false; }
-		if (!self._enabled) { return false; }
-		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) { self._dragging = true; self.valueFromX(event.logicalX); return true; }
-		if (event.action == APP_POINTER_DRAGGED && self._dragging) { self.valueFromX(event.logicalX); return true; }
-		if ((event.action == APP_POINTER_RELEASED || event.action == APP_POINTER_CANCELLED) && self._dragging) { self._dragging = false; self.node().invalidate(); return true; }
+		if (!self._enabled || !self.node().effectiveEligible()) { return false; }
+		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
+			if (!self._interaction.begin(self.node().generation())) { return false; }
+			self.node().requestFocus(); self.valueFromX(event.logicalX); return true;
+		}
+		if (event.action == APP_POINTER_DRAGGED && self._interaction.active()) { self.valueFromX(event.logicalX); return true; }
+		if (event.action == APP_POINTER_RELEASED && self._interaction.active()) { self.valueFromX(event.logicalX); self._interaction.commit(); self.node().invalidate(); return true; }
+		if (event.action == APP_POINTER_CANCELLED && self._interaction.active()) { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); self.node().invalidate(); return true; }
 		return false;
+	}
+
+	public bool key(AppKeyboardEvent event) {
+		if (event.action == APP_KEY_RELEASED || !self._enabled || !self.node().effectiveEligible()) { return false; }
+		if (event.key == APP_KEY_ESCAPE && self._interaction.active()) { self._interaction.cancel(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); self.node().cancelOwnPointerCapture(); self.node().invalidate(); return true; }
+		UIRangeAdjustment adjustment = UI_RANGE_ADJUST_NONE;
+		if (event.key == APP_KEY_LEFT || event.key == APP_KEY_DOWN) { adjustment = UI_RANGE_ADJUST_SMALL_DECREMENT; }
+		else if (event.key == APP_KEY_RIGHT || event.key == APP_KEY_UP) { adjustment = UI_RANGE_ADJUST_SMALL_INCREMENT; }
+		else if (event.key == APP_KEY_HOME) { adjustment = UI_RANGE_ADJUST_MINIMUM; }
+		else if (event.key == APP_KEY_END) { adjustment = UI_RANGE_ADJUST_MAXIMUM; }
+		if (adjustment == UI_RANGE_ADJUST_NONE) { return false; }
+		bool accepted = self._interaction.adjust(self.node().generation(), adjustment, 1);
+		self.node().cancelOwnPointerCapture(); self.node().invalidate(); return accepted;
+	}
+
+	public void focus(bool focused) { if (!focused) { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION); self.node().cancelOwnPointerCapture(); self.node().invalidate(); } }
+
+	public ICallbackRegistration onPreview(ISliderControlEventHandler receiver, CallbackScope owner) {
+		self.node().requireOpen(); var channel = self._interaction.onPreview(self.node().events(), self.node(), receiver, owner);
+		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public ICallbackRegistration onCommit(ISliderControlEventHandler receiver, CallbackScope owner) {
+		self.node().requireOpen(); var channel = self._interaction.onCommit(self.node().events(), self.node(), receiver, owner);
+		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public ICallbackRegistration onCancel(ISliderControlEventHandler receiver, CallbackScope owner) {
+		self.node().requireOpen(); var channel = self._interaction.onCancel(self.node().events(), self.node(), receiver, owner);
+		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public SliderRange range() { self.node().requireOpen(); return self._interaction.range(); }
+
+	private void modelChanged() { if (!self._interaction.active()) { self.node().cancelOwnPointerCapture(); } self.node().invalidate(); }
+
+	public void setRange(double minimum, double maximum, double step) { self.node().requireOpen(); if (self._interaction.setRange(minimum, maximum, step)) { self.modelChanged(); } }
+
+	public void setRangeValue(SliderRange range, double value) {
+		self.node().requireOpen(); if (range == null) { throw "Slider range is missing"; }
+		if (self._interaction.setRangeValue(range.minimum, range.maximum, range.step, value)) { self.modelChanged(); }
 	}
 
 	public double fittingWidth() { self.node().requireOpen(); return LinuxMetrics.sliderWidth(); }
 
 	public double fittingHeight() { self.node().requireOpen(); return LinuxMetrics.sliderHeight(); }
 
-	public double value() { self.node().requireOpen(); return self._value; }
+	public double value() { self.node().requireOpen(); return self._interaction.value(); }
 
-	public void setValue(double value) {
-		self.node().requireOpen();
-		if (!Math.isFinite(value) || value < self._minimum || value > self._maximum) { throw "Native slider value is out of range"; }
-		double next = self.snap(value);
-		if (next == self._value) { return; }
-		self._value = next;
-		self.node().invalidate();
-	}
+	public void setValue(double value) { self.node().requireOpen(); if (self._interaction.setValue(value)) { self.modelChanged(); } }
 
-	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); self._dragging = false; self.node().invalidate(); } }
+	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); self.node().invalidate(); } }
 
 	public bool locallyEnabled() { return self._enabled; }
 
-	public void eligibilityLost() { self.node().cancelOwnPointerCapture(); self._dragging = false; self.node().invalidate(); }
+	public void eligibilityLost() { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); self.node().cancelOwnPointerCapture(); self.node().invalidate(); }
+
+	public CallbackCancellation close() { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING); return self.node().close(); }
 
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 

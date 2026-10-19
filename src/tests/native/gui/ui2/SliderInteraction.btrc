@@ -1,0 +1,92 @@
+import Library.Callback;
+import Library.Vector;
+import Library.UI.Element;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.ISlider;
+import Library.GUI.SliderInteraction;
+
+#include <assert.h>
+
+class SliderTarget implements IControlEventTarget {
+	public bool eligible = true;
+	public ControlEventDisposition admission(long long generation) { return generation != 1LL ? CONTROL_EVENT_STALE_GENERATION : (self.eligible ? CONTROL_EVENT_DELIVERED : CONTROL_EVENT_INELIGIBLE); }
+}
+class SliderReceiver implements ISliderControlEventHandler {
+	public Vector<SliderControlEvent> events = [];
+	public void sliderEvent(SliderControlEvent event) { self.events.push(event); }
+}
+
+int main() {
+	var pool = ControlEventTerminalPool(6); var queue = ControlEventQueue(1, pool);
+	var target = SliderTarget(); var receiver = SliderReceiver(); var scope = CallbackScope();
+	var slider = SliderInteraction(0.0, 10.0, 10);
+	var preview = slider.onPreview(queue, target, receiver, scope);
+	var commit = slider.onCommit(queue, target, receiver, scope);
+	var cancel = slider.onCancel(queue, target, receiver, scope);
+	assert(receiver.events.isEmpty() && queue.pendingCount() == 0);
+	bool failed = false;
+	try { slider.onPreview(queue, target, receiver, scope); } catch (string error) { failed = true; }
+	assert(failed);
+	assert(slider.begin(1LL) && !slider.begin(1LL));
+	assert(slider.preview(3.0) && slider.preview(4.0));
+	assert(queue.pendingCount() == 1 && receiver.events.isEmpty());
+	assert(!slider.setValue(4.0) && slider.active());
+	failed = false;
+	try { slider.setRangeValue(2.0, 1.0, 1.0, 1.0); } catch (string error) { failed = true; }
+	assert(failed && slider.active() && slider.value() == 4.0);
+	slider.commit(); slider.commit();
+	assert(!slider.active() && queue.pendingCount() == 2);
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 2);
+	assert(receiver.events.get(0).phase == CONTROL_PHASE_PREVIEW && receiver.events.get(0).value == 4.0);
+	assert(receiver.events.get(1).phase == CONTROL_PHASE_COMMIT && receiver.events.get(1).value == 4.0);
+	assert(receiver.events.get(0).context.modelRevision == receiver.events.get(1).context.modelRevision);
+	assert(receiver.events.get(0).context.sequence < receiver.events.get(1).context.sequence);
+	receiver.events.clear();
+	assert(slider.begin(1LL) && slider.preview(8.0));
+	slider.cancel(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE);
+	assert(slider.value() == 4.0 && !slider.active()); slider.commit();
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 2 && receiver.events.get(1).phase == CONTROL_PHASE_CANCEL);
+	assert(receiver.events.get(1).value == 4.0 && receiver.events.get(1).cancelReason == CONTROL_CANCEL_ESCAPE);
+	receiver.events.clear();
+	assert(slider.begin(1LL) && slider.preview(8.0));
+	assert(slider.setValue(4.0) && !slider.active()); slider.commit();
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 2 && receiver.events.get(1).context.origin == CONTROL_ORIGIN_MODEL);
+	long long previousRevision = receiver.events.get(1).context.modelRevision;
+	receiver.events.clear();
+	assert(slider.begin(1LL)); slider.commit();
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 1 && receiver.events.get(0).context.modelRevision == previousRevision + 1LL);
+	/* An occupied ordinary lane rejects preview without moving the model;
+	 * reserved terminals still settle both admitted interactions. */
+	receiver.events.clear();
+	assert(slider.begin(1LL) && slider.preview(5.0)); slider.commit();
+	assert(slider.begin(1LL) && !slider.preview(9.0) && slider.value() == 5.0);
+	slider.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS);
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 3 && receiver.events.get(2).phase == CONTROL_PHASE_CANCEL);
+	receiver.events.clear();
+	assert(slider.setRangeValue(9007199254740992.0, 9007199254741012.0, 0.0, 9007199254740992.0));
+	assert(slider.adjust(1LL, UI_RANGE_ADJUST_SMALL_INCREMENT, 1));
+	assert(slider.value() == 9007199254740992.0); // the exact product still receives the intent
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 1 && receiver.events.get(0).phase == CONTROL_PHASE_COMMIT);
+	assert(receiver.events.get(0).input == SLIDER_INPUT_RELATIVE_ADJUSTMENT);
+	assert(receiver.events.get(0).adjustment == UI_RANGE_ADJUST_SMALL_INCREMENT && receiver.events.get(0).count == 1);
+	receiver.events.clear();
+	assert(slider.assistiveValue(1LL, 9007199254741000.0));
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 1 && receiver.events.get(0).input == SLIDER_INPUT_ABSOLUTE_ASSISTIVE);
+	receiver.events.clear();
+	assert(slider.setRange(7.0, 7.0, 0.0));
+	assert(!slider.begin(1LL) && !slider.adjust(1LL, UI_RANGE_ADJUST_MAXIMUM, 1) && !slider.assistiveValue(1LL, 7.0));
+	assert(queue.pendingCount() == 0 && receiver.events.isEmpty());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && pool.available() == 6);
+	assert(preview.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && commit.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && cancel.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	queue.close();
+	print("PASS: UI2 slider interactions and queued intents");
+	return 0;
+}

@@ -1,0 +1,91 @@
+/* Private authoritative slider value shared by native desktop providers.
+ * Native controls project this state; they never supply model readback. */
+import Library.Math;
+import Library.GUI.ControlEvents;
+
+class SliderValue {
+	private double _minimum;
+	private double _maximum;
+	private double _step;
+	private double _value;
+	private long long _modelRevision = 1LL;
+	private long long _rangeRevision = 1LL;
+
+	public SliderValue(double minimum, double maximum, double step, double value) {
+		SliderValue.validate(minimum, maximum, step);
+		SliderValue.validateValue(minimum, maximum, value);
+		self._minimum = minimum; self._maximum = maximum; self._step = step;
+		self._value = SliderValue.snap(minimum, maximum, step, value);
+	}
+
+	class SliderValue fromIntervals(double minimum, double maximum, int intervals) {
+		SliderValue.validate(minimum, maximum, 0.0);
+		if (intervals < 0) { throw "Invalid native slider interval count"; }
+		double span = maximum - minimum;
+		double step = intervals == 0 ? 0.0 : span / (double)intervals;
+		if (intervals > 0 && span > 0.0 && step == 0.0) { throw "Native slider step cannot advance its range"; }
+		return SliderValue(minimum, maximum, step, minimum);
+	}
+
+	class void validate(double minimum, double maximum, double step) {
+		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || !Math.isFinite(step) || maximum < minimum || step < 0.0 || !Math.isFinite(maximum - minimum)) { throw "Invalid native slider range"; }
+		if (maximum > minimum && step > 0.0 && (minimum + step == minimum || maximum - step == maximum)) { throw "Native slider step cannot advance its range"; }
+	}
+
+	class void validateValue(double minimum, double maximum, double value) {
+		if (!Math.isFinite(value) || value < minimum || value > maximum) { throw "Native slider value is out of range"; }
+	}
+
+	class double snap(double minimum, double maximum, double step, double value) {
+		if (minimum == maximum) { return minimum; }
+		if (step == 0.0 || value == maximum || value == minimum) { return value; }
+		double span = maximum - minimum;
+		double index = Math.floorDouble((value - minimum) / step);
+		double lower = Math.minDouble(maximum, Math.maxDouble(minimum, minimum + index * step));
+		/* The endpoint is a candidate even when the grid does not divide the
+		 * span. Compare before multiplying so a large step cannot overflow. */
+		double upper = index + 1.0 > span / step ? maximum : Math.minDouble(maximum, minimum + (index + 1.0) * step);
+		return value - lower < upper - value ? lower : upper;
+	}
+
+	public SliderRange range() {
+		var result = SliderRange();
+		result.minimum = self._minimum; result.maximum = self._maximum; result.step = self._step;
+		return result;
+	}
+
+	public double value() { return self._value; }
+
+	public bool inert() { return self._minimum == self._maximum; }
+
+	public long long modelRevision() { return self._modelRevision; }
+
+	public long long rangeRevision() { return self._rangeRevision; }
+
+	public bool setRangeValue(double minimum, double maximum, double step, double value) {
+		SliderValue.validate(minimum, maximum, step);
+		SliderValue.validateValue(minimum, maximum, value);
+		double next = SliderValue.snap(minimum, maximum, step, value);
+		bool rangeChanged = minimum != self._minimum || maximum != self._maximum || step != self._step;
+		if (!rangeChanged && next == self._value) { return false; }
+		if (self._modelRevision == 9223372036854775807LL || (rangeChanged && self._rangeRevision == 9223372036854775807LL)) { throw "Slider model revisions exhausted"; }
+		self._minimum = minimum; self._maximum = maximum; self._step = step; self._value = next;
+		self._modelRevision++; if (rangeChanged) { self._rangeRevision++; }
+		return true;
+	}
+
+	public bool setRange(double minimum, double maximum, double step) {
+		SliderValue.validate(minimum, maximum, step);
+		return self.setRangeValue(minimum, maximum, step, Math.maxDouble(minimum, Math.minDouble(maximum, self._value)));
+	}
+
+	/* Native interaction changes the value without publishing a new model. */
+	public bool setUserValue(double value) {
+		SliderValue.validateValue(self._minimum, self._maximum, value);
+		double next = SliderValue.snap(self._minimum, self._maximum, self._step, value);
+		if (next == self._value) { return false; }
+		self._value = next; return true;
+	}
+
+	public bool setValue(double value) { return self.setRangeValue(self._minimum, self._maximum, self._step, value); }
+}

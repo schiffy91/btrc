@@ -9,12 +9,15 @@ import pytest
 from src.tests.python.linux_provider_fixtures import build_provider_program, provider_environment, require_linux_reader
 from src.tests.runner_capabilities import linux_display_error
 
+pytestmark = pytest.mark.linux_gui
+
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 @pytest.mark.parametrize(
     ("fixture", "marker"),
     [
+        ("UI2LinuxSlider.btrc", "PASS: UI2 Linux slider drag cancellation and keyboard intents"),
         ("UI2LinuxWindowClose.btrc", "PASS: UI2 Linux native close preserves transaction and save authority"),
         ("UI2LinuxExecutor.btrc", "PASS: UI2 Linux worker native wake and hosted suspension"),
         ("UI2LinuxLifecycle.btrc", "PASS: UI2 Linux inherited eligibility and scoped observations"),
