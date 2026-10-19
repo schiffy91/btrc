@@ -41,7 +41,8 @@ _PLATFORM_STRUCT_MEMBERS = frozenset(
     {
         "d_name",  # struct dirent
         "decimal_point",  # struct lconv
-        "c_lflag",  # struct termios
+        "c_lflag",
+        "c_oflag",  # struct termios
         "it_interval",
         "it_value",  # struct itimerval
         "pti_threadnum",  # struct proc_taskinfo
@@ -73,6 +74,8 @@ _PLATFORM_STRUCT_MEMBERS = frozenset(
         "tm_sec",
         "tm_year",  # struct tm
         "tv_usec",  # struct timeval
+        "ws_col",
+        "ws_row",  # struct winsize
     }
 )
 

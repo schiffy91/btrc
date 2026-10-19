@@ -3,3 +3,49 @@ manifest-version = 1
 [package]
 name = "btrc_stdlib_terminal"
 exports = ["Terminal", "TerminalPasswordInput"]
+
+# Terminal's and TerminalPasswordInput's host seams: termios, ioctl and stdio
+# on the Unix rows, the Win32 console on Windows.
+[[package.providers]]
+module = "Terminal"
+implementation = "Unix.TerminalProvider"
+os = ["linux", "macos", "ios", "android"]
+
+[[package.providers]]
+module = "Terminal"
+implementation = "Windows.TerminalProvider"
+os = ["windows"]
+
+[[package.providers]]
+module = "TerminalPasswordInput"
+implementation = "Unix.TerminalPasswordInputProvider"
+os = ["linux", "macos", "ios", "android"]
+
+[[package.providers]]
+module = "TerminalPasswordInput"
+implementation = "Windows.TerminalPasswordInputProvider"
+os = ["windows"]
+
+[[native.bindings]]
+module = "Windows.ConsoleInput"
+header = "Windows/Win32Terminal.h"
+language = "c"
+standard = "c11"
+symbols = ["HANDLE", "DWORD", "BOOL", "WCHAR", "UINT", "GetStdHandle", "STD_INPUT_HANDLE", "INVALID_HANDLE_VALUE", "GetFileType", "FILE_TYPE_CHAR", "GetConsoleMode", "ReadConsoleW", "SetLastError", "GetLastError", "ERROR_OPERATION_ABORTED", "WideCharToMultiByte", "CP_UTF8"]
+os = ["windows"]
+
+[[native.bindings]]
+module = "Windows.TerminalProvider"
+header = "Windows/Win32Terminal.h"
+language = "c"
+standard = "c11"
+symbols = ["HANDLE", "DWORD", "WCHAR", "CONSOLE_SCREEN_BUFFER_INFO", "GetStdHandle", "STD_OUTPUT_HANDLE", "STD_ERROR_HANDLE", "INVALID_HANDLE_VALUE", "GetConsoleScreenBufferInfo", "GetConsoleMode", "SetConsoleMode", "ReadConsoleW", "ENABLE_PROCESSED_OUTPUT", "ENABLE_VIRTUAL_TERMINAL_PROCESSING", "ENABLE_ECHO_INPUT", "ENABLE_LINE_INPUT", "ENABLE_PROCESSED_INPUT", "ENABLE_VIRTUAL_TERMINAL_INPUT"]
+os = ["windows"]
+
+[[native.bindings]]
+module = "Windows.TerminalPasswordInputProvider"
+header = "Windows/Win32Terminal.h"
+language = "c"
+standard = "c11"
+symbols = ["HANDLE", "DWORD", "BOOL", "SRWLOCK", "AcquireSRWLockExclusive", "ReleaseSRWLockExclusive", "GetConsoleMode", "SetConsoleMode", "SetConsoleCtrlHandler", "CancelSynchronousIo", "Sleep", "GetCurrentProcess", "GetCurrentThread", "DuplicateHandle", "DUPLICATE_SAME_ACCESS", "CloseHandle", "ENABLE_ECHO_INPUT", "ENABLE_LINE_INPUT", "ENABLE_PROCESSED_INPUT", "TRUE", "FALSE", "_lock_file", "_unlock_file"]
+os = ["windows"]

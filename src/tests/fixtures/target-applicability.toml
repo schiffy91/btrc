@@ -151,19 +151,19 @@ reason = "the HTTP stack uses BSD sockets (SHUT_RDWR, fcntl on a socket); the Wi
 cites = "corpus.stdlib@windows-arm64"
 
 [[programs]]
-paths = ["stdlib/Terminal.btrc", "stdlib/PatternAny.btrc"]
+paths = ["stdlib/TerminalPty.btrc"]
 targets = ["windows-x86_64"]
-status = "missing"
+status = "restricted"
 scope = "build"
-reason = "Terminal uses termios and PatternAny uses fnmatch(), neither of which MinGW provides; the console provider is platforms-p3-process-terminal (platform adaptations, Windows row 2) and the vendored matcher platforms-p3-regex-glob (D22)"
+reason = "the program drives a POSIX pseudo-terminal (openpty, termios, fork, SIGTERM); Windows has none, and test_windows_terminal.py drives the console provider through a pseudoconsole instead"
 cites = "corpus.stdlib@windows-x64"
 
 [[programs]]
-paths = ["stdlib/Terminal.btrc", "stdlib/PatternAny.btrc"]
+paths = ["stdlib/TerminalPty.btrc"]
 targets = ["windows-aarch64"]
-status = "missing"
+status = "restricted"
 scope = "build"
-reason = "Terminal uses termios and PatternAny uses fnmatch(), neither of which MinGW provides; the console provider is platforms-p3-process-terminal (platform adaptations, Windows row 2) and the vendored matcher platforms-p3-regex-glob (D22)"
+reason = "the program drives a POSIX pseudo-terminal (openpty, termios, fork, SIGTERM); Windows has none, and test_windows_terminal.py drives the console provider through a pseudoconsole instead"
 cites = "corpus.stdlib@windows-arm64"
 
 [[programs]]
@@ -181,22 +181,6 @@ status = "restricted"
 scope = "build"
 reason = "the program interrupts a sleep with SIGALRM and expects EINTR; Windows has neither SIGALRM nor signal-interrupted sleeps"
 cites = "corpus.stdlib@windows-arm64"
-
-[[programs]]
-paths = ["strings/Regex.btrc", "strings/RegexSafety.btrc"]
-targets = ["windows-x86_64"]
-status = "missing"
-scope = "build"
-reason = "Library.Regex needs POSIX regex.h, which MinGW lacks; the vendored engine is platforms-p3-regex-glob (D22)"
-cites = "corpus.strings@windows-x64"
-
-[[programs]]
-paths = ["strings/Regex.btrc", "strings/RegexSafety.btrc"]
-targets = ["windows-aarch64"]
-status = "missing"
-scope = "build"
-reason = "Library.Regex needs POSIX regex.h, which MinGW lacks; the vendored engine is platforms-p3-regex-glob (D22)"
-cites = "corpus.strings@windows-arm64"
 
 # These build for MinGW, then reach the exact filesystem handles at run time:
 # FileSystem.readBytes opens a RegularFileSnapshot, and the inventory program

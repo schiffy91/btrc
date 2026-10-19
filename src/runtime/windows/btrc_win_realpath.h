@@ -21,6 +21,9 @@ unsigned long GetFinalPathNameByHandleW(void *file, wchar_t *path,
                                         unsigned long capacity,
                                         unsigned long flags);
 int CloseHandle(void *object);
+/* glob.h's existence and GLOB_MARK check; declared here, before any
+   windows.h a unit includes, like the declarations around it. */
+unsigned long GetFileAttributesW(const wchar_t *name);
 int MultiByteToWideChar(unsigned int code_page, unsigned long flags,
                         const char *input, int input_length,
                         wchar_t *output, int output_length);

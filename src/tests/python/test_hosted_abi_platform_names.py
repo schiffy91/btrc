@@ -209,6 +209,33 @@ def test_explicit_bzero_exists_on_linux_and_on_no_android_api_level() -> None:
         assert _unavailable(label, "functions", "explicit_bzero"), label
 
 
+@pytest.mark.parametrize(
+    ("kind", "name"),
+    (
+        ("functions", "regcomp"),
+        ("functions", "regexec"),
+        ("functions", "regerror"),
+        ("functions", "regfree"),
+        ("functions", "fnmatch"),
+        ("functions", "glob"),
+        ("functions", "globfree"),
+        ("macros", "REG_EXTENDED"),
+        ("macros", "REG_NOTBOL"),
+        ("macros", "FNM_PATHNAME"),
+        ("macros", "GLOB_NOMATCH"),
+        ("types", "regex_t"),
+        ("types", "regmatch_t"),
+        ("types", "glob_t"),
+    ),
+)
+def test_posix_matching_exists_on_every_row_but_msvc(kind: str, name: str) -> None:
+    """The gnu Windows rows declare regex, fnmatch and glob through the overlay's
+    vendored musl engine (src/runtime/windows); MSVC builds have no overlay."""
+    assert name in PLATFORM[kind]
+    for label in LABELS:
+        assert _unavailable(label, kind, name) == (label == MSVC), label
+
+
 def test_environ_exists_on_linux_and_not_on_the_msvc_row() -> None:
     for label in LINUX:
         assert not _unavailable(label, "objects", "environ"), label

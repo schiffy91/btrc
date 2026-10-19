@@ -1,5 +1,3 @@
-pty secret: 
-interrupt secret: 
 plain: secret: 
 long secret: 
 short secret: 
