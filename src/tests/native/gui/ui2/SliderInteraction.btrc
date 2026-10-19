@@ -76,6 +76,20 @@ int main() {
 	assert(receiver.events.len == 1 && receiver.events.get(0).phase == CONTROL_PHASE_COMMIT);
 	assert(receiver.events.get(0).input == SLIDER_INPUT_RELATIVE_ADJUSTMENT);
 	assert(receiver.events.get(0).adjustment == UI_RANGE_ADJUST_SMALL_INCREMENT && receiver.events.get(0).count == 1);
+	var exact = UISemanticRange.horizontal("timeline", 9007199254740992LL, 9007199254741012LL, 9007199254740992LL);
+	long long adjusted = exact.adjustedValue(receiver.events.get(0).adjustment);
+	assert(adjusted == 9007199254740993LL);
+	exact = UISemanticRange.horizontal("timeline", exact.minimum(), exact.maximum(), adjusted);
+	assert(!slider.setValue((double)exact.value()) && exact.value() == 9007199254740993LL);
+	receiver.events.clear();
+	assert(slider.adjust(1LL, UI_RANGE_ADJUST_SMALL_INCREMENT, 3));
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 1 && receiver.events.get(0).count == 3);
+	for (int index = 0; index < receiver.events.get(0).count; index++) {
+		adjusted = exact.adjustedValue(receiver.events.get(0).adjustment);
+		exact = UISemanticRange.horizontal("timeline", exact.minimum(), exact.maximum(), adjusted);
+	}
+	assert(exact.value() == 9007199254740996LL);
 	receiver.events.clear();
 	assert(slider.assistiveValue(1LL, 9007199254741000.0));
 	while (queue.dispatchOne()) {}

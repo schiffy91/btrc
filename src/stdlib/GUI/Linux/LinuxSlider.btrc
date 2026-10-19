@@ -35,7 +35,7 @@ class LinuxSlider extends LinuxNodeView implements ISlider {
 		double fraction = (x - radius) / track;
 		fraction = fraction < 0.0 ? 0.0 : (fraction > 1.0 ? 1.0 : fraction);
 		var range = self._interaction.range();
-		double next = range.minimum + fraction * (range.maximum - range.minimum);
+		double next = fraction <= 0.0 ? range.minimum : (fraction >= 1.0 ? range.maximum : Math.maxDouble(range.minimum, Math.minDouble(range.maximum, range.minimum + fraction * (range.maximum - range.minimum))));
 		if (!self._interaction.preview(next)) { throw "Slider preview queue cannot admit native input"; }
 		self.node().invalidate();
 	}
