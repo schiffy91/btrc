@@ -1,0 +1,38 @@
+import Library.Callback;
+
+import ./Foundation.btrc;
+#include <assert.h>
+
+class RunLoopProbe {
+	class void perform(void* raw) { int* calls = (int*)raw; (*calls)++; }
+}
+
+int main() {
+	var loop = CFRunLoopGetMain();
+	var mode = CFStringCreateWithCString(null, "BTRC.UI2.CommonModeProbe", kCFStringEncodingUTF8);
+	assert(loop != null && mode != null);
+	CFRunLoopAddCommonMode(loop, mode);
+	for (int iteration = 0; iteration < 100; iteration++) {
+		int calls = 0;
+		CFRunLoopSourceContext context = {0};
+		context.version = 0;
+		context.info = &calls;
+		context.perform = RunLoopProbe.perform;
+		var source = CFRunLoopSourceCreate(null, 0, &context);
+		assert(source != null);
+		CFRunLoopAddSource(loop, source, kCFRunLoopCommonModes);
+		CFRunLoopSourceSignal(source); CFRunLoopWakeUp(loop);
+		assert(calls == 0);
+		CFRunLoopRunInMode(mode, 1.0, (Boolean)1);
+		assert(calls == 1);
+		CFRunLoopSourceSignal(source); CFRunLoopSourceSignal(source);
+		CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, (Boolean)1);
+		assert(calls == 2);
+		CFRunLoopSourceInvalidate(source);
+		assert(!CFRunLoopSourceIsValid(source));
+		CFRelease(source);
+	}
+	CFRelease(mode);
+	print("PASS: UI2 CoreFoundation common-mode source callbacks and teardown");
+	return 0;
+}

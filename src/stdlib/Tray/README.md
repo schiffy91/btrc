@@ -32,7 +32,7 @@ tray loop without stopping an existing GUI loop, through the same
 `MacOSRunLoopSignal.stopApplication` stop-and-wake that `MacOSApplication` uses.
 
 Menu actions queue up to 256 ordered commands. A shared native run-loop signal
-delivers them after menu tracking; overflow is an explicit terminal error.
+delivers them on a later run-loop turn; overflow is an explicit terminal error.
 Check-item probes refresh after command execution.
 
 ## Linux provider

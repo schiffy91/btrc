@@ -1,38 +1,74 @@
 import Library.Callback;
-import Library.GUI.MacOS.AppKitText;
+import Library.Console;
+import Library.GUI.MacOS.CoreFoundation;
 
-/* A coalesced wakeup, not the work queue or its cancellation owner. The
- * application keeps the subscription scope outside the receiver graph. */
+/* One common-mode source coalesces wakeups. Its context is an immutable native
+ * name retained by CoreFoundation; managed receivers stay in the existing
+ * scoped notification adapter. Workers touch only the raw source and gate. */
 class MacOSRunLoopSignal {
-	private NSNotificationQueue? _queue;
-	private NSNotification? _notification;
+	private CFRunLoopSourceRef _source = null;
+	private NSString? _name;
+	private Atomic<uint>* _gate = null;
 	private bool _subscribed = false;
 
 	public MacOSRunLoopSignal() {
 		self.requireMainThread();
-		var sender = NSObject.new();
-		if (sender == null) { throw "Cannot create native run-loop wake identity"; }
-		self._notification = NSNotification.notificationWithName(AppKitText.nativeValue("BTRC.GUI.RunLoopReady"), sender);
-		self._queue = NSNotificationQueue.defaultQueue();
+		self._gate = (Atomic<uint>*)malloc(sizeof(Atomic<uint>));
+		if (self._gate == null) { throw "Cannot allocate native run-loop admission gate"; }
+		self._gate->init(1u);
+		var identity = CFUUIDCreate(null);
+		if (identity == null) { throw "Cannot create native run-loop wake identity"; }
+		var name = CFUUIDCreateString(null, identity); CFRelease(identity);
+		if (name == null) { throw "Cannot create native run-loop wake name"; }
+		try {
+			self._name = MacOSRunLoopSignal.notificationName(name);
+			self._source = MacOSRunLoopSignal.createSource(name);
+			if (self._source == null) { throw "Cannot create native run-loop source"; }
+			CFRunLoopAddSource(CFRunLoopGetMain(), self._source, kCFRunLoopCommonModes);
+			self._gate->store(0u, MemoryOrder.RELEASE);
+		} finally { CFRelease(name); }
 	}
 
-	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native run-loop signals require the main thread"; } }
+	class CFRunLoopSourceRef createSource(CFStringRef name) {
+		CFRunLoopSourceContext context = {0};
+		context.info = (void*)name; context.retain = CFRetain; context.release = CFRelease;
+		context.perform = MacOSRunLoopSignal.perform;
+		return CFRunLoopSourceCreate(null, 0, &context);
+	}
+
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native run-loop ownership requires the main thread"; } }
+
+	class NSString notificationName(CFStringRef name) {
+		char text[64];
+		if (!CFStringGetCString(name, text, (CFIndex)64, kCFStringEncodingUTF8)) { throw "Cannot read native run-loop wake name"; }
+		var result = NSString.stringWithUTF8String(text);
+		if (result == null) { throw "Cannot create native run-loop notification name"; }
+		return result;
+	}
+
+	class void perform(void* raw) {
+		try { NSNotificationCenter.defaultCenter().postNotificationName(MacOSRunLoopSignal.notificationName((CFStringRef)raw), null); }
+		catch (string error) { Console.fatal(error); }
+	}
 
 	public void subscribe(IAppKitNotificationObserver receiver, CallbackScope scope) {
 		self.requireMainThread();
-		var notification = self._notification;
-		if (notification == null) { throw "Native run-loop signal is closed"; }
+		var name = self._name;
+		if (self._source == null || name == null || (self._gate->load(MemoryOrder.ACQUIRE) & 1u) != 0u) { throw "Native run-loop signal is closed"; }
 		if (self._subscribed) { throw "Native run-loop signal already has a subscriber"; }
-		NSNotificationCenter.defaultCenter().addObserverForName(notification.name(), notification.object(), null, receiver, scope);
+		NSNotificationCenter.defaultCenter().addObserverForName(name, null, null, receiver, scope);
 		self._subscribed = true;
 	}
 
-	public void wake() {
-		self.requireMainThread();
-		var queue = self._queue;
-		var notification = self._notification;
-		if (queue != null && notification != null) { queue.enqueueNotification(notification, NSPostASAP); }
+	/* The application retains this owner until every publisher has drained.
+	 * The shared gate prevents invalidation while an admitted worker signals. */
+	public bool requestTurn() {
+		if (!callbackGateTryEnter(self._gate)) { return false; }
+		CFRunLoopSourceSignal(self._source); CFRunLoopWakeUp(CFRunLoopGetMain());
+		callbackGateLeave(self._gate); return true;
 	}
+
+	public void wake() { if (!self.requestTurn()) { throw "Native run-loop source is closing"; } }
 
 	/* Stop a running AppKit loop. stop: is observed only after an NSEvent, not
 	 * after a timer or notification callback, so an application-defined event
@@ -50,15 +86,12 @@ class MacOSRunLoopSignal {
 		return true;
 	}
 
-	public void close() {
-		self.requireMainThread();
-		var queue = self._queue;
-		var notification = self._notification;
-		if (queue == null) { return; }
-		if (notification != null) { queue.dequeueNotificationsMatching(notification, NSNotificationCoalescingOnName | NSNotificationCoalescingOnSender); }
-		self._queue = null;
-		self._notification = null;
+	public bool close() {
+		self.requireMainThread(); if (self._gate == null) { return true; } callbackGateCloseAdmission(self._gate);
+		if (self._gate->load(MemoryOrder.ACQUIRE) != 1u) { return false; }
+		if (self._source != null) { CFRunLoopSourceInvalidate(self._source); CFRelease(self._source); self._source = null; }
+		self._name = null; return true;
 	}
 
-	public void __del__() { self.close(); }
+	public void __del__() { if (self._gate != null) { if (!self.close()) { Console.fatal("Native run-loop source destroyed before worker drain"); } free(self._gate); self._gate = null; } }
 }

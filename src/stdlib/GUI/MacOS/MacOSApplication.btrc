@@ -474,6 +474,7 @@ class MacOSApplication implements IApplication {
 		self._closing = true;
 		var views = self._events.closeViews();
 		if (views != CALLBACK_CANCELLATION_COMPLETE) { return views; }
+		if (!self._signal.close()) { return CALLBACK_CANCELLATION_PENDING; }
 		try {
 			if (self._shutdown.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Native subtree completions must drain before shutdown"; }
 			if (self._delayed.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Delayed application work must drain before shutdown"; }
@@ -482,7 +483,6 @@ class MacOSApplication implements IApplication {
 		} catch (string error) { self._closeFailure = error; throw error; }
 		release self._views;
 		self._actions.close();
-		self._signal.close();
 		self._closed = true;
 		return CALLBACK_CANCELLATION_COMPLETE;
 	}

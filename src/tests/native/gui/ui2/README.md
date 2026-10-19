@@ -29,3 +29,10 @@ supply shared oracles; their portable subset does not close an entire E-case.
 Linux undo, actual IME, accessibility, unavailable window-manager cases and other
 carried gaps stay open under the approved record. The host fixture injects
 suspension; it does not assert the OS suspended the process.
+
+The macOS source probes use the real CoreFoundation run loop in its default and
+an added common mode. The scoped signal probe checks coalescing, independent
+source identities, cancellation, close during delivery, an idle-loop worker
+wake, and 100 worker/close races through both compilers, plain and ASan/UBSan.
+These checks cover the wake source. AppKit menu, slider, scroller and resize
+tracking trials, scheduler fairness, and host attachment remain required.

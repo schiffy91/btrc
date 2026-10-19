@@ -1,0 +1,80 @@
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./Foundation.btrc;
+#include <assert.h>
+#include <time.h>
+
+class SignalReceiver implements IAppKitNotificationObserver {
+	public int calls = 0;
+	public MacOSRunLoopSignal? closeDuring;
+	public void invoke(NSNotification notification) {
+		assert(NSThread.isMainThread()); self.calls++;
+		if (self.closeDuring != null) { assert(self.closeDuring.close()); self.closeDuring = null; }
+	}
+}
+class SignalWorker implements INativeWorkerBody {
+	private MacOSRunLoopSignal signal;
+	public bool accepted = false;
+	public SignalWorker(MacOSRunLoopSignal signal) { self.signal = signal; }
+
+	public int workLoop() {
+		struct timespec delay; delay.tv_sec = (time_t)0; delay.tv_nsec = 40000000L;
+		nanosleep(&delay, null);
+		self.accepted = self.signal.requestTurn(); return 0;
+	}
+}
+
+class SignalRace implements INativeWorkerBody {
+	private MacOSRunLoopSignal signal;
+	public Atomic<bool> started;
+	public bool wrongThreadRejected = false;
+	public SignalRace(MacOSRunLoopSignal signal) { self.signal = signal; self.started.init(false); }
+
+	public int workLoop() {
+		try { var invalid = MacOSRunLoopSignal(); } catch (string error) { self.wrongThreadRejected = true; }
+		self.started.store(true, MemoryOrder.RELEASE);
+		while (self.signal.requestTurn()) {}
+		return 0;
+	}
+}
+
+int main() {
+	var mode = CFStringCreateWithCString(null, "BTRC.UI2.SignalCommonMode", kCFStringEncodingUTF8);
+	CFRunLoopAddCommonMode(CFRunLoopGetMain(), mode);
+	for (int iteration = 0; iteration < 100; iteration++) {
+		var signal = MacOSRunLoopSignal(); var other = MacOSRunLoopSignal();
+		var scope = CallbackScope(); var receiver = SignalReceiver(); var unrelated = SignalReceiver();
+		signal.subscribe(receiver, scope); other.subscribe(unrelated, scope);
+		assert(receiver.calls == 0 && unrelated.calls == 0);
+		signal.wake(); signal.wake();
+		CFRunLoopRunInMode(mode, 1.0, (Boolean)1);
+		assert(receiver.calls == 1 && unrelated.calls == 0);
+		receiver.closeDuring = signal; signal.wake();
+		CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, (Boolean)1);
+		assert(receiver.calls == 2 && !signal.requestTurn() && signal.close());
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		other.wake(); CFRunLoopRunInMode(mode, 1.0, (Boolean)1);
+		assert(unrelated.calls == 0 && other.close());
+	}
+	var signal = MacOSRunLoopSignal(); var receiver = SignalReceiver(); var scope = CallbackScope();
+	signal.subscribe(receiver, scope);
+	var producer = SignalWorker(signal); var worker = NativeWorker();
+	assert(worker.start(producer) == NATIVE_WORKER_STARTED);
+	/* No timer or application polling is armed: the worker wakes this wait. */
+	CFRunLoopRunInMode(mode, 2.0, (Boolean)1);
+	assert(worker.join() && !worker.workerFailed() && producer.accepted && receiver.calls == 1);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && signal.close());
+	for (int iteration = 0; iteration < 100; iteration++) {
+		var raced = MacOSRunLoopSignal(); var body = SignalRace(raced); var racing = NativeWorker();
+		assert(racing.start(body) == NATIVE_WORKER_STARTED);
+		while (!body.started.load(MemoryOrder.ACQUIRE)) { usleep(100); }
+		raced.close();
+		assert(racing.join() && !racing.workerFailed() && body.wrongThreadRejected);
+		assert(raced.close() && !raced.requestTurn());
+	}
+	CFRelease(mode);
+	print("PASS: UI2 macOS scoped common-mode wake and worker signal");
+	return 0;
+}

@@ -1,0 +1,3 @@
+/* CoreFoundation run-loop declarations. MacOSRunLoopSignal owns the source
+ * and its admission barrier. */
+import Library.Callback;

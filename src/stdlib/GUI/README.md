@@ -196,9 +196,11 @@ indeterminate native close. The callback receiver contains only close state
 and the wake signal, not a strong reference back to the window owner.
 
 Button actions wake the loop through `MacOSRunLoopSignal`
-(`MacOS/MacOSRunLoop.btrc`), which posts a notification with its own sender
-identity on AppKit's default notification queue, coalescing only wakeups for
-window cleanup and action delivery; it never coalesces clicks. Each delivery
+(`MacOS/MacOSRunLoop.btrc`). A CoreFoundation source in the main run loop's
+common modes coalesces wakeups for window cleanup and action delivery; it never
+coalesces clicks. The source forwards to the existing scoped notification
+adapter using a unique native name. Workers signal through an admission gate;
+source teardown waits for admitted signal calls to return without blocking. Each delivery
 batch is bounded by its starting size; remaining clicks schedule another
 run-loop pass. Cancellation invalidates queued generations. Overflow is a
 persistent error even if cancelled entries are subsequently pruned. Handler
