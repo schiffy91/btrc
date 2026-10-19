@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.application.compiler import Compiler
+from src.compiler.python.application.results import CompilerOptions
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import C_COMPILE_TIMEOUT, TOOL_TIMEOUT
 from src.tests.python.native_import_fixtures import zig_libc
@@ -39,6 +41,130 @@ TARGETS = {
     "windows-arm64": ("windows-aarch64", "aarch64-w64-windows-gnu", "aarch64", "windows-arm64"),
 }
 FRONTENDS = {"python": "reference", "selfhost": "selfhost"}
+
+# The UI Automation client's COM binding: IUIAutomation, its tree walker, the
+# elements and the Value pattern, each claim checked by Library.COM. Strings
+# are copied out of their BSTRs; scalar, BOOL and RECT outputs are POD.
+UIA_MANIFEST = """manifest-version = 1
+[package]
+name = "uiAutomationProbe"
+
+[[native.sources]]
+path = "UIAutomationLoader.c"
+language = "c"
+standard = "c11"
+modules = ["UIAutomation"]
+os = ["windows"]
+
+[[native.bindings]]
+module = "UIAutomation"
+header = "UIAutomation.h"
+language = "c"
+standard = "c11"
+os = ["windows"]
+symbols = ["IUnknown", "IUIAutomation", "IUIAutomationElement", "IUIAutomationTreeWalker", "IUIAutomationValuePattern", "IID_IUnknown", "IID_IUIAutomation", "IID_IUIAutomationElement", "IID_IUIAutomationTreeWalker", "IID_IUIAutomationValuePattern", "UIAutomationCreate", "SysFreeString", "RECT"]
+
+[native.bindings.resources.IUnknown]
+ownership = "com"
+iid = "IID_IUnknown"
+release-executor = "apartment"
+
+[native.bindings.resources.IUIAutomation]
+ownership = "com"
+iid = "IID_IUIAutomation"
+base = "IUnknown"
+release-executor = "apartment"
+
+[native.bindings.resources.IUIAutomation.dispatch]
+table = "lpVtbl"
+executor = "apartment"
+failure = "abort"
+
+[native.bindings.resources.IUIAutomation.dispatch.methods]
+elementFromHandle = "ElementFromHandle"
+controlViewWalker = "get_ControlViewWalker"
+
+[native.bindings.resources.IUIAutomationTreeWalker]
+ownership = "com"
+iid = "IID_IUIAutomationTreeWalker"
+base = "IUnknown"
+release-executor = "apartment"
+
+[native.bindings.resources.IUIAutomationTreeWalker.dispatch]
+table = "lpVtbl"
+executor = "apartment"
+failure = "abort"
+
+[native.bindings.resources.IUIAutomationTreeWalker.dispatch.methods]
+firstChild = "GetFirstChildElement"
+nextSibling = "GetNextSiblingElement"
+
+[native.bindings.resources.IUIAutomationElement]
+ownership = "com"
+iid = "IID_IUIAutomationElement"
+base = "IUnknown"
+release-executor = "apartment"
+
+[native.bindings.resources.IUIAutomationElement.dispatch]
+table = "lpVtbl"
+executor = "apartment"
+failure = "abort"
+
+[native.bindings.resources.IUIAutomationElement.dispatch.methods]
+controlType = "get_CurrentControlType"
+name = "get_CurrentName"
+className = "get_CurrentClassName"
+automationId = "get_CurrentAutomationId"
+hasKeyboardFocus = "get_CurrentHasKeyboardFocus"
+isEnabled = "get_CurrentIsEnabled"
+boundingRectangle = "get_CurrentBoundingRectangle"
+currentPattern = "GetCurrentPattern"
+
+[native.bindings.resources.IUIAutomationValuePattern]
+ownership = "com"
+iid = "IID_IUIAutomationValuePattern"
+base = "IUnknown"
+release-executor = "apartment"
+
+[native.bindings.resources.IUIAutomationValuePattern.dispatch]
+table = "lpVtbl"
+executor = "apartment"
+failure = "abort"
+
+[native.bindings.resources.IUIAutomationValuePattern.dispatch.methods]
+currentValue = "get_CurrentValue"
+
+[native.bindings.status-results]
+"IUIAutomation.elementFromHandle" = "hresult"
+"IUIAutomation.controlViewWalker" = "hresult"
+"IUIAutomationTreeWalker.firstChild" = "hresult"
+"IUIAutomationTreeWalker.nextSibling" = "hresult"
+"IUIAutomationElement.name" = "hresult"
+"IUIAutomationElement.className" = "hresult"
+"IUIAutomationElement.automationId" = "hresult"
+"IUIAutomationElement.currentPattern" = "hresult"
+"IUIAutomationValuePattern.currentValue" = "hresult"
+
+[native.bindings.copied-outputs."IUIAutomationElement.name.retVal"]
+encoding = "utf-16"
+free = "SysFreeString"
+
+[native.bindings.copied-outputs."IUIAutomationElement.className.retVal"]
+encoding = "utf-16"
+free = "SysFreeString"
+
+[native.bindings.copied-outputs."IUIAutomationElement.automationId.retVal"]
+encoding = "utf-16"
+free = "SysFreeString"
+
+[native.bindings.copied-outputs."IUIAutomationValuePattern.currentValue.retVal"]
+encoding = "utf-16"
+free = "SysFreeString"
+
+[native.bindings.owned-outputs."UIAutomationCreate.automation"]
+result = "AutomationCreation"
+status = "hresult"
+"""
 
 
 def wgpu_native(target, directory):
@@ -170,6 +296,52 @@ def build_shell(tmp_path, frontend, target, request, monkeypatch):
     return executable, dll
 
 
+def build_uia_client(tmp_path, frontend, target, request):
+    """The UI Automation client through one compiler, linked through its plan."""
+    root = tmp_path / "uia"
+    (root / "src").mkdir(parents=True)
+    (root / "btrc.toml").write_text(UIA_MANIFEST, encoding="utf-8")
+    for name in ("UIAutomation.h", "UIAutomationLoader.c"):
+        shutil.copyfile(PROBE / name, root / name)
+    (root / "src/UIAutomation.btrc").write_text("// The UI Automation binding's module.\n", encoding="utf-8")
+    source = root / "src/UIAutomationProbe.btrc"
+    shutil.copyfile(PROBE / "UIAutomationProbe.btrc", source)
+    generated, plan = root / "Client.c", root / "Client.json"
+    label = TARGETS[target][0]
+    if frontend == "python":
+        result = Compiler().compile(
+            source.read_text(encoding="utf-8"),
+            str(source),
+            CompilerOptions(include_stdlib=False, use_cache=False, target=label),
+        )
+        assert result.successful, (result.failure, [str(item) for item in result.diagnostics])
+        generated.write_text(result.c_source, encoding="utf-8")
+        plan.write_text(result.native_plan.canonical_json(), encoding="utf-8")
+    else:
+        completed = subprocess.run(
+            [
+                str(request.getfixturevalue("immutable_btrcc")),
+                "--no-stdlib",
+                "--no-cache",
+                "--target",
+                label,
+                "--emit-link-plan",
+                str(plan),
+                str(source),
+            ],
+            env={**os.environ, "BTRC_HOME": str(REPO / "src")},
+            capture_output=True,
+            text=True,
+            timeout=TOOL_TIMEOUT,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        generated.write_text(completed.stdout, encoding="utf-8")
+    libraries = [record["name"] for record in json.loads(plan.read_text(encoding="utf-8"))["libraries"]]
+    assert {"ole32", "oleaut32", "uuid"} <= set(libraries), libraries
+    return link(plan, generated, tmp_path / f"uia-probe-{FRONTENDS[frontend]}-{target}.exe", [])
+
+
 def publish(target, paths):
     evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
     if not evidence:
@@ -187,7 +359,8 @@ def test_windows_native_shell_builds(tmp_path, request, monkeypatch, frontend, t
     if sys.platform == "win32":
         pytest.skip("cross-builds on a Linux or macOS host with the dev shell; Windows runs the published executables")
     executable, dll = build_shell(tmp_path, frontend, target, request, monkeypatch)
-    publish(target, [executable, dll])
+    client = build_uia_client(tmp_path, frontend, target, request)
+    publish(target, [executable, client, dll])
 
 
 def run_shell(command, environment, timeout):
