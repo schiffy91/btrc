@@ -112,23 +112,43 @@ int shellProbeFocus(void) {
         return 0;
     }
 }
+/* AppKit-private objects that outlived an earlier drain. */
+static NSHashTable *settledPrivate;
+static NSUInteger freshPrivate(void) {
+    NSUInteger fresh = 0;
+    for (id object in privateObjects.allObjects)
+        if (![settledPrivate containsObject:object]) fresh++;
+    return fresh;
+}
 void shellProbeDrain(void) {
     /* AppKit can defer hosted text-field teardown beyond ten run-loop turns.
-     * Keep the original ten turns, then await weak-owner convergence within a
-     * two-second deadline. The caller still requires zero owned survivors. */
+     * Keep the original ten turns, then, within a two-second deadline, await
+     * the weak owners and every AppKit-private object this lifecycle created.
+     * Under the sanitizers a transient helper (an NSTextInsertionIndicator)
+     * outlived ten turns on a loaded hosted runner and was counted as
+     * retained. A private object an earlier lifecycle left (the same identity
+     * every cycle) never extends the wait. The caller still requires zero
+     * owned survivors and bounds the private ones by the AppKit control. */
+    if (!settledPrivate) settledPrivate = [[NSHashTable weakObjectsHashTable] retain];
     NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
     const NSTimeInterval deadline = 2.0;
     NSUInteger remaining = 0;
+    NSUInteger fresh = 0;
     int turns = 0;
     do {
         @autoreleasepool {
             [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
             remaining = owned.allObjects.count;
+            fresh = freshPrivate();
         }
         turns++;
-    } while (turns < 10 || (remaining && NSProcessInfo.processInfo.systemUptime - started < deadline));
-    fprintf(stderr, "SHELL drain turns=%d seconds=%.6f deadline=%.1f provider=%lu\n",
-        turns, NSProcessInfo.processInfo.systemUptime - started, deadline, (unsigned long)remaining);
+    } while (turns < 10 || ((remaining || fresh) && NSProcessInfo.processInfo.systemUptime - started < deadline));
+    @autoreleasepool {
+        for (id object in privateObjects.allObjects) [settledPrivate addObject:object];
+    }
+    fprintf(stderr, "SHELL drain turns=%d seconds=%.6f deadline=%.1f provider=%lu private-fresh=%lu\n",
+        turns, NSProcessInfo.processInfo.systemUptime - started, deadline, (unsigned long)remaining,
+        (unsigned long)fresh);
 }
 static int survivors(NSHashTable *objects, const char *scope) {
     @autoreleasepool {

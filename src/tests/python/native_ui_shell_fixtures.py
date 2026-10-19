@@ -347,7 +347,7 @@ def exercise_macos_control(tmp_path, sanitized):
     assert retained.returncode == 4, retained.stderr + retained.stdout
     assert "APPKIT retained=1 released=0" in retained.stdout.splitlines()
     drains = re.findall(
-        r"^SHELL drain turns=(\d+) seconds=([0-9.]+) deadline=([0-9.]+) provider=(\d+)$",
+        r"^SHELL drain turns=(\d+) seconds=([0-9.]+) deadline=([0-9.]+) provider=(\d+) private-fresh=(\d+)$",
         retained.stderr,
         re.MULTILINE,
     )
@@ -381,8 +381,10 @@ def diagnose_macos_retention(executable, tmp_path, environment):
             if disabled:
                 configured[variable] = "1"
         try:
+            # One cycle, whose ten steps each have 15 s of their own: a slow
+            # journey reports its own deadline before this bound kills it.
             result = subprocess.run(
-                [str(executable), "1", str(state)], env=configured, capture_output=True, text=True, timeout=60
+                [str(executable), "1", str(state)], env=configured, capture_output=True, text=True, timeout=240
             )
             stdout, stderr, code = result.stdout, result.stderr, result.returncode
         except subprocess.TimeoutExpired as error:

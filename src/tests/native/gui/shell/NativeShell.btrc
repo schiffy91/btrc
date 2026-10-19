@@ -66,6 +66,10 @@ class ShellJourney implements IApplicationWork {
 	}
 
 	private void advance() {
+		/* A step slower than two seconds is named on stderr, which the test
+		 * reports, so a slow or stalled journey shows where it waited. */
+		float seconds = self._stepClock.elapsed();
+		if (seconds > 2.0f) { fprintf(stderr, "SHELL slow step=%d seconds=%.3f\n", self._step, (double)seconds); }
 		self._step++;
 		self._stepClock.start();
 		GUI.postAfter(0.01, self);
