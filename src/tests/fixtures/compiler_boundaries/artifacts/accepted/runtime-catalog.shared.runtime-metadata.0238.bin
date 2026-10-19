@@ -1,0 +1,1 @@
+{"asset":"windows_os.h","btrc_order":212,"category":"process","dependencies":["__btrc_windows_launch_types"],"headers":[],"name":"__btrc_windows_launch_copy_output","provided_objects":[],"provided_types":[],"python_order":226,"realtime_effect":"safe","source_sha256":"1e8d56fec8fe21d860c07e2a39347590691fa622fc50c5a00bb056324b631238","source_size":377,"source_visible":true}

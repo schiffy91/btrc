@@ -1,0 +1,1 @@
+{"asset":"windows_os.h","btrc_order":210,"category":"process","dependencies":["__btrc_windows_launch_types"],"headers":[],"name":"__btrc_windows_launch","provided_objects":[],"provided_types":[],"python_order":224,"realtime_effect":"blocking","source_sha256":"30783137322b782e6994a8359394350b3e76ac05c39297f1b94fcdb3977750df","source_size":354,"source_visible":true}
