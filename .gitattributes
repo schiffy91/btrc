@@ -5,3 +5,6 @@ src/tests/fixtures/compiler_boundaries/manifest.toml text eol=lf
 src/tests/fixtures/compiler_boundaries/sources/* text eol=lf
 src/tests/fixtures/compiler_boundaries/artifacts/** binary
 src/tests/stdlib/expected/Terminal.stderr text eol=lf whitespace=-blank-at-eol
+src/tests/stdlib/expected/TerminalPty.stderr text eol=lf whitespace=-blank-at-eol
+# Vendored musl sources keep upstream's bytes (src/runtime/windows/README.md).
+src/runtime/windows/musl/* text eol=lf whitespace=-space-before-tab
