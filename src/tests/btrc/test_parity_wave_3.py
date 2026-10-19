@@ -362,6 +362,11 @@ NULLABLE_CALL = (
                 "\treturn callback == null ? callback(value) : value;\n}\n\n"
                 "int main() { return apply(null, 1); }\n",
             ),
+            (
+                "UncheckedGlobal",
+                "CFunction<int, int>? hook = null;\n\n"
+                "int fire(int value) { return hook(value); }\n\nint main() { return fire(1); }\n",
+            ),
             # An element is no access path the flow can prove; bind it first.
             (
                 "Element",

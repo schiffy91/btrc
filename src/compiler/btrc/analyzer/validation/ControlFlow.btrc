@@ -1309,6 +1309,8 @@ class NullableFlow {
 	 * is refused, as the reference's _check_nullable_calls decides. */
 	private void checkNullableCallee(Node call, Map<string, bool> facts, Map<string, Node> vars) {
 		if (self.unreachable || call.callee == null) { return; }
+		/* A function, constructor or builtin named directly is no nullable value. */
+		if (call.callee.kind == NK_IDENTIFIER && !vars.has(call.callee.name) && !self.state.analyzed.globalVarTypes.has(call.callee.name)) { return; }
 		Node? calleeType = self.types.inferType(call.callee, vars);
 		if (!self.types.nullableFunctionPointer(calleeType)) { return; }
 		string known = self.path(call.callee);

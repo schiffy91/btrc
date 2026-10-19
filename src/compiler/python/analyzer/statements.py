@@ -713,7 +713,7 @@ class StatementAnalyzer:
         """
         if expression is None or not dataclasses.is_dataclass(expression) or isinstance(expression, LambdaExpr):
             return
-        if isinstance(expression, CallExpr) and not self.session.flow_unreachable:
+        if isinstance(expression, CallExpr) and not self.session.flow_unreachable and self._calls_a_value(expression):
             callee_type = self.expressions.infer_type(expression.callee)
             path = self.flow.access_path(expression.callee)
             if self.types.is_nullable_function_pointer(callee_type) and (path is None or path not in facts):
@@ -741,6 +741,13 @@ class StatementAnalyzer:
                     self._check_nullable_calls(item, facts)
             else:
                 self._check_nullable_calls(child, facts)
+
+    def _calls_a_value(self, call) -> bool:
+        """Whether a call's callee may be a value: a function, constructor or builtin named directly is not."""
+        if not isinstance(call.callee, Identifier):
+            return True
+        symbol = self.session.scope.lookup(call.callee.name)
+        return symbol is not None and symbol.kind != "function"
 
     def _check_nullable_stores(self, expression, facts) -> None:
         """Warn where an assignment or an argument stores a value that may be null into a non-nullable reference.
