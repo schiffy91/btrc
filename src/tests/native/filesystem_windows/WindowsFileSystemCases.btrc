@@ -35,6 +35,8 @@ extern void btrcTestSleep(int milliseconds);
 extern int btrcTestHoldOpen(string path, void** handle);
 extern int btrcTestClose(void* handle);
 extern char* btrcTestEnvironment(string variable);
+extern int btrcTestEnterDirectory(string path);
+extern int btrcTestLeaveDirectory();
 
 static Atomic<int> racerStop;
 
@@ -190,6 +192,11 @@ void caseNonAscii(string root) {
 	check(FileSystem.readLink(link).equals(data), "read a non-ASCII link back");
 	check(FileSystem.inspectExact(link).value().kind() == FILE_SYMLINK, "the link is a link");
 	check(FileSystem.removeRecursive(link) == 0, "remove the link");
+	/* Relative paths resolve against a non-ASCII working directory. */
+	check(btrcTestEnterDirectory(directory.path()) == 0, "enter the non-ASCII directory");
+	bool relative = FileSystem.mkdir("relatif", 448) == 0 && FileSystem.writeText("relatif\\fichier.txt", "x") && FileSystem.removeRecursive("relatif") == 0 && !FileSystem.exists("relatif");
+	check(btrcTestLeaveDirectory() == 0, "leave the non-ASCII directory");
+	check(relative, "remove a relative tree below a non-ASCII working directory");
 	check(directory.close().ok(), "close the non-ASCII directory");
 	check(FileSystem.removeRecursive(join(root, name)) == 0, "remove the non-ASCII directory");
 	print("case=non-ascii ok");

@@ -403,9 +403,13 @@ class FileSystemDiagnostics {
  *   FS_INVALID_ARGUMENT.
  * - Durable replacement writes and flushes an owner-only temporary file, then
  *   renames it over the target by handle, relative to the held directory
- *   (FileRenameInfoEx, POSIX semantics), and flushes the directory.
+ *   (FileRenameInformationEx, POSIX semantics). Windows has no directory
+ *   fsync: the renamed file is flushed again through its handle, which
+ *   commits the volume's metadata log as MOVEFILE_WRITE_THROUGH does, and a
+ *   durable removal flushes the lease's lock file for the same reason.
  * - Paths are UTF-8, converted strictly to UTF-16, and used in their \\?\ form,
- *   so long and UNC paths work and MAX_PATH never applies. */
+ *   so long and UNC paths work and MAX_PATH never applies. A relative path is
+ *   resolved against the working directory read in UTF-16. */
 
 /* Statuses Win32FileSystem.c reports beside Win32's positive error codes;
  * WINDOWS_FILE_CHANGED is DirectoryTreeRemoval's own. */
@@ -558,15 +562,13 @@ class WindowsFileSystem {
 
 	/* An absolute form of `path`: drive and UNC paths as given, anything else
 	 * against the current directory, as Win32 resolves it. */
+	/* A relative, root-relative or drive-relative path is resolved against the
+	 * current directory in UTF-16, so a non-ASCII working directory survives. */
 	class string absolute(string path) {
 		if (btrcWinRootLength(path) > 0) { return Strings.copy(path); }
-		string current = Platform.currentDirectory();
-		if (current.isEmpty()) { return ""; }
-		if (!path.isEmpty() && WindowsFileSystem.separator(path[0])) {
-			int root = btrcWinRootLength(current);
-			return root > 0 ? current.substring(0, root) + path.substring(1, path.len() - 1) : "";
-		}
-		return WindowsFileSystem.join(current, path);
+		char* full = null;
+		if (btrcWinFullPath(path, &full) != 0 || full == null) { return ""; }
+		return __btrc_string_adopt(full);
 	}
 
 	/* The directory that contains the last component of an absolute path,
@@ -3100,15 +3102,18 @@ class PrivateDirectory {
 
 		status = btrcWinRenameAt(replacement.value(), self._leaseDirectory, childName, 1);
 		if (status != 0) { return self.abandonTemporary(replacement, FileSystemError.fromWindows("publish durable replacement", childPath, status)); }
+		/* Windows has no directory fsync. Flushing the renamed file through its
+		 * handle commits the volume's metadata log, which records the rename,
+		 * as MoveFileEx's MOVEFILE_WRITE_THROUGH does. */
+		int flushed = btrcWinFlush(replacement.value());
 		status = replacement.close();
+		if (flushed != 0) { return DurableReplaceOutcome.durabilityUncertain(FileSystemError.fromWindows("sync durable replacement", childPath, flushed)); }
 		if (status != 0) { return DurableReplaceOutcome.durabilityUncertain(FileSystemError.fromWindows("close durable replacement", childPath, status)); }
-		status = btrcWinFlush(self._leaseDirectory);
-		if (status != 0) { return DurableReplaceOutcome.durabilityUncertain(FileSystemError.fromWindows("sync durable replacement directory", childPath, status)); }
 		return DurableReplaceOutcome.succeeded();
 	}
 
 	/* Retire authority relative to the pinned lease directory. An uncertain
-	 * directory flush is retryable even when the child name is already gone. */
+	 * metadata flush is retryable even when the child name is already gone. */
 	public DurableReplaceOutcome removeRegularChildDurablyForLease(int generation, string lockName, string childName) {
 		if (!self.leaseActive(generation, lockName)) { return DurableReplaceOutcome.failed(FileSystemError.closed("remove private file", self._path)); }
 		if (!self.validDataChildNameForLease(childName, lockName)) { return DurableReplaceOutcome.failed(FileSystemError.invalid("remove private file", childName)); }
@@ -3122,7 +3127,10 @@ class PrivateDirectory {
 		} else if (opened.error().kind() != FS_NOT_FOUND) {
 			return DurableReplaceOutcome.failed(opened.error());
 		}
-		int flushed = btrcWinFlush(self._leaseDirectory);
+		/* Windows has no directory fsync. Flushing a file on the same volume,
+		 * the lease's own lock, commits the volume's metadata log, which records
+		 * the deletion; a retry after an uncertain flush commits it again. */
+		int flushed = btrcWinFlush(self._leaseLock);
 		if (flushed != 0) { return DurableReplaceOutcome.durabilityUncertain(FileSystemError.fromWindows("sync removed private file", path, flushed)); }
 		return DurableReplaceOutcome.succeeded();
 	}

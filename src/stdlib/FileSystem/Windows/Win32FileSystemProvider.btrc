@@ -16,6 +16,7 @@ extern int btrcWinOpenPath(string path, int purpose, int disposition, void* desc
 extern int btrcWinOpenAt(void* parent, string name, int purpose, int disposition, int shape, void* descriptor, void** handle);
 extern int btrcWinOpenRoot(string path, void** handle, int* consumed);
 extern int btrcWinRootLength(string path);
+extern int btrcWinFullPath(string path, char** full);
 extern int btrcWinValidComponent(string name);
 extern int btrcWinSameName(string left, string right);
 extern void* btrcWinDirectoryOpen(void* directory);

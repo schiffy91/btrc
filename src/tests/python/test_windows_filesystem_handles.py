@@ -185,11 +185,30 @@ def test_windows_rows_compile_no_posix_handle_bodies(target, tmp_path):
         assert posix not in source, posix
 
 
+def sdk_assertions_compile(zig: str, target: str, directory: Path, name: str, headers: str, checks: str) -> None:
+    """One translation unit of _Static_asserts over MinGW's own headers."""
+
+    unit = directory / f"{name}.c"
+    unit.write_text(f"#include <stddef.h>\n{headers}\n{checks}\nint main(void) {{ return 0; }}\n", encoding="utf-8")
+    built = subprocess.run(
+        [zig, "cc", "-target", f"{TARGETS[target]}-windows-gnu", "-std=c11", "-pedantic-errors", "-Wall", "-Werror"]
+        + ["-c", str(unit), "-o", str(directory / f"{name}.o")],
+        capture_output=True,
+        text=True,
+        timeout=C_COMPILE_TIMEOUT,
+        check=False,
+    )
+    assert built.returncode == 0, (name, built.stderr)
+
+
 @pytest.mark.parametrize("target", sorted(TARGETS))
-def test_the_reparse_buffer_offsets_are_the_sdk_layout(target, zig, tmp_path):
-    """The provider reads REPARSE_DATA_BUFFER through named byte offsets, since
-    the user-mode headers it includes omit the structure. Each offset must be
-    offsetof over the structure MinGW declares in ntdef.h, on each architecture."""
+def test_the_nt_values_the_provider_names_are_the_sdk_declarations(target, zig, tmp_path):
+    """The provider names a few NT values that the user-mode headers it
+    includes omit: REPARSE_DATA_BUFFER's byte offsets, the extended rename
+    class and the NTSTATUS codes it classifies. Each must equal MinGW's own
+    declaration (ntdef.h, ddk/wdm.h), and FILE_RENAME_INFO, which it hands to
+    NtSetInformationFile, must have FILE_RENAME_INFORMATION's layout, on each
+    architecture."""
 
     provider = (REPO / PROVIDER_C).read_text(encoding="utf-8")
     offsets = dict(re.findall(r"^#define (BTRC_WIN_REPARSE_\w+) (\d+)$", provider, re.MULTILINE))
@@ -199,27 +218,37 @@ def test_the_reparse_buffer_offsets_are_the_sdk_layout(target, zig, tmp_path):
         "BTRC_WIN_REPARSE_MOUNT_POINT_PATH": "MountPointReparseBuffer.PathBuffer",
     }
     assert set(offsets) == set(fields), offsets
-    checks = "\n".join(
-        f'_Static_assert(offsetof(REPARSE_DATA_BUFFER, {field}) == {offsets[name]}, "{name}");'
-        for name, field in fields.items()
-    )
-    layout = tmp_path / "layout.c"
-    layout.write_text(
-        "#include <stddef.h>\n#include <ntdef.h>\n"
+    reparse = [
         "_Static_assert(offsetof(REPARSE_DATA_BUFFER, MountPointReparseBuffer.SubstituteNameOffset) == "
-        'offsetof(REPARSE_DATA_BUFFER, SymbolicLinkReparseBuffer.SubstituteNameOffset), "shared name fields");\n'
-        f"{checks}\nint main(void) {{ return 0; }}\n",
-        encoding="utf-8",
+        'offsetof(REPARSE_DATA_BUFFER, SymbolicLinkReparseBuffer.SubstituteNameOffset), "shared name fields");',
+        *(
+            f'_Static_assert(offsetof(REPARSE_DATA_BUFFER, {field}) == {offsets[name]}, "{name}");'
+            for name, field in fields.items()
+        ),
+    ]
+    sdk_assertions_compile(zig, target, tmp_path, "reparse", "#include <ntdef.h>", "\n".join(reparse))
+
+    statuses = dict(
+        re.findall(r"^#define BTRC_WIN_NT_(STATUS_\w+) \(\(NTSTATUS\)(0x[0-9A-F]+)L\)$", provider, re.MULTILINE)
     )
-    built = subprocess.run(
-        [zig, "cc", "-target", f"{TARGETS[target]}-windows-gnu", "-std=c11", "-pedantic-errors", "-Wall", "-Werror"]
-        + ["-c", str(layout), "-o", str(tmp_path / "layout.o")],
-        capture_output=True,
-        text=True,
-        timeout=C_COMPILE_TIMEOUT,
-        check=False,
+    assert {"STATUS_DELETE_PENDING", "STATUS_INVALID_INFO_CLASS", "STATUS_INVALID_PARAMETER"} <= set(statuses), statuses
+    classes = re.findall(r"^#define BTRC_WIN_FILE_RENAME_INFORMATION_EX (\d+)$", provider, re.MULTILINE)
+    assert len(classes) == 1, classes
+    kernel = [
+        f'_Static_assert(FileRenameInformationEx == {classes[0]}, "FileRenameInformationEx");',
+        *(f'_Static_assert({name} == (NTSTATUS){value}L, "{name}");' for name, value in sorted(statuses.items())),
+    ]
+    # Information classes and NTSTATUS codes do not vary by architecture, and
+    # MinGW's ddk/wdm.h supports only x86 targets, so x64 checks them for both.
+    sdk_assertions_compile(zig, "windows-x64", tmp_path, "kernel", "#include <ddk/wdm.h>", "\n".join(kernel))
+
+    rename = [
+        f'_Static_assert(offsetof(FILE_RENAME_INFO, {field}) == offsetof(FILE_RENAME_INFORMATION, {field}), "{field}");'
+        for field in ("RootDirectory", "FileNameLength", "FileName")
+    ]
+    sdk_assertions_compile(
+        zig, target, tmp_path, "rename", "#include <windows.h>\n#include <winternl.h>", "\n".join(rename)
     )
-    assert built.returncode == 0, built.stderr
 
 
 def test_the_report_checker_accepts_only_complete_reports():

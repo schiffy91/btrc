@@ -143,8 +143,10 @@ the FileSystem corpus programs):
   enters it, so a junction swapped in mid-walk is opened as itself and
   refused (case `junction-swap`).
 - **Removal and rename** are by handle with POSIX semantics
-  (`FileDispositionInfoEx`, `FileRenameInfoEx` relative to the held parent),
-  so a name being replaced or held open elsewhere still unlinks. Tree
+  (`FileDispositionInfoEx`, and `NtSetInformationFile`'s
+  `FileRenameInformationEx` relative to the held parent, since
+  `SetFileInformationByHandle` refuses a name relative to a directory
+  handle), so a name being replaced or held open elsewhere still unlinks. Tree
   removal (`TemporaryDirectory.close`, `FileSystem.removeRecursive`) removes
   read-only files too, as POSIX `unlink` does.
 - **Identity** is the volume serial number plus the 64-bit file ID. A 128-bit
@@ -163,11 +165,17 @@ the FileSystem corpus programs):
   address (`CON`, `NUL`, a trailing dot or space, a `:` stream, control
   characters) is `FS_INVALID_ARGUMENT`.
 - **Durable replacement** writes and flushes an owner-only temporary file,
-  renames it over the target by handle and flushes the directory; an
-  interrupted replacement leaves the old contents or the new, never a mix.
+  renames it over the target by handle, then flushes the renamed file again;
+  an interrupted replacement leaves the old contents or the new, never a mix.
+  Windows has no directory fsync: the flush after the rename commits the
+  volume's metadata log, which records the rename (what `MoveFileEx`'s
+  `MOVEFILE_WRITE_THROUGH` does), and a durable removal flushes the lease's
+  lock file for the same reason.
 - **Paths** are UTF-8, converted strictly to UTF-16 and used in `\\?\` and
   `\\?\UNC\` form, so long, UNC and non-ASCII paths work and `MAX_PATH`
-  never applies. Separators may be `\` or `/`; results use `\`.
+  never applies. A relative path is resolved against the working directory
+  read in UTF-16, so a non-ASCII one works. Separators may be `\` or `/`;
+  results use `\`.
 - **Symlinks.** `FileSystem.symlink` creates a directory link when the target
   is a directory; Windows allows it only with the symlink privilege or in
   Developer Mode. `FileSystem.readLink` reads symbolic links and junctions.

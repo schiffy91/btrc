@@ -48,6 +48,14 @@
 #define BTRC_WIN_NT_STATUS_DELETE_PENDING ((NTSTATUS)0xC0000056L)
 #define BTRC_WIN_NT_STATUS_NOT_A_DIRECTORY ((NTSTATUS)0xC0000103L)
 #define BTRC_WIN_NT_STATUS_FILE_IS_A_DIRECTORY ((NTSTATUS)0xC00000BAL)
+/* And those that send a rename to the classic information class. */
+#define BTRC_WIN_NT_STATUS_INVALID_INFO_CLASS ((NTSTATUS)0xC0000003L)
+#define BTRC_WIN_NT_STATUS_INVALID_PARAMETER ((NTSTATUS)0xC000000DL)
+#define BTRC_WIN_NT_STATUS_NOT_SUPPORTED ((NTSTATUS)0xC00000BBL)
+
+/* FileRenameInformationEx, which winternl.h's FILE_INFORMATION_CLASS stops
+ * short of (MinGW's ddk/wdm.h declares it). */
+#define BTRC_WIN_FILE_RENAME_INFORMATION_EX 65
 
 /* Byte offsets into REPARSE_DATA_BUFFER, which the user-mode headers included
  * here omit (MinGW declares it in ntdef.h and ddk/ntifs.h, which conflict
@@ -71,8 +79,8 @@ static inline ACCESS_MASK btrcWinAccess(int purpose) {
         case BTRC_WIN_PURPOSE_WRITE:
             return FILE_WRITE_DATA | FILE_READ_ATTRIBUTES | DELETE | READ_CONTROL | SYNCHRONIZE;
         case BTRC_WIN_PURPOSE_PRIVATE_DIRECTORY:
-            /* FILE_ADD_FILE and FILE_ADD_SUBDIRECTORY let the handle flush the
-             * directory after a durable rename. */
+            /* FILE_ADD_FILE and FILE_ADD_SUBDIRECTORY: names are created and
+             * renamed into the directory relative to this handle. */
             return FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
         default:
             return FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
@@ -198,6 +206,42 @@ static inline int btrcWinLongPath(const char* path, wchar_t** result) {
     return 0;
 }
 
+/* A relative, root-relative or drive-relative `path` made absolute against
+ * the process's current directory (GetFullPathNameW), as UTF-8 in *full. The
+ * current directory is read in UTF-16, so a non-ASCII one survives, which the
+ * CRT's narrow getcwd does not promise. */
+static inline int btrcWinFullPath(char* path, char** full) {
+    *full = NULL;
+    wchar_t* wide = NULL;
+    int status = btrcWinWide(path, &wide);
+    if (status != 0) { return status; }
+    if (wide[0] == L'\0') {
+        free(wide);
+        return BTRC_WIN_STATUS_INVALID;
+    }
+    DWORD needed = GetFullPathNameW(wide, 0, NULL, NULL);
+    if (needed == 0) {
+        DWORD error = GetLastError();
+        free(wide);
+        return (int)error;
+    }
+    wchar_t* resolved = (wchar_t*)malloc(((size_t)needed + 1) * sizeof(wchar_t));
+    if (resolved == NULL) {
+        free(wide);
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+    DWORD written = GetFullPathNameW(wide, needed + 1, resolved, NULL);
+    free(wide);
+    if (written == 0 || written > needed) {
+        DWORD error = written == 0 ? GetLastError() : ERROR_INSUFFICIENT_BUFFER;
+        free(resolved);
+        return (int)error;
+    }
+    status = btrcWinNarrow(resolved, (int)written, full);
+    free(resolved);
+    return status;
+}
+
 /* The bytes of `path` that name its volume root: "C:\" (3), "\\server\share\"
  * or the same in \\?\ form; 0 when the path is not absolute. */
 static inline int btrcWinRootLength(char* path) {
@@ -290,6 +334,7 @@ static inline int btrcWinSameName(char* left, char* right) {
 typedef NTSTATUS(NTAPI* BtrcWinNtCreateFile)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK, PLARGE_INTEGER, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG);
 typedef ULONG(NTAPI* BtrcWinRtlNtStatusToDosError)(NTSTATUS);
 typedef NTSTATUS(NTAPI* BtrcWinRtlGetLastNtStatus)(void);
+typedef NTSTATUS(NTAPI* BtrcWinNtSetInformationFile)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
 
 /* A function ntdll always exports; resolved at the call, so no toolchain
  * import library is required. The cast passes through a generic function
@@ -561,21 +606,28 @@ static inline int btrcWinRenameAt(void* handle, void* directory, char* name, int
     info->FileNameLength = (DWORD)bytes;
     memcpy(info->FileName, wide, bytes);
     free(wide);
-    if (SetFileInformationByHandle(handle, FileRenameInfoEx, info, (DWORD)size)) {
+    /* SetFileInformationByHandle refuses a name relative to RootDirectory
+     * (ERROR_INVALID_PARAMETER on windows-latest and windows-11-arm), so the
+     * rename goes to NtSetInformationFile, which resolves it against the held
+     * directory. FILE_RENAME_INFO has FILE_RENAME_INFORMATION's layout, and
+     * its leading union is FILE_RENAME_INFORMATION_EX's Flags. */
+    BtrcWinNtSetInformationFile set = (BtrcWinNtSetInformationFile)btrcWinNtdll("NtSetInformationFile");
+    if (set == NULL) {
         free(info);
-        return 0;
+        return BTRC_WIN_STATUS_UNSUPPORTED;
     }
-    DWORD error = GetLastError();
-    if (error != ERROR_INVALID_PARAMETER && error != ERROR_NOT_SUPPORTED && error != ERROR_INVALID_FUNCTION) {
-        free(info);
-        return (int)error;
+    IO_STATUS_BLOCK io;
+    memset(&io, 0, sizeof(io));
+    NTSTATUS result = set(handle, &io, info, (ULONG)size, (FILE_INFORMATION_CLASS)BTRC_WIN_FILE_RENAME_INFORMATION_EX);
+    if (result == BTRC_WIN_NT_STATUS_INVALID_INFO_CLASS || result == BTRC_WIN_NT_STATUS_INVALID_PARAMETER || result == BTRC_WIN_NT_STATUS_NOT_SUPPORTED) {
+        /* A volume without the extended class keeps the classic replace flag. */
+        info->Flags = 0;
+        info->ReplaceIfExists = replace ? TRUE : FALSE;
+        memset(&io, 0, sizeof(io));
+        result = set(handle, &io, info, (ULONG)size, FileRenameInformation);
     }
-    /* A volume without the extended class keeps the classic replace flag. */
-    info->Flags = 0;
-    info->ReplaceIfExists = replace ? TRUE : FALSE;
-    int result = SetFileInformationByHandle(handle, FileRenameInfo, info, (DWORD)size) ? 0 : (int)GetLastError();
     free(info);
-    return result;
+    return NT_SUCCESS(result) ? 0 : btrcWinNtError(result);
 }
 
 /* The current user's SID, from the process token, in a malloc'd copy. */

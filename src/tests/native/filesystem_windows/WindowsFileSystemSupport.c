@@ -304,4 +304,21 @@ static inline char* btrcTestEnvironment(char* variable) {
     return text;
 }
 
+/* Make `path` the working directory through the wide API, remembering the
+ * previous one for btrcTestLeaveDirectory; 0 or a Win32 error. */
+static wchar_t btrcTestPreviousDirectory[32768];
+
+static inline int btrcTestEnterDirectory(char* path) {
+    DWORD length = GetCurrentDirectoryW(32768, btrcTestPreviousDirectory);
+    if (length == 0 || length >= 32768) { return (int)ERROR_FILENAME_EXCED_RANGE; }
+    wchar_t* wide = btrcTestWide(path);
+    if (wide == NULL) { return (int)ERROR_NO_UNICODE_TRANSLATION; }
+    BOOL entered = SetCurrentDirectoryW(wide);
+    DWORD error = entered ? 0 : GetLastError();
+    free(wide);
+    return (int)error;
+}
+
+static inline int btrcTestLeaveDirectory(void) { return SetCurrentDirectoryW(btrcTestPreviousDirectory) ? 0 : (int)GetLastError(); }
+
 #endif
