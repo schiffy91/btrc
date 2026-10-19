@@ -289,6 +289,21 @@
       "note": "The real X11 and Wayland desktop check (CL-UIA-11) runs only on a physical Linux desktop, PLAN D7's host; the devcontainer skips it as awaiting hardware, so it is not covered there."
     },
     {
+      "id": "ui-shell-windows-only",
+      "files": [
+        "src/tests/python/test_native_ui_shell_windows.py"
+      ],
+      "nodes": [
+        "*::test_windows_native_shell_runs*"
+      ],
+      "reason": "^requires Windows: windows\\.yml's win32-native job runs the executables the build tests publish$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "CX-UIA-15: a Linux or macOS host cross-builds the Win32 shell rows through both compilers; windows.yml's win32-native job runs them on hosted Windows x64 and ARM64."
+    },
+    {
       "id": "ui-shell-linux-only",
       "files": [
         "src/tests/python/test_native_ui_shell_linux.py"

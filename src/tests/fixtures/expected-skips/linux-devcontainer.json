@@ -320,6 +320,21 @@
       "note": "Apple clang's TARGET_OS_* predefines and the iOS SDK's <TargetConditionals.h> exist only on macOS, and platform-target-contract.md §1.3 pins both checks to the acceptance Mac's Xcode 27A266a, which no CI image carries. MAC-P1-05 runs them there; covered_by cannot name the acceptance Mac, whose reports CI does not upload, so they are uncovered in CI. clang 21 checks the same rows' TARGET_OS_* values here."
     },
     {
+      "id": "ui-shell-windows-only",
+      "files": [
+        "src/tests/python/test_native_ui_shell_windows.py"
+      ],
+      "nodes": [
+        "*::test_windows_native_shell_runs*"
+      ],
+      "reason": "^requires Windows: windows\\.yml's win32-native job runs the executables the build tests publish$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "CX-UIA-15: a Linux or macOS host cross-builds the Win32 shell rows through both compilers; windows.yml's win32-native job runs them on hosted Windows x64 and ARM64."
+    },
+    {
       "id": "ui-shell-macos-only",
       "files": [
         "src/tests/python/test_native_ui_shell_macos.py"

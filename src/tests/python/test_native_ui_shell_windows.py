@@ -14,12 +14,15 @@ skip on Windows, which has no dev shell. Hosted GPU frames are correctness
 evidence from Windows' software adapter, never a pacing or hardware result.
 """
 
+import base64
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -33,8 +36,12 @@ from src.tests.python.native_import_fixtures import zig_libc
 from src.tests.python.native_ui_shell_fixtures import SHELL, SYMBOLS, transpile, write_evidence
 from tools.native_plan import NativePlanBuilder
 
+if sys.platform != "win32":
+    import fcntl
+
 REPO = Path(__file__).resolve().parents[3]
 PROBE = SHELL / "probes/windows"
+PREBUILT = REPO / "nix/wgpu-native-prebuilt.nix"
 # The test id, the target row, zig's architecture and the prebuilt archive's slice.
 TARGETS = {
     "windows-x64": ("windows-x86_64", "x86_64-w64-windows-gnu", "x86_64", "windows-x64"),
@@ -167,6 +174,35 @@ status = "hresult"
 """
 
 
+def prebuilt_archive(target):
+    """The row's wgpu-native release archive, fetched once and checked against its pin.
+
+    nix/wgpu-native-prebuilt.nix is the one record of each archive's name and
+    SHA-256; the devcontainer has no Nix, so the test fetches the same release
+    asset itself and refuses any other bytes. The verified archive is kept
+    under build/wgpu-native for later runs and other workers.
+    """
+    text = PREBUILT.read_text(encoding="utf-8")
+    version = re.search(r'version = "([^"]+)";', text)[1]
+    pin = re.search(rf'^\s*{re.escape(TARGETS[target][3])} = archive "([^"]+)" "sha256-([^"]+)";', text, re.MULTILINE)
+    assert pin, f"{PREBUILT} pins no archive for {target}"
+    name, digest = pin[1], base64.b64decode(pin[2]).hex()
+    cache = REPO / "build/wgpu-native" / name
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    with (cache.parent / f"{name}.lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if not cache.is_file() or hashlib.sha256(cache.read_bytes()).hexdigest() != digest:
+            url = f"https://github.com/gfx-rs/wgpu-native/releases/download/v{version}/{name}"
+            with urllib.request.urlopen(url, timeout=300) as response:
+                payload = response.read()
+            actual = hashlib.sha256(payload).hexdigest()
+            assert actual == digest, f"{url} has SHA-256 {actual}, not the pinned {digest}"
+            partial = cache.with_suffix(".partial")
+            partial.write_bytes(payload)
+            partial.replace(cache)
+    return cache
+
+
 def wgpu_native(target, directory):
     """The row's pinned wgpu-native archive, extracted, and its pkg-config directory.
 
@@ -175,27 +211,8 @@ def wgpu_native(target, directory):
     the import library wgpu_native.dll.lib. Linking the import library, never the
     static archive, keeps each program on its own C runtime.
     """
-    nix = shutil.which("nix")
-    if nix is None:
-        pytest.skip("requires nix to fetch the pinned wgpu-native prebuilt archive")
     label = TARGETS[target][0]
-    system = subprocess.run(
-        [nix, "eval", "--impure", "--raw", "--expr", "builtins.currentSystem"],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=TOOL_TIMEOUT,
-    ).stdout.strip()
-    attribute = f"{REPO}#devShells.{system}.platforms.wgpuNativePrebuilt.{TARGETS[target][3]}"
-    fetched = subprocess.run(
-        [nix, "build", "--no-link", "--print-out-paths", attribute],
-        capture_output=True,
-        text=True,
-        timeout=900,
-        check=False,
-    )
-    assert fetched.returncode == 0, fetched.stderr
-    archive = Path(fetched.stdout.strip().splitlines()[-1])
+    archive = prebuilt_archive(target)
     root = directory / f"wgpu-native-{label}"
     with zipfile.ZipFile(archive) as bundle:
         bundle.extractall(root)

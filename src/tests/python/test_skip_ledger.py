@@ -930,10 +930,13 @@ def test_every_windows_pytest_step_writes_its_own_skip_report_and_gates_it():
     workflow = (REPO / ".github/workflows/windows.yml").read_text(encoding="utf-8")
     commands = [line.strip() for line in workflow.replace("\\\n", " ").splitlines()]
     sessions = [line for line in commands if line.startswith("python -m pytest")]
-    reports = [re.search(r"--skip-report=(\S+?\.json)", line).group(1) for line in sessions]
-    gated = [line.split()[-1] for line in commands if line.startswith("python -m tools.qualification skip-gate")]
+    # A matrix job's report names its row: ${{ matrix.target }} holds spaces.
+    reports = [re.search(r"--skip-report=(\S+?(?:\$\{\{ [a-z.]+ \}\})?\S*?\.json)", line).group(1) for line in sessions]
+    gated = [
+        line.split("skip-gate ", 1)[1] for line in commands if line.startswith("python -m tools.qualification skip-gate")
+    ]
 
-    assert len(sessions) == 3 and len(set(reports)) == len(reports)
+    assert len(sessions) == 4 and len(set(reports)) == len(reports)
     assert all(report.startswith("build/skip-report-windows-") for report in reports)
     assert gated == reports
     for report in reports:
