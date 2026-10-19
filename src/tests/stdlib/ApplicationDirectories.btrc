@@ -17,7 +17,9 @@ int main() {
 
 	FileSystemOutcome<ApplicationDirectoryRoots> limited = ApplicationDirectories.resolve(ApplicationDirectoryLimits(1));
 	int platform = __btrc_target_platform();
-	if (platform == 1 || platform == 2) {
+	// macOS, Linux and iOS resolve; iOS through the Apple resolver, under the
+	// sandbox container HOME names. Windows and Android are unsupported here.
+	if (platform == 1 || platform == 2 || platform == 4) {
 		assert(!limited.ok());
 		assert(limited.error().kind() == FS_INVALID_ARGUMENT);
 		assert(limited.error().nativeCode() == ENAMETOOLONG);
