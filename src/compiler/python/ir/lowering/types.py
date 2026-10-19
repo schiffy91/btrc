@@ -425,6 +425,24 @@ class CTypeLowerer:
             return None
         return resolved.generic_args
 
+    def callable_signature(self, type_expr):
+        """``(return, params...)`` of a call target: a function pointer, or the
+        nullable ``CFunction<...>?``, the same one C word, which analysis
+        proved non-null at the call."""
+        signature = self.function_pointer_signature(type_expr)
+        resolved = self.canonical_type(type_expr)
+        if (
+            signature is None
+            and resolved is not None
+            and resolved.base in {"__fn_ptr", "__realtime_fn_ptr"}
+            and resolved.pointer_depth == 1
+            and not resolved.is_array
+            and resolved.generic_args
+            and TypeSystem.nullable_collapses_reference_layer(resolved, base_is_reference=True)
+        ):
+            return resolved.generic_args
+        return signature
+
     def lower_numeric_operation(
         self, operator: str, left: IRExpr, right: IRExpr, left_type: TypeExpr | None, right_type: TypeExpr | None
     ) -> IRExpr:

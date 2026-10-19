@@ -123,8 +123,9 @@ class ExpressionValidator {
 		if (target.base == "__realtime_fn_ptr") {
 			TypeValidator.fail("RealtimeFunction cannot be created by a cast; use a direct named " + "@realtime function", expression);
 		}
-		bool targetCallable = (target.base == "__fn_ptr" || target.base == "__realtime_fn_ptr") && target.pointerDepth == 0 && !target.isArray;
-		bool sourceCallable = (source.base == "__fn_ptr" || source.base == "__realtime_fn_ptr") && source.pointerDepth == 0 && !source.isArray;
+		/* The nullable `CFunction<...>?` is the same one C word. */
+		bool targetCallable = self.types.functionPointerWord(target);
+		bool sourceCallable = self.types.functionPointerWord(source);
 		if (targetCallable && !sourceCallable) {
 			if (expression.expr.kind == NK_NULL_LITERAL || self.knownNumericZero(expression.expr)) {
 				return;

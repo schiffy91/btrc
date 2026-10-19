@@ -300,7 +300,8 @@ def test_a_hosted_callback_parameter_takes_null_in_both(harness: ParityHarness) 
         (
             "VoidPointerLocal",
             "\tvoid* opaque = null;\n\tCFunction<int, int> callback = opaque;\n\treturn callback == null ? 0 : 1;\n",
-            "error: Cannot assign 'void*' to variable 'callback' of type 'CFunction<int, int>'",
+            "error: Cannot assign 'void*' to variable 'callback' of type 'CFunction<int, int>'"
+            "; C11 has no conversion between a function pointer and an object pointer",
         ),
         # A pointer to a function pointer is not one, nullable or not; btrcc
         # took both and emitted C that assigns int (**)(int) to int (*)(int).
@@ -314,7 +315,7 @@ def test_a_hosted_callback_parameter_takes_null_in_both(harness: ParityHarness) 
             "AddressOptional",
             "\tCFunction<int, int> callback = twice;\n\tCFunction<int, int>? optional = &callback;\n"
             "\treturn optional == null ? 0 : 1;\n",
-            "error: Cannot assign 'CFunction<int, int>*' to variable 'optional' of type 'CFunction<int, int>*'",
+            "error: Cannot assign 'CFunction<int, int>*' to variable 'optional' of type 'CFunction<int, int>?'",
         ),
         # btrcc's null rule also took the other direct handles, which are
         # never nullable either.

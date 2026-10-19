@@ -33,6 +33,24 @@ class SemanticTypeSystem {
 		return resolved;
 	}
 
+	/* The signature a call through a value uses: a direct function pointer,
+	 * or the nullable `CFunction<...>?` as the one plain C word it is. The
+	 * nullable flow refuses the call unless it proved the value non-null.
+	 * The reference compiler's TypeSystem.callable_signature. */
+	class Node? callableSpecialization(Node? typeExpr, Analyzed analyzed) {
+		Node? direct = SemanticTypeSystem.directFunctionPointerSpecialization(typeExpr, analyzed);
+		if (direct != null) { return direct; }
+		Node? resolved = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, analyzed.typedefTable);
+		if (resolved == null || (resolved.base != "__fn_ptr" && resolved.base != "__realtime_fn_ptr") || resolved.pointerDepth != 1 || resolved.isArray || resolved.genericArgs().len == 0 || !TypeComposition.nullableCollapsesReferenceLayer(resolved, true)) {
+			return null;
+		}
+		Node plain = TypeShape.copy(resolved);
+		plain.pointerDepth = 0;
+		plain.isNullable = false;
+		plain.nullableOuterDepth = 0;
+		return plain;
+	}
+
 	class bool realtimeFunctionPointer(Node? typeExpr, Analyzed analyzed) {
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
 		return resolved != null && resolved.base == "__realtime_fn_ptr" && resolved.pointerDepth == 0 && !resolved.isArray && resolved.genericArgs().len > 0;

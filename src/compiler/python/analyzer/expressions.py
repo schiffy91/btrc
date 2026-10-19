@@ -798,7 +798,8 @@ class ExpressionAnalyzer:
             if not self.types.types_compatible(target, source):
                 self.session.error(
                     f"Cannot assign '{self.types.format_source_type(source)}' to '{self.types.format_source_type(target)}'"
-                    f"{self.types.comma_tuple_hint(expression.value, target)}",
+                    f"{self.types.comma_tuple_hint(expression.value, target)}"
+                    f"{self.types.function_object_pointer_hint(target, source)}",
                     expression.line,
                     expression.col,
                 )
@@ -1176,8 +1177,9 @@ class ExpressionAnalyzer:
             self.aggregates.reject_thread_value_escape(expression.expr, "cast")
             return
         if self._nonportable_callable_cast(source, target, expression.expr):
+            direction = "from" if self.types.is_function_pointer_word(target) else "to"
             self.session.error(
-                "Function pointers cannot be cast to or from object pointers or integer values in strict C11",
+                f"Function pointers cannot be cast {direction} object pointers or integer values in strict C11",
                 expression.line,
                 expression.col,
             )
@@ -1220,8 +1222,9 @@ class ExpressionAnalyzer:
             )
 
     def _nonportable_callable_cast(self, source, target, value) -> bool:
-        source_callable = self.types.function_pointer_signature(source) is not None
-        target_callable = self.types.function_pointer_signature(target) is not None
+        # The nullable `CFunction<...>?` is the same one C word.
+        source_callable = self.types.is_function_pointer_word(source)
+        target_callable = self.types.is_function_pointer_word(target)
         if source_callable == target_callable:
             return False
         if (

@@ -2385,7 +2385,7 @@ class CallLowerer:
         callee_type = self._session.type_of(callee)
         if callee_type is None and isinstance(callee, Identifier):
             callee_type = self._analyzed.global_var_types.get(callee.name)
-        signature = self._types.function_pointer_signature(callee_type)
+        signature = self._types.callable_signature(callee_type)
         return tuple(signature) if signature is not None else None
 
     def _builtin_method_dispatch(
@@ -2435,7 +2435,7 @@ class CallLowerer:
     ):
         """Resolve a declared class method to its concrete free-function symbol."""
         callee = node.callee
-        if self._types.function_pointer_signature(self._session.type_of(callee)) is not None:
+        if self._types.callable_signature(self._session.type_of(callee)) is not None:
             return None
         receiver = callee.obj
         if isinstance(receiver, Identifier) and not self._session.local_is_declared(receiver.name):

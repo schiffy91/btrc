@@ -699,9 +699,48 @@ class StatementAnalyzer:
         self._prepare_expression(expression, facts)
         self.expressions.analyze(expression)
         self._check_nullable_stores(expression, facts)
+        self._check_nullable_calls(expression, facts)
         self._apply_expression_flow_effects(expression)
 
     _STORE_WARNING = "Possibly-null value stored in non-nullable {context} of type '{type}' — check for null first"
+    _NULLABLE_CALL = "Nullable function pointer of type '{type}' may be null; compare it with null before calling it"
+
+    def _check_nullable_calls(self, expression, facts) -> None:
+        """Refuse a call through a ``CFunction<...>?`` the flow has not proved non-null.
+
+        Facts refine as they do for nullable accesses: the right operand of
+        ``&&`` and ``||`` and the arms of ``?:`` see what their condition proves.
+        """
+        if expression is None or not dataclasses.is_dataclass(expression) or isinstance(expression, LambdaExpr):
+            return
+        if isinstance(expression, CallExpr) and not self.session.flow_unreachable:
+            callee_type = self.expressions.infer_type(expression.callee)
+            path = self.flow.access_path(expression.callee)
+            if self.types.is_nullable_function_pointer(callee_type) and (path is None or path not in facts):
+                self.session.error(
+                    self._NULLABLE_CALL.format(type=self.types.format_type(callee_type)),
+                    expression.line,
+                    expression.col,
+                )
+        if isinstance(expression, BinaryExpr) and expression.op in {"&&", "||"}:
+            self._check_nullable_calls(expression.left, facts)
+            outcome = self.flow.nonnull_facts_for_outcome(expression.left, expression.op == "&&")
+            self._check_nullable_calls(expression.right, frozenset(set(facts) | outcome))
+            return
+        if isinstance(expression, TernaryExpr):
+            self._check_nullable_calls(expression.condition, facts)
+            true_facts = frozenset(set(facts) | self.flow.nonnull_facts_for_outcome(expression.condition, True))
+            false_facts = frozenset(set(facts) | self.flow.nonnull_facts_for_outcome(expression.condition, False))
+            self._check_nullable_calls(expression.true_expr, true_facts)
+            self._check_nullable_calls(expression.false_expr, false_facts)
+            return
+        for field in dataclasses.fields(expression):
+            child = getattr(expression, field.name, None)
+            if isinstance(child, (list, tuple)):
+                for item in child:
+                    self._check_nullable_calls(item, facts)
+            else:
+                self._check_nullable_calls(child, facts)
 
     def _check_nullable_stores(self, expression, facts) -> None:
         """Warn where an assignment or an argument stores a value that may be null into a non-nullable reference.
@@ -2196,7 +2235,8 @@ class StatementAnalyzer:
                         and (not self._return_type_compatible(self.session.current_return_type, ret_type))
                     ):
                         self.session.error(
-                            f"Return type mismatch: expected '{self.types.format_type(self.session.current_return_type)}' but got '{self.types.format_type(ret_type)}'",
+                            f"Return type mismatch: expected '{self.types.format_type(self.session.current_return_type)}' but got '{self.types.format_type(ret_type)}'"
+                            f"{self.types.function_object_pointer_hint(self.session.current_return_type, ret_type)}",
                             stmt.line,
                             stmt.col,
                         )
@@ -2431,7 +2471,8 @@ class StatementAnalyzer:
                     self.session.error(
                         f"Cannot assign '{self.types.format_type(init_type)}' to variable '{stmt.name}' "
                         f"of type '{self.types.format_type(stmt.type)}'"
-                        f"{self.types.comma_tuple_hint(stmt.initializer, stmt.type)}",
+                        f"{self.types.comma_tuple_hint(stmt.initializer, stmt.type)}"
+                        f"{self.types.function_object_pointer_hint(stmt.type, init_type)}",
                         stmt.line,
                         stmt.col,
                     )
