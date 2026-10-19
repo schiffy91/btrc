@@ -29,6 +29,7 @@ extern int btrcTestRestrictToOwner(string path);
 extern int btrcTestDenyAll(string path);
 extern int btrcTestHandleCount();
 extern int btrcTestSpawnSelf(string arguments, void** process);
+extern int btrcTestSpawnRestricted(string arguments, void** process);
 extern int btrcTestWaitProcess(void* process, int milliseconds);
 extern int btrcTestRemoveDirectory(string path);
 extern int btrcTestRename(string from, string to);
@@ -319,18 +320,39 @@ void caseDenied(string root) {
 	check(btrcTestDenyAll(path) == 0, "deny the user");
 	var opened = FileSystem.openFileExact(path);
 	if (opened.ok()) {
+		/* An enabled backup privilege (a hosted runner's token holds one) lets
+		 * backup-semantics opens past any access list, so the checks run again
+		 * in a child whose restricted token holds no privilege. */
 		opened.value().close();
-		btrcTestRestrictToOwner(path);
-		print("case=dacl-denied skipped the token bypasses access lists");
-		return;
+		void* child = null;
+		check(btrcTestSpawnRestricted("denied \"" + path + "\"", &child) == 0, "start a child without privileges");
+		int verdict = btrcTestWaitProcess(child, 30000);
+		if (verdict == 2) {
+			btrcTestRestrictToOwner(path);
+			print("case=dacl-denied skipped even a token without privileges bypasses access lists");
+			return;
+		}
+		check(verdict == 0, "the unprivileged child is denied (exit " + Strings.fromInt(verdict) + ")");
+	} else {
+		check(deniedChecks(path) == 0, "the exact opens are denied");
 	}
-	check(opened.error().kind() == FS_ACCESS_DENIED, "an exact open is denied");
-	check(FileSystem.openRegularFileSnapshot(path, 64LL).error().kind() == FS_ACCESS_DENIED, "a snapshot is denied");
-	var inspected = FileSystem.inspectExact(path);
-	check(inspected.ok() || inspected.error().kind() == FS_ACCESS_DENIED, "inspection is allowed or denied, never another failure");
 	check(btrcTestRestrictToOwner(path) == 0, "restore the user");
 	check(FileSystem.readText(path).equals("secret"), "readable again");
 	print("case=dacl-denied ok");
+}
+
+/* 0 when every exact open of `path` is denied as FS_ACCESS_DENIED and
+ * inspection is allowed or denied; 2 when the open succeeds; 1 otherwise. */
+int deniedChecks(string path) {
+	var opened = FileSystem.openFileExact(path);
+	if (opened.ok()) {
+		opened.value().close();
+		return 2;
+	}
+	if (opened.error().kind() != FS_ACCESS_DENIED) { return 1; }
+	if (FileSystem.openRegularFileSnapshot(path, 64LL).error().kind() != FS_ACCESS_DENIED) { return 1; }
+	var inspected = FileSystem.inspectExact(path);
+	return inspected.ok() || inspected.error().kind() == FS_ACCESS_DENIED ? 0 : 1;
 }
 
 /* LockFileEx in a second process: this one cannot acquire the lock, and the
@@ -474,6 +496,7 @@ int main(int argc, char** argv) {
 		string mode = Strings.copy(argv[1]);
 		if (mode.equals("hold")) { return holdLock(Strings.copy(argv[2]), Strings.copy(argv[3]), Strings.copy(argv[4])); }
 	}
+	if (argc == 3 && Strings.copy(argv[1]).equals("denied")) { return deniedChecks(Strings.copy(argv[2])); }
 	var temporary = FileSystem.createTemporaryDirectory("btrc-windows-fs-cases");
 	if (!temporary.ok()) {
 		fprintf(stderr, "FAIL: create the temporary directory: %s\n", temporary.error().message());

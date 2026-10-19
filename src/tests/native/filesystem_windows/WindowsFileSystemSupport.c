@@ -208,7 +208,11 @@ static inline int btrcTestHandleCount(void) {
 
 /* Start this executable again with `arguments` (already quoted); *process is
  * its handle. */
-static inline int btrcTestSpawnSelf(char* arguments, void** process) {
+/* This program again with `arguments`, as an ordinary child, or with
+ * `restricted` under a restricted copy of this process's token that holds no
+ * privilege but SeChangeNotify: backup semantics then grant nothing, so the
+ * child meets every access list as written. 0 or a Win32 error. */
+static inline int btrcTestSpawn(char* arguments, int restricted, void** process) {
     *process = NULL;
     wchar_t image[32768];
     DWORD length = GetModuleFileNameW(NULL, image, 32768);
@@ -231,8 +235,17 @@ static inline int btrcTestSpawnSelf(char* arguments, void** process) {
     memset(&startup, 0, sizeof(startup));
     startup.cb = (DWORD)sizeof(startup);
     memset(&information, 0, sizeof(information));
-    BOOL started = CreateProcessW(image, command, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &information);
+    HANDLE token = NULL;
+    HANDLE limited = NULL;
+    BOOL started = FALSE;
+    if (!restricted) {
+        started = CreateProcessW(image, command, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &information);
+    } else if (OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_QUERY, &token) && CreateRestrictedToken(token, DISABLE_MAX_PRIVILEGE, 0, NULL, 0, NULL, 0, NULL, &limited)) {
+        started = CreateProcessAsUserW(limited, image, command, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &information);
+    }
     int status = started ? 0 : (int)GetLastError();
+    if (limited != NULL) { CloseHandle(limited); }
+    if (token != NULL) { CloseHandle(token); }
     free(command);
     free(tail);
     if (!started) { return status; }
@@ -240,6 +253,10 @@ static inline int btrcTestSpawnSelf(char* arguments, void** process) {
     *process = information.hProcess;
     return 0;
 }
+
+static inline int btrcTestSpawnSelf(char* arguments, void** process) { return btrcTestSpawn(arguments, 0, process); }
+
+static inline int btrcTestSpawnRestricted(char* arguments, void** process) { return btrcTestSpawn(arguments, 1, process); }
 
 /* The process's exit code, or -1 when it has not exited within the bound. */
 static inline int btrcTestWaitProcess(void* process, int milliseconds) {
