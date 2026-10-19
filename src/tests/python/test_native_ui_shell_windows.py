@@ -1,0 +1,293 @@
+"""Win32 shell rows (CX-UIA-15): cross-built on Linux or macOS, run on hosted Windows.
+
+On a host with the dev shell, the build tests compile the shared NativeShell
+fixture and the UI Automation client for windows-x86_64 and windows-aarch64
+through both compilers, and link them with zig against wgpu-native v27.0.4.0's
+pinned prebuilt DLL (nix/wgpu-native-prebuilt.nix), whose per-slice pkg-config
+record they write. With BTRC_WIN32_EVIDENCE_DIR set, each row's executables
+and DLL are copied into its own directory there. windows.yml's win32-native
+job runs the execution tests on Windows x64 and ARM64 against that directory:
+100 shell cycles with the window counts and GDI/USER objects after every
+teardown, 100 fresh-process restores, and the UI Automation tree a separate COM
+client process reads. The execution tests skip off Windows; the build tests
+skip on Windows, which has no dev shell. Hosted GPU frames are correctness
+evidence from Windows' software adapter, never a pacing or hardware result.
+"""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+
+import pytest
+
+from src.tests.native_bindings import NativeBindingPackage
+from src.tests.process_limits import C_COMPILE_TIMEOUT, TOOL_TIMEOUT
+from src.tests.python.native_import_fixtures import zig_libc
+from src.tests.python.native_ui_shell_fixtures import SHELL, SYMBOLS, transpile, write_evidence
+from tools.native_plan import NativePlanBuilder
+
+REPO = Path(__file__).resolve().parents[3]
+PROBE = SHELL / "probes/windows"
+# The test id, the target row, zig's architecture and the prebuilt archive's slice.
+TARGETS = {
+    "windows-x64": ("windows-x86_64", "x86_64-w64-windows-gnu", "x86_64", "windows-x64"),
+    "windows-arm64": ("windows-aarch64", "aarch64-w64-windows-gnu", "aarch64", "windows-arm64"),
+}
+FRONTENDS = {"python": "reference", "selfhost": "selfhost"}
+
+
+def wgpu_native(target, directory):
+    """The row's pinned wgpu-native archive, extracted, and its pkg-config directory.
+
+    The x64 archive is the MinGW build, whose import library is libwgpu_native.dll.a;
+    the only ARM64 asset is the MSVC build, whose DLL a MinGW program reaches through
+    the import library wgpu_native.dll.lib. Linking the import library, never the
+    static archive, keeps each program on its own C runtime.
+    """
+    nix = shutil.which("nix")
+    if nix is None:
+        pytest.skip("requires nix to fetch the pinned wgpu-native prebuilt archive")
+    label = TARGETS[target][0]
+    system = subprocess.run(
+        [nix, "eval", "--impure", "--raw", "--expr", "builtins.currentSystem"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=TOOL_TIMEOUT,
+    ).stdout.strip()
+    attribute = f"{REPO}#devShells.{system}.platforms.wgpuNativePrebuilt.{TARGETS[target][3]}"
+    fetched = subprocess.run(
+        [nix, "build", "--no-link", "--print-out-paths", attribute],
+        capture_output=True,
+        text=True,
+        timeout=900,
+        check=False,
+    )
+    assert fetched.returncode == 0, fetched.stderr
+    archive = Path(fetched.stdout.strip().splitlines()[-1])
+    root = directory / f"wgpu-native-{label}"
+    with zipfile.ZipFile(archive) as bundle:
+        bundle.extractall(root)
+    library = root / "lib" / ("libwgpu_native.dll.a" if target == "windows-x64" else "wgpu_native.dll.lib")
+    dll = root / "lib/wgpu_native.dll"
+    assert library.is_file() and dll.is_file(), sorted(path.name for path in (root / "lib").iterdir())
+    pkgconfig = directory / "pkgconfig"
+    pkgconfig.mkdir(parents=True, exist_ok=True)
+    (pkgconfig / f"wgpu-native-{label}.pc").write_text(
+        f"Name: wgpu-native-{label}\n"
+        f"Description: wgpu-native v27.0.4.0 prebuilt for {label}\n"
+        "Version: 27.0.4.0\n"
+        f"Cflags: -I{root / 'include/webgpu'}\n"
+        f"Libs: {library}\n",
+        encoding="utf-8",
+    )
+    return pkgconfig, dll
+
+
+def cross_environment(target, tmp_path, monkeypatch):
+    """Point the header reader and the native plan at the row's sysroot and wgpu-native."""
+    pkgconfig, dll = wgpu_native(target, tmp_path / "wgpu")
+    monkeypatch.setenv("BTRC_NATIVE_TARGET", TARGETS[target][1])
+    monkeypatch.setenv("BTRC_NATIVE_SYSROOT", str(zig_libc()))
+    monkeypatch.setenv(
+        "PKG_CONFIG_PATH", os.pathsep.join(filter(None, [str(pkgconfig), os.environ.get("PKG_CONFIG_PATH")]))
+    )
+    return dll
+
+
+def compile_probe_units(target, directory, units):
+    """The probe's C units for the row, strict C11 through zig with the Windows overlay."""
+    zig = shutil.which("zig")
+    assert zig, "the dev shell provides zig"
+    objects = []
+    for unit in units:
+        output = directory / f"{unit.stem}.o"
+        command = [
+            zig,
+            "cc",
+            "-target",
+            f"{TARGETS[target][2]}-windows-gnu",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            # zig's -O2 is ReleaseFast, which defines NDEBUG; the probe and the
+            # shared checkpoint units check every native result with assert.
+            "-UNDEBUG",
+            "-I",
+            str(REPO / "src/runtime/windows"),
+            "-include",
+            str(REPO / "src/runtime/windows/btrc_win_compat.h"),
+            f"-I{REPO / 'src/stdlib'}",
+            f"-I{PROBE}",
+            "-c",
+            str(unit),
+            "-o",
+            str(output),
+        ]
+        built = subprocess.run(command, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT, check=False)
+        assert built.returncode == 0, built.stderr
+        objects.append(str(output))
+    return objects
+
+
+def link(plan, generated, output, objects):
+    """Link through the emitted plan, adding the probe objects to its final link."""
+
+    def run(command, **kwargs):
+        command = list(command)
+        if "-o" in command and "-c" not in command:
+            command.extend(objects)
+        return subprocess.run(command, **kwargs)
+
+    NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=generated, output=output, optimization=2)
+    assert output.read_bytes()[:2] == b"MZ"
+    return output
+
+
+def build_shell(tmp_path, frontend, target, request, monkeypatch):
+    NativeBindingPackage.require_reader()
+    dll = cross_environment(target, tmp_path, monkeypatch)
+    source = NativeBindingPackage.write(
+        SHELL / "NativeShell.btrc", tmp_path / "package", PROBE / "ShellProbe.h", SYMBOLS
+    )
+    manifest = tmp_path / "package/btrc.toml"
+    manifest.write_text(manifest.read_text() + 'read-only-borrows = ["shellStateCheckpoint.draft"]\n')
+    generated, plan = tmp_path / "Shell.c", tmp_path / "Shell.json"
+    result = transpile(source, generated, plan, frontend, request, TARGETS[target][0])
+    assert result.returncode == 0, result.stderr
+    assert "warning:" not in result.stderr.lower(), result.stderr
+    libraries = [record["name"] for record in json.loads(plan.read_text())["libraries"]]
+    assert {"user32", "gdi32", "comctl32"} <= set(libraries), libraries
+    objects = compile_probe_units(target, tmp_path, [PROBE / "ShellProbe.c", SHELL / "ShellState.c"])
+    executable = link(plan, generated, tmp_path / f"native-shell-{FRONTENDS[frontend]}-{target}.exe", objects)
+    return executable, dll
+
+
+def publish(target, paths):
+    evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
+    if not evidence:
+        return None
+    directory = Path(evidence) / f"native-shell-{target}"
+    directory.mkdir(parents=True, exist_ok=True)
+    for path in paths:
+        shutil.copy2(path, directory / path.name)
+    return directory
+
+
+@pytest.mark.parametrize("target", sorted(TARGETS))
+@pytest.mark.parametrize("frontend", sorted(FRONTENDS))
+def test_windows_native_shell_builds(tmp_path, request, monkeypatch, frontend, target):
+    if sys.platform == "win32":
+        pytest.skip("cross-builds on a Linux or macOS host with the dev shell; Windows runs the published executables")
+    executable, dll = build_shell(tmp_path, frontend, target, request, monkeypatch)
+    publish(target, [executable, dll])
+
+
+def run_shell(command, environment, timeout):
+    try:
+        return subprocess.run(command, capture_output=True, text=True, env=environment, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as error:
+        stdout = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout or ""
+        stderr = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else error.stderr or ""
+        return subprocess.CompletedProcess(command, 124, stdout, stderr + f"\nShell exceeded {timeout}-second timeout")
+
+
+@pytest.mark.parametrize("target", sorted(TARGETS))
+@pytest.mark.parametrize("frontend", sorted(FRONTENDS))
+def test_windows_native_shell_runs(tmp_path, frontend, target):
+    if sys.platform != "win32":
+        pytest.skip("requires Windows: windows.yml's win32-native job runs the executables the build tests publish")
+    evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
+    if not evidence:
+        pytest.skip("BTRC_WIN32_EVIDENCE_DIR names no published Windows shell executables")
+    directory = Path(evidence) / f"native-shell-{target}"
+    executable = directory / f"native-shell-{FRONTENDS[frontend]}-{target}.exe"
+    assert executable.is_file(), sorted(path.name for path in directory.iterdir()) if directory.is_dir() else directory
+    cycles = int(os.environ.get("BTRC_UI_SHELL_CYCLES", "100"))
+    assert 1 <= cycles <= 100
+    state = tmp_path / "state"
+    state.mkdir()
+    environment = {**os.environ}
+    for diagnostic in ("BTRC_UI_SHELL_NO_AX", "BTRC_UI_SHELL_NO_SCROLL"):
+        environment.pop(diagnostic, None)
+    client = directory / f"uia-probe-{FRONTENDS[frontend]}-{target}.exe"
+    if client.is_file():
+        environment["BTRC_UI_SHELL_UIA_PROBE"] = str(client)
+    result = run_shell([str(executable), str(cycles), str(state)], environment, 1200)
+    artifacts = REPO / "build/ui-shell" / f"windows-{FRONTENDS[frontend]}-{target}"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "shell.stdout").write_text(result.stdout, encoding="utf-8")
+    (artifacts / "shell.stderr").write_text(result.stderr, encoding="utf-8")
+    message = f"Shell returncode={result.returncode}\n{result.stderr[-6000:]}\n{result.stdout[-6000:]}"
+    assert result.returncode == 0, message
+    summary = re.search(
+        r"SHELL cycles=(\d+) frames=(\d+) native=(\d+) private=(\d+) registrations=(\d+) dirty-close=missing",
+        result.stdout,
+    )
+    assert summary and int(summary[1]) == cycles, message
+    native, private, registrations = map(int, summary.group(3, 4, 5))
+    assert native == registrations == 0, message
+    teardown = re.findall(r"SHELL teardown provider=(\d+) private=(\d+) registrations=(\d+)", result.stdout)
+    assert len(teardown) == cycles and all(int(row[0]) == int(row[2]) == 0 for row in teardown), message
+    resources = [
+        tuple(map(int, row))
+        for row in re.findall(
+            r"^SHELL resources cycle=(\d+) gdi=(\d+) user=(\d+) provider=(\d+) private=(\d+)\r?$",
+            result.stderr,
+            re.MULTILINE,
+        )
+    ]
+    assert [row[0] for row in resources] == list(range(1, cycles + 1)), message
+    assert all(row[3] == 0 for row in resources), resources
+    probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+    assert len(probes) == cycles, message
+    assert all(probe["probe"] == "windows-win32" for probe in probes)
+    assert all(probe["dpi_awareness_v2"] and probe["comctl32_v6_cue_banner"] for probe in probes), probes[0]
+    frames = int(summary[2])
+    journal = (state / "journal").read_bytes()
+    assert journal.decode().splitlines() == [f"commit {index}" for index in range(1, cycles + 1)]
+    checkpoint = (state / "checkpoint").read_text().splitlines()
+    assert checkpoint[0] == "draft" and int(checkpoint[1]) > 0 and int(checkpoint[2]) == cycles
+    expected = f"RESTORE draft=draft anchor={checkpoint[1]} commits={cycles} actions=0"
+    for restart in range(100):
+        restored = run_shell([str(executable), str(state), "restore"], environment, 60)
+        (artifacts / f"restore-{restart}.stdout").write_text(restored.stdout, encoding="utf-8")
+        assert restored.returncode == 0, restored.stderr + restored.stdout
+        assert expected in restored.stdout.splitlines(), restored.stdout
+        restored_teardown = re.search(
+            r"SHELL teardown provider=(\d+) private=(\d+) registrations=(\d+)", restored.stdout
+        )
+        assert restored_teardown and int(restored_teardown[1]) == int(restored_teardown[3]) == 0, restored.stdout
+        assert (state / "journal").read_bytes() == journal
+    trees = [probe["accessibility"] for probe in probes]
+    (artifacts / "uia-trees.json").write_text(json.dumps(trees, indent=1), encoding="utf-8")
+    gpu = re.findall(r"^GPU: (.*)$", result.stdout, re.MULTILINE)
+    write_evidence(
+        "native-shell" if cycles == 100 else "native-shell-smoke",
+        target,
+        frontend,
+        False,
+        {
+            "cycles": cycles,
+            "frames": frames,
+            "gpu": gpu[:3],
+            "native_handles": native,
+            "private_windows": private,
+            "live_registrations": registrations,
+            "teardown": teardown,
+            "resources": resources,
+            "fresh_process_restores": 100,
+            "e46": "missing",
+            "e47": "fixture-only; stdlib missing",
+            "accessibility": trees[0],
+            "probe": {key: value for key, value in probes[0].items() if key != "accessibility"},
+            "gate_cycles": cycles == 100,
+        },
+    )

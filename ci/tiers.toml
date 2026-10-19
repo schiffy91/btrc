@@ -452,7 +452,9 @@ reports = ["skip-report"]
 # registry-free server DLL with a BTRC sink, an ole32 stream), the overlay's
 # regex, fnmatch and glob, the console terminal, and Library.Process's
 # CreateProcessW provider (the runtime seam's harness, the Process fixture and
-# the Process corpus bundle): a Linux runner builds both
+# the Process corpus bundle), and the Win32 GUI shell with its UI Automation
+# client (CX-UIA-15), which the win32-native rows run under pytest and keep
+# a skip report for: a Linux runner builds both
 # compilers' executables and the server (win32-native-build), then each
 # Windows runner executes those of its architecture (win32-native). A job
 # that waits on another must run on exactly the same events
@@ -493,6 +495,15 @@ changed_paths = [
   "src/tests/stdlib/ChildProcess*.btrc",
   "src/tests/stdlib/Process*.btrc",
   "src/tests/stdlib/Shell*.btrc",
+  "src/tests/python/test_native_ui_shell_windows.py",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/native/gui/shell/*",
+  "src/tests/native/gui/shell/probes/windows/**",
+  "src/stdlib/GUI/*.btrc",
+  "src/stdlib/GUI/btrc.toml",
+  "src/stdlib/GUI/Windows/**",
+  "src/stdlib/GPU/**",
+  "nix/wgpu-native-prebuilt.nix",
 ]
 reports = ["skip-report"]
 
@@ -500,6 +511,7 @@ reports = ["skip-report"]
 workflow = "windows.yml"
 job = "win32-native"
 key = "target"
+reports = ["skip-report"]
 
 [[shards]]
 job = "windows.yml/win32-native"
@@ -538,6 +550,15 @@ changed_paths = [
   "src/tests/stdlib/ChildProcess*.btrc",
   "src/tests/stdlib/Process*.btrc",
   "src/tests/stdlib/Shell*.btrc",
+  "src/tests/python/test_native_ui_shell_windows.py",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/native/gui/shell/*",
+  "src/tests/native/gui/shell/probes/windows/**",
+  "src/stdlib/GUI/*.btrc",
+  "src/stdlib/GUI/btrc.toml",
+  "src/stdlib/GUI/Windows/**",
+  "src/stdlib/GPU/**",
+  "nix/wgpu-native-prebuilt.nix",
 ]
 
 [[shards]]
@@ -577,6 +598,15 @@ changed_paths = [
   "src/tests/stdlib/ChildProcess*.btrc",
   "src/tests/stdlib/Process*.btrc",
   "src/tests/stdlib/Shell*.btrc",
+  "src/tests/python/test_native_ui_shell_windows.py",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/native/gui/shell/*",
+  "src/tests/native/gui/shell/probes/windows/**",
+  "src/stdlib/GUI/*.btrc",
+  "src/stdlib/GUI/btrc.toml",
+  "src/stdlib/GUI/Windows/**",
+  "src/stdlib/GPU/**",
+  "nix/wgpu-native-prebuilt.nix",
 ]
 
 # The whole language and stdlib corpus on real Windows through both compilers
