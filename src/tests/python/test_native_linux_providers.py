@@ -274,8 +274,8 @@ def test_gui_provider_root_exports_the_linux_provider(gui_provider_root):
     assert not {name for name in public if name.startswith("Linux.")}
 
 
-@pytest.mark.parametrize("target", ["windows-x86_64"])
-def test_linux_gui_unsupported_target(target, tmp_path):
+@pytest.mark.parametrize("target", ["android-aarch64", "ios-aarch64"])
+def test_gui_unsupported_target(target, tmp_path):
     """A portable GUI program (Library.GUI only) names the missing provider on a target without one."""
     result = subprocess.run(
         [
