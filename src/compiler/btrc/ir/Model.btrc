@@ -702,9 +702,11 @@ class IRNode {
 		return n;
 	}
 
-	/* A deferred typed-operator diagnostic. Generic instances initially contain
-     * every method; function DCE may remove an unreachable invalid specialization.
-     * If the expression survives, the emitter reports its diagnostic and stops. */
+	/* A deferred typed-operator diagnostic in a generic body. Lowering emits
+     * every method of a generic instance, the reference only those the program
+     * demands. Stage five drops what nothing reaches: DCE does, and without it
+     * IROptimizer.keepDemanded drops what nothing demands and refuses a
+     * diagnostic that remains. The emitter refuses one that survives DCE. */
 	class IRNode invalidExpression(string message) {
 		IRNode n = IRNode(IRK_INVALID_EXPR);
 		n.text = message;
@@ -866,6 +868,11 @@ class IRFunction {
 	public bool isRealtime;
 	public bool cLinkage = false;
 	public string sourceFile = "";  /* the .btrc module this came from; "" for synthesized code */
+	/* An ordinary method or property accessor of a generic class instance, or
+	 * a function its body created. Lowering emits every one, the reference
+	 * only those the program demands, so without DCE stage five keeps one only
+	 * while other code names it (IROptimizer.keepDemanded). */
+	public bool onDemand = false;
 
 	public IRFunction() {
 		self.name = "";
@@ -1192,7 +1199,7 @@ class IRCanonicalRenderer {
 			}
 		}
 		for owner in module.functions {
-			self.line(depth + 1, f"function name={self.quoted(owner.name)} returnType={self.quoted(owner.returnType)}{self.flag("static", owner.isStatic)}{self.flag("archiveExport", owner.archiveExport)}{self.flag("realtime", owner.isRealtime)}{self.flag("cLinkage", owner.cLinkage)}{self.text("sourceFile", owner.sourceFile)}");
+			self.line(depth + 1, f"function name={self.quoted(owner.name)} returnType={self.quoted(owner.returnType)}{self.flag("static", owner.isStatic)}{self.flag("archiveExport", owner.archiveExport)}{self.flag("realtime", owner.isRealtime)}{self.flag("cLinkage", owner.cLinkage)}{self.flag("onDemand", owner.onDemand)}{self.text("sourceFile", owner.sourceFile)}");
 			self.params(depth + 2, owner.params);
 			self.child(depth + 2, "body", owner.body);
 		}

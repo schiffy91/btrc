@@ -1773,19 +1773,17 @@ class ExpressionLowerer {
 			if (domain == OP_DOMAIN_UNRESOLVED) {
 				return IRNode.binary(left, op, right);
 			}
-			if (domain == OP_DOMAIN_INVALID) {
-				string leftLabel = "unknown";
-				string rightLabel = "unknown";
-				if (leftType != null) { leftLabel = TypeIdentity.shapeKey(leftType); }
-				if (rightType != null) { rightLabel = TypeIdentity.shapeKey(rightType); }
-				/* Generic instances emit every method before function DCE. An
-                 * invalid typed operator in an unreachable method must not
-                 * reject the whole instance (for example Vector<UINode>.min).
-                 * Defer the structured diagnostic until after function DCE. */
+			if (domain == OP_DOMAIN_INVALID && leftType != null && rightType != null) {
+				string failure = self.operators.comparisonFailure(op, leftType, rightType);
+				/* Generic instances emit every method, the reference only the
+                 * ones the program demands. An invalid typed operator in a
+                 * method nothing demands must not reject the whole instance
+                 * (for example Vector<UINode>.min): the diagnostic is refused
+                 * only if its definition survives stage five. */
 				if (self.context.genericBody) {
-					return IRNode.invalidExpression("operator '" + op + "' is not defined for operands '" + leftLabel + "' and '" + rightLabel + "'");
+					return IRNode.invalidExpression(failure);
 				}
-				self.typedOperatorFail("operator '" + op + "' is not defined for operands '" + leftLabel + "' and '" + rightLabel + "'");
+				self.typedOperatorFail(failure);
 			}
 			if (domain == OP_DOMAIN_STRING) {
 				return self.lowerStringComparisonValues(op, left, right);
@@ -2625,10 +2623,11 @@ class ExpressionLowerer {
 			IRNode mixed = IRNode.binary(address, "*", IRNode.literal("0x9E3779B97F4A7C15ULL"));
 			return IRNode.cast("unsigned int", IRNode.binary(mixed, ">>", IRNode.literal("32")));
 		}
+		string failure = self.operators.hashFailure(operandType);
 		if (self.context.genericBody) {
-			return IRNode.invalidExpression("__btrc_hash does not support this operand type portably");
+			return IRNode.invalidExpression(failure);
 		}
-		self.typedOperatorFail("__btrc_hash does not support this operand type portably");
+		self.typedOperatorFail(failure);
 		return IRNode.literal("0");
 	}
 
