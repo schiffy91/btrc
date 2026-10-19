@@ -25,6 +25,15 @@ type.  It carries no context and therefore accepts only named functions and
 noncapturing lambdas.  The hosted-ABI manifest records whether each C callback
 parameter is borrowed for the call or stored until unregister.
 
+A plain `CFunction` takes neither `null` nor a `void*` (C has no implicit
+conversion between `void*` and a function pointer); an explicit
+`(CFunction<...>)null` cast still spells an empty slot.  `CFunction<...>?` is
+the nullable function pointer: the same C word, which also takes `null`.  It is
+compared with `null` and stored into a plain `CFunction` before a call, since
+calling it directly is refused.  A hosted C function-pointer parameter is
+nullable, as C declares it, so an optional callback such as `glob`'s `errfunc`
+takes `null`.
+
 For non-realtime C APIs with call-scoped callbacks, use the package's
 [checked callback mapping](../../src/language/package-manifest.md#call-scoped-native-callbacks).
 It imports an ordinary interface with an `invoke` method, derives its signature

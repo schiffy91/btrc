@@ -617,6 +617,16 @@ class CallValidator {
 		return expected.base == "void" && expected.pointerDepth == 1 && (actual.base == "string" || actual.pointerDepth > 0 || actual.isArray);
 	}
 
+	/* A hosted C function-pointer parameter is nullable, as C declares it:
+	 * the hosted ABI records no non-null contract, and C APIs take NULL for
+	 * an optional callback (glob's errfunc). It is the nullable function
+	 * pointer a source declaration spells `CFunction<...>?`, as the
+	 * reference compiler's _hosted_callback_accepts_null decides. */
+	public bool hostedCallbackAcceptsNull(Node expected, Node actual) {
+		Node? canonical = self.types.resolveAliases(expected);
+		return self.operators.isNullType(actual) && canonical != null && canonical.base == "__fn_ptr" && canonical.pointerDepth == 0 && !canonical.isArray;
+	}
+
 	public void validateUnknownHostedOpaqueArguments(string name, Node call, Map<string, Node> vars) {
 		int index = 0;
 		while (index < call.args().len) {
@@ -657,7 +667,7 @@ class CallValidator {
 			Node argument = call.args().get(index);
 			self.storage.validateReferenceQualifiers(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()'", vars);
 			Node? actual = self.types.inferType(argument,  vars);
-			if (actual != null && !self.hostedArgumentTypeDeferred(expected, actual) && (!self.types.assignmentCompatible(expected, actual) || !self.types.argumentConstLayersMatch(expected, argument, vars))) {
+			if (actual != null && !self.hostedArgumentTypeDeferred(expected, actual) && !self.hostedCallbackAcceptsNull(expected, actual) && (!self.types.assignmentCompatible(expected, actual) || !self.types.argumentConstLayersMatch(expected, argument, vars))) {
 				TypeValidator.fail("Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
 			}
 			self.validateSourceHelperConsumer(name, index, argument, vars);

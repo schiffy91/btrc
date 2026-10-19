@@ -2773,9 +2773,11 @@ class TypeSystem:
             # that. Demanding a bare value on both sides reported a type error
             # naming the same type twice -- one alias resolved, one not -- and
             # pre-empted the managed-return check in lowering, which is what
-            # actually has something to say about bare __fn_ptr storage.
+            # actually has something to say about bare __fn_ptr storage. The
+            # nullable spelling `CFunction<...>?` is the same one C word, so
+            # depths compare after its `?` collapses.
             return bool(
-                target.pointer_depth == source.pointer_depth
+                self.semantic_pointer_depth(target) == self.semantic_pointer_depth(source)
                 and target.is_array == source.is_array
                 and self.generic_args_equal(target, source)
             )

@@ -24,6 +24,13 @@ rendered diagnostic, and a warning must read the same in both.
   locals by ``id()`` and never forgot them, so a later binding allocated where
   a freed escaped one had been lost its facts at the loop's first unknown
   store: a warning btrcc did not print.
+- Null and function pointers. ``CFunction<...>?`` is the nullable function
+  pointer; a plain ``CFunction<...>`` takes only functions. btrcc took null,
+  void* and a pointer to a function pointer for either; the reference
+  compiler refused functions for the nullable one and null for a hosted C
+  callback parameter, which C declares nullable (glob's errfunc). Both now
+  follow the one rule, and btrcc no longer takes null for a Thread or Mutex
+  owner either.
 """
 
 from __future__ import annotations
@@ -306,3 +313,120 @@ def test_a_freed_escaped_symbol_never_marks_a_later_one() -> None:
         gc.collect()
         fresh = SymbolInfo("box", TypeExpr(base="Box", pointer_depth=1, is_nullable=True), "variable")
         assert not session.address_escaped(fresh)
+
+
+# Null: what a plain and a nullable function pointer accept.
+CALLBACKS = """#include <stdio.h>
+
+int twice(int value) { return value * 2; }
+
+int apply(CFunction<int, int> callback, int value) { return callback(value); }
+
+int applyOptional(CFunction<int, int>? callback, int value) {
+\tif (callback == null) { return value; }
+\tCFunction<int, int> present = callback;
+\treturn present(value);
+}
+
+struct Slot {
+\tCFunction<int, int>? callback;
+};
+
+int main() {
+\tCFunction<int, int>? optional = null;
+\tint none = applyOptional(optional, 3);
+\toptional = twice;
+\tstruct Slot slot;
+\tslot.callback = null;
+\tslot.callback = twice;
+\tint some = applyOptional(optional, 3) + applyOptional(null, 1) + applyOptional(twice, 2) + apply(twice, 5);
+\tprintf("%d %d %d\\n", none, some, slot.callback == null ? 0 : 1);
+\treturn 0;
+}
+"""
+
+
+def test_a_nullable_function_pointer_takes_null_and_functions(harness: ParityHarness) -> None:
+    reference, selfhost = harness.accepted("Callbacks", CALLBACKS)
+    assert reference == selfhost == "3 21 1\n"
+
+
+# A hosted C function-pointer parameter takes null, as a hosted raw-pointer
+# parameter does; GLOB above passes glob's errfunc that way. qsort's
+# comparator is the hosted callback every row has today, but C headers mark
+# it nonnull, so here only the two compilers' C is compared: the C compiler,
+# not btrc, diagnoses NULL for a nonnull parameter, as for strlen(NULL).
+HOSTED_NULL = """#include <stdlib.h>
+
+int main() {
+\tint values[1] = {1};
+\tqsort(values, (size_t)0, sizeof(int), null);
+\treturn 0;
+}
+"""
+
+
+def test_a_hosted_callback_parameter_takes_null_in_both(harness: ParityHarness) -> None:
+    reference, selfhost = harness.compile("HostedNull", HOSTED_NULL)
+    assert reference.returncode == selfhost.returncode == 0
+    assert reference.diagnostics == selfhost.diagnostics == ()
+    for outcome in (reference, selfhost):
+        assert "qsort(values, ((size_t)0), sizeof(int), NULL)" in outcome.c_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "message"),
+    [
+        (
+            "NullLocal",
+            "\tCFunction<int, int> callback = null;\n\treturn callback == null ? 0 : 1;\n",
+            "error: Cannot assign 'null*' to variable 'callback' of type 'CFunction<int, int>'",
+        ),
+        (
+            "NullArgument",
+            "\treturn apply(null, 1);\n",
+            "error: Argument 'callback' to 'apply()' expects 'CFunction<int, int>' but got 'null*'",
+        ),
+        (
+            "VoidPointerLocal",
+            "\tvoid* opaque = null;\n\tCFunction<int, int> callback = opaque;\n\treturn callback == null ? 0 : 1;\n",
+            "error: Cannot assign 'void*' to variable 'callback' of type 'CFunction<int, int>'",
+        ),
+        # A pointer to a function pointer is not one, nullable or not; btrcc
+        # took both and emitted C that assigns int (**)(int) to int (*)(int).
+        (
+            "AddressLocal",
+            "\tCFunction<int, int> callback = twice;\n\tCFunction<int, int> copy = &callback;\n"
+            "\treturn copy == null ? 0 : 1;\n",
+            "error: Cannot assign 'CFunction<int, int>*' to variable 'copy' of type 'CFunction<int, int>'",
+        ),
+        (
+            "AddressOptional",
+            "\tCFunction<int, int> callback = twice;\n\tCFunction<int, int>? optional = &callback;\n"
+            "\treturn optional == null ? 0 : 1;\n",
+            "error: Cannot assign 'CFunction<int, int>*' to variable 'optional' of type 'CFunction<int, int>*'",
+        ),
+        # btrcc's null rule also took the other direct handles, which are
+        # never nullable either.
+        (
+            "NullThread",
+            "\tThread<int> worker = null;\n\treturn 0;\n",
+            "error: Cannot assign 'null*' to variable 'worker' of type 'Thread<int>'",
+        ),
+        (
+            "NullMutex",
+            "\tMutex<int> guard = null;\n\treturn 0;\n",
+            "error: Cannot assign 'null*' to variable 'guard' of type 'Mutex<int>'",
+        ),
+    ],
+)
+def test_a_direct_handle_refuses_null_and_void_pointers(
+    harness: ParityHarness, name: str, body: str, message: str
+) -> None:
+    source = (
+        "int twice(int value) { return value * 2; }\n\n"
+        "int apply(CFunction<int, int> callback, int value) { return callback(value); }\n\nint main() {\n"
+        + body
+        + "}\n"
+    )
+    assert _message(harness.refused(name, source)) == message
