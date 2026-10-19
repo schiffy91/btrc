@@ -26,6 +26,7 @@
 #include <time.h>
 #include <io.h>      /* _mktemp_s */
 #include <direct.h>  /* _mkdir   */
+#include <unistd.h>
 
 #include "btrc_win_errors.h"
 
@@ -352,6 +353,36 @@ static inline int btrc_unsetenv(const char *name) {
 #ifndef realpath
 #define realpath(p, r) btrc_realpath((p), (r))
 #endif
+
+/* The narrow CRT getcwd uses the active code page and can replace path
+   characters with '?'. Preserve the UTF-8 path contract at this boundary. */
+static inline char *btrc_win_getcwd(char *buffer, size_t capacity) {
+    if (buffer && capacity == 0) { errno = EINVAL; return NULL; }
+    wchar_t *wide = _wgetcwd(NULL, 1);
+    if (!wide) { return NULL; }
+    char *path = btrc_win_path_to_utf8(wide);
+    free(wide);
+    if (!path) { return NULL; }
+    size_t length = strlen(path) + 1;
+    if (capacity != 0 && capacity < length) {
+        free(path);
+        errno = ERANGE;
+        return NULL;
+    }
+    if (!buffer) {
+        if (capacity <= length) { return path; }
+        char *grown = (char *)realloc(path, capacity);
+        if (!grown) { free(path); errno = ENOMEM; }
+        return grown;
+    }
+    memcpy(buffer, path, length);
+    free(path);
+    return buffer;
+}
+#ifdef getcwd
+#undef getcwd
+#endif
+#define getcwd btrc_win_getcwd
 
 /* mkdtemp: create a uniquely-named temp directory. Keep the implementation
    inline because this header is force-included into every translation unit;
