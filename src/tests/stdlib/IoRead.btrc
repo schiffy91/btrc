@@ -47,8 +47,10 @@ int main() {
 	print("missing file reads empty");
 
 	/* Non-seekable stream: wrap a popen pipe with setHandle and read it all.
-     * fseek/ftell sizing would see ftell == -1 here. */
-	FILE* h = popen("printf 'line one\nline two\n'", "r");
+     * fseek/ftell sizing would see ftell == -1 here. The command means the
+     * same to sh and to cmd.exe, Windows' popen shell (whose CRLF the text-mode
+     * pipe reads back as LF). */
+	FILE* h = popen("echo line one&& echo line two", "r");
 	assert(h != NULL);
 	File pipe = File("");
 	pipe.setHandle(h);
