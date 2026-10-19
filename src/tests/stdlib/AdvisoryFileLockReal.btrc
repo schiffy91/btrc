@@ -1,8 +1,10 @@
 /* Real lock ownership and filesystem identity, through both frontends. */
 import Library.FileSystem;
 import Library.FileSystem.FileSystemHandles;
+import Library.Platform;
 
 #include <assert.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -47,10 +49,17 @@ int main() {
 	char nativeLinked[4096];
 	assert(snprintf(nativePath, sizeof(nativePath), "%s", path) < 4096);
 	assert(snprintf(nativeLinked, sizeof(nativeLinked), "%s", linked) < 4096);
-	assert(link(nativePath, nativeLinked) == 0);
-	assert(!AdvisoryFileLock.acquire(path).ok());
-	assert(!AdvisoryFileLock.acquire(linked).ok());
-	assert(unlink(linked) == 0);
+	/* Android's SELinux policy gives the shell and app domains no link
+	 * permission, so a second name for the lock file cannot exist there. */
+	int linkedStatus = link(nativePath, nativeLinked);
+	if (Platform.isAndroid()) {
+		assert(linkedStatus != 0 && errno == EACCES);
+	} else {
+		assert(linkedStatus == 0);
+		assert(!AdvisoryFileLock.acquire(path).ok());
+		assert(!AdvisoryFileLock.acquire(linked).ok());
+		assert(unlink(linked) == 0);
+	}
 	assert(mkfifo(nativeLinked, (mode_t)0600) == 0);
 	assert(!AdvisoryFileLock.acquire(linked).ok());
 	assert(AdvisoryFileLock.acquire(linked).error().kind() == FS_WRONG_TYPE);
