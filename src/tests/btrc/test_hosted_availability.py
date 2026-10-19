@@ -282,6 +282,35 @@ def test_an_unused_stdlib_import_that_names_unavailable_symbols_compiles(fronten
     assert_compiled(frontends.compile(program, "windows-x86_64"))
 
 
+MATCHING_PROGRAM = {
+    "Main.btrc": (
+        "import Library.Pattern;\nimport Library.Regex;\n#include <glob.h>\n"
+        "int ignoreGlobError(const char* path, int error) {\n    return 0;\n}\n"
+        "int main() {\n    glob_t found;\n"
+        '    int status = glob("*.none", 0, ignoreGlobError, &found);\n'
+        "    if (status == 0) { globfree(&found); }\n"
+        '    bool regex = Regex.matches("[0-9]+", "a1");\n'
+        '    bool pattern = Pattern.matches("*.txt", "a.txt");\n'
+        "    return regex && pattern && status == GLOB_NOMATCH ? 0 : 1;\n}\n"
+    )
+}
+
+
+@pytest.mark.parametrize("target", ("linux-x86_64", "windows-x86_64", "windows-aarch64", "windows-aarch64-msvc"))
+def test_regex_fnmatch_and_glob_reach_every_row_but_msvc(target: str, frontends: Frontends) -> None:
+    """The gnu Windows rows declare them through the overlay's vendored musl engine
+    (src/runtime/windows); the MSVC row has no overlay and refuses them in both compilers."""
+
+    outcomes = frontends.compile(MATCHING_PROGRAM, target)
+    if target != "windows-aarch64-msvc":
+        assert_compiled(outcomes)
+        return
+    reference, selfhost = outcomes["reference"].result, outcomes["selfhost"].result
+    assert (reference.returncode, reference.stderr) == (selfhost.returncode, selfhost.stderr)
+    assert reference.returncode == 1
+    assert "' is not available on target windows-aarch64-msvc (hosted ABI); referenced from " in reference.stderr
+
+
 def test_both_compilers_agree_on_a_reached_stdlib_provider(frontends: Frontends) -> None:
     """The POSIX child-process provider: refused on windows until its Win32 provider lands (Stage 26)."""
 

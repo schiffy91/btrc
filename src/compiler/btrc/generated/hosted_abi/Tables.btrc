@@ -201,7 +201,7 @@ class GeneratedHostedAbiData {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
 		self.genericArgumentNestingLimit = 32;
-		self.fingerprint = "e2332b3b760eed5c967e328da7b535b0c8998fc6f54af7700ce0bb2037218ba5";
+		self.fingerprint = "5a7b7c439b34c0de9805a9b82609dfdaa506a471402968ca23beb9e828e1e165";
 		self.targetSpecFingerprint = "e904db76e8ac1560728455a2796235537f2f71cb88d74f8be7a1bb47f3ee67b8";
 	}
 
@@ -214,7 +214,7 @@ class GeneratedHostedAbiData {
 		if (rows != null) { return rows; }
 		Vector<GeneratedHostedFunctionRow> built = [];
 		int index = 0;
-		while (index < 362) {
+		while (index < 364) {
 			built.push(self.functionAt(index));
 			index = index + 1;
 		}
@@ -3980,6 +3980,53 @@ class GeneratedHostedAbiData {
 		}
 		if (index == 176) {
 			return GeneratedHostedFunctionRow(
+				"glob",
+				"posix",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("CFunction", 0, false, [GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), GeneratedAbiTypeRow("int", 0, false, self.emptyTypes())]), "value", "during_call"),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("glob_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"unknown");
+		}
+		if (index == 177) {
+			return GeneratedHostedFunctionRow(
+				"globfree",
+				"posix",
+				GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("glob_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"unknown");
+		}
+		if (index == 178) {
+			return GeneratedHostedFunctionRow(
 				"hypot",
 				"math",
 				GeneratedAbiTypeRow("double", 0, false, self.emptyTypes()),
@@ -4001,7 +4048,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 177) {
+		if (index == 179) {
 			return GeneratedHostedFunctionRow(
 				"hypotf",
 				"math",
@@ -4024,7 +4071,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 178) {
+		if (index == 180) {
 			return GeneratedHostedFunctionRow(
 				"hypotl",
 				"math",
@@ -4047,7 +4094,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 179) {
+		if (index == 181) {
 			return GeneratedHostedFunctionRow(
 				"initgroups",
 				"posix_process",
@@ -4070,7 +4117,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 180) {
+		if (index == 182) {
 			return GeneratedHostedFunctionRow(
 				"isalnum",
 				"ctype",
@@ -4092,7 +4139,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 181) {
+		if (index == 183) {
 			return GeneratedHostedFunctionRow(
 				"isalpha",
 				"ctype",
@@ -4114,7 +4161,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 182) {
+		if (index == 184) {
 			return GeneratedHostedFunctionRow(
 				"isatty",
 				"posix_process",
@@ -4136,7 +4183,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 183) {
+		if (index == 185) {
 			return GeneratedHostedFunctionRow(
 				"isblank",
 				"ctype",
@@ -4158,7 +4205,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 184) {
+		if (index == 186) {
 			return GeneratedHostedFunctionRow(
 				"iscntrl",
 				"ctype",
@@ -4180,7 +4227,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 185) {
+		if (index == 187) {
 			return GeneratedHostedFunctionRow(
 				"isdigit",
 				"ctype",
@@ -4202,7 +4249,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 186) {
+		if (index == 188) {
 			return GeneratedHostedFunctionRow(
 				"isgraph",
 				"ctype",
@@ -4224,7 +4271,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 187) {
+		if (index == 189) {
 			return GeneratedHostedFunctionRow(
 				"islower",
 				"ctype",
@@ -4246,7 +4293,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 188) {
+		if (index == 190) {
 			return GeneratedHostedFunctionRow(
 				"isprint",
 				"ctype",
@@ -4268,7 +4315,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 189) {
+		if (index == 191) {
 			return GeneratedHostedFunctionRow(
 				"ispunct",
 				"ctype",
@@ -4290,7 +4337,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 190) {
+		if (index == 192) {
 			return GeneratedHostedFunctionRow(
 				"isspace",
 				"ctype",
@@ -4312,7 +4359,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 191) {
+		if (index == 193) {
 			return GeneratedHostedFunctionRow(
 				"isupper",
 				"ctype",
@@ -4334,7 +4381,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 192) {
+		if (index == 194) {
 			return GeneratedHostedFunctionRow(
 				"isxdigit",
 				"ctype",
@@ -4356,7 +4403,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 193) {
+		if (index == 195) {
 			return GeneratedHostedFunctionRow(
 				"kill",
 				"posix_process",
@@ -4379,7 +4426,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 194) {
+		if (index == 196) {
 			return GeneratedHostedFunctionRow(
 				"labs",
 				"stdlib",
@@ -4401,7 +4448,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 195) {
+		if (index == 197) {
 			return GeneratedHostedFunctionRow(
 				"lgamma",
 				"math",
@@ -4423,7 +4470,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 196) {
+		if (index == 198) {
 			return GeneratedHostedFunctionRow(
 				"lgammaf",
 				"math",
@@ -4445,7 +4492,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 197) {
+		if (index == 199) {
 			return GeneratedHostedFunctionRow(
 				"lgammal",
 				"math",
@@ -4467,7 +4514,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 198) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow5(int index) {
+		if (index == 200) {
 			return GeneratedHostedFunctionRow(
 				"listen",
 				"posix",
@@ -4490,7 +4541,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 199) {
+		if (index == 201) {
 			return GeneratedHostedFunctionRow(
 				"llabs",
 				"stdlib",
@@ -4512,11 +4563,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow5(int index) {
-		if (index == 200) {
+		if (index == 202) {
 			return GeneratedHostedFunctionRow(
 				"localtime_r",
 				"posix",
@@ -4539,7 +4586,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 201) {
+		if (index == 203) {
 			return GeneratedHostedFunctionRow(
 				"log",
 				"math",
@@ -4561,7 +4608,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 202) {
+		if (index == 204) {
 			return GeneratedHostedFunctionRow(
 				"log10",
 				"math",
@@ -4583,7 +4630,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 203) {
+		if (index == 205) {
 			return GeneratedHostedFunctionRow(
 				"log10f",
 				"math",
@@ -4605,7 +4652,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 204) {
+		if (index == 206) {
 			return GeneratedHostedFunctionRow(
 				"log10l",
 				"math",
@@ -4627,7 +4674,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 205) {
+		if (index == 207) {
 			return GeneratedHostedFunctionRow(
 				"log1p",
 				"math",
@@ -4649,7 +4696,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 206) {
+		if (index == 208) {
 			return GeneratedHostedFunctionRow(
 				"log1pf",
 				"math",
@@ -4671,7 +4718,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 207) {
+		if (index == 209) {
 			return GeneratedHostedFunctionRow(
 				"log1pl",
 				"math",
@@ -4693,7 +4740,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 208) {
+		if (index == 210) {
 			return GeneratedHostedFunctionRow(
 				"log2",
 				"math",
@@ -4715,7 +4762,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 209) {
+		if (index == 211) {
 			return GeneratedHostedFunctionRow(
 				"log2f",
 				"math",
@@ -4737,7 +4784,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 210) {
+		if (index == 212) {
 			return GeneratedHostedFunctionRow(
 				"log2l",
 				"math",
@@ -4759,7 +4806,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 211) {
+		if (index == 213) {
 			return GeneratedHostedFunctionRow(
 				"logb",
 				"math",
@@ -4781,7 +4828,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 212) {
+		if (index == 214) {
 			return GeneratedHostedFunctionRow(
 				"logbf",
 				"math",
@@ -4803,7 +4850,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 213) {
+		if (index == 215) {
 			return GeneratedHostedFunctionRow(
 				"logbl",
 				"math",
@@ -4825,7 +4872,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 214) {
+		if (index == 216) {
 			return GeneratedHostedFunctionRow(
 				"logf",
 				"math",
@@ -4847,7 +4894,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 215) {
+		if (index == 217) {
 			return GeneratedHostedFunctionRow(
 				"logl",
 				"math",
@@ -4869,7 +4916,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 216) {
+		if (index == 218) {
 			return GeneratedHostedFunctionRow(
 				"lseek",
 				"posix",
@@ -4893,7 +4940,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 217) {
+		if (index == 219) {
 			return GeneratedHostedFunctionRow(
 				"lstat",
 				"posix",
@@ -4916,7 +4963,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 218) {
+		if (index == 220) {
 			return GeneratedHostedFunctionRow(
 				"malloc",
 				"stdlib",
@@ -4938,7 +4985,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 219) {
+		if (index == 221) {
 			return GeneratedHostedFunctionRow(
 				"mblen",
 				"stdlib",
@@ -4961,7 +5008,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 220) {
+		if (index == 222) {
 			return GeneratedHostedFunctionRow(
 				"memchr",
 				"string",
@@ -4985,7 +5032,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 221) {
+		if (index == 223) {
 			return GeneratedHostedFunctionRow(
 				"memcmp",
 				"string",
@@ -5009,7 +5056,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 222) {
+		if (index == 224) {
 			return GeneratedHostedFunctionRow(
 				"memcpy",
 				"string",
@@ -5033,7 +5080,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 223) {
+		if (index == 225) {
 			return GeneratedHostedFunctionRow(
 				"memmove",
 				"string",
@@ -5057,7 +5104,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 224) {
+		if (index == 226) {
 			return GeneratedHostedFunctionRow(
 				"memset",
 				"string",
@@ -5081,7 +5128,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 225) {
+		if (index == 227) {
 			return GeneratedHostedFunctionRow(
 				"mkdir",
 				"posix",
@@ -5104,7 +5151,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 226) {
+		if (index == 228) {
 			return GeneratedHostedFunctionRow(
 				"mkdirat",
 				"posix",
@@ -5128,7 +5175,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 227) {
+		if (index == 229) {
 			return GeneratedHostedFunctionRow(
 				"mkdtemp",
 				"stdlib",
@@ -5150,7 +5197,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 228) {
+		if (index == 230) {
 			return GeneratedHostedFunctionRow(
 				"nanosleep",
 				"posix_process",
@@ -5173,7 +5220,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 229) {
+		if (index == 231) {
 			return GeneratedHostedFunctionRow(
 				"nearbyint",
 				"math",
@@ -5195,7 +5242,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 230) {
+		if (index == 232) {
 			return GeneratedHostedFunctionRow(
 				"nearbyintf",
 				"math",
@@ -5217,7 +5264,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 231) {
+		if (index == 233) {
 			return GeneratedHostedFunctionRow(
 				"nearbyintl",
 				"math",
@@ -5239,7 +5286,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 232) {
+		if (index == 234) {
 			return GeneratedHostedFunctionRow(
 				"nextafter",
 				"math",
@@ -5262,7 +5309,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 233) {
+		if (index == 235) {
 			return GeneratedHostedFunctionRow(
 				"nextafterf",
 				"math",
@@ -5285,7 +5332,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 234) {
+		if (index == 236) {
 			return GeneratedHostedFunctionRow(
 				"nextafterl",
 				"math",
@@ -5308,7 +5355,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 235) {
+		if (index == 237) {
 			return GeneratedHostedFunctionRow(
 				"open",
 				"posix",
@@ -5331,7 +5378,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 236) {
+		if (index == 238) {
 			return GeneratedHostedFunctionRow(
 				"openat",
 				"posix",
@@ -5355,7 +5402,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 237) {
+		if (index == 239) {
 			return GeneratedHostedFunctionRow(
 				"opendir",
 				"posix",
@@ -5377,7 +5424,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 238) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow6(int index) {
+		if (index == 240) {
 			return GeneratedHostedFunctionRow(
 				"pclose",
 				"stdio",
@@ -5399,7 +5450,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 239) {
+		if (index == 241) {
 			return GeneratedHostedFunctionRow(
 				"perror",
 				"stdio",
@@ -5421,11 +5472,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow6(int index) {
-		if (index == 240) {
+		if (index == 242) {
 			return GeneratedHostedFunctionRow(
 				"pipe",
 				"posix_process",
@@ -5447,7 +5494,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 241) {
+		if (index == 243) {
 			return GeneratedHostedFunctionRow(
 				"poll",
 				"posix_process",
@@ -5471,7 +5518,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 242) {
+		if (index == 244) {
 			return GeneratedHostedFunctionRow(
 				"popen",
 				"stdio",
@@ -5494,7 +5541,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 243) {
+		if (index == 245) {
 			return GeneratedHostedFunctionRow(
 				"pow",
 				"math",
@@ -5517,7 +5564,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 244) {
+		if (index == 246) {
 			return GeneratedHostedFunctionRow(
 				"powf",
 				"math",
@@ -5540,7 +5587,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 245) {
+		if (index == 247) {
 			return GeneratedHostedFunctionRow(
 				"powl",
 				"math",
@@ -5563,7 +5610,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 246) {
+		if (index == 248) {
 			return GeneratedHostedFunctionRow(
 				"printf",
 				"stdio",
@@ -5585,7 +5632,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 247) {
+		if (index == 249) {
 			return GeneratedHostedFunctionRow(
 				"pthread_join",
 				"concurrency",
@@ -5608,7 +5655,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 248) {
+		if (index == 250) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_destroy",
 				"concurrency",
@@ -5630,7 +5677,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 249) {
+		if (index == 251) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_init",
 				"concurrency",
@@ -5653,7 +5700,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 250) {
+		if (index == 252) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_lock",
 				"concurrency",
@@ -5675,7 +5722,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 251) {
+		if (index == 253) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_unlock",
 				"concurrency",
@@ -5697,7 +5744,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 252) {
+		if (index == 254) {
 			return GeneratedHostedFunctionRow(
 				"putc",
 				"stdio",
@@ -5720,7 +5767,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 253) {
+		if (index == 255) {
 			return GeneratedHostedFunctionRow(
 				"putchar",
 				"stdio",
@@ -5742,7 +5789,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 254) {
+		if (index == 256) {
 			return GeneratedHostedFunctionRow(
 				"puts",
 				"stdio",
@@ -5764,7 +5811,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 255) {
+		if (index == 257) {
 			return GeneratedHostedFunctionRow(
 				"qsort",
 				"stdlib",
@@ -5789,7 +5836,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 256) {
+		if (index == 258) {
 			return GeneratedHostedFunctionRow(
 				"quick_exit",
 				"stdlib",
@@ -5811,7 +5858,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 257) {
+		if (index == 259) {
 			return GeneratedHostedFunctionRow(
 				"raise",
 				"posix_process",
@@ -5833,10 +5880,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 258) {
+		if (index == 260) {
 			return GeneratedHostedFunctionRow("rand", "stdlib", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 259) {
+		if (index == 261) {
 			return GeneratedHostedFunctionRow(
 				"read",
 				"posix",
@@ -5860,7 +5907,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 260) {
+		if (index == 262) {
 			return GeneratedHostedFunctionRow(
 				"readdir",
 				"posix",
@@ -5882,7 +5929,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 261) {
+		if (index == 263) {
 			return GeneratedHostedFunctionRow(
 				"readlink",
 				"posix",
@@ -5906,7 +5953,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 262) {
+		if (index == 264) {
 			return GeneratedHostedFunctionRow(
 				"realloc",
 				"stdlib",
@@ -5929,7 +5976,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 263) {
+		if (index == 265) {
 			return GeneratedHostedFunctionRow(
 				"reallocarray",
 				"stdlib",
@@ -5953,7 +6000,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 264) {
+		if (index == 266) {
 			return GeneratedHostedFunctionRow(
 				"realpath",
 				"posix",
@@ -5976,7 +6023,7 @@ class GeneratedHostedAbiData {
 				"free",
 				"unknown");
 		}
-		if (index == 265) {
+		if (index == 267) {
 			return GeneratedHostedFunctionRow(
 				"recv",
 				"posix",
@@ -6001,7 +6048,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 266) {
+		if (index == 268) {
 			return GeneratedHostedFunctionRow(
 				"regcomp",
 				"posix",
@@ -6025,7 +6072,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 267) {
+		if (index == 269) {
 			return GeneratedHostedFunctionRow(
 				"regexec",
 				"posix",
@@ -6051,7 +6098,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 268) {
+		if (index == 270) {
 			return GeneratedHostedFunctionRow(
 				"regfree",
 				"posix",
@@ -6073,7 +6120,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 269) {
+		if (index == 271) {
 			return GeneratedHostedFunctionRow(
 				"remainder",
 				"math",
@@ -6096,7 +6143,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 270) {
+		if (index == 272) {
 			return GeneratedHostedFunctionRow(
 				"remainderf",
 				"math",
@@ -6119,7 +6166,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 271) {
+		if (index == 273) {
 			return GeneratedHostedFunctionRow(
 				"remainderl",
 				"math",
@@ -6142,7 +6189,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 272) {
+		if (index == 274) {
 			return GeneratedHostedFunctionRow(
 				"remove",
 				"stdio",
@@ -6164,7 +6211,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 273) {
+		if (index == 275) {
 			return GeneratedHostedFunctionRow(
 				"rename",
 				"stdio",
@@ -6187,7 +6234,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 274) {
+		if (index == 276) {
 			return GeneratedHostedFunctionRow(
 				"renameat",
 				"posix",
@@ -6212,7 +6259,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 275) {
+		if (index == 277) {
 			return GeneratedHostedFunctionRow(
 				"rewind",
 				"stdio",
@@ -6234,7 +6281,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 276) {
+		if (index == 278) {
 			return GeneratedHostedFunctionRow(
 				"rint",
 				"math",
@@ -6256,7 +6303,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 277) {
+		if (index == 279) {
 			return GeneratedHostedFunctionRow(
 				"rintf",
 				"math",
@@ -6278,7 +6325,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 278) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow7(int index) {
+		if (index == 280) {
 			return GeneratedHostedFunctionRow(
 				"rintl",
 				"math",
@@ -6300,7 +6351,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 279) {
+		if (index == 281) {
 			return GeneratedHostedFunctionRow(
 				"rmdir",
 				"posix",
@@ -6322,11 +6373,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow7(int index) {
-		if (index == 280) {
+		if (index == 282) {
 			return GeneratedHostedFunctionRow(
 				"round",
 				"math",
@@ -6348,7 +6395,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 281) {
+		if (index == 283) {
 			return GeneratedHostedFunctionRow(
 				"roundf",
 				"math",
@@ -6370,7 +6417,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 282) {
+		if (index == 284) {
 			return GeneratedHostedFunctionRow(
 				"roundl",
 				"math",
@@ -6392,7 +6439,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 283) {
+		if (index == 285) {
 			return GeneratedHostedFunctionRow(
 				"send",
 				"posix",
@@ -6417,7 +6464,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 284) {
+		if (index == 286) {
 			return GeneratedHostedFunctionRow(
 				"setenv",
 				"posix_process",
@@ -6441,7 +6488,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 285) {
+		if (index == 287) {
 			return GeneratedHostedFunctionRow(
 				"setgid",
 				"posix_process",
@@ -6463,7 +6510,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 286) {
+		if (index == 288) {
 			return GeneratedHostedFunctionRow(
 				"setpgid",
 				"posix_process",
@@ -6486,7 +6533,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 287) {
+		if (index == 289) {
 			return GeneratedHostedFunctionRow(
 				"setrlimit",
 				"posix_process",
@@ -6509,7 +6556,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 288) {
+		if (index == 290) {
 			return GeneratedHostedFunctionRow(
 				"setsockopt",
 				"posix",
@@ -6535,7 +6582,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 289) {
+		if (index == 291) {
 			return GeneratedHostedFunctionRow(
 				"setuid",
 				"posix_process",
@@ -6557,7 +6604,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 290) {
+		if (index == 292) {
 			return GeneratedHostedFunctionRow(
 				"shutdown",
 				"posix",
@@ -6580,7 +6627,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 291) {
+		if (index == 293) {
 			return GeneratedHostedFunctionRow(
 				"sigaction",
 				"posix_process",
@@ -6604,7 +6651,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 292) {
+		if (index == 294) {
 			return GeneratedHostedFunctionRow(
 				"sigaddset",
 				"posix_process",
@@ -6627,7 +6674,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 293) {
+		if (index == 295) {
 			return GeneratedHostedFunctionRow(
 				"sigemptyset",
 				"posix_process",
@@ -6649,7 +6696,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 294) {
+		if (index == 296) {
 			return GeneratedHostedFunctionRow(
 				"sin",
 				"math",
@@ -6671,7 +6718,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 295) {
+		if (index == 297) {
 			return GeneratedHostedFunctionRow(
 				"sinf",
 				"math",
@@ -6693,7 +6740,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 296) {
+		if (index == 298) {
 			return GeneratedHostedFunctionRow(
 				"sinh",
 				"math",
@@ -6715,7 +6762,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 297) {
+		if (index == 299) {
 			return GeneratedHostedFunctionRow(
 				"sinhf",
 				"math",
@@ -6737,7 +6784,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 298) {
+		if (index == 300) {
 			return GeneratedHostedFunctionRow(
 				"sinhl",
 				"math",
@@ -6759,7 +6806,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 299) {
+		if (index == 301) {
 			return GeneratedHostedFunctionRow(
 				"sinl",
 				"math",
@@ -6781,7 +6828,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 300) {
+		if (index == 302) {
 			return GeneratedHostedFunctionRow(
 				"snprintf",
 				"stdio",
@@ -6805,7 +6852,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 301) {
+		if (index == 303) {
 			return GeneratedHostedFunctionRow(
 				"socket",
 				"posix",
@@ -6829,7 +6876,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 302) {
+		if (index == 304) {
 			return GeneratedHostedFunctionRow(
 				"socketpair",
 				"posix",
@@ -6854,7 +6901,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 303) {
+		if (index == 305) {
 			return GeneratedHostedFunctionRow(
 				"sprintf",
 				"stdio",
@@ -6877,7 +6924,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 304) {
+		if (index == 306) {
 			return GeneratedHostedFunctionRow(
 				"sqrt",
 				"math",
@@ -6899,7 +6946,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 305) {
+		if (index == 307) {
 			return GeneratedHostedFunctionRow(
 				"sqrtf",
 				"math",
@@ -6921,7 +6968,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 306) {
+		if (index == 308) {
 			return GeneratedHostedFunctionRow(
 				"sqrtl",
 				"math",
@@ -6943,7 +6990,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 307) {
+		if (index == 309) {
 			return GeneratedHostedFunctionRow(
 				"srand",
 				"stdlib",
@@ -6965,7 +7012,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 308) {
+		if (index == 310) {
 			return GeneratedHostedFunctionRow(
 				"stat",
 				"posix",
@@ -6988,7 +7035,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 309) {
+		if (index == 311) {
 			return GeneratedHostedFunctionRow(
 				"strcat",
 				"string",
@@ -7011,7 +7058,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 310) {
+		if (index == 312) {
 			return GeneratedHostedFunctionRow(
 				"strchr",
 				"string",
@@ -7034,7 +7081,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 311) {
+		if (index == 313) {
 			return GeneratedHostedFunctionRow(
 				"strcmp",
 				"string",
@@ -7057,7 +7104,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 312) {
+		if (index == 314) {
 			return GeneratedHostedFunctionRow(
 				"strcoll",
 				"string",
@@ -7080,7 +7127,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 313) {
+		if (index == 315) {
 			return GeneratedHostedFunctionRow(
 				"strcpy",
 				"string",
@@ -7103,7 +7150,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 314) {
+		if (index == 316) {
 			return GeneratedHostedFunctionRow(
 				"strcspn",
 				"string",
@@ -7126,7 +7173,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 315) {
+		if (index == 317) {
 			return GeneratedHostedFunctionRow(
 				"strdup",
 				"string",
@@ -7148,7 +7195,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 316) {
+		if (index == 318) {
 			return GeneratedHostedFunctionRow(
 				"strerror",
 				"string",
@@ -7170,7 +7217,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 317) {
+		if (index == 319) {
 			return GeneratedHostedFunctionRow(
 				"strlen",
 				"string",
@@ -7192,7 +7239,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 318) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow8(int index) {
+		if (index == 320) {
 			return GeneratedHostedFunctionRow(
 				"strncat",
 				"string",
@@ -7216,7 +7267,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 319) {
+		if (index == 321) {
 			return GeneratedHostedFunctionRow(
 				"strncmp",
 				"string",
@@ -7240,11 +7291,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow8(int index) {
-		if (index == 320) {
+		if (index == 322) {
 			return GeneratedHostedFunctionRow(
 				"strncpy",
 				"string",
@@ -7268,7 +7315,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 321) {
+		if (index == 323) {
 			return GeneratedHostedFunctionRow(
 				"strnlen",
 				"string",
@@ -7291,7 +7338,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 322) {
+		if (index == 324) {
 			return GeneratedHostedFunctionRow(
 				"strpbrk",
 				"string",
@@ -7314,7 +7361,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 323) {
+		if (index == 325) {
 			return GeneratedHostedFunctionRow(
 				"strrchr",
 				"string",
@@ -7337,7 +7384,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 324) {
+		if (index == 326) {
 			return GeneratedHostedFunctionRow(
 				"strspn",
 				"string",
@@ -7360,7 +7407,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 325) {
+		if (index == 327) {
 			return GeneratedHostedFunctionRow(
 				"strstr",
 				"string",
@@ -7383,7 +7430,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 326) {
+		if (index == 328) {
 			return GeneratedHostedFunctionRow(
 				"strtod",
 				"stdlib",
@@ -7406,7 +7453,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 327) {
+		if (index == 329) {
 			return GeneratedHostedFunctionRow(
 				"strtof",
 				"stdlib",
@@ -7429,7 +7476,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 328) {
+		if (index == 330) {
 			return GeneratedHostedFunctionRow(
 				"strtok",
 				"string",
@@ -7452,7 +7499,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 329) {
+		if (index == 331) {
 			return GeneratedHostedFunctionRow(
 				"strtol",
 				"stdlib",
@@ -7476,7 +7523,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 330) {
+		if (index == 332) {
 			return GeneratedHostedFunctionRow(
 				"strtold",
 				"stdlib",
@@ -7499,7 +7546,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 331) {
+		if (index == 333) {
 			return GeneratedHostedFunctionRow(
 				"strtoll",
 				"stdlib",
@@ -7523,7 +7570,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 332) {
+		if (index == 334) {
 			return GeneratedHostedFunctionRow(
 				"strtoul",
 				"stdlib",
@@ -7547,7 +7594,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 333) {
+		if (index == 335) {
 			return GeneratedHostedFunctionRow(
 				"strtoull",
 				"stdlib",
@@ -7571,7 +7618,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 334) {
+		if (index == 336) {
 			return GeneratedHostedFunctionRow(
 				"strxfrm",
 				"string",
@@ -7595,7 +7642,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 335) {
+		if (index == 337) {
 			return GeneratedHostedFunctionRow(
 				"symlink",
 				"posix",
@@ -7618,7 +7665,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 336) {
+		if (index == 338) {
 			return GeneratedHostedFunctionRow(
 				"sysconf",
 				"posix_process",
@@ -7640,7 +7687,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 337) {
+		if (index == 339) {
 			return GeneratedHostedFunctionRow(
 				"system",
 				"stdlib",
@@ -7662,7 +7709,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 338) {
+		if (index == 340) {
 			return GeneratedHostedFunctionRow(
 				"tan",
 				"math",
@@ -7684,7 +7731,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 339) {
+		if (index == 341) {
 			return GeneratedHostedFunctionRow(
 				"tanf",
 				"math",
@@ -7706,7 +7753,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 340) {
+		if (index == 342) {
 			return GeneratedHostedFunctionRow(
 				"tanh",
 				"math",
@@ -7728,7 +7775,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 341) {
+		if (index == 343) {
 			return GeneratedHostedFunctionRow(
 				"tanhf",
 				"math",
@@ -7750,7 +7797,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 342) {
+		if (index == 344) {
 			return GeneratedHostedFunctionRow(
 				"tanhl",
 				"math",
@@ -7772,7 +7819,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 343) {
+		if (index == 345) {
 			return GeneratedHostedFunctionRow(
 				"tanl",
 				"math",
@@ -7794,7 +7841,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 344) {
+		if (index == 346) {
 			return GeneratedHostedFunctionRow(
 				"tcgetattr",
 				"posix_process",
@@ -7817,7 +7864,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 345) {
+		if (index == 347) {
 			return GeneratedHostedFunctionRow(
 				"tcsetattr",
 				"posix_process",
@@ -7841,7 +7888,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 346) {
+		if (index == 348) {
 			return GeneratedHostedFunctionRow(
 				"tgamma",
 				"math",
@@ -7863,7 +7910,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 347) {
+		if (index == 349) {
 			return GeneratedHostedFunctionRow(
 				"tgammaf",
 				"math",
@@ -7885,7 +7932,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 348) {
+		if (index == 350) {
 			return GeneratedHostedFunctionRow(
 				"tgammal",
 				"math",
@@ -7907,7 +7954,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 349) {
+		if (index == 351) {
 			return GeneratedHostedFunctionRow(
 				"time",
 				"posix_process",
@@ -7929,10 +7976,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 350) {
+		if (index == 352) {
 			return GeneratedHostedFunctionRow("tmpfile", "stdio", GeneratedAbiTypeRow("FILE", 1, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("FILE", 1, false, self.emptyTypes()), "independent", -1, "", false, "fclose", "", "", "", "unknown");
 		}
-		if (index == 351) {
+		if (index == 353) {
 			return GeneratedHostedFunctionRow(
 				"tolower",
 				"ctype",
@@ -7954,7 +8001,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 352) {
+		if (index == 354) {
 			return GeneratedHostedFunctionRow(
 				"toupper",
 				"ctype",
@@ -7976,7 +8023,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 353) {
+		if (index == 355) {
 			return GeneratedHostedFunctionRow(
 				"trunc",
 				"math",
@@ -7998,7 +8045,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 354) {
+		if (index == 356) {
 			return GeneratedHostedFunctionRow(
 				"truncf",
 				"math",
@@ -8020,7 +8067,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 355) {
+		if (index == 357) {
 			return GeneratedHostedFunctionRow(
 				"truncl",
 				"math",
@@ -8042,7 +8089,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 356) {
+		if (index == 358) {
 			return GeneratedHostedFunctionRow(
 				"ungetc",
 				"stdio",
@@ -8065,56 +8112,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 357) {
+		if (index == 359) {
 			return GeneratedHostedFunctionRow(
 				"unlink",
 				"posix",
-				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-				true,
-				[
-				GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
-			],
-				false,
-				false,
-				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-				"value",
-				-1,
-				"",
-				false,
-				"",
-				"",
-				"",
-				"",
-				"unknown");
-		}
-		if (index == 358) {
-			return GeneratedHostedFunctionRow(
-				"unlinkat",
-				"posix",
-				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-				true,
-				[
-				GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-				GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
-				GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-			],
-				false,
-				false,
-				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-				"value",
-				-1,
-				"",
-				false,
-				"",
-				"",
-				"",
-				"",
-				"unknown");
-		}
-		if (index == 359) {
-			return GeneratedHostedFunctionRow(
-				"unsetenv",
-				"posix_process",
 				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
 				true,
 				[
@@ -8139,6 +8140,52 @@ class GeneratedHostedAbiData {
 	private GeneratedHostedFunctionRow functionRow9(int index) {
 		if (index == 360) {
 			return GeneratedHostedFunctionRow(
+				"unlinkat",
+				"posix",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"unknown");
+		}
+		if (index == 361) {
+			return GeneratedHostedFunctionRow(
+				"unsetenv",
+				"posix_process",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"unknown");
+		}
+		if (index == 362) {
+			return GeneratedHostedFunctionRow(
 				"waitpid",
 				"posix_process",
 				GeneratedAbiTypeRow("pid_t", 0, false, self.emptyTypes()),
@@ -8161,7 +8208,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 361) {
+		if (index == 363) {
 			return GeneratedHostedFunctionRow(
 				"write",
 				"posix",
@@ -8370,195 +8417,197 @@ class GeneratedHostedAbiData {
 		slots.put("getpid", 173);
 		slots.put("getpwnam_r", 174);
 		slots.put("getrlimit", 175);
-		slots.put("hypot", 176);
-		slots.put("hypotf", 177);
-		slots.put("hypotl", 178);
-		slots.put("initgroups", 179);
-		slots.put("isalnum", 180);
-		slots.put("isalpha", 181);
-		slots.put("isatty", 182);
-		slots.put("isblank", 183);
-		slots.put("iscntrl", 184);
-		slots.put("isdigit", 185);
-		slots.put("isgraph", 186);
-		slots.put("islower", 187);
-		slots.put("isprint", 188);
-		slots.put("ispunct", 189);
-		slots.put("isspace", 190);
-		slots.put("isupper", 191);
-		slots.put("isxdigit", 192);
-		slots.put("kill", 193);
-		slots.put("labs", 194);
-		slots.put("lgamma", 195);
-		slots.put("lgammaf", 196);
-		slots.put("lgammal", 197);
-		slots.put("listen", 198);
-		slots.put("llabs", 199);
-		slots.put("localtime_r", 200);
-		slots.put("log", 201);
-		slots.put("log10", 202);
-		slots.put("log10f", 203);
-		slots.put("log10l", 204);
-		slots.put("log1p", 205);
-		slots.put("log1pf", 206);
-		slots.put("log1pl", 207);
-		slots.put("log2", 208);
-		slots.put("log2f", 209);
-		slots.put("log2l", 210);
-		slots.put("logb", 211);
-		slots.put("logbf", 212);
-		slots.put("logbl", 213);
-		slots.put("logf", 214);
-		slots.put("logl", 215);
-		slots.put("lseek", 216);
-		slots.put("lstat", 217);
-		slots.put("malloc", 218);
-		slots.put("mblen", 219);
-		slots.put("memchr", 220);
-		slots.put("memcmp", 221);
-		slots.put("memcpy", 222);
-		slots.put("memmove", 223);
-		slots.put("memset", 224);
-		slots.put("mkdir", 225);
-		slots.put("mkdirat", 226);
-		slots.put("mkdtemp", 227);
-		slots.put("nanosleep", 228);
-		slots.put("nearbyint", 229);
-		slots.put("nearbyintf", 230);
-		slots.put("nearbyintl", 231);
-		slots.put("nextafter", 232);
-		slots.put("nextafterf", 233);
-		slots.put("nextafterl", 234);
-		slots.put("open", 235);
-		slots.put("openat", 236);
-		slots.put("opendir", 237);
-		slots.put("pclose", 238);
-		slots.put("perror", 239);
-		slots.put("pipe", 240);
-		slots.put("poll", 241);
-		slots.put("popen", 242);
-		slots.put("pow", 243);
-		slots.put("powf", 244);
-		slots.put("powl", 245);
-		slots.put("printf", 246);
-		slots.put("pthread_join", 247);
-		slots.put("pthread_mutex_destroy", 248);
-		slots.put("pthread_mutex_init", 249);
+		slots.put("glob", 176);
+		slots.put("globfree", 177);
+		slots.put("hypot", 178);
+		slots.put("hypotf", 179);
+		slots.put("hypotl", 180);
+		slots.put("initgroups", 181);
+		slots.put("isalnum", 182);
+		slots.put("isalpha", 183);
+		slots.put("isatty", 184);
+		slots.put("isblank", 185);
+		slots.put("iscntrl", 186);
+		slots.put("isdigit", 187);
+		slots.put("isgraph", 188);
+		slots.put("islower", 189);
+		slots.put("isprint", 190);
+		slots.put("ispunct", 191);
+		slots.put("isspace", 192);
+		slots.put("isupper", 193);
+		slots.put("isxdigit", 194);
+		slots.put("kill", 195);
+		slots.put("labs", 196);
+		slots.put("lgamma", 197);
+		slots.put("lgammaf", 198);
+		slots.put("lgammal", 199);
+		slots.put("listen", 200);
+		slots.put("llabs", 201);
+		slots.put("localtime_r", 202);
+		slots.put("log", 203);
+		slots.put("log10", 204);
+		slots.put("log10f", 205);
+		slots.put("log10l", 206);
+		slots.put("log1p", 207);
+		slots.put("log1pf", 208);
+		slots.put("log1pl", 209);
+		slots.put("log2", 210);
+		slots.put("log2f", 211);
+		slots.put("log2l", 212);
+		slots.put("logb", 213);
+		slots.put("logbf", 214);
+		slots.put("logbl", 215);
+		slots.put("logf", 216);
+		slots.put("logl", 217);
+		slots.put("lseek", 218);
+		slots.put("lstat", 219);
+		slots.put("malloc", 220);
+		slots.put("mblen", 221);
+		slots.put("memchr", 222);
+		slots.put("memcmp", 223);
+		slots.put("memcpy", 224);
+		slots.put("memmove", 225);
+		slots.put("memset", 226);
+		slots.put("mkdir", 227);
+		slots.put("mkdirat", 228);
+		slots.put("mkdtemp", 229);
+		slots.put("nanosleep", 230);
+		slots.put("nearbyint", 231);
+		slots.put("nearbyintf", 232);
+		slots.put("nearbyintl", 233);
+		slots.put("nextafter", 234);
+		slots.put("nextafterf", 235);
+		slots.put("nextafterl", 236);
+		slots.put("open", 237);
+		slots.put("openat", 238);
+		slots.put("opendir", 239);
+		slots.put("pclose", 240);
+		slots.put("perror", 241);
+		slots.put("pipe", 242);
+		slots.put("poll", 243);
+		slots.put("popen", 244);
+		slots.put("pow", 245);
+		slots.put("powf", 246);
+		slots.put("powl", 247);
+		slots.put("printf", 248);
+		slots.put("pthread_join", 249);
 	}
 
 	private void indexFunctions1(Map<string, int> slots) {
-		slots.put("pthread_mutex_lock", 250);
-		slots.put("pthread_mutex_unlock", 251);
-		slots.put("putc", 252);
-		slots.put("putchar", 253);
-		slots.put("puts", 254);
-		slots.put("qsort", 255);
-		slots.put("quick_exit", 256);
-		slots.put("raise", 257);
-		slots.put("rand", 258);
-		slots.put("read", 259);
-		slots.put("readdir", 260);
-		slots.put("readlink", 261);
-		slots.put("realloc", 262);
-		slots.put("reallocarray", 263);
-		slots.put("realpath", 264);
-		slots.put("recv", 265);
-		slots.put("regcomp", 266);
-		slots.put("regexec", 267);
-		slots.put("regfree", 268);
-		slots.put("remainder", 269);
-		slots.put("remainderf", 270);
-		slots.put("remainderl", 271);
-		slots.put("remove", 272);
-		slots.put("rename", 273);
-		slots.put("renameat", 274);
-		slots.put("rewind", 275);
-		slots.put("rint", 276);
-		slots.put("rintf", 277);
-		slots.put("rintl", 278);
-		slots.put("rmdir", 279);
-		slots.put("round", 280);
-		slots.put("roundf", 281);
-		slots.put("roundl", 282);
-		slots.put("send", 283);
-		slots.put("setenv", 284);
-		slots.put("setgid", 285);
-		slots.put("setpgid", 286);
-		slots.put("setrlimit", 287);
-		slots.put("setsockopt", 288);
-		slots.put("setuid", 289);
-		slots.put("shutdown", 290);
-		slots.put("sigaction", 291);
-		slots.put("sigaddset", 292);
-		slots.put("sigemptyset", 293);
-		slots.put("sin", 294);
-		slots.put("sinf", 295);
-		slots.put("sinh", 296);
-		slots.put("sinhf", 297);
-		slots.put("sinhl", 298);
-		slots.put("sinl", 299);
-		slots.put("snprintf", 300);
-		slots.put("socket", 301);
-		slots.put("socketpair", 302);
-		slots.put("sprintf", 303);
-		slots.put("sqrt", 304);
-		slots.put("sqrtf", 305);
-		slots.put("sqrtl", 306);
-		slots.put("srand", 307);
-		slots.put("stat", 308);
-		slots.put("strcat", 309);
-		slots.put("strchr", 310);
-		slots.put("strcmp", 311);
-		slots.put("strcoll", 312);
-		slots.put("strcpy", 313);
-		slots.put("strcspn", 314);
-		slots.put("strdup", 315);
-		slots.put("strerror", 316);
-		slots.put("strlen", 317);
-		slots.put("strncat", 318);
-		slots.put("strncmp", 319);
-		slots.put("strncpy", 320);
-		slots.put("strnlen", 321);
-		slots.put("strpbrk", 322);
-		slots.put("strrchr", 323);
-		slots.put("strspn", 324);
-		slots.put("strstr", 325);
-		slots.put("strtod", 326);
-		slots.put("strtof", 327);
-		slots.put("strtok", 328);
-		slots.put("strtol", 329);
-		slots.put("strtold", 330);
-		slots.put("strtoll", 331);
-		slots.put("strtoul", 332);
-		slots.put("strtoull", 333);
-		slots.put("strxfrm", 334);
-		slots.put("symlink", 335);
-		slots.put("sysconf", 336);
-		slots.put("system", 337);
-		slots.put("tan", 338);
-		slots.put("tanf", 339);
-		slots.put("tanh", 340);
-		slots.put("tanhf", 341);
-		slots.put("tanhl", 342);
-		slots.put("tanl", 343);
-		slots.put("tcgetattr", 344);
-		slots.put("tcsetattr", 345);
-		slots.put("tgamma", 346);
-		slots.put("tgammaf", 347);
-		slots.put("tgammal", 348);
-		slots.put("time", 349);
-		slots.put("tmpfile", 350);
-		slots.put("tolower", 351);
-		slots.put("toupper", 352);
-		slots.put("trunc", 353);
-		slots.put("truncf", 354);
-		slots.put("truncl", 355);
-		slots.put("ungetc", 356);
-		slots.put("unlink", 357);
-		slots.put("unlinkat", 358);
-		slots.put("unsetenv", 359);
-		slots.put("waitpid", 360);
-		slots.put("write", 361);
+		slots.put("pthread_mutex_destroy", 250);
+		slots.put("pthread_mutex_init", 251);
+		slots.put("pthread_mutex_lock", 252);
+		slots.put("pthread_mutex_unlock", 253);
+		slots.put("putc", 254);
+		slots.put("putchar", 255);
+		slots.put("puts", 256);
+		slots.put("qsort", 257);
+		slots.put("quick_exit", 258);
+		slots.put("raise", 259);
+		slots.put("rand", 260);
+		slots.put("read", 261);
+		slots.put("readdir", 262);
+		slots.put("readlink", 263);
+		slots.put("realloc", 264);
+		slots.put("reallocarray", 265);
+		slots.put("realpath", 266);
+		slots.put("recv", 267);
+		slots.put("regcomp", 268);
+		slots.put("regexec", 269);
+		slots.put("regfree", 270);
+		slots.put("remainder", 271);
+		slots.put("remainderf", 272);
+		slots.put("remainderl", 273);
+		slots.put("remove", 274);
+		slots.put("rename", 275);
+		slots.put("renameat", 276);
+		slots.put("rewind", 277);
+		slots.put("rint", 278);
+		slots.put("rintf", 279);
+		slots.put("rintl", 280);
+		slots.put("rmdir", 281);
+		slots.put("round", 282);
+		slots.put("roundf", 283);
+		slots.put("roundl", 284);
+		slots.put("send", 285);
+		slots.put("setenv", 286);
+		slots.put("setgid", 287);
+		slots.put("setpgid", 288);
+		slots.put("setrlimit", 289);
+		slots.put("setsockopt", 290);
+		slots.put("setuid", 291);
+		slots.put("shutdown", 292);
+		slots.put("sigaction", 293);
+		slots.put("sigaddset", 294);
+		slots.put("sigemptyset", 295);
+		slots.put("sin", 296);
+		slots.put("sinf", 297);
+		slots.put("sinh", 298);
+		slots.put("sinhf", 299);
+		slots.put("sinhl", 300);
+		slots.put("sinl", 301);
+		slots.put("snprintf", 302);
+		slots.put("socket", 303);
+		slots.put("socketpair", 304);
+		slots.put("sprintf", 305);
+		slots.put("sqrt", 306);
+		slots.put("sqrtf", 307);
+		slots.put("sqrtl", 308);
+		slots.put("srand", 309);
+		slots.put("stat", 310);
+		slots.put("strcat", 311);
+		slots.put("strchr", 312);
+		slots.put("strcmp", 313);
+		slots.put("strcoll", 314);
+		slots.put("strcpy", 315);
+		slots.put("strcspn", 316);
+		slots.put("strdup", 317);
+		slots.put("strerror", 318);
+		slots.put("strlen", 319);
+		slots.put("strncat", 320);
+		slots.put("strncmp", 321);
+		slots.put("strncpy", 322);
+		slots.put("strnlen", 323);
+		slots.put("strpbrk", 324);
+		slots.put("strrchr", 325);
+		slots.put("strspn", 326);
+		slots.put("strstr", 327);
+		slots.put("strtod", 328);
+		slots.put("strtof", 329);
+		slots.put("strtok", 330);
+		slots.put("strtol", 331);
+		slots.put("strtold", 332);
+		slots.put("strtoll", 333);
+		slots.put("strtoul", 334);
+		slots.put("strtoull", 335);
+		slots.put("strxfrm", 336);
+		slots.put("symlink", 337);
+		slots.put("sysconf", 338);
+		slots.put("system", 339);
+		slots.put("tan", 340);
+		slots.put("tanf", 341);
+		slots.put("tanh", 342);
+		slots.put("tanhf", 343);
+		slots.put("tanhl", 344);
+		slots.put("tanl", 345);
+		slots.put("tcgetattr", 346);
+		slots.put("tcsetattr", 347);
+		slots.put("tgamma", 348);
+		slots.put("tgammaf", 349);
+		slots.put("tgammal", 350);
+		slots.put("time", 351);
+		slots.put("tmpfile", 352);
+		slots.put("tolower", 353);
+		slots.put("toupper", 354);
+		slots.put("trunc", 355);
+		slots.put("truncf", 356);
+		slots.put("truncl", 357);
+		slots.put("ungetc", 358);
+		slots.put("unlink", 359);
+		slots.put("unlinkat", 360);
+		slots.put("unsetenv", 361);
+		slots.put("waitpid", 362);
+		slots.put("write", 363);
 	}
 
 	public Vector<string> functionNames() {
@@ -8958,6 +9007,8 @@ class GeneratedHostedAbiData {
 		values.push("getusershell");
 		values.push("getwd");
 		values.push("getwgroups_np");
+		values.push("glob");
+		values.push("globfree");
 		values.push("gmtime");
 		values.push("gmtime_r");
 		values.push("grantpt");
@@ -9076,11 +9127,11 @@ class GeneratedHostedAbiData {
 		values.push("llround");
 		values.push("llroundf");
 		values.push("llroundl");
-		values.push("localtime");
-		values.push("localtime_r");
 	}
 
 	private void pushFunctionNames2(Vector<string> values) {
+		values.push("localtime");
+		values.push("localtime_r");
 		values.push("lockf");
 		values.push("log");
 		values.push("log10");
@@ -9329,11 +9380,11 @@ class GeneratedHostedAbiData {
 		values.push("putenv");
 		values.push("putpwent");
 		values.push("puts");
-		values.push("pwrite");
-		values.push("qecvt");
 	}
 
 	private void pushFunctionNames3(Vector<string> values) {
+		values.push("pwrite");
+		values.push("qecvt");
 		values.push("qecvt_r");
 		values.push("qfcvt");
 		values.push("qfcvt_r");
@@ -9582,11 +9633,11 @@ class GeneratedHostedAbiData {
 		values.push("tanh");
 		values.push("tanhf");
 		values.push("tanhl");
-		values.push("tanl");
-		values.push("tcdrain");
 	}
 
 	private void pushFunctionNames4(Vector<string> values) {
+		values.push("tanl");
+		values.push("tcdrain");
 		values.push("tcflow");
 		values.push("tcflush");
 		values.push("tcgetattr");
@@ -10356,6 +10407,16 @@ class GeneratedHostedAbiData {
 		values.push("F_WRLCK");
 		values.push("GETSIGSINFO_PLATFORM_BINARY");
 		values.push("GID_MAX");
+		values.push("GLOB_ABORTED");
+		values.push("GLOB_APPEND");
+		values.push("GLOB_DOOFFS");
+		values.push("GLOB_ERR");
+		values.push("GLOB_MARK");
+		values.push("GLOB_NOCHECK");
+		values.push("GLOB_NOESCAPE");
+		values.push("GLOB_NOMATCH");
+		values.push("GLOB_NOSORT");
+		values.push("GLOB_NOSPACE");
 		values.push("GROUP_FILTER_SIZE");
 		values.push("HOST_NAME_MAX");
 		values.push("HTONL");
@@ -10443,6 +10504,9 @@ class GeneratedHostedAbiData {
 		values.push("INT8_C");
 		values.push("INT8_MAX");
 		values.push("INT8_MIN");
+	}
+
+	private void pushMacroNames3(Vector<string> values) {
 		values.push("INTMAX_C");
 		values.push("INTMAX_MAX");
 		values.push("INTMAX_MIN");
@@ -10453,9 +10517,6 @@ class GeneratedHostedAbiData {
 		values.push("INT_FAST32_MAX");
 		values.push("INT_FAST32_MIN");
 		values.push("INT_FAST64_MAX");
-	}
-
-	private void pushMacroNames3(Vector<string> values) {
 		values.push("INT_FAST64_MIN");
 		values.push("INT_FAST8_MAX");
 		values.push("INT_FAST8_MIN");
@@ -10696,6 +10757,9 @@ class GeneratedHostedAbiData {
 		values.push("IPPROTO_WBEXPAK");
 		values.push("IPPROTO_WBMON");
 		values.push("IPPROTO_WSN");
+	}
+
+	private void pushMacroNames4(Vector<string> values) {
 		values.push("IPPROTO_XNET");
 		values.push("IPPROTO_XTP");
 		values.push("IPV6CTL_ACCEPT_RTADV");
@@ -10706,9 +10770,6 @@ class GeneratedHostedAbiData {
 		values.push("IPV6CTL_DEFHLIM");
 		values.push("IPV6CTL_DEFMCASTHLIM");
 		values.push("IPV6CTL_FORWARDING");
-	}
-
-	private void pushMacroNames4(Vector<string> values) {
 		values.push("IPV6CTL_FORWSRCRT");
 		values.push("IPV6CTL_GIF_HLIM");
 		values.push("IPV6CTL_HDRNESTLIMIT");
@@ -10949,6 +11010,9 @@ class GeneratedHostedAbiData {
 		values.push("KEV_DL_IFDELEGATE_CHANGED");
 		values.push("KEV_DL_IF_ATTACHED");
 		values.push("KEV_DL_IF_DETACHED");
+	}
+
+	private void pushMacroNames5(Vector<string> values) {
 		values.push("KEV_DL_IF_DETACHING");
 		values.push("KEV_DL_IF_IDLE_ROUTE_REFCNT");
 		values.push("KEV_DL_ISSUES");
@@ -10959,9 +11023,6 @@ class GeneratedHostedAbiData {
 		values.push("KEV_DL_LOW_POWER_MODE_CHANGED");
 		values.push("KEV_DL_MASTER_ELECTED");
 		values.push("KEV_DL_NODE_ABSENCE");
-	}
-
-	private void pushMacroNames5(Vector<string> values) {
 		values.push("KEV_DL_NODE_PRESENCE");
 		values.push("KEV_DL_PRIMARY_ELECTED");
 		values.push("KEV_DL_PROTO_ATTACHED");
@@ -11202,6 +11263,9 @@ class GeneratedHostedAbiData {
 		values.push("NFDBITS");
 		values.push("NGREG");
 		values.push("NGROUPS_MAX");
+	}
+
+	private void pushMacroNames6(Vector<string> values) {
 		values.push("NL0");
 		values.push("NL1");
 		values.push("NL2");
@@ -11212,9 +11276,6 @@ class GeneratedHostedAbiData {
 		values.push("NL_MSGMAX");
 		values.push("NL_NMAX");
 		values.push("NL_SETMAX");
-	}
-
-	private void pushMacroNames6(Vector<string> values) {
 		values.push("NL_TEXTMAX");
 		values.push("NOFLSH");
 		values.push("NOKERNINFO");
@@ -11455,6 +11516,9 @@ class GeneratedHostedAbiData {
 		values.push("REG_UNGREEDY");
 		values.push("RE_DUP_MAX");
 		values.push("RLIMIT_AS");
+	}
+
+	private void pushMacroNames7(Vector<string> values) {
 		values.push("RLIMIT_CORE");
 		values.push("RLIMIT_CPU");
 		values.push("RLIMIT_CPU_USAGE_MONITOR");
@@ -11465,9 +11529,6 @@ class GeneratedHostedAbiData {
 		values.push("RLIMIT_MEMLOCK");
 		values.push("RLIMIT_MSGQUEUE");
 		values.push("RLIMIT_NICE");
-	}
-
-	private void pushMacroNames7(Vector<string> values) {
 		values.push("RLIMIT_NLIMITS");
 		values.push("RLIMIT_NOFILE");
 		values.push("RLIMIT_NPROC");
@@ -11708,6 +11769,9 @@ class GeneratedHostedAbiData {
 		values.push("SO_ERROR");
 		values.push("SO_GET_FILTER");
 		values.push("SO_INCOMING_CPU");
+	}
+
+	private void pushMacroNames8(Vector<string> values) {
 		values.push("SO_INCOMING_NAPI_ID");
 		values.push("SO_INQ");
 		values.push("SO_KEEPALIVE");
@@ -11718,9 +11782,6 @@ class GeneratedHostedAbiData {
 		values.push("SO_MARK");
 		values.push("SO_MAX_PACING_RATE");
 		values.push("SO_MEMINFO");
-	}
-
-	private void pushMacroNames8(Vector<string> values) {
 		values.push("SO_NETNS_COOKIE");
 		values.push("SO_NETSVC_MARKING_LEVEL");
 		values.push("SO_NET_SERVICE_TYPE");
@@ -11961,6 +12022,9 @@ class GeneratedHostedAbiData {
 		values.push("UF_SETTABLE");
 		values.push("UF_TRACKED");
 		values.push("UID_MAX");
+	}
+
+	private void pushMacroNames9(Vector<string> values) {
 		values.push("UINT16_C");
 		values.push("UINT16_MAX");
 		values.push("UINT32_C");
@@ -11971,9 +12035,6 @@ class GeneratedHostedAbiData {
 		values.push("UINT8_MAX");
 		values.push("UINTMAX_C");
 		values.push("UINTMAX_MAX");
-	}
-
-	private void pushMacroNames9(Vector<string> values) {
 		values.push("UINTPTR_MAX");
 		values.push("UINT_FAST16_MAX");
 		values.push("UINT_FAST32_MAX");
@@ -12214,6 +12275,9 @@ class GeneratedHostedAbiData {
 		values.push("strncat");
 		values.push("strncpy");
 		values.push("sv_onstack");
+	}
+
+	private void pushMacroNames10(Vector<string> values) {
 		values.push("timeradd");
 		values.push("timerclear");
 		values.push("timercmp");
@@ -12224,9 +12288,6 @@ class GeneratedHostedAbiData {
 		values.push("unlink");
 		values.push("unlinkat");
 		values.push("unsetenv");
-	}
-
-	private void pushMacroNames10(Vector<string> values) {
 		values.push("va_arg");
 		values.push("va_copy");
 		values.push("va_end");
@@ -12324,6 +12385,7 @@ class GeneratedHostedAbiData {
 		values.push("fsupplement_t");
 		values.push("ftrimactivefile_t");
 		values.push("gid_t");
+		values.push("glob_t");
 		values.push("greg_t");
 		values.push("gregset_t");
 		values.push("id_t");
@@ -13153,6 +13215,16 @@ class GeneratedHostedAbiData {
 		values.push("F_WRLCK");
 		values.push("GETSIGSINFO_PLATFORM_BINARY");
 		values.push("GID_MAX");
+		values.push("GLOB_ABORTED");
+		values.push("GLOB_APPEND");
+		values.push("GLOB_DOOFFS");
+		values.push("GLOB_ERR");
+		values.push("GLOB_MARK");
+		values.push("GLOB_NOCHECK");
+		values.push("GLOB_NOESCAPE");
+		values.push("GLOB_NOMATCH");
+		values.push("GLOB_NOSORT");
+		values.push("GLOB_NOSPACE");
 		values.push("GROUP_FILTER_SIZE");
 		values.push("GetFileAttributesA");
 		values.push("HOST_NAME_MAX");
@@ -13227,6 +13299,9 @@ class GeneratedHostedAbiData {
 		values.push("INET6_ADDRSTRLEN");
 		values.push("INET_ADDRSTRLEN");
 		values.push("INFINITY");
+	}
+
+	private void pushOwnedNames3(Vector<string> values) {
 		values.push("INLCR");
 		values.push("INPCK");
 		values.push("INT16_C");
@@ -13237,9 +13312,6 @@ class GeneratedHostedAbiData {
 		values.push("INT32_MIN");
 		values.push("INT64_C");
 		values.push("INT64_MAX");
-	}
-
-	private void pushOwnedNames3(Vector<string> values) {
 		values.push("INT64_MIN");
 		values.push("INT8_C");
 		values.push("INT8_MAX");
@@ -13480,6 +13552,9 @@ class GeneratedHostedAbiData {
 		values.push("IPPROTO_NSP");
 		values.push("IPPROTO_NVPII");
 		values.push("IPPROTO_OSPFIGP");
+	}
+
+	private void pushOwnedNames4(Vector<string> values) {
 		values.push("IPPROTO_PGM");
 		values.push("IPPROTO_PIGP");
 		values.push("IPPROTO_PIM");
@@ -13490,9 +13565,6 @@ class GeneratedHostedAbiData {
 		values.push("IPPROTO_RCCMON");
 		values.push("IPPROTO_RDP");
 		values.push("IPPROTO_ROUTING");
-	}
-
-	private void pushOwnedNames4(Vector<string> values) {
 		values.push("IPPROTO_RSVP");
 		values.push("IPPROTO_RVD");
 		values.push("IPPROTO_SATEXPAK");
@@ -13733,6 +13805,9 @@ class GeneratedHostedAbiData {
 		values.push("IP_RECVERR_RFC4884");
 		values.push("IP_RECVFRAGSIZE");
 		values.push("IP_RECVIF");
+	}
+
+	private void pushOwnedNames5(Vector<string> values) {
 		values.push("IP_RECVOPTS");
 		values.push("IP_RECVORIGDSTADDR");
 		values.push("IP_RECVPKTINFO");
@@ -13743,9 +13818,6 @@ class GeneratedHostedAbiData {
 		values.push("IP_ROUTER_ALERT");
 		values.push("IP_RSVP_OFF");
 		values.push("IP_RSVP_ON");
-	}
-
-	private void pushOwnedNames5(Vector<string> values) {
 		values.push("IP_RSVP_VIF_OFF");
 		values.push("IP_RSVP_VIF_ON");
 		values.push("IP_STRIPHDR");
@@ -13986,6 +14058,9 @@ class GeneratedHostedAbiData {
 		values.push("M_2_SQRTPI");
 		values.push("M_E");
 		values.push("M_LN10");
+	}
+
+	private void pushOwnedNames6(Vector<string> values) {
 		values.push("M_LN2");
 		values.push("M_LOG10E");
 		values.push("M_LOG2E");
@@ -13996,9 +14071,6 @@ class GeneratedHostedAbiData {
 		values.push("M_SQRT2");
 		values.push("NAME_MAX");
 		values.push("NAN");
-	}
-
-	private void pushOwnedNames6(Vector<string> values) {
 		values.push("NBBY");
 		values.push("NCCS");
 		values.push("NETSVC_MRKNG_LVL_L2");
@@ -14239,6 +14311,9 @@ class GeneratedHostedAbiData {
 		values.push("REG_ATOI");
 		values.push("REG_BACKR");
 		values.push("REG_BACKTRACKING_MATCHER");
+	}
+
+	private void pushOwnedNames7(Vector<string> values) {
 		values.push("REG_BADBR");
 		values.push("REG_BADMAX");
 		values.push("REG_BADPAT");
@@ -14249,9 +14324,6 @@ class GeneratedHostedAbiData {
 		values.push("REG_EBRACK");
 		values.push("REG_ECOLLATE");
 		values.push("REG_ECTYPE");
-	}
-
-	private void pushOwnedNames7(Vector<string> values) {
 		values.push("REG_EEND");
 		values.push("REG_EESCAPE");
 		values.push("REG_EMPTY");
@@ -14492,6 +14564,9 @@ class GeneratedHostedAbiData {
 		values.push("SOL_NETBEUI");
 		values.push("SOL_NETLINK");
 		values.push("SOL_NFC");
+	}
+
+	private void pushOwnedNames8(Vector<string> values) {
 		values.push("SOL_PACKET");
 		values.push("SOL_PNPIPE");
 		values.push("SOL_PPPOL2TP");
@@ -14502,9 +14577,6 @@ class GeneratedHostedAbiData {
 		values.push("SOL_SOCKET");
 		values.push("SOL_TIPC");
 		values.push("SOL_TLS");
-	}
-
-	private void pushOwnedNames8(Vector<string> values) {
 		values.push("SOL_VSOCK");
 		values.push("SOL_X25");
 		values.push("SOL_XDP");
@@ -14745,6 +14817,9 @@ class GeneratedHostedAbiData {
 		values.push("TIOCPKT_STOP");
 		values.push("TIOCPTYGNAME");
 		values.push("TIOCPTYGRANT");
+	}
+
+	private void pushOwnedNames9(Vector<string> values) {
 		values.push("TIOCPTYUNLK");
 		values.push("TIOCSBRK");
 		values.push("TIOCSCONS");
@@ -14755,9 +14830,6 @@ class GeneratedHostedAbiData {
 		values.push("TIOCSETA");
 		values.push("TIOCSETAF");
 		values.push("TIOCSETAW");
-	}
-
-	private void pushOwnedNames9(Vector<string> values) {
 		values.push("TIOCSETD");
 		values.push("TIOCSIG");
 		values.push("TIOCSPGRP");
@@ -14998,6 +15070,9 @@ class GeneratedHostedAbiData {
 		values.push("atomic_flag_test_and_set");
 		values.push("atomic_flag_test_and_set_explicit");
 		values.push("atomic_init");
+	}
+
+	private void pushOwnedNames10(Vector<string> values) {
 		values.push("atomic_int");
 		values.push("atomic_int_fast16_t");
 		values.push("atomic_int_fast32_t");
@@ -15008,9 +15083,6 @@ class GeneratedHostedAbiData {
 		values.push("atomic_int_least64_t");
 		values.push("atomic_int_least8_t");
 		values.push("atomic_intmax_t");
-	}
-
-	private void pushOwnedNames10(Vector<string> values) {
 		values.push("atomic_intptr_t");
 		values.push("atomic_is_lock_free");
 		values.push("atomic_llong");
@@ -15251,6 +15323,9 @@ class GeneratedHostedAbiData {
 		values.push("fgetsigsinfo_t");
 		values.push("fileno");
 		values.push("filesec_dup");
+	}
+
+	private void pushOwnedNames11(Vector<string> values) {
 		values.push("filesec_free");
 		values.push("filesec_get_property");
 		values.push("filesec_init");
@@ -15261,9 +15336,6 @@ class GeneratedHostedAbiData {
 		values.push("filesec_unset_property");
 		values.push("finite");
 		values.push("finitef");
-	}
-
-	private void pushOwnedNames11(Vector<string> values) {
 		values.push("finitel");
 		values.push("fixpt_t");
 		values.push("float_t");
@@ -15405,6 +15477,9 @@ class GeneratedHostedAbiData {
 		values.push("getwd");
 		values.push("getwgroups_np");
 		values.push("gid_t");
+		values.push("glob");
+		values.push("glob_t");
+		values.push("globfree");
 		values.push("gmtime");
 		values.push("gmtime_r");
 		values.push("grantpt");
@@ -15501,6 +15576,9 @@ class GeneratedHostedAbiData {
 		values.push("int_fast32_t");
 		values.push("int_fast64_t");
 		values.push("int_fast8_t");
+	}
+
+	private void pushOwnedNames12(Vector<string> values) {
 		values.push("int_least16_t");
 		values.push("int_least32_t");
 		values.push("int_least64_t");
@@ -15514,9 +15592,6 @@ class GeneratedHostedAbiData {
 		values.push("ip_mreqn");
 		values.push("ip_msfilter");
 		values.push("ip_opts");
-	}
-
-	private void pushOwnedNames12(Vector<string> values) {
 		values.push("ipv6_mreq");
 		values.push("iruserok");
 		values.push("iruserok_sa");
@@ -15754,6 +15829,9 @@ class GeneratedHostedAbiData {
 		values.push("perror");
 		values.push("pfctlinput");
 		values.push("pid_t");
+	}
+
+	private void pushOwnedNames13(Vector<string> values) {
 		values.push("pipe");
 		values.push("poll");
 		values.push("pollfd");
@@ -15767,9 +15845,6 @@ class GeneratedHostedAbiData {
 		values.push("powf");
 		values.push("powl");
 		values.push("pread");
-	}
-
-	private void pushOwnedNames13(Vector<string> values) {
 		values.push("printf");
 		values.push("proc_pidinfo");
 		values.push("proc_rlimit_control_wakeupmon");
@@ -16007,6 +16082,9 @@ class GeneratedHostedAbiData {
 		values.push("rusage_info_v4");
 		values.push("rusage_info_v5");
 		values.push("rusage_info_v6");
+	}
+
+	private void pushOwnedNames14(Vector<string> values) {
 		values.push("ruserok");
 		values.push("s6_addr");
 		values.push("s6_addr16");
@@ -16020,9 +16098,6 @@ class GeneratedHostedAbiData {
 		values.push("sae_associd_t");
 		values.push("sae_connid_t");
 		values.push("sbrk");
-	}
-
-	private void pushOwnedNames14(Vector<string> values) {
 		values.push("scalb");
 		values.push("scalbf");
 		values.push("scalbl");
@@ -16260,6 +16335,9 @@ class GeneratedHostedAbiData {
 		values.push("suboptarg");
 		values.push("suseconds_t");
 		values.push("sv_onstack");
+	}
+
+	private void pushOwnedNames15(Vector<string> values) {
 		values.push("swab");
 		values.push("swapon");
 		values.push("swblk_t");
@@ -16273,9 +16351,6 @@ class GeneratedHostedAbiData {
 		values.push("syscall_arg_t");
 		values.push("sysconf");
 		values.push("system");
-	}
-
-	private void pushOwnedNames15(Vector<string> values) {
 		values.push("tan");
 		values.push("tanf");
 		values.push("tanh");
@@ -24794,7 +24869,7 @@ class GeneratedHostedAbiData {
 	}
 
 	private GeneratedPlatformTargetRow platformTarget8() {
-		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("windows-aarch64", "zig 0.16.0 lib/libc/include/any-windows-any (MinGW-w64 38c8142f) plus src/runtime/windows, --target=aarch64-w64-windows-gnu, extracted 2026-10-04 by tools/hosted_platform.py");
+		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("windows-aarch64", "zig 0.16.0 lib/libc/include/any-windows-any (MinGW-w64 38c8142f) plus src/runtime/windows, --target=aarch64-w64-windows-gnu, extracted 2026-10-18 by tools/hosted_platform.py");
 		self.putPlatformTarget8Functions0(row.functions);
 		self.putPlatformTarget8Functions1(row.functions);
 		self.putPlatformTarget8Functions2(row.functions);
@@ -24922,7 +24997,6 @@ class GeneratedHostedAbiData {
 		names.put("fls", true);
 		names.put("flsl", true);
 		names.put("flsll", true);
-		names.put("fnmatch", true);
 		names.put("fork", true);
 		names.put("forkpty", true);
 		names.put("fpathconf", true);
@@ -25064,10 +25138,10 @@ class GeneratedHostedAbiData {
 		names.put("lcong48", true);
 		names.put("lcong48_r", true);
 		names.put("lgamma_r", true);
+		names.put("lgammaf_r", true);
 	}
 
 	private void putPlatformTarget8Functions1(Map<string, bool> names) {
-		names.put("lgammaf_r", true);
 		names.put("lgammal_r", true);
 		names.put("link", true);
 		names.put("linkat", true);
@@ -25167,10 +25241,6 @@ class GeneratedHostedAbiData {
 		names.put("recv", true);
 		names.put("recvfrom", true);
 		names.put("recvmsg", true);
-		names.put("regcomp", true);
-		names.put("regerror", true);
-		names.put("regexec", true);
-		names.put("regfree", true);
 		names.put("regncomp", true);
 		names.put("regnexec", true);
 		names.put("regwcomp", true);
@@ -25317,14 +25387,14 @@ class GeneratedHostedAbiData {
 		names.put("timingsafe_bcmp", true);
 		names.put("ttyname", true);
 		names.put("ttyname_r", true);
-	}
-
-	private void putPlatformTarget8Functions2(Map<string, bool> names) {
 		names.put("ttyslot", true);
 		names.put("tzsetwall", true);
 		names.put("ualarm", true);
 		names.put("umaskx_np", true);
 		names.put("undelete", true);
+	}
+
+	private void putPlatformTarget8Functions2(Map<string, bool> names) {
 		names.put("unlockpt", true);
 		names.put("unwhiteout", true);
 		names.put("user_from_uid", true);
@@ -25732,15 +25802,7 @@ class GeneratedHostedAbiData {
 		names.put("FIOSETOWN", true);
 		names.put("FLUSHO", true);
 		names.put("FNDELAY", true);
-		names.put("FNM_CASEFOLD", true);
-		names.put("FNM_FILE_NAME", true);
 		names.put("FNM_IGNORECASE", true);
-		names.put("FNM_LEADING_DIR", true);
-		names.put("FNM_NOESCAPE", true);
-		names.put("FNM_NOMATCH", true);
-		names.put("FNM_NOSYS", true);
-		names.put("FNM_PATHNAME", true);
-		names.put("FNM_PERIOD", true);
 		names.put("FNONBLOCK", true);
 		names.put("FOOTPRINT_INTERVAL_RESET", true);
 		names.put("FPE_CONDTRAP", true);
@@ -25864,9 +25926,6 @@ class GeneratedHostedAbiData {
 		names.put("IGNCR", true);
 		names.put("IGNPAR", true);
 		names.put("ILL_BADIADDR", true);
-	}
-
-	private void putPlatformTarget8Macros2(Map<string, bool> names) {
 		names.put("ILL_BADSTK", true);
 		names.put("ILL_COPROC", true);
 		names.put("ILL_ILLADR", true);
@@ -25875,6 +25934,9 @@ class GeneratedHostedAbiData {
 		names.put("ILL_ILLTRP", true);
 		names.put("ILL_NOOP", true);
 		names.put("ILL_PRVOPC", true);
+	}
+
+	private void putPlatformTarget8Macros2(Map<string, bool> names) {
 		names.put("ILL_PRVREG", true);
 		names.put("IMAXBEL", true);
 		names.put("IN6ADDR_ANY_INIT", true);
@@ -26117,9 +26179,6 @@ class GeneratedHostedAbiData {
 		names.put("IPPROTO_RAW", true);
 		names.put("IPPROTO_RCCMON", true);
 		names.put("IPPROTO_RDP", true);
-	}
-
-	private void putPlatformTarget8Macros3(Map<string, bool> names) {
 		names.put("IPPROTO_ROUTING", true);
 		names.put("IPPROTO_RSVP", true);
 		names.put("IPPROTO_RVD", true);
@@ -26128,6 +26187,9 @@ class GeneratedHostedAbiData {
 		names.put("IPPROTO_SCCSP", true);
 		names.put("IPPROTO_SCTP", true);
 		names.put("IPPROTO_SDRP", true);
+	}
+
+	private void putPlatformTarget8Macros3(Map<string, bool> names) {
 		names.put("IPPROTO_SEP", true);
 		names.put("IPPROTO_SMC", true);
 		names.put("IPPROTO_SRPC", true);
@@ -26370,9 +26432,6 @@ class GeneratedHostedAbiData {
 		names.put("IP_RETOPTS", true);
 		names.put("IP_ROUTER_ALERT", true);
 		names.put("IP_RSVP_OFF", true);
-	}
-
-	private void putPlatformTarget8Macros4(Map<string, bool> names) {
 		names.put("IP_RSVP_ON", true);
 		names.put("IP_RSVP_VIF_OFF", true);
 		names.put("IP_RSVP_VIF_ON", true);
@@ -26381,6 +26440,9 @@ class GeneratedHostedAbiData {
 		names.put("IP_TRAFFIC_MGT_BACKGROUND", true);
 		names.put("IP_TRANSPARENT", true);
 		names.put("IP_TTL", true);
+	}
+
+	private void putPlatformTarget8Macros4(Map<string, bool> names) {
 		names.put("IP_UNBLOCK_SOURCE", true);
 		names.put("IP_UNICAST_IF", true);
 		names.put("IP_XFRM_POLICY", true);
@@ -26623,9 +26685,6 @@ class GeneratedHostedAbiData {
 		names.put("NL0", true);
 		names.put("NL1", true);
 		names.put("NL2", true);
-	}
-
-	private void putPlatformTarget8Macros5(Map<string, bool> names) {
 		names.put("NL3", true);
 		names.put("NLDLY", true);
 		names.put("NL_ARGMAX", true);
@@ -26634,6 +26693,9 @@ class GeneratedHostedAbiData {
 		names.put("NL_NMAX", true);
 		names.put("NL_SETMAX", true);
 		names.put("NL_TEXTMAX", true);
+	}
+
+	private void putPlatformTarget8Macros5(Map<string, bool> names) {
 		names.put("NOFLSH", true);
 		names.put("NOKERNINFO", true);
 		names.put("NSS_BUFLEN_PASSWD", true);
@@ -26807,42 +26869,22 @@ class GeneratedHostedAbiData {
 		names.put("REG_ATOI", true);
 		names.put("REG_BACKR", true);
 		names.put("REG_BACKTRACKING_MATCHER", true);
-		names.put("REG_BADBR", true);
 		names.put("REG_BADMAX", true);
-		names.put("REG_BADPAT", true);
-		names.put("REG_BADRPT", true);
 		names.put("REG_BASIC", true);
 		names.put("REG_DUMP", true);
-		names.put("REG_EBRACE", true);
-		names.put("REG_EBRACK", true);
-		names.put("REG_ECOLLATE", true);
-		names.put("REG_ECTYPE", true);
 		names.put("REG_EEND", true);
-		names.put("REG_EESCAPE", true);
 		names.put("REG_EMPTY", true);
 		names.put("REG_ENHANCED", true);
-		names.put("REG_ENOSYS", true);
-		names.put("REG_EPAREN", true);
-		names.put("REG_ERANGE", true);
 		names.put("REG_ERPAREN", true);
 		names.put("REG_ESIZE", true);
-		names.put("REG_ESPACE", true);
-		names.put("REG_ESUBREG", true);
-		names.put("REG_EXTENDED", true);
-		names.put("REG_ICASE", true);
 		names.put("REG_ILLSEQ", true);
 		names.put("REG_INVARG", true);
 		names.put("REG_ITOA", true);
 		names.put("REG_LARGE", true);
 		names.put("REG_LITERAL", true);
 		names.put("REG_MINIMAL", true);
-		names.put("REG_NEWLINE", true);
 		names.put("REG_NOERROR", true);
-		names.put("REG_NOMATCH", true);
 		names.put("REG_NOSPEC", true);
-		names.put("REG_NOSUB", true);
-		names.put("REG_NOTBOL", true);
-		names.put("REG_NOTEOL", true);
 		names.put("REG_PEND", true);
 		names.put("REG_STARTEND", true);
 		names.put("REG_TRACE", true);
@@ -26876,9 +26918,6 @@ class GeneratedHostedAbiData {
 		names.put("RLIM_SAVED_MAX", true);
 		names.put("RTSIG_MAX", true);
 		names.put("RUSAGE_CHILDREN", true);
-	}
-
-	private void putPlatformTarget8Macros6(Map<string, bool> names) {
 		names.put("RUSAGE_INFO_CURRENT", true);
 		names.put("RUSAGE_INFO_V0", true);
 		names.put("RUSAGE_INFO_V1", true);
@@ -26907,6 +26946,9 @@ class GeneratedHostedAbiData {
 		names.put("SA_STACK", true);
 		names.put("SA_USERSPACE_MASK", true);
 		names.put("SA_USERTRAMP", true);
+	}
+
+	private void putPlatformTarget8Macros6(Map<string, bool> names) {
 		names.put("SCM_CREDS", true);
 		names.put("SCM_DEVMEM_DMABUF", true);
 		names.put("SCM_DEVMEM_LINEAR", true);
@@ -27129,9 +27171,6 @@ class GeneratedHostedAbiData {
 		names.put("SO_RESOLVER_SIGNATURE", true);
 		names.put("SO_REUSEADDR", true);
 		names.put("SO_REUSEPORT", true);
-	}
-
-	private void putPlatformTarget8Macros7(Map<string, bool> names) {
 		names.put("SO_REUSESHAREUID", true);
 		names.put("SO_RXQ_OVFL", true);
 		names.put("SO_SECURITY_AUTHENTICATION", true);
@@ -27160,6 +27199,9 @@ class GeneratedHostedAbiData {
 		names.put("SO_UPCALLCLOSEWAIT", true);
 		names.put("SO_USELOOPBACK", true);
 		names.put("SO_WANTMORE", true);
+	}
+
+	private void putPlatformTarget8Macros7(Map<string, bool> names) {
 		names.put("SO_WANTOOBFLAG", true);
 		names.put("SO_WIFI_STATUS", true);
 		names.put("SO_ZEROCOPY", true);
@@ -27382,9 +27424,6 @@ class GeneratedHostedAbiData {
 		names.put("ntohl", true);
 		names.put("ntohll", true);
 		names.put("ntohs", true);
-	}
-
-	private void putPlatformTarget8Macros8(Map<string, bool> names) {
 		names.put("pseudo_AF_HDRCMPLT", true);
 		names.put("pseudo_AF_KEY", true);
 		names.put("pseudo_AF_PIP", true);
@@ -27413,6 +27452,9 @@ class GeneratedHostedAbiData {
 		names.put("si_stime", true);
 		names.put("si_syscall", true);
 		names.put("si_timerid", true);
+	}
+
+	private void putPlatformTarget8Macros8(Map<string, bool> names) {
 		names.put("si_uid", true);
 		names.put("si_upper", true);
 		names.put("si_utime", true);
@@ -27583,13 +27625,9 @@ class GeneratedHostedAbiData {
 		names.put("random_data", true);
 		names.put("re_dfa_t", true);
 		names.put("re_guts", true);
-		names.put("re_pattern_buffer", true);
 		names.put("reg_errcode_t", true);
 		names.put("reg_syntax_t", true);
-		names.put("regex_t", true);
 		names.put("register_t", true);
-		names.put("regmatch_t", true);
-		names.put("regoff_t", true);
 		names.put("rlim_t", true);
 		names.put("rlimit", true);
 		names.put("rune_t", true);
@@ -27712,10 +27750,7 @@ class GeneratedHostedAbiData {
 		names.put("re_dfa_t", true);
 		names.put("reg_errcode_t", true);
 		names.put("reg_syntax_t", true);
-		names.put("regex_t", true);
 		names.put("register_t", true);
-		names.put("regmatch_t", true);
-		names.put("regoff_t", true);
 		names.put("rlim_t", true);
 		names.put("rune_t", true);
 		names.put("rusage_info_t", true);
@@ -27993,6 +28028,8 @@ class GeneratedHostedAbiData {
 		names.put("getusershell", true);
 		names.put("getwd", true);
 		names.put("getwgroups_np", true);
+		names.put("glob", true);
+		names.put("globfree", true);
 		names.put("gmtime_r", true);
 		names.put("grantpt", true);
 		names.put("gsignal", true);
@@ -28032,11 +28069,11 @@ class GeneratedHostedAbiData {
 		names.put("inet_net_ntop", true);
 		names.put("inet_net_pton", true);
 		names.put("inet_neta", true);
-		names.put("inet_netof", true);
-		names.put("inet_network", true);
 	}
 
 	private void putPlatformTarget9Functions1(Map<string, bool> names) {
+		names.put("inet_netof", true);
+		names.put("inet_network", true);
 		names.put("inet_nsap_addr", true);
 		names.put("inet_nsap_ntoa", true);
 		names.put("inet_ntoa", true);
@@ -28285,11 +28322,11 @@ class GeneratedHostedAbiData {
 		names.put("sigsuspend", true);
 		names.put("sigtimedwait", true);
 		names.put("sigvec", true);
-		names.put("sigwait", true);
-		names.put("sigwaitinfo", true);
 	}
 
 	private void putPlatformTarget9Functions2(Map<string, bool> names) {
+		names.put("sigwait", true);
+		names.put("sigwaitinfo", true);
 		names.put("sleep", true);
 		names.put("sockatmark", true);
 		names.put("socket", true);
@@ -28903,13 +28940,23 @@ class GeneratedHostedAbiData {
 		names.put("F_WRLCK", true);
 		names.put("GETSIGSINFO_PLATFORM_BINARY", true);
 		names.put("GID_MAX", true);
+		names.put("GLOB_ABORTED", true);
+		names.put("GLOB_APPEND", true);
+		names.put("GLOB_DOOFFS", true);
+		names.put("GLOB_ERR", true);
+	}
+
+	private void putPlatformTarget9Macros2(Map<string, bool> names) {
+		names.put("GLOB_MARK", true);
+		names.put("GLOB_NOCHECK", true);
+		names.put("GLOB_NOESCAPE", true);
+		names.put("GLOB_NOMATCH", true);
+		names.put("GLOB_NOSORT", true);
+		names.put("GLOB_NOSPACE", true);
 		names.put("GROUP_FILTER_SIZE", true);
 		names.put("HOST_NAME_MAX", true);
 		names.put("HTONL", true);
 		names.put("HTONLL", true);
-	}
-
-	private void putPlatformTarget9Macros2(Map<string, bool> names) {
 		names.put("HTONS", true);
 		names.put("HUGE", true);
 		names.put("HUPCL", true);
@@ -29150,6 +29197,9 @@ class GeneratedHostedAbiData {
 		names.put("IPPROTO_LEAF1", true);
 		names.put("IPPROTO_LEAF2", true);
 		names.put("IPPROTO_MAX", true);
+	}
+
+	private void putPlatformTarget9Macros3(Map<string, bool> names) {
 		names.put("IPPROTO_MAXID", true);
 		names.put("IPPROTO_MEAS", true);
 		names.put("IPPROTO_MH", true);
@@ -29160,9 +29210,6 @@ class GeneratedHostedAbiData {
 		names.put("IPPROTO_MTP", true);
 		names.put("IPPROTO_MUX", true);
 		names.put("IPPROTO_ND", true);
-	}
-
-	private void putPlatformTarget9Macros3(Map<string, bool> names) {
 		names.put("IPPROTO_NHRP", true);
 		names.put("IPPROTO_NONE", true);
 		names.put("IPPROTO_NSP", true);
@@ -29403,6 +29450,9 @@ class GeneratedHostedAbiData {
 		names.put("IP_PKTOPTIONS", true);
 		names.put("IP_PMTUDISC", true);
 		names.put("IP_PMTUDISC_DO", true);
+	}
+
+	private void putPlatformTarget9Macros4(Map<string, bool> names) {
 		names.put("IP_PMTUDISC_DONT", true);
 		names.put("IP_PMTUDISC_INTERFACE", true);
 		names.put("IP_PMTUDISC_OMIT", true);
@@ -29413,9 +29463,6 @@ class GeneratedHostedAbiData {
 		names.put("IP_PORTRANGE_HIGH", true);
 		names.put("IP_PORTRANGE_LOW", true);
 		names.put("IP_PROTOCOL", true);
-	}
-
-	private void putPlatformTarget9Macros4(Map<string, bool> names) {
 		names.put("IP_RECVDSTADDR", true);
 		names.put("IP_RECVERR", true);
 		names.put("IP_RECVERR_RFC4884", true);
@@ -29656,6 +29703,9 @@ class GeneratedHostedAbiData {
 		names.put("NBBY", true);
 		names.put("NCCS", true);
 		names.put("NETSVC_MRKNG_LVL_L2", true);
+	}
+
+	private void putPlatformTarget9Macros5(Map<string, bool> names) {
 		names.put("NETSVC_MRKNG_LVL_L3L2_ALL", true);
 		names.put("NETSVC_MRKNG_LVL_L3L2_BK", true);
 		names.put("NETSVC_MRKNG_UNKNOWN", true);
@@ -29666,9 +29716,6 @@ class GeneratedHostedAbiData {
 		names.put("NET_RT_FLAGS_PRIV", true);
 		names.put("NET_RT_IFLIST", true);
 		names.put("NET_RT_IFLIST2", true);
-	}
-
-	private void putPlatformTarget9Macros5(Map<string, bool> names) {
 		names.put("NET_RT_MAXID", true);
 		names.put("NET_RT_STAT", true);
 		names.put("NET_RT_TRASH", true);
@@ -29909,6 +29956,9 @@ class GeneratedHostedAbiData {
 		names.put("REG_ICASE", true);
 		names.put("REG_ILLSEQ", true);
 		names.put("REG_INVARG", true);
+	}
+
+	private void putPlatformTarget9Macros6(Map<string, bool> names) {
 		names.put("REG_ITOA", true);
 		names.put("REG_LARGE", true);
 		names.put("REG_LITERAL", true);
@@ -29919,9 +29969,6 @@ class GeneratedHostedAbiData {
 		names.put("REG_NOSPEC", true);
 		names.put("REG_NOSUB", true);
 		names.put("REG_NOTBOL", true);
-	}
-
-	private void putPlatformTarget9Macros6(Map<string, bool> names) {
 		names.put("REG_NOTEOL", true);
 		names.put("REG_PEND", true);
 		names.put("REG_STARTEND", true);
@@ -30162,6 +30209,9 @@ class GeneratedHostedAbiData {
 		names.put("SO_INCOMING_CPU", true);
 		names.put("SO_INCOMING_NAPI_ID", true);
 		names.put("SO_INQ", true);
+	}
+
+	private void putPlatformTarget9Macros7(Map<string, bool> names) {
 		names.put("SO_KEEPALIVE", true);
 		names.put("SO_LABEL", true);
 		names.put("SO_LINGER", true);
@@ -30172,9 +30222,6 @@ class GeneratedHostedAbiData {
 		names.put("SO_MEMINFO", true);
 		names.put("SO_NETNS_COOKIE", true);
 		names.put("SO_NETSVC_MARKING_LEVEL", true);
-	}
-
-	private void putPlatformTarget9Macros7(Map<string, bool> names) {
 		names.put("SO_NET_SERVICE_TYPE", true);
 		names.put("SO_NKE", true);
 		names.put("SO_NOADDRERR", true);
@@ -30415,6 +30462,9 @@ class GeneratedHostedAbiData {
 		names.put("UQUAD_MAX", true);
 		names.put("USER_ADDR_NULL", true);
 		names.put("USER_FSIGNATURES_CDHASH_LEN", true);
+	}
+
+	private void putPlatformTarget9Macros8(Map<string, bool> names) {
 		names.put("UTIME_NOW", true);
 		names.put("UTIME_OMIT", true);
 		names.put("UUID_DEFINE", true);
@@ -30425,9 +30475,6 @@ class GeneratedHostedAbiData {
 		names.put("VEOL2", true);
 		names.put("VERASE", true);
 		names.put("VINTR", true);
-	}
-
-	private void putPlatformTarget9Macros8(Map<string, bool> names) {
 		names.put("VKILL", true);
 		names.put("VLNEXT", true);
 		names.put("VMIN", true);
@@ -30691,6 +30738,7 @@ class GeneratedHostedAbiData {
 		names.put("ftrimactivefile", true);
 		names.put("ftrimactivefile_t", true);
 		names.put("gid_t", true);
+		names.put("glob_t", true);
 		names.put("greg_t", true);
 		names.put("gregset_t", true);
 		names.put("group_filter", true);
@@ -30860,6 +30908,7 @@ class GeneratedHostedAbiData {
 		names.put("fsupplement_t", true);
 		names.put("ftrimactivefile_t", true);
 		names.put("gid_t", true);
+		names.put("glob_t", true);
 		names.put("greg_t", true);
 		names.put("gregset_t", true);
 		names.put("id_t", true);
@@ -30939,7 +30988,7 @@ class GeneratedHostedAbiData {
 	}
 
 	private GeneratedPlatformTargetRow platformTarget10() {
-		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("windows-x86_64", "zig 0.16.0 lib/libc/include/any-windows-any (MinGW-w64 38c8142f) plus src/runtime/windows, --target=x86_64-w64-windows-gnu, extracted 2026-10-04 by tools/hosted_platform.py");
+		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("windows-x86_64", "zig 0.16.0 lib/libc/include/any-windows-any (MinGW-w64 38c8142f) plus src/runtime/windows, --target=x86_64-w64-windows-gnu, extracted 2026-10-18 by tools/hosted_platform.py");
 		self.putPlatformTarget10Functions0(row.functions);
 		self.putPlatformTarget10Functions1(row.functions);
 		self.putPlatformTarget10Functions2(row.functions);
@@ -31067,7 +31116,6 @@ class GeneratedHostedAbiData {
 		names.put("fls", true);
 		names.put("flsl", true);
 		names.put("flsll", true);
-		names.put("fnmatch", true);
 		names.put("fork", true);
 		names.put("forkpty", true);
 		names.put("fpathconf", true);
@@ -31209,10 +31257,10 @@ class GeneratedHostedAbiData {
 		names.put("lcong48", true);
 		names.put("lcong48_r", true);
 		names.put("lgamma_r", true);
+		names.put("lgammaf_r", true);
 	}
 
 	private void putPlatformTarget10Functions1(Map<string, bool> names) {
-		names.put("lgammaf_r", true);
 		names.put("lgammal_r", true);
 		names.put("link", true);
 		names.put("linkat", true);
@@ -31312,10 +31360,6 @@ class GeneratedHostedAbiData {
 		names.put("recv", true);
 		names.put("recvfrom", true);
 		names.put("recvmsg", true);
-		names.put("regcomp", true);
-		names.put("regerror", true);
-		names.put("regexec", true);
-		names.put("regfree", true);
 		names.put("regncomp", true);
 		names.put("regnexec", true);
 		names.put("regwcomp", true);
@@ -31462,14 +31506,14 @@ class GeneratedHostedAbiData {
 		names.put("timingsafe_bcmp", true);
 		names.put("ttyname", true);
 		names.put("ttyname_r", true);
-	}
-
-	private void putPlatformTarget10Functions2(Map<string, bool> names) {
 		names.put("ttyslot", true);
 		names.put("tzsetwall", true);
 		names.put("ualarm", true);
 		names.put("umaskx_np", true);
 		names.put("undelete", true);
+	}
+
+	private void putPlatformTarget10Functions2(Map<string, bool> names) {
 		names.put("unlockpt", true);
 		names.put("unwhiteout", true);
 		names.put("user_from_uid", true);
@@ -31877,15 +31921,7 @@ class GeneratedHostedAbiData {
 		names.put("FIOSETOWN", true);
 		names.put("FLUSHO", true);
 		names.put("FNDELAY", true);
-		names.put("FNM_CASEFOLD", true);
-		names.put("FNM_FILE_NAME", true);
 		names.put("FNM_IGNORECASE", true);
-		names.put("FNM_LEADING_DIR", true);
-		names.put("FNM_NOESCAPE", true);
-		names.put("FNM_NOMATCH", true);
-		names.put("FNM_NOSYS", true);
-		names.put("FNM_PATHNAME", true);
-		names.put("FNM_PERIOD", true);
 		names.put("FNONBLOCK", true);
 		names.put("FOOTPRINT_INTERVAL_RESET", true);
 		names.put("FPE_CONDTRAP", true);
@@ -32009,9 +32045,6 @@ class GeneratedHostedAbiData {
 		names.put("IGNCR", true);
 		names.put("IGNPAR", true);
 		names.put("ILL_BADIADDR", true);
-	}
-
-	private void putPlatformTarget10Macros2(Map<string, bool> names) {
 		names.put("ILL_BADSTK", true);
 		names.put("ILL_COPROC", true);
 		names.put("ILL_ILLADR", true);
@@ -32020,6 +32053,9 @@ class GeneratedHostedAbiData {
 		names.put("ILL_ILLTRP", true);
 		names.put("ILL_NOOP", true);
 		names.put("ILL_PRVOPC", true);
+	}
+
+	private void putPlatformTarget10Macros2(Map<string, bool> names) {
 		names.put("ILL_PRVREG", true);
 		names.put("IMAXBEL", true);
 		names.put("IN6ADDR_ANY_INIT", true);
@@ -32262,9 +32298,6 @@ class GeneratedHostedAbiData {
 		names.put("IPPROTO_RAW", true);
 		names.put("IPPROTO_RCCMON", true);
 		names.put("IPPROTO_RDP", true);
-	}
-
-	private void putPlatformTarget10Macros3(Map<string, bool> names) {
 		names.put("IPPROTO_ROUTING", true);
 		names.put("IPPROTO_RSVP", true);
 		names.put("IPPROTO_RVD", true);
@@ -32273,6 +32306,9 @@ class GeneratedHostedAbiData {
 		names.put("IPPROTO_SCCSP", true);
 		names.put("IPPROTO_SCTP", true);
 		names.put("IPPROTO_SDRP", true);
+	}
+
+	private void putPlatformTarget10Macros3(Map<string, bool> names) {
 		names.put("IPPROTO_SEP", true);
 		names.put("IPPROTO_SMC", true);
 		names.put("IPPROTO_SRPC", true);
@@ -32515,9 +32551,6 @@ class GeneratedHostedAbiData {
 		names.put("IP_RETOPTS", true);
 		names.put("IP_ROUTER_ALERT", true);
 		names.put("IP_RSVP_OFF", true);
-	}
-
-	private void putPlatformTarget10Macros4(Map<string, bool> names) {
 		names.put("IP_RSVP_ON", true);
 		names.put("IP_RSVP_VIF_OFF", true);
 		names.put("IP_RSVP_VIF_ON", true);
@@ -32526,6 +32559,9 @@ class GeneratedHostedAbiData {
 		names.put("IP_TRAFFIC_MGT_BACKGROUND", true);
 		names.put("IP_TRANSPARENT", true);
 		names.put("IP_TTL", true);
+	}
+
+	private void putPlatformTarget10Macros4(Map<string, bool> names) {
 		names.put("IP_UNBLOCK_SOURCE", true);
 		names.put("IP_UNICAST_IF", true);
 		names.put("IP_XFRM_POLICY", true);
@@ -32768,9 +32804,6 @@ class GeneratedHostedAbiData {
 		names.put("NL0", true);
 		names.put("NL1", true);
 		names.put("NL2", true);
-	}
-
-	private void putPlatformTarget10Macros5(Map<string, bool> names) {
 		names.put("NL3", true);
 		names.put("NLDLY", true);
 		names.put("NL_ARGMAX", true);
@@ -32779,6 +32812,9 @@ class GeneratedHostedAbiData {
 		names.put("NL_NMAX", true);
 		names.put("NL_SETMAX", true);
 		names.put("NL_TEXTMAX", true);
+	}
+
+	private void putPlatformTarget10Macros5(Map<string, bool> names) {
 		names.put("NOFLSH", true);
 		names.put("NOKERNINFO", true);
 		names.put("NSS_BUFLEN_PASSWD", true);
@@ -32952,42 +32988,22 @@ class GeneratedHostedAbiData {
 		names.put("REG_ATOI", true);
 		names.put("REG_BACKR", true);
 		names.put("REG_BACKTRACKING_MATCHER", true);
-		names.put("REG_BADBR", true);
 		names.put("REG_BADMAX", true);
-		names.put("REG_BADPAT", true);
-		names.put("REG_BADRPT", true);
 		names.put("REG_BASIC", true);
 		names.put("REG_DUMP", true);
-		names.put("REG_EBRACE", true);
-		names.put("REG_EBRACK", true);
-		names.put("REG_ECOLLATE", true);
-		names.put("REG_ECTYPE", true);
 		names.put("REG_EEND", true);
-		names.put("REG_EESCAPE", true);
 		names.put("REG_EMPTY", true);
 		names.put("REG_ENHANCED", true);
-		names.put("REG_ENOSYS", true);
-		names.put("REG_EPAREN", true);
-		names.put("REG_ERANGE", true);
 		names.put("REG_ERPAREN", true);
 		names.put("REG_ESIZE", true);
-		names.put("REG_ESPACE", true);
-		names.put("REG_ESUBREG", true);
-		names.put("REG_EXTENDED", true);
-		names.put("REG_ICASE", true);
 		names.put("REG_ILLSEQ", true);
 		names.put("REG_INVARG", true);
 		names.put("REG_ITOA", true);
 		names.put("REG_LARGE", true);
 		names.put("REG_LITERAL", true);
 		names.put("REG_MINIMAL", true);
-		names.put("REG_NEWLINE", true);
 		names.put("REG_NOERROR", true);
-		names.put("REG_NOMATCH", true);
 		names.put("REG_NOSPEC", true);
-		names.put("REG_NOSUB", true);
-		names.put("REG_NOTBOL", true);
-		names.put("REG_NOTEOL", true);
 		names.put("REG_PEND", true);
 		names.put("REG_STARTEND", true);
 		names.put("REG_TRACE", true);
@@ -33021,9 +33037,6 @@ class GeneratedHostedAbiData {
 		names.put("RLIM_SAVED_MAX", true);
 		names.put("RTSIG_MAX", true);
 		names.put("RUSAGE_CHILDREN", true);
-	}
-
-	private void putPlatformTarget10Macros6(Map<string, bool> names) {
 		names.put("RUSAGE_INFO_CURRENT", true);
 		names.put("RUSAGE_INFO_V0", true);
 		names.put("RUSAGE_INFO_V1", true);
@@ -33052,6 +33065,9 @@ class GeneratedHostedAbiData {
 		names.put("SA_STACK", true);
 		names.put("SA_USERSPACE_MASK", true);
 		names.put("SA_USERTRAMP", true);
+	}
+
+	private void putPlatformTarget10Macros6(Map<string, bool> names) {
 		names.put("SCM_CREDS", true);
 		names.put("SCM_DEVMEM_DMABUF", true);
 		names.put("SCM_DEVMEM_LINEAR", true);
@@ -33274,9 +33290,6 @@ class GeneratedHostedAbiData {
 		names.put("SO_RESOLVER_SIGNATURE", true);
 		names.put("SO_REUSEADDR", true);
 		names.put("SO_REUSEPORT", true);
-	}
-
-	private void putPlatformTarget10Macros7(Map<string, bool> names) {
 		names.put("SO_REUSESHAREUID", true);
 		names.put("SO_RXQ_OVFL", true);
 		names.put("SO_SECURITY_AUTHENTICATION", true);
@@ -33305,6 +33318,9 @@ class GeneratedHostedAbiData {
 		names.put("SO_UPCALLCLOSEWAIT", true);
 		names.put("SO_USELOOPBACK", true);
 		names.put("SO_WANTMORE", true);
+	}
+
+	private void putPlatformTarget10Macros7(Map<string, bool> names) {
 		names.put("SO_WANTOOBFLAG", true);
 		names.put("SO_WIFI_STATUS", true);
 		names.put("SO_ZEROCOPY", true);
@@ -33527,9 +33543,6 @@ class GeneratedHostedAbiData {
 		names.put("ntohl", true);
 		names.put("ntohll", true);
 		names.put("ntohs", true);
-	}
-
-	private void putPlatformTarget10Macros8(Map<string, bool> names) {
 		names.put("pseudo_AF_HDRCMPLT", true);
 		names.put("pseudo_AF_KEY", true);
 		names.put("pseudo_AF_PIP", true);
@@ -33558,6 +33571,9 @@ class GeneratedHostedAbiData {
 		names.put("si_stime", true);
 		names.put("si_syscall", true);
 		names.put("si_timerid", true);
+	}
+
+	private void putPlatformTarget10Macros8(Map<string, bool> names) {
 		names.put("si_uid", true);
 		names.put("si_upper", true);
 		names.put("si_utime", true);
@@ -33728,13 +33744,9 @@ class GeneratedHostedAbiData {
 		names.put("random_data", true);
 		names.put("re_dfa_t", true);
 		names.put("re_guts", true);
-		names.put("re_pattern_buffer", true);
 		names.put("reg_errcode_t", true);
 		names.put("reg_syntax_t", true);
-		names.put("regex_t", true);
 		names.put("register_t", true);
-		names.put("regmatch_t", true);
-		names.put("regoff_t", true);
 		names.put("rlim_t", true);
 		names.put("rlimit", true);
 		names.put("rune_t", true);
@@ -33857,10 +33869,7 @@ class GeneratedHostedAbiData {
 		names.put("re_dfa_t", true);
 		names.put("reg_errcode_t", true);
 		names.put("reg_syntax_t", true);
-		names.put("regex_t", true);
 		names.put("register_t", true);
-		names.put("regmatch_t", true);
-		names.put("regoff_t", true);
 		names.put("rlim_t", true);
 		names.put("rune_t", true);
 		names.put("rusage_info_t", true);
