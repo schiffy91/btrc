@@ -8,6 +8,8 @@ ASan/UBSan; label injected native input and host suspension as stand-in evidence
 
 | Fixture | Assertions | Required driver additions |
 | --- | --- | --- |
+| `SliderValue.btrc` | Double range validation, atomic model publication, endpoint snapping and ties, inert ranges, representable steps and owning snapshots | `test_native_ui_control_queue.py`, both frontends, plain and ASan/UBSan |
+| `SliderInteraction.btrc` | Queued previews and terminals, cancellation, model replacement, pressure rejection, and exact integer adjustment intents around 2^53 | Shared-owner checks; native drag, accessibility, pressure and coordinate-error qualification remain required |
 | `ControlEvents.btrc` | E01 draft/commit/model replacement; E02 keyed duplicate/reorder; E03 preview/terminal/snap; E39 eligibility | Real composition/undo, popup and drag interruption, assistive paths, ordered receipts including ineligible disposition |
 | `Lifecycle.btrc` | E29 stable move/stale revision; E31 alias teardown; E35 retained image/closed alias; E39 detach; E46 stale save/cancel/no-handler; two-axis scroll | Native mutation rollback/quarantine, resource/drain counts and fatal off-executor case; two-window native close/quit; native image publication/close race |
 | `Executor.btrc` | E04/E40 ordered publication bursts 4095/4096/4097/8193; E30 cancel/defer/replace in injected host suspension | Real worker producer/publisher lifetime; native input/rendering fairness, bounded service gaps and close start; tracking/modal trials and declared monotonic clock |
