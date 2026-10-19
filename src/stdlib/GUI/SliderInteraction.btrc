@@ -105,6 +105,13 @@ class SliderInteraction {
 
 	public void commit() { self.finish(SLIDER_INPUT_ABSOLUTE_POINTER, UI_RANGE_ADJUST_NONE, 0); }
 
+	/* A dequeued release owns a terminal credit even when the preview lane is
+	 * full. Its final coordinate must not depend on another preview admission. */
+	public void commitValue(double value) {
+		if (!self._active) { return; }
+		self._model.setUserValue(value); self.commit();
+	}
+
 	private void cancelInteraction(ControlOrigin origin, ControlCancelReason reason, bool restore) {
 		if (!self._active) { return; }
 		try {
