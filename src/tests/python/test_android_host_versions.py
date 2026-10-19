@@ -64,7 +64,7 @@ def test_one_apis_packages_keep_the_tools_and_only_its_image():
 def test_a_pinned_archive_that_does_not_match_its_checksum_is_never_installed(tmp_path):
     (tmp_path / "emulator").mkdir()
     (tmp_path / "emulator/package.xml").write_bytes(b"<registration/>")
-    with pytest.raises(ValueError, match="emulator .*: size/sha1 mismatch"):
+    with pytest.raises(ValueError, match=r"emulator .*: size/sha1 mismatch"):
         SDKVersions().install_archives(tmp_path, fetch=lambda url: b"not the archive")
     assert (tmp_path / "emulator/package.xml").read_bytes() == b"<registration/>"
 
