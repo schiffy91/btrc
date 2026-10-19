@@ -6,7 +6,7 @@
  * entries; it needs no JVM and no LLVM.
  *
  *   JavaClassReader --target=<triple> --classpath=<entry>[:<entry>...]
- *                   --symbol=<symbol> [--symbol=<symbol>...]
+ *                   [--symbol=<symbol>...] [--native=<method>...]
  *
  * A classpath entry ending in .jar or .zip is a zip archive; any other entry
  * is a directory of package subdirectories. --classpath may repeat, and its
@@ -15,13 +15,28 @@
  * or constructor by its JVM descriptor (java.io.File.getPath()Ljava/lang/String;,
  * java.io.File.<init>(Ljava/lang/String;)V), or a field by its descriptor
  * (java.lang.Integer.MAX_VALUE:I). Packages are separated by dots and nested
- * classes by `$`, as in Class.getName().
+ * classes by `$`, as in Class.getName(). At least one --symbol or --native is
+ * required.
  *
  * Only public classes, and their public members that are neither synthetic
- * nor bridges, are visible. Every failure (a usage error, an unknown or
- * hidden symbol, a malformed class file or jar) prints one line on stderr and
- * exits with status 1 before anything reaches stdout. Every read of a file
- * is bounds-checked, so hostile input fails the same way.
+ * nor bridges, are visible. A member class is visible only when its own
+ * InnerClasses entry is public and every class enclosing it is visible; a
+ * local or anonymous class never is. --native selects a RegisterNatives
+ * target: a method of a visible class that is ACC_NATIVE whatever its access
+ * (a private native is the usual Java shim), or otherwise public. Every
+ * failure (a usage error, an unknown or hidden symbol, a malformed class file
+ * or jar) prints one line on stderr and exits with status 1 before anything
+ * reaches stdout. Every read of a file is bounds-checked, so hostile input
+ * fails the same way.
+ *
+ * Reference types are nullable unless a NonNull annotation marks them
+ * (androidx, android, the support library, JSR-305 javax, JSpecify or
+ * JetBrains): a declaration annotation on a field, method or parameter, or a
+ * type annotation, whose type path selects array levels and, for a nested
+ * type, the InnerClasses-derived steps into it. Unmodelled locations (type
+ * arguments, wildcards, an enclosing type) and conflicting annotations leave
+ * the type nullable. Only the members the document prints have their
+ * annotations decoded.
  */
 
 #include <stdarg.h>
@@ -34,11 +49,16 @@
 #include <zlib.h>
 
 #define DOCUMENT_SCHEMA "btrc.native-declarations.v3"
-#define READER_IDENTITY "btrc-class-reader/1"
+#define READER_IDENTITY "btrc-class-reader/2"
 
 /* No real class file comes near this; the bound keeps a hostile size claim
    from becoming an allocation. */
 #define MAXIMUM_CLASS_BYTES ((size_t)64 * 1024 * 1024)
+
+/* Annotation values nest (an annotation inside an array inside an
+   annotation); real ones nest a few levels, and the bound keeps a hostile
+   chain from exhausting the stack. */
+#define MAXIMUM_ANNOTATION_DEPTH 64
 
 /* Access flags (JVMS 4.1, 4.5, 4.6). */
 enum {
@@ -76,7 +96,7 @@ enum {
 
 static const char usageText[] =
     "usage: JavaClassReader --target=<triple> --classpath=<entry>[:<entry>...] "
-    "--symbol=<symbol> [--symbol=<symbol>...]";
+    "[--symbol=<symbol>...] [--native=<method>...]";
 
 /* ---- Failure and memory ------------------------------------------------ */
 
@@ -347,20 +367,49 @@ static void appendJsonBool(struct Buffer *buffer, int value) {
 }
 
 /* Every type object ends with the qualifiers NativeHeaderReader reports. Java
-   has none; references are nullable until the reader reads annotations. */
+   has no const, volatile or restrict; a reference is nullable unless its
+   annotations make it nonnull, and a primitive is unannotated. */
 static void appendQualifiers(struct Buffer *buffer, const char *nullability) {
     appendText(buffer, ",\"const\":false,\"volatile\":false,\"restrict\":false,\"nullability\":\"");
     appendText(buffer, nullability);
     appendText(buffer, "\"}");
 }
 
-static void appendObjectType(struct Buffer *buffer, const char *binaryName) {
+/* What the annotations at one array level of a type say: a level marked
+   nonnull and nothing else is nonnull, and every other reference, including
+   one whose annotations conflict, is nullable. */
+enum { MARK_NULLABLE = 1, MARK_NONNULL = 2 };
+
+/* One type in a member's descriptor (a field's value, a method's return type
+   or one of its parameters) and the nullability marks of each of its array
+   levels: level 0 is the type itself and level `depth` its element. The
+   element's binary name is kept in modified UTF-8, as the constant pool
+   spells it; it is NULL for a primitive or void. */
+struct TypePosition {
+    size_t depth;
+    const char *element;
+    size_t elementLength;
+    unsigned char marks[256];
+};
+
+/* A field has one position; a method has its return type, then each
+   parameter in descriptor order. */
+struct Nullability {
+    size_t count;
+    struct TypePosition *positions;
+};
+
+static const char *referenceNullability(const struct TypePosition *position, size_t level) {
+    return position != NULL && position->marks[level] == MARK_NONNULL ? "nonnull" : "nullable";
+}
+
+static void appendObjectType(struct Buffer *buffer, const char *binaryName, const char *nullability) {
     char *name = dottedName(binaryName);
     appendText(buffer, "{\"kind\":\"java_object\",\"name\":");
     appendJsonText(buffer, name);
     appendText(buffer, ",\"binary_name\":");
     appendJsonText(buffer, binaryName);
-    appendQualifiers(buffer, "nullable");
+    appendQualifiers(buffer, nullability);
     free(name);
 }
 
@@ -377,8 +426,10 @@ static const struct Primitive {
 };
 
 /* Appends the type of the well-formed field descriptor (or V) at
-   descriptor[position], returning the position after it. */
-static size_t appendDescriptorType(struct Buffer *buffer, const char *descriptor, size_t position) {
+   descriptor[position], returning the position after it. `type` holds its
+   nullability marks (NULL for none) and `level` is its array level there. */
+static size_t appendDescriptorType(struct Buffer *buffer, const char *descriptor, size_t position,
+                                   const struct TypePosition *type, size_t level) {
     char code = descriptor[position];
     if (code == 'V') {
         appendText(buffer, "{\"kind\":\"builtin\",\"name\":\"void\"");
@@ -387,15 +438,15 @@ static size_t appendDescriptorType(struct Buffer *buffer, const char *descriptor
     }
     if (code == '[') {
         appendText(buffer, "{\"kind\":\"java_array\",\"element\":");
-        position = appendDescriptorType(buffer, descriptor, position + 1);
-        appendQualifiers(buffer, "nullable");
-        return position;
+        size_t end = appendDescriptorType(buffer, descriptor, position + 1, type, level + 1);
+        appendQualifiers(buffer, referenceNullability(type, level));
+        return end;
     }
     if (code == 'L') {
         const char *start = descriptor + position + 1;
         size_t length = (size_t)(strchr(start, ';') - start);
         char *binaryName = copyText(start, length);
-        appendObjectType(buffer, binaryName);
+        appendObjectType(buffer, binaryName, referenceNullability(type, level));
         free(binaryName);
         return position + length + 2;
     }
@@ -418,13 +469,14 @@ static size_t appendDescriptorType(struct Buffer *buffer, const char *descriptor
     fail("internal error: unchecked descriptor %s", descriptor);
 }
 
-static void appendMethodType(struct Buffer *buffer, const char *descriptor) {
+static void appendMethodType(struct Buffer *buffer, const char *descriptor, const struct Nullability *nullability) {
     appendText(buffer, "{\"kind\":\"function\",\"return_type\":");
-    appendDescriptorType(buffer, descriptor, returnTypePosition(descriptor));
+    appendDescriptorType(buffer, descriptor, returnTypePosition(descriptor), &nullability->positions[0], 0);
     appendText(buffer, ",\"parameters\":[");
+    size_t parameter = 1;
     for (size_t position = 1; descriptor[position] != ')';) {
         if (position != 1) appendText(buffer, ",");
-        position = appendDescriptorType(buffer, descriptor, position);
+        position = appendDescriptorType(buffer, descriptor, position, &nullability->positions[parameter++], 0);
     }
     appendText(buffer, "],\"variadic\":false,\"calling_convention\":\"java\"");
     appendQualifiers(buffer, "unannotated");
@@ -705,6 +757,16 @@ struct Member {
     unsigned access;
     unsigned name;
     unsigned descriptor;
+    size_t attributes; /* offset of its attributes_count */
+};
+
+/* One InnerClasses entry (JVMS 4.7.6), its indices checked: inner is a
+   CONSTANT_Class, outer 0 or a CONSTANT_Class, name 0 or a CONSTANT_Utf8. */
+struct InnerClass {
+    unsigned inner;
+    unsigned outer;
+    unsigned name;
+    unsigned access;
 };
 
 struct ClassFile {
@@ -723,8 +785,15 @@ struct ClassFile {
     struct Member *fields;
     unsigned methodCount;
     struct Member *methods;
-    int nested; /* an InnerClasses entry describes this class itself */
+    struct InnerClass *innerClasses;
+    unsigned innerClassCount;
+    /* The InnerClasses entry that describes this class itself, if any: a
+       member class has an outer class and a name; a local or anonymous class
+       lacks one of them. */
+    int nested;
     unsigned nestedAccess;
+    unsigned nestedOuter;
+    unsigned nestedName;
     int emitted;
 };
 
@@ -736,14 +805,22 @@ static unsigned bigU2(const unsigned char *bytes) {
     return (unsigned)bytes[0] << 8 | bytes[1];
 }
 
-/* A bounds-checked reader over one class file. */
+/* A bounds-checked reader over one class file, or over one attribute of it:
+   reading past `end` fails, naming `problem`. */
 struct Cursor {
     const struct ClassFile *file;
     size_t position;
+    size_t end;
+    const char *problem;
 };
 
+static struct Cursor fileCursor(const struct ClassFile *file, size_t position) {
+    struct Cursor cursor = {file, position, file->size, "truncated"};
+    return cursor;
+}
+
 static const unsigned char *take(struct Cursor *cursor, size_t count) {
-    if (count > cursor->file->size - cursor->position) malformedClass(cursor->file, "truncated");
+    if (count > cursor->end - cursor->position) malformedClass(cursor->file, cursor->problem);
     const unsigned char *bytes = cursor->file->bytes + cursor->position;
     cursor->position += count;
     return bytes;
@@ -849,6 +926,13 @@ static char *className(const struct ClassFile *file, unsigned index, const char 
     return name;
 }
 
+/* The raw modified UTF-8 name of a CONSTANT_Class entry, undecoded. */
+static const unsigned char *classNameBytes(const struct ClassFile *file, unsigned index, size_t *length,
+                                           const char *problem) {
+    const unsigned char *payload = file->bytes + poolEntry(file, index, CONSTANT_CLASS, problem)->offset;
+    return utf8Entry(file, bigU2(payload), length, problem);
+}
+
 static void skipAttributes(struct Cursor *cursor) {
     unsigned count = readU2(cursor);
     for (unsigned index = 0; index < count; ++index) {
@@ -869,26 +953,37 @@ static void readMembers(struct Cursor *cursor, struct Member **members, unsigned
         member->descriptor = readU2(cursor);
         utf8Entry(cursor->file, member->name, &ignored, problem);
         utf8Entry(cursor->file, member->descriptor, &ignored, problem);
+        member->attributes = cursor->position;
         skipAttributes(cursor);
     }
 }
 
-/* Records the InnerClasses entry that describes this class itself: a member
-   class's own visibility (protected, private) lives there, while its
-   access_flags say public or package. */
+/* Keeps the InnerClasses entries, which name nested types, and records the
+   one that describes this class itself: a member class's own visibility
+   (protected, private) and static-ness live there, while its access_flags
+   say public or package. A class has at most one InnerClasses attribute. */
 static void readInnerClasses(struct ClassFile *file, size_t start, uint32_t length) {
-    struct Cursor cursor = {file, start};
-    if (length < 2) malformedClass(file, "bad InnerClasses attribute");
+    static const char problem[] = "bad InnerClasses attribute";
+    struct Cursor cursor = {file, start, start + length, problem};
+    if (file->innerClasses != NULL || length < 2) malformedClass(file, problem);
     unsigned count = readU2(&cursor);
-    if (length != 2 + (uint32_t)count * 8) malformedClass(file, "bad InnerClasses attribute");
+    if (length != 2 + (uint32_t)count * 8) malformedClass(file, problem);
+    file->innerClasses = allocate(count * sizeof *file->innerClasses);
+    file->innerClassCount = count;
     for (unsigned index = 0; index < count; ++index) {
-        unsigned inner = readU2(&cursor);
-        readU2(&cursor);
-        readU2(&cursor);
-        unsigned access = readU2(&cursor);
-        if (inner == file->thisClass && !file->nested) {
+        struct InnerClass *entry = &file->innerClasses[index];
+        entry->inner = readU2(&cursor);
+        entry->outer = readU2(&cursor);
+        entry->name = readU2(&cursor);
+        entry->access = readU2(&cursor);
+        poolEntry(file, entry->inner, CONSTANT_CLASS, problem);
+        if (entry->outer != 0) poolEntry(file, entry->outer, CONSTANT_CLASS, problem);
+        if (entry->name != 0) poolEntry(file, entry->name, CONSTANT_UTF8, problem);
+        if (entry->inner == file->thisClass && !file->nested) {
             file->nested = 1;
-            file->nestedAccess = access;
+            file->nestedAccess = entry->access;
+            file->nestedOuter = entry->outer;
+            file->nestedName = entry->name;
         }
     }
 }
@@ -897,7 +992,7 @@ static void readInnerClasses(struct ClassFile *file, size_t start, uint32_t leng
    constant pool and are compared there; only the ones the document prints
    are decoded, so an unusual string constant cannot reject a class. */
 static void parseClass(struct ClassFile *file) {
-    struct Cursor cursor = {file, 0};
+    struct Cursor cursor = fileCursor(file, 0);
     if (readU4(&cursor) != 0xCAFEBABEu) malformedClass(file, "bad magic number");
     readU2(&cursor);
     if (readU2(&cursor) < 45) malformedClass(file, "unsupported class file version");
@@ -972,6 +1067,7 @@ enum SymbolKind { SYMBOL_CLASS, SYMBOL_METHOD, SYMBOL_FIELD };
 struct Symbol {
     const char *text; /* exactly as given */
     enum SymbolKind kind;
+    int native;       /* given by --native: a RegisterNatives target */
     char *className;  /* java.io.File */
     char *binaryName; /* java/io/File */
     char *member;     /* getPath, <init> or MAX_VALUE; members only */
@@ -988,10 +1084,12 @@ static _Noreturn void invalidSymbol(const char *text, const char *problem) {
 
 /* Splits a symbol into its class and member. A '(' starts a method
    descriptor and otherwise a ':' starts a field descriptor; the member name
-   follows the last '.' before either. */
-static void parseSymbol(struct Symbol *symbol, const char *text) {
+   follows the last '.' before either. A --native symbol names a method that
+   is not an initialization method. */
+static void parseSymbol(struct Symbol *symbol, const char *text, int native) {
     memset(symbol, 0, sizeof *symbol);
     symbol->text = text;
+    symbol->native = native;
     if (!isUtf8(text, strlen(text))) invalidSymbol(text, "not UTF-8");
     const char *parenthesis = strchr(text, '(');
     const char *colon = parenthesis ? NULL : strchr(text, ':');
@@ -1014,6 +1112,10 @@ static void parseSymbol(struct Symbol *symbol, const char *text) {
     symbol->binaryName = copyText(symbol->className, strlen(symbol->className));
     for (char *character = symbol->binaryName; *character; ++character) {
         if (*character == '.') *character = '/';
+    }
+    if (native && (symbol->kind != SYMBOL_METHOD || strcmp(symbol->member, "<init>") == 0
+                   || strcmp(symbol->member, "<clinit>") == 0)) {
+        invalidSymbol(text, "--native selects a method other than <init> and <clinit>");
     }
     if (symbol->kind == SYMBOL_CLASS) return;
     int method = symbol->kind == SYMBOL_METHOD;
@@ -1117,6 +1219,7 @@ static void discardClass(struct ClassFile *file) {
     free(file->pool);
     free(file->fields);
     free(file->methods);
+    free(file->innerClasses);
     free(file);
 }
 
@@ -1163,8 +1266,8 @@ static struct ClassFile *readClass(struct ClasspathEntry *entry, const char *bin
 }
 
 /* Loads a class from the first classpath entry that has it, once, adding its
-   bytes to the digest in read order. */
-static struct ClassFile *loadClass(struct Reader *reader, const char *binaryName, const char *displayName) {
+   bytes to the digest in read order; NULL when no entry has it. */
+static struct ClassFile *findClass(struct Reader *reader, const char *binaryName) {
     for (size_t index = 0; index < reader->classCount; ++index) {
         if (strcmp(reader->classes[index]->binaryName, binaryName) == 0) return reader->classes[index];
     }
@@ -1176,31 +1279,58 @@ static struct ClassFile *loadClass(struct Reader *reader, const char *binaryName
         file = readClass(&reader->entries[index], binaryName, entryName.data);
     }
     free(entryName.data);
-    if (file == NULL) fail("unknown class %s", displayName);
+    if (file == NULL) return NULL;
     sha256Update(&reader->digest, file->bytes, file->size);
     reader->classes = reallocate(reader->classes, (reader->classCount + 1) * sizeof *reader->classes);
     reader->classes[reader->classCount++] = file;
     return file;
 }
 
+static struct ClassFile *loadClass(struct Reader *reader, const char *binaryName, const char *displayName) {
+    struct ClassFile *file = findClass(reader, binaryName);
+    if (file == NULL) fail("unknown class %s", displayName);
+    return file;
+}
+
 /* ---- Visibility and declarations ----------------------------------------- */
 
-static void requireVisibleClass(const struct ClassFile *file, const char *name) {
-    const char *reason = NULL;
-    if (file->access & ACC_MODULE) {
-        reason = "a module descriptor";
-    } else if (!(file->access & ACC_PUBLIC)) {
-        reason = "not public";
-    } else if (file->access & ACC_SYNTHETIC) {
-        reason = "synthetic";
-    } else if (file->nested && !(file->nestedAccess & ACC_PUBLIC)) {
-        reason = "a member class that is not public";
-    }
+/* Why the class itself is hidden, or NULL; its enclosing classes are checked
+   apart. */
+static const char *hiddenReason(const struct ClassFile *file) {
+    if (file->access & ACC_MODULE) return "a module descriptor";
+    if (!(file->access & ACC_PUBLIC)) return "not public";
+    if (file->access & ACC_SYNTHETIC) return "synthetic";
+    if (file->nested && (file->nestedOuter == 0 || file->nestedName == 0)) return "a local or anonymous class";
+    if (file->nested && !(file->nestedAccess & ACC_PUBLIC)) return "a member class that is not public";
+    return NULL;
+}
+
+/* Requires the class, and each class enclosing it, to be visible. A member
+   class's InnerClasses entry names its enclosing class, which is read from
+   the classpath like any other; entries that enclose each other are
+   malformed. */
+static void requireVisibleClass(struct Reader *reader, const struct ClassFile *file, const char *name) {
+    const char *reason = hiddenReason(file);
     if (reason != NULL) fail("unknown class %s (%s)", name, reason);
+    size_t hops = 0;
+    for (const struct ClassFile *current = file; current->nested;) {
+        /* Each hop of a chain reaches a class no earlier hop did, so a
+           chain longer than the classes read so far is a cycle. */
+        if (++hops > reader->classCount) malformedClass(file, "nested classes enclose each other");
+        char *outerName = className(current, current->nestedOuter, "bad InnerClasses attribute");
+        char *outerDotted = dottedName(outerName);
+        const struct ClassFile *outer = findClass(reader, outerName);
+        if (outer == NULL) fail("unknown class %s (its enclosing class %s is not on the classpath)", name, outerDotted);
+        if (hiddenReason(outer) != NULL) fail("unknown class %s (its enclosing class %s is hidden)", name, outerDotted);
+        free(outerDotted);
+        free(outerName);
+        current = outer;
+    }
 }
 
 /* Finds the member a symbol selects by name and exact descriptor, so an
-   overload is never guessed, and requires it to be visible. */
+   overload is never guessed, and requires it to be visible: public, or for
+   --native an ACC_NATIVE method of any access. */
 static const struct Member *findMember(const struct ClassFile *file, const struct Symbol *symbol) {
     int method = symbol->kind == SYMBOL_METHOD;
     const struct Member *members = method ? file->methods : file->fields;
@@ -1213,10 +1343,358 @@ static const struct Member *findMember(const struct ClassFile *file, const struc
         match = &members[index];
     }
     if (match == NULL) fail("unknown member %s", symbol->text);
-    if (!(match->access & ACC_PUBLIC)) fail("unknown member %s (not public)", symbol->text);
+    if (!(match->access & ACC_PUBLIC)) {
+        if (!symbol->native) fail("unknown member %s (not public)", symbol->text);
+        if (!(match->access & ACC_NATIVE)) fail("unknown member %s (neither public nor native)", symbol->text);
+    }
     if (method && (match->access & ACC_BRIDGE)) fail("unknown member %s (bridge method)", symbol->text);
     if (match->access & ACC_SYNTHETIC) fail("unknown member %s (synthetic)", symbol->text);
     return match;
+}
+
+/* ---- Nullability annotations (JVMS 4.7.16-4.7.20) ------------------------ */
+
+/* The NonNull and Nullable annotations the reader recognizes, by descriptor.
+   androidx and the support library retain theirs in class files only
+   (RuntimeInvisible*); android.jar's stubs mark recently annotated APIs with
+   RecentlyNonNull and RecentlyNullable; javax (JSR-305) and JSpecify retain
+   theirs at run time, and JSpecify's are type annotations; Kotlin emits
+   JetBrains's. JSR-305's Nonnull is decided by its `when` element below. */
+static const struct NullabilityAnnotation {
+    const char *descriptor;
+    unsigned char mark;
+} nullabilityAnnotations[] = {
+    {"Landroidx/annotation/NonNull;", MARK_NONNULL},
+    {"Landroidx/annotation/Nullable;", MARK_NULLABLE},
+    {"Landroidx/annotation/RecentlyNonNull;", MARK_NONNULL},
+    {"Landroidx/annotation/RecentlyNullable;", MARK_NULLABLE},
+    {"Landroid/annotation/NonNull;", MARK_NONNULL},
+    {"Landroid/annotation/Nullable;", MARK_NULLABLE},
+    {"Landroid/support/annotation/NonNull;", MARK_NONNULL},
+    {"Landroid/support/annotation/Nullable;", MARK_NULLABLE},
+    {"Ljavax/annotation/Nullable;", MARK_NULLABLE},
+    {"Ljavax/annotation/CheckForNull;", MARK_NULLABLE},
+    {"Lorg/jspecify/annotations/NonNull;", MARK_NONNULL},
+    {"Lorg/jspecify/annotations/Nullable;", MARK_NULLABLE},
+    {"Lorg/jetbrains/annotations/NotNull;", MARK_NONNULL},
+    {"Lorg/jetbrains/annotations/Nullable;", MARK_NULLABLE},
+};
+
+static int bytesEqual(const unsigned char *bytes, size_t length, const char *text) {
+    return length == strlen(text) && memcmp(bytes, text, length) == 0;
+}
+
+/* JSR-305's @Nonnull(when = ...): ALWAYS, the default, is nonnull; MAYBE and
+   NEVER may be null; UNKNOWN, or a value that is not a When constant, says
+   nothing. */
+static unsigned char javaxWhen(const struct ClassFile *file, unsigned type, unsigned constant) {
+    if (type == 0) return 0;
+    size_t typeLength;
+    size_t nameLength;
+    const unsigned char *typeBytes = utf8Entry(file, type, &typeLength, "bad annotation");
+    const unsigned char *name = utf8Entry(file, constant, &nameLength, "bad annotation");
+    if (!bytesEqual(typeBytes, typeLength, "Ljavax/annotation/meta/When;")) return 0;
+    if (bytesEqual(name, nameLength, "ALWAYS")) return MARK_NONNULL;
+    if (bytesEqual(name, nameLength, "MAYBE") || bytesEqual(name, nameLength, "NEVER")) return MARK_NULLABLE;
+    return 0;
+}
+
+static unsigned char readAnnotation(struct Cursor *cursor, int depth);
+
+/* Reads one element_value (JVMS 4.7.16.1), checking the constant each kind
+   names. An enum constant's type and name indices are stored through
+   `enumType` and `enumName` when they are given. */
+static void readElementValue(struct Cursor *cursor, int depth, unsigned *enumType, unsigned *enumName) {
+    const struct ClassFile *file = cursor->file;
+    if (depth > MAXIMUM_ANNOTATION_DEPTH) malformedClass(file, "annotations nest too deeply");
+    unsigned tag = readU1(cursor);
+    switch (tag) {
+    case 'B':
+    case 'C':
+    case 'I':
+    case 'S':
+    case 'Z':
+        poolEntry(file, readU2(cursor), CONSTANT_INTEGER, cursor->problem);
+        break;
+    case 'D':
+        poolEntry(file, readU2(cursor), CONSTANT_DOUBLE, cursor->problem);
+        break;
+    case 'F':
+        poolEntry(file, readU2(cursor), CONSTANT_FLOAT, cursor->problem);
+        break;
+    case 'J':
+        poolEntry(file, readU2(cursor), CONSTANT_LONG, cursor->problem);
+        break;
+    case 's':
+    case 'c':
+        poolEntry(file, readU2(cursor), CONSTANT_UTF8, cursor->problem);
+        break;
+    case 'e': {
+        unsigned type = readU2(cursor);
+        unsigned name = readU2(cursor);
+        poolEntry(file, type, CONSTANT_UTF8, cursor->problem);
+        poolEntry(file, name, CONSTANT_UTF8, cursor->problem);
+        if (enumType != NULL) {
+            *enumType = type;
+            *enumName = name;
+        }
+        break;
+    }
+    case '@':
+        readAnnotation(cursor, depth + 1);
+        break;
+    case '[': {
+        unsigned count = readU2(cursor);
+        for (unsigned index = 0; index < count; ++index) readElementValue(cursor, depth + 1, NULL, NULL);
+        break;
+    }
+    default:
+        malformedClass(file, cursor->problem);
+    }
+}
+
+/* Reads one annotation (JVMS 4.7.16), returning the nullability mark it
+   carries, or 0 for any other annotation. */
+static unsigned char readAnnotation(struct Cursor *cursor, int depth) {
+    const struct ClassFile *file = cursor->file;
+    if (depth > MAXIMUM_ANNOTATION_DEPTH) malformedClass(file, "annotations nest too deeply");
+    size_t length;
+    const unsigned char *type = utf8Entry(file, readU2(cursor), &length, cursor->problem);
+    unsigned char mark = 0;
+    for (size_t index = 0; index < sizeof nullabilityAnnotations / sizeof nullabilityAnnotations[0]; ++index) {
+        if (bytesEqual(type, length, nullabilityAnnotations[index].descriptor)) mark = nullabilityAnnotations[index].mark;
+    }
+    int javax = bytesEqual(type, length, "Ljavax/annotation/Nonnull;");
+    if (javax) mark = MARK_NONNULL;
+    unsigned pairs = readU2(cursor);
+    for (unsigned index = 0; index < pairs; ++index) {
+        size_t nameLength;
+        const unsigned char *name = utf8Entry(file, readU2(cursor), &nameLength, cursor->problem);
+        unsigned enumType = 0;
+        unsigned enumName = 0;
+        readElementValue(cursor, depth + 1, &enumType, &enumName);
+        if (javax && bytesEqual(name, nameLength, "when")) mark = javaxWhen(file, enumType, enumName);
+    }
+    return mark;
+}
+
+/* Reads an annotations table, returning the union of its marks. */
+static unsigned char readAnnotations(struct Cursor *cursor) {
+    unsigned count = readU2(cursor);
+    unsigned char marks = 0;
+    for (unsigned index = 0; index < count; ++index) marks |= readAnnotation(cursor, 0);
+    return marks;
+}
+
+static void markLevel(struct TypePosition *position, size_t level, unsigned char mark) {
+    if (level > position->depth || (level == position->depth && position->element == NULL)) return;
+    position->marks[level] |= mark;
+}
+
+/* How many INNER_TYPE steps reach the named type itself in a type path: one
+   per enclosing level that is an inner (non-static) member class, read from
+   this class file's InnerClasses entries (JVMS 4.7.20.2). -1 when they do not
+   settle it: a nested type they do not describe, a local or anonymous class,
+   or entries that enclose each other. */
+static long innerTypeSteps(const struct ClassFile *file, const char *name, size_t length) {
+    static const char problem[] = "bad InnerClasses attribute";
+    const unsigned char *current = (const unsigned char *)name;
+    size_t currentLength = length;
+    long steps = 0;
+    for (unsigned hops = 0; hops <= file->innerClassCount; ++hops) {
+        const struct InnerClass *entry = NULL;
+        for (unsigned index = 0; index < file->innerClassCount && entry == NULL; ++index) {
+            size_t innerLength;
+            const unsigned char *inner = classNameBytes(file, file->innerClasses[index].inner, &innerLength, problem);
+            if (innerLength == currentLength && memcmp(inner, current, currentLength) == 0) {
+                entry = &file->innerClasses[index];
+            }
+        }
+        /* A name holding '$' may be a nested type this file does not
+           describe; any other is a top-level class. */
+        if (entry == NULL) return memchr(current, '$', currentLength) != NULL ? -1 : steps;
+        if (entry->outer == 0 || entry->name == 0) return -1;
+        if (entry->access & ACC_STATIC) return steps;
+        ++steps;
+        current = classNameBytes(file, entry->outer, &currentLength, problem);
+    }
+    return -1;
+}
+
+/* Applies a type annotation's mark where its type path (already checked)
+   leads: leading ARRAY steps select an array level, and on the element the
+   INNER_TYPE steps must reach the named type itself. A path into a type
+   argument, a wildcard bound or an enclosing type is not modelled. */
+static void markTypePath(const struct ClassFile *file, struct TypePosition *position, const unsigned char *path,
+                         unsigned length, unsigned char mark) {
+    size_t level = 0;
+    unsigned step = 0;
+    while (step < length && path[2 * step] == 0) {
+        ++level;
+        ++step;
+    }
+    long inner = 0;
+    for (; step < length; ++step) {
+        if (path[2 * step] != 1) return;
+        ++inner;
+    }
+    if (level > position->depth) return;
+    if (level < position->depth) {
+        if (inner == 0) markLevel(position, level, mark);
+        return;
+    }
+    if (position->element == NULL) return;
+    long steps = innerTypeSteps(file, position->element, position->elementLength);
+    if (steps >= 0 && steps == inner) markLevel(position, level, mark);
+}
+
+/* Reads a RuntimeVisibleTypeAnnotations or RuntimeInvisibleTypeAnnotations
+   table of a field or method (JVMS 4.7.20). `parameterShift` maps a formal
+   parameter index, which counts the declared parameters, to the descriptor. */
+static void readTypeAnnotations(struct Cursor *cursor, struct Nullability *nullability, int field,
+                                size_t parameterShift) {
+    const struct ClassFile *file = cursor->file;
+    unsigned count = readU2(cursor);
+    for (unsigned index = 0; index < count; ++index) {
+        unsigned target = readU1(cursor);
+        struct TypePosition *position = NULL;
+        if (field) {
+            if (target != 0x13) malformedClass(file, cursor->problem);
+            position = &nullability->positions[0];
+        } else {
+            switch (target) {
+            case 0x14: /* the return type */
+                position = &nullability->positions[0];
+                break;
+            case 0x16: { /* a formal parameter */
+                size_t parameter = readU1(cursor) + parameterShift;
+                if (parameter >= nullability->count - 1) malformedClass(file, cursor->problem);
+                position = &nullability->positions[1 + parameter];
+                break;
+            }
+            case 0x15: /* the receiver */
+                break;
+            case 0x01: /* a type parameter */
+                take(cursor, 1);
+                break;
+            case 0x12: /* a type parameter's bound */
+                take(cursor, 2);
+                break;
+            case 0x17: /* a throws clause */
+                take(cursor, 2);
+                break;
+            default:
+                malformedClass(file, cursor->problem);
+            }
+        }
+        unsigned length = readU1(cursor);
+        const unsigned char *path = take(cursor, 2 * (size_t)length);
+        for (unsigned step = 0; step < length; ++step) {
+            unsigned kind = path[2 * step];
+            if (kind > 3 || (kind != 3 && path[2 * step + 1] != 0)) malformedClass(file, cursor->problem);
+        }
+        unsigned char mark = readAnnotation(cursor, 0);
+        if (position != NULL && mark != 0) markTypePath(file, position, path, length, mark);
+    }
+}
+
+/* The type positions of a member's descriptor, unmarked. */
+static void describePosition(struct TypePosition *position, const char *encoded, size_t start) {
+    memset(position, 0, sizeof *position);
+    size_t at = start;
+    while (encoded[at] == '[') {
+        ++position->depth;
+        ++at;
+    }
+    if (encoded[at] == 'L') {
+        position->element = encoded + at + 1;
+        position->elementLength = (size_t)(strchr(encoded + at + 1, ';') - (encoded + at + 1));
+    }
+}
+
+static struct Nullability positionsOf(const struct Symbol *symbol) {
+    const char *encoded = symbol->encodedDescriptor;
+    struct Nullability nullability = {0, NULL};
+    if (symbol->kind == SYMBOL_FIELD) {
+        nullability.count = 1;
+        nullability.positions = allocate(sizeof *nullability.positions);
+        describePosition(&nullability.positions[0], encoded, 0);
+        return nullability;
+    }
+    size_t parameters = 0;
+    for (size_t at = 1; encoded[at] != ')'; at = fieldDescriptorEnd(encoded, at)) ++parameters;
+    nullability.count = parameters + 1;
+    nullability.positions = allocate(nullability.count * sizeof *nullability.positions);
+    describePosition(&nullability.positions[0], encoded, returnTypePosition(encoded));
+    size_t index = 1;
+    for (size_t at = 1; encoded[at] != ')'; at = fieldDescriptorEnd(encoded, at)) {
+        describePosition(&nullability.positions[index++], encoded, at);
+    }
+    return nullability;
+}
+
+enum AnnotationForm { FORM_DECLARATION, FORM_PARAMETERS, FORM_TYPE };
+
+static const struct AnnotationAttribute {
+    const char *name;
+    enum AnnotationForm form;
+    const char *problem;
+} annotationAttributes[] = {
+    {"RuntimeVisibleAnnotations", FORM_DECLARATION, "bad RuntimeVisibleAnnotations attribute"},
+    {"RuntimeInvisibleAnnotations", FORM_DECLARATION, "bad RuntimeInvisibleAnnotations attribute"},
+    {"RuntimeVisibleParameterAnnotations", FORM_PARAMETERS, "bad RuntimeVisibleParameterAnnotations attribute"},
+    {"RuntimeInvisibleParameterAnnotations", FORM_PARAMETERS, "bad RuntimeInvisibleParameterAnnotations attribute"},
+    {"RuntimeVisibleTypeAnnotations", FORM_TYPE, "bad RuntimeVisibleTypeAnnotations attribute"},
+    {"RuntimeInvisibleTypeAnnotations", FORM_TYPE, "bad RuntimeInvisibleTypeAnnotations attribute"},
+};
+
+/* Marks a selected member's type positions from its annotation attributes.
+   A declaration annotation marks a field's type or a method's return type;
+   a parameter annotation marks its parameter. A constructor of an inner
+   member class takes its enclosing instance first, which javac counts
+   neither in its parameter annotations nor in its type annotations' formal
+   parameter indices. A parameter annotations table of any other length
+   shorter than the descriptor's, which no compiler the reader knows writes,
+   is checked but not applied. */
+static struct Nullability memberNullability(const struct ClassFile *file, const struct Symbol *symbol,
+                                            const struct Member *member) {
+    struct Nullability nullability = positionsOf(symbol);
+    int field = symbol->kind == SYMBOL_FIELD;
+    int innerConstructor = !field && strcmp(symbol->member, "<init>") == 0 && file->nested && file->nestedOuter != 0
+                           && file->nestedName != 0 && !(file->nestedAccess & ACC_STATIC);
+    size_t declared = nullability.count - 1;
+    struct Cursor cursor = fileCursor(file, member->attributes);
+    unsigned count = readU2(&cursor);
+    for (unsigned index = 0; index < count; ++index) {
+        unsigned nameIndex = readU2(&cursor);
+        uint32_t length = readU4(&cursor);
+        size_t start = cursor.position;
+        take(&cursor, length);
+        size_t nameLength;
+        const unsigned char *name = utf8Entry(file, nameIndex, &nameLength, "bad attribute name index");
+        const struct AnnotationAttribute *attribute = NULL;
+        for (size_t kind = 0; kind < sizeof annotationAttributes / sizeof annotationAttributes[0]; ++kind) {
+            if (bytesEqual(name, nameLength, annotationAttributes[kind].name)) attribute = &annotationAttributes[kind];
+        }
+        /* Parameter annotations belong to methods only. */
+        if (attribute == NULL || (field && attribute->form == FORM_PARAMETERS)) continue;
+        struct Cursor body = {file, start, start + length, attribute->problem};
+        if (attribute->form == FORM_DECLARATION) {
+            markLevel(&nullability.positions[0], 0, readAnnotations(&body));
+        } else if (attribute->form == FORM_PARAMETERS) {
+            size_t parameters = readU1(&body);
+            if (parameters > declared) malformedClass(file, attribute->problem);
+            size_t shift = parameters == declared ? 0 : innerConstructor && parameters + 1 == declared ? 1 : SIZE_MAX;
+            for (size_t parameter = 0; parameter < parameters; ++parameter) {
+                unsigned char marks = readAnnotations(&body);
+                if (shift != SIZE_MAX) markLevel(&nullability.positions[1 + shift + parameter], 0, marks);
+            }
+        } else {
+            readTypeAnnotations(&body, &nullability, field, innerConstructor ? 1 : 0);
+        }
+        if (body.position != body.end) malformedClass(file, attribute->problem);
+    }
+    return nullability;
 }
 
 static void appendClassIdentity(struct Buffer *identity, const char *binaryName) {
@@ -1257,7 +1735,7 @@ static void appendClass(struct Buffer *buffer, const struct ClassFile *file) {
     appendText(buffer, ",\"abstract_class\":");
     appendJsonBool(buffer, (file->access & ACC_ABSTRACT) != 0);
     appendText(buffer, ",\"complete\":true,\"type\":");
-    appendObjectType(buffer, file->binaryName);
+    appendObjectType(buffer, file->binaryName, "nullable");
     appendText(buffer, ",\"source\":");
     appendJsonText(buffer, file->source);
     appendText(buffer, ",\"line\":0,\"column\":0}");
@@ -1270,6 +1748,7 @@ static void appendClass(struct Buffer *buffer, const struct ClassFile *file) {
 static void appendMember(struct Buffer *buffer, const struct ClassFile *file, const struct Symbol *symbol,
                          const struct Member *member) {
     int method = symbol->kind == SYMBOL_METHOD;
+    struct Nullability nullability = memberNullability(file, symbol, member);
     struct Buffer identity = {0};
     appendClassIdentity(&identity, file->binaryName);
     appendText(&identity, "->");
@@ -1294,16 +1773,17 @@ static void appendMember(struct Buffer *buffer, const struct ClassFile *file, co
         appendText(buffer, ",\"native_method\":");
         appendJsonBool(buffer, (member->access & ACC_NATIVE) != 0);
         appendText(buffer, ",\"type\":");
-        appendMethodType(buffer, symbol->descriptor);
+        appendMethodType(buffer, symbol->descriptor, &nullability);
     } else {
         appendText(buffer, ",\"read_only\":");
         appendJsonBool(buffer, (member->access & ACC_FINAL) != 0);
         appendText(buffer, ",\"type\":");
-        appendDescriptorType(buffer, symbol->descriptor, 0);
+        appendDescriptorType(buffer, symbol->descriptor, 0, &nullability.positions[0], 0);
     }
     appendText(buffer, ",\"source\":");
     appendJsonText(buffer, file->source);
     appendText(buffer, ",\"line\":0,\"column\":0}");
+    free(nullability.positions);
     free(identity.data);
 }
 
@@ -1335,17 +1815,21 @@ int main(int argc, char **argv) {
         } else if ((value = optionValue(argument, "--classpath=")) != NULL) {
             addClasspath(&reader, value);
         } else if ((value = optionValue(argument, "--symbol=")) != NULL) {
-            parseSymbol(&symbols[symbolCount++], value);
+            parseSymbol(&symbols[symbolCount++], value, 0);
+        } else if ((value = optionValue(argument, "--native=")) != NULL) {
+            parseSymbol(&symbols[symbolCount++], value, 1);
         } else {
             fail("unknown argument %s; %s", argument, usageText);
         }
     }
     if (target == NULL) fail("--target is required; %s", usageText);
     if (reader.entryCount == 0) fail("--classpath is required; %s", usageText);
-    if (symbolCount == 0) fail("at least one --symbol is required; %s", usageText);
+    if (symbolCount == 0) fail("at least one --symbol or --native is required; %s", usageText);
 
     /* Declarations follow the symbols' order. A class precedes its first
-       member and appears once; a repeated symbol appears once. */
+       member and appears once; a repeated symbol appears once, and each
+       repetition is held to its own option's visibility, so a method given
+       by both --symbol and --native must be public. */
     struct Buffer declarations = {0};
     for (size_t index = 0; index < symbolCount; ++index) {
         const struct Symbol *symbol = &symbols[index];
@@ -1353,9 +1837,8 @@ int main(int argc, char **argv) {
         for (size_t earlier = 0; earlier < index && !repeated; ++earlier) {
             repeated = strcmp(symbols[earlier].text, symbol->text) == 0;
         }
-        if (repeated) continue;
         struct ClassFile *file = loadClass(&reader, symbol->binaryName, symbol->className);
-        requireVisibleClass(file, symbol->className);
+        requireVisibleClass(&reader, file, symbol->className);
         if (!file->emitted) {
             if (declarations.length) appendText(&declarations, ",");
             appendClass(&declarations, file);
@@ -1363,6 +1846,7 @@ int main(int argc, char **argv) {
         }
         if (symbol->kind == SYMBOL_CLASS) continue;
         const struct Member *member = findMember(file, symbol);
+        if (repeated) continue;
         appendText(&declarations, ",");
         appendMember(&declarations, file, symbol, member);
     }
