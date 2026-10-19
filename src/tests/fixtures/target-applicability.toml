@@ -202,20 +202,51 @@ cites = "corpus.strings@windows-arm64"
 # FileSystem.readBytes opens a RegularFileSnapshot, and the inventory program
 # opens temporary and private directories and exact file handles, all of which
 # return FileSystemError.unsupported on Windows (FileSystemHandles.btrc) until
-# the Win32 handle provider lands. Established by the hosted windows-native
-# corpus run (CX-P1-07): both programs failed on x64 and ARM64, both frontends.
+# the Win32 handle provider lands; the contract program expects a missing
+# snapshot source to fail as not-found rather than unsupported. Established by
+# the hosted windows-native corpus runs (CX-P1-07): each failed on x64 and
+# ARM64 through both frontends.
 [[programs]]
-paths = ["stdlib/FileSystemReadBytes.btrc", "stdlib/FileSystemHandleInventoryReal.btrc"]
+paths = [
+    "stdlib/FileSystemHandleInventoryReal.btrc",
+    "stdlib/FileSystemHandlesContract.btrc",
+    "stdlib/FileSystemReadBytes.btrc",
+]
 targets = ["windows-x86_64"]
 status = "missing"
 scope = "run"
-reason = "FileSystem.readBytes and the exact handles return unsupported on Windows; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
+reason = "FileSystem.readBytes, RegularFileSnapshot and the exact handles return unsupported on Windows; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
 cites = "corpus.stdlib@windows-x64"
 
 [[programs]]
-paths = ["stdlib/FileSystemReadBytes.btrc", "stdlib/FileSystemHandleInventoryReal.btrc"]
+paths = [
+    "stdlib/FileSystemHandleInventoryReal.btrc",
+    "stdlib/FileSystemHandlesContract.btrc",
+    "stdlib/FileSystemReadBytes.btrc",
+]
 targets = ["windows-aarch64"]
 status = "missing"
 scope = "run"
-reason = "FileSystem.readBytes and the exact handles return unsupported on Windows; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
+reason = "FileSystem.readBytes, RegularFileSnapshot and the exact handles return unsupported on Windows; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
+cites = "corpus.stdlib@windows-arm64"
+
+# PlatformEuid asserts the POSIX identity contract (isRoot() is exactly
+# euid() == 0) and Unix platform facts (isUnix, a '/' separator). Windows has
+# no POSIX root: its compatibility euid is a 0 sentinel and Platform.isRoot()
+# is false there by design (Platform.btrc), so the program cannot pass on a
+# Windows row. It still builds there.
+[[programs]]
+paths = ["stdlib/PlatformEuid.btrc"]
+targets = ["windows-x86_64"]
+status = "restricted"
+scope = "run"
+reason = "asserts the POSIX euid/root identity and Unix platform facts; Windows has no POSIX root, so Platform.isRoot() is false there by design"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/PlatformEuid.btrc"]
+targets = ["windows-aarch64"]
+status = "restricted"
+scope = "run"
+reason = "asserts the POSIX euid/root identity and Unix platform facts; Windows has no POSIX root, so Platform.isRoot() is false there by design"
 cites = "corpus.stdlib@windows-arm64"
