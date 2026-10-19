@@ -97,7 +97,10 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 		var view = self.nativeView();
 		if (!self._attached) { throw "View has no container attachment"; }
 		self.cancelPointerCapture();
-		MacOSView.detachNative(view, parent);
+		try { MacOSView.detachNative(view, parent); } catch (string error) {
+			self._attached = view.superview() != null;
+			throw error;
+		}
 		self._attached = false;
 	}
 

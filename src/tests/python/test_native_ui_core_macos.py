@@ -50,6 +50,7 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
         ("UI2MacOSViewInput", "PASS: UI2 macOS pointer admission follows effective eligibility"),
         ("UI2MacOSButtonState", "PASS: UI2 macOS eligibility loss retires pending native button actions"),
         ("UI2MacOSViewState", "PASS: UI2 macOS native view state subtree eligibility and deferred observations"),
+        ("UI2MacOSDetachFault", "PASS: UI2 macOS detach failures retain actual attachment ownership"),
         ("UI2MacOSPublisher", "PASS: UI2 macOS worker publication and cancellation drain"),
         ("UI2MacOSExecutor", "PASS: UI2 macOS executor worker delivery timers suspension and callback drain"),
         ("UI2MacOSScheduler", "PASS: UI2 macOS scheduled work uses common-mode deadlines and later turns"),
@@ -90,6 +91,16 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
                 else ""
             )
             + "]\n"
+        )
+    if fixture == "UI2MacOSDetachFault":
+        for suffix in ("h", "m"):
+            name = f"{fixture}.{suffix}"
+            (package / name).write_text((root / "src/tests/native/gui/ui2/probes/macos" / name).read_text())
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "UI2MacOSDetachFault.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["+[BTRCUI2DetachFault armView:after:]"]\n'
+            '[[native.sources]]\npath = "UI2MacOSDetachFault.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     if fixture == "UI2MacOSApplicationHost":
         for suffix in ("h", "m"):

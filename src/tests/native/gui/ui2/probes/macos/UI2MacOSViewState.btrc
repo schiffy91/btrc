@@ -28,7 +28,9 @@ class ClosingViewObservation implements IViewInteractionStateHandler {
 int main() {
 	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8); var windowEvents = context.createQueue();
 	var root = MacOSView(); var child = MacOSView(); root.stateNode().configure(context);
+	root.stateNode().validateChild(child.stateNode()); assert(child.stateNode().context() == null);
 	child.attachTo(root.nativeView()); root.stateNode().addChild(child.stateNode());
+	assert(child.stateNode().context() == context);
 	// Window facts are injected here; native window observation is not qualified.
 	root.stateNode().attachWindow(windowEvents, true, WINDOW_EXPOSURE_EXPOSED);
 	assert(root.interactionState().effectiveEligible && child.interactionState().effectiveEligible);

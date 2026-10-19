@@ -202,12 +202,15 @@ class MacOSViewState implements IControlEventTarget {
 		self.requireOpen(); child.requireOpen();
 		if (child._parented || child.contains(self)) { throw "Native view already has a parent or creates a cycle"; }
 		var context = self._context;
-		if (context != null && child._context == null) { child.configure(context); }
-		if (context != child._context) { throw "Native views cannot cross application contexts"; }
+		if (context != null) { child.validateContext(context); }
+		else if (child._context != null) { throw "Native views cannot cross application contexts"; }
 	}
 
 	public void addChild(MacOSViewState child) {
-		self.validateChild(child); self._children.push(child); child._parented = true;
+		self.validateChild(child);
+		var context = self._context;
+		if (context != null && child._context == null) { child.configure(context); }
+		self._children.push(child); child._parented = true;
 		child.route(self._queue); child.mark(self.effectiveEligible(), self._state.exposure); child.settle(); child.commitRoute(); child.publish();
 	}
 

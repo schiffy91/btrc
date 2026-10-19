@@ -1,0 +1,24 @@
+import Library.Callback;
+import Library.GUI.MacOS.MacOSView;
+
+#include <assert.h>
+
+void checkDetachFault(bool after) {
+	var parent = MacOSView(); var child = MacOSView(); child.attachTo(parent.nativeView());
+	BTRCUI2DetachFault.armView(child.nativeView(), after);
+	bool failed = false; try { child.detachFrom(parent.nativeView()); } catch (string error) { failed = true; }
+	bool detached = child.nativeView().superview() == null;
+	bool closed = false; try { closed = child.close() == CALLBACK_CANCELLATION_COMPLETE; } catch (string error) {}
+	if (!closed) {
+		// Repair the native setup before asserting, including the old stale flag.
+		if (detached) { parent.nativeView().addSubview(child.nativeView()); }
+		child.detachFrom(parent.nativeView()); assert(child.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+	assert(parent.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(failed && detached == after && closed == after);
+}
+
+int main() {
+	checkDetachFault(false); checkDetachFault(true);
+	print("PASS: UI2 macOS detach failures retain actual attachment ownership"); return 0;
+}

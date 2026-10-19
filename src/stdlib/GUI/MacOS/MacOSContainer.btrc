@@ -200,6 +200,7 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 		self._mutating = true;
 		try { MacOSView.detachNative(view, parent); } catch (string error) {
 			self._mutating = false;
+			self._attached = view.superview() != null;
 			throw error;
 		}
 		self._mutating = false;
