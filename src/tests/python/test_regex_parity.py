@@ -55,7 +55,9 @@ def _build_host(output: Path, include: Path | None = None) -> Path:
     compiler = host_c_compiler()
     if compiler is None or sys.platform == "win32":
         pytest.skip("requires a POSIX host C compiler and C library")
-    command = [*compiler, "-std=c11", "-O2"]
+    # The feature macro btrc's own prologue defines: glibc declares the
+    # engine's strnlen only with it, MinGW-w64 unconditionally.
+    command = [*compiler, "-std=c11", "-O2", "-D_DEFAULT_SOURCE"]
     if include is None:
         command += ["-Wall", "-Wextra", "-Werror"]
     else:
