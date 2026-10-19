@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.python.asan_toolchain import asan_environment, find_asan_compiler
+
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
@@ -37,9 +39,11 @@ def test_ui2_semantic_queue(tmp_path, request, frontend, sanitized):
         ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"] if sanitized else []
     )
     executable = tmp_path / "Queue"
+    cc = find_asan_compiler(tmp_path) if sanitized else os.environ.get("BTRC_NATIVE_PROVIDER_CC", "cc")
+    native_environment = asan_environment(cc) or environment
     compile_result = subprocess.run(
         [
-            os.environ.get("BTRC_NATIVE_PROVIDER_CC", "cc"),
+            cc,
             "-std=c11",
             "-pedantic-errors",
             "-Wall",
@@ -54,13 +58,13 @@ def test_ui2_semantic_queue(tmp_path, request, frontend, sanitized):
             str(executable),
         ],
         cwd=root,
-        env=environment,
+        env=native_environment,
         capture_output=True,
         text=True,
         timeout=180,
     )
     assert compile_result.returncode == 0, compile_result.stderr
-    result = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+    result = subprocess.run([str(executable)], env=native_environment, capture_output=True, text=True, timeout=30)
     (tmp_path / "stdout.txt").write_text(result.stdout)
     (tmp_path / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr

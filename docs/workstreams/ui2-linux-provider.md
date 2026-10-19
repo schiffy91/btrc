@@ -408,9 +408,12 @@ The first execution of `test_ui2_semantic_queue[plain-python]` aborted with
 `Callback scope collected before independent cancellation`. Channel cancellation
 closed its handler but left the private scope retaining the registration. The
 channel now cancels and polls that owning scope, including failed activation.
-The same plain reference test passes after the repair. The remaining compiler
-and sanitizer rows are being run against a fresh portable self-host build;
-this checkpoint does not claim those results yet.
+Both plain compiler rows passed after the repair. The first sanitized run
+stalled before `main` in Nix ASan initialization; a process sample showed the
+runtime recursively entering its initialization lock. The test now uses the
+repository's `find_asan_compiler` and `asan_environment` helpers. All four
+compiler/sanitizer rows pass in 19.28 seconds, using the freshly built portable
+self-host compiler. This qualifies the private queue fixture, not the providers.
 
 The catalog check preserves 1,620 operation slots, 470 case slots and 300 family
 cells, with 70 pending IDs. It reports no undeclared or missing slots. Surface
