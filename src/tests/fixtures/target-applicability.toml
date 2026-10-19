@@ -197,3 +197,25 @@ status = "missing"
 scope = "build"
 reason = "Library.Regex needs POSIX regex.h, which MinGW lacks; the vendored engine is platforms-p3-regex-glob (D22)"
 cites = "corpus.strings@windows-arm64"
+
+# These build for MinGW, then reach the exact filesystem handles at run time:
+# FileSystem.readBytes opens a RegularFileSnapshot, and the inventory program
+# opens temporary and private directories and exact file handles, all of which
+# return FileSystemError.unsupported on Windows (FileSystemHandles.btrc) until
+# the Win32 handle provider lands. Established by the hosted windows-native
+# corpus run (CX-P1-07): both programs failed on x64 and ARM64, both frontends.
+[[programs]]
+paths = ["stdlib/FileSystemReadBytes.btrc", "stdlib/FileSystemHandleInventoryReal.btrc"]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "run"
+reason = "FileSystem.readBytes and the exact handles return unsupported on Windows; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/FileSystemReadBytes.btrc", "stdlib/FileSystemHandleInventoryReal.btrc"]
+targets = ["windows-aarch64"]
+status = "missing"
+scope = "run"
+reason = "FileSystem.readBytes and the exact handles return unsupported on Windows; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
+cites = "corpus.stdlib@windows-arm64"
