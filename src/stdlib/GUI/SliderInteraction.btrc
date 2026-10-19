@@ -88,7 +88,7 @@ class SliderInteraction {
 		try {
 			var channel = self._preview;
 			if (channel != null && channel.isOpen()) {
-				var event = self.snapshot(CONTROL_PHASE_PREVIEW, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE, SLIDER_INPUT_ABSOLUTE_POINTER, UI_RANGE_ADJUST_NONE, 1);
+				var event = self.snapshot(CONTROL_PHASE_PREVIEW, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE, SLIDER_INPUT_ABSOLUTE_POINTER, UI_RANGE_ADJUST_NONE, 0);
 				if (!channel.publish(event, self._generation, self._interaction, self._model.rangeRevision())) { self._model.setUserValue(previous); return false; }
 			}
 		} catch (string error) { self._model.setUserValue(previous); throw error; }
@@ -103,14 +103,14 @@ class SliderInteraction {
 		} finally { self._active = false; self.releaseTickets(); }
 	}
 
-	public void commit() { self.finish(SLIDER_INPUT_ABSOLUTE_POINTER, UI_RANGE_ADJUST_NONE, 1); }
+	public void commit() { self.finish(SLIDER_INPUT_ABSOLUTE_POINTER, UI_RANGE_ADJUST_NONE, 0); }
 
 	private void cancelInteraction(ControlOrigin origin, ControlCancelReason reason, bool restore) {
 		if (!self._active) { return; }
 		try {
 			if (restore && self._model.modelRevision() == self._startRevision) { self._model.setUserValue(self._start); }
 			var channel = self._cancel; var ticket = self._cancelTicket;
-			if (channel != null && channel.isOpen() && ticket != null) { var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason, SLIDER_INPUT_ABSOLUTE_POINTER, UI_RANGE_ADJUST_NONE, 1); channel.publishTerminal(event, self._generation, self._interaction, ticket); }
+			if (channel != null && channel.isOpen() && ticket != null) { var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason, SLIDER_INPUT_ABSOLUTE_POINTER, UI_RANGE_ADJUST_NONE, 0); channel.publishTerminal(event, self._generation, self._interaction, ticket); }
 		} finally { self._active = false; self.releaseTickets(); }
 	}
 
@@ -155,6 +155,6 @@ class SliderInteraction {
 		if (self._model.inert()) { return false; }
 		self.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION);
 		if (!self.begin(generation)) { return false; }
-		self._model.setUserValue(value); self.finish(SLIDER_INPUT_ABSOLUTE_ASSISTIVE, UI_RANGE_ADJUST_NONE, 1); return true;
+		self._model.setUserValue(value); self.finish(SLIDER_INPUT_ABSOLUTE_ASSISTIVE, UI_RANGE_ADJUST_NONE, 0); return true;
 	}
 }

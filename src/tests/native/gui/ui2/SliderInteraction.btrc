@@ -43,13 +43,14 @@ int main() {
 	assert(receiver.events.get(1).phase == CONTROL_PHASE_COMMIT && receiver.events.get(1).value == 4.0);
 	assert(receiver.events.get(0).context.modelRevision == receiver.events.get(1).context.modelRevision);
 	assert(receiver.events.get(0).context.sequence < receiver.events.get(1).context.sequence);
+	assert(receiver.events.get(0).count == 0 && receiver.events.get(1).count == 0);
 	receiver.events.clear();
 	assert(slider.begin(1LL) && slider.preview(8.0));
 	slider.cancel(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE);
 	assert(slider.value() == 4.0 && !slider.active()); slider.commit();
 	while (queue.dispatchOne()) {}
 	assert(receiver.events.len == 2 && receiver.events.get(1).phase == CONTROL_PHASE_CANCEL);
-	assert(receiver.events.get(1).value == 4.0 && receiver.events.get(1).cancelReason == CONTROL_CANCEL_ESCAPE);
+	assert(receiver.events.get(1).value == 4.0 && receiver.events.get(1).cancelReason == CONTROL_CANCEL_ESCAPE && receiver.events.get(1).count == 0);
 	receiver.events.clear();
 	assert(slider.begin(1LL) && slider.preview(8.0));
 	assert(slider.setValue(4.0) && !slider.active()); slider.commit();
@@ -93,7 +94,7 @@ int main() {
 	receiver.events.clear();
 	assert(slider.assistiveValue(1LL, 9007199254741000.0));
 	while (queue.dispatchOne()) {}
-	assert(receiver.events.len == 1 && receiver.events.get(0).input == SLIDER_INPUT_ABSOLUTE_ASSISTIVE);
+	assert(receiver.events.len == 1 && receiver.events.get(0).input == SLIDER_INPUT_ABSOLUTE_ASSISTIVE && receiver.events.get(0).count == 0);
 	receiver.events.clear();
 	assert(slider.setRange(7.0, 7.0, 0.0));
 	assert(!slider.begin(1LL) && !slider.adjust(1LL, UI_RANGE_ADJUST_MAXIMUM, 1) && !slider.assistiveValue(1LL, 7.0));
