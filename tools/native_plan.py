@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import tomllib
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
@@ -736,6 +737,19 @@ class NativeBuildReport:
                 temporary.unlink(missing_ok=True)
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeObject:
+    """One `[[external_objects]]` row: the C source, the helper sections of
+    its declarations asset, and the system libraries each OS links it with."""
+
+    source: str
+    helpers: tuple[str, ...]
+    libraries: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...]
+
+    def libraries_for(self, operating_system: str) -> tuple[str, ...]:
+        return tuple(name for systems, names in self.libraries if operating_system in systems for name in names)
+
+
 class RuntimeObjects:
     """The runtime's separately compiled objects that emitted C retains.
 
@@ -758,11 +772,21 @@ class RuntimeObjects:
     _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
     @classmethod
-    def rows(cls) -> tuple:
+    def rows(cls) -> tuple[RuntimeObject, ...]:
+        """The manifest's object rows. The code generator validates the
+        manifest (generated-check, `RuntimeManifest`); this reads the rows it
+        accepted, so the packaged adapter ships without the generator."""
         if cls._ROWS is None:
-            from tools.compiler_codegen.runtime import RuntimeManifest
-
-            cls._ROWS = RuntimeManifest.load(cls.DIRECTORY / "manifest.toml").external_objects
+            document = tomllib.loads((cls.DIRECTORY / "manifest.toml").read_text(encoding="utf-8"))
+            helpers = document.get("helpers", [])
+            cls._ROWS = tuple(
+                RuntimeObject(
+                    source=row["source"],
+                    helpers=tuple(helper["name"] for helper in helpers if helper.get("asset") == row["declarations"]),
+                    libraries=tuple((tuple(entry["os"]), tuple(entry["names"])) for entry in row["libraries"]),
+                )
+                for row in document.get("external_objects", [])
+            )
         return cls._ROWS
 
     @classmethod

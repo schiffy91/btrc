@@ -31,6 +31,7 @@ from tools.native_plan import (
     NativePlanBuilder,
     NativePlanError,
     NativePlanReader,
+    RuntimeObjects,
     _PreludeAccelerator,
     main,
 )
@@ -563,8 +564,9 @@ def _native_plan_import_closure() -> set[str]:
     return closure
 
 
-# TargetToolchain force-includes these C headers into every windows-gnu unit.
-NATIVE_PLAN_HEADER_PREFIXES = ["src/runtime/windows/"]
+# The runtime objects RuntimeObjects builds, and the Windows overlay TargetToolchain
+# force-includes into every windows-gnu unit: C assets the adapter reads, never imports.
+NATIVE_PLAN_ASSET_PREFIXES = ["src/runtime/c/", "src/runtime/windows/"]
 
 
 def _flake_native_plan_files(flake: str) -> set[str]:
@@ -572,12 +574,13 @@ def _flake_native_plan_files(flake: str) -> set[str]:
     prefixes = re.search(r"prefixes = \[(.*?)\];", source, re.DOTALL)
     assert prefixes is not None
     # Exact modules only: a directory prefix would ship modules the adapter
-    # never imports, so the one prefix allowed is the header-only overlay.
-    assert re.findall(r'"([^"\n]+)"', prefixes.group(1)) == NATIVE_PLAN_HEADER_PREFIXES
+    # never imports, so the prefixes allowed hold C assets only: the runtime
+    # objects RuntimeObjects builds and the header-only Windows overlay.
+    assert re.findall(r'"([^"\n]+)"', prefixes.group(1)) == NATIVE_PLAN_ASSET_PREFIXES
     listed = re.search(r"files = \[(.*?)\];", source, re.DOTALL)
     assert listed is not None
     files = set(re.findall(r'"([^"\n]+)"', listed.group(1)))
-    for prefix in NATIVE_PLAN_HEADER_PREFIXES:
+    for prefix in NATIVE_PLAN_ASSET_PREFIXES:
         shipped = [path for path in (REPO / prefix).rglob("*") if path.is_file()]
         assert shipped and not [path for path in shipped if path.suffix == ".py"], prefix
         files.update(path.relative_to(REPO).as_posix() for path in shipped)
@@ -588,8 +591,23 @@ def _flake_native_plan_modules(flake: str) -> set[str]:
     return {
         path
         for path in _flake_native_plan_files(flake)
-        if not any(path.startswith(prefix) for prefix in NATIVE_PLAN_HEADER_PREFIXES)
+        if not any(path.startswith(prefix) for prefix in NATIVE_PLAN_ASSET_PREFIXES)
     }
+
+
+def test_runtime_object_rows_match_the_validated_manifest():
+    """The adapter reads `[[external_objects]]` without the code generator;
+    its rows must be exactly the ones `RuntimeManifest` validates."""
+    from tools.compiler_codegen.runtime import RuntimeManifest
+
+    expected = RuntimeManifest.load(RuntimeObjects.DIRECTORY / "manifest.toml").external_objects
+    rows = RuntimeObjects.rows()
+    assert rows and len(rows) == len(expected)
+    for row, spec in zip(rows, expected, strict=True):
+        assert (row.source, row.helpers) == (spec.source, spec.helpers)
+        for operating_system in ("linux", "macos", "windows", "ios", "android"):
+            assert row.libraries_for(operating_system) == spec.libraries_for(operating_system)
+        assert (RuntimeObjects.DIRECTORY / row.source).is_file()
 
 
 def test_standalone_native_plan_distribution_reuses_cached_objects(tmp_path):
