@@ -17,6 +17,17 @@ module = "Process"
 implementation = "Windows.ProcessHostProvider"
 os = ["windows"]
 
+# IO's stream snapshots share Windows handle identity with FileSystem.
+[[package.providers]]
+module = "IO"
+implementation = "Unix.IOHostProvider"
+os = ["android", "ios", "linux", "macos"]
+
+[[package.providers]]
+module = "IO"
+implementation = "Windows.IOHostProvider"
+os = ["windows"]
+
 # Every functional group is its own package; see README.md.
 [dependencies]
 App = { path = "App" }
