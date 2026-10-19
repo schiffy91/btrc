@@ -1,13 +1,12 @@
 name: Host iOS
 
-# CX-P1-04's iOS simulator test host (tools/target_hosts/ios) on a hosted
-# macos-15 runner: twelve strict-C11 fixtures, each launched through simctl
-# spawn and as an installed app, on an iPhone and an iPad simulator, plus one
-# repeated app run per device class (50 executions). The runner's Xcode is
-# stand-in provenance, not the owner's pinned 27A266a, and the runtime is the
-# newest installed iOS >= 17, not the iOS 17 floor (MAC-P1-02). Until the tool
-# directory is on the revision being tested, the tooling job reports it absent
-# and the simulator job is skipped, so this workflow can land before the host.
+# CX-P1-04's iOS simulator host: twelve strict-C11 fixtures through spawn
+# and installed app bundles on iPhone and iPad, plus one repeated app run per
+# device class (50 executions). The xcode-27 image supplies the D21 toolchain;
+# verify its exact build before using an SDK. Runtime selection still chooses
+# the newest installed iOS >= 17, so this does not prove the iOS 17 floor.
+# Until the tool directory exists, tooling reports it absent and skips the
+# simulator job so the workflow can land before the host.
 on:
   push:
     branches: [main]
@@ -52,8 +51,10 @@ jobs:
   simulator:
     needs: tooling
     if: needs.tooling.outputs.present == 'true'
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.app/Contents/Developer
     # An explicit bash shell runs with pipefail, so a failing command piped
     # into tee still fails its step.
     defaults:
@@ -70,6 +71,9 @@ jobs:
         run: |
           mkdir -p build/ios-results
           xcodebuild -version | tee build/ios-results/xcode-version.txt
+          grep -Fxq 'Build version 27A266a' build/ios-results/xcode-version.txt
+          xcrun --find simctl > build/ios-results/simctl-path.txt
+          xcrun --sdk iphonesimulator --show-sdk-version > build/ios-results/sdk-version.txt
           xcrun simctl list -j > build/ios-results/simctl-list.json
       - name: Local host tests
         run: python3 -m unittest tools.target_hosts.ios.test_executor -v 2>&1 | tee build/ios-results/unittest.log
