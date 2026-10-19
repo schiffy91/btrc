@@ -451,3 +451,34 @@ def test_windows_recursive_directory_delete_fails_closed() -> None:
     assert "self.error = self.found ? 0 : errno" in status
     assert "self.linkError = self.linkFound ? 0 : errno" in status
     assert "self.error == ENOENT && self.linkError == ENOENT" in status
+
+
+def test_windows_recursive_delete_is_handle_relative_and_never_follows_reparse_points() -> None:
+    """On Windows removeRecursive refuses a volume root or an invalid last
+    name, reaches the parent from the volume root without following a reparse
+    point, and removes the tree relative to that handle; the provider opens
+    every name relative to its parent with FILE_OPEN_REPARSE_POINT."""
+
+    remove = FILESYSTEM.read_text().split("class int removeRecursive(string path) {", 1)[1]
+    remove = remove.split("\n\t}\n", 1)[0]
+    # The _WIN32 branch returns the handle-relative removal; #else keeps POSIX.
+    assert "\t\treturn WindowsFileSystem.removeTree(path);\n#else\n" in remove
+    assert "if (!WindowsFileSystem.removable(path)) { return -1; }" in remove
+
+    handles = FILESYSTEM_HANDLES.read_text()
+    tree = handles.split("class int removeTree(string path) {", 1)[1].split("\n\t}\n", 1)[0]
+    assert 'WindowsFileSystem.openParent(absolutePath, "remove directory tree", false)' in tree
+    assert "WindowsFileSystem.removeTreeAt(owner.value(), name, null)" in tree
+    removal = handles.split("class int removeTreeAt(void* parent, string name, FileSnapshot? expected) {", 1)[1]
+    removal = removal.split("\n\t}\n", 1)[0]
+    assert "btrcWinOpenAt(parent, name, WINDOWS_OPEN_REMOVE" in removal
+    assert "WindowsFileSystem.removeTreeAt(owner.value(), childName, null)" in removal
+    parent = handles.split("class FileSystemOutcome<WindowsNativeHandle> openParent(", 1)[1].split("\n\t}\n", 1)[0]
+    assert "btrcWinOpenRoot(" in parent and "btrcWinOpenAt(parent.value(), component" in parent
+    assert 'component.equals("..")' in parent and "FileSystemError.symlink(" in parent
+
+    provider = (ROOT / "src/stdlib/FileSystem/Windows/Win32FileSystem.c").read_text()
+    open_at = provider.split("static inline int btrcWinOpenAt(", 1)[1].split("\n}\n", 1)[0]
+    assert "FILE_OPEN_REPARSE_POINT" in open_at
+    # The name is resolved relative to the held parent handle (RootDirectory).
+    assert "InitializeObjectAttributes(&attributes, &objectName, OBJ_CASE_INSENSITIVE, parent," in open_at

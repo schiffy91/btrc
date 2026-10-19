@@ -5,6 +5,14 @@ import Library.FileSystem.FileSystemHandles;
 #include <assert.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(_WIN32)
+
+/* CreateHardLinkW, for the second-link case; the support file does not use
+ * the provider's code. */
+import ../native/filesystem_windows/WindowsFileSystemSupport.c
+
+extern int btrcTestHardLink(string existing, string link);
+#endif
 
 int main() {
 	var initial = FileSystem.ownedHandleInventory();
@@ -39,10 +47,21 @@ int main() {
 	assert(FileSystem.ownedHandleInventory().openCount() == initial.openCount() + 1);
 
 	string linked = root.path() + "/linked.lock";
+#if defined(_WIN32)
+	assert(FileSystem.symlink(path, linked) == 0);
+#else
 	assert(symlink(path, linked) == 0);
+#endif
 	assert(!AdvisoryFileLock.acquire(linked).ok());
 	assert(AdvisoryFileLock.acquire(linked).error().kind() == FS_SYMLINK);
 	assert(unlink(linked) == 0);
+#if defined(_WIN32)
+	assert(btrcTestHardLink(path, linked) == 0);
+	assert(!AdvisoryFileLock.acquire(path).ok());
+	assert(!AdvisoryFileLock.acquire(linked).ok());
+	assert(unlink(linked) == 0);
+	/* Windows file systems have no FIFOs; a directory is the wrong-type case. */
+#else
 	char nativePath[4096];
 	char nativeLinked[4096];
 	assert(snprintf(nativePath, sizeof(nativePath), "%s", path) < 4096);
@@ -55,7 +74,9 @@ int main() {
 	assert(!AdvisoryFileLock.acquire(linked).ok());
 	assert(AdvisoryFileLock.acquire(linked).error().kind() == FS_WRONG_TYPE);
 	assert(unlink(linked) == 0);
+#endif
 	assert(!AdvisoryFileLock.acquire(root.path()).ok());
+	assert(AdvisoryFileLock.acquire(root.path()).error().kind() == FS_WRONG_TYPE);
 
 	var replaced = AdvisoryFileLock.acquire(path);
 	assert(replaced.ok());

@@ -13,6 +13,11 @@ import Library.IO;
 #include <unistd.h>
 
 int descriptorCount() {
+#if defined(_WIN32)
+	/* Windows has no descriptor table to probe: count the exact handles this
+	 * program owns. */
+	return FileSystem.ownedHandleInventory().openCount();
+#else
 	int count = 0;
 	for (int descriptor = 0; descriptor < 4096; descriptor++) {
 		errno = 0;
@@ -21,6 +26,7 @@ int descriptorCount() {
 		}
 	}
 	return count;
+#endif
 }
 
 void writeBytes(string path, Bytes content) {

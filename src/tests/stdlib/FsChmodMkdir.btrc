@@ -35,7 +35,11 @@ int main() {
 	// file name (the temp dir may itself be a symlink, so only check the tail).
 	string real = FileSystem.realPath(filePath);
 	assert(!real.isEmpty());
+#if defined(_WIN32)
+	assert(PathTools.isAbsolute(real));
+#else
 	assert(real[0] == '/');
+#endif
 	assert(real.endsWith("data.txt"));
 
 	FileSystem.removeRecursive(dir);

@@ -2,7 +2,8 @@
  *
  * This resolves generic state, cache, and configuration roots only. Callers
  * append their own application identifier and remain responsible for creating
- * directories. Environment strings are bounded before they are copied.
+ * directories. Environment strings are bounded before they are copied; on
+ * Windows the roots are the shell's known folders, never the environment.
  * Resolution reports through the package's one FileSystemOutcome: invalid
  * limits are FS_INVALID_ARGUMENT, a root over the byte limit is
  * FS_INVALID_ARGUMENT with native code ENAMETOOLONG, a missing or relative
@@ -44,7 +45,24 @@ class ApplicationDirectoryRoots {
 
 	public string configRoot() { return self.configPath; }
 
+#if defined(_WIN32)
+	/* Windows: a drive or UNC path written with backslashes, whose components
+	 * after the volume root are never empty, "." or "..". */
+	private bool normalizedRoot(string path) {
+		if (path == null || path.isEmpty() || path.contains("/")) { return false; }
+		int root = WindowsFileSystem.rootLength(path);
+		if (root <= 0) { return false; }
+		if (path.len() == root) { return true; }
+		if (path[path.len() - 1] == '\\') { return false; }
+		Vector<string> components = Strings.split(path.substring(root, path.len() - root), "\\");
+		for component in components {
+			if (component.isEmpty() || component.equals(".") || component.equals("..")) { return false; }
+		}
+		return true;
+	}
+#else
 	private bool normalizedRoot(string path) { return path != null && !path.isEmpty() && path[0] == '/' && (path.equals("/") || path[path.len() - 1] != '/') && !path.contains("//") && !path.contains("/./") && !path.contains("/../") && !path.endsWith("/.") && !path.endsWith("/.."); }
+#endif
 }
 
 class ApplicationDirectoryEnvironmentValue {
@@ -152,6 +170,21 @@ class ApplicationDirectoryResolver {
 		}
 		return new FileSystemOutcome<ApplicationDirectoryRoots>(ApplicationDirectoryRoots(state, cache, config), null);
 	}
+#if defined(_WIN32)
+
+	/* Windows: the shell's known folders, never an environment variable.
+	 * State is FOLDERID_LocalAppData, configuration FOLDERID_RoamingAppData,
+	 * and the cache root LocalAppData\Cache, so a cache never aliases state. */
+	private FileSystemOutcome<ApplicationDirectoryRoots> resolveWindows(int maximumBytes) {
+		int status = 0;
+		string local = WindowsFileSystem.knownFolder(0, &status);
+		if (local.isEmpty()) { return self.rejected(FS_NOT_FOUND, status, "Windows reports no local application data folder (FOLDERID_LocalAppData) for this user."); }
+		string roaming = WindowsFileSystem.knownFolder(1, &status);
+		if (roaming.isEmpty()) { return self.rejected(FS_NOT_FOUND, status, "Windows reports no roaming application data folder (FOLDERID_RoamingAppData) for this user."); }
+		if (local.len() > maximumBytes || roaming.len() > maximumBytes || (long long)local.len() + 6LL > (long long)maximumBytes) { return self.tooLong("A Windows application directory exceeds the configured path byte limit."); }
+		return new FileSystemOutcome<ApplicationDirectoryRoots>(ApplicationDirectoryRoots(local, WindowsFileSystem.join(local, "Cache"), roaming), null);
+	}
+#endif
 
 	public FileSystemOutcome<ApplicationDirectoryRoots> resolve(ApplicationDirectoryLimits limits) {
 		int maximumBytes = limits.maximumPathBytes();
@@ -162,6 +195,9 @@ class ApplicationDirectoryResolver {
 		 * context provider, so it stays unsupported here. */
 		if (platform == 1 || platform == 4) { return self.resolveMacOS(maximumBytes); }
 		if (platform == 2) { return self.resolveLinux(maximumBytes); }
+#if defined(_WIN32)
+		if (platform == 3) { return self.resolveWindows(maximumBytes); }
+#endif
 		return self.rejected(FS_UNSUPPORTED, 0, "Application directories are not supported on this platform.");
 	}
 }

@@ -409,9 +409,9 @@ kind = "operation"
 id = "Library.FileSystem"
 group = "stdlib/FileSystem"
 title = "Paths, directories and file operations"
-regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_stdlib_process_security.py::test_windows_recursive_directory_delete_fails_closed", "src/tests/python/test_stdlib_process_security.py::test_recursive_delete_is_descriptor_relative_and_nofollow"]
-windows-x64 = { parity = "adapted", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "Windows path branches + win compat lstat/unlink/realpath/mkdir; removeRecursive returns -1 for dirs, handle APIs unsupported" }
-windows-arm64 = { parity = "adapted", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "Windows path branches + win compat lstat/unlink/realpath/mkdir; removeRecursive returns -1 for dirs, handle APIs unsupported" }
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_stdlib_process_security.py::test_windows_recursive_directory_delete_fails_closed", "src/tests/python/test_stdlib_process_security.py::test_windows_recursive_delete_is_handle_relative_and_never_follows_reparse_points", "src/tests/python/test_stdlib_process_security.py::test_recursive_delete_is_descriptor_relative_and_nofollow"]
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Windows path branches + win compat lstat/unlink/realpath/mkdir; removeRecursive removes trees handle-relative through the Win32 FileSystemHandles provider without following reparse points; symlink/readLink are CreateSymbolicLinkW and FSCTL_GET_REPARSE_POINT" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Windows path branches + win compat lstat/unlink/realpath/mkdir; removeRecursive removes trees handle-relative through the Win32 FileSystemHandles provider without following reparse points; symlink/readLink are CreateSymbolicLinkW and FSCTL_GET_REPARSE_POINT" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "POSIX dirent/stat/mkdir/unlink/realpath in iOS libc; same code within the app sandbox container" }
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "POSIX dirent/stat/mkdir/unlink/realpath in iOS libc; same code within the app sandbox container" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "POSIX dirent/stat/mkdir/unlink/realpath in bionic; same code within app-private storage" }
@@ -423,8 +423,8 @@ id = "Library.FileSystem.ApplicationDirectories"
 group = "stdlib/FileSystem"
 title = "Per-user state/cache/config directories"
 regression = ["src/tests/python/test_application_directories_contract.py::test_application_directory_platform_policies_are_bounded_and_normalized", "src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns FS_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "resolve() returns FS_UNSUPPORTED off macOS/Linux; needs SHGetKnownFolderPath(FOLDERID_LocalAppData)" }
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "platform code 3 resolves SHGetKnownFolderPath: state FOLDERID_LocalAppData, cache LocalAppData\\Cache, config FOLDERID_RoamingAppData; never an environment variable" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "platform code 3 resolves SHGetKnownFolderPath: state FOLDERID_LocalAppData, cache LocalAppData\\Cache, config FOLDERID_RoamingAppData; never an environment variable" }
 ios-device = { parity = "adapted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "platform code 4 resolves HOME/Library/Application Support and Caches: HOME is the app sandbox container on iOS; simulator spawn verified 2026-10-12, installed-app container pending" }
 ios-simulator = { parity = "adapted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "platform code 4 resolves HOME/Library/Application Support and Caches: HOME is the app sandbox container on iOS; simulator spawn verified 2026-10-12, installed-app container pending" }
 android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "platform code 5 returns FS_UNSUPPORTED; Android needs Context.getFilesDir/getCacheDir via JNI" }
@@ -435,9 +435,9 @@ kind = "operation"
 id = "Library.FileSystem.FileSystemHandles"
 group = "stdlib/FileSystem"
 title = "Descriptor-relative file and directory handles"
-regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_stdlib_process_security.py::test_recursive_delete_is_descriptor_relative_and_nofollow"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "Platform.isWindows() returns unsupported; openat/fdopendir/flock absent in MinGW, needs NT handle-relative backend" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "Platform.isWindows() returns unsupported; openat/fdopendir/flock absent in MinGW, needs NT handle-relative backend" }
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_stdlib_process_security.py::test_recursive_delete_is_descriptor_relative_and_nofollow", "src/tests/python/test_windows_filesystem_handles.py::test_both_frontends_build_the_windows_cases", "src/tests/python/test_windows_filesystem_handles.py::test_other_rows_compile_no_win32_c"]
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Windows.Win32FileSystemProvider (os = windows): NtCreateFile opens relative to held directory handles with FILE_OPEN_REPARSE_POINT, FileIdBothDirectoryInfo listing, POSIX-semantics rename and delete, LockFileEx locks, owner-only protected DACLs; adaptations in src/stdlib/FileSystem/README.md" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Windows.Win32FileSystemProvider (os = windows): NtCreateFile opens relative to held directory handles with FILE_OPEN_REPARSE_POINT, FileIdBothDirectoryInfo listing, POSIX-semantics rename and delete, LockFileEx locks, owner-only protected DACLs; adaptations in src/stdlib/FileSystem/README.md" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "openat/fdopendir/unlinkat/flock and O_NOFOLLOW are available in iOS libc; same descriptor-relative code" }
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "openat/fdopendir/unlinkat/flock and O_NOFOLLOW are available in iOS libc; same descriptor-relative code" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "openat/fdopendir/unlinkat/flock and O_NOFOLLOW are available in bionic; same descriptor-relative code" }
@@ -449,8 +449,8 @@ id = "Library.FileSystem.FileTree"
 group = "stdlib/FileSystem"
 title = "Bounded file tree snapshots"
 regression = ["src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "built entirely on FileSystemHandles, which rejects Windows and needs an NT handle backend" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "built entirely on FileSystemHandles, which rejects Windows and needs an NT handle backend" }
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "pure btrc over FileSystemHandles, whose Windows provider reads directories relative to held NT handles; a reparse point is recorded as a symlink entry and never entered" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "pure btrc over FileSystemHandles, whose Windows provider reads directories relative to held NT handles; a reparse point is recorded as a symlink entry and never entered" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "pure btrc over FileSystemHandles, whose openat/fdopendir path builds on iOS libc" }
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "pure btrc over FileSystemHandles, whose openat/fdopendir path builds on iOS libc" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "pure btrc over FileSystemHandles, whose openat/fdopendir path builds on bionic" }
@@ -722,8 +722,8 @@ id = "Library.IO"
 group = "stdlib"
 title = "File I/O, file snapshots, descriptor flags"
 regression = ["src/tests/btrc/test_frontend_io_boundaries.py::test_source_text_boundary_preserves_valid_inputs", "src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "fopen I/O builds; compat fcntl fails ENOTSUP (DescriptorFlags), FileSnapshot returns unsupported on Windows" }
-windows-arm64 = { parity = "adapted", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "fopen I/O builds; compat fcntl fails ENOTSUP (DescriptorFlags), FileSnapshot returns unsupported on Windows" }
+windows-x64 = { parity = "adapted", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "fopen I/O builds; File.snapshot reads the stream's handle identity (GetFileInformationByHandleEx FileIdInfo, 128-bit ids unsupported); compat fcntl still fails ENOTSUP (DescriptorFlags)" }
+windows-arm64 = { parity = "adapted", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "fopen I/O builds; File.snapshot reads the stream's handle identity (GetFileInformationByHandleEx FileIdInfo, 128-bit ids unsupported); compat fcntl still fails ENOTSUP (DescriptorFlags)" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "fopen/fstat/stat/fcntl O_NONBLOCK are POSIX in iOS libSystem; paths confined to app sandbox by caller" }
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "fopen/fstat/stat/fcntl O_NONBLOCK are POSIX in iOS libSystem; paths confined to app sandbox by caller" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "fopen/fstat/stat/fcntl O_NONBLOCK in bionic; st_mtime aliases st_mtim timespec as on Linux" }
@@ -4338,8 +4338,8 @@ id = "corpus.stdlib"
 group = "corpus"
 title = "Corpus: stdlib modules and packages (110)"
 regression = ["src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "equivalent", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "pure modules port; Process/Daemon/Http*/Terminal/FileSystemHandles lack Win32 backends; CI runs only PathWindowsLexical" }
-windows-arm64 = { parity = "equivalent", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "pure modules port; Process/Daemon/Http*/Terminal/FileSystemHandles lack Win32 backends; no arm64 CI" }
+windows-x64 = { parity = "equivalent", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "pure modules port; Process/Daemon/Http*/Terminal lack Win32 backends; the FileSystem programs run on the Win32 provider in windows.yml win32-native" }
+windows-arm64 = { parity = "equivalent", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "pure modules port; Process/Daemon/Http*/Terminal lack Win32 backends; the FileSystem programs run on the Win32 provider in windows.yml win32-native" }
 ios-device = { parity = "equivalent", implementation = "partial", owner = "I1", status = "implemented-unverified", reason = "pure modules port; Process/ChildProcess/Daemon/fork os-restricted on iOS; /tmp and TMPDIR paths outside app sandbox" }
 ios-simulator = { parity = "equivalent", implementation = "partial", owner = "I1", status = "implemented-unverified", reason = "pure modules port; Process/ChildProcess/Daemon/fork os-restricted on iOS; /tmp and TMPDIR paths outside app sandbox" }
 android-arm64 = { parity = "equivalent", implementation = "partial", owner = "A1", status = "implemented-unverified", reason = "pure modules port; Daemon/Terminal termios restricted under app model; /tmp paths need getFilesDir/cacheDir" }

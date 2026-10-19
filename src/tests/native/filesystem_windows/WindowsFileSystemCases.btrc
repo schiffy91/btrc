@@ -1,0 +1,458 @@
+/* The Windows FileSystem provider's own cases, beyond the shared corpus:
+ * paths past MAX_PATH, \\?\ and UNC forms, non-ASCII names, junctions and
+ * directory links, a junction swapped in by a racing thread, a DACL that
+ * denies the user, a lock held by a second process, an interrupted durable
+ * replace, NTFS name rules, the known folders and the kernel handle count.
+ * test_windows_filesystem_handles.py builds it with both compilers for x64 and
+ * ARM64, and windows.yml runs each build on its own architecture. Every case
+ * prints one `case=<name> ok` line (or `case=unc skipped <reason>` where the
+ * runner denies the administrative share); the last line is PASS. */
+import Library.Bytes;
+import Library.FileSystem;
+import Library.FileSystem.ApplicationDirectories;
+import Library.FileSystem.FileSystemHandles;
+import Library.FileSystem.FileTree;
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+
+import ./WindowsFileSystemSupport.c
+#include <stdio.h>
+#include <stdlib.h>
+
+extern int btrcTestCreateJunction(string link, string target);
+extern int btrcTestOwnerOnly(string path);
+extern int btrcTestRestrictToOwner(string path);
+extern int btrcTestDenyAll(string path);
+extern int btrcTestHandleCount();
+extern int btrcTestSpawnSelf(string arguments, void** process);
+extern int btrcTestWaitProcess(void* process, int milliseconds);
+extern int btrcTestRemoveDirectory(string path);
+extern int btrcTestRename(string from, string to);
+extern void btrcTestSleep(int milliseconds);
+extern int btrcTestHoldOpen(string path, void** handle);
+extern int btrcTestClose(void* handle);
+extern char* btrcTestEnvironment(string variable);
+
+static Atomic<int> racerStop;
+
+void check(bool condition, string message) {
+	if (!condition) {
+		fprintf(stderr, "FAIL: %s\n", message);
+		exit(1);
+	}
+}
+
+string kindName(FileSystemErrorKind kind) {
+	if (kind == FS_INVALID_ARGUMENT) { return "invalid-argument"; }
+	if (kind == FS_NOT_FOUND) { return "not-found"; }
+	if (kind == FS_ACCESS_DENIED) { return "access-denied"; }
+	if (kind == FS_SYMLINK) { return "symlink"; }
+	if (kind == FS_WRONG_TYPE) { return "wrong-type"; }
+	if (kind == FS_CHANGED) { return "changed"; }
+	if (kind == FS_RESOURCE_EXHAUSTED) { return "resource-exhausted"; }
+	if (kind == FS_CLOSED) { return "closed"; }
+	if (kind == FS_UNSUPPORTED) { return "unsupported"; }
+	return "io";
+}
+
+string join(string directory, string name) { return directory + "\\" + name; }
+
+void writeFile(string path, string content) { check(FileSystem.writeText(path, content), "write " + path); }
+
+/* Every entry name of a directory, through an exact handle. */
+Vector<string> entryNames(string path) {
+	Vector<string> names = [];
+	var opened = FileSystem.openDirectoryExact(path);
+	check(opened.ok(), "open directory " + path);
+	DirectoryHandle directory = opened.value();
+	while (true) {
+		DirectoryStepOutcome step = directory.next();
+		check(step.ok(), "read directory " + path);
+		if (step.kind() == DIRECTORY_STEP_END) { break; }
+		names.push(step.entry().name());
+	}
+	check(directory.close().ok(), "close directory " + path);
+	return names;
+}
+
+PrivateDirectory privateDirectory(string path) {
+	var opened = FileSystem.openPrivateDirectory(path);
+	check(opened.ok(), "open private directory " + path);
+	return opened.value();
+}
+
+ExclusiveFileLease lease(PrivateDirectory directory, string name) {
+	var acquired = directory.acquireExclusiveLease(name);
+	check(acquired.ok(), "acquire lease " + name);
+	return acquired.value();
+}
+
+/* A chain of private directories created relative to each parent until the
+ * path is longer than MAX_PATH, then every exact operation by that path. */
+void caseLongPaths(string root) {
+	string segment = "segment-0123456789012345678901234567890123456789";
+	PrivateDirectory current = privateDirectory(join(root, "long"));
+	Vector<PrivateDirectory> chain = [current];
+	int depth = 0;
+	while (current.path().len() < 400) {
+		var child = current.openChildDirectory(segment + Strings.fromInt(depth));
+		check(child.ok(), "create long child");
+		current = child.value();
+		chain.push(current);
+		depth++;
+	}
+	string deepest = current.path();
+	check(deepest.len() > 260, "path exceeds MAX_PATH");
+	ExclusiveFileLease owner = lease(current, "long.lock");
+	check(owner.replaceRegularChildDurably("data.bin", Bytes.fromString("long path")).committed(), "replace past MAX_PATH");
+	PrivateFileReadOutcome read = owner.readRegularChild("data.bin", 64);
+	check(read.found() && read.bytes().toString().equals("long path"), "read past MAX_PATH");
+	check(owner.close().ok(), "close long lease");
+
+	var named = FileSystem.inspectExact(deepest);
+	check(named.ok() && named.value().kind() == FILE_DIRECTORY, "inspect past MAX_PATH");
+	var extended = FileSystem.inspectExact("\\\\?\\" + deepest);
+	check(extended.ok() && extended.value().sameObject(named.value()), "inspect the \\\\?\\ form");
+	var file = FileSystem.openFileExact(join(deepest, "data.bin"));
+	check(file.ok(), "open a file past MAX_PATH");
+	FileReadOutcome bytes = file.value().readAt(0LL, 64);
+	check(bytes.kind() == FILE_READ_DATA && bytes.bytes().toString().equals("long path"), "read a file past MAX_PATH");
+	check(file.value().close().ok(), "close the long file");
+	Vector<string> names = entryNames(deepest);
+	check(names.contains("data.bin") && names.contains("long.lock"), "list past MAX_PATH");
+
+	var snapshot = FileSystem.openFileTreeSnapshot(join(root, "long"), FileTreeLimits(64, 1024, 255, 32768));
+	check(snapshot.ok(), "snapshot a long tree");
+	FileTreeSnapshot tree = snapshot.value();
+	bool complete = false;
+	for (int step = 0; step < 4096 && !complete; step++) {
+		FileTreeSnapshotStep advanced = tree.advance();
+		check(advanced.ok(), "advance a long tree");
+		complete = advanced.kind() == FILE_TREE_SNAPSHOT_COMPLETE;
+	}
+	check(complete, "complete a long tree");
+	for (int index = chain.len - 1; index >= 0; index--) { check(chain.get(index).close().ok(), "close a long directory"); }
+	check(FileSystem.removeRecursive(join(root, "long")) == 0, "remove a long tree");
+	check(FileSystem.inspectExact(join(root, "long")).error().kind() == FS_NOT_FOUND, "long tree removed");
+	print("case=long-paths ok");
+}
+
+/* The temporary directory through the administrative share of its drive,
+ * \\localhost\C$\..., and its \\?\UNC\ form. */
+void caseUnc(string root) {
+	if (root.len() < 3 || root[1] != ':') {
+		print("case=unc skipped temporary directory is not on a drive");
+		return;
+	}
+	string share = "\\\\localhost\\" + root.substring(0, 1) + "$" + root.substring(2, root.len() - 2);
+	var inspected = FileSystem.inspectExact(share);
+	if (!inspected.ok()) {
+		print("case=unc skipped " + kindName(inspected.error().kind()));
+		return;
+	}
+	check(inspected.value().kind() == FILE_DIRECTORY, "the share names a directory");
+	writeFile(join(root, "unc.txt"), "over the share");
+	var opened = FileSystem.openFileExact(join(share, "unc.txt"));
+	check(opened.ok(), "open through the share");
+	FileReadOutcome read = opened.value().readAt(0LL, 64);
+	check(read.kind() == FILE_READ_DATA && read.bytes().toString().equals("over the share"), "read through the share");
+	check(opened.value().close().ok(), "close through the share");
+	string extended = "\\\\?\\UNC\\localhost\\" + root.substring(0, 1) + "$" + root.substring(2, root.len() - 2);
+	var extendedFile = FileSystem.inspectExact(join(extended, "unc.txt"));
+	check(extendedFile.ok() && extendedFile.value().kind() == FILE_REGULAR, "inspect the \\\\?\\UNC\\ form");
+	check(entryNames(share).contains("unc.txt"), "list through the share");
+	print("case=unc ok");
+}
+
+/* Names outside ASCII cross the boundary as UTF-8 and come back unchanged. */
+void caseNonAscii(string root) {
+	string name = "naïve-日本語-ü";
+	PrivateDirectory directory = privateDirectory(join(root, name));
+	ExclusiveFileLease owner = lease(directory, "verrou.lock");
+	check(owner.replaceRegularChildDurably("données.bin", Bytes.fromString("été")).committed(), "replace a non-ASCII child");
+	PrivateFileReadOutcome read = owner.readRegularChild("données.bin", 64);
+	check(read.found() && read.bytes().toString().equals("été"), "read a non-ASCII child");
+	check(owner.close().ok(), "close the non-ASCII lease");
+	Vector<string> names = entryNames(directory.path());
+	check(names.contains("données.bin") && names.contains("verrou.lock"), "list non-ASCII names");
+	string data = join(directory.path(), "données.bin");
+	check(FileSystem.inspectExact(data).ok(), "inspect a non-ASCII path");
+	string link = join(root, "lien-ü");
+	check(FileSystem.symlink(data, link) == 0, "link to a non-ASCII target");
+	check(FileSystem.readLink(link).equals(data), "read a non-ASCII link back");
+	check(FileSystem.inspectExact(link).value().kind() == FILE_SYMLINK, "the link is a link");
+	check(FileSystem.removeRecursive(link) == 0, "remove the link");
+	check(directory.close().ok(), "close the non-ASCII directory");
+	check(FileSystem.removeRecursive(join(root, name)) == 0, "remove the non-ASCII directory");
+	print("case=non-ascii ok");
+}
+
+/* A junction and a directory link are links: exact opens refuse them, a tree
+ * snapshot reports them, and removal deletes the link and never its target. */
+void caseReparsePoints(string root) {
+	string outside = join(root, "reparse-outside");
+	check(FileSystem.mkdir(outside, 448) == 0, "create the link target");
+	writeFile(join(outside, "must-survive.txt"), "safe");
+	string base = join(root, "reparse");
+	check(FileSystem.mkdir(base, 448) == 0, "create the link parent");
+	string junction = join(base, "junction");
+	check(btrcTestCreateJunction(junction, outside) == 0, "create a junction");
+	string link = join(base, "directory-link");
+	check(FileSystem.symlink(outside, link) == 0, "create a directory link");
+	for path in [junction, link] {
+		check(FileSystem.inspectExact(path).value().kind() == FILE_SYMLINK, "a reparse point inspects as a link");
+		check(FileSystem.openDirectoryExact(path).error().kind() == FS_SYMLINK, "open refuses a reparse point");
+		check(FileSystem.openPrivateDirectory(join(path, "leaf")).error().kind() == FS_SYMLINK, "a private walk refuses a reparse point");
+	}
+	check(FileSystem.readLink(junction).equals(outside), "read a junction's target");
+	var snapshot = FileSystem.openFileTreeSnapshot(base, FileTreeLimits(8, 64, 255, 32768));
+	check(snapshot.ok(), "snapshot past links");
+	FileTreeSnapshot tree = snapshot.value();
+	FileSystemErrorKind failure = FS_IO;
+	for (int step = 0; step < 64; step++) {
+		FileTreeSnapshotStep advanced = tree.advance();
+		if (advanced.kind() == FILE_TREE_SNAPSHOT_FAILED) {
+			failure = advanced.error().kind();
+			break;
+		}
+		check(advanced.kind() != FILE_TREE_SNAPSHOT_COMPLETE, "a tree with links does not complete");
+	}
+	check(failure == FS_UNSUPPORTED, "a tree snapshot reports a link as unsupported");
+	check(FileSystem.removeRecursive(base) == 0, "remove a tree holding links");
+	check(FileSystem.readText(join(outside, "must-survive.txt")).equals("safe"), "the links' target survives");
+	check(FileSystem.removeRecursive(outside) == 0, "remove the target");
+	print("case=reparse-points ok");
+}
+
+/* A second thread keeps swapping tree\a for a junction to an outside
+ * directory while this one lists, opens private children under, and removes
+ * subtrees of tree\a. Nothing may ever reach the outside directory. */
+void caseJunctionSwap(string root) {
+	string outside = join(root, "swap-outside");
+	check(FileSystem.mkdir(outside, 448) == 0, "create the swap target");
+	writeFile(join(outside, "must-survive.txt"), "safe");
+	string tree = join(root, "swap-tree");
+	string real = join(tree, "a");
+	string parked = join(tree, "a-parked");
+	check(FileSystem.mkdirp(join(real, "b")) == 0, "create the swapped tree");
+	racerStop.store(0, MemoryOrder.RELEASE);
+	Thread<int> racer = spawn(() => {
+			int swaps = 0;
+			while (racerStop.load(MemoryOrder.ACQUIRE) == 0) {
+				if (btrcTestRename(real, parked) != 0) {
+					btrcTestSleep(0);
+					continue;
+				}
+				if (btrcTestCreateJunction(real, outside) == 0) {
+					swaps++;
+					btrcTestSleep(0);
+					while (btrcTestRemoveDirectory(real) != 0 && racerStop.load(MemoryOrder.ACQUIRE) == 0) { btrcTestSleep(0); }
+					btrcTestRemoveDirectory(real);
+				}
+				while (btrcTestRename(parked, real) != 0) { btrcTestSleep(1); }
+			}
+			return swaps;
+		});
+	for (int round = 0; round < 300; round++) {
+		var opened = FileSystem.openDirectoryExact(tree);
+		if (opened.ok()) {
+			DirectoryHandle directory = opened.value();
+			while (true) {
+				DirectoryStepOutcome step = directory.next();
+				if (!step.ok() || step.kind() == DIRECTORY_STEP_END) { break; }
+				DirectoryEntry entry = step.entry();
+				if (entry.snapshot().kind() != FILE_DIRECTORY) { continue; }
+				var child = directory.openDirectory(entry);
+				if (!child.ok()) { continue; }
+				DirectoryHandle inner = child.value();
+				while (true) {
+					DirectoryStepOutcome innerStep = inner.next();
+					if (!innerStep.ok() || innerStep.kind() == DIRECTORY_STEP_END) { break; }
+					check(!innerStep.entry().name().equals("must-survive.txt"), "a listing entered the junction");
+				}
+				inner.close();
+			}
+			directory.close();
+		}
+		var placed = FileSystem.openPrivateDirectory(join(real, "private"));
+		if (placed.ok()) { placed.value().close(); }
+		string doomed = join(join(real, "b"), "doomed");
+		if (FileSystem.mkdir(doomed, 448) == 0) { FileSystem.writeText(join(doomed, "file.txt"), "x"); }
+		FileSystem.removeRecursive(doomed);
+		FileSystem.removeRecursive(join(real, "private"));
+	}
+	racerStop.store(1, MemoryOrder.RELEASE);
+	int swaps = racer.join();
+	check(swaps > 0, "the racer swapped the junction in");
+	check(FileSystem.readText(join(outside, "must-survive.txt")).equals("safe"), "the outside file survives");
+	Vector<string> outsideNames = entryNames(outside);
+	check(outsideNames.len == 1 && outsideNames.contains("must-survive.txt"), "nothing was created or removed outside");
+	check(FileSystem.removeRecursive(tree) == 0, "remove the swapped tree");
+	check(FileSystem.removeRecursive(outside) == 0, "remove the swap target");
+	print("case=junction-swap ok");
+}
+
+/* An empty protected DACL denies data access, yet inspection still works,
+ * as stat works on an unreadable POSIX file. */
+void caseDenied(string root) {
+	string path = join(root, "denied.txt");
+	writeFile(path, "secret");
+	check(btrcTestDenyAll(path) == 0, "deny the user");
+	var opened = FileSystem.openFileExact(path);
+	if (opened.ok()) {
+		opened.value().close();
+		btrcTestRestrictToOwner(path);
+		print("case=dacl-denied skipped the token bypasses access lists");
+		return;
+	}
+	check(opened.error().kind() == FS_ACCESS_DENIED, "an exact open is denied");
+	check(FileSystem.openRegularFileSnapshot(path, 64LL).error().kind() == FS_ACCESS_DENIED, "a snapshot is denied");
+	var inspected = FileSystem.inspectExact(path);
+	check(inspected.ok() || inspected.error().kind() == FS_ACCESS_DENIED, "inspection is allowed or denied, never another failure");
+	check(btrcTestRestrictToOwner(path) == 0, "restore the user");
+	check(FileSystem.readText(path).equals("secret"), "readable again");
+	print("case=dacl-denied ok");
+}
+
+/* LockFileEx in a second process: this one cannot acquire the lock, and the
+ * lock is mandatory, so it cannot read the locked file either. */
+void caseLockProcesses(string root) {
+	string lock = join(root, "shared.lock");
+	string ready = join(root, "ready");
+	string releaseMarker = join(root, "release");
+	writeFile(lock, "data");
+	void* child = null;
+	check(btrcTestSpawnSelf("hold \"" + lock + "\" \"" + ready + "\" \"" + releaseMarker + "\"", &child) == 0, "start the holder");
+	for (int wait = 0; wait < 3000 && !FileSystem.exists(ready); wait++) { btrcTestSleep(10); }
+	check(FileSystem.exists(ready), "the holder took the lock");
+	var contended = AdvisoryFileLock.acquire(lock);
+	check(!contended.ok() && contended.error().kind() == FS_RESOURCE_EXHAUSTED, "another process holds the lock");
+	File reader = File(lock, "rb");
+	Bytes content = reader.readBytes();
+	check(reader.failed() || content.isEmpty(), "the mandatory lock blocks reads");
+	reader.close();
+	writeFile(releaseMarker, "release");
+	check(btrcTestWaitProcess(child, 30000) == 0, "the holder exits cleanly");
+	var acquired = AdvisoryFileLock.acquire(lock);
+	check(acquired.ok(), "the lock is free again");
+	check(acquired.value().close().ok(), "release the lock");
+	print("case=lock-processes ok");
+}
+
+int holdLock(string lock, string ready, string releaseMarker) {
+	var held = AdvisoryFileLock.acquire(lock);
+	if (!held.ok()) { return 3; }
+	if (!FileSystem.writeText(ready, "ready")) { return 4; }
+	for (int wait = 0; wait < 6000 && !FileSystem.exists(releaseMarker); wait++) { btrcTestSleep(10); }
+	if (!FileSystem.exists(releaseMarker)) { return 5; }
+	return held.value().close().ok() ? 0 : 6;
+}
+
+/* A replace whose publishing rename cannot happen (another handle holds the
+ * target without sharing delete access) fails without committing: the old
+ * content stays and no temporary file is left behind. */
+void caseInterruptedReplace(string root) {
+	PrivateDirectory directory = privateDirectory(join(root, "replace"));
+	ExclusiveFileLease owner = lease(directory, "replace.lock");
+	check(owner.replaceRegularChildDurably("state.bin", Bytes.fromString("old")).committed(), "write the old state");
+	void* holder = null;
+	check(btrcTestHoldOpen(join(directory.path(), "state.bin"), &holder) == 0, "hold the target");
+	DurableReplaceOutcome interrupted = owner.replaceRegularChildDurably("state.bin", Bytes.fromString("new"));
+	check(btrcTestClose(holder) == 0, "release the target");
+	check(!interrupted.mayHaveCommitted(), "the interrupted replace did not commit");
+	PrivateFileReadOutcome read = owner.readRegularChild("state.bin", 64);
+	check(read.found() && read.bytes().toString().equals("old"), "the old state survives");
+	Vector<string> names = entryNames(directory.path());
+	check(names.len == 2 && names.contains("state.bin") && names.contains("replace.lock"), "no temporary file is left");
+	check(owner.replaceRegularChildDurably("state.bin", Bytes.fromString("new")).committed(), "a later replace commits");
+	check(owner.readRegularChild("state.bin", 64).bytes().toString().equals("new"), "the new state is read");
+	check(owner.close().ok() && directory.close().ok(), "close the replace directory");
+	print("case=interrupted-replace ok");
+}
+
+/* NTFS compares names ignoring case, and names Win32 paths cannot address are
+ * refused before any open. */
+void caseNameRules(string root) {
+	PrivateDirectory directory = privateDirectory(join(root, "names"));
+	ExclusiveFileLease owner = lease(directory, "State.Lock");
+	check(owner.readRegularChild("STATE.LOCK", 1).error().kind() == FS_INVALID_ARGUMENT, "the lock name ignores case");
+	for bad in ["CON", "nul.txt", "COM1", "a.", "b ", "x:y", "q?", "pipe|name"] {
+		check(owner.replaceRegularChildDurably(bad, Bytes.fromString("x")).error().kind() == FS_INVALID_ARGUMENT, "refuse " + bad);
+		check(directory.openChildDirectory(bad).error().kind() == FS_INVALID_ARGUMENT, "refuse a child named " + bad);
+	}
+	check(FileSystem.createTemporaryDirectory("CON").error().kind() == FS_INVALID_ARGUMENT, "refuse a device-name prefix");
+	check(owner.close().ok() && directory.close().ok(), "close the names directory");
+	writeFile(join(root, "Mixed.TXT"), "case");
+	var lower = FileSystem.inspectExact(join(root, "mixed.txt"));
+	var upper = FileSystem.inspectExact(join(root, "MIXED.txt"));
+	check(lower.ok() && upper.ok() && lower.value().sameObject(upper.value()), "names ignore case");
+	print("case=name-rules ok");
+}
+
+/* The roots are the shell's known folders, the same directories the
+ * LOCALAPPDATA and APPDATA environment variables name. */
+void caseKnownFolders() {
+	var roots = ApplicationDirectories.resolveStandard();
+	check(roots.ok(), "resolve the known folders");
+	string local = __btrc_string_adopt(btrcTestEnvironment("LOCALAPPDATA"));
+	string roaming = __btrc_string_adopt(btrcTestEnvironment("APPDATA"));
+	if (!local.isEmpty()) { check(FileSystem.inspectExact(roots.value().stateRoot()).value().sameObject(FileSystem.inspectExact(local).value()), "state is LocalAppData"); }
+	if (!roaming.isEmpty()) { check(FileSystem.inspectExact(roots.value().configRoot()).value().sameObject(FileSystem.inspectExact(roaming).value()), "configuration is RoamingAppData"); }
+	check(roots.value().cacheRoot().equals(roots.value().stateRoot() + "\\Cache"), "the cache root is LocalAppData\\Cache");
+	print("case=known-folders ok");
+}
+
+/* Every owner closes its kernel handles: hundreds of cycles of each owner
+ * leave the process's handle count where it started (within the noise of the
+ * loader's own threads). */
+void caseHandleCount(string root) {
+	string directoryPath = join(root, "handles");
+	check(FileSystem.mkdir(directoryPath, 448) == 0, "create the handle directory");
+	string filePath = join(directoryPath, "file.txt");
+	writeFile(filePath, "handles");
+	int before = btrcTestHandleCount();
+	for (int cycle = 0; cycle < 200; cycle++) {
+		check(FileSystem.openFileExact(filePath).value().close().ok(), "file cycle");
+		var directory = FileSystem.openDirectoryExact(directoryPath);
+		check(directory.ok() && directory.value().next().ok() && directory.value().close().ok(), "directory cycle");
+		var snapshot = FileSystem.openRegularFileSnapshot(filePath, 64LL);
+		check(snapshot.ok() && snapshot.value().readExactAt(0LL, 7).ok() && snapshot.value().close().ok(), "snapshot cycle");
+		var held = AdvisoryFileLock.acquire(join(directoryPath, "cycle.lock"));
+		check(held.ok() && held.value().close().ok(), "lock cycle");
+		PrivateDirectory privateRoot = privateDirectory(join(directoryPath, "private"));
+		ExclusiveFileLease owner = lease(privateRoot, "cycle.lock");
+		check(owner.replaceRegularChildDurably("state.bin", Bytes.fromString("x")).committed(), "replace cycle");
+		check(owner.close().ok() && privateRoot.close().ok(), "private cycle");
+	}
+	int after = btrcTestHandleCount();
+	check(before > 0 && after - before < 32, "the handle count returns to its baseline");
+	check(FileSystem.ownedHandleInventory().openCount() == 1, "only the temporary directory stays open");
+	print("case=handle-count ok");
+}
+
+int main(int argc, char** argv) {
+	if (argc == 5) {
+		string mode = Strings.copy(argv[1]);
+		if (mode.equals("hold")) { return holdLock(Strings.copy(argv[2]), Strings.copy(argv[3]), Strings.copy(argv[4])); }
+	}
+	var temporary = FileSystem.createTemporaryDirectory("btrc-windows-fs-cases");
+	check(temporary.ok(), "create the temporary directory");
+	string root = temporary.value().path();
+	check(btrcTestOwnerOnly(root) == 1, "the temporary directory is owner-only");
+	caseLongPaths(root);
+	caseUnc(root);
+	caseNonAscii(root);
+	caseReparsePoints(root);
+	caseJunctionSwap(root);
+	caseDenied(root);
+	caseLockProcesses(root);
+	caseInterruptedReplace(root);
+	caseNameRules(root);
+	caseKnownFolders();
+	caseHandleCount(root);
+	check(temporary.value().close().ok(), "remove the temporary directory");
+	check(!FileSystem.exists(root), "the temporary directory is gone");
+	print("PASS: windows filesystem cases");
+	return 0;
+}

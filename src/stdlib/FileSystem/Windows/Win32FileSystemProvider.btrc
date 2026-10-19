@@ -1,0 +1,43 @@
+/* FileSystemHandles' native seam on windows rows. The package manifest selects
+ * this provider for os = ["windows"]; every other row selects
+ * Unix/PosixFileSystemProvider.btrc, because their POSIX bodies stay inline in
+ * FileSystemHandles.btrc. On windows rows FileSystemHandles.btrc compiles the
+ * Windows twin of each handle owner instead (`#if defined(_WIN32)`), and those
+ * bodies call the declarations below.
+ *
+ * The C is spliced, not bound: Win32FileSystem.c includes the SDK itself and
+ * btrc reads none of its headers, so compiling a program for a windows row,
+ * btrcc's own WindowsMain included, needs no native header reader. Each
+ * function returns 0, a Win32 error code, or a negative WindowsFileStatus. */
+import ./Win32FileSystem.c
+
+extern int btrcWinDescribeHandle(void* handle, long long* fields);
+extern int btrcWinOpenPath(string path, int purpose, int disposition, void* descriptor, void** handle);
+extern int btrcWinOpenAt(void* parent, string name, int purpose, int disposition, int shape, void* descriptor, void** handle);
+extern int btrcWinOpenRoot(string path, void** handle, int* consumed);
+extern int btrcWinRootLength(string path);
+extern int btrcWinValidComponent(string name);
+extern int btrcWinSameName(string left, string right);
+extern void* btrcWinDirectoryOpen(void* directory);
+extern int btrcWinDirectoryNext(void* cursor, char** name);
+extern void btrcWinDirectoryClose(void* cursor);
+extern int btrcWinReadAt(void* handle, long long offset, char* buffer, int count, int* received);
+extern int btrcWinWriteAll(void* handle, char* data, int count);
+extern int btrcWinFlush(void* handle);
+extern int btrcWinClose(void* handle);
+extern int btrcWinDuplicate(void* handle, void** copy);
+extern int btrcWinDelete(void* handle, int ignoreReadOnly);
+extern int btrcWinRenameAt(void* handle, void* directory, string name, int replace);
+extern int btrcWinPrivateDescriptor(int container, void** descriptor);
+extern int btrcWinCheckPrivate(void* handle, int requireProtected);
+extern void btrcWinFree(void* pointer);
+extern int btrcWinLock(void* handle, int wait);
+extern int btrcWinUnlock(void* handle);
+extern int btrcWinTemporaryRoot(char** path);
+extern int btrcWinReserveTemporaryDirectory(string template, char** path);
+extern int btrcWinCreateSymlink(string target, string link);
+extern int btrcWinReadLink(string path, char** target);
+extern int btrcWinKnownFolder(int which, char** path);
+extern char* btrcWinMessage(int code);
+extern int btrcWinProcessId();
+extern long long btrcWinTicks();

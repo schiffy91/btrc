@@ -133,6 +133,34 @@ class FileSystemError {
 		}
 		return FileSystemError(kind, operation, path, nativeCode, Strings.copy(strerror(nativeCode)));
 	}
+#if defined(_WIN32)
+
+	/* A Win32 error code, or a negative WindowsFileStatus, from the Windows
+	 * provider (Windows/Win32FileSystemProvider.btrc). The code and the system's
+	 * text are kept; the kind follows windows-os-services.md's table. Callers
+	 * classify ERROR_LOCK_VIOLATION from a contended LockFileEx themselves. */
+	class FileSystemError fromWindows(string operation, string path, int nativeCode) {
+		if (nativeCode == -1) { return FileSystemError(FS_INVALID_ARGUMENT, operation, path, nativeCode, "filesystem argument is not a name or path Windows can address"); }
+		if (nativeCode == -2) { return FileSystemError(FS_UNSUPPORTED, operation, path, nativeCode, "this Windows file system does not support the operation"); }
+		if (nativeCode == -3) { return FileSystemError(FS_WRONG_TYPE, operation, path, nativeCode, "filesystem entry has the wrong type"); }
+		if (nativeCode == -4) { return FileSystemError(FS_ACCESS_DENIED, operation, path, nativeCode, "filesystem entry is not private to the current user"); }
+		FileSystemErrorKind kind = FS_IO;
+		if (nativeCode == 2 || nativeCode == 3) {
+			kind = FS_NOT_FOUND;
+		} else if (nativeCode == 5 || nativeCode == 19 || nativeCode == 32 || nativeCode == 33 || nativeCode == 1314) {
+			kind = FS_ACCESS_DENIED;
+		} else if (nativeCode == 87 || nativeCode == 123 || nativeCode == 161 || nativeCode == 206 || nativeCode == 1113) {
+			kind = FS_INVALID_ARGUMENT;
+		} else if (nativeCode == 4 || nativeCode == 8 || nativeCode == 14 || nativeCode == 39 || nativeCode == 112) {
+			kind = FS_RESOURCE_EXHAUSTED;
+		} else if (nativeCode == 1 || nativeCode == 50 || nativeCode == 120) {
+			kind = FS_UNSUPPORTED;
+		} else if (nativeCode == 267) {
+			kind = FS_WRONG_TYPE;
+		}
+		return FileSystemError(kind, operation, path, nativeCode, __btrc_string_adopt(btrcWinMessage(nativeCode)));
+	}
+#endif
 
 	/* A target that vanished, became a symlink or changed type while an
 	 * operation held its earlier identity is a change, not an absence. */
@@ -347,6 +375,342 @@ class FileSystemDiagnostics {
 	}
 }
 
+#if defined(_WIN32)
+/* The handle owners on windows rows.
+ *
+ * When the target is Windows, each POSIX handle owner below is replaced by its
+ * Windows twin (`#if defined(_WIN32)`), which keeps the public methods, outcome
+ * kinds and operation names. The native steps are Windows/Win32FileSystem.c's,
+ * declared by Windows/Win32FileSystemProvider.btrc, the provider the package
+ * manifest selects for windows rows. This region holds what the twins share.
+ *
+ * Windows adaptations, each pinned by a Windows test
+ * (src/tests/native/filesystem_windows/):
+ * - Exact opens never follow the final component. A name surrogate (symbolic
+ *   link, junction or volume mount point) is FS_SYMLINK, as a POSIX symlink is.
+ * - A directory's entries, a private directory's ancestors and every removal
+ *   are opened relative to the held parent directory's handle, so a junction
+ *   swapped in mid-walk is opened as itself and refused; it is never entered.
+ * - Identity is the 64-bit volume serial number and file ID. A 128-bit file ID
+ *   (ReFS) does not fit FileSnapshot and is refused as FS_UNSUPPORTED.
+ * - A private directory or file is owned by the current user and has a DACL
+ *   that allows only that user (protected, for directories) instead of mode
+ *   0700 or 0600; one that grants anyone else access is FS_ACCESS_DENIED.
+ * - Locks are LockFileEx over the whole file. They are mandatory: while one is
+ *   held, other handles cannot read or write the locked file.
+ * - Names compare as NTFS compares them, ordinally and ignoring case, and a
+ *   name Windows paths cannot address (CON, a trailing dot, a ':' stream) is
+ *   FS_INVALID_ARGUMENT.
+ * - Durable replacement writes and flushes an owner-only temporary file, then
+ *   renames it over the target by handle, relative to the held directory
+ *   (FileRenameInfoEx, POSIX semantics), and flushes the directory.
+ * - Paths are UTF-8, converted strictly to UTF-16, and used in their \\?\ form,
+ *   so long and UNC paths work and MAX_PATH never applies. */
+
+/* Statuses Win32FileSystem.c reports beside Win32's positive error codes;
+ * WINDOWS_FILE_CHANGED is DirectoryTreeRemoval's own. */
+enum WindowsFileStatus {
+	WINDOWS_FILE_OK = 0,
+	WINDOWS_FILE_INVALID = -1,
+	WINDOWS_FILE_UNSUPPORTED = -2,
+	WINDOWS_FILE_WRONG_TYPE = -3,
+	WINDOWS_FILE_INSECURE = -4,
+	WINDOWS_FILE_CHANGED = -5
+};
+
+/* The open purposes and shapes Win32FileSystem.c defines. */
+enum WindowsOpenPurpose {
+	WINDOWS_OPEN_INSPECT = 0,
+	WINDOWS_OPEN_READ = 1,
+	WINDOWS_OPEN_LIST = 2,
+	WINDOWS_OPEN_REMOVE = 3,
+	WINDOWS_OPEN_LOCK = 4,
+	WINDOWS_OPEN_WRITE = 5,
+	WINDOWS_OPEN_PRIVATE_DIRECTORY = 6
+};
+
+enum WindowsOpenShape {
+	WINDOWS_SHAPE_ANY = 0,
+	WINDOWS_SHAPE_DIRECTORY = 1,
+	WINDOWS_SHAPE_FILE = 2
+};
+
+/* Win32 error codes this file tests by value (winerror.h). */
+enum WindowsErrorCode {
+	WINDOWS_ERROR_FILE_NOT_FOUND = 2,
+	WINDOWS_ERROR_PATH_NOT_FOUND = 3,
+	WINDOWS_ERROR_NOT_ENOUGH_MEMORY = 8,
+	WINDOWS_ERROR_LOCK_VIOLATION = 33,
+	WINDOWS_ERROR_FILE_EXISTS = 80,
+	WINDOWS_ERROR_ALREADY_EXISTS = 183
+};
+
+/* One owned Win32 handle, closed exactly once. */
+class WindowsNativeHandle {
+	private void* _value;
+
+	public WindowsNativeHandle(void* value) { self._value = value; }
+
+	public bool isOpen() { return self._value != null; }
+
+	public void* value() { return self._value; }
+
+	/* Hand the handle to a new owner; this one no longer closes it. */
+	public void* transfer() {
+		void* value = self._value;
+		self._value = null;
+		return value;
+	}
+
+	public int close() {
+		if (self._value == null) { return 0; }
+		void* value = self._value;
+		self._value = null;
+		return btrcWinClose(value);
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* What a held handle shows beyond its FileSnapshot. */
+class WindowsEntry {
+	private FileSnapshot _snapshot;
+	private int _links;
+
+	public WindowsEntry(FileSnapshot snapshot, int links) {
+		self._snapshot = snapshot;
+		self._links = links;
+	}
+
+	public FileSnapshot snapshot() { return self._snapshot; }
+
+	public int links() { return self._links; }
+}
+
+/* The Windows seam FileSystem.btrc and ApplicationDirectories.btrc reach
+ * through this module: descriptions of held handles, the no-follow walk, links,
+ * tree removal and the user's folders. */
+class WindowsFileSystem {
+	/* Describe a held handle; a 128-bit file ID that the snapshot's 64-bit
+	 * identity cannot carry is refused rather than truncated. */
+	class FileSystemOutcome<WindowsEntry> describe(void* handle, string operation, string path) {
+		long long fields[14];
+		int status = btrcWinDescribeHandle(handle, fields);
+		if (status != 0) { return new FileSystemOutcome<WindowsEntry>(null, FileSystemError.fromWindows(operation, path, status)); }
+		if (fields[12] != 0LL) { return new FileSystemOutcome<WindowsEntry>(null, FileSystemError(FS_UNSUPPORTED, operation, path, 0, "the file's 128-bit identity does not fit a FileSnapshot")); }
+		return new FileSystemOutcome<WindowsEntry>(WindowsEntry(FileSnapshot.fromWindowsFields(fields), (int)fields[11]), null);
+	}
+
+	/* Describe the object a path names without following its final component. */
+	class FileSystemOutcome<WindowsEntry> inspectPath(string path, string operation) {
+		void* handle = null;
+		int status = btrcWinOpenPath(path, WINDOWS_OPEN_INSPECT, 0, null, &handle);
+		if (status != 0) { return new FileSystemOutcome<WindowsEntry>(null, FileSystemError.fromWindows(operation, path, status)); }
+		WindowsNativeHandle owner = WindowsNativeHandle(handle);
+		return WindowsFileSystem.describe(owner.value(), operation, path);
+	}
+
+	/* Describe the entry `name` of a held directory, relative to its handle. */
+	class FileSystemOutcome<WindowsEntry> inspectAt(void* directory, string name, string path, string operation) {
+		void* handle = null;
+		int status = btrcWinOpenAt(directory, name, WINDOWS_OPEN_INSPECT, 0, WINDOWS_SHAPE_ANY, null, &handle);
+		if (status != 0) { return new FileSystemOutcome<WindowsEntry>(null, FileSystemError.fromWindows(operation, path, status)); }
+		WindowsNativeHandle owner = WindowsNativeHandle(handle);
+		return WindowsFileSystem.describe(owner.value(), operation, path);
+	}
+
+	/* A regular file with one link whose owner and DACL admit only the current
+	 * user, as POSIX's private files are owned by the user with mode 0600. */
+	class bool privateFile(void* handle, WindowsEntry entry) { return entry.snapshot().kind() == FILE_REGULAR && entry.links() == 1 && btrcWinCheckPrivate(handle, 0) == 0; }
+
+	class bool separator(char value) { return value == '\\' || value == '/'; }
+
+	/* The bytes of `path` naming its volume root ("C:\" is 3), 0 when the path
+	 * is not drive- or UNC-absolute. */
+	class int rootLength(string path) { return path == null ? 0 : btrcWinRootLength(path); }
+
+	/* The name after a path's last separator, ignoring trailing separators. */
+	class string lastComponent(string path) {
+		int end = path.len();
+		while (end > 0 && WindowsFileSystem.separator(path[end - 1])) { end--; }
+		int start = end;
+		while (start > 0 && !WindowsFileSystem.separator(path[start - 1])) { start--; }
+		return path.substring(start, end - start);
+	}
+
+	/* The directory part of an absolute path, keeping a volume root's own
+	 * separator ("C:\", "\\server\share\"). */
+	class string parentOf(string path) {
+		int end = path.len();
+		while (end > 0 && WindowsFileSystem.separator(path[end - 1])) { end--; }
+		while (end > 0 && !WindowsFileSystem.separator(path[end - 1])) { end--; }
+		int separatorStart = end;
+		while (separatorStart > 0 && WindowsFileSystem.separator(path[separatorStart - 1])) { separatorStart--; }
+		string parent = path.substring(0, separatorStart);
+		int root = btrcWinRootLength(path);
+		return separatorStart < root ? path.substring(0, root) : parent;
+	}
+
+	class string join(string directory, string name) {
+		if (directory.isEmpty()) { return Strings.copy(name); }
+		return WindowsFileSystem.separator(directory[directory.len() - 1]) ? directory + name : directory + "\\" + name;
+	}
+
+	/* An absolute form of `path`: drive and UNC paths as given, anything else
+	 * against the current directory, as Win32 resolves it. */
+	class string absolute(string path) {
+		if (btrcWinRootLength(path) > 0) { return Strings.copy(path); }
+		string current = Platform.currentDirectory();
+		if (current.isEmpty()) { return ""; }
+		if (!path.isEmpty() && WindowsFileSystem.separator(path[0])) {
+			int root = btrcWinRootLength(current);
+			return root > 0 ? current.substring(0, root) + path.substring(1, path.len() - 1) : "";
+		}
+		return WindowsFileSystem.join(current, path);
+	}
+
+	/* The directory that contains the last component of an absolute path,
+	 * reached from its volume root one component at a time, relative to each
+	 * held parent, never following a reparse point. `strict` refuses empty and
+	 * "." components (a private directory's path must be normalized); otherwise
+	 * they are skipped, as POSIX path resolution skips them. ".." is always
+	 * refused: the walk never crosses one implicitly. */
+	class FileSystemOutcome<WindowsNativeHandle> openParent(string absolutePath, string operation, bool strict) {
+		void* root = null;
+		int consumed = 0;
+		int status = btrcWinOpenRoot(absolutePath, &root, &consumed);
+		if (status != 0) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.fromWindows(operation + " root", absolutePath, status)); }
+		WindowsNativeHandle parent = WindowsNativeHandle(root);
+		int length = absolutePath.len();
+		int end = length;
+		while (end > consumed && WindowsFileSystem.separator(absolutePath[end - 1])) { end--; }
+		int last = end;
+		while (last > consumed && !WindowsFileSystem.separator(absolutePath[last - 1])) { last--; }
+		int start = consumed;
+		while (start < last) {
+			int stop = start;
+			while (stop < last && !WindowsFileSystem.separator(absolutePath[stop])) { stop++; }
+			string component = absolutePath.substring(start, stop - start);
+			start = stop + 1;
+			if (component.isEmpty() || component.equals(".")) {
+				if (strict) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.invalid(operation, absolutePath)); }
+				continue;
+			}
+			if (component.equals("..")) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.invalid(operation, absolutePath)); }
+			void* next = null;
+			status = btrcWinOpenAt(parent.value(), component, WINDOWS_OPEN_PRIVATE_DIRECTORY, 0, WINDOWS_SHAPE_DIRECTORY, null, &next);
+			if (status == WINDOWS_FILE_WRONG_TYPE) {
+				var named = WindowsFileSystem.inspectAt(parent.value(), component, absolutePath, "inspect " + operation + " ancestor");
+				if (named.ok() && named.value().snapshot().kind() == FILE_SYMLINK) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.symlink(operation + " ancestor", absolutePath)); }
+				return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.wrongType(operation + " ancestor", absolutePath));
+			}
+			if (status != 0) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.fromWindows("open " + operation + " ancestor", absolutePath, status)); }
+			WindowsNativeHandle opened = WindowsNativeHandle(next);
+			var described = WindowsFileSystem.describe(opened.value(), "inspect " + operation + " ancestor", absolutePath);
+			if (!described.ok()) { return new FileSystemOutcome<WindowsNativeHandle>(null, described.error()); }
+			FileKind kind = described.value().snapshot().kind();
+			if (kind == FILE_SYMLINK) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.symlink(operation + " ancestor", absolutePath)); }
+			if (kind != FILE_DIRECTORY) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.wrongType(operation + " ancestor", absolutePath)); }
+			parent.close();
+			parent = opened;
+		}
+		return new FileSystemOutcome<WindowsNativeHandle>(parent, null);
+	}
+
+	/* Whether removeRecursive may delete what `path` names: its absolute form
+	 * ends in a name Windows can address, never a volume root, "." or "..". */
+	class bool removable(string path) {
+		string absolutePath = WindowsFileSystem.absolute(path);
+		if (absolutePath.isEmpty() || absolutePath.len() <= btrcWinRootLength(absolutePath)) { return false; }
+		string name = WindowsFileSystem.lastComponent(absolutePath);
+		return !name.isEmpty() && !name.equals(".") && !name.equals("..") && btrcWinValidComponent(name) != 0;
+	}
+
+	/* FileSystem.removeRecursive on Windows: the parent is reached without
+	 * following any reparse point and the tree is removed relative to it. */
+	class int removeTree(string path) {
+		string absolutePath = WindowsFileSystem.absolute(path);
+		if (absolutePath.isEmpty()) { return -1; }
+		string name = WindowsFileSystem.lastComponent(absolutePath);
+		if (name.isEmpty() || name.equals(".") || name.equals("..") || btrcWinValidComponent(name) == 0) { return -1; }
+		var parent = WindowsFileSystem.openParent(absolutePath, "remove directory tree", false);
+		if (!parent.ok()) { return -1; }
+		WindowsNativeHandle owner = parent.value();
+		int removed = WindowsFileSystem.removeTreeAt(owner.value(), name, null);
+		owner.close();
+		return removed == 0 ? 0 : -1;
+	}
+
+	/* The one handle-relative recursive delete behind TemporaryDirectory.close()
+	 * and FileSystem.removeRecursive() on Windows: remove `name` below a held
+	 * directory. Every entry is opened relative to its held parent without
+	 * following it and deleted by its own handle, so a link or junction is
+	 * removed itself and its target is never enumerated. Returns 0 when the
+	 * name is gone (or was never there), WINDOWS_FILE_CHANGED when it is not
+	 * `expected`, or the Win32 (or WindowsFileStatus) code of any other
+	 * failure. Read-only entries are removed, as the POSIX removal grants
+	 * itself write permission. */
+	class int removeTreeAt(void* parent, string name, FileSnapshot? expected) {
+		void* handle = null;
+		int status = btrcWinOpenAt(parent, name, WINDOWS_OPEN_REMOVE, 0, WINDOWS_SHAPE_ANY, null, &handle);
+		if (status == WINDOWS_ERROR_FILE_NOT_FOUND || status == WINDOWS_ERROR_PATH_NOT_FOUND) { return 0; }
+		if (status != 0) { return status; }
+		WindowsNativeHandle owner = WindowsNativeHandle(handle);
+		long long fields[14];
+		status = btrcWinDescribeHandle(owner.value(), fields);
+		if (status != 0) { return status; }
+		if (expected != null && (fields[12] != 0LL || !FileSnapshot.fromWindowsFields(fields).sameObject(expected))) { return WINDOWS_FILE_CHANGED; }
+		if (fields[0] == 1LL) {
+			void* cursor = btrcWinDirectoryOpen(owner.value());
+			if (cursor == null) { return WINDOWS_ERROR_NOT_ENOUGH_MEMORY; }
+			int result = 0;
+			while (result == 0) {
+				char* raw = null;
+				result = btrcWinDirectoryNext(cursor, &raw);
+				if (result != 0 || raw == null) { break; }
+				string childName = __btrc_string_adopt(raw);
+				result = WindowsFileSystem.removeTreeAt(owner.value(), childName, null);
+			}
+			btrcWinDirectoryClose(cursor);
+			if (result != 0) { return result; }
+		}
+		status = btrcWinDelete(owner.value(), 1);
+		int closed = owner.close();
+		if (status != 0) { return status; }
+		return closed;
+	}
+
+	class int symlink(string target, string link) { return btrcWinCreateSymlink(target, link) == 0 ? 0 : -1; }
+
+	class string readLink(string path) {
+		char* target = null;
+		if (btrcWinReadLink(path, &target) != 0 || target == null) { return ""; }
+		return __btrc_string_adopt(target);
+	}
+
+	/* The user's temporary directory: TMP, TEMP, or the profile's Temp. */
+	class string temporaryRoot() {
+		char* root = null;
+		if (btrcWinTemporaryRoot(&root) != 0 || root == null) { return ""; }
+		return __btrc_string_adopt(root);
+	}
+
+	/* FOLDERID_LocalAppData (0) or FOLDERID_RoamingAppData (1), "" when the
+	 * shell cannot say; *status holds why. */
+	class string knownFolder(int which, int* status) {
+		char* folder = null;
+		*status = btrcWinKnownFolder(which, &folder);
+		if (*status != 0 || folder == null) { return ""; }
+		return __btrc_string_adopt(folder);
+	}
+}
+#endif
+
+/* The POSIX handle owners below (FileHandle, DirectoryHandle,
+ * DirectoryTreeRemoval, TemporaryDirectory, PrivateDirectory and
+ * AdvisoryFileLock) compile on every row but Windows; each is followed by
+ * its Windows twin, which keeps its public methods and outcome kinds. */
+#if !defined(_WIN32)
 class FileHandle {
 	private int _descriptor;
 	private string _path;
@@ -499,6 +863,129 @@ class FileHandle {
 
 	public void __del__() { self.close(); }
 }
+#else
+class FileHandle {
+	private void* _handle;
+	private string _path;
+	private FileSnapshot? _openedSnapshot;
+
+	private FileHandle(void* handle, string path, FileSnapshot openedSnapshot) {
+		self._handle = handle;
+		self._path = path;
+		self._openedSnapshot = openedSnapshot;
+		btrcOwnExactFileSystemHandle();
+	}
+
+	/* For this package's Windows owners only: adopt a handle they opened
+	 * exactly and described as `openedSnapshot`. */
+	class FileHandle adoptNativeHandle(void* handle, string path, FileSnapshot openedSnapshot) { return FileHandle(handle, path, openedSnapshot); }
+
+	class FileSystemOutcome<FileSnapshot> inspectExact(string path) {
+		if (path == null || path.isEmpty()) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.invalid("inspect", path));
+		}
+		var inspected = WindowsFileSystem.inspectPath(path, "inspect");
+		if (!inspected.ok()) { return new FileSystemOutcome<FileSnapshot>(null, inspected.error()); }
+		return new FileSystemOutcome<FileSnapshot>(inspected.value().snapshot(), null);
+	}
+
+	class FileSystemOutcome<FileHandle> openExact(string path) {
+		if (path == null || path.isEmpty()) {
+			return new FileSystemOutcome<FileHandle>(null, FileSystemError.invalid("open file", path));
+		}
+		var before = WindowsFileSystem.inspectPath(path, "open file");
+		if (!before.ok()) { return new FileSystemOutcome<FileHandle>(null, before.error()); }
+		FileSnapshot beforeSnapshot = before.value().snapshot();
+		if (beforeSnapshot.kind() == FILE_SYMLINK) {
+			return new FileSystemOutcome<FileHandle>(null, FileSystemError.symlink("open file", path));
+		}
+		if (beforeSnapshot.kind() != FILE_REGULAR) {
+			return new FileSystemOutcome<FileHandle>(null, FileSystemError.wrongType("open file", path));
+		}
+		void* handle = null;
+		int status = btrcWinOpenPath(path, WINDOWS_OPEN_READ, 0, null, &handle);
+		if (status != 0) { return new FileSystemOutcome<FileHandle>(null, FileSystemError.fromWindows("open file", path, status)); }
+		WindowsNativeHandle owner = WindowsNativeHandle(handle);
+		var opened = WindowsFileSystem.describe(owner.value(), "inspect opened file", path);
+		if (!opened.ok()) { return new FileSystemOutcome<FileHandle>(null, opened.error()); }
+		FileSnapshot openedSnapshot = opened.value().snapshot();
+		if (openedSnapshot.kind() != FILE_REGULAR) {
+			return new FileSystemOutcome<FileHandle>(null, openedSnapshot.kind() == FILE_SYMLINK ? FileSystemError.changed("open file", path) : FileSystemError.wrongType("open file", path));
+		}
+		if (!openedSnapshot.sameVersion(beforeSnapshot)) {
+			return new FileSystemOutcome<FileHandle>(null, FileSystemError.changed("open file", path));
+		}
+		var after = WindowsFileSystem.inspectPath(path, "validate opened file");
+		if (!after.ok()) { return new FileSystemOutcome<FileHandle>(null, after.error().asChange("validate opened file", path)); }
+		if (!openedSnapshot.sameVersion(after.value().snapshot())) {
+			return new FileSystemOutcome<FileHandle>(null, FileSystemError.changed("validate opened file", path));
+		}
+		return new FileSystemOutcome<FileHandle>(FileHandle(owner.transfer(), Strings.copy(path), openedSnapshot), null);
+	}
+
+	public bool isOpen() { return self._handle != null; }
+
+	public string path() { return self._path; }
+
+	public FileSnapshot openedSnapshot() {
+		if (self._openedSnapshot == null) {
+			throw "file handle has no opened snapshot";
+		}
+		return self._openedSnapshot;
+	}
+
+	public FileSystemOutcome<FileSnapshot> snapshot() {
+		if (!self.isOpen()) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.closed("inspect open file", self._path));
+		}
+		var described = WindowsFileSystem.describe(self._handle, "inspect open file", self._path);
+		if (!described.ok()) { return new FileSystemOutcome<FileSnapshot>(null, described.error()); }
+		return new FileSystemOutcome<FileSnapshot>(described.value().snapshot(), null);
+	}
+
+	public FileReadOutcome readAt(long long offset, int maximumBytes) {
+		if (offset < 0LL || maximumBytes <= 0) {
+			return FileReadOutcome.failed(FileSystemError.invalid("read file", self._path));
+		}
+		if (!self.isOpen()) {
+			return FileReadOutcome.failed(FileSystemError.closed("read file", self._path));
+		}
+		char* buffer = (char*)malloc((size_t)maximumBytes);
+		if (buffer == null) {
+			return FileReadOutcome.failed(FileSystemError(FS_RESOURCE_EXHAUSTED, "read file", self._path, ENOMEM, "filesystem read buffer allocation failed"));
+		}
+		int received = 0;
+		int status = btrcWinReadAt(self._handle, offset, buffer, maximumBytes, &received);
+		if (status != 0) {
+			free(buffer);
+			return FileReadOutcome.failed(FileSystemError.fromWindows("read file", self._path, status));
+		}
+		if (received == 0) {
+			free(buffer);
+			return FileReadOutcome.end();
+		}
+		Bytes bytes = Bytes.fromRaw(buffer, received);
+		free(buffer);
+		return FileReadOutcome.data(bytes);
+	}
+
+	public FileSystemCloseOutcome close() {
+		if (!self.isOpen()) {
+			return FileSystemCloseOutcome.alreadyClosed();
+		}
+		void* handle = self._handle;
+		self._handle = null;
+		btrcReleaseExactFileSystemHandle();
+		int status = btrcWinClose(handle);
+		if (status != 0) {
+			return FileSystemCloseOutcome.failed(FileSystemError.fromWindows("close file", self._path, status));
+		}
+		return FileSystemCloseOutcome.closed();
+	}
+
+	public void __del__() { self.close(); }
+}
+#endif
 
 /* Immutable-version, read-only regular-file capability for format packages.
  * maximumBytes is fixed at open. Every successful read is exact-length and,
@@ -548,9 +1035,11 @@ class RegularFileSnapshot {
 		if (path == null || path.isEmpty() || maximumBytes < 0LL) {
 			return new FileSystemOutcome<RegularFileSnapshot>(null, FileSystemError.invalid("open regular file snapshot", path));
 		}
+#if !defined(_WIN32)
 		if (Platform.isWindows()) {
 			return new FileSystemOutcome<RegularFileSnapshot>(null, FileSystemError.unsupported("open regular file snapshot", path));
 		}
+#endif
 		FileSystemOutcome<FileHandle> opened = FileHandle.openExact(path);
 		if (!opened.ok()) {
 			return new FileSystemOutcome<RegularFileSnapshot>(null, opened.error());
@@ -664,6 +1153,7 @@ class RegularFileSnapshot {
 	public void __del__() { self.close(); }
 }
 
+#if !defined(_WIN32)
 class DirectoryHandle {
 	private DIR* _directory;
 	private string _path;
@@ -1092,6 +1582,303 @@ class TemporaryDirectory {
 
 	public void __del__() { self.close(); }
 }
+#else
+class DirectoryHandle {
+	private void* _handle;
+	private void* _cursor;
+	private string _path;
+	private FileSnapshot? _openedSnapshot;
+
+	private DirectoryHandle(void* handle, void* cursor, string path, FileSnapshot openedSnapshot) {
+		self._handle = handle;
+		self._cursor = cursor;
+		self._path = path;
+		self._openedSnapshot = openedSnapshot;
+		btrcOwnExactFileSystemHandle();
+	}
+
+	/* For this package's Windows owners only: adopt a directory handle they
+	 * opened exactly (for listing) and described as `openedSnapshot`. */
+	class FileSystemOutcome<DirectoryHandle> adoptNativeHandle(void* handle, string path, FileSnapshot openedSnapshot) {
+		void* cursor = btrcWinDirectoryOpen(handle);
+		if (cursor == null) {
+			btrcWinClose(handle);
+			return new FileSystemOutcome<DirectoryHandle>(null, FileSystemError(FS_RESOURCE_EXHAUSTED, "stream directory", path, ENOMEM, "directory read buffer allocation failed"));
+		}
+		return new FileSystemOutcome<DirectoryHandle>(DirectoryHandle(handle, cursor, path, openedSnapshot), null);
+	}
+
+	class FileSystemOutcome<DirectoryHandle> openExact(string path) {
+		if (path == null || path.isEmpty()) {
+			return new FileSystemOutcome<DirectoryHandle>(null, FileSystemError.invalid("open directory", path));
+		}
+		var before = WindowsFileSystem.inspectPath(path, "open directory");
+		if (!before.ok()) { return new FileSystemOutcome<DirectoryHandle>(null, before.error()); }
+		FileSnapshot beforeSnapshot = before.value().snapshot();
+		if (beforeSnapshot.kind() == FILE_SYMLINK) {
+			return new FileSystemOutcome<DirectoryHandle>(null, FileSystemError.symlink("open directory", path));
+		}
+		if (beforeSnapshot.kind() != FILE_DIRECTORY) {
+			return new FileSystemOutcome<DirectoryHandle>(null, FileSystemError.wrongType("open directory", path));
+		}
+		void* handle = null;
+		int status = btrcWinOpenPath(path, WINDOWS_OPEN_LIST, 0, null, &handle);
+		if (status != 0) { return new FileSystemOutcome<DirectoryHandle>(null, FileSystemError.fromWindows("open directory", path, status)); }
+		WindowsNativeHandle owner = WindowsNativeHandle(handle);
+		var opened = WindowsFileSystem.describe(owner.value(), "inspect opened directory", path);
+		if (!opened.ok()) { return new FileSystemOutcome<DirectoryHandle>(null, opened.error()); }
+		FileSnapshot openedSnapshot = opened.value().snapshot();
+		if (openedSnapshot.kind() != FILE_DIRECTORY) {
+			return new FileSystemOutcome<DirectoryHandle>(null, openedSnapshot.kind() == FILE_SYMLINK ? FileSystemError.changed("open directory", path) : FileSystemError.wrongType("open directory", path));
+		}
+		if (!openedSnapshot.sameVersion(beforeSnapshot)) {
+			return new FileSystemOutcome<DirectoryHandle>(null, FileSystemError.changed("open directory", path));
+		}
+		var after = WindowsFileSystem.inspectPath(path, "validate opened directory");
+		if (!after.ok()) { return new FileSystemOutcome<DirectoryHandle>(null, after.error().asChange("validate opened directory", path)); }
+		if (!openedSnapshot.sameVersion(after.value().snapshot())) {
+			return new FileSystemOutcome<DirectoryHandle>(null, FileSystemError.changed("validate opened directory", path));
+		}
+		return DirectoryHandle.adoptNativeHandle(owner.transfer(), Strings.copy(path), openedSnapshot);
+	}
+
+	public bool isOpen() { return self._handle != null; }
+
+	public string path() { return self._path; }
+
+	public FileSnapshot openedSnapshot() {
+		if (self._openedSnapshot == null) {
+			throw "directory handle has no opened snapshot";
+		}
+		return self._openedSnapshot;
+	}
+
+	private bool validEntry(DirectoryEntry entry) { return entry != null && entry.belongsTo(self) && !entry.name().isEmpty() && !entry.name().equals(".") && !entry.name().equals("..") && !entry.name().contains("/") && !entry.name().contains("\\") && btrcWinValidComponent(entry.name()) != 0; }
+
+	private string entryPath(string name) { return WindowsFileSystem.join(self._path, name); }
+
+	public FileSystemOutcome<FileSnapshot> snapshot() {
+		if (!self.isOpen()) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.closed("inspect open directory", self._path));
+		}
+		var described = WindowsFileSystem.describe(self._handle, "inspect open directory", self._path);
+		if (!described.ok()) { return new FileSystemOutcome<FileSnapshot>(null, described.error()); }
+		return new FileSystemOutcome<FileSnapshot>(described.value().snapshot(), null);
+	}
+
+	public DirectoryStepOutcome next() {
+		if (!self.isOpen()) {
+			return DirectoryStepOutcome.failed(FileSystemError.closed("read directory", self._path));
+		}
+		char* raw = null;
+		int status = btrcWinDirectoryNext(self._cursor, &raw);
+		if (status != 0) { return DirectoryStepOutcome.failed(FileSystemError.fromWindows("read directory", self._path, status)); }
+		if (raw == null) { return DirectoryStepOutcome.end(); }
+		string name = __btrc_string_adopt(raw);
+		string childPath = self.entryPath(name);
+		if (btrcWinValidComponent(name) == 0) {
+			return DirectoryStepOutcome.failed(FileSystemError(FS_INVALID_ARGUMENT, "inspect directory entry", childPath, 0, "directory entry has a name Windows paths cannot address"));
+		}
+		var inspected = WindowsFileSystem.inspectAt(self._handle, name, childPath, "inspect directory entry");
+		if (!inspected.ok()) { return DirectoryStepOutcome.failed(inspected.error().kind() == FS_NOT_FOUND ? FileSystemError.changed("inspect directory entry", childPath, inspected.error().nativeCode()) : inspected.error()); }
+		return DirectoryStepOutcome.withEntry(DirectoryEntry(self, name, childPath, inspected.value().snapshot()));
+	}
+
+	public FileSystemOutcome<FileSnapshot> inspect(DirectoryEntry entry) {
+		if (!self.validEntry(entry)) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.invalid("inspect directory entry", self._path));
+		}
+		if (!self.isOpen()) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.closed("inspect directory entry", entry.path()));
+		}
+		var inspected = WindowsFileSystem.inspectAt(self._handle, entry.name(), entry.path(), "inspect directory entry");
+		if (!inspected.ok()) { return new FileSystemOutcome<FileSnapshot>(null, inspected.error().kind() == FS_NOT_FOUND ? FileSystemError.changed("inspect directory entry", entry.path(), inspected.error().nativeCode()) : inspected.error()); }
+		FileSnapshot current = inspected.value().snapshot();
+		if (!current.sameVersion(entry.snapshot())) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.changed("inspect directory entry", entry.path()));
+		}
+		return new FileSystemOutcome<FileSnapshot>(current, null);
+	}
+
+	/* Open an entry relative to this directory's handle: the open names the
+	 * entry, not a path, and must yield the object the entry described. */
+	private FileSystemOutcome<WindowsNativeHandle> openEntry(DirectoryEntry entry, int purpose, int shape, FileKind kind, string operation) {
+		void* handle = null;
+		int status = btrcWinOpenAt(self._handle, entry.name(), purpose, 0, shape, null, &handle);
+		if (status != 0) {
+			FileSystemError error = status == WINDOWS_FILE_WRONG_TYPE ? FileSystemError.changed(operation, entry.path()) : FileSystemError.fromWindows(operation, entry.path(), status);
+			return new FileSystemOutcome<WindowsNativeHandle>(null, error.asChange(operation, entry.path()));
+		}
+		WindowsNativeHandle owner = WindowsNativeHandle(handle);
+		var described = WindowsFileSystem.describe(owner.value(), operation, entry.path());
+		if (!described.ok()) { return new FileSystemOutcome<WindowsNativeHandle>(null, described.error()); }
+		FileSnapshot opened = described.value().snapshot();
+		if (opened.kind() != kind || !opened.sameVersion(entry.snapshot())) {
+			return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.changed(operation, entry.path()));
+		}
+		return new FileSystemOutcome<WindowsNativeHandle>(owner, null);
+	}
+
+	public FileSystemOutcome<FileHandle> openFile(DirectoryEntry entry) {
+		if (!self.validEntry(entry)) {
+			return new FileSystemOutcome<FileHandle>(null, FileSystemError.invalid("open directory file", self._path));
+		}
+		if (!self.isOpen()) {
+			return new FileSystemOutcome<FileHandle>(null, FileSystemError.closed("open directory file", entry.path()));
+		}
+		if (entry.snapshot().kind() != FILE_REGULAR) {
+			return new FileSystemOutcome<FileHandle>(null, entry.snapshot().kind() == FILE_SYMLINK ? FileSystemError.symlink("open directory file", entry.path()) : FileSystemError.wrongType("open directory file", entry.path()));
+		}
+		FileSystemOutcome<FileSnapshot> validation = self.inspect(entry);
+		if (!validation.ok()) {
+			return new FileSystemOutcome<FileHandle>(null, validation.error());
+		}
+		var opened = self.openEntry(entry, WINDOWS_OPEN_READ, WINDOWS_SHAPE_FILE, FILE_REGULAR, "open directory file");
+		if (!opened.ok()) { return new FileSystemOutcome<FileHandle>(null, opened.error()); }
+		return new FileSystemOutcome<FileHandle>(FileHandle.adoptNativeHandle(opened.value().transfer(), Strings.copy(entry.path()), entry.snapshot()), null);
+	}
+
+	public FileSystemOutcome<DirectoryHandle> openDirectory(DirectoryEntry entry) {
+		if (!self.validEntry(entry)) {
+			return new FileSystemOutcome<DirectoryHandle>(null, FileSystemError.invalid("open child directory", self._path));
+		}
+		if (!self.isOpen()) {
+			return new FileSystemOutcome<DirectoryHandle>(null, FileSystemError.closed("open child directory", entry.path()));
+		}
+		if (entry.snapshot().kind() != FILE_DIRECTORY) {
+			return new FileSystemOutcome<DirectoryHandle>(null, entry.snapshot().kind() == FILE_SYMLINK ? FileSystemError.symlink("open child directory", entry.path()) : FileSystemError.wrongType("open child directory", entry.path()));
+		}
+		FileSystemOutcome<FileSnapshot> validation = self.inspect(entry);
+		if (!validation.ok()) {
+			return new FileSystemOutcome<DirectoryHandle>(null, validation.error());
+		}
+		var opened = self.openEntry(entry, WINDOWS_OPEN_LIST, WINDOWS_SHAPE_DIRECTORY, FILE_DIRECTORY, "open child directory");
+		if (!opened.ok()) { return new FileSystemOutcome<DirectoryHandle>(null, opened.error()); }
+		return DirectoryHandle.adoptNativeHandle(opened.value().transfer(), Strings.copy(entry.path()), entry.snapshot());
+	}
+
+	public FileSystemCloseOutcome close() {
+		if (!self.isOpen()) {
+			return FileSystemCloseOutcome.alreadyClosed();
+		}
+		void* handle = self._handle;
+		self._handle = null;
+		btrcWinDirectoryClose(self._cursor);
+		self._cursor = null;
+		btrcReleaseExactFileSystemHandle();
+		int status = btrcWinClose(handle);
+		if (status != 0) {
+			return FileSystemCloseOutcome.failed(FileSystemError.fromWindows("close directory", self._path, status));
+		}
+		return FileSystemCloseOutcome.closed();
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* The POSIX removal takes a directory descriptor, which Windows does not
+ * have: a CRT descriptor never names a directory, so every call reports -1.
+ * Windows removes a tree relative to a held directory handle with
+ * WindowsFileSystem.removeTreeAt instead. */
+class DirectoryTreeRemoval {
+	class int removeAt(int parentDescriptor, string name, FileSnapshot? expected) { return -1; }
+}
+
+class TemporaryDirectory {
+	private string _path;
+	private bool _open;
+	private DirectoryHandle _lease;
+
+	private TemporaryDirectory(string path, DirectoryHandle lease) {
+		self._path = path;
+		self._open = true;
+		self._lease = lease;
+	}
+
+	/* A prefix names one leaf Windows can address: never empty, a dot entry, a
+	 * separator, a drive or stream colon, or a reserved device name. */
+	class bool validPrefix(string prefix) { return prefix != null && !prefix.isEmpty() && !prefix.equals(".") && !prefix.equals("..") && !prefix.contains("/") && !prefix.contains("\\") && !prefix.contains(":") && btrcWinValidComponent(prefix + ".XXXXXX") != 0; }
+
+	/* The user's temporary directory (TMP, TEMP, or the profile's Temp, with
+	 * short names expanded), never TMPDIR, which Windows does not use. */
+	class string templatePath(string prefix) {
+		string base = WindowsFileSystem.temporaryRoot();
+		return WindowsFileSystem.join(base, prefix + ".XXXXXX");
+	}
+
+	/* Create a fresh owner-only directory from a template ending in XXXXXX
+	 * and return its canonical path, or "" with nothing left behind. */
+	class string reservePath(string templatePath) {
+		char* raw = null;
+		if (btrcWinReserveTemporaryDirectory(templatePath, &raw) != 0 || raw == null) { return ""; }
+		return __btrc_string_adopt(raw);
+	}
+
+	class FileSystemOutcome<TemporaryDirectory> create(string prefix) {
+		if (!TemporaryDirectory.validPrefix(prefix)) {
+			return new FileSystemOutcome<TemporaryDirectory>(null, FileSystemError.invalid("create temporary directory", prefix));
+		}
+		string templatePath = TemporaryDirectory.templatePath(prefix);
+		char* raw = null;
+		int status = btrcWinReserveTemporaryDirectory(templatePath, &raw);
+		if (status != 0 || raw == null) {
+			return new FileSystemOutcome<TemporaryDirectory>(null, FileSystemError.fromWindows("create temporary directory", templatePath, status));
+		}
+		string path = __btrc_string_adopt(raw);
+		FileSystemOutcome<DirectoryHandle> opened = DirectoryHandle.openExact(path);
+		if (!opened.ok()) {
+			WindowsFileSystem.removeTree(path);
+			return new FileSystemOutcome<TemporaryDirectory>(null, opened.error());
+		}
+		return new FileSystemOutcome<TemporaryDirectory>(TemporaryDirectory(path, opened.value()), null);
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public string path() { return self._path; }
+
+	public FileSystemCloseOutcome close() {
+		if (!self._open) { return FileSystemCloseOutcome.alreadyClosed(); }
+		self._open = false;
+		var named = WindowsFileSystem.inspectPath(self._path, "remove temporary directory");
+		if (!named.ok()) {
+			FileSystemCloseOutcome leaseClose = self._lease.close();
+			if (named.error().kind() == FS_NOT_FOUND && leaseClose.ok()) {
+				return FileSystemCloseOutcome.closed();
+			}
+			if (!leaseClose.ok()) { return leaseClose; }
+			return FileSystemCloseOutcome.failed(named.error());
+		}
+		FileSnapshot current = named.value().snapshot();
+		if (current.kind() != FILE_DIRECTORY || !current.sameObject(self._lease.openedSnapshot())) {
+			self._lease.close();
+			return FileSystemCloseOutcome.failed(FileSystemError.changed("remove temporary directory", self._path));
+		}
+		string name = WindowsFileSystem.lastComponent(self._path);
+		string parent = WindowsFileSystem.parentOf(self._path);
+		void* parentHandle = null;
+		int status = btrcWinOpenPath(parent, WINDOWS_OPEN_LIST, 0, null, &parentHandle);
+		if (status != 0) {
+			self._lease.close();
+			return FileSystemCloseOutcome.failed(FileSystemError.fromWindows("open temporary directory parent", parent, status));
+		}
+		WindowsNativeHandle parentOwner = WindowsNativeHandle(parentHandle);
+		int removed = WindowsFileSystem.removeTreeAt(parentOwner.value(), name, self._lease.openedSnapshot());
+		parentOwner.close();
+		FileSystemCloseOutcome leaseClose = self._lease.close();
+		if (removed == WINDOWS_FILE_CHANGED) {
+			return FileSystemCloseOutcome.failed(FileSystemError.changed("remove temporary directory", self._path));
+		}
+		if (removed != 0) {
+			return FileSystemCloseOutcome.failed(FileSystemError.fromWindows("remove temporary directory", self._path, removed));
+		}
+		if (!leaseClose.ok()) { return leaseClose; }
+		return FileSystemCloseOutcome.closed();
+	}
+
+	public void __del__() { self.close(); }
+}
+#endif
 
 class PrivateFileReadOutcome {
 	private PrivateFileReadKind _kind;
@@ -1171,6 +1958,7 @@ class DurableReplaceOutcome {
  * traversed without following links. The handle remains bound to the opened
  * directory even if its pathname is subsequently replaced.
  */
+#if !defined(_WIN32)
 class PrivateDirectory {
 	private int _descriptor;
 	private int _leaseDirectoryDescriptor;
@@ -1933,6 +2721,465 @@ class PrivateDirectory {
 
 	public void __del__() { self.close(); }
 }
+#else
+/* A handle-pinned absolute directory owned by the current user whose DACL
+ * allows only that user. Opening may create the final leaf only; every
+ * existing ancestor is opened relative to its parent without following a
+ * reparse point. The handle stays bound to the opened directory even if its
+ * path is later replaced. */
+class PrivateDirectory {
+	private void* _handle;
+	private void* _leaseDirectory;
+	private void* _leaseLock;
+	private int _leaseGeneration;
+	private string _leaseName;
+	private string _path;
+
+	private PrivateDirectory(void* handle, string path) {
+		self._handle = handle;
+		self._leaseDirectory = null;
+		self._leaseLock = null;
+		self._leaseGeneration = 0;
+		self._leaseName = "";
+		self._path = path;
+		btrcOwnExactFileSystemHandle();
+	}
+
+	private FileSystemError insecureDirectory(string operation, string path) { return FileSystemError(FS_ACCESS_DENIED, operation, path, EPERM, "private directory must be owned by the current user with an access list that admits only that user"); }
+
+	/* The last component of `absolutePath`, named `component` inside the held
+	 * directory `parent`: created with a protected owner-only DACL when
+	 * missing, never a link, and private. `closeParent` hands `parent` over to
+	 * be closed on every path out. */
+	class FileSystemOutcome<PrivateDirectory> openLeafAt(void* parent, string component, string absolutePath, bool closeParent) {
+		WindowsNativeHandle parentOwner = WindowsNativeHandle(closeParent ? parent : null);
+		if (btrcWinValidComponent(component) == 0) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.invalid("open private directory", absolutePath));
+		}
+		bool created = false;
+		void* handle = null;
+		int status = btrcWinOpenAt(parent, component, WINDOWS_OPEN_PRIVATE_DIRECTORY, 0, WINDOWS_SHAPE_DIRECTORY, null, &handle);
+		if (status == WINDOWS_ERROR_FILE_NOT_FOUND) {
+			void* descriptor = null;
+			status = btrcWinPrivateDescriptor(1, &descriptor);
+			if (status != 0) { return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.fromWindows("create private directory", absolutePath, status)); }
+			status = btrcWinOpenAt(parent, component, WINDOWS_OPEN_PRIVATE_DIRECTORY, 1, WINDOWS_SHAPE_DIRECTORY, descriptor, &handle);
+			btrcWinFree(descriptor);
+			if (status == 0) {
+				created = true;
+			} else if (status == WINDOWS_ERROR_ALREADY_EXISTS || status == WINDOWS_ERROR_FILE_EXISTS) {
+				status = btrcWinOpenAt(parent, component, WINDOWS_OPEN_PRIVATE_DIRECTORY, 0, WINDOWS_SHAPE_DIRECTORY, null, &handle);
+			} else {
+				return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.fromWindows("create private directory", absolutePath, status));
+			}
+		}
+		if (status == WINDOWS_FILE_WRONG_TYPE) {
+			var named = WindowsFileSystem.inspectAt(parent, component, absolutePath, "inspect private directory");
+			if (named.ok() && named.value().snapshot().kind() == FILE_SYMLINK) {
+				return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.symlink("open private directory", absolutePath));
+			}
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.wrongType("open private directory", absolutePath));
+		}
+		if (status != 0) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.fromWindows("open private directory", absolutePath, status));
+		}
+		WindowsNativeHandle owner = WindowsNativeHandle(handle);
+		var described = WindowsFileSystem.describe(owner.value(), "validate private directory", absolutePath);
+		if (!described.ok()) { return new FileSystemOutcome<PrivateDirectory>(null, described.error()); }
+		FileKind kind = described.value().snapshot().kind();
+		if (kind == FILE_SYMLINK) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.symlink("open private directory", absolutePath));
+		}
+		if (kind != FILE_DIRECTORY) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.wrongType("open private directory", absolutePath));
+		}
+		status = btrcWinCheckPrivate(owner.value(), 1);
+		if (status == WINDOWS_FILE_INSECURE) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError(FS_ACCESS_DENIED, "validate private directory permissions", absolutePath, EPERM, created ? "a created private directory did not keep its owner-only access list" : "private directory must be owned by the current user with an access list that admits only that user"));
+		}
+		if (status != 0) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.fromWindows("validate private directory permissions", absolutePath, status));
+		}
+		int closed = parentOwner.close();
+		if (closed != 0) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.fromWindows("close private directory parent", absolutePath, closed));
+		}
+		return new FileSystemOutcome<PrivateDirectory>(PrivateDirectory(owner.transfer(), Strings.copy(absolutePath)), null);
+	}
+
+	class FileSystemOutcome<PrivateDirectory> openAbsoluteLeaf(string absolutePath) {
+		if (absolutePath == null || absolutePath.isEmpty() || btrcWinRootLength(absolutePath) <= 0) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.invalid("open private directory", absolutePath));
+		}
+		int length = Strings.checkedLength(absolutePath);
+		if (length <= btrcWinRootLength(absolutePath) || WindowsFileSystem.separator(absolutePath[length - 1])) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.invalid("open private directory", absolutePath));
+		}
+		string component = WindowsFileSystem.lastComponent(absolutePath);
+		if (component.isEmpty() || component.equals(".") || component.equals("..")) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.invalid("open private directory", absolutePath));
+		}
+		var parent = WindowsFileSystem.openParent(absolutePath, "private directory", true);
+		if (!parent.ok()) { return new FileSystemOutcome<PrivateDirectory>(null, parent.error()); }
+		return PrivateDirectory.openLeafAt(parent.value().transfer(), component, absolutePath, true);
+	}
+
+	/* A private child directory of this one, created when missing, with the
+	 * checks `openAbsoluteLeaf` makes of its last component. */
+	public FileSystemOutcome<PrivateDirectory> openChildDirectory(string name) {
+		string path = WindowsFileSystem.join(self._path, name == null ? "" : name);
+		if (name == null || name.isEmpty() || name.indexOf("/") >= 0 || name.indexOf("\\") >= 0 || name.equals(".") || name.equals("..")) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.invalid("open private directory", path));
+		}
+		if (!self.isOpen()) {
+			return new FileSystemOutcome<PrivateDirectory>(null, FileSystemError.closed("open private directory", path));
+		}
+		return PrivateDirectory.openLeafAt(self._handle, name, path, false);
+	}
+
+	public bool isOpen() { return self._handle != null; }
+
+	public string path() { return self._path; }
+
+	/* The handle keeps the original directory across renames; this revalidates
+	 * its public name and private access list. */
+	public FileSystemOutcome<FileSnapshot> validatePath() {
+		if (!self.isOpen()) { return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.closed("validate private directory", self._path)); }
+		var opened = WindowsFileSystem.describe(self._handle, "validate private directory", self._path);
+		if (!opened.ok()) { return new FileSystemOutcome<FileSnapshot>(null, opened.error()); }
+		void* named = null;
+		int status = btrcWinOpenPath(self._path, WINDOWS_OPEN_INSPECT, 0, null, &named);
+		if (status != 0) { return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.fromWindows("validate private directory", self._path, status).asChange("validate private directory", self._path)); }
+		WindowsNativeHandle namedOwner = WindowsNativeHandle(named);
+		var current = WindowsFileSystem.describe(namedOwner.value(), "validate private directory", self._path);
+		if (!current.ok()) { return new FileSystemOutcome<FileSnapshot>(null, current.error()); }
+		FileSnapshot openedSnapshot = opened.value().snapshot();
+		FileSnapshot currentSnapshot = current.value().snapshot();
+		if (openedSnapshot.kind() != FILE_DIRECTORY || currentSnapshot.kind() != FILE_DIRECTORY || !openedSnapshot.sameObject(currentSnapshot)) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.changed("validate private directory", self._path));
+		}
+		if (btrcWinCheckPrivate(self._handle, 1) != 0 || btrcWinCheckPrivate(namedOwner.value(), 1) != 0) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError(FS_ACCESS_DENIED, "validate private directory", self._path, EPERM, "private directory must remain owned by the current user with an access list that admits only that user"));
+		}
+		return new FileSystemOutcome<FileSnapshot>(openedSnapshot, null);
+	}
+
+	/* Nonblocking by default; wait=true is for command-line owners. A second
+	 * live lease on this handle always reports resource exhaustion. */
+	public FileSystemOutcome<ExclusiveFileLease> acquireExclusiveLease(string childName, bool wait = false) {
+		if (!self.isOpen()) {
+			return new FileSystemOutcome<ExclusiveFileLease>(null, FileSystemError.closed("acquire exclusive file lease", self._path));
+		}
+		if (!self.validChildName(childName)) {
+			return new FileSystemOutcome<ExclusiveFileLease>(null, FileSystemError.invalid("acquire exclusive file lease", childName));
+		}
+		string childPath = WindowsFileSystem.join(self._path, childName);
+		if (self._leaseLock != null) {
+			return new FileSystemOutcome<ExclusiveFileLease>(null, FileSystemError(FS_RESOURCE_EXHAUSTED, "acquire exclusive file lease", childPath, EAGAIN, "this private directory already owns an exclusive file lease"));
+		}
+		void* duplicate = null;
+		int status = btrcWinDuplicate(self._handle, &duplicate);
+		if (status != 0) { return new FileSystemOutcome<ExclusiveFileLease>(null, FileSystemError.fromWindows("retain private directory", childPath, status)); }
+		WindowsNativeHandle directory = WindowsNativeHandle(duplicate);
+		var lockOpen = self.openLockChild(directory.value(), childName, childPath);
+		if (!lockOpen.ok()) { return new FileSystemOutcome<ExclusiveFileLease>(null, lockOpen.error()); }
+		WindowsNativeHandle held = lockOpen.value();
+		var opened = WindowsFileSystem.describe(held.value(), "validate exclusive lease file", childPath);
+		if (!opened.ok()) { return new FileSystemOutcome<ExclusiveFileLease>(null, opened.error()); }
+		if (!WindowsFileSystem.privateFile(held.value(), opened.value())) {
+			return new FileSystemOutcome<ExclusiveFileLease>(null, self.insecureRegular("validate exclusive lease file", childPath));
+		}
+		FileSnapshot before = opened.value().snapshot();
+		status = btrcWinLock(held.value(), wait ? 1 : 0);
+		if (status == WINDOWS_ERROR_LOCK_VIOLATION) {
+			return new FileSystemOutcome<ExclusiveFileLease>(null, FileSystemError(FS_RESOURCE_EXHAUSTED, "acquire exclusive file lease", childPath, status, "exclusive file lease is already held"));
+		}
+		if (status != 0) { return new FileSystemOutcome<ExclusiveFileLease>(null, FileSystemError.fromWindows("acquire exclusive file lease", childPath, status)); }
+		var current = WindowsFileSystem.inspectAt(directory.value(), childName, childPath, "validate acquired exclusive file lease");
+		if (!current.ok() || current.value().snapshot().kind() != FILE_REGULAR || !current.value().snapshot().sameObject(before)) {
+			btrcWinUnlock(held.value());
+			return new FileSystemOutcome<ExclusiveFileLease>(null, current.ok() ? FileSystemError.changed("validate acquired exclusive file lease", childPath) : current.error().asChange("validate acquired exclusive file lease", childPath));
+		}
+		self._leaseGeneration++;
+		if (self._leaseGeneration <= 0) { self._leaseGeneration = 1; }
+		self._leaseDirectory = directory.transfer();
+		self._leaseLock = held.transfer();
+		self._leaseName = Strings.copy(childName);
+		btrcOwnExactFileSystemHandle();
+		return new FileSystemOutcome<ExclusiveFileLease>(ExclusiveFileLease(self, self._leaseGeneration, Strings.copy(childName)), null);
+	}
+
+	/* The lease's lock child: the existing private file, or a new one created
+	 * with an owner-only DACL (a concurrent creator's file is reopened). */
+	private FileSystemOutcome<WindowsNativeHandle> openLockChild(void* directory, string childName, string childPath) {
+		var existing = self.openPrivateChild(directory, childName, childPath, WINDOWS_OPEN_LOCK, "open exclusive lease file");
+		if (existing.ok() || existing.error().kind() != FS_NOT_FOUND) { return existing; }
+		void* descriptor = null;
+		int status = btrcWinPrivateDescriptor(0, &descriptor);
+		if (status != 0) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.fromWindows("create exclusive lease file", childPath, status)); }
+		void* created = null;
+		status = btrcWinOpenAt(directory, childName, WINDOWS_OPEN_LOCK, 1, WINDOWS_SHAPE_FILE, descriptor, &created);
+		btrcWinFree(descriptor);
+		if (status == 0) { return new FileSystemOutcome<WindowsNativeHandle>(WindowsNativeHandle(created), null); }
+		if (status == WINDOWS_ERROR_ALREADY_EXISTS || status == WINDOWS_ERROR_FILE_EXISTS) {
+			return self.openPrivateChild(directory, childName, childPath, WINDOWS_OPEN_LOCK, "open exclusive lease file");
+		}
+		return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.fromWindows("create exclusive lease file", childPath, status));
+	}
+
+	/* Open an existing child relative to `directory` for `purpose`: a link is
+	 * FS_SYMLINK, anything but a regular file FS_WRONG_TYPE, a file that is not
+	 * private FS_ACCESS_DENIED, and a missing one FS_NOT_FOUND. */
+	private FileSystemOutcome<WindowsNativeHandle> openPrivateChild(void* directory, string childName, string childPath, int purpose, string operation) {
+		void* handle = null;
+		int status = btrcWinOpenAt(directory, childName, purpose, 0, WINDOWS_SHAPE_ANY, null, &handle);
+		if (status != 0) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.fromWindows(operation, childPath, status)); }
+		WindowsNativeHandle owner = WindowsNativeHandle(handle);
+		var described = WindowsFileSystem.describe(owner.value(), operation, childPath);
+		if (!described.ok()) { return new FileSystemOutcome<WindowsNativeHandle>(null, described.error()); }
+		FileKind kind = described.value().snapshot().kind();
+		if (kind == FILE_SYMLINK) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.symlink(operation, childPath)); }
+		if (kind != FILE_REGULAR) { return new FileSystemOutcome<WindowsNativeHandle>(null, FileSystemError.wrongType(operation, childPath)); }
+		if (!WindowsFileSystem.privateFile(owner.value(), described.value())) { return new FileSystemOutcome<WindowsNativeHandle>(null, self.insecureRegular(operation, childPath)); }
+		return new FileSystemOutcome<WindowsNativeHandle>(owner, null);
+	}
+
+	public FileSystemCloseOutcome close() {
+		if (!self.isOpen()) {
+			return FileSystemCloseOutcome.alreadyClosed();
+		}
+		if (self._leaseLock != null) {
+			return FileSystemCloseOutcome.failed(FileSystemError(FS_RESOURCE_EXHAUSTED, "close private directory", self._path, EAGAIN, "private directory still owns an exclusive file lease"));
+		}
+		void* handle = self._handle;
+		self._handle = null;
+		btrcReleaseExactFileSystemHandle();
+		int status = btrcWinClose(handle);
+		if (status != 0) {
+			return FileSystemCloseOutcome.failed(FileSystemError.fromWindows("close private directory", self._path, status));
+		}
+		return FileSystemCloseOutcome.closed();
+	}
+
+	private bool validChildName(string childName) { return childName != null && !childName.isEmpty() && !childName.equals(".") && !childName.equals("..") && !childName.contains("/") && !childName.contains("\\") && btrcWinValidComponent(childName) != 0; }
+
+	private FileSystemError insecureRegular(string operation, string path) { return FileSystemError(FS_ACCESS_DENIED, operation, path, EPERM, "private file must be owned by the current user, have one link, and have an access list that admits only that user"); }
+
+	public PrivateFileReadOutcome readRegularChildForLease(int generation, string lockName, string childName, int maximumBytes) {
+		if (!self.leaseActive(generation, lockName)) {
+			return PrivateFileReadOutcome.failed(FileSystemError.closed("read private file", self._path));
+		}
+		if (!self.validDataChildNameForLease(childName, lockName) || maximumBytes < 0) {
+			return PrivateFileReadOutcome.failed(FileSystemError.invalid("read private file", childName));
+		}
+		string childPath = WindowsFileSystem.join(self._path, childName);
+		var opened = self.openPrivateChild(self._leaseDirectory, childName, childPath, WINDOWS_OPEN_READ, "read private file");
+		if (!opened.ok()) {
+			if (opened.error().kind() == FS_NOT_FOUND) { return PrivateFileReadOutcome.missing(); }
+			return PrivateFileReadOutcome.failed(opened.error());
+		}
+		WindowsNativeHandle file = opened.value();
+		var before = WindowsFileSystem.describe(file.value(), "validate opened private file", childPath);
+		if (!before.ok()) { return PrivateFileReadOutcome.failed(before.error()); }
+		FileSnapshot beforeSnapshot = before.value().snapshot();
+		long long byteCount = beforeSnapshot.size();
+		if (byteCount < 0LL || byteCount > (long long)maximumBytes || byteCount > 2147483646LL) {
+			return PrivateFileReadOutcome.failed(FileSystemError(FS_RESOURCE_EXHAUSTED, "read private file", childPath, EFBIG, "private file exceeds the caller's byte budget"));
+		}
+		int count = (int)byteCount;
+		char* buffer = (char*)malloc((size_t)count + (size_t)1);
+		if (buffer == null) {
+			return PrivateFileReadOutcome.failed(FileSystemError(FS_RESOURCE_EXHAUSTED, "read private file", childPath, ENOMEM, "private file read buffer allocation failed"));
+		}
+		int offset = 0;
+		while (offset < count) {
+			int received = 0;
+			int status = btrcWinReadAt(file.value(), (long long)offset, buffer + offset, count - offset, &received);
+			if (status != 0 || received <= 0) {
+				free(buffer);
+				return PrivateFileReadOutcome.failed(status != 0 ? FileSystemError.fromWindows("read private file", childPath, status) : FileSystemError.changed("read private file", childPath));
+			}
+			offset = offset + received;
+		}
+		int extra = 0;
+		int trailing = btrcWinReadAt(file.value(), (long long)count, buffer + count, 1, &extra);
+		if (trailing != 0 || extra != 0) {
+			free(buffer);
+			return PrivateFileReadOutcome.failed(trailing != 0 ? FileSystemError.fromWindows("read private file", childPath, trailing) : FileSystemError.changed("read private file", childPath));
+		}
+		var openedAfter = WindowsFileSystem.describe(file.value(), "validate read private file", childPath);
+		var namedAfter = WindowsFileSystem.inspectAt(self._leaseDirectory, childName, childPath, "validate read private file");
+		if (!openedAfter.ok() || !namedAfter.ok()) {
+			free(buffer);
+			FileSystemError failure = !openedAfter.ok() ? openedAfter.error() : namedAfter.error();
+			return PrivateFileReadOutcome.failed(failure.asChange("validate read private file", childPath));
+		}
+		if (!beforeSnapshot.sameVersion(openedAfter.value().snapshot()) || !beforeSnapshot.sameVersion(namedAfter.value().snapshot())) {
+			free(buffer);
+			return PrivateFileReadOutcome.failed(FileSystemError.changed("validate read private file", childPath));
+		}
+		int closed = file.close();
+		if (closed != 0) {
+			free(buffer);
+			return PrivateFileReadOutcome.failed(FileSystemError.fromWindows("close private file", childPath, closed));
+		}
+		Bytes bytes = count == 0 ? Bytes() : Bytes.fromRaw(buffer, count);
+		free(buffer);
+		return PrivateFileReadOutcome.data(bytes);
+	}
+
+	public DurableReplaceOutcome replaceRegularChildDurablyForLease(int generation, string lockName, string childName, Bytes content) {
+		if (!self.leaseActive(generation, lockName)) {
+			return DurableReplaceOutcome.failed(FileSystemError.closed("replace private file", self._path));
+		}
+		if (!self.validDataChildNameForLease(childName, lockName) || content == null) {
+			return DurableReplaceOutcome.failed(FileSystemError.invalid("replace private file", childName));
+		}
+		string childPath = WindowsFileSystem.join(self._path, childName);
+		FileSnapshot? expected = null;
+		var existing = self.openPrivateChild(self._leaseDirectory, childName, childPath, WINDOWS_OPEN_INSPECT, "replace private file");
+		if (existing.ok()) {
+			var described = WindowsFileSystem.describe(existing.value().value(), "inspect replaced private file", childPath);
+			if (!described.ok()) { return DurableReplaceOutcome.failed(described.error()); }
+			expected = described.value().snapshot();
+			existing.value().close();
+		} else if (existing.error().kind() != FS_NOT_FOUND) {
+			return DurableReplaceOutcome.failed(existing.error());
+		}
+
+		long long seed = btrcWinTicks();
+		WindowsNativeHandle? temporary = null;
+		string temporaryName = "";
+		for attempt in range(128) {
+			string candidate = ".btrc-tmp-" + Strings.fromInt(btrcWinProcessId()) + "-" + Strings.fromInt((int)(seed & 2147483647LL)) + "-" + Strings.fromInt(attempt);
+			if (btrcWinSameName(candidate, childName) != 0) { continue; }
+			void* descriptor = null;
+			int status = btrcWinPrivateDescriptor(0, &descriptor);
+			if (status != 0) { return DurableReplaceOutcome.failed(FileSystemError.fromWindows("create durable replacement", childPath, status)); }
+			void* created = null;
+			status = btrcWinOpenAt(self._leaseDirectory, candidate, WINDOWS_OPEN_WRITE, 1, WINDOWS_SHAPE_FILE, descriptor, &created);
+			btrcWinFree(descriptor);
+			if (status == 0) {
+				temporary = WindowsNativeHandle(created);
+				temporaryName = Strings.copy(candidate);
+				break;
+			}
+			if (status != WINDOWS_ERROR_ALREADY_EXISTS && status != WINDOWS_ERROR_FILE_EXISTS) {
+				return DurableReplaceOutcome.failed(FileSystemError.fromWindows("create durable replacement", childPath, status));
+			}
+		}
+		if (temporary == null) {
+			return DurableReplaceOutcome.failed(FileSystemError(FS_RESOURCE_EXHAUSTED, "create durable replacement", childPath, EEXIST, "durable replacement temporary-name budget was exhausted"));
+		}
+		WindowsNativeHandle replacement = temporary;
+		var described = WindowsFileSystem.describe(replacement.value(), "validate durable replacement", childPath);
+		if (!described.ok()) { return self.abandonTemporary(replacement, described.error()); }
+		if (!WindowsFileSystem.privateFile(replacement.value(), described.value())) {
+			return self.abandonTemporary(replacement, self.insecureRegular("validate durable replacement", childPath));
+		}
+		var named = WindowsFileSystem.inspectAt(self._leaseDirectory, temporaryName, childPath, "validate durable replacement");
+		if (!named.ok() || !named.value().snapshot().sameObject(described.value().snapshot())) {
+			return self.abandonTemporary(replacement, named.ok() ? FileSystemError.changed("validate durable replacement", childPath) : named.error());
+		}
+		int status = btrcWinWriteAll(replacement.value(), content.data, content.length());
+		if (status != 0) { return self.abandonTemporary(replacement, FileSystemError.fromWindows("write durable replacement", childPath, status)); }
+		status = btrcWinFlush(replacement.value());
+		if (status != 0) { return self.abandonTemporary(replacement, FileSystemError.fromWindows("sync durable replacement", childPath, status)); }
+
+		var current = WindowsFileSystem.inspectAt(self._leaseDirectory, childName, childPath, "validate durable replacement target");
+		if (expected != null) {
+			if (!current.ok()) { return self.abandonTemporary(replacement, current.error().asChange("validate durable replacement target", childPath)); }
+			if (!current.value().snapshot().sameVersion(expected)) {
+				return self.abandonTemporary(replacement, FileSystemError.changed("validate durable replacement target", childPath));
+			}
+		} else if (current.ok()) {
+			return self.abandonTemporary(replacement, FileSystemError.changed("validate durable replacement target", childPath));
+		} else if (current.error().kind() != FS_NOT_FOUND) {
+			return self.abandonTemporary(replacement, current.error());
+		}
+
+		status = btrcWinRenameAt(replacement.value(), self._leaseDirectory, childName, 1);
+		if (status != 0) { return self.abandonTemporary(replacement, FileSystemError.fromWindows("publish durable replacement", childPath, status)); }
+		status = replacement.close();
+		if (status != 0) { return DurableReplaceOutcome.durabilityUncertain(FileSystemError.fromWindows("close durable replacement", childPath, status)); }
+		status = btrcWinFlush(self._leaseDirectory);
+		if (status != 0) { return DurableReplaceOutcome.durabilityUncertain(FileSystemError.fromWindows("sync durable replacement directory", childPath, status)); }
+		return DurableReplaceOutcome.succeeded();
+	}
+
+	/* Retire authority relative to the pinned lease directory. An uncertain
+	 * directory flush is retryable even when the child name is already gone. */
+	public DurableReplaceOutcome removeRegularChildDurablyForLease(int generation, string lockName, string childName) {
+		if (!self.leaseActive(generation, lockName)) { return DurableReplaceOutcome.failed(FileSystemError.closed("remove private file", self._path)); }
+		if (!self.validDataChildNameForLease(childName, lockName)) { return DurableReplaceOutcome.failed(FileSystemError.invalid("remove private file", childName)); }
+		string path = WindowsFileSystem.join(self._path, childName);
+		var opened = self.openPrivateChild(self._leaseDirectory, childName, path, WINDOWS_OPEN_REMOVE, "remove private file");
+		if (opened.ok()) {
+			WindowsNativeHandle file = opened.value();
+			int status = btrcWinDelete(file.value(), 0);
+			file.close();
+			if (status != 0) { return DurableReplaceOutcome.failed(FileSystemError.fromWindows("remove private file", path, status)); }
+		} else if (opened.error().kind() != FS_NOT_FOUND) {
+			return DurableReplaceOutcome.failed(opened.error());
+		}
+		int flushed = btrcWinFlush(self._leaseDirectory);
+		if (flushed != 0) { return DurableReplaceOutcome.durabilityUncertain(FileSystemError.fromWindows("sync removed private file", path, flushed)); }
+		return DurableReplaceOutcome.succeeded();
+	}
+
+	public FileSystemOutcome<FileSnapshot> validateLeaseFor(int generation, string lockName) {
+		if (!self.leaseActive(generation, lockName)) { return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.closed("validate exclusive lease", self._path)); }
+		string path = WindowsFileSystem.join(self._path, lockName);
+		var opened = WindowsFileSystem.describe(self._leaseLock, "validate exclusive lease", path);
+		if (!opened.ok()) { return new FileSystemOutcome<FileSnapshot>(null, opened.error()); }
+		var current = self.openPrivateChild(self._leaseDirectory, lockName, path, WINDOWS_OPEN_INSPECT, "validate exclusive lease");
+		if (!current.ok()) { return new FileSystemOutcome<FileSnapshot>(null, current.error().asChange("validate exclusive lease", path)); }
+		var named = WindowsFileSystem.describe(current.value().value(), "validate exclusive lease", path);
+		if (!named.ok()) { return new FileSystemOutcome<FileSnapshot>(null, named.error()); }
+		if (!WindowsFileSystem.privateFile(self._leaseLock, opened.value()) || !opened.value().snapshot().sameObject(named.value().snapshot())) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.changed("validate exclusive lease", path));
+		}
+		return new FileSystemOutcome<FileSnapshot>(opened.value().snapshot(), null);
+	}
+
+	public bool leaseActive(int generation, string lockName) { return self.isOpen() && self._leaseDirectory != null && self._leaseLock != null && generation == self._leaseGeneration && lockName != null && lockName.equals(self._leaseName); }
+
+	public FileSystemCloseOutcome releaseExclusiveLease(int generation, string lockName) {
+		if (!self.leaseActive(generation, lockName)) {
+			return FileSystemCloseOutcome.alreadyClosed();
+		}
+		void* directory = self._leaseDirectory;
+		void* lock = self._leaseLock;
+		self._leaseDirectory = null;
+		self._leaseLock = null;
+		self._leaseName = "";
+		btrcReleaseExactFileSystemHandle();
+		int firstError = btrcWinUnlock(lock);
+		int closedLock = btrcWinClose(lock);
+		if (firstError == 0) { firstError = closedLock; }
+		int closedDirectory = btrcWinClose(directory);
+		if (firstError == 0) { firstError = closedDirectory; }
+		if (firstError != 0) {
+			return FileSystemCloseOutcome.failed(FileSystemError.fromWindows("close exclusive file lease", WindowsFileSystem.join(self._path, lockName), firstError));
+		}
+		return FileSystemCloseOutcome.closed();
+	}
+
+	/* A data child is never the lease's own lock file, compared as Windows
+	 * compares names (ignoring case). */
+	private bool validDataChildNameForLease(string childName, string lockName) { return self.validChildName(childName) && lockName != null && btrcWinSameName(childName, lockName) == 0; }
+
+	private DurableReplaceOutcome abandonTemporary(WindowsNativeHandle temporary, FileSystemError error) {
+		if (temporary.isOpen()) {
+			btrcWinDelete(temporary.value(), 0);
+			temporary.close();
+		}
+		return DurableReplaceOutcome.failed(error);
+	}
+
+	public void __del__() { self.close(); }
+}
+#endif
 
 /* An exclusive lease over one owner-only 0600 lock child. Reads and durable
  * replacements are relative to the pinned directory, reject links and unsafe
@@ -2002,6 +3249,7 @@ class ExclusiveFileLease {
  * owners, not UI/realtime executors. Closing releases ownership but never
  * unlinks the coordination file. Aliases observe the same closed state.
  * A lock is advisory, not authorization to modify files or a transaction. */
+#if !defined(_WIN32)
 class AdvisoryFileLock {
 	private int _descriptor;
 	private string _path;
@@ -2088,3 +3336,88 @@ class AdvisoryFileLock {
 
 	public void __del__() { self.close(); }
 }
+#else
+/* A persistent coordination file locked with LockFileEx over its whole
+ * range. Unlike POSIX flock the lock is mandatory: while it is held, other
+ * handles cannot read or write the file, so coordinate through a file that
+ * holds no data. Nonblocking unless wait is true. Closing releases the lock
+ * but never deletes the file; aliases observe the same closed state. */
+class AdvisoryFileLock {
+	private void* _handle;
+	private string _path;
+	private FileSnapshot _identity;
+
+	private AdvisoryFileLock(void* handle, string path, FileSnapshot identity) {
+		self._handle = handle;
+		self._path = path;
+		self._identity = identity;
+		btrcOwnExactFileSystemHandle();
+	}
+
+	class FileSystemOutcome<AdvisoryFileLock> acquire(string path, bool wait = false) {
+		if (path == null || path.isEmpty()) { return new FileSystemOutcome<AdvisoryFileLock>(null, FileSystemError.invalid("acquire advisory lock", path)); }
+		var before = WindowsFileSystem.inspectPath(path, "inspect advisory lock");
+		bool existed = before.ok();
+		if (!existed && before.error().kind() != FS_NOT_FOUND) { return new FileSystemOutcome<AdvisoryFileLock>(null, before.error()); }
+		if (existed && before.value().snapshot().kind() == FILE_SYMLINK) { return new FileSystemOutcome<AdvisoryFileLock>(null, FileSystemError.symlink("acquire advisory lock", path)); }
+		if (existed && (before.value().snapshot().kind() != FILE_REGULAR || before.value().links() != 1)) { return new FileSystemOutcome<AdvisoryFileLock>(null, FileSystemError.wrongType("acquire advisory lock", path)); }
+		void* descriptor = null;
+		int status = btrcWinPrivateDescriptor(0, &descriptor);
+		if (status != 0) { return new FileSystemOutcome<AdvisoryFileLock>(null, FileSystemError.fromWindows("open advisory lock", path, status)); }
+		void* handle = null;
+		status = btrcWinOpenPath(path, WINDOWS_OPEN_LOCK, 1, descriptor, &handle);
+		btrcWinFree(descriptor);
+		if (status != 0) { return new FileSystemOutcome<AdvisoryFileLock>(null, FileSystemError.fromWindows("open advisory lock", path, status)); }
+		WindowsNativeHandle owner = WindowsNativeHandle(handle);
+		var opened = WindowsFileSystem.describe(owner.value(), "validate advisory lock", path);
+		if (!opened.ok()) { return new FileSystemOutcome<AdvisoryFileLock>(null, opened.error()); }
+		var current = WindowsFileSystem.inspectPath(path, "validate advisory lock");
+		if (!current.ok()) { return new FileSystemOutcome<AdvisoryFileLock>(null, current.error()); }
+		FileSnapshot openedSnapshot = opened.value().snapshot();
+		FileSnapshot currentSnapshot = current.value().snapshot();
+		if (openedSnapshot.kind() != FILE_REGULAR || currentSnapshot.kind() != FILE_REGULAR || opened.value().links() != 1 || current.value().links() != 1 || !openedSnapshot.sameObject(currentSnapshot) || (existed && !openedSnapshot.sameObject(before.value().snapshot()))) {
+			return new FileSystemOutcome<AdvisoryFileLock>(null, FileSystemError.changed("validate advisory lock", path));
+		}
+		status = btrcWinLock(owner.value(), wait ? 1 : 0);
+		if (status == WINDOWS_ERROR_LOCK_VIOLATION) {
+			return new FileSystemOutcome<AdvisoryFileLock>(null, FileSystemError(FS_RESOURCE_EXHAUSTED, "acquire advisory lock", path, status, "advisory lock is already held"));
+		}
+		if (status != 0) { return new FileSystemOutcome<AdvisoryFileLock>(null, FileSystemError.fromWindows("acquire advisory lock", path, status)); }
+		var lock = AdvisoryFileLock(owner.transfer(), Strings.copy(path), openedSnapshot);
+		var checked = lock.validate();
+		if (!checked.ok()) { lock.close(); return new FileSystemOutcome<AdvisoryFileLock>(null, checked.error()); }
+		return new FileSystemOutcome<AdvisoryFileLock>(lock, null);
+	}
+
+	public bool isOpen() { return self._handle != null; }
+
+	/* Recheck after a wait and before protected work. This detects replacement;
+	 * cooperating users must retain the file to keep one shared lock identity. */
+	public FileSystemOutcome<FileSnapshot> validate() {
+		if (!self.isOpen()) { return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.closed("validate advisory lock", self._path)); }
+		var opened = WindowsFileSystem.describe(self._handle, "validate advisory lock", self._path);
+		if (!opened.ok()) { return new FileSystemOutcome<FileSnapshot>(null, opened.error()); }
+		var current = WindowsFileSystem.inspectPath(self._path, "validate advisory lock");
+		if (!current.ok()) { return new FileSystemOutcome<FileSnapshot>(null, current.error().asChange("validate advisory lock", self._path)); }
+		FileSnapshot openedSnapshot = opened.value().snapshot();
+		FileSnapshot currentSnapshot = current.value().snapshot();
+		if (openedSnapshot.kind() != FILE_REGULAR || currentSnapshot.kind() != FILE_REGULAR || opened.value().links() != 1 || current.value().links() != 1 || !self._identity.sameObject(openedSnapshot) || !self._identity.sameObject(currentSnapshot)) {
+			return new FileSystemOutcome<FileSnapshot>(null, FileSystemError.changed("validate advisory lock", self._path));
+		}
+		return new FileSystemOutcome<FileSnapshot>(currentSnapshot, null);
+	}
+
+	public FileSystemCloseOutcome close() {
+		if (!self.isOpen()) { return FileSystemCloseOutcome.alreadyClosed(); }
+		void* handle = self._handle;
+		self._handle = null;
+		int unlocked = btrcWinUnlock(handle);
+		int closed = btrcWinClose(handle);
+		btrcReleaseExactFileSystemHandle();
+		if (unlocked != 0 || closed != 0) { return FileSystemCloseOutcome.failed(FileSystemError.fromWindows("close advisory lock", self._path, unlocked != 0 ? unlocked : closed)); }
+		return FileSystemCloseOutcome.closed();
+	}
+
+	public void __del__() { self.close(); }
+}
+#endif

@@ -48,41 +48,10 @@ cites = "docs/design/platform-inventory.toml#corpus.gpu"
 # through each frontend). Every program below fails to compile for MinGW
 # because it reaches a POSIX provider the inventory records as lacking its
 # Win32 backend. The LP64 programs that also fail there (long is 4 bytes on
-# Windows) are not excluded: they are failures for the CL-P1-18 triage.
-
-[[programs]]
-paths = [
-    "stdlib/AdvisoryFileLockReal.btrc",
-    "stdlib/FileSystemHandlesReal.btrc",
-    "stdlib/FileTreeSnapshotReal.btrc",
-    "stdlib/Fs.btrc",
-    "stdlib/FsRemoveRecursive.btrc",
-    "stdlib/PrivateDirectoryChild.btrc",
-    "stdlib/PrivateDirectoryReal.btrc",
-    "stdlib/RegularFileSnapshotReal.btrc",
-]
-targets = ["windows-x86_64"]
-status = "missing"
-scope = "build"
-reason = "the exact filesystem handles call POSIX symlink() and fcntl(F_GETFD), which MinGW lacks; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
-cites = "corpus.stdlib@windows-x64"
-
-[[programs]]
-paths = [
-    "stdlib/AdvisoryFileLockReal.btrc",
-    "stdlib/FileSystemHandlesReal.btrc",
-    "stdlib/FileTreeSnapshotReal.btrc",
-    "stdlib/Fs.btrc",
-    "stdlib/FsRemoveRecursive.btrc",
-    "stdlib/PrivateDirectoryChild.btrc",
-    "stdlib/PrivateDirectoryReal.btrc",
-    "stdlib/RegularFileSnapshotReal.btrc",
-]
-targets = ["windows-aarch64"]
-status = "missing"
-scope = "build"
-reason = "the exact filesystem handles call POSIX symlink() and fcntl(F_GETFD), which MinGW lacks; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
-cites = "corpus.stdlib@windows-arm64"
+# Windows) are not excluded: they are failures for the CL-P1-18 triage. The
+# exact-filesystem programs left this list on 2026-10-19: they build on the
+# Win32 FileSystemHandles provider, and windows.yml's win32-native job runs
+# them on x64 and ARM64.
 
 [[programs]]
 paths = [
