@@ -92,7 +92,11 @@ class UI2LinuxMutationChecks {
 		var window = application.createWindow("UI2 mutation", 80.0, 80.0);
 		var root = application.createContainer(); var red = application.createPanel(RGBA(220, 10, 10, 255), 0.0); var blue = application.createPanel(RGBA(10, 10, 220, 255), 0.0);
 		red.arrange(0.0, 0.0, 80.0, 80.0); blue.arrange(0.0, 0.0, 80.0, 80.0);
-		root.attach(red); root.attach(blue); window.attachRoot(root); window.show();
+		root.attach(red); root.attach(blue);
+		// An empty committed batch must also leave the application dispatchable.
+		Vector<ContainerEdit> empty = []; var emptyResult = root.applyBatch(root.treeRevision(), empty);
+		assert(emptyResult.kind == CONTAINER_BATCH_COMMITTED); application.pumpOnce(0);
+		window.attachRoot(root); window.show();
 		var nativeWindow = (LinuxWindow?)window; var nativeRoot = (ILinuxView?)root; var nativeRed = (ILinuxView?)red;
 		assert(nativeWindow != null && nativeRoot != null && nativeRed != null);
 		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;

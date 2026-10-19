@@ -147,8 +147,8 @@ class LinuxContainerMutation {
 			self._node.publishInteraction();
 			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().publishInteraction(); } }
 			self._node.invalidate();
-			return self.result(kind, failedStep, failure);
 		} finally { self._node.context.mutationDepth--; self._node.treeMutation = false; }
+		return self.result(kind, failedStep, failure);
 	}
 }
 
