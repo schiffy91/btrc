@@ -32,10 +32,8 @@ int main() {
 		assert(windows.value().cacheRoot().equals(windows.value().stateRoot() + "\\Cache"));
 		assert(!windows.value().configRoot().equals(windows.value().stateRoot()));
 	}
-	if (platform == 1 || platform == 2 || platform == 3) {
-#else
-	if (platform == 1 || platform == 2) {
 #endif
+	if (platform == 1 || platform == 2 || platform == 3 || platform == 4) {
 		assert(!limited.ok());
 		assert(limited.error().kind() == FS_INVALID_ARGUMENT);
 		assert(limited.error().nativeCode() == ENAMETOOLONG);

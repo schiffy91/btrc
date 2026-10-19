@@ -226,9 +226,10 @@ def test_app_roots_must_match_the_request(roots, message):
 
 def test_the_registry_discovers_the_host_spikes_by_import():
     registry = ExecutorRegistry()
-    assert {"local", "windows-native", "android-emulator"} <= set(registry.names())
+    assert {"local", "windows-native", "ios-simulator", "android-emulator"} <= set(registry.names())
     assert registry.spec("local") == "src.tests.target_runner:LocalExecutor"
     assert registry.spec("windows-native") == "tools.target_hosts.windows.executor:WindowsNativeExecutor"
+    assert registry.spec("ios-simulator") == "tools.target_hosts.ios.executor:IOSSimulatorExecutor"
     assert registry.spec("android-emulator") == "tools.target_hosts.android.executor:AndroidEmulatorExecutor"
     assert registry.load("local") is LocalExecutor
 
@@ -236,6 +237,11 @@ def test_the_registry_discovers_the_host_spikes_by_import():
 def test_the_registry_constructs_an_executor_from_its_options(tmp_path):
     executor = ExecutorRegistry().create("android-emulator", {"sdk": str(tmp_path), "serial": "emulator-5554"})
     assert executor.serial == "emulator-5554"
+    # Constructing the iOS simulator executor boots nothing: prepare does.
+    simulator = ExecutorRegistry().create("ios-simulator", {"device_class": "ipad", "launch_timeout_s": "90"})
+    assert (simulator.host.device_class, simulator.launch_timeout_s, simulator.host.udid) == ("ipad", 90.0, None)
+    modes, policies = simulator.LAUNCH_MODES, simulator.CWD_POLICIES
+    assert modes == {"process"} and policies == {"isolated", "bundle"}
 
 
 def _host_package(tmp_path: Path, monkeypatch, source: str) -> ExecutorRegistry:

@@ -1311,10 +1311,12 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     # Claude writes the mobile host workflows Codex requested (D28). Each lands
     # before its host directory, so a guard job skips the device job on a
     # revision without the tooling instead of failing main.
-    for workflow, tool in (("host-ios.yml", "ios/spike.py"), ("host-android.yml", "android/check.py")):
+    for workflow, tool, device in (
+        ("host-ios.yml", "ios/spike.py", "simulator"),
+        ("host-android.yml", "android/check.py", "emulator"),
+    ):
         jobs = _parsed(workflow)["jobs"]
         assert f"tools/target_hosts/{tool}" in _code(_job(_workflow(workflow), "tooling")), workflow
-        device = next(name for name, job in jobs.items() if job.get("needs") == "tooling")
         assert jobs[device]["needs"] == "tooling", workflow
         assert jobs[device]["if"] == "needs.tooling.outputs.present == 'true'", workflow
         # Steps pipe into tee, so the job runs bash with pipefail.
@@ -1322,11 +1324,18 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
         final = jobs[device]["steps"][-1]
         assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT, workflow
 
+    # CX-P1-04: the fixtures through the protocol-1 executor on both device
+    # classes, and its portable tests on Linux with this host's C compiler.
     ios = _code(_job(_workflow("host-ios.yml"), "simulator"))
-    assert "python3 -m unittest tools.target_hosts.ios.test_executor -v" in ios
+    assert "python3 -m tools.target_hosts.ios.spike build build/ios-testhost" in ios
     for device in ("iphone", "ipad"):
-        for mode in ("spawn", "app"):
-            assert f"--device-class {device} --mode {mode}" in ios, (device, mode)
+        assert (
+            f"python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class {device}"
+        ) in ios, device
+    assert "--mode" not in ios, "the executor launches processes only (protocol 1 process mode)"
+    portable = _parsed("host-ios.yml")["jobs"]["portable"]
+    assert portable["needs"] == "tooling" and portable["runs-on"] == "ubuntu-latest"
+    assert "tools/target_hosts/ios/test_executor.py" in _code(_job(_workflow("host-ios.yml"), "portable"))
 
     # CX-P1-05's request: sdkmanager installs exactly the pinned package list,
     # and the installed revisions are verified rather than trusted.
@@ -1344,6 +1353,63 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
         assert f"--compilers {compiler}" in android, compiler
     assert android.count("src/tests/python/test_native_jni_android.py") == 2
     assert 'echo "BTRC_ANDROID_JNI_REQUIRED=1"' in android
+
+
+def test_the_ios_corpus_runs_in_the_simulator_job_through_both_compilers() -> None:
+    """CX-P1-08: the whole corpus on the hosted iOS simulator, on the fixtures' one macOS runner."""
+
+    workflow = _parsed("host-ios.yml")
+    for event in ("push", "pull_request"):
+        paths = workflow["on"][event]["paths"]
+        for path in (
+            "tools/target_hosts/ios/**",
+            "src/tests/target_runner.py",
+            "src/tests/fixtures/target-applicability.toml",
+        ):
+            assert path in paths, (event, path)
+    job = workflow["jobs"]["simulator"]
+    text = _job(_workflow("host-ios.yml"), "simulator")
+    # The bundle pins each program's deadline; the run admits it only with the same value.
+    assert job["env"]["BTRC_TEST_RUN_TIMEOUT"] == "60"
+    reader = _step_containing(text, "nix build .#btrc-native-header")
+    assert 'nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true' in reader
+    steps = {step.get("name"): step for step in job["steps"]}
+    names = list(steps)
+    # The toolchain is recorded before any guest boots, and the fixtures run before the corpus.
+    assert names.index("Record the Xcode and simulator inventory") < names.index("iPhone")
+    assert names.index("iPad") < names.index("Build the self-hosted compiler")
+    assert steps["Build the self-hosted compiler"]["run"] == "nix develop --command make NIX= btrcc"
+    build = " ".join(
+        steps["Cross-build every applicable corpus program for the simulator through both compilers"]["run"]
+        .replace("\\\n", " ")
+        .split()
+    )
+    assert (
+        "nix develop --command python3 -m src.tests.target_runner --target ios-aarch64-simulator --frontend both "
+        "--compile-only --btrcc bin/btrcc --jobs 3 --output build/target-corpus/build || status=$?"
+    ) in build
+    # A program that fails to build is a result; only a runner error fails the build step.
+    assert 'if [ "$status" -gt 1 ]; then' in build
+    run = steps["Run every corpus program on the simulator through both compilers"]
+    assert " ".join(run["run"].replace("\\\n", " ").split()) == (
+        "nix develop --command python3 -m src.tests.target_runner --execute-bundle build/target-corpus/build/bundle "
+        "--executor ios-simulator --executor-option device_class=iphone "
+        "--executor-option diagnostics=build/target-corpus/diagnostics --output build/target-corpus/run"
+    )
+    # The corpus reports only until its failures are triaged; the fixtures still gate the job.
+    assert run["continue-on-error"] == "true"
+    assert "continue-on-error" not in steps["iPhone"] and "continue-on-error" not in job
+    summary = steps["Publish the corpus counts"]
+    assert summary["if"] == "always()" and '>> "$GITHUB_STEP_SUMMARY"' in summary["run"]
+    corpus = steps["Retain the corpus run"]
+    assert corpus["if"] == "always()" and corpus["uses"] == UPLOAD_ARTIFACT
+    assert corpus["with"]["name"] == "target-corpus-ios-simulator"
+    # Everything but the bundle's executables.
+    assert corpus["with"]["path"].split() == ["build/target-corpus/", "!build/target-corpus/build/bundle/"]
+    # The executor the lane names is the one the runner's registry resolves.
+    from src.tests.target_runner import ExecutorRegistry
+
+    assert ExecutorRegistry().spec("ios-simulator") == "tools.target_hosts.ios.executor:IOSSimulatorExecutor"
 
 
 @pytest.mark.parametrize("sdk_exit", [0, 7])

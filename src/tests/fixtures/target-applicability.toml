@@ -43,6 +43,29 @@ status = "missing"
 reason = "dispatching @gpu programs need libbtrc_gpu over wgpu-native, which is not built for this row (Stage 28, tooling-cross-gpu-deps)"
 cites = "docs/design/platform-inventory.toml#corpus.gpu"
 
+# The iOS simulator row. Established by the hosted ios-simulator corpus run
+# (CX-P1-08, Host iOS run 39260417889: Xcode 27A266a, iOS 27.0 24A434): with
+# --frontend both, every program below failed to compile through both
+# frontends because it reaches the POSIX Process provider, whose
+# posix_spawn_file_actions_addchdir_np the iOS SDK marks unavailable. An iOS
+# app cannot start a child process; the explicit mobile refusal is CX-P2-06.
+[[programs]]
+paths = [
+    "stdlib/ChildProcess*.btrc",
+    "stdlib/Daemon.btrc",
+    "stdlib/HttpClientLocal.btrc",
+    "stdlib/HttpFramingSafety.btrc",
+    "stdlib/Process.btrc",
+    "stdlib/ProcessStatusPipe.btrc",
+    "stdlib/ShellCwdEnv.btrc",
+    "stdlib/Shellwords.btrc",
+]
+targets = ["ios-aarch64-simulator"]
+status = "restricted"
+scope = "build"
+reason = "reaches the POSIX Process provider, whose posix_spawn_file_actions_addchdir_np the iOS SDK marks unavailable: an iOS app cannot start a child process (explicit mobile process refusals, CX-P2-06)"
+cites = "corpus.stdlib@ios-simulator"
+
 # Windows gnu rows. Established by `--target windows-x86_64 --frontend both
 # --compile-only` with zig 0.16.0 on 2026-10-17 (980 of 1,021 programs built
 # through each frontend). Every program below fails to compile for MinGW

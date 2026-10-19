@@ -1,24 +1,42 @@
 name: Host iOS
 
-# CX-P1-04's iOS simulator test host (tools/target_hosts/ios) on a hosted
-# macos-15 runner: twelve strict-C11 fixtures, each launched through simctl
-# spawn and as an installed app, on an iPhone and an iPad simulator, plus one
-# repeated app run per device class (50 executions). The runner's Xcode is
-# stand-in provenance, not the owner's pinned 27A266a, and the runtime is the
-# newest installed iOS >= 17, not the iOS 17 floor (MAC-P1-02). Until the tool
-# directory is on the revision being tested, the tooling job reports it absent
-# and the simulator job is skipped, so this workflow can land before the host.
+# The iOS simulator lane (CX-P1-04, CX-P1-08) on one hosted macOS runner,
+# which are scarce. Its simulator job first qualifies the ios-simulator
+# executor (tools/target_hosts/ios, executor protocol 1): twelve strict-C11
+# fixtures, plus the cwd fixture again from the staged program's directory,
+# on an iPhone and an iPad simulator (26 executions), each through simctl
+# spawn and the executor's in-simulator supervisor. It then runs the whole
+# language and stdlib corpus through both compilers: src/tests/target_runner.py
+# --compile-only cross-builds every applicable program for
+# ios-aarch64-simulator with Xcode's clang and the nix-built native header
+# reader, and --execute-bundle runs the bundle on a booted iPhone simulator
+# through the same executor. The corpus reports only (its step may fail
+# without failing the job) until the CL-P1-18 fix waves leave no failure;
+# drop its continue-on-error then. The step summary carries the per-frontend
+# passed/failed/restricted/missing counts; the artifacts the per-program
+# logs, the JUnit files and the ledger records. The portable job runs the
+# executor's own tests on Linux with that host's C compiler.
+#
+# The xcode-27 image supplies D21's toolchain; the inventory step verifies its
+# exact build before any SDK is used. Runtime selection takes the newest
+# installed iOS >= 17, so this does not prove the iOS 17 floor (MAC-P1-02),
+# and simulator results are never physical-device evidence (D8). Until the
+# tool directory exists, tooling reports it absent and skips the other jobs.
 on:
   push:
     branches: [main]
     paths:
       - .github/workflows/host-ios.yml
       - tools/target_hosts/ios/**
+      - src/tests/target_runner.py
+      - src/tests/fixtures/target-applicability.toml
   pull_request:
     branches: [main]
     paths:
       - .github/workflows/host-ios.yml
       - tools/target_hosts/ios/**
+      - src/tests/target_runner.py
+      - src/tests/fixtures/target-applicability.toml
   workflow_dispatch:
 
 permissions:
@@ -52,8 +70,14 @@ jobs:
   simulator:
     needs: tooling
     if: needs.tooling.outputs.present == 'true'
-    runs-on: macos-15
-    timeout-minutes: 90
+    runs-on: xcode-27
+    timeout-minutes: 300
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.app/Contents/Developer
+      # Each corpus program's run deadline, as the CI corpus shards give it.
+      # The bundle pins it, and the run admits the bundle only with the same value.
+      BTRC_TEST_RUN_TIMEOUT: "60"
+      BTRC_TEST_TRANSPILE_TIMEOUT: "600"
     # An explicit bash shell runs with pipefail, so a failing command piped
     # into tee still fails its step.
     defaults:
@@ -66,30 +90,120 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.13"
+      # Before any guest boots: CoreSimulator's first answer is slow on a cold
+      # three-core runner, and these are the toolchain the results record.
       - name: Record the Xcode and simulator inventory
+        timeout-minutes: 10
         run: |
           mkdir -p build/ios-results
           xcodebuild -version | tee build/ios-results/xcode-version.txt
+          grep -Fxq 'Build version 27A266a' build/ios-results/xcode-version.txt
+          xcrun --find simctl > build/ios-results/simctl-path.txt
+          xcrun --sdk iphonesimulator --show-sdk-version > build/ios-results/sdk-version.txt
           xcrun simctl list -j > build/ios-results/simctl-list.json
-      - name: Local host tests
-        run: python3 -m unittest tools.target_hosts.ios.test_executor -v 2>&1 | tee build/ios-results/unittest.log
       - name: Build the fixtures
         id: build
         run: python3 -m tools.target_hosts.ios.spike build build/ios-testhost 2>&1 | tee build/ios-results/build.log
-      # Each device class and mode runs even when an earlier one failed, so a
-      # single run records every result; each stops at its own first failure.
-      - name: iPhone, simctl spawn
+      # Each device class runs even when the other failed, so a single run
+      # records every result; each stops at its own first failure.
+      - name: iPhone
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone --mode spawn 2>&1 | tee build/ios-results/iphone-spawn.log
-      - name: iPhone, installed app
+        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone 2>&1 | tee build/ios-results/iphone.log
+      - name: iPad
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone --mode app 2>&1 | tee build/ios-results/iphone-app.log
-      - name: iPad, simctl spawn
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class ipad --mode spawn 2>&1 | tee build/ios-results/ipad-spawn.log
-      - name: iPad, installed app
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class ipad --mode app 2>&1 | tee build/ios-results/ipad-app.log
+        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class ipad 2>&1 | tee build/ios-results/ipad.log
+
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+        if: ${{ !cancelled() }}
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        if: ${{ !cancelled() }}
+        with:
+          use-flakehub: false
+      # Without its reader the target runner could not read a single native
+      # header, so build it as its own step and root the dev shell with it.
+      - name: Build the native header reader
+        id: reader
+        if: ${{ !cancelled() }}
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          reader="$(nix build .#btrc-native-header --out-link "$RUNNER_TEMP/btrc-native-header-root" --print-out-paths --print-build-logs)/bin/btrc-native-header"
+          test -x "$reader"
+          exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
+          test "$exported" = "$reader"
+          nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true
+      - name: Build the self-hosted compiler
+        id: btrcc
+        if: ${{ !cancelled() && steps.reader.outcome == 'success' }}
+        run: nix develop --command make NIX= btrcc
+      # A program that fails to build is a failed result the run reports too,
+      # so only a runner error (exit 2) fails this step.
+      - name: Cross-build every applicable corpus program for the simulator through both compilers
+        id: corpus-build
+        if: ${{ !cancelled() && steps.btrcc.outcome == 'success' }}
+        run: |
+          set -uo pipefail
+          status=0
+          nix develop --command python3 -m src.tests.target_runner --target ios-aarch64-simulator --frontend both \
+            --compile-only --btrcc bin/btrcc --jobs 3 --output build/target-corpus/build || status=$?
+          if [ "$status" -gt 1 ]; then
+            echo "::error::the target runner could not build the ios-aarch64-simulator bundle (exit $status)"
+            exit "$status"
+          fi
+      # Admission checks the bundle against this checkout; the executor stages
+      # a private copy of each program, boots an iPhone simulator, and takes
+      # every outcome from its supervisor's waitpid.
+      - name: Run every corpus program on the simulator through both compilers
+        if: ${{ !cancelled() && steps.corpus-build.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          nix develop --command python3 -m src.tests.target_runner --execute-bundle build/target-corpus/build/bundle \
+            --executor ios-simulator --executor-option device_class=iphone \
+            --executor-option diagnostics=build/target-corpus/diagnostics --output build/target-corpus/run
+      - name: Publish the corpus counts
+        if: always()
+        run: |
+          python3 - build/target-corpus/run/target-run.json build/target-corpus/build/target-run.json >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import os
+          import sys
+
+          # The run's report when the run got that far, else the build's.
+          path = next((path for path in sys.argv[1:] if os.path.isfile(path)), None)
+          if path is None:
+              sys.exit(0)
+          with open(path, encoding="utf-8") as stream:
+              report = json.load(stream)
+          provenance = report.get("executor_provenance") or {}
+          where = " ".join(filter(None, (provenance.get("device"), provenance.get("os_build")))) or "no device"
+          print(f"### {report['target']['label']} ({report['mode']}): the corpus on {where}")
+          print()
+          print("| frontend | passed | failed | restricted | missing |")
+          print("| --- | ---: | ---: | ---: | ---: |")
+          for frontend, counts in report["counts"].items():
+              cells = " | ".join(str(counts[status]) for status in ("passed", "failed", "restricted", "missing"))
+              print(f"| {frontend} | {cells} |")
+          failed = [result for result in report["results"] if result["status"] == "failed"]
+          if failed:
+              print()
+              print("| frontend | failed program | phase | reason |")
+              print("| --- | --- | --- | --- |")
+              for result in failed:
+                  reason = next(iter((result.get("reason") or "").splitlines()), "")[:200].replace("|", "\\|")
+                  print(f"| {result['frontend']} | {result['program']} | {result.get('phase')} | {reason} |")
+          PY
+      # Everything but the bundle's executables: the build and run reports,
+      # the C of every program that failed to build, and any boot diagnostics.
+      - name: Retain the corpus run
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-ios-simulator
+          path: |
+            build/target-corpus/
+            !build/target-corpus/build/bundle/
+          if-no-files-found: warn
+          retention-days: 30
       - name: Retain the results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -98,3 +212,33 @@ jobs:
           path: build/ios-results
           if-no-files-found: warn
           retention-days: 30
+
+  # The executor's portable tests: the supervisor and the fixtures built with
+  # this host's C compiler, with only simctl's transport replaced.
+  portable:
+    needs: tooling
+    if: needs.tooling.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BTRC_TEST_RUNNER: linux-devcontainer
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Portable host tests
+        run: |
+          nix develop --command python3 -m pytest -p src.tests.conftest tools/target_hosts/ios/test_executor.py -q -rs --skip-report=build/skip-report-host-ios-portable.json
+          nix develop --command python3 -m tools.qualification skip-gate build/skip-report-host-ios-portable.json
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-host-ios-portable
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
