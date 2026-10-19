@@ -1,226 +1,24 @@
 name: Host Android
 
-# CX-P1-05's Android test host (tools/target_hosts/android) on hosted
-# ubuntu-latest runners with KVM: the x86_64 shell fixtures and NativeActivity
-# app run on API 29 and API 36 google_apis x86_64 emulators, and the arm64 pair
-# is built for compile-only coverage. Emulator results are stand-in evidence;
-# the arm64 16 KiB-page image stays MAC-P1-03. The SDK comes from the runner's
-# sdkmanager, never the 17.75 GB .#platforms shell, and must match the pins in
-# nix/platforms.nix exactly (`sdk verify`); the emulator and platform-tools
-# revisions are installed from the checksummed archives in
-# nix/android-repo-overlay.json, because sdkmanager installs only their latest.
-# Until the tool directory is on the revision being tested, the tooling job
-# reports it absent and the emulator jobs are skipped. Each emulator job then
-# runs interop step 4's checked JNI round trip on its API (CL-P2-09), which
-# also carries step 7's Java -> BTRC natives round trip (RegisterNatives),
-# primitive arrays and spans, JavaWeak and the main Looper's executor.
+# A throwaway dispatch for CX-P1-09 (never merged): can a hosted arm64 Linux
+# runner start an arm64 Android emulator, that is, does it expose KVM?
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/host-android.yml
-      - tools/target_hosts/android/**
-      - nix/platforms.nix
-      - nix/android-repo-overlay.json
-      - src/tests/python/test_android_host_versions.py
-      - src/stdlib/Java/**
-      - src/tests/python/jni_adoption_fixtures.py
-      - src/tests/python/test_native_jni_android.py
-  pull_request:
-    branches: [main]
-    paths:
-      - .github/workflows/host-android.yml
-      - tools/target_hosts/android/**
-      - nix/platforms.nix
-      - nix/android-repo-overlay.json
-      - src/tests/python/test_android_host_versions.py
-      - src/stdlib/Java/**
-      - src/tests/python/jni_adoption_fixtures.py
-      - src/tests/python/test_native_jni_android.py
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A newer push to a pull request cancels the run it supersedes; runs on main
-# queue rather than cancel.
-concurrency:
-  group: host-android-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
-  tooling:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      present: ${{ steps.check.outputs.present }}
+  arm64-kvm-probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - id: check
+      - name: Look for KVM
         run: |
-          if [ -f tools/target_hosts/android/check.py ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::tools/target_hosts/android is not on this revision; the emulator jobs are skipped."
-          fi
-
-  emulator:
-    needs: tooling
-    if: needs.tooling.outputs.present == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        api: ["29", "36"]
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.13"
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version: "17"
-      - name: Allow the runner user to open /dev/kvm
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
-      - name: Install the pinned SDK packages
-        run: |
-          mkdir -p build
-          python3 -m tools.target_hosts.android.sdk packages | tee build/android-sdk-packages.txt
-          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          # Keep sdkmanager’s status when its closed input makes yes exit on SIGPIPE.
-          "$sdkmanager" --licenses < <(yes) > /dev/null
-          mapfile -t packages < build/android-sdk-packages.txt
-          "$sdkmanager" --install "${packages[@]}" > build/android-sdkmanager.log
-      - name: Install the pinned emulator and platform-tools archives
-        run: |
-          python3 - <<'EOF'
-          import hashlib, json, os, re, shutil, urllib.request, zipfile
-          from pathlib import Path
-          from tools.target_hosts.android.sdk import SDKVersions
-
-          sdk = Path(os.environ["ANDROID_SDK_ROOT"])
-          versions = SDKVersions()
-          pins = re.sub(r"#.*", "", Path("nix/platforms.nix").read_text())
-          overlay = json.loads(Path("nix/android-repo-overlay.json").read_text())["packages"]
-          for package, key in (("emulator", "emulatorVersion"), ("platform-tools", "platformToolsVersion")):
-              (revision,) = re.findall(rf'\b{key}\s*=\s*"([0-9.]+)"\s*;', pins)
-              (archive,) = [a for a in overlay[package][revision]["archives"] if a["os"] == "linux"]
-              data = urllib.request.urlopen(archive["url"], timeout=600).read()
-              digest = hashlib.sha1(data).hexdigest()
-              if len(data) != archive["size"] or digest != archive["sha1"]:
-                  raise SystemExit(f"{package} {revision}: size/sha1 mismatch ({len(data)} {digest})")
-              Path("build/archive.zip").write_bytes(data)
-              # Raw archives omit sdkmanager's package.xml; avdmanager needs it.
-              registration = (sdk / package / "package.xml").read_bytes()
-              shutil.rmtree(sdk / package, ignore_errors=True)
-              with zipfile.ZipFile("build/archive.zip") as bundle:
-                  for member in bundle.infolist():
-                      path = Path(bundle.extract(member, sdk))
-                      mode = member.external_attr >> 16
-                      if mode:
-                          path.chmod(mode & 0o777)
-              versions.register_archive(sdk, package, registration)
-              print(f"installed {package} {revision} from {archive['url']}")
-          EOF
-          python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT"
-          python3 -m tools.target_hosts.android.sdk cache-key | tee build/android-sdk-cache-key.txt
-      - name: Build the x86_64 app and the arm64 compile-only pair
-        run: |
-          ndk=$(sed -n 's/^ndk;//p' build/android-sdk-packages.txt)
-          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/$ndk"
-          python3 -m tools.target_hosts.android.build --output build/android-host-x64 --app
-          python3 -m tools.target_hosts.android.build --output build/android-host-arm64 --abi arm64-v8a --native-only
-      - name: Run the fixtures on API ${{ matrix.api }}
-        run: python3 -m tools.target_hosts.android.check --boot --state build/android-avds --api ${{ matrix.api }} --bundle build/android-host-x64 --output build/android-api${{ matrix.api }}.json
-      - name: Retain the results
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: android-host-api${{ matrix.api }}-results
-          path: |
-            build/android-api*.json
-            build/android-sdk-*.txt
-            build/android-sdkmanager.log
-            build/android-avds/**/*.log
-            build/android-host-*/load-segments.txt
-            build/android-host-*/toolchain.json
-          if-no-files-found: warn
-          retention-days: 30
-      # Interop step 4's exit (CL-P2-09): a checked JNI call round trip under
-      # app_process on this API's emulator, through each compiler
-      # (src/tests/python/test_native_jni_android.py). The same run registers
-      # BTRC receivers for Java natives (interop step 7, slice A) and Java
-      # calls them back, nested and on a BTRC thread; copies primitive arrays
-      # and borrows them as natives' spans, clears a JavaWeak under the
-      # collector, and runs main-executor calls and natives on the main Looper
-      # the entry prepares, one dispatched from a posted message, then checks
-      # the main refusals terminate (interop step 7, slice B). The compilers read
-      # Library.Java's JNI.h and the fixture's classes through the flake's two
-      # readers, the only Nix outputs besides btrcc this job builds; the NDK,
-      # d8, adb and JDK 17 are the runner's pinned SDK above. Each run boots the
-      # AVD the fixture check created, after its results are retained, and
-      # stops it again.
-      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
-        if: ${{ !cancelled() }}
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
-        if: ${{ !cancelled() }}
-        with:
-          use-flakehub: false
-      - name: Build the native header and Java class readers
-        if: ${{ !cancelled() }}
-        run: |
-          nix build .#btrc-native-header --out-link build/native-header-reader
-          nix build .#btrc-java-class-reader --out-link build/java-class-reader
-          python3 -m pip install pytest==8.4.2
-          ndk=$(sed -n 's/^ndk;//p' build/android-sdk-packages.txt)
-          {
-            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$ndk"
-            echo "BTRC_NATIVE_HEADER_READER=$PWD/build/native-header-reader/bin/btrc-native-header"
-            echo "BTRC_JAVA_CLASS_READER=$PWD/build/java-class-reader/bin/btrc-java-class-reader"
-            echo "BTRC_ANDROID_AVD_STATE=$PWD/build/android-avds"
-            echo "BTRC_ANDROID_API=${{ matrix.api }}"
-            echo "BTRC_ANDROID_JNI_REQUIRED=1"
-            echo "BTRC_ANDROID_JNI_EVIDENCE=$PWD/build/android-jni-api${{ matrix.api }}"
-          } >> "$GITHUB_ENV"
-      - name: Round-trip checked JNI calls and Java natives on API ${{ matrix.api }} (reference compiler)
-        if: ${{ !cancelled() }}
-        run: |
-          python3 -m pytest -q -rA -p no:cacheprovider --compilers python \
-            src/tests/python/test_native_jni_android.py --skip-report=build/skip-report-android-jni-python.json
-      - name: Build the self-hosted compiler
-        if: ${{ !cancelled() }}
-        run: nix build .#btrcc --out-link build/btrcc
-      - name: Round-trip checked JNI calls and Java natives on API ${{ matrix.api }} (self-hosted compiler)
-        if: ${{ !cancelled() }}
-        run: |
-          BTRC_TEST_BTRCC="$PWD/build/btrcc/bin/btrcc" python3 -m pytest -q -rA -p no:cacheprovider --compilers btrc \
-            src/tests/python/test_native_jni_android.py --skip-report=build/skip-report-android-jni-btrc.json
-      - name: Retain the JNI round trip
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: android-jni-api${{ matrix.api }}
-          path: build/android-jni-api${{ matrix.api }}
-          if-no-files-found: warn
-          retention-days: 30
-      - name: Retain the skip reports
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: skip-report-host-android-emulator-${{ matrix.api }}
-          path: build/skip-report*.json
-          if-no-files-found: warn
+          uname -a
+          ls -l /dev/kvm || echo "no /dev/kvm"
+          grep -c processor /proc/cpuinfo || true
+          grep -m1 -i -E 'features|flags' /proc/cpuinfo || true
+          lsmod | grep -i kvm || echo "no kvm module listed"
+          test -e /dev/kvm && echo "KVM: present" || echo "KVM: absent"
+          ls "$ANDROID_SDK_ROOT" 2>/dev/null || echo "no Android SDK on this image"
