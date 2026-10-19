@@ -95,6 +95,18 @@ a directory layout. CL-P2-27 owns the reviewed WindowsMain changes and native
 Windows bootstrap. Its baseline is taken after any approved portable-identity
 landing described below; identity changes cannot be hidden in a Windows diff.
 
+As implemented for Process (`CL-P2-02`/`CX-P2-06`, branch `claude/win-process`):
+the root `btrc.toml` selects `Windows/ProcessHostProvider` for `os = ["windows"]`
+and the declaration-free `Unix/ProcessHostProvider` shell for the android, ios,
+linux and macos rows. `Process.btrc` keeps its public classes and POSIX bodies
+and selects the Windows half with `#if defined(_WIN32)`; the provider returns a
+`ProcessHostOutcome` that Process shapes into its `ExecResult`, so the provider
+imports nothing from Process. Every row resolves Process through both
+frontends (`test_windows_process.py`); the BtrccMain and MacOSMain C keep every
+Process-related line, changing only in the generated hosted-ABI and runtime
+catalog data the new runtime rows add, and WindowsMain retains no launch helper.
+The MSVC row keeps Process's imports and refuses `ChildProcess.run` (its M cell).
+
 Every compiler-import edit satisfies WORKSTREAMS §3.4: own btrcc build,
 bootstrap fixed point, zero-warning BtrccMain/WindowsMain (x64 and ARM64)/
 MacOSMain transpiles, byte-identical non-Windows host C and the Claude-reviewed
@@ -247,10 +259,11 @@ native_plan does not have; the separate row is the smaller change.
 The **runtime manifest** carries target-filtered external-object sources and
 system import libraries for runtime-origin helpers, one `[[external_objects]]`
 row per object: its source, the declaration asset whose sections select it,
-its operating systems and its system libraries. Each selecting declaration
-section carries one `btrc-runtime-object: <source>` comment, which every build
-driver recognizes in an emitted unit exactly as it already recognizes
-`btrc_gpu_compute_internal.h` for the compute runtime. Package-origin SDK
+and its system libraries per operating system. A build driver selects the row
+when an emitted unit's code, outside comments and string literals, names a
+helper those sections declare (`tools/native_plan.py` `RuntimeObjects`), as it
+already recognizes `btrc_gpu_compute_internal.h` for the compute runtime; a
+compiler's own catalog strings never select it. Package-origin SDK
 bindings carry `native.system-libraries` in the package manifest. Both feed one
 normalized link-plan set; neither embeds arbitrary linker switches. Link only
 libraries required by the selected objects (`windows_os.c`: `kernel32`, then
@@ -1057,46 +1070,65 @@ support from the BackgroundJobExecutor implementation.
 
 ## Requests to Claude
 
-The following is a concrete proposed compiler-private C11 launch seam for
-CL-P2-02. Names/signatures need its review, with explicit decisions and remaining approval dependencies below. SDK records stay inside the runtime source;
-this boundary exposes only fixed-width values, buffers and an opaque owner.
+The following is the compiler-private C11 launch seam of CL-P2-02, as
+implemented in `src/runtime/c/windows_os.h` (declarations) and `windows_os.c`.
+SDK records stay inside the runtime source; this boundary exposes only
+fixed-width values, buffers and an opaque owner. The record types end in `_t`,
+the spelling btrc's analyzer admits for runtime-provided by-value types (as
+`__btrc_thread_t`), and the string fields are `char *` so btrc assigns its
+strings and raw arrays without casts; the runtime never writes through them.
 
 ```c
-typedef struct __btrc_windows_launch_owner __btrc_windows_launch_owner;
+typedef struct __btrc_windows_launch_owner_t __btrc_windows_launch_owner_t;
 typedef struct {
-    const char *executable_utf8;
-    const char *const *argv_utf8; size_t argc;
-    const char *cwd_utf8;
-    const char *const *environment_overrides_utf8; size_t override_count;
-    const char *const *environment_unsets_utf8; size_t unset_count;
-    const unsigned char *stdin_bytes; size_t stdin_size;
+    char *executable_utf8;
+    char **argv_utf8; size_t argc;
+    char *cwd_utf8;
+    char **environment_overrides_utf8; size_t override_count;
+    char **environment_unsets_utf8; size_t unset_count;
+    unsigned char *stdin_bytes; size_t stdin_size;
     uint32_t stdin_mode, stdout_mode, stderr_mode;
     size_t stdout_limit, stderr_limit;
-} __btrc_windows_launch_options;
+} __btrc_windows_launch_options_t;
 typedef struct {
     uint32_t stage, domain, native_code, ownership_state;
-} __btrc_windows_launch_error;
+} __btrc_windows_launch_error_t;
 typedef struct {
     uint32_t state, native_exit_code, has_exit_code, launch_failed;
     uint32_t timed_out, capture_exceeded, capture_failed;
     uint64_t stdout_bytes_seen, stderr_bytes_seen;
     size_t stdout_bytes_retained, stderr_bytes_retained;
-} __btrc_windows_launch_result;
-int __btrc_windows_launch(const __btrc_windows_launch_options *options,
-    __btrc_windows_launch_owner **out, __btrc_windows_launch_error *error);
-int __btrc_windows_launch_wait(__btrc_windows_launch_owner *launch,
-    uint32_t wait_mode, uint64_t timeout_ms, __btrc_windows_launch_result *result,
-    __btrc_windows_launch_error *error);
-int __btrc_windows_launch_copy_output(__btrc_windows_launch_owner *launch,
+} __btrc_windows_launch_result_t;
+int __btrc_windows_launch(const __btrc_windows_launch_options_t *options,
+    __btrc_windows_launch_owner_t **out, __btrc_windows_launch_error_t *error);
+int __btrc_windows_launch_wait(__btrc_windows_launch_owner_t *launch,
+    uint32_t wait_mode, uint64_t timeout_ms, __btrc_windows_launch_result_t *result,
+    __btrc_windows_launch_error_t *error);
+int __btrc_windows_launch_copy_output(__btrc_windows_launch_owner_t *launch,
     uint32_t stream, unsigned char *buffer, size_t capacity, size_t *written);
-int __btrc_windows_launch_terminate(__btrc_windows_launch_owner *launch,
-    uint32_t exit_code, __btrc_windows_launch_error *error);
-int __btrc_windows_launch_close(__btrc_windows_launch_owner **launch,
-    uint64_t timeout_ms, __btrc_windows_launch_error *error);
-int __btrc_windows_quote_argv_utf8(const char *const *argv, size_t argc,
+int __btrc_windows_launch_terminate(__btrc_windows_launch_owner_t *launch,
+    uint32_t exit_code, __btrc_windows_launch_error_t *error);
+int __btrc_windows_launch_close(__btrc_windows_launch_owner_t **launch,
+    uint64_t timeout_ms, __btrc_windows_launch_error_t *error);
+int __btrc_windows_quote_argv_utf8(char **argv, size_t argc,
     uint16_t *buffer, size_t capacity_units, size_t *required_units,
-    __btrc_windows_launch_error *error);
+    __btrc_windows_launch_error_t *error);
 ```
+
+Error stages are 1 validation, 2 UTF conversion, 3 allocation, 4 executable not
+found, 5 executable refused (batch, non-PE, wrong machine or an execution
+alias), 6 stdio setup, 7 attribute list, 8 job setup, 9 CreateProcessW, 10 job
+assignment, 11 resume, 12 pipe I/O, 13 wait, 14 termination, 15 unsupported
+host, 16 environment, 17 working directory and 18 buffer capacity; the
+validation domain's `native_code` names the reason (2 invalid UTF-8, 3 a quote
+in argv[0], 4 a command line over 32,767 units, 6 an environment entry, 7 a
+drive-relative path, 8 a batch file, 9 not a PE image, 10 a machine the host
+does not run, 11 an execution alias). The stdout and stderr pipes and the
+stdin pipe are byte-mode named pipes whose parent ends are overlapped and whose
+child ends are synchronous, each `FILE_FLAG_FIRST_PIPE_INSTANCE` with one
+instance and `PIPE_REJECT_REMOTE_CLIENTS`, the client's process checked to be
+the launcher's own; one thread waits on the child and every pending operation
+under the one deadline.
 
 Use `<stddef.h>`/`<stdint.h>`. Launch returns 0 on success, nonzero on failure,
 sets `*out=NULL` before work, and copies all input storage before returning. A null
@@ -1171,7 +1203,7 @@ CL-P2-02's extended scope owns **all** entries in this table in the isolated
 `image_owner` and `launch_owner` tags, fixed-width values and caller buffers.
 These proposed names are runtime-origin, not copied SDK declarations. There is
 no second Win32Security.h owner: Daemon and Channel call this security boundary.
-The `__btrc_windows_launch_error` record is also the shared filesystem/security/
+The `__btrc_windows_launch_error_t` record is also the shared filesystem/security/
 image error carrier; no narrower Win32-only variant is used. Each `int` operation
 returns zero for success and otherwise initializes that error
 record `{stage, domain, native_code, ownership_state}` before any cleanup can
@@ -1221,7 +1253,7 @@ stdio mappings. String pointers are call-scoped UTF-8 borrows copied at transfer
 typedef struct __btrc_windows_image_owner __btrc_windows_image_owner;
 typedef struct __btrc_windows_supervisor_owner __btrc_windows_supervisor_owner;
 typedef struct {
-    __btrc_windows_launch_options command;
+    __btrc_windows_launch_options_t command;
     const char *name_utf8, *control_path_utf8, *log_path_utf8;
     uint32_t auto_restart;
 } __btrc_windows_daemon_startup;
@@ -1230,36 +1262,36 @@ typedef struct {
     uint32_t supervisor_pid, lifetime; /* lifetime: 0 independent, 1 contained */
 } __btrc_windows_transfer_result;
 int __btrc_windows_supervisor_image_verify(
-    __btrc_windows_image_owner **out, __btrc_windows_launch_error *error);
+    __btrc_windows_image_owner **out, __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_transfer(
     const __btrc_windows_image_owner *image,
     const __btrc_windows_daemon_startup *startup, const unsigned char token[16],
     uint64_t startup_timeout_ms, __btrc_windows_transfer_result *result,
-    __btrc_windows_launch_error *error);
+    __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_image_close(
-    __btrc_windows_image_owner **image, __btrc_windows_launch_error *error);
+    __btrc_windows_image_owner **image, __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_accept(uint64_t startup_timeout_ms,
-    __btrc_windows_supervisor_owner **out, __btrc_windows_launch_error *error);
+    __btrc_windows_supervisor_owner **out, __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_copy_startup(
     __btrc_windows_supervisor_owner *owner, unsigned char *buffer,
-    size_t capacity, size_t *required_bytes, __btrc_windows_launch_error *error);
+    size_t capacity, size_t *required_bytes, __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
-    __btrc_windows_launch_error *error);
+    __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_ready_wait_commit(
-    __btrc_windows_supervisor_owner *owner, __btrc_windows_launch_error *error);
+    __btrc_windows_supervisor_owner *owner, __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
     uint32_t *ack_delivered,
-    __btrc_windows_launch_error *error);
+    __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_spawn_managed(
-    __btrc_windows_supervisor_owner *owner, __btrc_windows_launch_error *error);
+    __btrc_windows_supervisor_owner *owner, __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_poll_managed(
     __btrc_windows_supervisor_owner *owner, uint32_t *running,
-    uint32_t *native_exit_code, __btrc_windows_launch_error *error);
+    uint32_t *native_exit_code, __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_terminate_managed(
     __btrc_windows_supervisor_owner *owner, uint32_t exit_code,
-    __btrc_windows_launch_error *error);
+    __btrc_windows_launch_error_t *error);
 int __btrc_windows_supervisor_close(__btrc_windows_supervisor_owner **owner,
-    uint64_t timeout_ms, __btrc_windows_launch_error *error);
+    uint64_t timeout_ms, __btrc_windows_launch_error_t *error);
 ```
 
 Zero means successful operation; every output initializes before work. Transfer

@@ -421,9 +421,13 @@ jobs:
   # A stored C window subclass from the real MinGW commctrl.h, and real COM
   # (interop step 5's exit: a registry-free server DLL with a BTRC sink, and
   # an ole32 stream), through both compilers (test_native_win32_subclass.py,
-  # test_native_com_windows.py). The header reader and zig run under Nix,
-  # which Windows lacks, so a Linux runner builds the executables and the
-  # server and win32-native runs them on x64 and ARM64 Windows.
+  # test_native_com_windows.py). Library.Process's CreateProcessW provider
+  # too (test_windows_launch_seam.py, test_windows_process.py): the runtime
+  # seam's self-checking harness, the btrc Process fixture through both
+  # compilers, and the target runner's bundle of the Process corpus. The
+  # header reader and zig run under Nix, which Windows lacks, so a Linux runner
+  # builds the executables and the server and win32-native runs them on x64
+  # and ARM64 Windows.
   win32-native-build:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'win32-native-build')
@@ -435,14 +439,15 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
         with:
           use-flakehub: false
-      - name: Build the window subclass and the COM programs with both compilers for x64 and ARM64
-        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Build the window subclass, the COM programs and the Process programs with both compilers for x64 and ARM64
+        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py --skip-report=build/skip-report-windows-win32-native-build.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: win32-native-executables
           path: |
             build/win32/*.exe
             build/win32/*.dll
+            build/win32/process-corpus-*/
           if-no-files-found: error
           retention-days: 7
       - name: Retain the skip report
@@ -462,15 +467,52 @@ jobs:
       matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['win32-native'] }}
     name: win32-native (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
     steps:
+      # The target runner admits a corpus bundle only against the checkout it
+      # was built from, and its windows-native executor is Python.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: win32-native-executables
           path: win32
+      - name: Check the runtime launch seam with its native harness
+        run: |
+          output=$("./win32/windows-launch-seam-${{ matrix.target }}.exe" | tr -d '\r')
+          echo "$output"
+          case "$(printf '%s\n' "$output" | tail -n 1)" in
+            "windows-launch-seam PASS checks="*) ;;
+            *) exit 1 ;;
+          esac
+      - name: Launch through Library.Process from each compiler's program
+        run: |
+          harness=$(cygpath -w "$PWD/win32/windows-launch-seam-${{ matrix.target }}.exe")
+          for frontend in reference selfhost; do
+            output=$("./win32/process-windows-$frontend-${{ matrix.target }}.exe" --parent "$harness" | tr -d '\r')
+            echo "$frontend ${{ matrix.target }}: $output"
+            case "$(printf '%s\n' "$output" | tail -n 1)" in
+              "process-windows PASS checks="*) ;;
+              *) exit 1 ;;
+            esac
+          done
+      - name: Run the Process corpus natively through both compilers against its goldens
+        run: python -m src.tests.target_runner --execute-bundle "win32/process-corpus-${{ matrix.target }}" --executor windows-native --output "build/process-corpus-${{ matrix.target }}"
+      - name: Retain the Process corpus results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: process-corpus-${{ matrix.target }}-results
+          path: build/process-corpus-${{ matrix.target }}/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Subclass a real window through each compiler's program
         run: |
           for frontend in reference selfhost; do

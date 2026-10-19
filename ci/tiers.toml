@@ -449,9 +449,11 @@ changed_paths = [
 reports = ["skip-report"]
 
 # A stored C window subclass from the real MinGW commctrl.h and real COM (a
-# registry-free server DLL with a BTRC sink, an ole32 stream): a Linux runner
-# builds both compilers' executables and the server (win32-native-build), then
-# each Windows runner executes those of its architecture (win32-native). A job
+# registry-free server DLL with a BTRC sink, an ole32 stream), and
+# Library.Process's CreateProcessW provider (the runtime seam's harness, the
+# Process fixture and the Process corpus bundle): a Linux runner builds both
+# compilers' executables and the server (win32-native-build), then each
+# Windows runner executes those of its architecture (win32-native). A job
 # that waits on another must run on exactly the same events
 # (test_ci_workflow_contracts.py).
 [[jobs]]
@@ -462,10 +464,20 @@ changed_tiers = ["pr", "lane"]
 changed_paths = [
   "src/tests/python/test_native_win32_subclass.py",
   "src/tests/python/test_native_com_windows.py",
+  "src/tests/python/test_windows_launch_seam.py",
+  "src/tests/python/test_windows_process.py",
+  "src/tests/native/windows_launch/**",
+  "src/tests/native/process_windows/**",
+  "src/tests/fixtures/target-applicability.toml",
   "src/compiler/**/native_imports.py",
   "src/compiler/**/NativeImports.btrc",
   "src/stdlib/Callback.btrc",
   "src/stdlib/COM/**",
+  "src/stdlib/Process.btrc",
+  "src/stdlib/Windows/**",
+  "src/tests/stdlib/ChildProcess*.btrc",
+  "src/tests/stdlib/Process*.btrc",
+  "src/tests/stdlib/Shell*.btrc",
 ]
 reports = ["skip-report"]
 
@@ -483,10 +495,20 @@ changed_tiers = ["pr", "lane"]
 changed_paths = [
   "src/tests/python/test_native_win32_subclass.py",
   "src/tests/python/test_native_com_windows.py",
+  "src/tests/python/test_windows_launch_seam.py",
+  "src/tests/python/test_windows_process.py",
+  "src/tests/native/windows_launch/**",
+  "src/tests/native/process_windows/**",
+  "src/tests/fixtures/target-applicability.toml",
   "src/compiler/**/native_imports.py",
   "src/compiler/**/NativeImports.btrc",
   "src/stdlib/Callback.btrc",
   "src/stdlib/COM/**",
+  "src/stdlib/Process.btrc",
+  "src/stdlib/Windows/**",
+  "src/tests/stdlib/ChildProcess*.btrc",
+  "src/tests/stdlib/Process*.btrc",
+  "src/tests/stdlib/Shell*.btrc",
 ]
 
 [[shards]]
@@ -498,10 +520,20 @@ changed_tiers = ["pr", "lane"]
 changed_paths = [
   "src/tests/python/test_native_win32_subclass.py",
   "src/tests/python/test_native_com_windows.py",
+  "src/tests/python/test_windows_launch_seam.py",
+  "src/tests/python/test_windows_process.py",
+  "src/tests/native/windows_launch/**",
+  "src/tests/native/process_windows/**",
+  "src/tests/fixtures/target-applicability.toml",
   "src/compiler/**/native_imports.py",
   "src/compiler/**/NativeImports.btrc",
   "src/stdlib/Callback.btrc",
   "src/stdlib/COM/**",
+  "src/stdlib/Process.btrc",
+  "src/stdlib/Windows/**",
+  "src/tests/stdlib/ChildProcess*.btrc",
+  "src/tests/stdlib/Process*.btrc",
+  "src/tests/stdlib/Shell*.btrc",
 ]
 
 [[jobs]]
