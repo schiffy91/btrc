@@ -14,11 +14,12 @@ int main() {
 		}
 		string directoryProbe = f"btrc-windows-remove-{Platform.pid()}";
 		if (FileSystem.mkdir(directoryProbe, 448) != 0) { return 1; }
-		if (FileSystem.removeRecursive(directoryProbe) != -1) {
+		/* Directory trees are removed relative to held NT handles, as POSIX
+		 * removes them relative to descriptors. */
+		if (FileSystem.removeRecursive(directoryProbe) != 0 || FileSystem.exists(directoryProbe)) {
 			rmdir(directoryProbe);
 			return 1;
 		}
-		if (rmdir(directoryProbe) != 0) { return 1; }
 	} else if (!Platform.isUnix() || !Platform.pathSeparator().equals("/")) {
 		return 1;
 	}

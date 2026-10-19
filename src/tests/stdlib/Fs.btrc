@@ -10,11 +10,21 @@ int main() {
 	/* PathTools — pure path manipulation */
 	assert(PathTools.basename("/a/b/c.txt").equals("c.txt"));
 	assert(PathTools.dirname("/a/b/c.txt").equals("/a/b"));
+#if defined(_WIN32)
+	/* Windows joins with a backslash, and its current directory is drive- or
+	 * UNC-absolute and may spell short (8.3) names the canonical path expands. */
+	assert(PathTools.join("/a", "b").equals("/a\\b"));
+	assert(PathTools.join("/a/", "b").equals("/a/b"));   /* no double slash */
+	assert(PathTools.isAbsolute(Platform.currentDirectory()));
+	assert(PathTools.absolute(".").equals(FileSystem.realPath(Platform.currentDirectory())));
+	assert(FileSystem.absolutePath(".").equals(FileSystem.realPath(Platform.currentDirectory())));
+#else
 	assert(PathTools.join("/a", "b").equals("/a/b"));
 	assert(PathTools.join("/a/", "b").equals("/a/b"));   /* no double slash */
 	assert(Platform.currentDirectory().startsWith("/"));
 	assert(PathTools.absolute(".").equals(Platform.currentDirectory()));
 	assert(FileSystem.absolutePath(".").equals(Platform.currentDirectory()));
+#endif
 
 	/* status of well-known paths */
 	assert(FileSystem.exists("/"));

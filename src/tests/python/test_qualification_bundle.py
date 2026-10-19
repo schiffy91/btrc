@@ -263,21 +263,26 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
     assert list(_rows(macos, "tests")) == ["unit"]
 
     windows = manifest.plan("windows.yml", "pr", ["src/stdlib/FileSystem/Windows/FileSystemProvider.btrc"])
-    # A Windows provider also runs the corpus on both Windows rows (CX-P1-07).
-    assert windows["jobs"] == ["windows", "target-corpus-build", "target-corpus"], (
-        "the two-hour bootstrap waits for the main tier"
-    )
-    assert list(_rows(windows, "target-corpus")) == ["windows-x64", "windows-arm64"]
-    executor = ["tools/target_hosts/windows/executor.py"]
-    assert manifest.plan("windows.yml", "pr", executor)["jobs"] == ["target-corpus-build", "target-corpus"]
-    # win32-native's Process corpus bundle reads the applicability manifest too (CX-P2-06).
-    applicability = ["src/tests/fixtures/target-applicability.toml"]
-    assert manifest.plan("windows.yml", "pr", applicability)["jobs"] == [
+    # A Windows provider also runs its native cases and corpus bundle
+    # (win32-native) and the whole corpus on both Windows rows (CX-P1-07).
+    assert windows["jobs"] == [
+        "windows",
         "win32-native-build",
         "win32-native",
         "target-corpus-build",
         "target-corpus",
-    ]
+    ], "the two-hour bootstrap waits for the main tier"
+    assert list(_rows(windows, "win32-native")) == ["windows-x64", "windows-arm64"]
+    assert list(_rows(windows, "target-corpus")) == ["windows-x64", "windows-arm64"]
+    # The executor and the applicability manifest feed win32-native's Process
+    # and FileSystem bundles (CX-P2-06, CX-P2-04) as well as the corpus.
+    for runner in ("tools/target_hosts/windows/executor.py", "src/tests/fixtures/target-applicability.toml"):
+        assert manifest.plan("windows.yml", "pr", [runner])["jobs"] == [
+            "win32-native-build",
+            "win32-native",
+            "target-corpus-build",
+            "target-corpus",
+        ]
     assert manifest.plan("windows.yml", "lane", ["src/devex/vscode/package.json"])["jobs"] == ["windows"]
     # A platform's expected-skip manifest is read only by that platform's skip gate.
     skips = ["src/tests/fixtures/expected-skips/macos-hosted.json"]

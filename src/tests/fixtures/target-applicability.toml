@@ -48,41 +48,10 @@ cites = "docs/design/platform-inventory.toml#corpus.gpu"
 # through each frontend). Every program below fails to compile for MinGW
 # because it reaches a POSIX provider the inventory records as lacking its
 # Win32 backend. The LP64 programs that also fail there (long is 4 bytes on
-# Windows) are not excluded: they are failures for the CL-P1-18 triage.
-
-[[programs]]
-paths = [
-    "stdlib/AdvisoryFileLockReal.btrc",
-    "stdlib/FileSystemHandlesReal.btrc",
-    "stdlib/FileTreeSnapshotReal.btrc",
-    "stdlib/Fs.btrc",
-    "stdlib/FsRemoveRecursive.btrc",
-    "stdlib/PrivateDirectoryChild.btrc",
-    "stdlib/PrivateDirectoryReal.btrc",
-    "stdlib/RegularFileSnapshotReal.btrc",
-]
-targets = ["windows-x86_64"]
-status = "missing"
-scope = "build"
-reason = "the exact filesystem handles call POSIX symlink() and fcntl(F_GETFD), which MinGW lacks; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
-cites = "corpus.stdlib@windows-x64"
-
-[[programs]]
-paths = [
-    "stdlib/AdvisoryFileLockReal.btrc",
-    "stdlib/FileSystemHandlesReal.btrc",
-    "stdlib/FileTreeSnapshotReal.btrc",
-    "stdlib/Fs.btrc",
-    "stdlib/FsRemoveRecursive.btrc",
-    "stdlib/PrivateDirectoryChild.btrc",
-    "stdlib/PrivateDirectoryReal.btrc",
-    "stdlib/RegularFileSnapshotReal.btrc",
-]
-targets = ["windows-aarch64"]
-status = "missing"
-scope = "build"
-reason = "the exact filesystem handles call POSIX symlink() and fcntl(F_GETFD), which MinGW lacks; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
-cites = "corpus.stdlib@windows-arm64"
+# Windows) are not excluded: they are failures for the CL-P1-18 triage. The
+# exact-filesystem programs left this list on 2026-10-19: they build on the
+# Win32 FileSystemHandles provider, and windows.yml's win32-native job runs
+# them on x64 and ARM64.
 
 # Library.Process has its Windows provider (CL-P2-02's launch seam under
 # CX-P2-06's ProcessHostProvider): ChildProcess, Process, ProcessStatusPipe
@@ -225,38 +194,6 @@ targets = ["windows-aarch64"]
 status = "restricted"
 scope = "build"
 reason = "the program interrupts a sleep with SIGALRM and expects EINTR; Windows has neither SIGALRM nor signal-interrupted sleeps"
-cites = "corpus.stdlib@windows-arm64"
-
-# These build for MinGW, then reach the exact filesystem handles at run time:
-# FileSystem.readBytes opens a RegularFileSnapshot, and the inventory program
-# opens temporary and private directories and exact file handles, all of which
-# return FileSystemError.unsupported on Windows (FileSystemHandles.btrc) until
-# the Win32 handle provider lands; the contract program expects a missing
-# snapshot source to fail as not-found rather than unsupported. Established by
-# the hosted windows-native corpus runs (CX-P1-07): each failed on x64 and
-# ARM64 through both frontends.
-[[programs]]
-paths = [
-    "stdlib/FileSystemHandleInventoryReal.btrc",
-    "stdlib/FileSystemHandlesContract.btrc",
-    "stdlib/FileSystemReadBytes.btrc",
-]
-targets = ["windows-x86_64"]
-status = "missing"
-scope = "run"
-reason = "FileSystem.readBytes, RegularFileSnapshot and the exact handles return unsupported on Windows; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
-cites = "corpus.stdlib@windows-x64"
-
-[[programs]]
-paths = [
-    "stdlib/FileSystemHandleInventoryReal.btrc",
-    "stdlib/FileSystemHandlesContract.btrc",
-    "stdlib/FileSystemReadBytes.btrc",
-]
-targets = ["windows-aarch64"]
-status = "missing"
-scope = "run"
-reason = "FileSystem.readBytes, RegularFileSnapshot and the exact handles return unsupported on Windows; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
 cites = "corpus.stdlib@windows-arm64"
 
 # PlatformEuid asserts the POSIX identity contract (isRoot() is exactly

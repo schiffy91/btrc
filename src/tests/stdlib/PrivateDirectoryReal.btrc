@@ -11,8 +11,22 @@ import Library.FileSystem.FileSystemHandles;
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#if defined(_WIN32)
+
+/* Windows grants access through access lists, not mode bits: private means
+ * owned by the current user with a protected DACL that admits only that user.
+ * The support file reads and rewrites DACLs without the provider's code. */
+import ../native/filesystem_windows/WindowsFileSystemSupport.c
+
+extern int btrcTestOwnerOnly(string path);
+extern int btrcTestWidenAccess(string path);
+extern int btrcTestRestrictToOwner(string path);
+#endif
 
 int descriptorCount() {
+#if defined(_WIN32)
+	return FileSystem.ownedHandleInventory().openCount();
+#else
 	int count = 0;
 	for (int descriptor = 0; descriptor < 4096; descriptor++) {
 		errno = 0;
@@ -21,6 +35,7 @@ int descriptorCount() {
 		}
 	}
 	return count;
+#endif
 }
 
 int exactMode(string path) {
@@ -29,13 +44,36 @@ int exactMode(string path) {
 	return (int)(status.st_mode & (mode_t)0777);
 }
 
+/* The owner-only state POSIX spells as mode 0700 (directories) or 0600. */
+bool ownerOnly(string path, int mode) {
+#if defined(_WIN32)
+	return btrcTestOwnerOnly(path) == 1;
+#else
+	return exactMode(path) == mode;
+#endif
+}
+
+/* Give `path` the access `mode` describes: owner-only (0700 or 0600) or also
+ * readable by others. */
+bool setAccess(string path, int mode) {
+#if defined(_WIN32)
+	return (mode == 448 || mode == 384 ? btrcTestRestrictToOwner(path) : btrcTestWidenAccess(path)) == 0;
+#else
+	return FileSystem.chmod(path, mode) == 0;
+#endif
+}
+
 void createRegular(string path, string content, int mode) {
 	int descriptor = open(path, (int)O_WRONLY | (int)O_CREAT | (int)O_EXCL | (int)O_CLOEXEC, (mode_t)mode);
 	assert(descriptor >= 0);
 	int length = content.len();
 	assert(write(descriptor, content, (size_t)length) == (ssize_t)length);
 	assert(close(descriptor) == 0);
+#if defined(_WIN32)
+	assert(setAccess(path, mode));
+#else
 	assert(chmod(path, (mode_t)mode) == 0);
+#endif
 }
 
 int main() {
@@ -50,11 +88,11 @@ int main() {
 	PrivateDirectory privateDirectory = privateOpen.value();
 	assert(privateDirectory.isOpen());
 	assert(privateDirectory.path().equals(privatePath));
-	assert(exactMode(privatePath) == 448);
+	assert(ownerOnly(privatePath, 448));
 	assert(privateDirectory.validatePath().ok());
-	assert(FileSystem.chmod(privatePath, 493) == 0);
+	assert(setAccess(privatePath, 493));
 	assert(privateDirectory.validatePath().error().kind() == FS_ACCESS_DENIED);
-	assert(FileSystem.chmod(privatePath, 448) == 0);
+	assert(setAccess(privatePath, 448));
 	assert(privateDirectory.validatePath().ok());
 
 	FileSystemOutcome<PrivateDirectory> secondOpen = FileSystem.openPrivateDirectory(privatePath);
@@ -78,7 +116,7 @@ int main() {
 	assert(firstLease.removeRegularChildDurably("remove.bin").committed());
 	assert(!firstLease.readRegularChild("remove.bin", 64).found());
 	assert(firstLease.removeRegularChildDurably("remove.bin").committed());
-	assert(exactMode(PathTools.join(privatePath, "state.lock")) == 384);
+	assert(ownerOnly(PathTools.join(privatePath, "state.lock"), 384));
 
 	FileSystemOutcome<ExclusiveFileLease> contended = secondDirectory.acquireExclusiveLease("state.lock");
 	assert(!contended.ok());
@@ -100,7 +138,7 @@ int main() {
 	assert(firstReplace.committed());
 	assert(firstReplace.mayHaveCommitted());
 	string statePath = PathTools.join(privatePath, "state.bin");
-	assert(exactMode(statePath) == 384);
+	assert(ownerOnly(statePath, 384));
 
 	PrivateFileReadOutcome overBudget = firstLease.readRegularChild("state.bin", 3);
 	assert(!overBudget.ok());
@@ -167,6 +205,9 @@ int main() {
 
 	string unsafeDirectory = PathTools.join(parent, "unsafe-directory");
 	assert(FileSystem.mkdir(unsafeDirectory, 493) == 0);
+#if defined(_WIN32)
+	assert(setAccess(unsafeDirectory, 493));
+#endif
 	assert(!FileSystem.openPrivateDirectory(unsafeDirectory).ok());
 	assert(FileSystem.openPrivateDirectory(unsafeDirectory).error().kind() == FS_ACCESS_DENIED);
 	assert(FileSystem.chmod(unsafeDirectory, 448) == 0);

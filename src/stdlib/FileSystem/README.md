@@ -2,8 +2,9 @@
 
 The `btrc_stdlib_filesystem` group: path helpers, simple whole-file
 operations, and exact, descriptor-backed handles with typed outcomes. The
-implementation is POSIX. `import Library.FileSystem;` selects the facade; the
-other modules are addressed by their folder path.
+implementation is POSIX, and on Windows rows a Win32 provider backs the same
+API ([Windows](#windows) below). `import Library.FileSystem;` selects the
+facade; the other modules are addressed by their folder path.
 
 | Module | Owns |
 |--------|------|
@@ -98,7 +99,10 @@ still checks exact snapshots before it publishes.
 user's generic state, cache and configuration roots: `~/Library/Application
 Support` (state and configuration) and `~/Library/Caches` on macOS, and
 `XDG_STATE_HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` with their `HOME`
-defaults on Linux, as a `FileSystemOutcome<ApplicationDirectoryRoots>`. A
+defaults on Linux, and the shell's known folders on Windows (state
+`FOLDERID_LocalAppData`, cache `LocalAppData\Cache`, configuration
+`FOLDERID_RoamingAppData`, never an environment variable), as a
+`FileSystemOutcome<ApplicationDirectoryRoots>`. A
 failure is a `FileSystemError` from operation `resolve application directories`:
 invalid limits are `FS_INVALID_ARGUMENT`, a root over the byte limit is
 `FS_INVALID_ARGUMENT` with native code `ENAMETOOLONG`, a missing or relative
@@ -111,3 +115,67 @@ corpus tests are `src/tests/stdlib/FileSystemHandlesContract.btrc`,
 `FileSystemHandlesReal.btrc`, `FileSystemHandleInventoryReal.btrc`,
 `FileSystemReadBytes.btrc`, `FileTreeSnapshotReal.btrc` and
 `ApplicationDirectories.btrc`.
+
+## Windows
+
+`btrc.toml` gives `FileSystemHandles` a provider per row:
+`Unix.PosixFileSystemProvider` (a selection shell: the POSIX bodies stay in
+`FileSystemHandles.btrc`) on android, ios, linux and macos, and
+`Windows.Win32FileSystemProvider` on windows. The Windows provider imports
+`Windows/Win32FileSystem.c`, which is spliced into the program's C, so a
+windows build needs the toolchain's MinGW-w64 headers and no native header
+reader or extra library. `FileSystemHandles.btrc` keeps one class per
+concept: each POSIX body sits under `#if !defined(_WIN32)` and its Windows
+twin under `#else`, so the generated C on every other row is unchanged.
+Identity shared with `Library.IO` (`File.snapshot`) lives in
+`src/stdlib/Windows/Win32FileIdentity.c`.
+
+What Windows does differently, each adaptation pinned by
+`src/tests/native/filesystem_windows/WindowsFileSystemCases.btrc` (run on x64
+and ARM64 by `windows.yml`'s `win32-native` job, through both compilers, with
+the FileSystem corpus programs):
+
+- **Reparse points.** Exact opens never follow the final component
+  (`FILE_FLAG_OPEN_REPARSE_POINT`), and every name below a held directory is
+  opened relative to its handle (`NtCreateFile` with a root directory and
+  `FILE_OPEN_REPARSE_POINT`). A symbolic link, junction or mount point is
+  `FS_SYMLINK`, as a POSIX symlink is; a tree walk records it and never
+  enters it, so a junction swapped in mid-walk is opened as itself and
+  refused (case `junction-swap`).
+- **Removal and rename** are by handle with POSIX semantics
+  (`FileDispositionInfoEx`, and `NtSetInformationFile`'s
+  `FileRenameInformationEx` relative to the held parent, since
+  `SetFileInformationByHandle` refuses a name relative to a directory
+  handle), so a name being replaced or held open elsewhere still unlinks. Tree
+  removal (`TemporaryDirectory.close`, `FileSystem.removeRecursive`) removes
+  read-only files too, as POSIX `unlink` does.
+- **Identity** is the volume serial number plus the 64-bit file ID. A 128-bit
+  file ID (ReFS) does not fit `FileSnapshot` and is `FS_UNSUPPORTED`.
+- **Owner-only access.** Instead of mode 0700 and 0600, a private directory or
+  file is owned by the current user and has a protected DACL granting only
+  that user. One whose DACL grants anyone else is refused as
+  `FS_ACCESS_DENIED`. `FileSnapshot.mode()` is synthesized from the
+  attributes (`0666`, or `0444` when read-only), not read from an ACL.
+- **Locks** are `LockFileEx` over the whole lock file. They are mandatory:
+  while one is held, other handles cannot read or write the locked file
+  (POSIX `flock` is advisory). Contention without `wait` is
+  `FS_RESOURCE_EXHAUSTED`.
+- **Names** compare as NTFS compares them, ordinally ignoring case, so
+  `Lock` and `lock` are the same lock child. A name Windows paths cannot
+  address (`CON`, `NUL`, a trailing dot or space, a `:` stream, control
+  characters) is `FS_INVALID_ARGUMENT`.
+- **Durable replacement** writes and flushes an owner-only temporary file,
+  renames it over the target by handle, then flushes the renamed file again;
+  an interrupted replacement leaves the old contents or the new, never a mix.
+  Windows has no directory fsync: the flush after the rename commits the
+  volume's metadata log, which records the rename (what `MoveFileEx`'s
+  `MOVEFILE_WRITE_THROUGH` does), and a durable removal flushes the lease's
+  lock file for the same reason.
+- **Paths** are UTF-8, converted strictly to UTF-16 and used in `\\?\` and
+  `\\?\UNC\` form, so long, UNC and non-ASCII paths work and `MAX_PATH`
+  never applies. A relative path is resolved against the working directory
+  read in UTF-16, so a non-ASCII one works. Separators may be `\` or `/`;
+  results use `\`.
+- **Symlinks.** `FileSystem.symlink` creates a directory link when the target
+  is a directory; Windows allows it only with the symlink privilege or in
+  Developer Mode. `FileSystem.readLink` reads symbolic links and junctions.
