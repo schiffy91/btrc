@@ -495,6 +495,145 @@ jobs:
             test "$output" = "$(printf 'com-stream status=0 written=4 same=1\ncom-stream-release claims=0 last=0')"
           done
 
+  # The whole language and stdlib corpus on real Windows, x64 and ARM64,
+  # through both compilers (CX-P1-07). Nix and the native header reader run
+  # only on Linux, so target-corpus-build cross-builds every applicable corpus
+  # program for each Windows row with zig (src/tests/target_runner.py
+  # --compile-only) into a bundle, and target-corpus runs each row's bundle on
+  # a hosted runner of its own architecture through the windows-native
+  # executor (tools/target_hosts/windows/executor.py), which refuses an
+  # emulated architecture. Its step summary carries the per-frontend counts;
+  # its artifact the per-program logs, the JUnit file and the ledger records.
+  target-corpus-build:
+    needs: scope
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'target-corpus-build')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Each program's run deadline, as the CI corpus shards give it. The bundle
+    # pins it, and target-corpus admits the bundle only with the same value.
+    env:
+      BTRC_TEST_RUN_TIMEOUT: "60"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Build the self-hosted compiler
+        run: nix develop --command make NIX= btrcc
+      # A program that fails to build is a failed result the Windows run
+      # reports too, so only a runner error (exit 2) fails this step.
+      - name: Cross-build every applicable corpus program for both Windows rows through both compilers
+        run: |
+          set -uo pipefail
+          for label in windows-x86_64 windows-aarch64; do
+            status=0
+            nix develop --command python3 -m src.tests.target_runner --target "$label" --frontend both \
+              --compile-only --btrcc bin/btrcc --jobs 4 --output "build/target-corpus/$label" || status=$?
+            if [ "$status" -gt 1 ]; then
+              echo "::error::the target runner could not build the $label bundle (exit $status)"
+              exit "$status"
+            fi
+          done
+      - name: Upload the x64 bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-bundle-windows-x86_64
+          path: |
+            build/target-corpus/windows-x86_64/bundle/bundle.json
+            build/target-corpus/windows-x86_64/bundle/*.exe
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload the ARM64 bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-bundle-windows-aarch64
+          path: |
+            build/target-corpus/windows-aarch64/bundle/bundle.json
+            build/target-corpus/windows-aarch64/bundle/*.exe
+          if-no-files-found: error
+          retention-days: 3
+      # The compile-only reports, and the C of every program that failed to build.
+      - name: Retain the build reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-build-reports
+          path: |
+            build/target-corpus/
+            !build/target-corpus/*/bundle/
+          if-no-files-found: warn
+          retention-days: 14
+
+  target-corpus:
+    needs: [scope, target-corpus-build]
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'target-corpus')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['target-corpus'] }}
+    name: target-corpus (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    # A report-only row (ci/tiers.toml) shows its failures without failing the run.
+    continue-on-error: ${{ matrix.report_only == 'true' }}
+    env:
+      BTRC_TEST_RUN_TIMEOUT: "60"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.python }}
+      - name: Install the test dependencies
+        run: python -m pip install '.[dev]'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: target-corpus-bundle-${{ matrix.label }}
+          path: build/target-corpus/bundle
+      # Admission checks the bundle against this checkout (revision, goldens,
+      # requests, digests); the executor stages a private copy of each program
+      # and takes every outcome from the process and its Job Object.
+      - name: Run every program natively through both compilers
+        run: python -m src.tests.target_runner --execute-bundle build/target-corpus/bundle --executor windows-native --output build/target-corpus/run
+      - name: Publish the counts
+        if: always()
+        run: |
+          test -f build/target-corpus/run/target-run.json || exit 0
+          python - build/target-corpus/run/target-run.json >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              report = json.load(stream)
+          device = (report.get("executor_provenance") or {}).get("device", "unrecorded")
+          print(f"### {report['target']['label']}: the corpus on {device}")
+          print()
+          print("| frontend | passed | failed | restricted | missing |")
+          print("| --- | ---: | ---: | ---: | ---: |")
+          for frontend, counts in report["counts"].items():
+              cells = " | ".join(str(counts[status]) for status in ("passed", "failed", "restricted", "missing"))
+              print(f"| {frontend} | {cells} |")
+          failed = [result for result in report["results"] if result["status"] == "failed"]
+          if failed:
+              print()
+              print("| frontend | failed program | phase | reason |")
+              print("| --- | --- | --- | --- |")
+              for result in failed:
+                  reason = next(iter((result.get("reason") or "").splitlines()), "")[:200].replace("|", "\\|")
+                  print(f"| {result['frontend']} | {result['program']} | {result.get('phase')} | {reason} |")
+          PY
+      - name: Retain the run
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-run-${{ matrix.target }}
+          path: build/target-corpus/run/
+          if-no-files-found: warn
+          retention-days: 30
+
   bootstrap:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'bootstrap')
