@@ -1310,10 +1310,12 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     # Claude writes the mobile host workflows Codex requested (D28). Each lands
     # before its host directory, so a guard job skips the device job on a
     # revision without the tooling instead of failing main.
-    for workflow, tool in (("host-ios.yml", "ios/spike.py"), ("host-android.yml", "android/check.py")):
+    for workflow, tool, device in (
+        ("host-ios.yml", "ios/spike.py", "simulator"),
+        ("host-android.yml", "android/check.py", "emulator"),
+    ):
         jobs = _parsed(workflow)["jobs"]
         assert f"tools/target_hosts/{tool}" in _code(_job(_workflow(workflow), "tooling")), workflow
-        device = next(name for name in jobs if name != "tooling")
         assert jobs[device]["needs"] == "tooling", workflow
         assert jobs[device]["if"] == "needs.tooling.outputs.present == 'true'", workflow
         # Steps pipe into tee, so the job runs bash with pipefail.
@@ -1321,11 +1323,18 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
         final = jobs[device]["steps"][-1]
         assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT, workflow
 
+    # CX-P1-04: the fixtures through the protocol-1 executor on both device
+    # classes, and its portable tests on Linux with this host's C compiler.
     ios = _code(_job(_workflow("host-ios.yml"), "simulator"))
-    assert "python3 -m unittest tools.target_hosts.ios.test_executor -v" in ios
+    assert "python3 -m tools.target_hosts.ios.spike build build/ios-testhost" in ios
     for device in ("iphone", "ipad"):
-        for mode in ("spawn", "app"):
-            assert f"--device-class {device} --mode {mode}" in ios, (device, mode)
+        assert (
+            f"python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class {device}"
+        ) in ios, device
+    assert "--mode" not in ios, "the executor launches processes only (protocol 1 process mode)"
+    portable = _parsed("host-ios.yml")["jobs"]["portable"]
+    assert portable["needs"] == "tooling" and portable["runs-on"] == "ubuntu-latest"
+    assert "tools/target_hosts/ios/test_executor.py" in _code(_job(_workflow("host-ios.yml"), "portable"))
 
     # CX-P1-05's request: sdkmanager installs exactly the pinned package list,
     # and the installed revisions are verified rather than trusted.

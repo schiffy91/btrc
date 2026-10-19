@@ -1,12 +1,17 @@
 name: Host iOS
 
-# CX-P1-04's iOS simulator host: twelve strict-C11 fixtures through spawn
-# and installed app bundles on iPhone and iPad, plus one repeated app run per
-# device class (50 executions). The xcode-27 image supplies the D21 toolchain;
-# verify its exact build before using an SDK. Runtime selection still chooses
-# the newest installed iOS >= 17, so this does not prove the iOS 17 floor.
-# Until the tool directory exists, tooling reports it absent and skips the
-# simulator job so the workflow can land before the host.
+# CX-P1-04's iOS simulator host: the ios-simulator executor
+# (tools/target_hosts/ios, executor protocol 1) runs twelve strict-C11
+# fixtures, plus the cwd fixture again from the staged program's directory,
+# on an iPhone and an iPad simulator (26 executions), each through simctl
+# spawn and the executor's in-simulator supervisor. The portable job runs the
+# executor's own tests on Linux with that host's C compiler. The xcode-27
+# image supplies D21's toolchain; verify its exact build before using an SDK.
+# Runtime selection takes the newest installed iOS >= 17, so this does not
+# prove the iOS 17 floor (MAC-P1-02). macos.yml's target-corpus job runs the
+# whole corpus through the same executor. Until the tool directory exists,
+# tooling reports it absent and skips the simulator job so the workflow can
+# land before the host.
 on:
   push:
     branches: [main]
@@ -52,7 +57,7 @@ jobs:
     needs: tooling
     if: needs.tooling.outputs.present == 'true'
     runs-on: xcode-27
-    timeout-minutes: 90
+    timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.app/Contents/Developer
     # An explicit bash shell runs with pipefail, so a failing command piped
@@ -67,7 +72,10 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.13"
+      # Before any guest boots: CoreSimulator's first answer is slow on a cold
+      # three-core runner.
       - name: Record the Xcode and simulator inventory
+        timeout-minutes: 10
         run: |
           mkdir -p build/ios-results
           xcodebuild -version | tee build/ios-results/xcode-version.txt
@@ -75,25 +83,17 @@ jobs:
           xcrun --find simctl > build/ios-results/simctl-path.txt
           xcrun --sdk iphonesimulator --show-sdk-version > build/ios-results/sdk-version.txt
           xcrun simctl list -j > build/ios-results/simctl-list.json
-      - name: Local host tests
-        run: python3 -m unittest tools.target_hosts.ios.test_executor -v 2>&1 | tee build/ios-results/unittest.log
       - name: Build the fixtures
         id: build
         run: python3 -m tools.target_hosts.ios.spike build build/ios-testhost 2>&1 | tee build/ios-results/build.log
-      # Each device class and mode runs even when an earlier one failed, so a
-      # single run records every result; each stops at its own first failure.
-      - name: iPhone, simctl spawn
+      # Each device class runs even when the other failed, so a single run
+      # records every result; each stops at its own first failure.
+      - name: iPhone
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone --mode spawn 2>&1 | tee build/ios-results/iphone-spawn.log
-      - name: iPhone, installed app
+        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone 2>&1 | tee build/ios-results/iphone.log
+      - name: iPad
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone --mode app 2>&1 | tee build/ios-results/iphone-app.log
-      - name: iPad, simctl spawn
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class ipad --mode spawn 2>&1 | tee build/ios-results/ipad-spawn.log
-      - name: iPad, installed app
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class ipad --mode app 2>&1 | tee build/ios-results/ipad-app.log
+        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class ipad 2>&1 | tee build/ios-results/ipad.log
       - name: Retain the results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -102,3 +102,33 @@ jobs:
           path: build/ios-results
           if-no-files-found: warn
           retention-days: 30
+
+  # The executor's portable tests: the supervisor and the fixtures built with
+  # this host's C compiler, with only simctl's transport replaced.
+  portable:
+    needs: tooling
+    if: needs.tooling.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BTRC_TEST_RUNNER: linux-devcontainer
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Portable host tests
+        run: |
+          nix develop --command python3 -m pytest -p src.tests.conftest tools/target_hosts/ios/test_executor.py -q -rs --skip-report=build/skip-report-host-ios-portable.json
+          nix develop --command python3 -m tools.qualification skip-gate build/skip-report-host-ios-portable.json
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-host-ios-portable
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
