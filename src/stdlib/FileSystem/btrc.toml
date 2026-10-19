@@ -3,3 +3,18 @@ manifest-version = 1
 [package]
 name = "btrc_stdlib_filesystem"
 exports = ["ApplicationDirectories", "FileSystem", "FileSystemHandles", "FileTree"]
+
+# FileSystemHandles' native seam. POSIX rows keep their bodies inline in
+# FileSystemHandles.btrc, so their provider only completes the selection;
+# windows rows get the Win32 provider, whose C (Windows/Win32FileSystem.c) is
+# spliced into the program rather than read through a binding, so no row
+# needs the native header reader to compile this package.
+[[package.providers]]
+module = "FileSystemHandles"
+implementation = "Unix.PosixFileSystemProvider"
+os = ["android", "ios", "linux", "macos"]
+
+[[package.providers]]
+module = "FileSystemHandles"
+implementation = "Windows.Win32FileSystemProvider"
+os = ["windows"]

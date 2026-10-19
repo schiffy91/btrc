@@ -451,7 +451,9 @@ reports = ["skip-report"]
 # A stored C window subclass from the real MinGW commctrl.h and real COM (a
 # registry-free server DLL with a BTRC sink, an ole32 stream): a Linux runner
 # builds both compilers' executables and the server (win32-native-build), then
-# each Windows runner executes those of its architecture (win32-native). A job
+# each Windows runner executes those of its architecture (win32-native). The
+# Windows FileSystem provider's cases and its corpus bundle ride the same pair
+# (test_windows_filesystem_handles.py, target_runner.py). A job
 # that waits on another must run on exactly the same events
 # (test_ci_workflow_contracts.py).
 [[jobs]]
@@ -466,6 +468,14 @@ changed_paths = [
   "src/compiler/**/NativeImports.btrc",
   "src/stdlib/Callback.btrc",
   "src/stdlib/COM/**",
+  "src/stdlib/FileSystem/**",
+  "src/stdlib/IO.btrc",
+  "src/stdlib/Windows/**",
+  "src/tests/native/filesystem_windows/**",
+  "src/tests/python/test_windows_filesystem_handles.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "src/tests/target_runner.py",
+  "tools/target_hosts/windows/**",
 ]
 reports = ["skip-report"]
 
@@ -487,6 +497,14 @@ changed_paths = [
   "src/compiler/**/NativeImports.btrc",
   "src/stdlib/Callback.btrc",
   "src/stdlib/COM/**",
+  "src/stdlib/FileSystem/**",
+  "src/stdlib/IO.btrc",
+  "src/stdlib/Windows/**",
+  "src/tests/native/filesystem_windows/**",
+  "src/tests/python/test_windows_filesystem_handles.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "src/tests/target_runner.py",
+  "tools/target_hosts/windows/**",
 ]
 
 [[shards]]
@@ -502,6 +520,14 @@ changed_paths = [
   "src/compiler/**/NativeImports.btrc",
   "src/stdlib/Callback.btrc",
   "src/stdlib/COM/**",
+  "src/stdlib/FileSystem/**",
+  "src/stdlib/IO.btrc",
+  "src/stdlib/Windows/**",
+  "src/tests/native/filesystem_windows/**",
+  "src/tests/python/test_windows_filesystem_handles.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "src/tests/target_runner.py",
+  "tools/target_hosts/windows/**",
 ]
 
 [[jobs]]
