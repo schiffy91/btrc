@@ -1,0 +1,119 @@
+/* The Windows TerminalProvider: the Win32 console where a standard handle is
+ * one, and the C library's stdin where it is redirected.
+ *
+ * Console lines come from ReadConsoleW as UTF-16 and are returned as UTF-8
+ * (ConsoleInput.btrc); redirected input is read byte by byte, bounded, as on
+ * Unix. The size is the console window's, not its scroll-back buffer's.
+ * Colours turn on ENABLE_VIRTUAL_TERMINAL_PROCESSING, so the console
+ * interprets the same ANSI/VT sequences a Unix terminal does. Raw input
+ * clears line input, echo and processed input (Ctrl-C becomes the byte 3)
+ * and sets ENABLE_VIRTUAL_TERMINAL_INPUT, so keys arrive as the VT sequences
+ * a Unix terminal sends. */
+
+import Library.Bytes;
+import Library.Terminal.Windows.ConsoleInput;
+
+#include <stdio.h>
+
+/* The console input mode raw input replaced, and the UTF-8 bytes of a key
+ * read but not yet returned. */
+class TerminalModeState {
+	public HANDLE input;
+	public DWORD saved;
+	public Bytes pending;
+	public int next;
+
+	public TerminalModeState(HANDLE input, DWORD saved) {
+		self.input = input;
+		self.saved = saved;
+		self.pending = Bytes();
+		self.next = 0;
+	}
+}
+
+class TerminalProvider {
+	class string readLine(int limit) {
+		HANDLE console = ConsoleInput.standardInput();
+		if (console != null) { return ConsoleInput.readLine(console, limit, null).text; }
+		Bytes value = Bytes();
+		int byte = fgetc(stdin);
+		while (byte != EOF && byte != '\n') {
+			if (value.len < limit) { value.append(byte); }
+			byte = fgetc(stdin);
+		}
+		return value.toStringLossy();
+	}
+
+	class bool size(int* columns, int* rows) {
+		HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+		if (output == null || output == INVALID_HANDLE_VALUE) { return false; }
+		CONSOLE_SCREEN_BUFFER_INFO info;
+		if (GetConsoleScreenBufferInfo(output, &info) == 0) { return false; }
+		int width = (int)info.srWindow.Right - (int)info.srWindow.Left + 1;
+		int height = (int)info.srWindow.Bottom - (int)info.srWindow.Top + 1;
+		if (width <= 0 || height <= 0) { return false; }
+		*columns = width;
+		*rows = height;
+		return true;
+	}
+
+	/* True when the console behind `which` now interprets VT sequences. */
+	class bool enableVirtualTerminal(DWORD which) {
+		HANDLE output = GetStdHandle(which);
+		if (output == null || output == INVALID_HANDLE_VALUE) { return false; }
+		DWORD mode = (DWORD)0;
+		if (GetConsoleMode(output, &mode) == 0) { return false; }
+		DWORD wanted = mode | (DWORD)ENABLE_PROCESSED_OUTPUT | (DWORD)ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+		return wanted == mode || SetConsoleMode(output, wanted) != 0;
+	}
+
+	class bool enableColors() {
+		bool output = TerminalProvider.enableVirtualTerminal(STD_OUTPUT_HANDLE);
+		TerminalProvider.enableVirtualTerminal(STD_ERROR_HANDLE);
+		return output;
+	}
+
+	class TerminalModeState? enterRawMode() {
+		HANDLE input = ConsoleInput.standardInput();
+		if (input == null) { return null; }
+		DWORD saved = (DWORD)0;
+		if (GetConsoleMode(input, &saved) == 0) { return null; }
+		DWORD cooked = (DWORD)ENABLE_ECHO_INPUT | (DWORD)ENABLE_LINE_INPUT | (DWORD)ENABLE_PROCESSED_INPUT;
+		DWORD raw = (saved & ~cooked) | (DWORD)ENABLE_VIRTUAL_TERMINAL_INPUT;
+		if (SetConsoleMode(input, raw) == 0) { return null; }
+		return TerminalModeState(input, saved);
+	}
+
+	/* One key is one code unit, or a surrogate pair; its UTF-8 bytes are
+	 * returned one call at a time. */
+	class int readRawByte(TerminalModeState state) {
+		if (state.next < state.pending.len) {
+			int value = state.pending.get(state.next);
+			state.next = state.next + 1;
+			return value;
+		}
+		Bytes units = Bytes();
+		int count = TerminalProvider.readUnit(state.input, units);
+		if (count == 0) { return -1; }
+		int first = units.get(0) | (units.get(1) << 8);
+		if (first >= 0xd800 && first <= 0xdbff) { count = count + TerminalProvider.readUnit(state.input, units); }
+		state.pending = ConsoleInput.utf8(units, count);
+		state.next = 0;
+		if (state.pending.len == 0) { return -1; }
+		state.next = 1;
+		return state.pending.get(0);
+	}
+
+	/* Append one code unit to `units`; 1 when one was read, else 0. */
+	class int readUnit(HANDLE input, Bytes units) {
+		WCHAR unit[1];
+		DWORD count = (DWORD)0;
+		if (ReadConsoleW(input, unit, (DWORD)1, &count, null) == 0 || count != (DWORD)1) { return 0; }
+		int value = (int)unit[0];
+		units.append(value & 255);
+		units.append((value >> 8) & 255);
+		return 1;
+	}
+
+	class bool restoreMode(TerminalModeState state) { return SetConsoleMode(state.input, state.saved) != 0; }
+}

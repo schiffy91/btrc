@@ -2140,7 +2140,9 @@ def test_failure_reentrancy_and_completion_matrix(
     ("invoke", "diagnostic"),
     (
         ("ordinaryTrampoline", "direct named @realtime function"),
-        ("null", "direct named @realtime function"),
+        # A plain CFunction parameter never takes null, so both compilers
+        # first refuse the argument's type.
+        ("null", "Argument 'invoke' to 'CallbackRegistration()' expects 'CFunction<void, void*>' but got 'null*'"),
         ("alias", "direct named @realtime function"),
     ),
 )

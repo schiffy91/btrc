@@ -10,6 +10,14 @@ import Library.Vector;
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
+#if defined(_WIN32)
+
+/* Windows identity through a held handle (the CRT stat has no file ID): the
+ * one description FileSystemHandles' Windows handle owners also use. */
+import ./Windows/Win32FileIdentity.c
+
+extern int btrcWinDescribeStream(FILE* stream, long long* fields);
+#endif
 
 /* The descriptor flags every library socket and pipe sets: close-on-exec so
  * no child inherits it, and nonblocking I/O for deadline-driven waits. Each
@@ -141,6 +149,24 @@ class FileSnapshot {
 		struct timespec* changed = (struct timespec*)&status->st_ctime;
 		return FileSnapshot(kind, (long long)status->st_size, (unsigned long long)status->st_dev, (unsigned long long)status->st_ino, (unsigned long long)status->st_mode, (unsigned long long)modified->tv_sec, (unsigned long long)modified->tv_nsec, (unsigned long long)changed->tv_sec, (unsigned long long)changed->tv_nsec);
 	}
+#if defined(_WIN32)
+
+	/* Windows: the description Win32FileIdentity.c reads through a held
+	 * handle, in its field order (kind, size, volume serial, file ID, mode,
+	 * LastWriteTime and ChangeTime as Unix seconds and nanoseconds). The
+	 * volume serial and file ID are the identity sameObject compares. */
+	class FileSnapshot fromWindowsFields(long long* fields) {
+		FileKind kind = FILE_OTHER;
+		if (fields[0] == 0LL) {
+			kind = FILE_REGULAR;
+		} else if (fields[0] == 1LL) {
+			kind = FILE_DIRECTORY;
+		} else if (fields[0] == 2LL) {
+			kind = FILE_SYMLINK;
+		}
+		return FileSnapshot(kind, fields[1], (unsigned long long)fields[2], (unsigned long long)fields[3], (unsigned long long)fields[4], (unsigned long long)fields[5], (unsigned long long)fields[6], (unsigned long long)fields[7], (unsigned long long)fields[8]);
+	}
+#endif
 
 	public FileKind kind() { return self._kind; }
 
@@ -243,14 +269,23 @@ class File {
 	public bool failed() { return self.ioFailed; }
 
 	/* Copied metadata from this stream's descriptor, never a fresh path open.
-	 * Windows needs a native handle-identity provider; CRT stat is insufficient. */
+	 * Windows reads it through the stream's own handle (CRT stat has no file
+	 * ID); a failure there carries the Win32 error code. */
 	public FileSnapshotReadOutcome snapshot() {
 		if (!self.isOpen) { return FileSnapshotReadOutcome.closed(); }
+#if defined(_WIN32)
+		long long fields[14];
+		int described = btrcWinDescribeStream(self.handle, fields);
+		if (described != 0) { return FileSnapshotReadOutcome.failed(described); }
+		if (fields[12] != 0LL) { return FileSnapshotReadOutcome.unsupported(); }
+		return FileSnapshotReadOutcome.available(FileSnapshot.fromWindowsFields(fields));
+#else
 		if (Platform.isWindows()) { return FileSnapshotReadOutcome.unsupported(); }
 		struct stat status;
 		errno = 0;
 		if (fstat(fileno(self.handle), &status) != 0) { return FileSnapshotReadOutcome.failed(errno); }
 		return FileSnapshotReadOutcome.available(FileSnapshot.fromStatus(&status));
+#endif
 	}
 
 	/* Reads everything from the current position to EOF as text. Chunked
@@ -452,8 +487,11 @@ class Path {
 		return stat(path, &st) == 0;
 	}
 
+	/* Both whole-file helpers open in binary mode, so the bytes read and
+	 * written are exactly the string's: Windows' text mode would rewrite line
+	 * endings, and POSIX makes no distinction. */
 	class string readAll(string path) {
-		var f = File(path, "r");
+		var f = File(path, "rb");
 		if (!f.ok()) { return ""; }
 		string content = f.read();
 		bool closed = f.close();
@@ -467,7 +505,7 @@ class Path {
      * working; new callers can branch on the bool. */
 	class bool writeAll(string path, string content) {
 		if (path == null || content == null) { return false; }
-		var f = File(path, "w");
+		var f = File(path, "wb");
 		if (!f.ok()) {
 			fprintf(stderr, "Path.writeAll: cannot open '%s' for writing\n", path);
 			return false;

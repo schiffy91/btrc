@@ -4,6 +4,19 @@ manifest-version = 1
 name = "btrc_stdlib_runtime"
 exports = ["Array", "BitPattern", "Bytes", "CLI", "Callback", "Console", "DateTime", "IO", "Iterable", "JSON", "List", "Map", "Math", "OwnedBuffer", "Pattern", "Platform", "Process", "Random", "Regex", "Result", "SPSC", "Set", "Strings", "TOML", "Timer", "Vector"]
 
+# Process's private host seam (docs/design/windows-os-services.md): the
+# runtime's CreateProcessW seam on windows rows, and a selection-only shell
+# around the POSIX bodies everywhere else.
+[[package.providers]]
+module = "Process"
+implementation = "Unix.ProcessHostProvider"
+os = ["android", "ios", "linux", "macos"]
+
+[[package.providers]]
+module = "Process"
+implementation = "Windows.ProcessHostProvider"
+os = ["windows"]
+
 # Every functional group is its own package; see README.md.
 [dependencies]
 App = { path = "App" }

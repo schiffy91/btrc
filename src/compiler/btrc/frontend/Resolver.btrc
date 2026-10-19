@@ -2470,22 +2470,37 @@ class FeFrontendResolver {
 		return kept;
 	}
 
+	/* The relaxed composition: every root module, then the providers the root
+	 * manifest selects for the target ([[package.providers]]), each once, in
+	 * root-module order, as the strict import graph would load them. */
 	public string sourceAtSnapshot(string userSource, FeStdlibRootSnapshot snapshot) {
 		Map<string, bool> userNames = self.definedTypeNames(userSource);
 		Vector<string> lines = [];
+		Vector<string> providers = [];
 		int fileIndex = 0;
 		while (fileIndex < snapshot.count()) {
-			string content = self.conditioned(snapshot.sourceAt(fileIndex), snapshot.pathAt(fileIndex), false);
-			if (!self.namesIntersect(self.definedTypeNames(content), userNames)) {
-				Vector<string> fileLines = self.sourceWithoutImports(content);
-				int lineIndex = 0;
-				while (lineIndex < fileLines.len) {
-					lines.push(fileLines.get(lineIndex));
-					lineIndex++;
-				}
+			self.composeRelaxed(snapshot.sourceAt(fileIndex), snapshot.pathAt(fileIndex), userNames, lines);
+			for implementation in self.importPolicy.providersFor(snapshot.pathAt(fileIndex)) {
+				if (!providers.contains(implementation)) { providers.push(implementation); }
 			}
 			fileIndex++;
 		}
+		for implementation in providers {
+			self.composeRelaxed(self.stdlib.readSourceForCompilation(implementation, snapshot), implementation, userNames, lines);
+		}
 		return FeSourceText.joinLines(lines);
+	}
+
+	/* Append one conditioned file without its imports, unless it defines a
+	 * name the user source does. */
+	private void composeRelaxed(string source, string path, Map<string, bool> userNames, Vector<string> lines) {
+		string content = self.conditioned(source, path, false);
+		if (self.namesIntersect(self.definedTypeNames(content), userNames)) { return; }
+		Vector<string> fileLines = self.sourceWithoutImports(content);
+		int lineIndex = 0;
+		while (lineIndex < fileLines.len) {
+			lines.push(fileLines.get(lineIndex));
+			lineIndex++;
+		}
 	}
 }

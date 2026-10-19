@@ -1,0 +1,13 @@
+txt: [x].txt a.txt b.txt
+one: c.md
+set: a.txt b.txt
+not: b.txt
+dirs: other/x.txt sub/x.txt
+dots: .hidden.txt
+escaped: [x].txt
+literal: sub/y.md
+marked: [x].txt a.txt b.txt c.md other/ sub/
+missing: (no match)
+checked: *.none
+appended: [x].txt a.txt b.txt c.md
+PASS: test_stdlib_glob

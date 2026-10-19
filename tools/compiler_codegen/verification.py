@@ -785,6 +785,7 @@ class BoundaryManifest:
             "asset.strings_c",
             "asset.threads_c",
             "asset.trycatch_c",
+            "asset.windows_os_h",
         }
         expected = {
             "runtime-helper-source": assets,
@@ -1245,6 +1246,7 @@ class _BoundaryCaptureSession:
             "asset.strings_c": "strings.c",
             "asset.threads_c": "threads.c",
             "asset.trycatch_c": "trycatch.c",
+            "asset.windows_os_h": "windows_os.h",
         }
         manifest_metadata, helpers, orders = self._runtime_snapshot()
         channels: dict[str, bytes] = {}
@@ -1289,7 +1291,9 @@ class _BoundaryCaptureSession:
             "header_features",
             "helpers",
         }
-        if set(document) != expected_root:
+        # Separately compiled runtime objects (schema 3's optional table).
+        optional_root = {"external_objects"}
+        if not expected_root <= set(document) <= expected_root | optional_root:
             raise CompilerVerificationError(
                 BoundaryManifest._orphan_message("runtime boundary manifest keys", expected_root, set(document))
             )
@@ -1317,6 +1321,8 @@ class _BoundaryCaptureSession:
             "schema_version": schema,
             "types": freestanding["types"],
         }
+        if "external_objects" in document:
+            manifest_metadata["external_objects"] = document["external_objects"]
         asset_names = (
             "core.c",
             "collections.c",
@@ -1327,6 +1333,7 @@ class _BoundaryCaptureSession:
             "threads.c",
             "trycatch.c",
             "gpu.c",
+            "windows_os.h",
         )
         source_by_name = {}
         source_asset_by_name = {}

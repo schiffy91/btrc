@@ -25,6 +25,27 @@ type.  It carries no context and therefore accepts only named functions and
 noncapturing lambdas.  The hosted-ABI manifest records whether each C callback
 parameter is borrowed for the call or stored until unregister.
 
+A plain `CFunction` takes neither `null` nor a `void*`; an explicit
+`(CFunction<...>)null` cast still spells an empty slot.  `CFunction<...>?` is
+the nullable function pointer: the same C word, which also takes `null`, and
+`CFunction<...>*` is a pointer to one.  A call through a `CFunction<...>?` is
+accepted where the nullable flow proves it non-null (inside a `!= null`
+branch, after an early return on `== null`, or in the guarded operand of
+`&&`, `||` or `?:`),
+and refused elsewhere with `Nullable function pointer of type
+'CFunction<...>?' may be null; compare it with null before calling it`.  A C
+function-pointer parameter is nullable, as C declares it, whether the
+function is hosted or imported by a native binding, so an optional callback
+such as `glob`'s `errfunc` takes `null`.
+
+No function pointer, plain or nullable, converts to an object pointer or back,
+`void*` and `void**` included, neither implicitly nor by a cast: C11 defines no
+such conversion (6.3.2.3), and strict C11 compilers refuse it.  A pointer to a
+function pointer and an array of them are object pointers, so `&callback` and
+`ops` convert to `void*`, and `ops` decays to `CFunction<...>*` as any array
+decays to a pointer to its element.  To carry a callback through a `void*`
+context, store it in a struct and pass the struct's address.
+
 For non-realtime C APIs with call-scoped callbacks, use the package's
 [checked callback mapping](../../src/language/package-manifest.md#call-scoped-native-callbacks).
 It imports an ordinary interface with an `invoke` method, derives its signature

@@ -1,6 +1,10 @@
 /* Structured child execution: argv stays tokenized, cwd/environment are
  * applied without a shell, stdout/stderr and status are captured separately,
- * and a timeout kills the whole process group. */
+ * and a timeout kills the whole process group. On Windows the same checks run
+ * through the CreateProcessW provider: there is no fork, so the descendant of
+ * the timeout cases is a grandchild the child starts through ChildProcess
+ * (the whole tree lives in the parent's job), the spaced helper is a copy of
+ * this image, and a child's text-mode stdio writes CRLF. */
 import Library.Timer;
 import Library.FileSystem;
 import Library.Platform;
@@ -9,6 +13,34 @@ import Library.Strings;
 import Library.Vector;
 
 #include <assert.h>
+
+#if defined(_WIN32)
+bool copyExecutable(string source, string destination) {
+	FILE* input = fopen(source, "rb");
+	if (input == NULL) { return false; }
+	FILE* output = fopen(destination, "wb");
+	if (output == NULL) {
+		fclose(input);
+		return false;
+	}
+	char buffer[65536];
+	bool copied = true;
+	size_t count = fread(buffer, 1, 65536, input);
+	while (count > (size_t)0) {
+		if (fwrite(buffer, 1, count, output) != count) {
+			copied = false;
+			break;
+		}
+		count = fread(buffer, 1, 65536, input);
+	}
+	if (ferror(input) != 0) { copied = false; }
+	fclose(input);
+	if (fclose(output) != 0) { copied = false; }
+	return copied;
+}
+
+string lines(string text) { return text.replace("\r\n", "\n"); }
+#endif
 
 int childProbe(int argc, char** argv) {
 	string mode = Strings.copy(argv[1]);
@@ -31,6 +63,12 @@ int childProbe(int argc, char** argv) {
 		return 23;
 	}
 	if (mode.equals("--timeout-group")) {
+#if defined(_WIN32)
+		// The child waits on its own descendant; only the parent's deadline,
+		// which owns the whole tree, ends both before the marker appears.
+		ChildProcess.run(Strings.copy(argv[0]), ["--descendant", Strings.copy(argv[2])]);
+		return 0;
+#else
 		pid_t descendant = fork();
 		if (descendant == (pid_t)0) {
 			usleep(500000);
@@ -44,8 +82,29 @@ int childProbe(int argc, char** argv) {
 		// Exit the direct child immediately. Its descendant keeps the capture
 		// pipes open, so the run is only bounded if timeout owns the group.
 		return 0;
+#endif
 	}
+#if defined(_WIN32)
+	if (mode.equals("--descendant")) {
+		usleep(500000);
+		FILE* marker = fopen(argv[2], "w");
+		if (marker != NULL) {
+			fputs("survived", marker);
+			fclose(marker);
+		}
+		return 0;
+	}
+	if (mode.equals("--linger")) {
+		usleep(500000);
+		return 0;
+	}
+#endif
 	if (mode.equals("--escaped-pipe")) {
+#if defined(_WIN32)
+		// The descendant writes straight into the parent's capture pipe.
+		ChildProcess.run(Strings.copy(argv[0]), ["--linger"], stdout=COMMAND_OUTPUT_STREAM, stderr=COMMAND_OUTPUT_STREAM);
+		return 0;
+#else
 		pid_t descendant = fork();
 		if (descendant == (pid_t)0) {
 			setsid();
@@ -53,6 +112,7 @@ int childProbe(int argc, char** argv) {
 			_exit(0);
 		}
 		return 0;
+#endif
 	}
 	if (mode.equals("--stdin")) {
 		char input[128];
@@ -81,6 +141,7 @@ int childProbe(int argc, char** argv) {
 int main(int argc, char** argv) {
 	if (argc > 1) { return childProbe(argc, argv); }
 
+#if !defined(_WIN32)
 	ChildProcessCapture invalidCapture = ChildProcessCapture(2147483647);
 	invalidCapture.readReady();
 	assert(invalidCapture.failed && !invalidCapture.open);
@@ -90,6 +151,7 @@ int main(int argc, char** argv) {
 	assert((fcntl(cloexecPipe[0], F_GETFD) & FD_CLOEXEC) != 0);
 	assert((fcntl(cloexecPipe[1], F_GETFD) & FD_CLOEXEC) != 0);
 	ChildProcess.closePipe(cloexecPipe);
+#endif
 
 	string secret = "pa'ss word";
 	string renderedSecret = "tool --token " + ShellWords.quote(secret);
@@ -100,12 +162,21 @@ int main(int argc, char** argv) {
 	assert(nestedRedacted.contains("***"));
 	assert(!nestedRedacted.contains("ss word"));
 
+#if defined(_WIN32)
+	// FileSystem.tempDir reads TMPDIR; Windows names its directory TEMP.
+	assert(setenv("TMPDIR", Environment.get("TEMP", ""), 1) == 0);
+#endif
 	string root = FileSystem.tempDir("btrc child process");
 	assert(!root.isEmpty());
 	root = PathTools.absolute(root);
 	string executable = PathTools.absolute(argv[0]);
 	string spacedExecutable = PathTools.join(root, "helper with spaces");
+#if defined(_WIN32)
+	// An extensionless name probes .exe, as CreateProcessW's own rule does.
+	assert(copyExecutable(executable, spacedExecutable + ".exe"));
+#else
 	assert(FileSystem.symlink(executable, spacedExecutable) == 0);
+#endif
 
 	string shellMarker = PathTools.join(root, "shell-expanded");
 	string metacharacters = f"; touch {shellMarker}";
@@ -134,9 +205,17 @@ int main(int argc, char** argv) {
 	assert(!result.ok());
 	assert(!result.wasTimedOut());
 	assert(result.command.startsWith("'" + spacedExecutable + "'"));
+#if defined(_WIN32)
+	assert(lines(result.stderr()).equals("captured stderr\n"));
+#else
 	assert(result.stderr().equals("captured stderr\n"));
+#endif
 	string expected = f"cwd={root}\n" + "override=two words\n" + "new=$literal=with=equals\n" + "removed=missing\n" + "arg=space value\n" + "arg=$HOME `literal` * ?\n" + f"arg={metacharacters}\n" + "arg=quote'\"value\n";
+#if defined(_WIN32)
+	assert(lines(result.stdout()).equals(expected));
+#else
 	assert(result.stdout().equals(expected));
+#endif
 	assert(!FileSystem.exists(shellMarker));
 
 	ExecResult input = ChildProcess.run(executable, ["--stdin"], stdinData="anonymous input");
@@ -156,9 +235,15 @@ int main(int argc, char** argv) {
 	ExecResult suppressed = ChildProcess.run(executable, ["--binary"], stdout=COMMAND_OUTPUT_SUPPRESS, stderr=COMMAND_OUTPUT_SUPPRESS);
 	assert(suppressed.ok());
 	assert(suppressed.capturedStdoutBytes == 0 && suppressed.capturedStderrBytes == 0);
+#if defined(_WIN32)
+	ExecResult shellBinary = UnixShell().run(ShellWords.quote(executable) + " --binary", stderr=COMMAND_OUTPUT_COLLECT, logFailure=false);
+	assert(shellBinary.code == 127);
+	assert(shellBinary.stderr().contains("UnixShell.run is unavailable on Windows"));
+#else
 	ExecResult shellBinary = UnixShell().run(ShellWords.quote(executable) + " --binary", stderr=COMMAND_OUTPUT_COLLECT);
 	assert(shellBinary.ok());
 	assert(shellBinary.capturedStdoutBytes == 12 && shellBinary.capturedStderrBytes == 8);
+#endif
 
 	ExecResult pathOverride = ChildProcess.run("helper with spaces", ["--probe"], cwd=root, environment=["PATH=" + root], timeoutMilliseconds=2000);
 	assert(pathOverride.code == 23);
@@ -166,7 +251,12 @@ int main(int argc, char** argv) {
 	bool rejected = false;
 	Vector<string> noArguments = [];
 	try {
+#if defined(_WIN32)
+		// A Windows name may hold '-' but never '='.
+		ChildProcess.run(executable, noArguments, unsetEnvironment=["BAD=NAME"]);
+#else
 		ChildProcess.run(executable, noArguments, environment=["BAD-NAME=value"]);
+#endif
 	} catch (string error) {
 		rejected = error.contains("invalid environment variable name");
 	}
@@ -179,16 +269,30 @@ int main(int argc, char** argv) {
 
 	// Without stdinData the child reads /dev/null, so a reader sees EOF at
 	// once instead of blocking on the parent's stdin.
+#if defined(_WIN32)
+	ExecResult silent = ChildProcess.run(executable, ["--stdin"], timeoutMilliseconds=5000);
+	assert(silent.ok());
+	assert(!silent.wasTimedOut());
+	assert(silent.stdout().equals("stdin="));
+#else
 	ExecResult silent = ChildProcess.run("cat", noArguments, timeoutMilliseconds=5000);
 	assert(silent.ok());
 	assert(!silent.wasTimedOut());
 	assert(silent.stdout().isEmpty());
+#endif
 
 	ExecResult volume = ChildProcess.run(executable, ["--volume"], timeoutMilliseconds=2000);
 	assert(volume.ok());
+#if defined(_WIN32)
+	// Text-mode stdio writes each line's LF as CRLF.
+	assert(volume.stdout().len() == 100000);
+	assert(volume.stderr().len() == 100000);
+	assert(volume.capturedStdoutBytes == 100000 && volume.capturedStderrBytes == 100000);
+#else
 	assert(volume.stdout().len() == 80000);
 	assert(volume.stderr().len() == 80000);
 	assert(volume.capturedStdoutBytes == 80000 && volume.capturedStderrBytes == 80000);
+#endif
 
 	ExecResult bounded = ChildProcess.run(executable, ["--volume"], timeoutMilliseconds=2000, maxStdoutBytes=1024, maxStderrBytes=1024);
 	assert(bounded.code == 125);
@@ -219,7 +323,14 @@ int main(int argc, char** argv) {
 
 	unsetenv("BTRC_CHILD_OVERRIDE");
 	unsetenv("BTRC_CHILD_REMOVE");
+#if defined(_WIN32)
+	// Exact-handle tree removal has no Windows provider yet (row 7): remove
+	// the two files this test made, then the directory.
+	remove(spacedExecutable + ".exe");
+	rmdir(root);
+#else
 	FileSystem.removeRecursive(root);
+#endif
 	print("PASS: test_stdlib_child_process");
 	return 0;
 }

@@ -104,7 +104,7 @@ jobs:
           name: windows-host-${{ matrix.arch }}
           path: build/windows-host-${{ matrix.arch }}
       - name: Run the 16 cases natively
-        run: python -m tools.target_hosts.windows.check --bundle build/windows-host-${{ matrix.arch }} --report build/windows-host-${{ matrix.arch }}-results.json --label ${{ matrix.runner }}
+        run: python -m tools.target_hosts.windows.check --bundle build/windows-host-${{ matrix.arch }} --report build/windows-host-${{ matrix.arch }}-results.json --runner ${{ matrix.runner }}
       - name: Retain the results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

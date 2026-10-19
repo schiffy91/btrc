@@ -1,0 +1,4 @@
+/* FileSystemHandles' provider on linux, macOS, iOS and Android: selection only.
+ * Their POSIX bodies stay inline in FileSystemHandles.btrc under
+ * `#if !defined(_WIN32)`, so these rows compile exactly the C they compiled
+ * before the Windows provider (Windows/Win32FileSystemProvider.btrc) existed. */

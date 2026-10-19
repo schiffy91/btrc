@@ -367,7 +367,7 @@ class OperatorSemantics {
 	/* A type as the reference's operator diagnostics spell it
 	 * (OperatorTypes.type_label). */
 	public string operandLabel(Node typeExpr) {
-		string label = typeExpr.base;
+		string label = typeExpr.base == "__fn_ptr" ? "CFunction" : (typeExpr.base == "__realtime_fn_ptr" ? "RealtimeFunction" : typeExpr.base);
 		if (typeExpr.genericArgs().len > 0) {
 			Vector<string> arguments = [];
 			for argument in typeExpr.genericArgs() { arguments.push(self.operandLabel(argument)); }

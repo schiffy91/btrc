@@ -555,7 +555,7 @@ class AnalysisSession(AnalysisContext):
         self.realtime_bounded_loop_ids: set[int] = set()
         self._nonnull_paths: set = set()
         self._flow_unreachable: bool = False
-        self._address_escaped_symbol_ids: set[int] = set()
+        self._address_escaped_symbols: dict[int, SymbolInfo] = {}
         self.rich_enum_unsafe_default_ids: set[int] = set()
         # Lambda literals spawned directly: their results are Thread<T> results.
         self.spawned_lambda_ids: set[int] = set()
@@ -595,6 +595,7 @@ class AnalysisSession(AnalysisContext):
         self.lambda_body_facts = {}
         self.expression_flow_seeds = {}
         self.known_nonnull_expression_ids = set()
+        self._address_escaped_symbols = {}
         self.reported_type_shape_errors = set()
         self._gpu_result_boundary = None
         self.inferred_literal_mismatches = []
@@ -790,13 +791,18 @@ class AnalysisSession(AnalysisContext):
         return frozenset(self._unresolved_direct_callee_ids)
 
     def mark_address_escaped(self, symbol) -> None:
-        self._address_escaped_symbol_ids.add(id(symbol))
+        # The symbol itself is kept, not only its id: a symbol whose scope has
+        # ended is freed, and a later binding allocated at the same address
+        # would otherwise inherit the escape and lose its non-null facts.
+        self._address_escaped_symbols[id(symbol)] = symbol
 
     def address_escaped(self, symbol) -> bool:
-        return id(symbol) in self._address_escaped_symbol_ids
+        return self._address_escaped_symbols.get(id(symbol)) is symbol
 
     def forget_address_escaped(self, symbols) -> None:
-        self._address_escaped_symbol_ids.difference_update(id(symbol) for symbol in symbols)
+        for symbol in symbols:
+            if self.address_escaped(symbol):
+                del self._address_escaped_symbols[id(symbol)]
 
     def record_node_type(self, node, type_: TypeExpr) -> TypeExpr:
         """Record and return a type fact produced by an analysis owner."""

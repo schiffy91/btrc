@@ -1,4 +1,4 @@
-btrc-symbols 1 82dbdf7a-242392-26
+btrc-symbols 1 6afd053a-248221-26
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
@@ -120,6 +120,7 @@ Timer	Timer.btrc
 UTF8	Strings.btrc
 UnixShell	Process.btrc
 Vector	Vector.btrc
+btrcWinDescribeStream	IO.btrc
 callbackBackoff	Callback.btrc
 callbackGateCloseAdmission	Callback.btrc
 callbackGateDrain	Callback.btrc

@@ -49,6 +49,12 @@ functions = [
   "__btrc_terminal_foreground_group",
   "__btrc_validate_executable_descriptor",
   "__btrc_validate_working_directory_descriptor",
+  "__btrc_windows_launch",
+  "__btrc_windows_launch_close",
+  "__btrc_windows_launch_copy_output",
+  "__btrc_windows_launch_terminate",
+  "__btrc_windows_launch_wait",
+  "__btrc_windows_quote_argv_utf8",
   "_setjmp",
   "a64l",
   "abort",
@@ -398,6 +404,8 @@ functions = [
   "getusershell",
   "getwd",
   "getwgroups_np",
+  "glob",
+  "globfree",
   "gmtime",
   "gmtime_r",
   "grantpt",
@@ -1761,6 +1769,16 @@ macros = [
   "F_WRLCK",
   "GETSIGSINFO_PLATFORM_BINARY",
   "GID_MAX",
+  "GLOB_ABORTED",
+  "GLOB_APPEND",
+  "GLOB_DOOFFS",
+  "GLOB_ERR",
+  "GLOB_MARK",
+  "GLOB_NOCHECK",
+  "GLOB_NOESCAPE",
+  "GLOB_NOMATCH",
+  "GLOB_NOSORT",
+  "GLOB_NOSPACE",
   "GROUP_FILTER_SIZE",
   "HOST_NAME_MAX",
   "HTONL",
@@ -3687,6 +3705,10 @@ types = [
   "BtrcGPUAsyncWaitOutcome",
   "DIR",
   "FILE",
+  "__btrc_windows_launch_error_t",
+  "__btrc_windows_launch_options_t",
+  "__btrc_windows_launch_owner_t",
+  "__btrc_windows_launch_result_t",
   "accessx_descriptor",
   "active_reg_t",
   "atomic_bool",
@@ -3778,6 +3800,7 @@ types = [
   "ftrimactivefile",
   "ftrimactivefile_t",
   "gid_t",
+  "glob_t",
   "greg_t",
   "gregset_t",
   "group_filter",
@@ -3979,6 +4002,10 @@ typedefs = [
   "BtrcGPUAsyncWaitOutcome",
   "DIR",
   "FILE",
+  "__btrc_windows_launch_error_t",
+  "__btrc_windows_launch_options_t",
+  "__btrc_windows_launch_owner_t",
+  "__btrc_windows_launch_result_t",
   "active_reg_t",
   "atomic_bool",
   "atomic_char",
@@ -4050,6 +4077,7 @@ typedefs = [
   "fsupplement_t",
   "ftrimactivefile_t",
   "gid_t",
+  "glob_t",
   "greg_t",
   "gregset_t",
   "id_t",
@@ -4848,6 +4876,16 @@ owned = [
   "F_WRLCK",
   "GETSIGSINFO_PLATFORM_BINARY",
   "GID_MAX",
+  "GLOB_ABORTED",
+  "GLOB_APPEND",
+  "GLOB_DOOFFS",
+  "GLOB_ERR",
+  "GLOB_MARK",
+  "GLOB_NOCHECK",
+  "GLOB_NOESCAPE",
+  "GLOB_NOMATCH",
+  "GLOB_NOSORT",
+  "GLOB_NOSPACE",
   "GROUP_FILTER_SIZE",
   "GetFileAttributesA",
   "HOST_NAME_MAX",
@@ -6592,6 +6630,16 @@ owned = [
   "__btrc_terminal_foreground_group",
   "__btrc_validate_executable_descriptor",
   "__btrc_validate_working_directory_descriptor",
+  "__btrc_windows_launch",
+  "__btrc_windows_launch_close",
+  "__btrc_windows_launch_copy_output",
+  "__btrc_windows_launch_error_t",
+  "__btrc_windows_launch_options_t",
+  "__btrc_windows_launch_owner_t",
+  "__btrc_windows_launch_result_t",
+  "__btrc_windows_launch_terminate",
+  "__btrc_windows_launch_wait",
+  "__btrc_windows_quote_argv_utf8",
   "_setjmp",
   "a64l",
   "abort",
@@ -7073,6 +7121,9 @@ owned = [
   "getwd",
   "getwgroups_np",
   "gid_t",
+  "glob",
+  "glob_t",
+  "globfree",
   "gmtime",
   "gmtime_r",
   "grantpt",
@@ -8377,6 +8428,8 @@ functions = [
   "getusershell",
   "getwd",
   "getwgroups_np",
+  "glob",
+  "globfree",
   "gmtime",
   "gmtime_r",
   "grantpt",
@@ -9386,6 +9439,16 @@ macros = [
   "F_WRLCK",
   "GETSIGSINFO_PLATFORM_BINARY",
   "GID_MAX",
+  "GLOB_ABORTED",
+  "GLOB_APPEND",
+  "GLOB_DOOFFS",
+  "GLOB_ERR",
+  "GLOB_MARK",
+  "GLOB_NOCHECK",
+  "GLOB_NOESCAPE",
+  "GLOB_NOMATCH",
+  "GLOB_NOSORT",
+  "GLOB_NOSPACE",
   "GROUP_FILTER_SIZE",
   "HOST_NAME_MAX",
   "HTONL",
@@ -11176,6 +11239,7 @@ types = [
   "ftrimactivefile",
   "ftrimactivefile_t",
   "gid_t",
+  "glob_t",
   "greg_t",
   "gregset_t",
   "group_filter",
@@ -11355,6 +11419,7 @@ typedefs = [
   "fsupplement_t",
   "ftrimactivefile_t",
   "gid_t",
+  "glob_t",
   "greg_t",
   "gregset_t",
   "id_t",
@@ -11804,6 +11869,103 @@ parameters = [
 variadic = false
 return_effect = "value"
 raw_lifetime = false
+
+[[functions]]
+name = "__btrc_windows_launch"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_options_t", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_launch_close"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "uint64_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_launch_copy_output"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "uint32_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "size_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "safe"
+
+[[functions]]
+name = "__btrc_windows_launch_terminate"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "uint32_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_launch_wait"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "uint32_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "uint64_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_launch_result_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_quote_argv_utf8"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "char", pointer_depth = 2, is_const = false, effect = "read" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "uint16_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "size_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "safe"
 
 [[functions]]
 name = "abort"
@@ -13671,6 +13833,37 @@ parameters_known = true
 parameters = [
   { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
   { base = "struct rlimit", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "glob"
+origin = "posix"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [
+      { base = "int", pointer_depth = 0, is_const = false },
+      { base = "char", pointer_depth = 1, is_const = true },
+      { base = "int", pointer_depth = 0, is_const = false },
+    ], effect = "value", callback_lifetime = "during_call" },
+  { base = "glob_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "globfree"
+origin = "posix"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "glob_t", pointer_depth = 1, is_const = false, effect = "mutate" },
 ]
 variadic = false
 return_effect = "value"
@@ -24244,7 +24437,6 @@ unavailable_functions = [
   "fls",
   "flsl",
   "flsll",
-  "fnmatch",
   "fork",
   "forkpty",
   "fpathconf",
@@ -24486,10 +24678,6 @@ unavailable_functions = [
   "recv",
   "recvfrom",
   "recvmsg",
-  "regcomp",
-  "regerror",
-  "regexec",
-  "regfree",
   "regncomp",
   "regnexec",
   "regwcomp",
@@ -25044,15 +25232,7 @@ unavailable_macros = [
   "FIOSETOWN",
   "FLUSHO",
   "FNDELAY",
-  "FNM_CASEFOLD",
-  "FNM_FILE_NAME",
   "FNM_IGNORECASE",
-  "FNM_LEADING_DIR",
-  "FNM_NOESCAPE",
-  "FNM_NOMATCH",
-  "FNM_NOSYS",
-  "FNM_PATHNAME",
-  "FNM_PERIOD",
   "FNONBLOCK",
   "FOOTPRINT_INTERVAL_RESET",
   "FPE_CONDTRAP",
@@ -26107,42 +26287,22 @@ unavailable_macros = [
   "REG_ATOI",
   "REG_BACKR",
   "REG_BACKTRACKING_MATCHER",
-  "REG_BADBR",
   "REG_BADMAX",
-  "REG_BADPAT",
-  "REG_BADRPT",
   "REG_BASIC",
   "REG_DUMP",
-  "REG_EBRACE",
-  "REG_EBRACK",
-  "REG_ECOLLATE",
-  "REG_ECTYPE",
   "REG_EEND",
-  "REG_EESCAPE",
   "REG_EMPTY",
   "REG_ENHANCED",
-  "REG_ENOSYS",
-  "REG_EPAREN",
-  "REG_ERANGE",
   "REG_ERPAREN",
   "REG_ESIZE",
-  "REG_ESPACE",
-  "REG_ESUBREG",
-  "REG_EXTENDED",
-  "REG_ICASE",
   "REG_ILLSEQ",
   "REG_INVARG",
   "REG_ITOA",
   "REG_LARGE",
   "REG_LITERAL",
   "REG_MINIMAL",
-  "REG_NEWLINE",
   "REG_NOERROR",
-  "REG_NOMATCH",
   "REG_NOSPEC",
-  "REG_NOSUB",
-  "REG_NOTBOL",
-  "REG_NOTEOL",
   "REG_PEND",
   "REG_STARTEND",
   "REG_TRACE",
@@ -26872,13 +27032,9 @@ unavailable_types = [
   "random_data",
   "re_dfa_t",
   "re_guts",
-  "re_pattern_buffer",
   "reg_errcode_t",
   "reg_syntax_t",
-  "regex_t",
   "register_t",
-  "regmatch_t",
-  "regoff_t",
   "rlim_t",
   "rlimit",
   "rune_t",
@@ -27000,10 +27156,7 @@ unavailable_typedefs = [
   "re_dfa_t",
   "reg_errcode_t",
   "reg_syntax_t",
-  "regex_t",
   "register_t",
-  "regmatch_t",
-  "regoff_t",
   "rlim_t",
   "rune_t",
   "rusage_info_t",
@@ -27050,7 +27203,7 @@ unavailable_typedefs = [
   "uuid_string_t",
   "uuid_t",
 ]
-source = "zig 0.16.0 lib/libc/include/any-windows-any (MinGW-w64 38c8142f) plus src/runtime/windows, --target=aarch64-w64-windows-gnu, extracted 2026-10-04 by tools/hosted_platform.py"
+source = "zig 0.16.0 lib/libc/include/any-windows-any (MinGW-w64 38c8142f) plus src/runtime/windows, --target=aarch64-w64-windows-gnu, extracted 2026-10-18 by tools/hosted_platform.py"
 
 # btrc stdlib self-declarations are not counted on this conservative row.
 # Keeping Windows API names (GetFileAttributesA, FILE_ATTRIBUTE_*) assumes the MSVC compile sees <windows.h>; the compat overlay includes MinGW-only <dirent.h>, so it cannot be force-included on MSVC as it is.
@@ -27268,6 +27421,8 @@ unavailable_functions = [
   "getusershell",
   "getwd",
   "getwgroups_np",
+  "glob",
+  "globfree",
   "gmtime_r",
   "grantpt",
   "gsignal",
@@ -28168,6 +28323,16 @@ unavailable_macros = [
   "F_WRLCK",
   "GETSIGSINFO_PLATFORM_BINARY",
   "GID_MAX",
+  "GLOB_ABORTED",
+  "GLOB_APPEND",
+  "GLOB_DOOFFS",
+  "GLOB_ERR",
+  "GLOB_MARK",
+  "GLOB_NOCHECK",
+  "GLOB_NOESCAPE",
+  "GLOB_NOMATCH",
+  "GLOB_NOSORT",
+  "GLOB_NOSPACE",
   "GROUP_FILTER_SIZE",
   "HOST_NAME_MAX",
   "HTONL",
@@ -29933,6 +30098,7 @@ unavailable_types = [
   "ftrimactivefile",
   "ftrimactivefile_t",
   "gid_t",
+  "glob_t",
   "greg_t",
   "gregset_t",
   "group_filter",
@@ -30101,6 +30267,7 @@ unavailable_typedefs = [
   "fsupplement_t",
   "ftrimactivefile_t",
   "gid_t",
+  "glob_t",
   "greg_t",
   "gregset_t",
   "id_t",
@@ -30293,7 +30460,6 @@ unavailable_functions = [
   "fls",
   "flsl",
   "flsll",
-  "fnmatch",
   "fork",
   "forkpty",
   "fpathconf",
@@ -30535,10 +30701,6 @@ unavailable_functions = [
   "recv",
   "recvfrom",
   "recvmsg",
-  "regcomp",
-  "regerror",
-  "regexec",
-  "regfree",
   "regncomp",
   "regnexec",
   "regwcomp",
@@ -31093,15 +31255,7 @@ unavailable_macros = [
   "FIOSETOWN",
   "FLUSHO",
   "FNDELAY",
-  "FNM_CASEFOLD",
-  "FNM_FILE_NAME",
   "FNM_IGNORECASE",
-  "FNM_LEADING_DIR",
-  "FNM_NOESCAPE",
-  "FNM_NOMATCH",
-  "FNM_NOSYS",
-  "FNM_PATHNAME",
-  "FNM_PERIOD",
   "FNONBLOCK",
   "FOOTPRINT_INTERVAL_RESET",
   "FPE_CONDTRAP",
@@ -32156,42 +32310,22 @@ unavailable_macros = [
   "REG_ATOI",
   "REG_BACKR",
   "REG_BACKTRACKING_MATCHER",
-  "REG_BADBR",
   "REG_BADMAX",
-  "REG_BADPAT",
-  "REG_BADRPT",
   "REG_BASIC",
   "REG_DUMP",
-  "REG_EBRACE",
-  "REG_EBRACK",
-  "REG_ECOLLATE",
-  "REG_ECTYPE",
   "REG_EEND",
-  "REG_EESCAPE",
   "REG_EMPTY",
   "REG_ENHANCED",
-  "REG_ENOSYS",
-  "REG_EPAREN",
-  "REG_ERANGE",
   "REG_ERPAREN",
   "REG_ESIZE",
-  "REG_ESPACE",
-  "REG_ESUBREG",
-  "REG_EXTENDED",
-  "REG_ICASE",
   "REG_ILLSEQ",
   "REG_INVARG",
   "REG_ITOA",
   "REG_LARGE",
   "REG_LITERAL",
   "REG_MINIMAL",
-  "REG_NEWLINE",
   "REG_NOERROR",
-  "REG_NOMATCH",
   "REG_NOSPEC",
-  "REG_NOSUB",
-  "REG_NOTBOL",
-  "REG_NOTEOL",
   "REG_PEND",
   "REG_STARTEND",
   "REG_TRACE",
@@ -32921,13 +33055,9 @@ unavailable_types = [
   "random_data",
   "re_dfa_t",
   "re_guts",
-  "re_pattern_buffer",
   "reg_errcode_t",
   "reg_syntax_t",
-  "regex_t",
   "register_t",
-  "regmatch_t",
-  "regoff_t",
   "rlim_t",
   "rlimit",
   "rune_t",
@@ -33049,10 +33179,7 @@ unavailable_typedefs = [
   "re_dfa_t",
   "reg_errcode_t",
   "reg_syntax_t",
-  "regex_t",
   "register_t",
-  "regmatch_t",
-  "regoff_t",
   "rlim_t",
   "rune_t",
   "rusage_info_t",
@@ -33099,4 +33226,4 @@ unavailable_typedefs = [
   "uuid_string_t",
   "uuid_t",
 ]
-source = "zig 0.16.0 lib/libc/include/any-windows-any (MinGW-w64 38c8142f) plus src/runtime/windows, --target=x86_64-w64-windows-gnu, extracted 2026-10-04 by tools/hosted_platform.py"
+source = "zig 0.16.0 lib/libc/include/any-windows-any (MinGW-w64 38c8142f) plus src/runtime/windows, --target=x86_64-w64-windows-gnu, extracted 2026-10-18 by tools/hosted_platform.py"

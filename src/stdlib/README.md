@@ -39,8 +39,9 @@ the API surface, so the layout follows a few fixed rules.
   `Audio/Linux`, `Digest/MacOS`, `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`,
   `Image/Linux`, `LocalApplicationChannel/MacOS`,
   `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`,
-  `BackgroundJobs/MacOS`, `BackgroundJobs/Linux`, and `BackgroundJobs/Unix`
-  for code shared by Linux and macOS) and implements the
+  `BackgroundJobs/MacOS`, `BackgroundJobs/Linux`, `Terminal/Windows`, and
+  `BackgroundJobs/Unix` and `Terminal/Unix` for code the Unix rows share)
+  and implements the
   group's portable contract: `GUI/MacOS/MacOSDirectoryPicker` and
   `GUI/Linux/LinuxDirectoryPicker` implement `GUI/IDirectoryPicker`,
   `Image/MacOS/MacOSEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
@@ -69,6 +70,11 @@ the API surface, so the layout follows a few fixed rules.
   (`MacOS.MacOSWindow`). The root `btrc.toml` names `btrc_stdlib_runtime`,
   exports the prelude and depends on every group by path; both compilers
   resolve that graph, and ordinary export visibility applies between groups.
+  Its own `[[package.providers]]` select `Process`'s private host seam:
+  `Windows/ProcessHostProvider` (the CreateProcessW provider over the
+  runtime's `windows_os.c`) on windows rows and the declaration-free
+  `Unix/ProcessHostProvider` shell on every other row, where `Process.btrc`
+  keeps its POSIX bodies.
   A group that imports another group (`Daemon` imports `FileSystem`, `Tray`
   imports `GUI`) does not list it under `[dependencies]`: every group is
   already a dependency of the root package, so `import Library.<Group>...`
@@ -92,7 +98,7 @@ Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 (`Linux/`, `MacOS/`, `Unix/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`,
 `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`), `HTTP`, `Image`
 (`Linux/`, `MacOS/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`),
-`Realtime`, `Terminal`, `Tray` (`Linux/`, `MacOS/`), `UI`.
+`Realtime`, `Terminal` (`Unix/`, `Windows/`), `Tray` (`Linux/`, `MacOS/`), `UI`.
 Each group with behavior worth explaining has its own `README.md`.
 
 ## Drift findings

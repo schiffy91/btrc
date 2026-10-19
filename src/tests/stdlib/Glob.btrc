@@ -1,0 +1,83 @@
+/* glob(3) from <glob.h> over files this program creates: sorted matches,
+ * '?', brackets and escapes, a wildcard directory component, dot files,
+ * GLOB_MARK, GLOB_NOCHECK, GLOB_APPEND and GLOB_NOMATCH. Every path is
+ * printed relative to the temporary directory, so the output is the same on
+ * every platform. */
+import Library.FileSystem;
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+
+#include <assert.h>
+#include <glob.h>
+#include <stdio.h>
+
+string root = "";
+int globErrors = 0;
+
+/* glob's error callback: count the directories it could not read. */
+int countGlobError(const char* path, int error) {
+	globErrors = globErrors + 1;
+	return 0;
+}
+
+string joined(glob_t* found) {
+	string text = "";
+	char** paths = found->gl_pathv;
+	for (int i = 0; i < (int)found->gl_pathc; i++) {
+		string path = Strings.copy(paths[i]);
+		if (path.startsWith(root)) { path = path.substring(root.len(), path.len() - root.len()); }
+		text = i == 0 ? path : text + " " + path;
+	}
+	return text;
+}
+
+string expand(string pattern, int flags) {
+	glob_t found;
+	int status = glob(root + pattern, flags, countGlobError, &found);
+	if (status == GLOB_NOMATCH) { return "(no match)"; }
+	assert(status == 0);
+	string text = joined(&found);
+	globfree(&found);
+	return text;
+}
+
+void touch(string name) { assert(Path.writeAll(PathTools.join(root, name), name)); }
+
+int main() {
+	/* A glob pattern separates components with '/' on every platform; a
+	 * backslash escapes the next character. */
+	string directory = FileSystem.tempDir("btrc_glob");
+	assert(!directory.isEmpty());
+	root = directory.replace("\\", "/") + "/";
+	assert(FileSystem.mkdir(root + "sub", 448) == 0);
+	assert(FileSystem.mkdir(root + "other", 448) == 0);
+	Vector<string> files = ["a.txt", "b.txt", "c.md", ".hidden.txt", "[x].txt", "sub/x.txt", "sub/y.md", "other/x.txt"];
+	for name in files { touch(name); }
+
+	print(f"txt: {expand("*.txt", 0)}");
+	print(f"one: {expand("?.md", 0)}");
+	print(f"set: {expand("[ab].txt", 0)}");
+	print(f"not: {expand("[!a].txt", 0)}");
+	print(f"dirs: {expand("*/x.txt", 0)}");
+	print(f"dots: {expand(".*.txt", 0)}");
+	print(f"escaped: {expand("\\[x\\].txt", 0)}");
+	print(f"literal: {expand("sub/y.md", 0)}");
+	print(f"marked: {expand("*", GLOB_MARK)}");
+	print(f"missing: {expand("*.none", 0)}");
+	print(f"checked: {expand("*.none", GLOB_NOCHECK)}");
+
+	glob_t found;
+	assert(glob(root + "*.txt", 0, countGlobError, &found) == 0);
+	assert(glob(root + "*.md", GLOB_APPEND, countGlobError, &found) == 0);
+	print(f"appended: {joined(&found)}");
+	globfree(&found);
+	assert(globErrors == 0);
+
+	for name in files { assert(remove(PathTools.join(root, name)) == 0); }
+	assert(rmdir(root + "sub") == 0);
+	assert(rmdir(root + "other") == 0);
+	assert(rmdir(directory) == 0);
+	print("PASS: test_stdlib_glob");
+	return 0;
+}

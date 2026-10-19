@@ -45,8 +45,11 @@ namespaces = true
 # a namespace package, so these per-package globs include the complete source
 # payload without admitting build products such as .o/.a files. The stdlib's
 # lock files and its symbol table are named exactly; `make wheel` checks them.
+# COPYRIGHT is the vendored musl's licence (src/runtime/windows/musl), which
+# travels with its sources.
 [tool.setuptools.package-data]
 "*" = [
+    "COPYRIGHT",
     "btrc.lock",
     "btrc.symbols",
     "*.asdl",

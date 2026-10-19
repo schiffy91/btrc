@@ -479,7 +479,7 @@ class ExpressionTypeResolver {
 					return callableType.genericArgs().get(0);
 				}
 			}
-			Node? callableCallee = SemanticTypeSystem.directFunctionPointerSpecialization(self.inferSpecializationType(callee, a, operators, varTypes), a);
+			Node? callableCallee = SemanticTypeSystem.callableSpecialization(self.inferSpecializationType(callee, a, operators, varTypes), a);
 			if (callableCallee != null) {
 				return callableCallee.genericArgs().get(0);
 			}

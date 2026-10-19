@@ -1,0 +1,143 @@
+/* Library.Process on Windows through the CreateProcessW provider (CX-P2-06).
+ * test_windows_process.py builds this program with both compilers for x64
+ * and ARM64; windows.yml's process-native job runs it as
+ *
+ *     ProcessWindows.exe --parent <launch harness>
+ *
+ * where the launch harness (src/tests/native/windows_launch) is a child that
+ * reads its arguments with CommandLineToArgvW, so non-ASCII arguments are
+ * checked exactly. It prints one line per failed check and, when every
+ * check passes, exactly "process-windows PASS checks=<n>". */
+import Library.FileSystem;
+import Library.Platform;
+import Library.Process;
+import Library.Strings;
+import Library.Vector;
+
+#include <stdio.h>
+#include <stdlib.h>
+
+int checks = 0;
+int failures = 0;
+
+void check(string name, bool passed) {
+	checks = checks + 1;
+	if (!passed) {
+		failures = failures + 1;
+		printf("FAIL %s\n", name);
+	}
+}
+
+/* The lowercase hex of a string's UTF-8 bytes, as the harness echoes them. */
+string hexOf(string text) {
+	string result = "";
+	char pair[3];
+	for (int index = 0; index < text.len(); index++) {
+		snprintf(pair, 3, "%02x", (int)text[index] & 255);
+		result = result + Strings.copy(pair);
+	}
+	return result;
+}
+
+void checkArguments(string harness) {
+	/* Spaces, quotes, backslashes before a quote and at the end, an empty
+	 * argument, a tab, and e-acute, two CJK ideographs and U+1F600. */
+	Vector<string> arguments = ["--echo", "a b", "q\"x", "", "tail\\", "a\\\\\"b", "tab\there", "\xc3\xa9", "\xe4\xb8\xad\xe6\x96\x87", "\xf0\x9f\x98\x80"];
+	ExecResult echoed = ChildProcess.run(harness, arguments, timeoutMilliseconds=10000);
+	string expected = "";
+	for (int index = 1; index < arguments.len; index++) {
+		expected = expected + "arg=" + hexOf(arguments.get(index)) + "\n";
+	}
+	check("argv reaches the child exactly", echoed.ok() && echoed.stdout().equals(expected));
+}
+
+void checkStatus(string harness) {
+	check("an exit code is the child's own", ChildProcess.run(harness, ["--exit", "17"]).code == 23);
+	check("an NTSTATUS exit keeps its bits", ChildProcess.run(harness, ["--exit", "C0000005"]).code == -1073741819);
+	check("a Windows ProcessStatus decodes nothing", ProcessStatus(-1).code() == -1 && ProcessStatus(3).code() == 3);
+	ExecResult missing = ChildProcess.run("C:\\btrc-nonexistent-directory\\nothing.exe", ["--exit", "0"]);
+	check("a missing executable is 127", missing.code == 127 && missing.stderr().equals("failed to execute child process\n"));
+}
+
+void checkTimeout(string harness, string temporary) {
+	string marker = PathTools.join(temporary, "btrc-process-tree");
+	string started = marker + ".started";
+	remove(marker);
+	remove(started);
+	ExecResult timedOut = ChildProcess.run(harness, ["--tree", "2", marker], timeoutMilliseconds=1500);
+	check("a deadline reports 124", timedOut.code == 124 && timedOut.wasTimedOut());
+	check("the leaf was running", FileSystem.exists(started));
+	usleep(4500000);
+	check("the deadline killed the whole tree", !FileSystem.exists(marker));
+	remove(started);
+}
+
+void checkRefusals(string harness, string temporary) {
+	string shellRefusal = "UnixShell.run is unavailable on Windows: there is no POSIX /bin/sh; use ChildProcess.run with an argument vector\n";
+	ExecResult shell = UnixShell().run("echo hi", logFailure=false);
+	check("UnixShell is refused", shell.code == 127 && shell.stderr().equals(shellRefusal));
+	string descriptorRefusal = "ChildProcess.run is unavailable on Windows: exact executable/cwd descriptors and arbitrary descriptor mappings need a native handle contract; use path-based launch with explicit stdio handles\n";
+	Vector<string> noArguments = [];
+	check("an executable descriptor is refused", ChildProcess.run(harness, noArguments, executableDescriptor=3).stderr().equals(descriptorRefusal));
+	check("a cwd descriptor is refused", ChildProcess.run(harness, noArguments, workingDirectoryDescriptor=3).stderr().equals(descriptorRefusal));
+	Vector<ChildDescriptorMapping> mappings = [ChildDescriptorMapping(3, 4)];
+	check("a descriptor mapping is refused", ChildProcess.run(harness, noArguments, descriptorMappings=mappings).stderr().equals(descriptorRefusal));
+	ExecResult foreground = ChildProcess.run(harness, ["--exit", "0"], foreground=true);
+	check("a foreground handoff is refused", foreground.code == 127 && foreground.stderr().equals("ChildProcess.run is unavailable on Windows: a console has no controlling-terminal foreground handoff; use a background child\n"));
+	string batch = PathTools.join(temporary, "btrc-process-refused.bat");
+	FILE* file = fopen(batch, "w");
+	if (file != NULL) {
+		fputs("@echo off\n", file);
+		fclose(file);
+	}
+	ExecResult batchRun = ChildProcess.run(batch, noArguments);
+	check("a batch file is refused", batchRun.code == 127 && batchRun.stderr().contains("a batch file needs cmd.exe"));
+	remove(batch);
+}
+
+void checkEnvironment(string harness, string temporary) {
+	ExecResult windowsName = ChildProcess.run(harness, ["--env", "BTRC_PROGRAM(X86)"], environment=["BTRC_PROGRAM(X86)=C:\\Tools"]);
+	check("a Windows variable name may hold parentheses", windowsName.ok() && windowsName.stdout().equals("C:\\Tools"));
+	bool duplicate = false;
+	try {
+		ChildProcess.run(harness, ["--exit", "0"], environment=["BTRC_DUP=1", "btrc_dup=2"]);
+	} catch (string error) {
+		duplicate = error.contains("duplicate child environment override");
+	}
+	check("names differing only in case are one variable", duplicate);
+	ExecResult input = ChildProcess.run(harness, ["--cat"], stdinData="hello stdin");
+	check("stdinData reaches the child", input.ok() && input.stdout().equals("hello stdin"));
+	ExecResult directory = ChildProcess.run(harness, ["--cwd"], cwd=temporary);
+	string wanted = temporary.endsWith("\\") ? temporary.substring(0, temporary.len() - 1) : temporary;
+	check("cwd reaches the child", directory.ok() && directory.stdout().toLower().equals(wanted.toLower()));
+}
+
+void checkCapture(string harness) {
+	ExecResult bounded = ChildProcess.run(harness, ["--flood", "100000"], maxStdoutBytes=1024, maxStderrBytes=1024, timeoutMilliseconds=10000);
+	check("a capture limit is 125", bounded.code == 125 && bounded.captureExceeded && bounded.capturedStdoutBytes == 1024 && bounded.stderr().contains("child output exceeded capture limit"));
+	ExecResult combined = ChildProcess.run(harness, ["--flood", "10"], stderr=COMMAND_OUTPUT_COMBINE);
+	check("combine shares stdout", combined.ok() && combined.capturedStdoutBytes == 20 && combined.capturedStderrBytes == 0);
+	ExecResult quiet = ChildProcess.run(harness, ["--flood", "10"], stdout=COMMAND_OUTPUT_SUPPRESS, stderr=COMMAND_OUTPUT_SUPPRESS);
+	check("suppress keeps nothing", quiet.ok() && quiet.capturedStdoutBytes == 0 && quiet.capturedStderrBytes == 0);
+}
+
+int main(int argc, char** argv) {
+	if (argc != 3 || !Strings.copy(argv[1]).equals("--parent")) {
+		printf("usage: ProcessWindows --parent <launch harness>\n");
+		return 2;
+	}
+	string harness = Strings.copy(argv[2]);
+	string temporary = Environment.get("TEMP", "");
+	checkArguments(harness);
+	checkStatus(harness);
+	checkTimeout(harness, temporary);
+	checkRefusals(harness, temporary);
+	checkEnvironment(harness, temporary);
+	checkCapture(harness);
+	if (failures != 0) {
+		printf("process-windows FAIL failures=%d checks=%d\n", failures, checks);
+		return 1;
+	}
+	printf("process-windows PASS checks=%d\n", checks);
+	return 0;
+}

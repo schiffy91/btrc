@@ -140,9 +140,7 @@ golden files' SHA-256, ``PASS`` in stdout, universal-newline comparison); or
 ``failed``, ``restricted`` or ``missing`` with ``phase``, ``reason`` and
 ``cites``. ``--execute-bundle`` admits a bundle only when its revision is this
 checkout's and every pin, recomputed from this checkout's goldens, is equal;
-executors then receive only requests built from those pins. For the Windows
-rows the bundle also carries the host spike's ``manifest.json`` view
-(``btrc.windows-host-bundle/1``) until CX-P1-07 reads ``bundle.json``.
+executors then receive only requests built from those pins.
 """
 
 from __future__ import annotations
@@ -191,7 +189,7 @@ from src.tests.runner_capabilities import (
     loopback_listener_error,
 )
 from tools.host_c_compiler import HostCCompiler
-from tools.native_plan import NativePlanError, TargetToolchain
+from tools.native_plan import NativePlanError, RuntimeObjects, TargetToolchain
 from tools.qualification.adapters import HostProvenance, TargetRunAdapter
 from tools.qualification.schema import LedgerDocument, Provenance
 
@@ -208,7 +206,9 @@ APPLICABILITY_SCHEMA = "btrc.target-applicability/1"
 FRONTENDS = ("reference", "selfhost")
 STATUSES = TargetRunAdapter.STATUSES
 # The flags the strict-C11 matrix and the Windows lane hold every generated unit to.
-STRICT_CFLAGS = ("-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2")
+# zig cc treats -O2 as a release mode and defines NDEBUG, which compiles out every
+# assert a corpus program checks with; -UNDEBUG keeps them live on every toolchain.
+STRICT_CFLAGS = ("-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2", "-UNDEBUG")
 # Retained per stream by the local executor; more is an infrastructure error.
 OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024
 PROGRAM_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
@@ -1223,12 +1223,25 @@ class ProgramBuilder:
             ),
             "compile",
         )
+        # A separately compiled runtime object the program retains is its own
+        # unit, built without the generated-unit overlay and linked whole.
+        runtime_objects = RuntimeObjects.selected([c_source])
+        runtime_paths = []
+        for index, source in enumerate(RuntimeObjects.sources(runtime_objects)):
+            runtime_path = work / f"{program_id}.runtime-{index}.o"
+            self.run_tool(
+                self.toolchain.compile_command(source, runtime_path, generated=False, flags=self.configuration.cflags),
+                "compile",
+            )
+            runtime_paths.append(runtime_path)
         self.run_tool(
             [
                 *self.toolchain.drivers["cc"],
                 *self.toolchain.arguments,
                 str(object_path),
+                *(str(path) for path in runtime_paths),
                 *link_flags,
+                *RuntimeObjects.library_flags(runtime_objects, self.row.operating_system),
                 *self.toolchain.runtime_libraries(),
                 "-o",
                 str(artifact),
@@ -1237,6 +1250,8 @@ class ProgramBuilder:
         )
         c_path.unlink()
         object_path.unlink()
+        for path in runtime_paths:
+            path.unlink()
         return BuildResult(
             program.source, frontend, program_id, "built", artifact=artifact.name, sha256=TargetBundle.digest(artifact)
         )
@@ -1303,8 +1318,6 @@ class TargetBundle:
 
     SCHEMA = BUNDLE_SCHEMA
     MANIFEST = "bundle.json"
-    WINDOWS_VIEW = "manifest.json"
-    WINDOWS_VIEW_SCHEMA = "btrc.windows-host-bundle/1"
     PROGRAM_STATUSES = ("built", "failed", "restricted", "missing")
 
     def __init__(self, directory: Path, document: dict[str, Any]) -> None:
@@ -1384,39 +1397,6 @@ class TargetBundle:
         staged = self.directory / f"{self.MANIFEST}.partial"
         staged.write_text(json.dumps(self.document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         staged.replace(self.directory / self.MANIFEST)
-        if self.label in self.windows_targets():
-            self.write_windows_view()
-
-    @staticmethod
-    def windows_targets() -> Mapping[str, tuple[str, int]]:
-        from tools.target_hosts.windows.bundle import TARGETS
-
-        return TARGETS
-
-    def write_windows_view(self) -> None:
-        """The Windows host spike's own index (until CX-P1-07 reads bundle.json)."""
-
-        from tools.target_hosts.windows.bundle import pe_machine
-
-        machine = self.windows_targets()[self.label][1]
-        programs = {}
-        for program_id, entry in self.built():
-            path = self.artifact_path(program_id)
-            programs[program_id] = {
-                "executable": entry["artifact"],
-                "sha256": entry["sha256"],
-                "pe_machine": pe_machine(path),
-            }
-        view = {
-            "schema": self.WINDOWS_VIEW_SCHEMA,
-            "target": self.label,
-            "pe_machine": machine,
-            "toolchain": self.toolchain,
-            "programs": programs,
-        }
-        (self.directory / self.WINDOWS_VIEW).write_text(
-            json.dumps(view, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
 
 
 class SourceRevision:

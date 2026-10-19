@@ -1,24 +1,67 @@
-/* btrc standard library — Unix terminal helpers */
+/* btrc standard library — terminal and console input
+ *
+ * Line input, prompts and hidden password prompts on standard input, the
+ * visible size of the terminal on standard output, ANSI colour output and raw
+ * key input. `[[package.providers]]` selects the host's implementation of
+ * the TerminalProvider seam: termios, ioctl and the C library on Unix
+ * (Unix/TerminalProvider.btrc), and the Win32 console API on Windows
+ * (Windows/TerminalProvider.btrc), where console input arrives as UTF-16 and
+ * is returned as UTF-8. Redirected input reads the same bounded way on both. */
 
-import Library.Bytes;
 import Library.Terminal.TerminalPasswordInput;
 
 #include <stdio.h>
+
+/* The visible size of a terminal, in character cells. */
+class TerminalSize {
+	public int columns;
+	public int rows;
+
+	public TerminalSize(int columns, int rows) {
+		self.columns = columns;
+		self.rows = rows;
+	}
+}
+
+/* Raw key input from the terminal on standard input: each key arrives as it
+ * is pressed, unechoed and without line editing, and the interrupt keys are
+ * ordinary input (Ctrl-C is the byte 3). Text arrives as UTF-8 and the
+ * arrow, function and editing keys as VT escape sequences ("\x1b[A" for the
+ * up arrow) on every platform. The terminal's previous mode comes back on
+ * restore() or when the object is released. */
+class TerminalRawMode {
+	private TerminalModeState _saved;
+	private bool _active;
+
+	public TerminalRawMode(TerminalModeState saved) {
+		self._saved = saved;
+		self._active = true;
+	}
+
+	/* The next byte of input, or -1 at the end of input, on a read error or
+	 * after restore(). */
+	public int readByte() {
+		if (!self._active) { return -1; }
+		return TerminalProvider.readRawByte(self._saved);
+	}
+
+	/* Return the terminal to the mode it had before; true when it is back. */
+	public bool restore() {
+		if (!self._active) { return true; }
+		self._active = false;
+		return TerminalProvider.restoreMode(self._saved);
+	}
+
+	public bool isActive() { return self._active; }
+
+	public void __del__() { self.restore(); }
+}
 
 class Terminal {
 	/* One line from stdin without its newline. At most `maxBytes` bytes are
 	 * kept; the rest of a longer line is consumed and dropped, so memory stays
 	 * bounded and the next read starts on the following line. */
-	class string readLine(int maxBytes = 1048576) {
-		Bytes value = Bytes();
-		int limit = maxBytes > 0 ? maxBytes : 0;
-		int byte = fgetc(stdin);
-		while (byte != EOF && byte != '\n') {
-			if (value.len < limit) { value.append(byte); }
-			byte = fgetc(stdin);
-		}
-		return value.toStringLossy();
-	}
+	class string readLine(int maxBytes = 1048576) { return TerminalProvider.readLine(maxBytes > 0 ? maxBytes : 0); }
 
 	class string prompt(string label) {
 		fprintf(stderr, "%s", label == null ? "" : label);
@@ -27,4 +70,27 @@ class Terminal {
 	}
 
 	class string promptPassword(string label) { return TerminalPasswordInput.prompt(label); }
+
+	/* The visible size of the terminal on standard output, or null when
+	 * standard output is not a terminal. */
+	class TerminalSize? size() {
+		int columns = 0;
+		int rows = 0;
+		if (!TerminalProvider.size(&columns, &rows)) { return null; }
+		return TerminalSize(columns, rows);
+	}
+
+	/* Let ANSI/VT escape sequences (colours, cursor movement) through to the
+	 * terminals on standard output and standard error, turning on the
+	 * Windows console's VT processing where it is off. True when standard
+	 * output is a terminal that interprets them. */
+	class bool enableColors() { return TerminalProvider.enableColors(); }
+
+	/* Switch the terminal on standard input to raw key input, or null when
+	 * standard input is not a terminal or its mode cannot be changed. */
+	class TerminalRawMode? enterRawMode() {
+		TerminalModeState? saved = TerminalProvider.enterRawMode();
+		if (saved == null) { return null; }
+		return TerminalRawMode(saved);
+	}
 }

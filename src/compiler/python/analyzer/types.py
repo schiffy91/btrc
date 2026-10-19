@@ -352,8 +352,11 @@ class OperatorSemantics:
                 )
             if identity.references_compatible(left, right, self.class_table, self.interface_table):
                 return "reference"
-            if (left.generic_args or right.generic_args) and identity.nominally_related(
-                left.base, right.base, self.class_table, self.interface_table
+            # Two function-pointer signatures are not an inheritance relation.
+            if (
+                (left.generic_args or right.generic_args)
+                and left.base not in _FUNCTION_POINTER_BASES
+                and identity.nominally_related(left.base, right.base, self.class_table, self.interface_table)
             ):
                 raise OperatorTypeError(
                     "cannot compare generic inheritance references with mismatched positional specialization arguments or arities"
@@ -408,7 +411,7 @@ class OperatorSemantics:
 
     def type_label(self, type_expr: TypeExpr) -> str:
         """Format a recursive source type for operator diagnostics."""
-        label = type_expr.base
+        label = {"__fn_ptr": "CFunction", "__realtime_fn_ptr": "RealtimeFunction"}.get(type_expr.base, type_expr.base)
         if type_expr.generic_args:
             arguments = ", ".join(self.type_label(item) for item in type_expr.generic_args)
             label += f"<{arguments}>"
@@ -1389,6 +1392,60 @@ class TypeSystem:
         ):
             return None
         return canonical.generic_args
+
+    def is_function_pointer_word(self, type_expr) -> bool:
+        """Whether a value is one C function-pointer word.
+
+        That is a ``CFunction`` or ``RealtimeFunction``, or the nullable
+        ``CFunction<...>?``, whose ``?`` collapses into the same word. A
+        pointer to one, or an array of them, is an object pointer.
+        """
+        canonical = self.canonical_type(type_expr)
+        return bool(
+            canonical is not None
+            and canonical.base in _FUNCTION_POINTER_BASES
+            and canonical.generic_args
+            and not canonical.is_array
+            and self.semantic_pointer_depth(canonical) == 1
+        )
+
+    def is_nullable_function_pointer(self, type_expr) -> bool:
+        """Whether a value is the nullable function pointer ``CFunction<...>?``."""
+        canonical = self.canonical_type(type_expr)
+        return bool(self.is_function_pointer_word(canonical) and canonical.pointer_depth == 1)
+
+    def callable_signature(self, type_expr):
+        """The ``(return, params...)`` a call through this value uses.
+
+        A ``CFunction<...>?`` is callable once the flow proves it non-null; the
+        call site, not this shape, checks that.
+        """
+        signature = self.function_pointer_signature(type_expr)
+        if signature is None and self.is_nullable_function_pointer(type_expr):
+            return self.canonical_type(type_expr).generic_args
+        return signature
+
+    def function_object_pointer_hint(self, target, source) -> str:
+        """Explain a refused conversion between a function pointer and ``void*``.
+
+        C11 converts a function pointer to no object pointer and back, neither
+        implicitly nor, in strict C11, by a cast (6.3.2.3).
+        """
+
+        def void_pointer(type_expr) -> bool:
+            canonical = self.canonical_type(type_expr)
+            return bool(
+                canonical is not None
+                and canonical.base == "void"
+                and canonical.pointer_depth > 0
+                and not canonical.is_array
+            )
+
+        if (self.is_function_pointer_word(target) and void_pointer(source)) or (
+            self.is_function_pointer_word(source) and void_pointer(target)
+        ):
+            return "; C11 has no conversion between a function pointer and an object pointer"
+        return ""
 
     def is_realtime_function_type(self, type_expr) -> bool:
         """Whether a value retains compiler-proven realtime call provenance."""
@@ -2718,7 +2775,12 @@ class TypeSystem:
         if t.generic_args:
             args = ", ".join(self.format_type(a) for a in t.generic_args)
             result += f"<{args}>"
-        result += "*" * t.pointer_depth
+        # `CFunction<...>?` is one function-pointer word, and
+        # `CFunction<...>*` a pointer to one, so its `?` stays a `?`.
+        collapsed = t.base in _FUNCTION_POINTER_BASES and self.nullable_collapses_reference_layer(
+            t, base_is_reference=True
+        )
+        result += "*" * (t.pointer_depth - int(collapsed)) + ("?" if collapsed else "")
         if t.is_array:
             result += "[]"
         return result
@@ -2765,17 +2827,26 @@ class TypeSystem:
             and source.base not in self.index.interface_table
         ):
             return False
+        if source.base == "void" and source.pointer_depth > 0 and self.is_function_pointer_word(target):
+            # C11 converts no object pointer to a function pointer (6.3.2.3).
+            return False
         if source.base == "null" or (source.base == "void" and source.pointer_depth > 0):
             return target.pointer_depth > 0 or target.is_array or target.base == "string"
-        if target.base in _FUNCTION_POINTER_BASES and source.base in _FUNCTION_POINTER_BASES:
+        if (
+            target.base in _FUNCTION_POINTER_BASES
+            and source.base in _FUNCTION_POINTER_BASES
+            and not (source.is_array and not target.is_array)
+        ):
             # A function pointer is compatible with another of the same shape,
             # and taking its address or putting it in an array does not change
             # that. Demanding a bare value on both sides reported a type error
             # naming the same type twice -- one alias resolved, one not -- and
             # pre-empted the managed-return check in lowering, which is what
-            # actually has something to say about bare __fn_ptr storage.
+            # actually has something to say about bare __fn_ptr storage. The
+            # nullable spelling `CFunction<...>?` is the same one C word, so
+            # depths compare after its `?` collapses.
             return bool(
-                target.pointer_depth == source.pointer_depth
+                self.semantic_pointer_depth(target) == self.semantic_pointer_depth(source)
                 and target.is_array == source.is_array
                 and self.generic_args_equal(target, source)
             )
@@ -2790,8 +2861,10 @@ class TypeSystem:
             source.is_array
             and (not target.is_array)
             and (target.base == source.base)
-            and (target.pointer_depth == source.pointer_depth + 1)
+            and (self._decayed_pointer_depth(target) == source.pointer_depth + 1)
         ):
+            # C array-to-pointer decay, for an array of function pointers as
+            # for any other: the array becomes a pointer to its first element.
             return const_allowed and self.generic_args_equal(target, source)
         if target.base == source.base:
             if self.semantic_pointer_depth(target) != self.semantic_pointer_depth(source):
@@ -2830,7 +2903,9 @@ class TypeSystem:
             and target.pointer_depth == 1
             and (self.semantic_pointer_depth(source) > 0 or source.is_array)
         ):
-            return const_allowed
+            # C11 converts no function pointer to an object pointer, void*
+            # included; a pointer to one, or an array of them, is an object.
+            return const_allowed and not self.is_function_pointer_word(source)
         if (
             source.base == "void"
             and source.pointer_depth == 1
@@ -2854,6 +2929,18 @@ class TypeSystem:
                 source.base, target.base
             )
         return False
+
+    @staticmethod
+    def _decayed_pointer_depth(target) -> int:
+        """A decay target's C pointer depth: an intrinsic reference's ``?`` adds none.
+
+        ``string? s = names`` would store a ``char**`` in a ``char*``, and
+        ``CFunction<...>? f = ops`` a pointer to a function pointer in one.
+        """
+        intrinsic = target.base in {"string", "Thread", "Mutex"} or target.base in _FUNCTION_POINTER_BASES
+        return target.pointer_depth - int(
+            TypeSystem.nullable_collapses_reference_layer(target, base_is_reference=intrinsic)
+        )
 
     def array_value_type(self, type_expr):
         canonical = self.canonical_type(type_expr)

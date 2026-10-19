@@ -24,7 +24,9 @@ def _manifest() -> TierManifest:
 
 def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
     matrix = plan["matrix"].get(job, {"include": []})
-    key = {"native-bundle": "target", "linux-gui": "session", "win32-native": "target"}.get(job, "shard")
+    key = {"native-bundle": "target", "linux-gui": "session", "win32-native": "target", "target-corpus": "target"}.get(
+        job, "shard"
+    )
     return {row[key]: row for row in matrix["include"]}
 
 
@@ -170,8 +172,11 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
         "windows",
         "win32-native-build",
         "win32-native",
+        "target-corpus-build",
+        "target-corpus",
         "bootstrap",
     ]
+    assert list(_rows(manifest.plan("windows.yml", "main"), "target-corpus")) == ["windows-x64", "windows-arm64"]
     extended = manifest.plan("macos.yml", "extended")
     assert [name for name in _rows(extended, "tests") if name.startswith("c11-")] == [
         f"c11-clang-O{level}" for level in range(4)
@@ -258,7 +263,26 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
     assert list(_rows(macos, "tests")) == ["unit"]
 
     windows = manifest.plan("windows.yml", "pr", ["src/stdlib/FileSystem/Windows/FileSystemProvider.btrc"])
-    assert windows["jobs"] == ["windows"], "the two-hour bootstrap waits for the main tier"
+    # A Windows provider also runs its native cases and corpus bundle
+    # (win32-native) and the whole corpus on both Windows rows (CX-P1-07).
+    assert windows["jobs"] == [
+        "windows",
+        "win32-native-build",
+        "win32-native",
+        "target-corpus-build",
+        "target-corpus",
+    ], "the two-hour bootstrap waits for the main tier"
+    assert list(_rows(windows, "win32-native")) == ["windows-x64", "windows-arm64"]
+    assert list(_rows(windows, "target-corpus")) == ["windows-x64", "windows-arm64"]
+    # The executor and the applicability manifest feed win32-native's Process
+    # and FileSystem bundles (CX-P2-06, CX-P2-04) as well as the corpus.
+    for runner in ("tools/target_hosts/windows/executor.py", "src/tests/fixtures/target-applicability.toml"):
+        assert manifest.plan("windows.yml", "pr", [runner])["jobs"] == [
+            "win32-native-build",
+            "win32-native",
+            "target-corpus-build",
+            "target-corpus",
+        ]
     assert manifest.plan("windows.yml", "lane", ["src/devex/vscode/package.json"])["jobs"] == ["windows"]
     # A platform's expected-skip manifest is read only by that platform's skip gate.
     skips = ["src/tests/fixtures/expected-skips/macos-hosted.json"]

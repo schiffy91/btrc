@@ -28,6 +28,7 @@ from src.compiler.python.analyzer.types import (
     OperatorTypeError,
     TypeSystem,
 )
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.syntax.ast.generated import (
     BraceInitializer,
     CallExpr,
@@ -531,6 +532,9 @@ class CallAnalyzer:
         transferred = frozenset()
         if declaration is not None:
             transferred = self.ownership.owned_transfer_param_indices(declaration)
+        # A function a native binding imports from a C header keeps C's
+        # nullable function-pointer parameters, as a hosted one does.
+        native_c_declaration = isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
         for param_index, arg_index in self._bound_arguments(params, names):
             if arg_index >= len(args):
                 continue
@@ -611,10 +615,14 @@ class CallAnalyzer:
                         argument_col,
                     )
                 continue
-            compatible = actual and self.types.types_compatible(expected, actual)
+            compatible = actual and (
+                self.types.types_compatible(expected, actual)
+                or (native_c_declaration and self._c_callback_accepts_null(expected, actual))
+            )
             if actual and (not compatible):
                 self.session.error(
-                    f"Argument '{params[param_index].name}' to '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
+                    f"Argument '{params[param_index].name}' to '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'"
+                    f"{self.types.function_object_pointer_hint(expected, actual)}",
                     argument_line,
                     argument_col,
                 )
@@ -654,13 +662,13 @@ class CallAnalyzer:
             if self._known_field_callable(callee):
                 return
             inferred = self.type_of(callee)
-            if inferred is not None and self.types.function_pointer_signature(inferred) is None:
+            if inferred is not None and self.types.callable_signature(inferred) is None:
                 self.session.error(
                     f"Expression of type '{self.types.format_type(inferred)}' is not callable", call.line, call.col
                 )
             return
         inferred = self.type_of(callee)
-        if inferred is not None and self.types.function_pointer_signature(inferred) is None:
+        if inferred is not None and self.types.callable_signature(inferred) is None:
             self.session.error(
                 f"Expression of type '{self.types.format_type(inferred)}' is not callable", call.line, call.col
             )
@@ -669,7 +677,7 @@ class CallAnalyzer:
         name = identifier.name
         symbol = self.session.scope.lookup(name)
         if symbol is not None and symbol.kind != "function":
-            if self.types.function_pointer_signature(symbol.type) is not None:
+            if self.types.callable_signature(symbol.type) is not None:
                 return
             rendered = self.types.format_type(symbol.type) if symbol.type else "unknown"
             self.session.error(
@@ -698,7 +706,7 @@ class CallAnalyzer:
                 if method is not None:
                     return True
                 field = cls.static_fields.get(callee.field)
-                return bool(field and self.types.function_pointer_signature(field.type) is not None)
+                return bool(field and self.types.callable_signature(field.type) is not None)
         receiver = self.type_of(callee.obj)
         if receiver and receiver.base in self.index.interface_table:
             return callee.field in self.index.interface_table[receiver.base].methods
@@ -716,7 +724,7 @@ class CallAnalyzer:
             field = cls.fields.get(callee.field)
             if field is None and callee.field in cls.properties:
                 field = cls.properties[callee.field]
-            return bool(field and self.types.function_pointer_signature(field.type) is not None)
+            return bool(field and self.types.callable_signature(field.type) is not None)
         return False
 
     def _abstract_method_owner(self, callee) -> str | None:
@@ -742,7 +750,7 @@ class CallAnalyzer:
         if isinstance(expr.callee, Identifier):
             name = expr.callee.name
             symbol = self.session.scope.lookup(name)
-            signature = self.types.function_pointer_signature(symbol.type if symbol else None)
+            signature = self.types.callable_signature(symbol.type if symbol else None)
             if signature is not None:
                 return signature[0]
             if symbol is not None and symbol.kind != "function":
@@ -802,7 +810,7 @@ class CallAnalyzer:
             ):
                 return replace(result, is_nullable=True)
             return result
-        signature = self.types.function_pointer_signature(self.type_of(expr.callee))
+        signature = self.types.callable_signature(self.type_of(expr.callee))
         if signature is not None:
             return signature[0]
         return None
@@ -813,7 +821,7 @@ class CallAnalyzer:
             enum_decl = self.index.rich_enum_table[callee.obj.name]
             if any(variant.name == callee.field for variant in enum_decl.variants):
                 return TypeExpr(base=enum_decl.name)
-        signature = self.types.function_pointer_signature(self.type_of(callee))
+        signature = self.types.callable_signature(self.type_of(callee))
         if signature is not None:
             return signature[0]
         object_type = self.type_of(callee.obj)
@@ -1015,7 +1023,7 @@ class CallAnalyzer:
             return
         symbol = self.session.scope.lookup(name)
         if symbol is not None and symbol.kind != "function":
-            signature = self.types.function_pointer_signature(symbol.type)
+            signature = self.types.callable_signature(symbol.type)
             if signature is not None:
                 self._validate_fn_ptr_call(name, signature[1:], expr.args, expr.line, expr.col, expr.arg_names)
             return
@@ -1132,7 +1140,7 @@ class CallAnalyzer:
 
     def _validate_method_call(self, expr):
         callee = expr.callee
-        signature = self.types.function_pointer_signature(self.type_of(callee))
+        signature = self.types.callable_signature(self.type_of(callee))
         if signature is not None:
             self._validate_fn_ptr_call(callee.field, signature[1:], expr.args, expr.line, expr.col, expr.arg_names)
             return
@@ -1229,7 +1237,7 @@ class CallAnalyzer:
         callee = expr.callee
         if not isinstance(callee, FieldAccessExpr):
             return
-        if self.types.function_pointer_signature(self.type_of(callee)) is not None:
+        if self.types.callable_signature(self.type_of(callee)) is not None:
             return
         if (
             isinstance(callee.obj, Identifier)
@@ -1594,10 +1602,12 @@ class CallAnalyzer:
             if (
                 actual is not None
                 and (not self._hosted_argument_type_is_deferred(expected, actual))
+                and (not self._c_callback_accepts_null(expected, actual))
                 and (not self.types.types_compatible(expected, actual))
             ):
                 self.session.error(
-                    f"Argument {index + 1} to hosted function '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'",
+                    f"Argument {index + 1} to hosted function '{name}()' expects '{self.types.format_source_type(expected)}' but got '{self.types.format_source_type(actual)}'"
+                    f"{self.types.function_object_pointer_hint(expected, actual)}",
                     getattr(argument, "line", call.line),
                     getattr(argument, "col", call.col),
                 )
@@ -1618,6 +1628,25 @@ class CallAnalyzer:
             expected.base == "void"
             and expected.pointer_depth == 1
             and (canonical.base == "string" or canonical.pointer_depth > 0 or canonical.is_array)
+        )
+
+    def _c_callback_accepts_null(self, expected, actual) -> bool:
+        """A C function-pointer parameter is nullable, as C declares it.
+
+        That holds for a hosted function and for one a native binding imports
+        from a header. Neither records a compile-time non-null contract (a
+        native binding's non-null parameter is checked when called), and C
+        APIs take NULL for an optional callback (glob's errfunc): the
+        parameter is the nullable function pointer a source declaration
+        spells ``CFunction<...>?``.
+        """
+        canonical = self.types.canonical_type(expected)
+        return bool(
+            actual.base == "null"
+            and canonical is not None
+            and canonical.base == "__fn_ptr"
+            and canonical.pointer_depth == 0
+            and not canonical.is_array
         )
 
     def _validate_source_helper_consumer(self, call, index, argument) -> None:

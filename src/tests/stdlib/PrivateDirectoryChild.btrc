@@ -11,8 +11,20 @@ import Library.FileSystem.FileSystemHandles;
 #include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(_WIN32)
+
+/* Windows grants access through access lists, not mode bits; the support file
+ * reads and rewrites DACLs without the provider's code. */
+import ../native/filesystem_windows/WindowsFileSystemSupport.c
+
+extern int btrcTestOwnerOnly(string path);
+extern int btrcTestWidenAccess(string path);
+#endif
 
 int descriptorCount() {
+#if defined(_WIN32)
+	return FileSystem.ownedHandleInventory().openCount();
+#else
 	int count = 0;
 	for (int descriptor = 0; descriptor < 4096; descriptor++) {
 		errno = 0;
@@ -21,12 +33,18 @@ int descriptorCount() {
 		}
 	}
 	return count;
+#endif
 }
 
 int exactMode(string path) {
+#if defined(_WIN32)
+	/* 0700 is Windows' owner-only protected DACL. */
+	return btrcTestOwnerOnly(path) == 1 ? 448 : 493;
+#else
 	struct stat status;
 	if (lstat(path, &status) != 0) { return -1; }
 	return (int)(status.st_mode & (mode_t)0777);
+#endif
 }
 
 int main() {
@@ -70,11 +88,19 @@ int main() {
 
 	string target = PathTools.join(temporary.path(), "elsewhere");
 	assert(mkdir(target, (mode_t)0700) == 0);
+#if defined(_WIN32)
+	assert(FileSystem.symlink(target, PathTools.join(rootPath, "linked")) == 0);
+#else
 	assert(symlink(target, PathTools.join(rootPath, "linked")) == 0);
+#endif
 	assert(!root.openChildDirectory("linked").ok());
 
 	assert(mkdir(PathTools.join(rootPath, "shared"), (mode_t)0755) == 0);
+#if defined(_WIN32)
+	assert(btrcTestWidenAccess(PathTools.join(rootPath, "shared")) == 0);
+#else
 	assert(chmod(PathTools.join(rootPath, "shared"), (mode_t)0755) == 0);
+#endif
 	assert(root.openChildDirectory("shared").error().kind() == FS_ACCESS_DENIED);
 	assert(descriptorCount() == baseline);
 

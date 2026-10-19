@@ -5,7 +5,13 @@ import Library.FileSystem.FileSystemHandles;
 #include <errno.h>
 
 class ApplicationDirectoryTest {
+#if defined(_WIN32)
+	/* A drive path such as C:\Users\name\AppData\Local, without a trailing,
+	 * doubled or forward separator. */
+	class bool normalized(string path) { return path.len() > 3 && path[1] == ':' && path[2] == '\\' && path[path.len() - 1] != '\\' && !path.contains("/") && !path.contains("\\\\") && !path.contains("\\.\\") && !path.contains("\\..\\"); }
+#else
 	class bool normalized(string path) { return !path.isEmpty() && path[0] == '/' && (path.equals("/") || path[path.len() - 1] != '/') && !path.contains("//") && !path.contains("/./") && !path.contains("/../"); }
+#endif
 }
 
 int main() {
@@ -17,7 +23,19 @@ int main() {
 
 	FileSystemOutcome<ApplicationDirectoryRoots> limited = ApplicationDirectories.resolve(ApplicationDirectoryLimits(1));
 	int platform = __btrc_target_platform();
+#if defined(_WIN32)
+	/* Windows: FOLDERID_LocalAppData for state, LocalAppData\Cache for caches
+	 * and FOLDERID_RoamingAppData for configuration. */
+	if (platform == 3) {
+		FileSystemOutcome<ApplicationDirectoryRoots> windows = ApplicationDirectories.resolveStandard();
+		assert(windows.ok());
+		assert(windows.value().cacheRoot().equals(windows.value().stateRoot() + "\\Cache"));
+		assert(!windows.value().configRoot().equals(windows.value().stateRoot()));
+	}
+	if (platform == 1 || platform == 2 || platform == 3) {
+#else
 	if (platform == 1 || platform == 2) {
+#endif
 		assert(!limited.ok());
 		assert(limited.error().kind() == FS_INVALID_ARGUMENT);
 		assert(limited.error().nativeCode() == ENAMETOOLONG);

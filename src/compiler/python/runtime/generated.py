@@ -5068,6 +5068,158 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         source_visible=True,
         realtime_effect='safe',
     ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_launch_types',
+        c_source=(
+            "/* The launch seam's records. Strings are NUL-terminated UTF-8 borrowed "
+            'for\n * the call; the runtime copies everything it keeps before __btrc_wi'
+            'ndows_launch\n * returns and never writes through these pointers.\n *\n * s'
+            "tdin_mode: 0 = the NUL device, 1 = the parent's stdin; nonempty stdin_by"
+            'tes\n * is a separate source and cannot combine with 1. stdout_mode/stder'
+            "r_mode:\n * 0 = collect, 1 = stream to the parent's stream, 2 = combine i"
+            'nto stdout\n * (stderr only, with stdout collected), 3 = suppress. These '
+            'equal the public\n * ChildStdin and CommandOutput values.\n *\n * Result st'
+            'ate: 0 running, 1 exited, 2 timed out, 3 capture limit, 4 capture\n * I/O'
+            ' failed; launch_failed stays 0, since a launch that fails returns no\n * '
+            'owner to wait on. Error stage: 0 none, 1 validation, 2 UTF\n * conversion'
+            ', 3 allocation, 4 executable not found, 5 executable refused (not\n * a l'
+            'aunchable PE image), 6 stdio setup, 7 attribute list, 8 job setup,\n * 9 '
+            'CreateProcessW, 10 job assignment, 11 resume, 12 pipe I/O, 13 wait,\n * 1'
+            '4 termination, 15 unsupported host, 16 environment, 17 working directory'
+            ',\n * 18 buffer capacity. Error domain: 0 none, 1 validation, 2 Win32\n * '
+            '(native_code is the GetLastError value), 4 runtime refusal. Ownership\n *'
+            ' state: 0 none or released, 1 a live owner is retained, 2 poisoned. */\nt'
+            'ypedef struct __btrc_windows_launch_owner_t __btrc_windows_launch_owner_'
+            't;\ntypedef struct {\n    char *executable_utf8;\n    char **argv_utf8;\n   '
+            ' size_t argc;\n    char *cwd_utf8;\n    char **environment_overrides_utf8;'
+            '\n    size_t override_count;\n    char **environment_unsets_utf8;\n    size'
+            '_t unset_count;\n    unsigned char *stdin_bytes;\n    size_t stdin_size;\n '
+            '   uint32_t stdin_mode;\n    uint32_t stdout_mode;\n    uint32_t stderr_mo'
+            'de;\n    size_t stdout_limit;\n    size_t stderr_limit;\n} __btrc_windows_l'
+            'aunch_options_t;\ntypedef struct {\n    uint32_t stage;\n    uint32_t domai'
+            'n;\n    uint32_t native_code;\n    uint32_t ownership_state;\n} __btrc_wind'
+            'ows_launch_error_t;\ntypedef struct {\n    uint32_t state;\n    uint32_t na'
+            'tive_exit_code;\n    uint32_t has_exit_code;\n    uint32_t launch_failed;\n'
+            '    uint32_t timed_out;\n    uint32_t capture_exceeded;\n    uint32_t capt'
+            'ure_failed;\n    uint64_t stdout_bytes_seen;\n    uint64_t stderr_bytes_se'
+            'en;\n    size_t stdout_bytes_retained;\n    size_t stderr_bytes_retained;\n'
+            '} __btrc_windows_launch_result_t;'
+        ),
+        depends_on=(),
+        required_headers=('stddef.h', 'stdint.h'),
+        provided_types=('__btrc_windows_launch_owner_t', '__btrc_windows_launch_options_t', '__btrc_windows_launch_error_t', '__btrc_windows_launch_result_t'),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_launch',
+        c_source=(
+            '/* Resolve, validate and start one child, suspended inside a new\n * kill'
+            '-on-close job, then resume it. Returns 0 with *out set, or nonzero with\n'
+            ' * *out NULL and *error describing the first failure. */\nint __btrc_wind'
+            'ows_launch(const __btrc_windows_launch_options_t *options,\n    __btrc_wi'
+            'ndows_launch_owner_t **out, __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_launch_wait',
+        c_source=(
+            '/* wait_mode 0 polls, 1 waits until the child completes or timeout_ms\n *'
+            ' (positive) expires, killing the whole job at expiry, 2 waits without a\n'
+            ' * deadline. Returns 0 when *result describes the launch. */\nint __btrc_'
+            'windows_launch_wait(__btrc_windows_launch_owner_t *launch,\n    uint32_t '
+            'wait_mode, uint64_t timeout_ms,\n    __btrc_windows_launch_result_t *resu'
+            'lt,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_launch_copy_output',
+        c_source=(
+            "/* Copy a completed launch's retained bytes of stream 1 (stdout) or 2\n *"
+            ' (stderr). *written reports the retained size; a NULL buffer with zero\n '
+            '* capacity only queries it, and a smaller buffer copies nothing and fail'
+            's. */\nint __btrc_windows_launch_copy_output(__btrc_windows_launch_owner_'
+            't *launch,\n    uint32_t stream, unsigned char *buffer, size_t capacity, '
+            'size_t *written);'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='safe',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_launch_terminate',
+        c_source=(
+            "/* Terminate the launch's whole job with exit_code. Idempotent. */\nint _"
+            '_btrc_windows_launch_terminate(__btrc_windows_launch_owner_t *launch,\n  '
+            '  uint32_t exit_code, __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_launch_close',
+        c_source=(
+            "/* Release a launch. An active launch's job is terminated and its I/O\n *"
+            ' cancelled and drained within timeout_ms. Returns 0 and sets *launch NUL'
+            'L\n * only after everything is released; a NULL owner is success. */\nint '
+            '__btrc_windows_launch_close(__btrc_windows_launch_owner_t **launch,\n    '
+            'uint64_t timeout_ms, __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_quote_argv_utf8',
+        c_source=(
+            '/* Render argv as the CommandLineToArgvW-compatible command line that\n *'
+            ' __btrc_windows_launch passes to CreateProcessW: argv[0] always quoted a'
+            'nd\n * free of \'"\', every other argument quoted only when empty or when i'
+            't holds\n * whitespace or \'"\', with backslashes doubled before a quote. *'
+            'required_units\n * counts the UTF-16 units including the terminating NUL;'
+            ' a NULL buffer with\n * zero capacity only queries it, and a smaller buff'
+            'er writes nothing. Never\n * invokes a shell. */\nint __btrc_windows_quote'
+            '_argv_utf8(char **argv, size_t argc,\n    uint16_t *buffer, size_t capaci'
+            'ty_units, size_t *required_units,\n    __btrc_windows_launch_error_t *err'
+            'or);'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='safe',
+    ),
 )
 
 INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (

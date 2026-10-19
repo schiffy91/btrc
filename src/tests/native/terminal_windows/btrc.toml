@@ -1,0 +1,14 @@
+manifest-version = 1
+
+# The console probe TerminalConsole.btrc reads its own console's modes and
+# installs a caller's control handler through.
+[package]
+name = "terminalConsoleFixture"
+
+[[native.bindings]]
+module = "Console"
+header = "Console.h"
+language = "c"
+standard = "c11"
+os = ["windows"]
+symbols = ["HANDLE", "DWORD", "BOOL", "TRUE", "FALSE", "GetStdHandle", "STD_INPUT_HANDLE", "STD_OUTPUT_HANDLE", "GetConsoleMode", "SetConsoleCtrlHandler", "Sleep", "ENABLE_ECHO_INPUT", "ENABLE_LINE_INPUT", "ENABLE_PROCESSED_INPUT", "ENABLE_VIRTUAL_TERMINAL_PROCESSING"]

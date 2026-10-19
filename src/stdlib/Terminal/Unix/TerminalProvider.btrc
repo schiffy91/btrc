@@ -1,0 +1,85 @@
+/* The Unix TerminalProvider (Linux, macOS, iOS, Android): lines through the
+ * C library's stdin, the window size through ioctl, and raw input through
+ * termios on the descriptors underneath stdin and stdout. */
+
+import Library.Bytes;
+
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <unistd.h>
+
+/* The terminal attributes raw input replaced, restored when it ends. */
+class TerminalModeState {
+	public struct termios saved;
+}
+
+class TerminalProvider {
+	class string readLine(int limit) {
+		Bytes value = Bytes();
+		int byte = fgetc(stdin);
+		while (byte != EOF && byte != '\n') {
+			if (value.len < limit) { value.append(byte); }
+			byte = fgetc(stdin);
+		}
+		return value.toStringLossy();
+	}
+
+	class bool size(int* columns, int* rows) {
+		struct winsize window;
+		memset(&window, 0, sizeof(window));
+		if (isatty(STDOUT_FILENO) != 1 || ioctl((int)STDOUT_FILENO, (unsigned long)TIOCGWINSZ, &window) != 0) { return false; }
+		if (window.ws_col == 0 || window.ws_row == 0) { return false; }
+		*columns = (int)window.ws_col;
+		*rows = (int)window.ws_row;
+		return true;
+	}
+
+	/* A Unix terminal interprets escape sequences itself; TERM=dumb names
+	 * one that does not. */
+	class bool enableColors() {
+		if (isatty(STDOUT_FILENO) != 1) { return false; }
+		char* terminal = getenv("TERM");
+		return terminal != null && strcmp(terminal, "dumb") != 0;
+	}
+
+	class bool setAttributes(struct termios* attributes) {
+		int status = tcsetattr(STDIN_FILENO, TCSANOW, attributes);
+		while (status != 0 && errno == EINTR) {
+			status = tcsetattr(STDIN_FILENO, TCSANOW, attributes);
+		}
+		return status == 0;
+	}
+
+	/* cfmakeraw's mode (no echo, no canonical line editing, no signal keys,
+	 * no input translation, one byte at a time) with output processing kept,
+	 * so "\n" still starts a line. TCSANOW keeps input already typed. */
+	class TerminalModeState? enterRawMode() {
+		if (isatty(STDIN_FILENO) != 1) { return null; }
+		TerminalModeState state = TerminalModeState();
+		if (tcgetattr(STDIN_FILENO, &state.saved) != 0) { return null; }
+		struct termios raw = state.saved;
+		cfmakeraw(&raw);
+		raw.c_oflag = (uintmax_t)raw.c_oflag | (uintmax_t)OPOST;
+		if (!TerminalProvider.setAttributes(&raw)) { return null; }
+		return state;
+	}
+
+	/* Raw input reads the descriptor directly: bytes stdio already buffered
+	 * for stdin are not seen here. */
+	class int readRawByte(TerminalModeState state) {
+		unsigned char byte = (unsigned char)0;
+		while (true) {
+			ssize_t count = read(STDIN_FILENO, &byte, (size_t)1);
+			if (count == (ssize_t)1) { return (int)byte; }
+			if (count < (ssize_t)0 && errno == EINTR) { continue; }
+			return -1;
+		}
+	}
+
+	class bool restoreMode(TerminalModeState state) { return TerminalProvider.setAttributes(&state.saved); }
+}

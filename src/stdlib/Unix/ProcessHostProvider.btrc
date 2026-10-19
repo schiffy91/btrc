@@ -1,0 +1,5 @@
+/* The selection-only shell of Library.Process's host seam on the linux, macOS,
+ * iOS and Android rows. `[[package.providers]]` needs one implementation per
+ * row; these rows keep the POSIX bodies in Process.btrc, which C4 selects, so
+ * this module declares nothing and adds nothing to their emitted C
+ * (docs/design/windows-os-services.md, "Compiler-import impact"). */

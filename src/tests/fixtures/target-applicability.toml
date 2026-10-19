@@ -48,76 +48,90 @@ cites = "docs/design/platform-inventory.toml#corpus.gpu"
 # through each frontend). Every program below fails to compile for MinGW
 # because it reaches a POSIX provider the inventory records as lacking its
 # Win32 backend. The LP64 programs that also fail there (long is 4 bytes on
-# Windows) are not excluded: they are failures for the CL-P1-18 triage.
+# Windows) are not excluded: they are failures for the CL-P1-18 triage. The
+# exact-filesystem programs left this list on 2026-10-19: they build on the
+# Win32 FileSystemHandles provider, and windows.yml's win32-native job runs
+# them on x64 and ARM64.
+
+# Library.Process has its Windows provider (CL-P2-02's launch seam under
+# CX-P2-06's ProcessHostProvider): ChildProcess, Process, ProcessStatusPipe
+# and Shellwords build and run on both Windows rows. What stays out is POSIX
+# by contract, or waits on another provider.
 
 [[programs]]
 paths = [
-    "stdlib/AdvisoryFileLockReal.btrc",
-    "stdlib/FileSystemHandlesReal.btrc",
-    "stdlib/FileTreeSnapshotReal.btrc",
-    "stdlib/Fs.btrc",
-    "stdlib/FsRemoveRecursive.btrc",
-    "stdlib/PrivateDirectoryChild.btrc",
-    "stdlib/PrivateDirectoryReal.btrc",
-    "stdlib/RegularFileSnapshotReal.btrc",
+    "stdlib/ChildProcessClosedFds.btrc",
+    "stdlib/ChildProcessDescriptor.btrc",
+    "stdlib/ChildProcessDescriptorMapping.btrc",
 ]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "POSIX descriptor contracts (descriptor-limit closing after fork, fcntl leases, fexecve); Windows refuses descriptor-backed launches with the platform-adaptations row 1 diagnostic and passes the child only its three stdio handles through STARTUPINFOEX's handle list, both checked natively by test_windows_process.py and test_windows_launch_seam.py"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/ShellCwdEnv.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "run"
+reason = "the program exercises UnixShell's cwd and environment through /bin/sh; Windows refuses UnixShell.run (platform adaptations, Windows row 1b), which Process, Shellwords and ChildProcess check there"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/ImagePpm.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "the program provokes a short write by lowering RLIMIT_FSIZE with setrlimit, which Windows has no counterpart for"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/Daemon.btrc"]
 targets = ["windows-x86_64"]
 status = "missing"
 scope = "build"
-reason = "the exact filesystem handles call POSIX symlink() and fcntl(F_GETFD), which MinGW lacks; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
+reason = "DaemonControlFiles checks uid_t ownership and the supervisor is a /bin/sh script; the native Windows supervisor is CX-P2-08 (platform adaptations, Windows row 4)"
 cites = "corpus.stdlib@windows-x64"
 
 [[programs]]
-paths = [
-    "stdlib/AdvisoryFileLockReal.btrc",
-    "stdlib/FileSystemHandlesReal.btrc",
-    "stdlib/FileTreeSnapshotReal.btrc",
-    "stdlib/Fs.btrc",
-    "stdlib/FsRemoveRecursive.btrc",
-    "stdlib/PrivateDirectoryChild.btrc",
-    "stdlib/PrivateDirectoryReal.btrc",
-    "stdlib/RegularFileSnapshotReal.btrc",
-]
+paths = ["stdlib/Daemon.btrc"]
 targets = ["windows-aarch64"]
 status = "missing"
 scope = "build"
-reason = "the exact filesystem handles call POSIX symlink() and fcntl(F_GETFD), which MinGW lacks; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
+reason = "DaemonControlFiles checks uid_t ownership and the supervisor is a /bin/sh script; the native Windows supervisor is CX-P2-08 (platform adaptations, Windows row 4)"
 cites = "corpus.stdlib@windows-arm64"
 
 [[programs]]
-paths = [
-    "stdlib/ChildProcess*.btrc",
-    "stdlib/Daemon.btrc",
-    "stdlib/HttpClientLocal.btrc",
-    "stdlib/HttpFramingSafety.btrc",
-    "stdlib/ImagePpm.btrc",
-    "stdlib/Process.btrc",
-    "stdlib/ProcessStatusPipe.btrc",
-    "stdlib/ShellCwdEnv.btrc",
-    "stdlib/Shellwords.btrc",
-]
+paths = ["stdlib/HttpClientLocal.btrc"]
 targets = ["windows-x86_64"]
 status = "missing"
-scope = "build"
-reason = "reaches the POSIX Process provider (struct rlimit, fork and exec); the Windows provider over CreateProcessW is platforms-p3-windows-launch-seam and platforms-p3-process-terminal (platform adaptations, Windows rows 1 and 4)"
+scope = "run"
+reason = "its curl stand-in is a /bin/sh script on PATH; the Windows HTTP transport is WinHTTP (platforms-p3-sockets-http, platform adaptations, Windows rows 6 and 10)"
 cites = "corpus.stdlib@windows-x64"
 
 [[programs]]
-paths = [
-    "stdlib/ChildProcess*.btrc",
-    "stdlib/Daemon.btrc",
-    "stdlib/HttpClientLocal.btrc",
-    "stdlib/HttpFramingSafety.btrc",
-    "stdlib/ImagePpm.btrc",
-    "stdlib/Process.btrc",
-    "stdlib/ProcessStatusPipe.btrc",
-    "stdlib/ShellCwdEnv.btrc",
-    "stdlib/Shellwords.btrc",
-]
+paths = ["stdlib/HttpClientLocal.btrc"]
+targets = ["windows-aarch64"]
+status = "missing"
+scope = "run"
+reason = "its curl stand-in is a /bin/sh script on PATH; the Windows HTTP transport is WinHTTP (platforms-p3-sockets-http, platform adaptations, Windows rows 6 and 10)"
+cites = "corpus.stdlib@windows-arm64"
+
+[[programs]]
+paths = ["stdlib/HttpFramingSafety.btrc"]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "build"
+reason = "DescriptorFlags.closeOnExec calls fcntl(F_GETFD) on a BSD socket; the Winsock provider is platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/HttpFramingSafety.btrc"]
 targets = ["windows-aarch64"]
 status = "missing"
 scope = "build"
-reason = "reaches the POSIX Process provider (struct rlimit, fork and exec); the Windows provider over CreateProcessW is platforms-p3-windows-launch-seam and platforms-p3-process-terminal (platform adaptations, Windows rows 1 and 4)"
+reason = "DescriptorFlags.closeOnExec calls fcntl(F_GETFD) on a BSD socket; the Winsock provider is platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
 cites = "corpus.stdlib@windows-arm64"
 
 [[programs]]
@@ -151,19 +165,19 @@ reason = "the HTTP stack uses BSD sockets (SHUT_RDWR, fcntl on a socket); the Wi
 cites = "corpus.stdlib@windows-arm64"
 
 [[programs]]
-paths = ["stdlib/Terminal.btrc", "stdlib/PatternAny.btrc"]
+paths = ["stdlib/TerminalPty.btrc"]
 targets = ["windows-x86_64"]
-status = "missing"
+status = "restricted"
 scope = "build"
-reason = "Terminal uses termios and PatternAny uses fnmatch(), neither of which MinGW provides; the console provider is platforms-p3-process-terminal (platform adaptations, Windows row 2) and the vendored matcher platforms-p3-regex-glob (D22)"
+reason = "the program drives a POSIX pseudo-terminal (openpty, termios, fork, SIGTERM); Windows has none, and test_windows_terminal.py drives the console provider through a pseudoconsole instead"
 cites = "corpus.stdlib@windows-x64"
 
 [[programs]]
-paths = ["stdlib/Terminal.btrc", "stdlib/PatternAny.btrc"]
+paths = ["stdlib/TerminalPty.btrc"]
 targets = ["windows-aarch64"]
-status = "missing"
+status = "restricted"
 scope = "build"
-reason = "Terminal uses termios and PatternAny uses fnmatch(), neither of which MinGW provides; the console provider is platforms-p3-process-terminal (platform adaptations, Windows row 2) and the vendored matcher platforms-p3-regex-glob (D22)"
+reason = "the program drives a POSIX pseudo-terminal (openpty, termios, fork, SIGTERM); Windows has none, and test_windows_terminal.py drives the console provider through a pseudoconsole instead"
 cites = "corpus.stdlib@windows-arm64"
 
 [[programs]]
@@ -182,18 +196,23 @@ scope = "build"
 reason = "the program interrupts a sleep with SIGALRM and expects EINTR; Windows has neither SIGALRM nor signal-interrupted sleeps"
 cites = "corpus.stdlib@windows-arm64"
 
+# PlatformEuid asserts the POSIX identity contract (isRoot() is exactly
+# euid() == 0) and Unix platform facts (isUnix, a '/' separator). Windows has
+# no POSIX root: its compatibility euid is a 0 sentinel and Platform.isRoot()
+# is false there by design (Platform.btrc), so the program cannot pass on a
+# Windows row. It still builds there.
 [[programs]]
-paths = ["strings/Regex.btrc", "strings/RegexSafety.btrc"]
+paths = ["stdlib/PlatformEuid.btrc"]
 targets = ["windows-x86_64"]
-status = "missing"
-scope = "build"
-reason = "Library.Regex needs POSIX regex.h, which MinGW lacks; the vendored engine is platforms-p3-regex-glob (D22)"
-cites = "corpus.strings@windows-x64"
+status = "restricted"
+scope = "run"
+reason = "asserts the POSIX euid/root identity and Unix platform facts; Windows has no POSIX root, so Platform.isRoot() is false there by design"
+cites = "corpus.stdlib@windows-x64"
 
 [[programs]]
-paths = ["strings/Regex.btrc", "strings/RegexSafety.btrc"]
+paths = ["stdlib/PlatformEuid.btrc"]
 targets = ["windows-aarch64"]
-status = "missing"
-scope = "build"
-reason = "Library.Regex needs POSIX regex.h, which MinGW lacks; the vendored engine is platforms-p3-regex-glob (D22)"
-cites = "corpus.strings@windows-arm64"
+status = "restricted"
+scope = "run"
+reason = "asserts the POSIX euid/root identity and Unix platform facts; Windows has no POSIX root, so Platform.isRoot() is false there by design"
+cites = "corpus.stdlib@windows-arm64"

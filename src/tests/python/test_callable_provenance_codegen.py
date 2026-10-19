@@ -1352,7 +1352,7 @@ def test_direct_function_pointer_to_object_pointer_cast_is_rejected():
     )
 
     assert any(
-        "Function pointers cannot be cast to or from object pointers or integer values in strict C11" in error
+        "Function pointers cannot be cast to object pointers or integer values in strict C11" in error
         for error in analyzed.errors
     )
 

@@ -43,6 +43,7 @@ from src.tests.runner_capabilities import (
     loopback_listener_error,
     target_capability_error,
 )
+from tools.native_plan import RuntimeObjects
 
 BTRC_TEST_DIR = os.path.dirname(__file__)
 _REPO_ROOT = os.path.dirname(os.path.dirname(BTRC_TEST_DIR))
@@ -219,8 +220,20 @@ def _transpile_btrc_module_units(btrcc, btrc_path, directory):
 
 
 def _gcc_flags(c_source, c_path, bin_path):
-    """Build the emitted-C command, including the compiler-only compute runtime."""
-    gcc_flags = [*BTRC_CC, *BTRC_CFLAGS, c_path, "-o", bin_path, "-lm"]
+    """Build the emitted-C command, including the compiler-only compute runtime
+    and any separately compiled runtime object the emitted C retains."""
+    runtime_objects = RuntimeObjects.selected([c_source])
+    host = {"Windows": "windows", "Darwin": "macos"}.get(platform.system(), "linux")
+    gcc_flags = [
+        *BTRC_CC,
+        *BTRC_CFLAGS,
+        c_path,
+        *(str(source) for source in RuntimeObjects.sources(runtime_objects)),
+        "-o",
+        bin_path,
+        "-lm",
+        *RuntimeObjects.library_flags(runtime_objects, host),
+    ]
     if "pthread.h" in c_source:
         gcc_flags.append("-lpthread")
     if "btrc_gpu_compute_internal.h" in c_source:

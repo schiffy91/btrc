@@ -1,92 +1,29 @@
+/* Library.Terminal on redirected standard streams, the same on every
+ * platform: bounded line reads, prompts and password prompts from a file, and
+ * no terminal size, colours or raw mode when the streams are not terminals.
+ * TerminalPty.btrc covers a real Unix terminal; on Windows a real console is
+ * driven through a pseudoconsole by test_windows_terminal.py. */
 import Library.FileSystem;
 import Library.IO;
 import Library.Terminal;
 import Library.Terminal.TerminalPasswordInput;
 
 #include <assert.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <limits.h>
-#include <poll.h>
-#include <signal.h>
-#include <sys/wait.h>
-#include <termios.h>
-#include <unistd.h>
-
-extern int openpty(int* amaster, int* aslave, char* name, void* termp, void* winp);
-
-volatile sig_atomic_t passwordInterruptSignals = 0;
-
-void countPasswordInterrupt(int signalNumber) {
-	if (signalNumber == SIGTERM) { passwordInterruptSignals++; }
-}
+#include <stdio.h>
 
 int main() {
-	/* Exercise password input on a real terminal and prove ECHO is restored. */
-	int ptyMaster = -1;
-	int ptySlave = -1;
-	assert(openpty(&ptyMaster, &ptySlave, NULL, NULL, NULL) == 0);
-	struct termios beforePassword;
-	assert(tcgetattr(ptySlave, &beforePassword) == 0);
-	beforePassword.c_lflag = (tcflag_t)beforePassword.c_lflag | (tcflag_t)ECHO;
-	assert(tcsetattr(ptySlave, TCSANOW, &beforePassword) == 0);
-	int savedStdin = dup(STDIN_FILENO);
-	assert(savedStdin >= 0);
-	assert(write(ptyMaster, "pty-secret\n", 11) == (ssize_t)11);
-	assert(dup2(ptySlave, STDIN_FILENO) == STDIN_FILENO);
-	clearerr(stdin);
-	assert(Terminal.promptPassword("pty secret: ").equals("pty-secret"));
-	struct termios afterPassword;
-	assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
-	assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO) == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
-
-	/* An interrupt wakes the prompt through its self-pipe, restores ECHO and
-     * descriptor flags, then replays the signal under the caller's handler. */
-	int flagsBeforeInterrupt = fcntl(STDIN_FILENO, F_GETFL, 0);
-	assert(flagsBeforeInterrupt >= 0);
-	struct sigaction testSignalAction;
-	memset(&testSignalAction, 0, sizeof(testSignalAction));
-	testSignalAction.sa_handler = countPasswordInterrupt;
-	assert(sigemptyset(&testSignalAction.sa_mask) == 0);
-	assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
-	pid_t interruptChild = fork();
-	assert(interruptChild >= (pid_t)0);
-	if (interruptChild == (pid_t)0) {
-		poll(NULL, (nfds_t)0, 100);
-		kill(getppid(), SIGTERM);
-		_exit(0);
-	}
-	assert(Terminal.promptPassword("interrupt secret: ").isEmpty());
-	int interruptStatus = 0;
-	assert(waitpid(interruptChild, &interruptStatus, 0) == interruptChild);
-	assert(WIFEXITED(interruptStatus) && WEXITSTATUS(interruptStatus) == 0);
-	assert((int)passwordInterruptSignals == 1);
-	assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
-	assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO) == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
-	assert(fcntl(STDIN_FILENO, F_GETFL, 0) == flagsBeforeInterrupt);
-	int passwordSignalRead = TerminalPasswordInput.signalReadDescriptor();
-	int passwordSignalWrite = TerminalPasswordInput.signalWriteDescriptor();
-	assert(passwordSignalRead >= 0);
-	assert(passwordSignalWrite >= 0);
-	assert((fcntl(passwordSignalRead, F_GETFD, 0) & FD_CLOEXEC) != 0);
-	assert((fcntl(passwordSignalWrite, F_GETFD, 0) & FD_CLOEXEC) != 0);
-	raise(SIGTERM);
-	assert((int)passwordInterruptSignals == 2);
-	testSignalAction.sa_handler = SIG_DFL;
-	assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
-
-	assert(dup2(savedStdin, STDIN_FILENO) == STDIN_FILENO);
-	clearerr(stdin);
-	close(savedStdin);
-	close(ptyMaster);
-	close(ptySlave);
+	/* The corpus runner gives this program pipes, never a terminal. */
+	assert(Terminal.size() == null);
+	assert(!Terminal.enableColors());
 
 	string dir = FileSystem.tempDir("btrc_terminal");
+	assert(!dir.isEmpty());
 	string path = PathTools.join(dir, "input.txt");
 	string longLine = "x".repeat(9000);
 	Path.writeAll(path, longLine + "\nplain\nsecret\n");
 	FILE* input = freopen(path, "r", stdin);
 	assert(input != NULL);
+	assert(Terminal.enterRawMode() == null);
 
 	assert(Terminal.readLine().equals(longLine));
 	assert(Terminal.prompt("plain: ").equals("plain"));
@@ -103,8 +40,13 @@ int main() {
 	assert(TerminalPasswordInput.maxPasswordBytes() == 4096);
 	assert(Terminal.promptPassword("long secret: ").isEmpty());
 	assert(Terminal.promptPassword("short secret: ").equals("short"));
+	assert(Terminal.readLine().isEmpty());
 
-	FileSystem.removeRecursive(dir);
+	/* Windows cannot remove a file that is still open. */
+	fclose(stdin);
+	assert(remove(path) == 0);
+	assert(remove(boundedPath) == 0);
+	assert(rmdir(dir) == 0);
 
 	print("PASS: test_stdlib_terminal");
 	return 0;

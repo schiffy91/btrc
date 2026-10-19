@@ -56,6 +56,68 @@ minimal program joins one of the batteries above.
   already includes is emitted once by both compilers (`btrcc` always
   deduplicated; Python repeated it).
 
+### Resolved in parity wave 2 (found writing `Library.Terminal` and glob)
+
+`src/tests/btrc/test_parity_wave_2.py` holds each of these.
+
+- **Opaque C storage.** A member of a record a C header declares has no btrc
+  type. Both compilers index it (`found->gl_pathv[i]`; `btrcc` refused), store
+  through it, its key and its compound updates as written (`raw.c_cc[VMIN] =
+  1`, `values[raw.c_cc[i]] = 1`, `raw.c_lflag |= 8`; Python crashed or
+  refused, `btrcc` emitted `void` temporaries), and refuse a C macro that must
+  be ordered against it with the same `opaque C operand ... cast it
+  explicitly` diagnostic.
+- **Narrowing in loops.** Python no longer marks a fresh binding escaped
+  because a freed escaped one had the same `id()` (see the nullable flow
+  below).
+- **Null and direct handles.** A plain `CFunction`, `RealtimeFunction`,
+  `Thread` or `Mutex` takes neither `null` nor `void*`, and a pointer to a
+  function pointer is not one (`btrcc` took all of these). `CFunction<...>?`
+  takes functions as well as `null`, and a hosted C function-pointer
+  parameter takes `null` (Python refused both). See
+  `docs/language/callbacks.md`.
+
+### Resolved in parity wave 3 (function-pointer conversions and nullable calls)
+
+`src/tests/btrc/test_parity_wave_3.py` holds each of these, with the shared
+harness in `src/tests/btrc/parity_wave_harness.py`.
+
+- **Function and object pointers.** Both compilers took a function pointer,
+  plain or nullable, where a `void*` goes (an initializer, an argument, a
+  hosted argument, a return, a field store, a ternary arm), and a `void*` or
+  `void**` where a `CFunction<...>?` goes, and emitted C that gcc and clang
+  refuse under `-pedantic-errors`. Both refuse each with the ordinary mismatch
+  plus `; C11 has no conversion between a function pointer and an object
+  pointer`. A pointer to a function pointer and an array of them remain
+  object pointers.
+- **Casts.** The cast refusal read `cannot be cast to or from` in Python and
+  `to`/`from` in `btrcc`; both now name the direction, and both cover the
+  nullable `CFunction<...>?`, which escaped it.
+- **Calling `CFunction<...>?`.** Both refused every call, even after a null
+  check. A call the nullable flow proves non-null is now accepted, and any
+  other is refused with `Nullable function pointer of type ... may be null;
+  compare it with null before calling it`, checked where the flow checks
+  nullable accesses (`btrcc`'s `NullableFlow`, Python's statement flow). A
+  nullable function pointer renders as `CFunction<...>?` in diagnostics, not
+  `CFunction<...>*`, which is a pointer to one.
+- **Array decay.** An array of function pointers decays to `CFunction<...>*`
+  in both (Python refused). A nullable intrinsic reference names the
+  element's own slot, so `string? s = names` (both) and
+  `CFunction<...>? f = ops` (`btrcc`) are refused.
+- **Native bindings.** A function-pointer parameter of a function a native
+  binding imports takes `null`, as a hosted one does since wave 2 (both
+  refused it). A `_Nonnull` one keeps the binding's call-time null check.
+- **Read-only native globals.** `btrcc` checked a stored value's type before
+  the read-only refusal, so once wave 2 made a plain `CFunction` refuse
+  `null`, `fixedCallback = null` on a `static int (*const f)(void)` global
+  reported the type; both now report `Cannot modify read-only native global`
+  first (`python/test_native_c_values.py`).
+
+Still different: a refused comparison reads `cannot compare incompatible
+reference operands (...)` in Python and `Operator '==' is not defined for ...`
+in `btrcc`, for function pointers as for every other operand pair
+(`c_compat_probe/c5.toml` pins the `char*` case).
+
 ### Nullable flow and the warning channel
 
 Both compilers report the nullable-access warning (`Non-optional access '.f'
@@ -71,7 +133,11 @@ followed by field names) known to be non-null. A null comparison refines the
 branch it guards, `&&`, `||` and `?:` refine their right operands and arms, a
 store of a value known to be non-null refines its target, and a call, a store
 or an escaped address drops the facts it could change. A loop body is analysed
-once, from the facts that survive its back edge.
+once, from the facts that survive its back edge. An escape belongs to the one
+binding whose address was taken: the reference compiler once keyed escapes by
+the `id()` of a freed symbol, so a later binding allocated at the same address
+lost its facts at a loop's first unknown store, a warning `btrcc` never printed
+(`btrc/test_parity_wave_2.py`).
 
 A call can be known never to return: a hosted function listed in
 `hosted_abi.toml`'s `noreturn` set (`exit`, `abort`, `_Exit`, `quick_exit`,

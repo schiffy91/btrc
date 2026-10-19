@@ -332,8 +332,10 @@
         # test_flake_installs_adapter_and_runs_native_plan_check recomputes it.
         nativePlanSource = sourceSubset {
           # TargetToolchain force-includes the Windows compatibility overlay
-          # into every windows-gnu unit it cross-builds.
-          prefixes = [ "src/runtime/windows/" ];
+          # into every windows-gnu unit it cross-builds, and RuntimeObjects
+          # reads the runtime manifest's separately compiled objects and
+          # builds their C sources.
+          prefixes = [ "src/runtime/c/" "src/runtime/windows/" ];
           files = [
             "tools/native_plan.py"
             "src/compiler/python/__init__.py"

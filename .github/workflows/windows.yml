@@ -421,28 +421,74 @@ jobs:
   # A stored C window subclass from the real MinGW commctrl.h, and real COM
   # (interop step 5's exit: a registry-free server DLL with a BTRC sink, and
   # an ole32 stream), through both compilers (test_native_win32_subclass.py,
-  # test_native_com_windows.py). The header reader and zig run under Nix,
-  # which Windows lacks, so a Linux runner builds the executables and the
-  # server and win32-native runs them on x64 and ARM64 Windows.
+  # test_native_com_windows.py). Regex, fnmatch and glob over the overlay's
+  # vendored musl engine: the PosixMatching parity table with the Linux C
+  # library's output to match, the regex, fnmatch and glob corpus programs
+  # through both compilers, a non-ASCII glob and two linked overlay units
+  # (test_regex_parity.py, test_windows_posix_overlay.py). The console
+  # terminal through both compilers with its pseudoconsole harness
+  # (test_windows_terminal.py). Library.Process's CreateProcessW provider
+  # (test_windows_launch_seam.py, test_windows_process.py): the runtime
+  # seam's self-checking harness, the btrc Process fixture through both
+  # compilers, and the target runner's bundle of the Process corpus. The
+  # Windows FileSystem provider: its own cases (test_windows_filesystem_handles.py)
+  # and the FileSystem corpus programs, with the file I/O programs that reserve
+  # temporary directories through it, bundled by src/tests/target_runner.py
+  # through both compilers for each architecture and executed there by the
+  # windows-native executor. The header reader and zig run under Nix, which
+  # Windows lacks, so a Linux runner builds the executables and the server and
+  # win32-native runs them on x64 and ARM64 Windows.
   win32-native-build:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'win32-native-build')
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
         with:
           use-flakehub: false
-      - name: Build the window subclass and the COM programs with both compilers for x64 and ARM64
-        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Build the self-hosted compiler once for every program below
+        run: nix develop --command make NIX= btrcc
+      - name: Build the Win32, COM, matching, console, Process and FileSystem programs with both compilers for x64 and ARM64
+        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py src/tests/python/test_windows_filesystem_handles.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Bundle the FileSystem corpus programs with both compilers for x64 and ARM64
+        run: |
+          set -euo pipefail
+          programs=(
+            --program 'stdlib/AdvisoryFileLock*.btrc' --program 'stdlib/ApplicationDirectories.btrc'
+            --program 'stdlib/FileSystem*.btrc' --program 'stdlib/FileTree*.btrc' --program 'stdlib/Fs*.btrc'
+            --program 'stdlib/Path*.btrc' --program 'stdlib/PrivateDirectory*.btrc' --program 'stdlib/RegularFileSnapshot*.btrc'
+            --program 'stdlib/BoundedLineRead.btrc' --program 'stdlib/Bytes.btrc' --program 'stdlib/FileAppend.btrc'
+            --program 'stdlib/FileBytesLarge.btrc' --program 'stdlib/FileLines.btrc' --program 'stdlib/Hygiene.btrc'
+            --program 'stdlib/ImageBmp.btrc' --program 'stdlib/ImageIoFailures.btrc' --program 'stdlib/IoRead.btrc'
+            --program 'stdlib/JsonFileRoundtrip.btrc'
+          )
+          for pair in windows-x86_64:windows-x64 windows-aarch64:windows-arm64; do
+            row="${pair%%:*}"
+            name="${pair##*:}"
+            nix develop --command python3 -m src.tests.target_runner --target "$row" --frontend both --compile-only \
+              --btrcc bin/btrcc --jobs 4 "${programs[@]}" \
+              --bundle "build/windows-filesystem/$name" --output "build/windows-filesystem/$name-build"
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: win32-native-executables
           path: |
             build/win32/*.exe
             build/win32/*.dll
+            build/win32/*.stdout
+            build/win32/*.stderr
+            build/win32/process-corpus-*/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-filesystem-bundles
+          path: |
+            build/windows-filesystem/windows-x64
+            build/windows-filesystem/windows-arm64
           if-no-files-found: error
           retention-days: 7
       - name: Retain the skip report
@@ -462,15 +508,59 @@ jobs:
       matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['win32-native'] }}
     name: win32-native (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
     steps:
+      # The target runner admits a corpus bundle only against the checkout it
+      # was built from, and its windows-native executor is Python.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      # The target runner imports the corpus runner, which imports pytest.
+      - name: Install the test dependencies
+        run: python -m pip install '.[dev]'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: win32-native-executables
           path: win32
+      - name: Check the runtime launch seam with its native harness
+        run: |
+          output=$("./win32/windows-launch-seam-${{ matrix.target }}.exe" | tr -d '\r')
+          echo "$output"
+          case "$(printf '%s\n' "$output" | tail -n 1)" in
+            "windows-launch-seam PASS checks="*) ;;
+            *) exit 1 ;;
+          esac
+      - name: Launch through Library.Process from each compiler's program
+        run: |
+          harness=$(cygpath -w "$PWD/win32/windows-launch-seam-${{ matrix.target }}.exe")
+          for frontend in reference selfhost; do
+            output=$("./win32/process-windows-$frontend-${{ matrix.target }}.exe" --parent "$harness" | tr -d '\r')
+            echo "$frontend ${{ matrix.target }}: $output"
+            case "$(printf '%s\n' "$output" | tail -n 1)" in
+              "process-windows PASS checks="*) ;;
+              *) exit 1 ;;
+            esac
+          done
+      - name: Run the Process corpus natively through both compilers against its goldens
+        run: python -m src.tests.target_runner --execute-bundle "win32/process-corpus-${{ matrix.target }}" --executor windows-native --output "build/process-corpus-${{ matrix.target }}"
+      - name: Retain the Process corpus results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: process-corpus-${{ matrix.target }}-results
+          path: build/process-corpus-${{ matrix.target }}/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-filesystem-bundles
+          path: windows-filesystem
       - name: Subclass a real window through each compiler's program
         run: |
           for frontend in reference selfhost; do
@@ -494,6 +584,223 @@ jobs:
             echo "$frontend ${{ matrix.target }}: $output"
             test "$output" = "$(printf 'com-stream status=0 written=4 same=1\ncom-stream-release claims=0 last=0')"
           done
+      # The parity table's expected output is the Linux C library's, printed by
+      # the same program on the build runner.
+      - name: Match regular expressions and fnmatch as glibc does
+        run: |
+          ./win32/posix-matching-${{ matrix.target }}.exe | tr -d '\r' > posix-matching.actual
+          diff -u "win32/posix-matching-${{ matrix.target }}.stdout" posix-matching.actual
+          tail -n 1 posix-matching.actual
+      - name: Glob non-ASCII names and link two units of the overlay
+        run: |
+          for program in glob-unicode posix-overlay-units; do
+            output=$("./win32/$program-${{ matrix.target }}.exe" | tr -d '\r')
+            echo "$program ${{ matrix.target }}: $output"
+            test "$output" = "$(tr -d '\r' < "win32/$program-${{ matrix.target }}.stdout")"
+          done
+      # Each corpus program runs as the corpus runner runs it: stdout and stderr
+      # must equal its goldens. TMPDIR gives FileSystem.tempDir a writable root.
+      - name: Run the regex, fnmatch, glob and terminal corpus programs through each compiler
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          count=0
+          for executable in win32/corpus-*-${{ matrix.target }}.exe; do
+            base="${executable%.exe}"
+            "./$executable" > program.stdout 2> program.stderr
+            tr -d '\r' < program.stdout > program.stdout.lf
+            tr -d '\r' < program.stderr > program.stderr.lf
+            diff -u "$base.stdout" program.stdout.lf
+            diff -u "$base.stderr" program.stderr.lf
+            echo "$(basename "$base"): $(tail -n 1 program.stdout.lf)"
+            count=$((count + 1))
+          done
+          test "$count" -eq 10
+      - name: Drive the console terminal through a pseudoconsole with each compiler's program
+        run: |
+          for frontend in reference selfhost; do
+            output=$("./win32/conpty-terminal-${{ matrix.target }}.exe" "./win32/terminal-console-$frontend-${{ matrix.target }}.exe" | tr -d '\r')
+            echo "$output"
+            test "$output" = "$(tr -d '\r' < "win32/conpty-terminal-${{ matrix.target }}.stdout")"
+          done
+      # Long \\?\ paths, a UNC path (\\localhost\C$ where the runner allows the
+      # administrative share), non-ASCII names, junctions never followed and a
+      # junction swapped during traversal, owner-only DACLs, LockFileEx across
+      # processes, an interrupted durable replace and the known folders.
+      - name: Run the Windows FileSystem provider cases through each compiler's program
+        run: |
+          mkdir -p build
+          failed=0
+          for frontend in reference selfhost; do
+            report="build/windows-fs-cases-$frontend.txt"
+            status=0
+            "./win32/windows-fs-cases-$frontend-${{ matrix.target }}.exe" > "$report" || status=$?
+            echo "$frontend ${{ matrix.target }} (exit $status):"
+            cat "$report"
+            if [ "$status" -ne 0 ] || ! python -c 'import sys; from pathlib import Path; from src.tests.python.test_windows_filesystem_handles import check_output; check_output(Path(sys.argv[1]).read_text(encoding="utf-8"))' "$report"; then
+              failed=1
+            fi
+          done
+          test "$failed" -eq 0
+      # Runs even when a case above fails, so one run reports both.
+      - name: Run the FileSystem corpus programs from both compilers' bundle
+        if: ${{ !cancelled() }}
+        run: |
+          python -m src.tests.target_runner --execute-bundle "windows-filesystem/${{ matrix.target }}" \
+            --executor windows-native --frontend both --output "build/windows-filesystem-run" \
+            --program 'stdlib/AdvisoryFileLock*.btrc' --program 'stdlib/ApplicationDirectories.btrc' \
+            --program 'stdlib/FileSystem*.btrc' --program 'stdlib/FileTree*.btrc' --program 'stdlib/Fs*.btrc' \
+            --program 'stdlib/Path*.btrc' --program 'stdlib/PrivateDirectory*.btrc' --program 'stdlib/RegularFileSnapshot*.btrc' \
+            --program 'stdlib/BoundedLineRead.btrc' --program 'stdlib/Bytes.btrc' --program 'stdlib/FileAppend.btrc' \
+            --program 'stdlib/FileBytesLarge.btrc' --program 'stdlib/FileLines.btrc' --program 'stdlib/Hygiene.btrc' \
+            --program 'stdlib/ImageBmp.btrc' --program 'stdlib/ImageIoFailures.btrc' --program 'stdlib/IoRead.btrc' \
+            --program 'stdlib/JsonFileRoundtrip.btrc'
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-filesystem-run-${{ matrix.target }}
+          path: build/windows-filesystem-run
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The whole language and stdlib corpus on real Windows, x64 and ARM64,
+  # through both compilers (CX-P1-07). Nix and the native header reader run
+  # only on Linux, so target-corpus-build cross-builds every applicable corpus
+  # program for each Windows row with zig (src/tests/target_runner.py
+  # --compile-only) into a bundle, and target-corpus runs each row's bundle on
+  # a hosted runner of its own architecture through the windows-native
+  # executor (tools/target_hosts/windows/executor.py), which refuses an
+  # emulated architecture. Its step summary carries the per-frontend counts;
+  # its artifact the per-program logs, the JUnit file and the ledger records.
+  target-corpus-build:
+    needs: scope
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'target-corpus-build')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Each program's run deadline, as the CI corpus shards give it. The bundle
+    # pins it, and target-corpus admits the bundle only with the same value.
+    env:
+      BTRC_TEST_RUN_TIMEOUT: "60"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Build the self-hosted compiler
+        run: nix develop --command make NIX= btrcc
+      # A program that fails to build is a failed result the Windows run
+      # reports too, so only a runner error (exit 2) fails this step.
+      - name: Cross-build every applicable corpus program for both Windows rows through both compilers
+        run: |
+          set -uo pipefail
+          for label in windows-x86_64 windows-aarch64; do
+            status=0
+            nix develop --command python3 -m src.tests.target_runner --target "$label" --frontend both \
+              --compile-only --btrcc bin/btrcc --jobs 4 --output "build/target-corpus/$label" || status=$?
+            if [ "$status" -gt 1 ]; then
+              echo "::error::the target runner could not build the $label bundle (exit $status)"
+              exit "$status"
+            fi
+          done
+      - name: Upload the x64 bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-bundle-windows-x86_64
+          path: |
+            build/target-corpus/windows-x86_64/bundle/bundle.json
+            build/target-corpus/windows-x86_64/bundle/*.exe
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload the ARM64 bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-bundle-windows-aarch64
+          path: |
+            build/target-corpus/windows-aarch64/bundle/bundle.json
+            build/target-corpus/windows-aarch64/bundle/*.exe
+          if-no-files-found: error
+          retention-days: 3
+      # The compile-only reports, and the C of every program that failed to build.
+      - name: Retain the build reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-build-reports
+          path: |
+            build/target-corpus/
+            !build/target-corpus/*/bundle/
+          if-no-files-found: warn
+          retention-days: 14
+
+  target-corpus:
+    needs: [scope, target-corpus-build]
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'target-corpus')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['target-corpus'] }}
+    name: target-corpus (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    # A report-only row (ci/tiers.toml) shows its failures without failing the run.
+    continue-on-error: ${{ matrix.report_only == 'true' }}
+    env:
+      BTRC_TEST_RUN_TIMEOUT: "60"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.python }}
+      - name: Install the test dependencies
+        run: python -m pip install '.[dev]'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: target-corpus-bundle-${{ matrix.label }}
+          path: build/target-corpus/bundle
+      # Admission checks the bundle against this checkout (revision, goldens,
+      # requests, digests); the executor stages a private copy of each program
+      # and takes every outcome from the process and its Job Object.
+      - name: Run every program natively through both compilers
+        run: python -m src.tests.target_runner --execute-bundle build/target-corpus/bundle --executor windows-native --output build/target-corpus/run
+      - name: Publish the counts
+        if: always()
+        run: |
+          test -f build/target-corpus/run/target-run.json || exit 0
+          python - build/target-corpus/run/target-run.json >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              report = json.load(stream)
+          device = (report.get("executor_provenance") or {}).get("device", "unrecorded")
+          print(f"### {report['target']['label']}: the corpus on {device}")
+          print()
+          print("| frontend | passed | failed | restricted | missing |")
+          print("| --- | ---: | ---: | ---: | ---: |")
+          for frontend, counts in report["counts"].items():
+              cells = " | ".join(str(counts[status]) for status in ("passed", "failed", "restricted", "missing"))
+              print(f"| {frontend} | {cells} |")
+          failed = [result for result in report["results"] if result["status"] == "failed"]
+          if failed:
+              print()
+              print("| frontend | failed program | phase | reason |")
+              print("| --- | --- | --- | --- |")
+              for result in failed:
+                  reason = next(iter((result.get("reason") or "").splitlines()), "")[:200].replace("|", "\\|")
+                  print(f"| {result['frontend']} | {result['program']} | {result.get('phase')} | {reason} |")
+          PY
+      - name: Retain the run
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-run-${{ matrix.target }}
+          path: build/target-corpus/run/
+          if-no-files-found: warn
+          retention-days: 30
 
   bootstrap:
     needs: scope

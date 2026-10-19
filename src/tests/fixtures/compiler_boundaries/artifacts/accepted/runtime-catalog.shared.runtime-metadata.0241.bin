@@ -1,0 +1,1 @@
+{"asset":"windows_os.h","btrc_order":215,"category":"process","dependencies":["__btrc_windows_launch_types"],"headers":[],"name":"__btrc_windows_quote_argv_utf8","provided_objects":[],"provided_types":[],"python_order":229,"realtime_effect":"safe","source_sha256":"b0c05ba50e0f20acfffe9795c70a74c43bb0d5033e9c0e1644bc8ffd65d659ec","source_size":652,"source_visible":true}

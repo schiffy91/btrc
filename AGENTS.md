@@ -75,7 +75,7 @@ The verification matrix last recorded green on `1cadaf4`: `make test` at
 bootstrap` reaching its byte-stable fixed point. Caveats when you read a green
 run:
 
-- The boundary manifest holds **311** records
+- The boundary manifest holds **319** records
   (`src/tests/fixtures/compiler_boundaries/manifest.toml`, checked by
   `test_boundary_manifest.py`).
   Some observed-behavior capabilities are skipped inside the nix shell as

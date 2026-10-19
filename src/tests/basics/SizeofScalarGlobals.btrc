@@ -19,7 +19,9 @@ var inferredText = "xyz";
 
 int main() {
 	int failures = 0;
-	if (sizeof(rowProbeLiteral) != sizeof(long)) { failures = failures + 1; }
+	// A literal beyond 32 bits infers a 64-bit type on every row: long where
+	// long is 64 bits (LP64), long long on Windows (LLP64).
+	if (sizeof(rowProbeLiteral) != sizeof(long long)) { failures = failures + 1; }
 	if (sizeof(longGlobal) != sizeof(long)) { failures = failures + 1; }
 	if (sizeof(doubleGlobal) != sizeof(double)) { failures = failures + 1; }
 	if (sizeof(label) != sizeof(char*)) { failures = failures + 1; }

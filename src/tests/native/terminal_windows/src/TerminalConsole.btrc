@@ -1,0 +1,132 @@
+/* Library.Terminal on a real Windows console. ConptyHarness.c starts this
+ * program in a pseudoconsole, waits for each prompt or marker it prints, types
+ * the input (Ctrl-C included) and checks the lines it prints, its exit status
+ * and that no secret ever reached the screen.
+ *
+ * TERMINAL_CONSOLE_CASE selects the run:
+ *   (unset)  the journey below, ending in "PASS: terminal console";
+ *   default  a password prompt with no handler of the caller's: Ctrl-C ends
+ *            the process through Windows' default handler;
+ *   probe    wait on the same console until TERMINAL_CONSOLE_GATE exists,
+ *            then print the console input mode, which "default" must have
+ *            left restored. */
+import Library.Terminal;
+
+import ./Console.btrc;
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int callerCalls = 0;
+int callerSawEcho = 0;
+
+/* A caller's console control handler that keeps the process alive. The
+ * password prompt's handler runs first and has restored the echo by now. */
+BOOL callerControl(DWORD event) {
+	DWORD mode = (DWORD)0;
+	if (GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mode) != 0 && (mode & (DWORD)ENABLE_ECHO_INPUT) != (DWORD)0) { callerSawEcho = 1; }
+	callerCalls = callerCalls + 1;
+	return TRUE;
+}
+
+int inputFlag(DWORD flag) {
+	DWORD mode = (DWORD)0;
+	if (GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mode) == 0) { return -1; }
+	return (mode & flag) != (DWORD)0 ? 1 : 0;
+}
+
+void mark(string line) {
+	printf("%s\n", line);
+	fflush(stdout);
+}
+
+/* Read the six bytes the harness types in raw mode, then restore. */
+void readRawKeys(TerminalRawMode raw) {
+	printf("raw echo=%d line=%d processed=%d\n", inputFlag((DWORD)ENABLE_ECHO_INPUT), inputFlag((DWORD)ENABLE_LINE_INPUT), inputFlag((DWORD)ENABLE_PROCESSED_INPUT));
+	mark("raw ready");
+	int keys[6];
+	for (int index = 0; index < 6; index++) { keys[index] = raw.readByte(); }
+	bool restored = raw.restore();
+	printf("raw keys=%d,%d,%d,%d,%d,%d restored=%d echo=%d line=%d processed=%d\n", keys[0], keys[1], keys[2], keys[3], keys[4], keys[5], restored ? 1 : 0, inputFlag((DWORD)ENABLE_ECHO_INPUT), inputFlag((DWORD)ENABLE_LINE_INPUT), inputFlag((DWORD)ENABLE_PROCESSED_INPUT));
+	fflush(stdout);
+}
+
+int main() {
+	char* scenario = getenv("TERMINAL_CONSOLE_CASE");
+	if (scenario != null && strcmp(scenario, "default") == 0) {
+		mark("ready default");
+		Terminal.promptPassword("default secret: ");
+		mark("default survived");
+		return 3;
+	}
+	if (scenario != null && strcmp(scenario, "probe") == 0) {
+		/* Attached before "default" starts and kept alive through its Ctrl-C,
+		 * which every process on the console receives; the harness creates
+		 * TERMINAL_CONSOLE_GATE once "default" has ended. */
+		SetConsoleCtrlHandler(callerControl, TRUE);
+		char* gate = getenv("TERMINAL_CONSOLE_GATE");
+		mark("probe waiting");
+		bool opened = false;
+		for (int wait = 0; wait < 4000 && gate != null && !opened; wait++) {
+			FILE* file = fopen(gate, "r");
+			if (file != null) {
+				fclose(file);
+				opened = true;
+			} else {
+				Sleep((DWORD)5);
+			}
+		}
+		printf("probe echo=%d line=%d processed=%d\n", inputFlag((DWORD)ENABLE_ECHO_INPUT), inputFlag((DWORD)ENABLE_LINE_INPUT), inputFlag((DWORD)ENABLE_PROCESSED_INPUT));
+		fflush(stdout);
+		return 0;
+	}
+
+	mark("ready");
+	/* Typed input, UTF-16 on the console, returned as UTF-8, never echoed. */
+	string first = Terminal.promptPassword("first secret: ");
+	printf("first match=%d echo=%d\n", first.equals("alpha-s3cr3t-é") ? 1 : 0, inputFlag((DWORD)ENABLE_ECHO_INPUT));
+	fflush(stdout);
+
+	/* Ctrl-C: the prompt returns "" with the echo back, and the caller's own
+	 * handler, registered after the prompt's was, still runs after it. */
+	SetConsoleCtrlHandler(callerControl, TRUE);
+	string second = Terminal.promptPassword("second secret: ");
+	for (int wait = 0; wait < 400 && callerCalls == 0; wait++) { Sleep((DWORD)5); }
+	printf("second empty=%d calls=%d saw=%d echo=%d\n", second.isEmpty() ? 1 : 0, callerCalls, callerSawEcho, inputFlag((DWORD)ENABLE_ECHO_INPUT));
+	fflush(stdout);
+
+	/* The next prompt works. */
+	string third = Terminal.promptPassword("third secret: ");
+	printf("third match=%d echo=%d\n", third.equals("omega-s3cr3t") ? 1 : 0, inputFlag((DWORD)ENABLE_ECHO_INPUT));
+	fflush(stdout);
+
+	/* A burst of Ctrl-C neither deadlocks nor leaves the echo off. */
+	string burst = Terminal.promptPassword("burst secret: ");
+	printf("burst empty=%d echo=%d\n", burst.isEmpty() ? 1 : 0, inputFlag((DWORD)ENABLE_ECHO_INPUT));
+	fflush(stdout);
+
+	/* An ordinary prompt reads Unicode through ReadConsoleW. */
+	string plain = Terminal.prompt("plain line: ");
+	printf("plain match=%d\n", plain.equals("héllo wörld 日本") ? 1 : 0);
+	fflush(stdout);
+
+	/* Raw keys: bytes as typed, Ctrl-C as 3, the up arrow as ESC [ A, and the
+	 * cooked mode back afterwards. */
+	TerminalRawMode? raw = Terminal.enterRawMode();
+	if (raw == null) {
+		mark("raw unavailable");
+		return 1;
+	}
+	readRawKeys(raw);
+
+	TerminalSize? size = Terminal.size();
+	if (size == null) {
+		mark("size unavailable");
+		return 1;
+	}
+	printf("size %dx%d\n", size.columns, size.rows);
+	printf("colors %d\n", Terminal.enableColors() ? 1 : 0);
+	fflush(stdout);
+	mark("PASS: terminal console");
+	return 0;
+}

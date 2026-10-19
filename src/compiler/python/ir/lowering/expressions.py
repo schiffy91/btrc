@@ -2433,6 +2433,13 @@ class ExpressionLowerer:
                 value,
                 value_owned=prepared.owned,
             )
+        if operation_type is None and plan.kind is StorageKind.DIRECT:
+            # Opaque C storage (a member of a record a C header declares) has
+            # no type to read into a temporary: C updates it in place, once,
+            # as btrcc's materializePhysicalUpdate does.
+            return self._storage.wrap_physical_operation(
+                target, IRBinOp(left=target.target, op=node.op, right=prepared.value)
+            )
         if method is not None and not self._types.concrete_value_compatible(
             rhs_target_type,
             prepared.effective_type,

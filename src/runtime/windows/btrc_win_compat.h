@@ -8,8 +8,10 @@
    Implemented adapters have the documented Windows semantics below; some
    compatibility probes intentionally return sentinels or fail closed. Features
    that need a real Win32 backend to behave correctly (Process spawn/wait,
-   raw-mode Terminal, sockets, Regex, glob/fnmatch) are deliberately left out:
-   stubbing those operations would link but misbehave. */
+   sockets) are deliberately left out: stubbing those operations would link
+   but misbehave. regex.h, fnmatch.h and glob.h beside this header are real
+   (the vendored musl engine, see README.md), and Library.Terminal has its own
+   Win32 console provider. */
 #pragma once
 #include <dirent.h>
 #include <errno.h>
@@ -92,10 +94,11 @@ int BTRC_WIN_REMOVE_DIRECTORY(const char *path);
 #define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400UL
 #endif
 
-/* Process launch has no Windows backend yet and must fail before fork/spawn.
-   Map the POSIX environ symbol to a null, translation-unit-local sentinel so
-   imported process code still cross-compiles without colliding with UCRT's
-   function-like `_environ` macro. */
+/* Process launch on Windows goes through the runtime's windows_os.c, which
+   reads the native environment block itself; no POSIX path reads environ.
+   Map the POSIX symbol to a null, translation-unit-local sentinel so retained
+   POSIX code still cross-compiles without colliding with UCRT's function-like
+   `_environ` macro. */
 #ifdef environ
 #undef environ
 #endif

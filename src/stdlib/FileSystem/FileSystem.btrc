@@ -368,8 +368,16 @@ class FileSystem {
 		if (path == null || path.isEmpty()) { return -1; }
 		if (FileSystem.isDir(path)) { return 0; }
 		int mode = 493;
+#if defined(_WIN32)
+		/* Either separator ends a component; the volume root ("C:\",
+		 * "\\server\share\") is never created. */
+		int root = PathTools.rootLengthFor(path, true);
+		for (int i = root > 0 ? root : 1; i < path.len(); i++) {
+			if (path[i] == '/' || path[i] == '\\') {
+#else
 		for (int i = 1; i < path.len(); i++) {
 			if (path[i] == '/') {
+#endif
 				string parent = path.substring(0, i);
 				if (!parent.isEmpty() && FileSystem.mkdirOne(parent, mode) != 0) {
 					return -1;
@@ -392,12 +400,12 @@ class FileSystem {
 		return end < rootLength;
 	}
 
-	/* Windows cannot provide the POSIX descriptor-relative *at operations.
-     * Deleting an ordinary directory through a path-based walker would leave
-     * an ancestor-junction race, so recursive directory deletion fails closed
-     * until a handle-relative NT backend exists. Files and final reparse points
-     * remain supported as single-name unlink operations; no directory target
-     * is enumerated. */
+	/* A path-based single-name removal: a file or a final symlink or reparse
+     * point is unlinked, and a directory fails closed, because enumerating a
+     * tree by path would race an ancestor junction or symlink. removeRecursive
+     * removes directory trees handle-relative instead, through
+     * DirectoryTreeRemoval on POSIX and WindowsFileSystem.removeTree (NT
+     * handle-relative opens) on Windows. */
 	class int removeRecursivePath(string path) {
 		FileStatus status = FileStatus(path);
 		if (!status.exists() && !status.isSymlink()) {
@@ -452,11 +460,21 @@ class FileSystem {
 	 * DirectoryTreeRemoval, the same owner TemporaryDirectory uses. */
 	class int removeRecursive(string path) {
 		if (path == null || path.isEmpty()) { return -1; }
+#if defined(_WIN32)
+		/* A volume root, "." or "..", or an incomplete UNC name is never
+		 * removed, even when the CRT reports it missing. */
+		if (!WindowsFileSystem.removable(path)) { return -1; }
+#endif
 		FileStatus status = FileStatus(path);
 		if (!status.exists() && !status.isSymlink()) {
 			return status.isMissing() ? 0 : -1;
 		}
 		if (status.isDir() && !status.isSymlink() && FileSystem.isCanonicalRoot(path)) { return -1; }
+#if defined(_WIN32)
+		/* The parent is reached from the volume root without following a
+		 * reparse point, and the tree is removed relative to its handle. */
+		return WindowsFileSystem.removeTree(path);
+#else
 		if (Platform.isWindows()) {
 			return FileSystem.removeRecursivePath(path);
 		}
@@ -473,15 +491,25 @@ class FileSystem {
 		int result = DirectoryTreeRemoval.removeAt(parentDescriptor, name, null);
 		close(parentDescriptor);
 		return result == 0 ? 0 : -1;
+#endif
 	}
 
+	/* On Windows the link is a directory link when its target, resolved
+	 * beside the link, is a directory, since Windows records which it is. */
 	class int symlink(string target, string linkPath) {
 		if (target == null || linkPath == null) { return -1; }
+#if defined(_WIN32)
+		return WindowsFileSystem.symlink(target, linkPath);
+#else
 		return symlink(target, linkPath);
+#endif
 	}
 
 	class string readLink(string path) {
 		if (path == null) { return ""; }
+#if defined(_WIN32)
+		return WindowsFileSystem.readLink(path);
+#else
 		int capacity = 256;
 		char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)capacity + (size_t)1);
 		while (true) {
@@ -502,6 +530,7 @@ class FileSystem {
 			buffer = (char*)__btrc_safe_realloc(buffer, (size_t)capacity + (size_t)1);
 		}
 		return "";
+#endif
 	}
 
 	class string realPath(string path) {

@@ -214,10 +214,10 @@ def build(output, target, btrcc, *, root=ROOT, compiler_receipt=None):
     receipt = verify_compiler_provenance(btrcc, compiler_receipt or btrcc.with_suffix(".provenance.json"), root=root)
     zig_target, machine = TARGETS[target]
     output.mkdir(parents=True, exist_ok=True)
-    programs, cases = {}, acceptance_cases(root)
+    programs, sources, cases = {}, {}, acceptance_cases(root)
     flags = ["zig", "cc", "-target", zig_target, *compiler_flags(root=root)]
 
-    def compile_c(program, source):
+    def compile_c(program, source, origin, frontend):
         executable = output / f"{program}.exe"
         run_build_command([*flags, str(source), "-o", str(executable), "-lm"], cwd=root)
         if pe_machine(executable) != machine:
@@ -227,9 +227,11 @@ def build(output, target, btrcc, *, root=ROOT, compiler_receipt=None):
             "sha256": digest(executable.read_bytes()),
             "pe_machine": machine,
         }
+        sources[program] = (origin, frontend)
 
     for fixture in ("probe", "tree"):
-        compile_c(fixture, root / f"tools/target_hosts/windows/fixtures/{fixture}.c")
+        origin = f"tools/target_hosts/windows/fixtures/{fixture}.c"
+        compile_c(fixture, root / origin, origin, "c")
     for relative in CORPUS:
         source = root / f"src/tests/{relative}.btrc"
         for frontend in ("python", "selfhost"):
@@ -242,7 +244,12 @@ def build(output, target, btrcc, *, root=ROOT, compiler_receipt=None):
             else:
                 with c_source.open("wb") as generated:
                     run_build_command(command, cwd=root, stdout=generated)
-            compile_c(program, c_source)
+            compile_c(
+                program, c_source, f"src/tests/{relative}.btrc", "reference" if frontend == "python" else frontend
+            )
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True, timeout=METADATA_TIMEOUT_S
+    ).strip()
     manifest = {
         "schema": "btrc.windows-host-bundle/1",
         "target": target,
@@ -252,16 +259,48 @@ def build(output, target, btrcc, *, root=ROOT, compiler_receipt=None):
             .decode()
             .strip(),
             "flags": flags[2:],
-            "source_revision": subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=root, text=True, timeout=METADATA_TIMEOUT_S
-            ).strip(),
+            "source_revision": revision,
             "compiler_build": receipt,
         },
         "programs": programs,
         "cases": cases,
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    write_target_bundle(output, target, revision, manifest["toolchain"], programs, sources, root=root)
     return manifest
+
+
+def write_target_bundle(output, target, revision, toolchain, programs, sources, *, root=ROOT):
+    """``bundle.json``, the executor-protocol index (``btrc.target-bundle/1``) the executor admits.
+
+    ``manifest.json`` stays the acceptance-case index `check.py` validates; the
+    executor reads only this file.
+    """
+    document = {
+        "schema": "btrc.target-bundle/1",
+        "protocol": 1,
+        "target": {
+            "label": target,
+            "triple": TARGETS[target][0],
+            "operating_system": "windows",
+            "architecture": target.split("-", 1)[1],
+        },
+        "source_revision": revision,
+        "source_dirty": source_dirty(root),
+        "toolchain": toolchain,
+        "programs": {
+            program: {
+                "source": sources[program][0],
+                "frontend": sources[program][1],
+                "status": "built",
+                "artifact": record["executable"],
+                "sha256": record["sha256"],
+            }
+            for program, record in sorted(programs.items())
+        },
+    }
+    (Path(output) / "bundle.json").write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return document
 
 
 def main(argv=None):
