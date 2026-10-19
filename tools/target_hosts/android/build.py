@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -13,6 +14,11 @@ from pathlib import Path
 from tools.target_hosts.android.sdk import SDKVersions
 
 ROOT = Path(__file__).resolve().parent
+# Each ABI's targets.toml row and that row's triple, for the probe's bundle.json.
+ROWS = {
+    "x86_64": ("android-x86_64", "x86_64-unknown-linux-android29", "x86_64"),
+    "arm64-v8a": ("android-aarch64", "aarch64-unknown-linux-android29", "aarch64"),
+}
 
 
 class AndroidHostBuilder:
@@ -47,9 +53,8 @@ class AndroidHostBuilder:
         ]
         executable = self.output / "probe"
         subprocess.run([*command, str(source), "-o", str(executable)], check=True, timeout=120)
-        supervisor = self.output / "supervisor"
-        subprocess.run([*command, str(ROOT / "fixtures/supervisor.c"), "-o", str(supervisor)], check=True, timeout=120)
-        programs = {"shell": {"mode": "shell", "executable": executable.name, "supervisor": supervisor.name}}
+        self.write_bundle(executable)
+        programs = {}
         if app or native_only:
             native = self.output / "jniLibs" / self.abi
             native.mkdir(parents=True, exist_ok=True)
@@ -118,11 +123,37 @@ class AndroidHostBuilder:
                 raise RuntimeError("Gradle did not produce exactly one debug APK")
             shutil.copy2(apks[0], self.output / "host.apk")
             programs["app"] = {"mode": "app", "apk": "host.apk", "package": package}
-        (self.output / "programs.json").write_text(json.dumps(programs, indent=2) + "\n")
-        (self.output / "toolchain.json").write_text(
-            json.dumps({"ndk": SDKVersions().ndk, "abi": self.abi, "target": self.triple}, indent=2) + "\n"
-        )
+        listing = self.output / "programs.json"
+        if programs:
+            listing.write_text(json.dumps(programs, indent=2) + "\n")
+        else:
+            listing.unlink(missing_ok=True)
+        (self.output / "toolchain.json").write_text(json.dumps(self.toolchain(), indent=2) + "\n")
         return programs
+
+    def toolchain(self):
+        return {"ndk": SDKVersions().ndk, "abi": self.abi, "target": self.triple}
+
+    def write_bundle(self, executable):
+        """The probe as a btrc.target-bundle/1 bundle, which the protocol-1 shell executor admits."""
+
+        label, triple, architecture = ROWS[self.abi]
+        document = {
+            "schema": "btrc.target-bundle/1",
+            "protocol": 1,
+            "target": {"label": label, "triple": triple, "operating_system": "android", "architecture": architecture},
+            "toolchain": self.toolchain(),
+            "programs": {
+                "probe": {
+                    "source": "tools/target_hosts/android/fixtures/probe.c",
+                    "frontend": "fixture",
+                    "status": "built",
+                    "artifact": executable.name,
+                    "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+                }
+            },
+        }
+        (self.output / "bundle.json").write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
 
 
 def main(argv=None):

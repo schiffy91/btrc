@@ -107,41 +107,15 @@ jobs:
           "$sdkmanager" --install "${packages[@]}" > build/android-sdkmanager.log
       - name: Install the pinned emulator and platform-tools archives
         run: |
-          python3 - <<'EOF'
-          import hashlib, json, os, re, shutil, urllib.request, zipfile
-          from pathlib import Path
-          from tools.target_hosts.android.sdk import SDKVersions
-
-          sdk = Path(os.environ["ANDROID_SDK_ROOT"])
-          versions = SDKVersions()
-          pins = re.sub(r"#.*", "", Path("nix/platforms.nix").read_text())
-          overlay = json.loads(Path("nix/android-repo-overlay.json").read_text())["packages"]
-          for package, key in (("emulator", "emulatorVersion"), ("platform-tools", "platformToolsVersion")):
-              (revision,) = re.findall(rf'\b{key}\s*=\s*"([0-9.]+)"\s*;', pins)
-              (archive,) = [a for a in overlay[package][revision]["archives"] if a["os"] == "linux"]
-              data = urllib.request.urlopen(archive["url"], timeout=600).read()
-              digest = hashlib.sha1(data).hexdigest()
-              if len(data) != archive["size"] or digest != archive["sha1"]:
-                  raise SystemExit(f"{package} {revision}: size/sha1 mismatch ({len(data)} {digest})")
-              Path("build/archive.zip").write_bytes(data)
-              # Raw archives omit sdkmanager's package.xml; avdmanager needs it.
-              registration = (sdk / package / "package.xml").read_bytes()
-              shutil.rmtree(sdk / package, ignore_errors=True)
-              with zipfile.ZipFile("build/archive.zip") as bundle:
-                  for member in bundle.infolist():
-                      path = Path(bundle.extract(member, sdk))
-                      mode = member.external_attr >> 16
-                      if mode:
-                          path.chmod(mode & 0o777)
-              versions.register_archive(sdk, package, registration)
-              print(f"installed {package} {revision} from {archive['url']}")
-          EOF
+          python3 -m tools.target_hosts.android.sdk install-archives --sdk "$ANDROID_SDK_ROOT"
           python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT"
           python3 -m tools.target_hosts.android.sdk cache-key | tee build/android-sdk-cache-key.txt
       - name: Build the x86_64 app and the arm64 compile-only pair
         run: |
           ndk=$(sed -n 's/^ndk;//p' build/android-sdk-packages.txt)
           export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/$ndk"
+          # The fixture check builds the shell executor's supervisor with it too.
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
           python3 -m tools.target_hosts.android.build --output build/android-host-x64 --app
           python3 -m tools.target_hosts.android.build --output build/android-host-arm64 --abi arm64-v8a --native-only
       - name: Run the fixtures on API ${{ matrix.api }}

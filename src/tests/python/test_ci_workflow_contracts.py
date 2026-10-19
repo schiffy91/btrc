@@ -1313,7 +1313,7 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     for workflow, tool in (("host-ios.yml", "ios/spike.py"), ("host-android.yml", "android/check.py")):
         jobs = _parsed(workflow)["jobs"]
         assert f"tools/target_hosts/{tool}" in _code(_job(_workflow(workflow), "tooling")), workflow
-        device = next(name for name in jobs if name != "tooling")
+        device = next(name for name, job in jobs.items() if job.get("needs") == "tooling")
         assert jobs[device]["needs"] == "tooling", workflow
         assert jobs[device]["if"] == "needs.tooling.outputs.present == 'true'", workflow
         # Steps pipe into tee, so the job runs bash with pipefail.
@@ -1333,7 +1333,8 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     assert "python3 -m tools.target_hosts.android.sdk packages | tee build/android-sdk-packages.txt" in android
     assert '"$sdkmanager" --install "${packages[@]}"' in android
     assert 'python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT"' in android
-    assert "nix/android-repo-overlay.json" in android
+    # The emulator and platform-tools come from nix/android-repo-overlay.json's checksummed archives.
+    assert 'python3 -m tools.target_hosts.android.sdk install-archives --sdk "$ANDROID_SDK_ROOT"' in android
     assert ".#platforms" not in android
     assert _parsed("host-android.yml")["jobs"]["emulator"]["strategy"]["matrix"]["api"] == ["29", "36"]
     # CL-P2-09, interop step 4's exit: each emulator also round-trips a checked

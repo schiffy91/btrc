@@ -1,4 +1,9 @@
-"""Run every spike fixture on an explicitly selected emulator and save evidence."""
+"""Run every spike fixture on an explicitly selected emulator and save evidence.
+
+The probe runs through the protocol-1 shell executor (``executor.py``, from the
+bundle's ``bundle.json``) and, when the bundle carries the NativeActivity APK
+(``programs.json``), through the app-mode spike (``app.py``): 14 cases each.
+"""
 
 from __future__ import annotations
 
@@ -9,46 +14,51 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 
+from tools.target_hosts.android.app import NativeActivityExecutor
 from tools.target_hosts.android.avd import AvdManager
 from tools.target_hosts.android.executor import AndroidEmulatorExecutor, ExecutionRequest
 
+CASES = (
+    "stdout",
+    "stderr",
+    "exit3",
+    "exit124",
+    "exit137",
+    "sigkill",
+    "abort",
+    "timeout",
+    "large",
+    "argv",
+    "env",
+    "cwd",
+    "cwd",
+    "stdin",
+)
+
 
 class HostFixtureCheck:
-    def __init__(self, executor):
-        self.executor = executor
+    def __init__(self, executors):
+        """`executors` maps each mode to the (executor, program id) every case runs through."""
+
+        self.executors = executors
         self.results = []
         self.current_case = None
         self.failed_result = None
 
     def run(self):
         rows = self.results
-        for mode in self.executor.programs:
-            for case in (
-                "stdout",
-                "stderr",
-                "exit3",
-                "exit124",
-                "exit137",
-                "sigkill",
-                "abort",
-                "timeout",
-                "large",
-                "argv",
-                "env",
-                "cwd",
-                "cwd",
-                "stdin",
-            ):
+        for mode, (executor, program_id) in self.executors.items():
+            for case in CASES:
                 self.current_case = {"mode": mode, "case": case}
                 arguments = (case, "space and ' quote", "", "$(touch should-not-exist)") if case == "argv" else (case,)
                 request = ExecutionRequest(
-                    mode,
+                    program_id,
                     arguments,
                     b"input\x00bytes\n",
                     {"BTRC_FIXTURE_VALUE": "fixture value"},
                     1 if case == "timeout" else 15,
                 )
-                result = self.executor.run(request)
+                result = executor.run(request)
                 row = asdict(result)
                 for name in ("stdout", "stderr"):
                     data = row.pop(name)
@@ -91,6 +101,7 @@ class HostFixtureCheck:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sdk", default=os.environ.get("ANDROID_SDK_ROOT"))
+    parser.add_argument("--ndk", default=os.environ.get("ANDROID_NDK_HOME"), help="builds the shell supervisor")
     parser.add_argument("--serial", default="emulator-5554")
     parser.add_argument("--boot", action="store_true", help="own the emulator lifecycle for this check")
     parser.add_argument("--state", type=Path)
@@ -109,8 +120,10 @@ def main(argv=None):
         else None
     )
     host = None
-    executor = AndroidEmulatorExecutor(args.sdk, args.serial)
-    checker = HostFixtureCheck(executor)
+    executors = {"shell": (AndroidEmulatorExecutor(args.sdk, args.serial, ndk=args.ndk), "probe")}
+    if (args.bundle / "programs.json").is_file():
+        executors["app"] = (NativeActivityExecutor(args.sdk, args.serial), "app")
+    checker = HostFixtureCheck(executors)
     failure = None
     stage = "boot"
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -121,13 +134,17 @@ def main(argv=None):
             if args.save_snapshot:
                 manager.snapshot()
         stage = "prepare"
-        executor.prepare(args.bundle, "CX-P1-05 fixture proof")
+        label = json.loads((args.bundle / "bundle.json").read_text())["target"]["label"]
+        for executor, _ in executors.values():
+            executor.prepare(args.bundle, label)
         stage = "fixtures"
         checker.run()
         stage = "cleanup"
     except BaseException as error:
         failure = error
-    cleanup = ([manager.diagnostics] if failure and manager else []) + [executor.close]
+    cleanup = ([manager.diagnostics] if failure and manager else []) + [
+        executor.close for executor, _ in executors.values()
+    ]
     if manager:
         cleanup.append(manager.close)
     for action in cleanup:
