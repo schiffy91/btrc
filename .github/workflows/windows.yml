@@ -430,14 +430,11 @@ jobs:
   # (test_windows_terminal.py). Library.Process's CreateProcessW provider
   # (test_windows_launch_seam.py, test_windows_process.py): the runtime
   # seam's self-checking harness, the btrc Process fixture through both
-  # compilers, and the target runner's bundle of the Process corpus. The
-  # Windows FileSystem provider: its own cases (test_windows_filesystem_handles.py)
-  # and the FileSystem corpus programs, with the file I/O programs that reserve
-  # temporary directories through it, bundled by src/tests/target_runner.py
-  # through both compilers for each architecture and executed there by the
-  # windows-native executor. The header reader and zig run under Nix, which
-  # Windows lacks, so a Linux runner builds the executables and the server and
-  # win32-native runs them on x64 and ARM64 Windows.
+  # compilers, and the target runner bundles of the Process and FileSystem
+  # corpora. The Win32 GUI shell runs through both compilers with its
+  # UI Automation client and the pinned wgpu-native DLL. A Linux runner
+  # builds the programs with Nix, the header reader and zig; win32-native
+  # executes each architecture on its Windows runner.
   win32-native-build:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'win32-native-build')
@@ -451,8 +448,8 @@ jobs:
           use-flakehub: false
       - name: Build the self-hosted compiler once for every program below
         run: nix develop --command make NIX= btrcc
-      - name: Build the Win32, COM, matching, console, Process and FileSystem programs with both compilers for x64 and ARM64
-        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py src/tests/python/test_windows_filesystem_handles.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Build the Win32, COM, matching, console, Process, FileSystem and GUI shell programs with both compilers for x64 and ARM64
+        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py src/tests/python/test_windows_filesystem_handles.py src/tests/python/test_native_ui_shell_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
       - name: Bundle the FileSystem corpus programs with both compilers for x64 and ARM64
         run: |
           set -euo pipefail
@@ -481,6 +478,7 @@ jobs:
             build/win32/*.stdout
             build/win32/*.stderr
             build/win32/process-corpus-*/
+            build/win32/native-shell-*/
           if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -508,7 +506,7 @@ jobs:
       matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['win32-native'] }}
     name: win32-native (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -662,6 +660,35 @@ jobs:
           path: build/windows-filesystem-run
           if-no-files-found: ignore
           retention-days: 7
+      # The Win32 GUI shell journey (CX-UIA-15): 100 cycles of the shared native
+      # shell fixture through each compiler's program, the window and GDI/USER
+      # object counts after every teardown, 100 fresh-process restores and the
+      # UI Automation tree its COM client reads.
+      - name: Run the Win32 GUI shell journey through each compiler's program
+        if: ${{ !cancelled() }}
+        env:
+          BTRC_WIN32_EVIDENCE_DIR: win32
+        run: |
+          python -m pytest -q -rs src/tests/python/test_native_ui_shell_windows.py -k "runs and ${{ matrix.target }}" --skip-report=build/skip-report-windows-win32-native-${{ matrix.target }}.json
+          python -m tools.qualification skip-gate build/skip-report-windows-win32-native-${{ matrix.target }}.json
+      - name: Retain the GUI shell evidence and UI Automation trees
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-shell-${{ matrix.target }}
+          path: build/ui-shell/
+          if-no-files-found: warn
+          retention-days: 14
+      # Keep the report even from a failed run, so a red run's coverage is as
+      # visible as a green one's.
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-windows-win32-native-${{ matrix.target }}
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
 
   # The whole language and stdlib corpus on real Windows, x64 and ARM64,
   # through both compilers (CX-P1-07). Nix and the native header reader run

@@ -283,6 +283,15 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
             "target-corpus-build",
             "target-corpus",
         ]
+    # The Win32 GUI provider runs its shell rows on both Windows architectures (CX-UIA-15).
+    shell = manifest.plan("windows.yml", "pr", ["src/stdlib/GUI/Windows/WindowsWindow.btrc"])
+    assert shell["jobs"] == ["windows", "win32-native-build", "win32-native", "target-corpus-build", "target-corpus"]
+    assert list(_rows(shell, "win32-native")) == ["windows-x64", "windows-arm64"]
+    assert shell["reports"]["win32-native"] == [
+        "skip-report-windows-win32-native-windows-x64",
+        "skip-report-windows-win32-native-windows-arm64",
+    ]
+    assert manifest.plan("windows.yml", "pr", ["src/tests/native/gui/shell/probes/macos/ShellProbe.m"])["jobs"] == []
     assert manifest.plan("windows.yml", "lane", ["src/devex/vscode/package.json"])["jobs"] == ["windows"]
     # A platform's expected-skip manifest is read only by that platform's skip gate.
     skips = ["src/tests/fixtures/expected-skips/macos-hosted.json"]
@@ -331,6 +340,13 @@ LANE_LIGHT = ["static", "release", "tests"]
 LANE_LINUX_GUI = [*LANE_LINUX, "linux-gui"]
 LANE_LIGHT_GUI = [*LANE_LIGHT, "linux-gui"]
 LANE_MACOS = ["native-bundle", "native-gui"]
+# Windows runs only its own paths. The Win32 GUI shell rows build from the
+# shared shell fixtures and link Library.GPU (CX-UIA-15).
+LANE_WINDOWS = {
+    ("pyproject.toml",): ["windows"],
+    ("src/tests/python/native_ui_shell_fixtures.py",): ["win32-native-build", "win32-native"],
+    ("src/stdlib/GPU/Device.btrc",): ["win32-native-build", "win32-native"],
+}
 
 
 @pytest.mark.parametrize(
@@ -412,7 +428,7 @@ def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(
     assert list(_rows(plan, "native-bundle")) == (["macos-arm64"] if macos else [])
     # Windows keeps its own rule: only its paths, as in the pr tier, and nothing without a list.
     windows = manifest.plan("windows.yml", "lane", changed)["jobs"]
-    assert windows == (["windows"] if changed == ["pyproject.toml"] else [])
+    assert windows == (LANE_WINDOWS.get(tuple(changed), []) if changed is not None else [])
     assert windows == (manifest.plan("windows.yml", "pr", changed)["jobs"] if changed is not None else [])
 
 
