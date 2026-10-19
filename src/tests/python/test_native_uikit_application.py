@@ -474,11 +474,18 @@ def test_uikit_application_state_persists_across_launches(frontend, tmp_path: Pa
         assert container, "the simulator reports no data container"
         first = re.search(r"btrc-persist wrote 1 at ([^\r\n]+)", outputs[0])
         second = re.search(r"btrc-persist read first launch at ([^\r\n]+)", outputs[1])
-        assert first and second, outputs
-        assert first.group(1) == second.group(1), outputs
-        assert first.group(1).startswith(os.path.realpath(container) + "/Library/Application Support/") or first.group(
-            1
-        ).startswith(container + "/Library/Application Support/"), (container, first.group(1))
+        assert second, outputs
+        written = second.group(1)
+        if first is None:
+            # simctl's console relay can drop every line of a launch (seen on a
+            # hosted runner); the second launch read what the first wrote, so
+            # the first launch's file must exist where the second found it.
+            assert Path(written).is_file(), outputs
+        else:
+            assert first.group(1) == written, outputs
+        assert written.startswith(os.path.realpath(container) + "/Library/Application Support/") or written.startswith(
+            container + "/Library/Application Support/"
+        ), (container, written)
     finally:
         _xcrun("simctl", "uninstall", device, identifier, timeout=120)
 
