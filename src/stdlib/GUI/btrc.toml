@@ -303,7 +303,7 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
-	"+[NSThread isMainThread]", "-[NSView isDescendantOf:]", "-[NSView bounds]", "-[NSView convertRectToBacking:]", "-[NSView addSubview:]",
+	"+[NSThread isMainThread]", "-[NSView isDescendantOf:]", "-[NSView bounds]", "-[NSView convertRectToBacking:]", "-[NSView addSubview:positioned:relativeTo:]", "NSWindowAbove",
 	"+[NSImageView new]", "-[NSImageView setFrame:]", "-[NSImageView setImage:]", "-[NSImageView setImageScaling:]", "-[NSImageView removeFromSuperview]", "NSImageScaleAxesIndependently"
 ]
 os = ["macos"]
@@ -313,7 +313,7 @@ module = "MacOS.MacOSView"
 header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView superview]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView setHidden:]", "-[NSView isHidden]", "-[NSView fittingSize]", "-[NSView isDescendantOf:]", "-[NSView addSubview:]", "-[NSView removeFromSuperview]"]
+symbols = ["+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView superview]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView setHidden:]", "-[NSView isHidden]", "-[NSView fittingSize]", "-[NSView isDescendantOf:]", "-[NSView addSubview:positioned:relativeTo:]", "NSWindowAbove", "NSWindowBelow", "-[NSView removeFromSuperview]"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -502,7 +502,7 @@ language = "objective-c"
 standard = "c11"
 symbols = [
 	"+[NSThread isMainThread]", "+[NSScrollView new]", "+[NSView new]",
-	"-[NSView frame]", "-[NSView setFrame:]", "-[NSView addSubview:]",
+	"-[NSView frame]", "-[NSView setFrame:]",
 	"-[NSScrollView setBorderType:]", "NSNoBorder", "-[NSScrollView setDrawsBackground:]",
 	"-[NSScrollView setHasVerticalScroller:]", "-[NSScrollView setHasHorizontalScroller:]",
 	"-[NSScrollView setAutohidesScrollers:]", "-[NSScrollView setScrollerStyle:]", "NSScrollerStyleOverlay",
@@ -520,7 +520,7 @@ language = "objective-c"
 standard = "c11"
 symbols = [
 	"+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView bounds]",
-	"-[NSView setWantsLayer:]", "-[NSView setClipsToBounds:]", "-[NSView setLayer:]", "-[NSView addSubview:]", "-[NSView removeFromSuperview]",
+	"-[NSView setWantsLayer:]", "-[NSView setClipsToBounds:]", "-[NSView setLayer:]", "-[NSView removeFromSuperview]",
 	"-[NSView convertRectToBacking:]", "+[CAMetalLayer layer]", "-[CAMetalLayer setDrawableSize:]", "-[CAMetalLayer setContentsScale:]"
 ]
 os = ["macos"]
