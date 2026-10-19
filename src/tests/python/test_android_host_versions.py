@@ -1,4 +1,7 @@
-"""Android host version drift and executor transport contracts, without a device."""
+"""Android host version drift and the NativeActivity spike's transport contracts, without a device.
+
+The protocol-1 shell executor and its supervisor are tested in test_android_executor.py.
+"""
 
 from __future__ import annotations
 
@@ -17,9 +20,10 @@ import pytest
 
 from src.tests.c_toolchains import HOST_C_COMPILERS, requires_host_c_compiler
 from src.tests.process_limits import TOOL_TIMEOUT
+from tools.target_hosts.android.app import NativeActivityExecutor
 from tools.target_hosts.android.avd import AvdManager
 from tools.target_hosts.android.build import AndroidHostBuilder
-from tools.target_hosts.android.executor import AndroidEmulatorExecutor, ExecutionRequest
+from tools.target_hosts.android.executor import ExecutionRequest
 from tools.target_hosts.android.sdk import SDKVersions
 
 REPO = Path(__file__).resolve().parents[3]
@@ -43,6 +47,26 @@ def test_sdkmanager_package_list_uses_the_integrator_pins():
         ("cmdline-tools", versions.commandline),
     ):
         assert overlay[name][revision]["revision"] == revision
+
+
+def test_one_apis_packages_keep_the_tools_and_only_its_image():
+    versions = SDKVersions()
+    api = versions.apis[0]
+    packages = versions.packages(api)
+    assert set(packages) == {name for name in versions.packages() if "android-" not in name} | {
+        f"platforms;android-{api}",
+        f"system-images;android-{api};google_apis;x86_64",
+    }
+    with pytest.raises(ValueError, match="not pinned"):
+        versions.packages("28")
+
+
+def test_a_pinned_archive_that_does_not_match_its_checksum_is_never_installed(tmp_path):
+    (tmp_path / "emulator").mkdir()
+    (tmp_path / "emulator/package.xml").write_bytes(b"<registration/>")
+    with pytest.raises(ValueError, match=r"emulator .*: size/sha1 mismatch"):
+        SDKVersions().install_archives(tmp_path, fetch=lambda url: b"not the archive")
+    assert (tmp_path / "emulator/package.xml").read_bytes() == b"<registration/>"
 
 
 def test_pin_change_updates_packages_and_cache_key(tmp_path):
@@ -87,6 +111,13 @@ def test_installed_sdk_revisions_are_checked(tmp_path):
             path.parent.mkdir(parents=True)
             path.touch()
     versions.verify(tmp_path)
+    # One API's check needs only that API's payloads.
+    for api in versions.apis[1:]:
+        (tmp_path / f"system-images/android-{api}/google_apis/x86_64/system.img").unlink()
+    versions.verify(tmp_path, versions.apis[0])
+    if versions.apis[1:]:
+        with pytest.raises(ValueError, match="missing SDK package payload"):
+            versions.verify(tmp_path)
     (tmp_path / "emulator/source.properties").write_text("Pkg.Revision = 99.0.0\n")
     with pytest.raises(ValueError, match="expected revision"):
         versions.verify(tmp_path)
@@ -195,12 +226,9 @@ class FakeAdb:
 
     def __init__(
         self,
-        exit_status=0,
         *,
         app_timeout=False,
         signum=0,
-        timed_out=False,
-        shell_status=0,
         status_error=None,
         app_exit_status=3,
         pending_polls=0,
@@ -212,9 +240,8 @@ class FakeAdb:
         install_error=False,
     ):
         self.calls = []
-        self.exit_status = exit_status
         self.app_timeout = app_timeout
-        self.signum, self.timed_out, self.shell_status = signum, timed_out, shell_status
+        self.signum = signum
         self.status_error = status_error
         self.app_exit_status = app_exit_status
         self.pending_polls = pending_polls
@@ -235,50 +262,40 @@ class FakeAdb:
         code, stdout, stderr = 0, b"", b""
         if arguments[:2] == ["shell", "-T"]:
             words = shlex.split(arguments[2])
-            if words[0] == "cd":
-                code, stdout = self.shell_status, b"stdout\x00bytes"
-            else:
-                assert words[:4] == ["run-as", "dev.btrc.testhost.fixture", "sh", "-c"]
-                assert len(words) == 5 and self.installed
-                script = words[4]
-                if script.startswith("cat > files/"):
-                    name = script.removeprefix("cat > files/")
-                    assert name in ("request.bin", "stdin", "start")
-                    if self.fail_write:
-                        code, stderr = 1, b"write failed"
-                    else:
-                        self.files[name] = self.writes[name] = options["input"]
-                        if name == "start":
-                            assert self.files["ready"] == b"1\n" and self.launched
-                            self.files.update(stdout=b"app\x00stdout", stderr=b"app\x00stderr")
-                            if not self.app_timeout:
-                                self.files.update(
-                                    exit_status=f"{self.app_exit_status}\n".encode(), signal=f"{self.signum}\n".encode()
-                                )
+            assert words[:4] == ["run-as", "dev.btrc.testhost.fixture", "sh", "-c"]
+            assert len(words) == 5 and self.installed
+            script = words[4]
+            if script.startswith("cat > files/"):
+                name = script.removeprefix("cat > files/")
+                assert name in ("request.bin", "stdin", "start")
+                if self.fail_write:
+                    code, stderr = 1, b"write failed"
                 else:
-                    match = re.fullmatch(r"if \[ ! -e files/([a-z_]+) \]; then exit 42; fi; cat files/\1", script)
-                    assert match is not None, f"unknown remote script: {script}"
-                    name = match[1]
-                    assert self.launched
-                    if name == "exit_status":
-                        self.status_polls += 1
-                        if self.status_error == "timeout":
-                            raise subprocess.TimeoutExpired(command, options["timeout"])
-                        if self.status_error in ("transport", "client"):
-                            return subprocess.CompletedProcess(
-                                command, 255 if self.status_error == "transport" else 1, b"", b"disconnected"
+                    self.files[name] = self.writes[name] = options["input"]
+                    if name == "start":
+                        assert self.files["ready"] == b"1\n" and self.launched
+                        self.files.update(stdout=b"app\x00stdout", stderr=b"app\x00stderr")
+                        if not self.app_timeout:
+                            self.files.update(
+                                exit_status=f"{self.app_exit_status}\n".encode(), signal=f"{self.signum}\n".encode()
                             )
-                        if self.pending_polls:
-                            self.pending_polls -= 1
-                            return subprocess.CompletedProcess(command, 42, b"", b"")
-                    code, stdout = (0, self.files[name]) if name in self.files else (42, b"")
-        elif arguments[:2] == ["exec-out", "cat"]:
-            # Shell-mode raw reads use content validation, not a remote exit code.
-            stdout = (
-                f"{self.exit_status} {self.signum} {int(self.timed_out)}\n".encode()
-                if arguments[-1].endswith("/status")
-                else b"stderr\x00bytes"
-            )
+            else:
+                match = re.fullmatch(r"if \[ ! -e files/([a-z_]+) \]; then exit 42; fi; cat files/\1", script)
+                assert match is not None, f"unknown remote script: {script}"
+                name = match[1]
+                assert self.launched
+                if name == "exit_status":
+                    self.status_polls += 1
+                    if self.status_error == "timeout":
+                        raise subprocess.TimeoutExpired(command, options["timeout"])
+                    if self.status_error in ("transport", "client"):
+                        return subprocess.CompletedProcess(
+                            command, 255 if self.status_error == "transport" else 1, b"", b"disconnected"
+                        )
+                    if self.pending_polls:
+                        self.pending_polls -= 1
+                        return subprocess.CompletedProcess(command, 42, b"", b"")
+                code, stdout = (0, self.files[name]) if name in self.files else (42, b"")
         elif arguments[0] == "install":
             assert not self.installed
             self.installed = True
@@ -311,72 +328,24 @@ class FakeAdb:
             assert arguments[3:] == ["mkdir", "-p", "files"] and self.installed
         elif arguments[:2] == ["shell", "getprop"]:
             stdout = b"fake-build\n"
-        elif arguments[:2] in (["shell", "mkdir"], ["shell", "chmod"], ["shell", "rm"]) or arguments[0] == "push":
-            pass
         else:
             raise AssertionError(f"unexpected adb command: {arguments}")
         return subprocess.CompletedProcess(command, code, stdout, stderr)
 
 
-def executor_bundle(tmp_path, transport, mode="shell"):
-    artifact = "probe" if mode == "shell" else "host.apk"
-    (tmp_path / artifact).touch()
-    row = {"mode": mode, "executable" if mode == "shell" else "apk": artifact}
-    if mode == "app":
-        row["package"] = "dev.btrc.testhost.fixture"
-    else:
-        (tmp_path / "supervisor").touch()
-        row["supervisor"] = "supervisor"
+def executor_bundle(tmp_path, transport, mode="app"):
+    assert mode == "app", "the shell mode is the protocol-1 executor (test_android_executor.py)"
+    (tmp_path / "host.apk").touch()
+    row = {"mode": "app", "apk": "host.apk", "package": "dev.btrc.testhost.fixture"}
     (tmp_path / "programs.json").write_text(json.dumps({"probe": row}))
-    executor = AndroidEmulatorExecutor(tmp_path, "emulator-5554", transport=transport)
+    executor = NativeActivityExecutor(tmp_path, "emulator-5554", transport=transport)
     executor.prepare(tmp_path, "unit fixture")
     return executor
 
 
-def test_shell_preserves_binary_streams_exit_status_and_argument_boundaries(tmp_path):
-    transport = FakeAdb(3)
-    executor = executor_bundle(tmp_path, transport)
-    result = executor.run(
-        ExecutionRequest("probe", ("a b", "'quoted'", "$(touch nope)", ""), b"stdin", {"FIXTURE": "space ; value"})
-    )
-    assert (result.exit_status, result.stdout, result.stderr, result.timed_out) == (
-        3,
-        b"stdout\x00bytes",
-        b"stderr\x00bytes",
-        False,
-    )
-    command = next(args[2] for args, _ in transport.calls if args[:2] == ["shell", "-T"])
-    words = shlex.split(command)
-    assert "FIXTURE=space ; value" in words
-    assert words[-6:-2] == ["a b", "'quoted'", "$(touch nope)", ""]
-    assert any(args[:3] == ["shell", "rm", "-rf"] for args, _ in transport.calls)
-    assert all(options["timeout"] > 0 for _, options in transport.calls)
-
-
-@pytest.mark.parametrize(
-    "status,signum,timed_out", [(124, 0, False), (137, 0, False), (-1, 6, False), (-1, 9, False), (-1, 9, True)]
-)
-def test_shell_reports_abort_and_timeout_separately(tmp_path, status, signum, timed_out):
-    executor = executor_bundle(tmp_path, FakeAdb(status, signum=signum, timed_out=timed_out))
-    result = executor.run(ExecutionRequest("probe"))
-    assert (result.exit_status, result.signal, result.timed_out) == (
-        None if signum or timed_out else status,
-        signum or None,
-        timed_out,
-    )
-
-
-def test_transport_failure_is_not_a_program_failure(tmp_path):
-    transport = FakeAdb(shell_status=255)
-    executor = executor_bundle(tmp_path, transport)
-    with pytest.raises(RuntimeError, match="transport or outer supervisor guard failed"):
-        executor.run(ExecutionRequest("probe"))
-    assert any(args[:3] == ["shell", "rm", "-rf"] for args, _ in transport.calls)
-
-
 def test_app_mode_collects_exit_and_uninstalls_a_fresh_sandbox(tmp_path):
     transport = FakeAdb()
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     result = executor.run(ExecutionRequest("probe", ("arg",), b"input"))
     assert result.exit_status == 3 and not result.timed_out
     assert len([args for args, _ in transport.calls if args[0] == "uninstall"]) == 2
@@ -389,7 +358,7 @@ def test_app_mode_collects_exit_and_uninstalls_a_fresh_sandbox(tmp_path):
 
 def test_app_timeout_force_stops_and_verifies_process_exit(tmp_path):
     transport = FakeAdb(app_timeout=True)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     result = executor.run(ExecutionRequest("probe", timeout_s=0.000001))
     assert result.exit_status is None and result.timed_out
     assert any(args[:3] == ["shell", "am", "force-stop"] for args, _ in transport.calls)
@@ -408,7 +377,7 @@ def test_app_can_finish_before_its_first_displayed_frame(tmp_path):
             return result
 
     transport = FinishesBeforeDisplay(pending_polls=1)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     result = executor.run(ExecutionRequest("probe"))
     assert result.exit_status == 3 and not result.timed_out
     assert result.stdout == b"app\x00stdout" and result.stderr == b"app\x00stderr"
@@ -431,7 +400,7 @@ def test_app_launch_readiness_does_not_spend_the_fixture_timeout(tmp_path, monke
         "tools.target_hosts.android.executor.time.sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
     )
     transport = DelayedReady(app_timeout=True)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     result = executor.run(ExecutionRequest("probe", timeout_s=1))
     assert result.timed_out and result.stdout == b"app\x00stdout"
     assert transport.writes["start"] == b"1\n"
@@ -457,7 +426,7 @@ def test_app_failed_launch_never_starts_the_fixture(tmp_path, monkeypatch, ready
         "tools.target_hosts.android.executor.time.sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
     )
     transport = FailedReady()
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     with pytest.raises(RuntimeError, match="ready"):
         executor.run(ExecutionRequest("probe", timeout_s=1))
     assert "start" not in transport.writes and not transport.installed
@@ -466,7 +435,7 @@ def test_app_failed_launch_never_starts_the_fixture(tmp_path, monkeypatch, ready
 
 def test_app_poll_timeout_is_bounded_by_remaining_program_budget(tmp_path):
     transport = FakeAdb(status_error="timeout")
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     result = executor.run(ExecutionRequest("probe", timeout_s=1))
     assert result.timed_out
     assert all(
@@ -480,7 +449,7 @@ def test_app_poll_timeout_is_bounded_by_remaining_program_budget(tmp_path):
 @pytest.mark.parametrize("error", ["timeout", "transport", "client"])
 def test_app_infrastructure_failure_always_force_stops_and_uninstalls(tmp_path, error):
     transport = FakeAdb(status_error=error)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     with pytest.raises(RuntimeError, match="transport"):
         executor.run(ExecutionRequest("probe", timeout_s=60))
     assert any(args[:3] == ["shell", "am", "force-stop"] for args, _ in transport.calls)
@@ -498,28 +467,29 @@ def test_app_infrastructure_failure_always_force_stops_and_uninstalls(tmp_path, 
 )
 def test_request_validation_rejects_ambiguous_transport_inputs(execution_request):
     with pytest.raises(ValueError):
-        AndroidEmulatorExecutor.validate(execution_request)
+        NativeActivityExecutor.validate(execution_request)
 
 
 def test_native_configuration_is_length_delimited_not_shell_source():
     request = ExecutionRequest("probe", ("space and ; shell", ""), env={"VALUE": "line\nvalue"})
-    payload = AndroidEmulatorExecutor.configuration(request)
+    payload = NativeActivityExecutor.configuration(request)
     assert struct.unpack_from("<I", payload)[0] == 3
     assert b"space and ; shell" in payload and b"line\nvalue" in payload
 
 
 def test_bundle_cannot_escape_its_artifact_directory(tmp_path):
-    (tmp_path / "programs.json").write_text(json.dumps({"probe": {"mode": "shell", "executable": "../outside"}}))
+    row = {"mode": "app", "apk": "../outside", "package": "dev.btrc.testhost.fixture"}
+    (tmp_path / "programs.json").write_text(json.dumps({"probe": row}))
     transport = FakeAdb()
     with pytest.raises(ValueError, match="inside the bundle"):
-        AndroidEmulatorExecutor(tmp_path, "emulator-5554", transport=transport).prepare(tmp_path, "fixture")
+        NativeActivityExecutor(tmp_path, "emulator-5554", transport=transport).prepare(tmp_path, "fixture")
     assert transport.calls == []
 
 
 @pytest.mark.parametrize("status,signum", [(0, 0), (3, 0), (124, 0), (137, 0), (134, 6), (137, 9)])
 def test_app_pending_status_then_normal_or_signal_exit(tmp_path, status, signum):
     transport = FakeAdb(app_exit_status=status, signum=signum, pending_polls=1)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     result = executor.run(ExecutionRequest("probe"))
     assert (result.exit_status, result.signal, result.timed_out) == (
         None if signum else status,
@@ -532,7 +502,7 @@ def test_app_pending_status_then_normal_or_signal_exit(tmp_path, status, signum)
 
 def test_failed_app_payload_write_never_launches_and_cleans_up(tmp_path):
     transport = FakeAdb(fail_write=True)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     with pytest.raises(RuntimeError, match="write failed"):
         executor.run(ExecutionRequest("probe"))
     assert not transport.launched and not transport.installed
@@ -541,12 +511,12 @@ def test_failed_app_payload_write_never_launches_and_cleans_up(tmp_path):
 @pytest.mark.parametrize("payload", [b"cat: not found\n", b"", b"-1\n", b"256\n", b"3\n4\n", b"9" * 5000])
 def test_app_rejects_corrupt_exit_status(payload):
     with pytest.raises(RuntimeError, match="invalid exit status"):
-        AndroidEmulatorExecutor.status_number(payload, "exit status", 255)
+        NativeActivityExecutor.status_number(payload, "exit status", 255)
 
 
 def test_app_shutdown_waits_for_a_dying_process(tmp_path):
     transport = FakeAdb(lingering_polls=1)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     executor.run(ExecutionRequest("probe"))
     assert len([args for args, _ in transport.calls if args[:2] == ["shell", "pidof"]]) == 2
 
@@ -601,7 +571,7 @@ class LocalAdbProtocol:
 
 def test_app_transfer_and_missing_file_status_use_real_shell_boundaries(tmp_path):
     transport = LocalAdbProtocol(tmp_path)
-    executor = AndroidEmulatorExecutor(tmp_path, "emulator-5554", transport=transport)
+    executor = NativeActivityExecutor(tmp_path, "emulator-5554", transport=transport)
     request = ExecutionRequest(
         "probe", ("space and ' quote", "", "$(touch should-not-exist)"), env={"VALUE": "line\nvalue"}
     )
@@ -625,7 +595,7 @@ def test_app_transfer_and_missing_file_status_use_real_shell_boundaries(tmp_path
 
 def test_raw_exec_regression_reproduces_double_quote_and_missing_file(tmp_path):
     transport = LocalAdbProtocol(tmp_path)
-    executor = AndroidEmulatorExecutor(tmp_path, "emulator-5554", transport=transport)
+    executor = NativeActivityExecutor(tmp_path, "emulator-5554", transport=transport)
     executor.adb(
         "exec-in",
         "run-as",
@@ -648,13 +618,12 @@ def test_fixture_checks_remain_enabled_with_optimized_python():
 from tools.target_hosts.android.check import HostFixtureCheck
 from tools.target_hosts.android.executor import ExecutionResult
 class BrokenExecutor:
-    programs = {"app": {}}
     def run(self, request):
         if request.argv[0] != "stdout":
             raise RuntimeError("the first fixture's incorrect exit status was accepted")
         return ExecutionResult(7, None, b"stdout\\n", b"", False, 0, {})
 try:
-    HostFixtureCheck(BrokenExecutor()).run()
+    HostFixtureCheck({"app": (BrokenExecutor(), "app")}).run()
 except AssertionError as error:
     if "exit status" not in str(error):
         raise RuntimeError("fixture failed for an unrelated reason") from error
@@ -668,7 +637,7 @@ def test_failed_uninstall_cannot_reuse_an_installed_apps_stale_success(tmp_path)
     transport = FakeAdb(uninstall_error=True)
     transport.installed = True
     transport.files.update(exit_status=b"0\n", signal=b"0\n", stdout=b"stale", stderr=b"")
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     with pytest.raises(RuntimeError, match="still installed"):
         executor.run(ExecutionRequest("probe"))
     assert not transport.launched
@@ -678,7 +647,7 @@ def test_failed_uninstall_cannot_reuse_an_installed_apps_stale_success(tmp_path)
 
 def test_missing_package_is_confirmed_before_fresh_install(tmp_path):
     transport = FakeAdb()
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     executor.run(ExecutionRequest("probe"))
     commands = [args for args, _ in transport.calls]
     inventory = next(index for index, args in enumerate(commands) if args[:4] == ["shell", "pm", "list", "packages"])
@@ -688,7 +657,7 @@ def test_missing_package_is_confirmed_before_fresh_install(tmp_path):
 
 def test_app_cleanup_preserves_primary_error_and_attempts_both_actions(tmp_path):
     transport = FakeAdb(status_error="transport", stop_error=True, cleanup_uninstall_error=True)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     with pytest.raises(RuntimeError, match="app file transport failed") as caught:
         executor.run(ExecutionRequest("probe"))
     notes = " ".join(caught.value.__notes__)
@@ -698,7 +667,7 @@ def test_app_cleanup_preserves_primary_error_and_attempts_both_actions(tmp_path)
 
 def test_install_failure_still_attempts_package_cleanup(tmp_path):
     transport = FakeAdb(install_error=True)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     with pytest.raises(RuntimeError, match="install failed"):
         executor.run(ExecutionRequest("probe"))
     assert not transport.installed
@@ -707,7 +676,7 @@ def test_install_failure_still_attempts_package_cleanup(tmp_path):
 
 def test_cleanup_failure_cannot_turn_a_successful_fixture_into_a_pass(tmp_path):
     transport = FakeAdb(stop_error=True)
-    executor = executor_bundle(tmp_path, transport, "app")
+    executor = executor_bundle(tmp_path, transport)
     with pytest.raises(ExceptionGroup, match="app cleanup failed"):
         executor.run(ExecutionRequest("probe"))
     assert not transport.installed
@@ -720,9 +689,6 @@ def test_failed_fixture_retains_completed_rows_and_cleanup_errors(tmp_path, monk
     actions = []
 
     class Executor:
-        def __init__(self):
-            self.programs = {"shell": {}}
-
         def prepare(self, *_):
             pass
 
@@ -748,7 +714,8 @@ def test_failed_fixture_retains_completed_rows_and_cleanup_errors(tmp_path, monk
         def close(self):
             actions.append("manager-close")
 
-    monkeypatch.setattr(check, "AndroidEmulatorExecutor", lambda *_: Executor())
+    monkeypatch.setattr(check, "AndroidEmulatorExecutor", lambda *_, **__: Executor())
+    (tmp_path / "bundle.json").write_text(json.dumps({"target": {"label": "android-x86_64"}}))
     monkeypatch.setattr(check, "AvdManager", lambda *_, **__: Manager())
     output = tmp_path / "evidence/results.json"
     with pytest.raises(RuntimeError, match="package service disappeared"):
@@ -799,7 +766,7 @@ def test_recreated_native_activity_does_not_restart_or_outlive_the_fixture(tmp_p
     for index, compiler in enumerate(HOST_C_COMPILERS):
         sandbox = tmp_path / str(index)
         sandbox.mkdir()
-        (sandbox / "request.bin").write_bytes(AndroidEmulatorExecutor.configuration(ExecutionRequest("probe")))
+        (sandbox / "request.bin").write_bytes(NativeActivityExecutor.configuration(ExecutionRequest("probe")))
         (sandbox / "stdin").write_bytes(b"")
         (sandbox / "start").write_bytes(b"1\n")
         executable = sandbox / "lifecycle"
@@ -841,9 +808,6 @@ def test_mismatched_fixture_retains_its_actual_result(tmp_path, monkeypatch):
     from tools.target_hosts.android.executor import ExecutionResult
 
     class Executor:
-        def __init__(self):
-            self.programs = {"app": {}}
-
         def prepare(self, *_):
             pass
 
@@ -853,14 +817,15 @@ def test_mismatched_fixture_retains_its_actual_result(tmp_path, monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(check, "AndroidEmulatorExecutor", lambda *_: Executor())
+    monkeypatch.setattr(check, "AndroidEmulatorExecutor", lambda *_, **__: Executor())
+    (tmp_path / "bundle.json").write_text(json.dumps({"target": {"label": "android-x86_64"}}))
     output = tmp_path / "results.json"
     with pytest.raises(AssertionError, match="stdout or stderr"):
         check.main(["--sdk", str(tmp_path), "--bundle", str(tmp_path), "--output", str(output)])
     report = json.loads(output.read_text())
     assert report["status"] == "failed" and report["results"] == []
     actual = report["failed_result"]
-    assert actual["case"] == "stdout" and actual["mode"] == "app"
+    assert actual["case"] == "stdout" and actual["mode"] == "shell"
     assert actual["exit_status"] == 3 and actual["timed_out"] is False
     assert actual["stdout"] == {"bytes": 8, "sha256": hashlib.sha256(b"partial\x00").hexdigest()}
     assert actual["stderr"] == {"bytes": 10, "sha256": hashlib.sha256(b"diagnostic").hexdigest()}

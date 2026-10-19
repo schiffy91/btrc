@@ -1,6 +1,8 @@
 /* UnixShell.run with cwd= and env= applied to the shell process itself,
  * plus a multi-KB stdin round-trip through the temp-file mechanism and a
- * simultaneous stderr=collect capture. Hermetic: cwd is /tmp, no network. */
+ * simultaneous stderr=collect capture. Hermetic: cwd is /, which every POSIX
+ * target has (Android before 16 has no /tmp), no network. */
+import Library.Platform;
 import Library.Process;
 import Library.Vector;
 
@@ -9,9 +11,11 @@ import Library.Vector;
 int main() {
 	UnixShell sh = UnixShell();
 
-	// cwd= is the shell's working directory, so pwd reports /tmp.
-	var pwd = sh.run("pwd", cwd="/tmp", logFailure=false).trimmed();
-	assert(pwd.endsWith("tmp"));
+	// cwd= is the shell's working directory, so pwd reports /, not this
+	// program's own cwd.
+	var pwd = sh.run("pwd", cwd="/", logFailure=false).trimmed();
+	assert(pwd.equals("/"));
+	assert(!Platform.currentDirectory().equals("/"));
 
 	// env= is the shell's own environment, so it reaches every command in
 	// the line, and shell expansion sees it too.
@@ -28,7 +32,7 @@ int main() {
 
 	// cwd and env combine.
 	Vector<string> env2 = ["MSG=hi"];
-	var combo = sh.run("printenv MSG", cwd="/tmp", env=env2, logFailure=false).trimmed();
+	var combo = sh.run("printenv MSG", cwd="/", env=env2, logFailure=false).trimmed();
 	assert(combo.equals("hi"));
 
 	// A multi-KB stdin round-trips through the temp stdin file unchanged.

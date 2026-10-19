@@ -14,33 +14,55 @@ name: Host Android
 # runs interop step 4's checked JNI round trip on its API (CL-P2-09), which
 # also carries step 7's Java -> BTRC natives round trip (RegisterNatives),
 # primitive arrays and spans, JavaWeak and the main Looper's executor.
+#
+# The whole language and stdlib corpus runs here too, through both compilers
+# (CX-P1-09): the scope job plans those jobs from ci/tiers.toml, and they run
+# when a change touches the Android host, the target runner or its
+# applicability data, on a push to main that does, and on a dispatch. The
+# fixture and JNI jobs above stay on this workflow's paths alone.
 on:
   push:
     branches: [main]
     paths:
       - .github/workflows/host-android.yml
       - tools/target_hosts/android/**
+      - tools/target_hosts/summary.py
       - nix/platforms.nix
       - nix/android-repo-overlay.json
       - src/tests/python/test_android_host_versions.py
+      - src/tests/python/test_android_executor.py
       - src/stdlib/Java/**
       - src/tests/python/jni_adoption_fixtures.py
       - src/tests/python/test_native_jni_android.py
+      - "**/Android/**"
+      - src/tests/target_runner.py
+      - src/tests/fixtures/target-applicability.toml
+      - docs/design/platform-inventory.toml
   pull_request:
     branches: [main]
     paths:
       - .github/workflows/host-android.yml
       - tools/target_hosts/android/**
+      - tools/target_hosts/summary.py
       - nix/platforms.nix
       - nix/android-repo-overlay.json
       - src/tests/python/test_android_host_versions.py
+      - src/tests/python/test_android_executor.py
       - src/stdlib/Java/**
       - src/tests/python/jni_adoption_fixtures.py
       - src/tests/python/test_native_jni_android.py
+      - "**/Android/**"
+      - src/tests/target_runner.py
+      - src/tests/fixtures/target-applicability.toml
+      - docs/design/platform-inventory.toml
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# The scope job plans this file's corpus jobs from ci/tiers.toml under this name.
+env:
+  CI_WORKFLOW: host-android.yml
 
 # A newer push to a pull request cancels the run it supersedes; runs on main
 # queue rather than cancel.
@@ -107,41 +129,15 @@ jobs:
           "$sdkmanager" --install "${packages[@]}" > build/android-sdkmanager.log
       - name: Install the pinned emulator and platform-tools archives
         run: |
-          python3 - <<'EOF'
-          import hashlib, json, os, re, shutil, urllib.request, zipfile
-          from pathlib import Path
-          from tools.target_hosts.android.sdk import SDKVersions
-
-          sdk = Path(os.environ["ANDROID_SDK_ROOT"])
-          versions = SDKVersions()
-          pins = re.sub(r"#.*", "", Path("nix/platforms.nix").read_text())
-          overlay = json.loads(Path("nix/android-repo-overlay.json").read_text())["packages"]
-          for package, key in (("emulator", "emulatorVersion"), ("platform-tools", "platformToolsVersion")):
-              (revision,) = re.findall(rf'\b{key}\s*=\s*"([0-9.]+)"\s*;', pins)
-              (archive,) = [a for a in overlay[package][revision]["archives"] if a["os"] == "linux"]
-              data = urllib.request.urlopen(archive["url"], timeout=600).read()
-              digest = hashlib.sha1(data).hexdigest()
-              if len(data) != archive["size"] or digest != archive["sha1"]:
-                  raise SystemExit(f"{package} {revision}: size/sha1 mismatch ({len(data)} {digest})")
-              Path("build/archive.zip").write_bytes(data)
-              # Raw archives omit sdkmanager's package.xml; avdmanager needs it.
-              registration = (sdk / package / "package.xml").read_bytes()
-              shutil.rmtree(sdk / package, ignore_errors=True)
-              with zipfile.ZipFile("build/archive.zip") as bundle:
-                  for member in bundle.infolist():
-                      path = Path(bundle.extract(member, sdk))
-                      mode = member.external_attr >> 16
-                      if mode:
-                          path.chmod(mode & 0o777)
-              versions.register_archive(sdk, package, registration)
-              print(f"installed {package} {revision} from {archive['url']}")
-          EOF
+          python3 -m tools.target_hosts.android.sdk install-archives --sdk "$ANDROID_SDK_ROOT"
           python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT"
           python3 -m tools.target_hosts.android.sdk cache-key | tee build/android-sdk-cache-key.txt
       - name: Build the x86_64 app and the arm64 compile-only pair
         run: |
           ndk=$(sed -n 's/^ndk;//p' build/android-sdk-packages.txt)
           export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/$ndk"
+          # The fixture check builds the shell executor's supervisor with it too.
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> "$GITHUB_ENV"
           python3 -m tools.target_hosts.android.build --output build/android-host-x64 --app
           python3 -m tools.target_hosts.android.build --output build/android-host-arm64 --abi arm64-v8a --native-only
       - name: Run the fixtures on API ${{ matrix.api }}
@@ -224,3 +220,300 @@ jobs:
           name: skip-report-host-android-emulator-${{ matrix.api }}
           path: build/skip-report*.json
           if-no-files-found: warn
+
+  # The corpus lane (CX-P1-09) is planned like ci.yml, macos.yml and
+  # windows.yml: this copy of their scope job classifies the event into one
+  # tier and reads ci/tiers.toml, which lists only the corpus jobs of this
+  # workflow. tooling and emulator above are not tiered.
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      tier: ${{ steps.classify.outputs.tier }}
+      plan: ${{ steps.plan.outputs.plan }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - name: Classify the change
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          TIER: ${{ inputs.tier }}
+          FOCUS: ${{ inputs.focus }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
+          TEST_READ_MARKDOWN: '^(PLAN|AGENTS|CLAUDE)\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|btrsmith-rename-table-w2|plan-reference|platform-toolchain-matrix)\.md$'
+        run: |
+          set -euo pipefail
+          shopt -s inherit_errexit
+          mkdir -p build
+          : > build/changed-files.txt
+          classify() {
+            if [ -n "$TIER" ]; then
+              echo "$TIER"
+              return
+            elif [ "$EVENT" = workflow_dispatch ]; then
+              case "${FOCUS:-full}" in
+                full) echo main ;;
+                *) echo "$FOCUS" ;;
+              esac
+              return
+            elif [ "$EVENT" != pull_request ]; then
+              echo main
+              return
+            fi
+            pull=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST")
+            if jq -e 'any(.labels[]; .name == "ci:full")' <<<"$pull" >/dev/null; then
+              echo main
+              return
+            fi
+            pages=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST/files?per_page=100")
+            # The files endpoint lists at most 3,000 files; an unlisted one could be anything.
+            if [ "$(jq 'map(length) | add // 0' <<<"$pages")" -ne "$(jq '.changed_files' <<<"$pull")" ]; then
+              echo main
+              return
+            fi
+            # A rename counts at both paths.
+            names=$(jq -r '.[][] | .filename, (.previous_filename // empty)' <<<"$pages")
+            printf '%s\n' "$names" > build/changed-files.txt
+            if grep -Eq "$FULL_PATHS" <<<"$names"; then
+              echo main
+            elif ! grep -Evq '\.md$' <<<"$names" && ! grep -Eq "$TEST_READ_MARKDOWN" <<<"$names"; then
+              echo docs
+            elif [[ "$HEAD_REF" == codex/* ]]; then
+              echo lane
+            else
+              echo pr
+            fi
+          }
+          tier=$(classify)
+          case "$tier" in
+            docs | pr | lane | main | extended | release | native-gui) ;;
+            *) echo "::error::unknown tier: $tier"; exit 1 ;;
+          esac
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+          echo "Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Plan the tier's jobs
+        id: plan
+        env:
+          TIER: ${{ steps.classify.outputs.tier }}
+        run: |
+          set -euo pipefail
+          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt)
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+          jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
+
+  # The whole language and stdlib corpus on a hosted Android emulator through
+  # both compilers (CX-P1-09). target-corpus-build cross-builds every
+  # applicable corpus program for android-x86_64 with the pinned NDK
+  # (src/tests/target_runner.py --compile-only) into a bundle, and
+  # target-corpus runs that bundle on a KVM x86_64 emulator through the
+  # android-emulator executor (tools/target_hosts/android/executor.py), whose
+  # on-device supervisor takes every outcome from waitpid.
+  # target-corpus-compile builds android-aarch64 the same way, compile-only: no
+  # hosted runner executes it natively (GitHub's arm64 Linux runners expose no
+  # KVM, and an x86_64 image would only translate it, which the executor
+  # refuses). Each step summary carries the per-frontend counts.
+  target-corpus-build:
+    needs: scope
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'target-corpus-build')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # Each program's run deadline, as the CI corpus shards give it. The bundle
+    # pins it, and target-corpus admits the bundle only with the same value.
+    env:
+      BTRC_TEST_RUN_TIMEOUT: "60"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Install the pinned NDK
+        run: |
+          mkdir -p build
+          ndk=$(python3 -m tools.target_hosts.android.sdk packages | sed -n 's/^ndk;//p')
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # Keep sdkmanager's status when its closed input makes yes exit on SIGPIPE.
+          "$sdkmanager" --licenses < <(yes) > /dev/null
+          "$sdkmanager" --install "ndk;$ndk" > build/android-sdkmanager.log
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$ndk" >> "$GITHUB_ENV"
+      - name: Build the self-hosted compiler
+        run: nix develop --command make NIX= btrcc
+      # A program that fails to build is a failed result the emulator run
+      # reports too, so only a runner error (exit 2) fails this step.
+      - name: Cross-build every applicable corpus program for android-x86_64 through both compilers
+        run: |
+          set -uo pipefail
+          status=0
+          nix develop --command python3 -m src.tests.target_runner --target android-x86_64 --frontend both \
+            --compile-only --btrcc bin/btrcc --jobs 4 --output build/target-corpus/android-x86_64 || status=$?
+          if [ "$status" -gt 1 ]; then
+            echo "::error::the target runner could not build the android-x86_64 bundle (exit $status)"
+            exit "$status"
+          fi
+      - name: Publish the build counts
+        if: always()
+        run: |
+          test -f build/target-corpus/android-x86_64/target-run.json || exit 0
+          python3 -m tools.target_hosts.summary build/target-corpus/android-x86_64/target-run.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the android-x86_64 bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-bundle-android-x86_64
+          path: build/target-corpus/android-x86_64/bundle/
+          if-no-files-found: error
+          retention-days: 3
+      # The compile-only report, and the C of every program that failed to build.
+      - name: Retain the build reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-build-reports-android-x86_64
+          path: |
+            build/target-corpus/
+            !build/target-corpus/*/bundle/
+          if-no-files-found: warn
+          retention-days: 14
+
+  target-corpus-compile:
+    needs: scope
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'target-corpus-compile')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      BTRC_TEST_RUN_TIMEOUT: "60"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Install the pinned NDK
+        run: |
+          mkdir -p build
+          ndk=$(python3 -m tools.target_hosts.android.sdk packages | sed -n 's/^ndk;//p')
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # Keep sdkmanager's status when its closed input makes yes exit on SIGPIPE.
+          "$sdkmanager" --licenses < <(yes) > /dev/null
+          "$sdkmanager" --install "ndk;$ndk" > build/android-sdkmanager.log
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$ndk" >> "$GITHUB_ENV"
+      - name: Build the self-hosted compiler
+        run: nix develop --command make NIX= btrcc
+      - name: Cross-build every applicable corpus program for android-aarch64 through both compilers
+        run: |
+          set -uo pipefail
+          status=0
+          nix develop --command python3 -m src.tests.target_runner --target android-aarch64 --frontend both \
+            --compile-only --btrcc bin/btrcc --jobs 4 --output build/target-corpus/android-aarch64 || status=$?
+          if [ "$status" -gt 1 ]; then
+            echo "::error::the target runner could not build the android-aarch64 bundle (exit $status)"
+            exit "$status"
+          fi
+          # A program that failed to build fails this compile-only row.
+          exit "$status"
+      - name: Publish the build counts
+        if: always()
+        run: |
+          test -f build/target-corpus/android-aarch64/target-run.json || exit 0
+          python3 -m tools.target_hosts.summary build/target-corpus/android-aarch64/target-run.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain the build reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-build-reports-android-aarch64
+          path: |
+            build/target-corpus/
+            !build/target-corpus/*/bundle/
+          if-no-files-found: warn
+          retention-days: 14
+
+  target-corpus:
+    needs: [scope, target-corpus-build]
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'target-corpus')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['target-corpus'] }}
+    name: target-corpus (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    # A report-only row (ci/tiers.toml) shows its failures without failing the run.
+    continue-on-error: ${{ matrix.report_only == 'true' }}
+    env:
+      BTRC_TEST_RUN_TIMEOUT: "60"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Allow the runner user to open /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      # The row's API only: its platform and system image, the NDK the
+      # executor builds its supervisor with, and the pinned emulator.
+      - name: Install the pinned SDK packages for API ${{ matrix.api }}
+        run: |
+          mkdir -p build
+          python3 -m tools.target_hosts.android.sdk packages --api ${{ matrix.api }} | tee build/android-sdk-packages.txt
+          sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # Keep sdkmanager's status when its closed input makes yes exit on SIGPIPE.
+          "$sdkmanager" --licenses < <(yes) > /dev/null
+          mapfile -t packages < build/android-sdk-packages.txt
+          "$sdkmanager" --install "${packages[@]}" > build/android-sdkmanager.log
+          python3 -m tools.target_hosts.android.sdk install-archives --sdk "$ANDROID_SDK_ROOT"
+          python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT" --api ${{ matrix.api }}
+          ndk=$(sed -n 's/^ndk;//p' build/android-sdk-packages.txt)
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$ndk" >> "$GITHUB_ENV"
+      - name: Install the test dependencies
+        run: python -m pip install '.[dev]'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: target-corpus-bundle-${{ matrix.label }}
+          path: build/target-corpus/bundle
+      # Admission checks the bundle against this checkout (revision, goldens,
+      # requests, digests); the executor boots its own emulator, stages and
+      # re-checks each program on the device, and takes every outcome from its
+      # supervisor's waitpid.
+      - name: Run every program on the API ${{ matrix.api }} emulator through both compilers
+        run: |
+          python -m src.tests.target_runner --execute-bundle build/target-corpus/bundle --executor android-emulator \
+            --executor-option boot=true --executor-option state=build/android-avds \
+            --executor-option api=${{ matrix.api }} --output build/target-corpus/run
+      - name: Publish the counts
+        if: always()
+        run: |
+          test -f build/target-corpus/run/target-run.json || exit 0
+          python -m tools.target_hosts.summary build/target-corpus/run/target-run.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain the run
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: target-corpus-run-${{ matrix.target }}
+          path: |
+            build/target-corpus/run/
+            build/android-avds/*.log
+          if-no-files-found: warn
+          retention-days: 30

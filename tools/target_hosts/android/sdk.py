@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import re
+import shutil
+import urllib.request
+import zipfile
 from pathlib import Path
 from xml.dom import minidom
 
@@ -38,16 +42,52 @@ class SDKVersions:
             raise ValueError(f"platforms.nix must declare one literal {key} list")
         return re.findall(r'"([0-9.]+)"', values[0])
 
-    def packages(self):
+    def selected(self, api=None):
+        """Every pinned API, or only `api` (which must be one of them)."""
+        if api is None:
+            return self.apis
+        if api not in self.apis:
+            raise ValueError(f"API {api} is not pinned in platforms.nix ({', '.join(self.apis)})")
+        return [api]
+
+    def packages(self, api=None):
+        apis = self.selected(api)
         return [
             f"cmdline-tools;{self.commandline}",
             "platform-tools",
             "emulator",
             f"ndk;{self.ndk}",
             *(f"build-tools;{version}" for version in self.build_tools),
-            *(f"platforms;android-{api}" for api in self.apis),
-            *(f"system-images;android-{api};google_apis;x86_64" for api in self.apis),
+            *(f"platforms;android-{level}" for level in apis),
+            *(f"system-images;android-{level};google_apis;x86_64" for level in apis),
         ]
+
+    def install_archives(self, root, *, fetch=None):
+        """Replace sdkmanager's emulator and platform-tools with the checksummed pinned archives.
+
+        sdkmanager installs only their latest revisions; nix/android-repo-overlay.json
+        names the pinned archive, its size and its SHA-1.
+        """
+        root = Path(root)
+        fetch = fetch or (lambda url: urllib.request.urlopen(url, timeout=600).read())
+        overlay = json.loads((REPO / "nix/android-repo-overlay.json").read_text())["packages"]
+        for package, revision in (("emulator", self.emulator), ("platform-tools", self.platform_tools)):
+            (archive,) = [entry for entry in overlay[package][revision]["archives"] if entry["os"] == "linux"]
+            data = fetch(archive["url"])
+            digest = hashlib.sha1(data).hexdigest()
+            if len(data) != archive["size"] or digest != archive["sha1"]:
+                raise ValueError(f"{package} {revision}: size/sha1 mismatch ({len(data)} {digest})")
+            # Raw archives omit sdkmanager's package.xml; avdmanager needs it.
+            registration = (root / package / "package.xml").read_bytes()
+            shutil.rmtree(root / package, ignore_errors=True)
+            with zipfile.ZipFile(io.BytesIO(data)) as bundle:
+                for member in bundle.infolist():
+                    path = Path(bundle.extract(member, root))
+                    mode = member.external_attr >> 16
+                    if mode:
+                        path.chmod(mode & 0o777)
+            self.register_archive(root, package, registration)
+            print(f"installed {package} {revision} from {archive['url']}")
 
     def cache_key(self):
         return hashlib.sha256(json.dumps(vars(self), sort_keys=True).encode()).hexdigest()
@@ -85,7 +125,7 @@ class SDKVersions:
         if not match or match[1] != expected:
             raise ValueError(f"{directory}: expected revision {expected}, found {match[1] if match else 'missing'}")
 
-    def verify(self, root):
+    def verify(self, root, api=None):
         root = Path(root)
         versions = {
             "platform-tools": self.platform_tools,
@@ -96,10 +136,10 @@ class SDKVersions:
         versions.update({f"build-tools/{version}": version for version in self.build_tools})
         for relative, expected in versions.items():
             self.verify_revision(root / relative, expected)
-        for api in self.apis:
+        for level in self.selected(api):
             for relative in (
-                f"platforms/android-{api}/android.jar",
-                f"system-images/android-{api}/google_apis/x86_64/system.img",
+                f"platforms/android-{level}/android.jar",
+                f"system-images/android-{level}/google_apis/x86_64/system.img",
             ):
                 if not (root / relative).is_file():
                     raise ValueError(f"missing SDK package payload: {relative}")
@@ -107,18 +147,22 @@ class SDKVersions:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("packages", "cache-key", "verify"))
+    parser.add_argument("command", choices=("packages", "cache-key", "verify", "install-archives"))
     parser.add_argument("--sdk", type=Path)
+    parser.add_argument("--api", help="only this pinned API's platform and system image (packages, verify)")
     args = parser.parse_args(argv)
     versions = SDKVersions()
     if args.command == "packages":
-        print("\n".join(versions.packages()))
+        print("\n".join(versions.packages(args.api)))
     elif args.command == "cache-key":
         print(versions.cache_key())
     else:
         if args.sdk is None:
-            parser.error("verify requires --sdk")
-        versions.verify(args.sdk)
+            parser.error(f"{args.command} requires --sdk")
+        if args.command == "verify":
+            versions.verify(args.sdk, args.api)
+        else:
+            versions.install_archives(args.sdk)
     return 0
 
 

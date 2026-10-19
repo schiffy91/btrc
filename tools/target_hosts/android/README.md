@@ -1,16 +1,73 @@
-# Android target-host spike (CX-P1-05)
+# Android target host (CX-P1-05, CX-P1-09)
 
-This standalone host implements the proposed CL-P1-17 executor shape:
-`prepare(bundle_dir, label)`, `run(ExecutionRequest) -> ExecutionResult`, and
-`close()`. It builds hand-written strict C11 fixtures, with an adb shell mode
-and a debug-signed, Java-free NativeActivity app mode. Compiler integration
-belongs to CX-P1-09 after the target runner contract lands.
+`executor.py` is the `android-emulator` executor of the target runner's frozen
+protocol 1 (`src/tests/target_runner.py`): `prepare(bundle_dir, label)`
+admits a `bundle.json` for `android-x86_64` or `android-aarch64`,
+`run(ExecutionRequest)` runs one program through `adb shell`, and `close()`
+removes what it staged and stops the emulator it booted. The whole corpus runs
+through it on hosted CI (below). `app.py` keeps CX-P1-05's debug-signed,
+Java-free NativeActivity app mode as a spike for C fixtures; `check.py` runs
+the hand-written probe through both.
 
-The local unit tests use a stateful fake and real host-shell subprocesses to
-exercise quoting, binary file transfer, separate streams and command status.
-They are not Android execution evidence. The hosted workflow uses KVM and
-retains native results separately. API 36 has passed its 28-case matrix; API 29
-qualification remains open as detailed below.
+The local unit tests (`test_android_executor.py`, `test_android_host_versions.py`)
+run the supervisor and the shell executor against this host's own shell, and
+the app mode against a stateful fake. They are not Android execution evidence.
+The hosted workflow uses KVM and retains native results separately; the
+fixture matrix's history on API 29 and 36 is recorded below.
+
+## The corpus on an emulator (CX-P1-09)
+
+```sh
+python -m src.tests.target_runner --target android-x86_64 --frontend both --compile-only --btrcc bin/btrcc --output build/target-corpus/android-x86_64
+python -m src.tests.target_runner --execute-bundle build/target-corpus/android-x86_64/bundle --executor android-emulator \
+  --executor-option boot=true --executor-option state=build/android-avds --executor-option api=29
+```
+
+The cross-build needs the pinned NDK (`ANDROID_NDK_HOME`); the run needs the
+SDK (`ANDROID_SDK_ROOT`), KVM, and the NDK again, because the executor builds
+its on-device supervisor (`supervisor.c`) for the bundle's row. Options:
+`sdk`, `ndk`, `serial` (an already running emulator), or `boot=true` with
+`state`, `api` and `port` for an AVD the executor boots on its first
+`prepare` and stops on `close`.
+
+Admission refuses another row and any device whose primary ABI is not the
+row's: an `android-aarch64` bundle on an x86_64 image would run under binary
+translation, which is emulation, not evidence. No hosted runner executes
+`android-aarch64` natively, so CI builds it compile-only. Every built program
+is copied, checked against its SHA-256, pushed once to a fresh
+`/data/local/tmp/btrc-<random>/programs`, and checked again there with the
+device's `sha256sum`; a failure removes the directory and leaves the executor
+as it was. The executor grants `loopback-listener` when the supervisor's
+`--probe-loopback` binds, connects and accepts on 127.0.0.1 on the device.
+
+Each run is one `adb shell -T` command (shell protocol v2, which `prepare`
+requires: raw stdout and stderr streams and the remote exit status). It creates
+the run's fresh cwd under `runs/`, re-checks the staged supervisor's and
+program's digests, and execs the supervisor. Nothing of an earlier run is
+alive by then, so the checked bytes are the launched bytes. The supervisor
+starts the program in a new session from that cwd, with its stdin (a file
+staged under `control/`, or `/dev/null`), the request's environment overrides
+and arguments. The program writes stdout straight to adb's stream; its stderr
+goes through a pipe the supervisor relays. At the deadline the supervisor kills
+the program's process group; when the program ends it kills every remaining
+descendant (it is a child subreaper, so a descendant that leaves the group is
+re-parented to it rather than escaping), waits for the relayed pipe's end of
+file, and appends one status line from `waitpid` to stderr:
+`BTRC-ANDROID-SUPERVISOR/1 exit|signal|timeout VALUE DURATION_US`.
+
+The program cannot decide its outcome. Every byte it writes to stderr precedes
+the status line, it never holds adb's stderr stream, and the supervisor is not
+dumpable, so the program (the same `shell` user) can neither open
+`/proc/<supervisor>/fd` nor trace it. A program that kills the supervisor ends
+the adb command with a nonzero status and no status line, which the executor
+raises as an infrastructure error, as it does a launch error, a digest
+mismatch before launch, a transport failure or adb outliving the deadline by
+30 seconds. After any of those it kills every device process whose cwd or
+command line lies in its directory. The run's cwd and staged stdin are removed
+after every run; a removal failure is a `cleanup_warnings` entry in the
+result's provenance, which also names the executor, the device model and
+emulator serial, the build fingerprint, the ABI, API, AVD name, page size and
+the supervisor's digest, never a host or user name.
 
 ## Versions and setup
 
@@ -85,8 +142,9 @@ python3 -m tools.target_hosts.android.build --output build/android-host-x64 --ap
 `ANDROID_NDK_HOME` supplies the NDK, or use `--ndk`. The shared library is
 linked with `-z max-page-size=16384`; every ELF LOAD alignment is inspected
 with `llvm-readelf -lW` and saved as `load-segments.txt`. Alignment is build
-evidence, not execution on a 16 KiB system. `programs.json` is the executor's
-bundle index; `toolchain.json` carries the ABI, NDK revision and clang target.
+evidence, not execution on a 16 KiB system. `bundle.json` admits the probe
+to the shell executor, `programs.json` (written only with the APK) indexes the
+app mode, and `toolchain.json` carries the ABI, NDK revision and clang target.
 
 Create the API 29 AVD or smoke-test its boot on a KVM runner:
 
@@ -117,20 +175,10 @@ data, and app install/launch durations. Emulator results are stand-in evidence.
 
 ## Transport and limits
 
-Shell runs use an unpredictable subdirectory under `/data/local/tmp/btrc/`,
-push stdin separately, preserve program stdout as bytes, and pull stderr
-through a separate file. Arguments/environment are shell-quoted. A native
-supervisor records the actual wait status and an explicit deadline flag,
-keeping deliberate exits such as 124/137 distinct from signals and timeouts.
-It kills the child process group at its deadline and cleans up descendants.
-Toybox timeout remains an outer infrastructure guard; its failure or an adb
-transport failure is an infrastructure error, not a program result.
-The adb client receives empty stdin for commands that do not transfer a
-payload, so it cannot consume the invoking terminal's input. An adb timeout
-beyond the supervisor's outer guard is reported as an infrastructure error.
-If the supervisor itself hangs, the outer guard does not prove that its
-detached child process group has stopped; full failure-path process cleanup
-remains a CX-P1-09 prerequisite.
+Shell runs are the protocol-1 executor's, described above: the supervisor's
+status line keeps deliberate exits such as 124/137 distinct from signals and
+timeouts. The adb client's stdin is `/dev/null` for a launch, so it cannot
+consume the invoking terminal's input.
 
 The app uses `hasCode=false`, loads `libbtrcprogram.so`, and calls
 `android_main`. A worker forks a child that reads a length-delimited request,
@@ -172,9 +220,9 @@ unacknowledged child exits after its own bounded wait. Launch-command and
 ready timings are recorded separately. It does not use `-W`: that option waits
 for a displayed activity, which a short fixture can finish before ever
 producing. Terminal status, bounded polling and cleanup remain required.
-Fixture checks remain active under optimized Python (`python -O`). Harness
-files currently share the fixture cwd; separating control files from program
-data and proving cleanup of arbitrary descendants belong to CX-P1-09.
+Fixture checks remain active under optimized Python (`python -O`). The app
+mode's harness files still share the fixture's data directory; the shell
+executor keeps its control files out of the program's cwd.
 
 ## Verification and integrator handoff
 
