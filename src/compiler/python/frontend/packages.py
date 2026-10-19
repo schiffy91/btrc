@@ -753,6 +753,18 @@ class NativeLinkPlan:
             "triple": row.triple,
         }
 
+    def preprocessor_definitions(self) -> tuple[tuple[str, str], ...]:
+        """Selected package definitions, with the same bare -D semantics as C."""
+        definitions: dict[str, str] = {}
+        for item in self.declarations:
+            if item.kind != "define" or not item.selected_for(self.target):
+                continue
+            value = item.detail or "1"
+            if item.value in definitions and definitions[item.value] != value:
+                raise IncludeResolutionError(f"conflicting native definitions for {item.value!r}")
+            definitions[item.value] = value
+        return tuple(sorted(definitions.items()))
+
     def toolchain_record(self) -> dict:
         """The row's clang target arguments and sysroot identity, with no path."""
         row = self.target.row

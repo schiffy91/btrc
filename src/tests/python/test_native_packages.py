@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -94,6 +95,82 @@ def _compile(source: Path):
         str(source),
         CompilerOptions(include_stdlib=False, use_cache=False, target="linux-x86_64"),
     )
+
+
+def _definition_failure(source, module_units, compiler, request):
+    if compiler == "python":
+        result = Compiler().compile(
+            source.read_text(),
+            str(source),
+            CompilerOptions(
+                include_stdlib=False,
+                use_cache=False,
+                module_units=module_units,
+                units_prefix=str(source.parent / "units") if module_units else None,
+            ),
+        )
+        assert not result.successful
+        return result.failure.message
+    output = source.with_suffix(".c")
+    result = subprocess.run(
+        [
+            str(request.getfixturevalue("immutable_btrcc")),
+            str(source),
+            "--no-stdlib",
+            "--no-cache",
+            "-o",
+            str(output),
+            *(["--module-units", "--emit-units", str(source.parent / "units")] if module_units else []),
+        ],
+        env={**os.environ, "BTRC_HOME": str(REPO / "src")},
+        capture_output=True,
+        text=True,
+        timeout=RUN_TIMEOUT,
+    )
+    assert result.returncode != 0
+    assert not output.exists()
+    return result.stderr
+
+
+@pytest.mark.parametrize("module_units", [False, True])
+@pytest.mark.parametrize("value", ["1\n#error injected", "1\r#error injected", "1\\"])
+def test_native_defines_reject_multiline_replacements(tmp_path, module_units, value, compiler, request):
+    _manifest(tmp_path, "defines", native=f'\n[[native.defines]]\nname = "FEATURE"\nvalue = {json.dumps(value)}\n')
+    source = tmp_path / "Main.btrc"
+    source.write_text("int main() { return 0; }\n")
+    assert "must fit one preprocessor line" in _definition_failure(source, module_units, compiler, request)
+
+
+@pytest.mark.parametrize("module_units", [False, True])
+def test_native_defines_report_conflicting_values(tmp_path, module_units, compiler, request):
+    _manifest(
+        tmp_path,
+        "defines",
+        native=(
+            '\n[[native.defines]]\nname = "FEATURE"\nvalue = "1"\n[[native.defines]]\nname = "FEATURE"\nvalue = "2"\n'
+        ),
+    )
+    source = tmp_path / "Main.btrc"
+    source.write_text("int main() { return 0; }\n")
+    assert "conflicting native definitions" in _definition_failure(source, module_units, compiler, request)
+
+
+@pytest.mark.parametrize("target,enabled", [("linux-x86_64", True), ("android-x86_64", True), ("macos-aarch64", False)])
+def test_filesystem_feature_macro_is_scoped_to_its_package_and_target(tmp_path, target, enabled):
+    source = tmp_path / "Main.btrc"
+    options = CompilerOptions(use_cache=False, target=target)
+    plain = Compiler().compile("int main() { return 0; }", str(source), options)
+    assert plain.successful, plain.failure
+    assert "#define _GNU_SOURCE" not in plain.c_source
+    filesystem = Compiler().compile(
+        'import Library.FileSystem;\nint main() { return FileSystem.exists(".") ? 0 : 1; }',
+        str(source),
+        options,
+    )
+    assert filesystem.successful, filesystem.failure
+    assert ("#define _GNU_SOURCE 1" in filesystem.c_source) is enabled
+    if enabled:
+        assert filesystem.c_source.index("#define _GNU_SOURCE 1") < filesystem.c_source.index("#include")
 
 
 def _binding_package(root: Path, binding: str) -> Path:

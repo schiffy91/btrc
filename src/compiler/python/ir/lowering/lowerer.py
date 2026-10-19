@@ -61,6 +61,7 @@ class IRLowerer:
         owned_group: str | None = None,
         program_facts: ProgramLoweringFacts | None = None,
         declarations_elsewhere: bool = False,
+        native_defines: tuple[tuple[str, str], ...] = (),
     ) -> None:
         if (groups is None) != (owned_group is None):
             raise ValueError("module-unit lowering needs both the groups and the owned group")
@@ -311,6 +312,7 @@ class IRLowerer:
             prune_stdlib=prune_stdlib,
             groups=groups,
             program_facts=facts,
+            native_defines=native_defines,
         )
 
     def lower(self) -> IRModule:

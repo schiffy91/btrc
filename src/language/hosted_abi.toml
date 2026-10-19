@@ -3,6 +3,9 @@
 
 schema_version = 3
 
+# O_PATH is a Linux/Android fcntl macro enabled by the FileSystem package's
+# _GNU_SOURCE native definition; other targets mark it unavailable.
+
 [provenance]
 stdlib_source_marker = "compiler:stdlib"
 user_source_marker = "compiler:user"
@@ -2671,6 +2674,7 @@ macros = [
   "O_NOFOLLOW",
   "O_NOFOLLOW_ANY",
   "O_NONBLOCK",
+  "O_PATH",
   "O_POPUP",
   "O_RDONLY",
   "O_RDWR",
@@ -5803,6 +5807,7 @@ owned = [
   "O_NOFOLLOW",
   "O_NOFOLLOW_ANY",
   "O_NONBLOCK",
+  "O_PATH",
   "O_POPUP",
   "O_RDONLY",
   "O_RDWR",
@@ -10273,6 +10278,7 @@ macros = [
   "O_NOFOLLOW",
   "O_NOFOLLOW_ANY",
   "O_NONBLOCK",
+  "O_PATH",
   "O_POPUP",
   "O_RDONLY",
   "O_RDWR",
@@ -19563,6 +19569,7 @@ unavailable_macros = [
   "NGREG",
   "NSS_BUFLEN_PASSWD",
   "OLCUC",
+  "O_PATH",
   "O_RSYNC",
   "PF_ALG",
   "PF_ASH",
@@ -20214,6 +20221,7 @@ unavailable_macros = [
   "NGREG",
   "NSS_BUFLEN_PASSWD",
   "OLCUC",
+  "O_PATH",
   "O_RSYNC",
   "PF_ALG",
   "PF_ASH",
@@ -23381,6 +23389,7 @@ unavailable_macros = [
   "NGREG",
   "NSS_BUFLEN_PASSWD",
   "OLCUC",
+  "O_PATH",
   "O_RSYNC",
   "PF_ALG",
   "PF_ASH",
@@ -24022,6 +24031,7 @@ unavailable_macros = [
   "NGREG",
   "NSS_BUFLEN_PASSWD",
   "OLCUC",
+  "O_PATH",
   "O_RSYNC",
   "PF_ALG",
   "PF_ASH",
@@ -26148,6 +26158,7 @@ unavailable_macros = [
   "O_NDELAY",
   "O_NOCTTY",
   "O_NOFOLLOW_ANY",
+  "O_PATH",
   "O_POPUP",
   "O_RESOLVE_BENEATH",
   "O_RSYNC",
@@ -29156,6 +29167,7 @@ unavailable_macros = [
   "O_NOFOLLOW",
   "O_NOFOLLOW_ANY",
   "O_NONBLOCK",
+  "O_PATH",
   "O_POPUP",
   "O_RDONLY",
   "O_RDWR",
@@ -32171,6 +32183,7 @@ unavailable_macros = [
   "O_NDELAY",
   "O_NOCTTY",
   "O_NOFOLLOW_ANY",
+  "O_PATH",
   "O_POPUP",
   "O_RESOLVE_BENEATH",
   "O_RSYNC",

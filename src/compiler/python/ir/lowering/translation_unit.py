@@ -119,8 +119,10 @@ class TranslationUnitLowerer:
         prune_stdlib: bool = False,
         groups: CompilationGroups | None = None,
         program_facts: ProgramLoweringFacts | None = None,
+        native_defines: tuple[tuple[str, str], ...] = (),
     ) -> None:
         self._session = session
+        self._native_defines = native_defines
         self._groups = groups
         self._facts = program_facts if program_facts is not None else ProgramLoweringFacts()
         self._analyzed = analyzed
@@ -280,8 +282,18 @@ class TranslationUnitLowerer:
         self._session.module.record_generated_runtime_preprocessor(generated)
 
     def _emit_includes(self):
+        native_names = {name for name, _value in self._native_defines}
         if not self._session.freestanding:
-            self._session.module.preprocessor_decls.extend(IRMacroDef(name=name) for name in _STANDARD_FEATURE_MACROS)
+            self._session.module.preprocessor_decls.extend(
+                IRMacroDef(name=name) for name in _STANDARD_FEATURE_MACROS if name not in native_names
+            )
+        # Package feature macros must precede system headers, just as they do
+        # in the native reader and the link plan's compiler arguments.
+        for name, value in self._native_defines:
+            if any(character in value for character in "\r\n\0") or value.rstrip().endswith("\\"):
+                raise CodegenError(f"native define {name!r} must fit one preprocessor line")
+            self._session.module.preprocessor_decls.append(IRMacroDef(name=name, replacement=value))
+        if not self._session.freestanding:
             self._session.module.preprocessor_decls.extend(IRInclude(header=header) for header in _STANDARD_INCLUDES)
         self._preprocessor_prefix_end = len(self._session.module.preprocessor_decls)
         headers = dict.fromkeys(

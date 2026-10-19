@@ -201,7 +201,7 @@ class GeneratedHostedAbiData {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
 		self.genericArgumentNestingLimit = 32;
-		self.fingerprint = "33d2d291fad09a477638afc4e5e75f7c587f766cdc37a4369a85cde0c13dd628";
+		self.fingerprint = "fa958b8c81e7a8d34373a86ce892ee359b976868cb7d6bf200bdcece4512e649";
 		self.targetSpecFingerprint = "e904db76e8ac1560728455a2796235537f2f71cb88d74f8be7a1bb47f3ee67b8";
 	}
 
@@ -11484,6 +11484,7 @@ class GeneratedHostedAbiData {
 		values.push("O_NOFOLLOW");
 		values.push("O_NOFOLLOW_ANY");
 		values.push("O_NONBLOCK");
+		values.push("O_PATH");
 		values.push("O_POPUP");
 		values.push("O_RDONLY");
 		values.push("O_RDWR");
@@ -11678,10 +11679,10 @@ class GeneratedHostedAbiData {
 		values.push("REG_TRACE");
 		values.push("REG_UNGREEDY");
 		values.push("RE_DUP_MAX");
-		values.push("RLIMIT_AS");
 	}
 
 	private void pushMacroNames7(Vector<string> values) {
+		values.push("RLIMIT_AS");
 		values.push("RLIMIT_CORE");
 		values.push("RLIMIT_CPU");
 		values.push("RLIMIT_CPU_USAGE_MONITOR");
@@ -11931,10 +11932,10 @@ class GeneratedHostedAbiData {
 		values.push("SO_DONTTRUNC");
 		values.push("SO_ERROR");
 		values.push("SO_GET_FILTER");
-		values.push("SO_INCOMING_CPU");
 	}
 
 	private void pushMacroNames8(Vector<string> values) {
+		values.push("SO_INCOMING_CPU");
 		values.push("SO_INCOMING_NAPI_ID");
 		values.push("SO_INQ");
 		values.push("SO_KEEPALIVE");
@@ -12184,10 +12185,10 @@ class GeneratedHostedAbiData {
 		values.push("UF_OPAQUE");
 		values.push("UF_SETTABLE");
 		values.push("UF_TRACKED");
-		values.push("UID_MAX");
 	}
 
 	private void pushMacroNames9(Vector<string> values) {
+		values.push("UID_MAX");
 		values.push("UINT16_C");
 		values.push("UINT16_MAX");
 		values.push("UINT32_C");
@@ -12437,10 +12438,10 @@ class GeneratedHostedAbiData {
 		values.push("strlcpy");
 		values.push("strncat");
 		values.push("strncpy");
-		values.push("sv_onstack");
 	}
 
 	private void pushMacroNames10(Vector<string> values) {
+		values.push("sv_onstack");
 		values.push("timeradd");
 		values.push("timerclear");
 		values.push("timercmp");
@@ -14321,6 +14322,7 @@ class GeneratedHostedAbiData {
 		values.push("O_NOFOLLOW");
 		values.push("O_NOFOLLOW_ANY");
 		values.push("O_NONBLOCK");
+		values.push("O_PATH");
 		values.push("O_POPUP");
 		values.push("O_RDONLY");
 		values.push("O_RDWR");
@@ -14477,10 +14479,10 @@ class GeneratedHostedAbiData {
 		values.push("REG_ASSERT");
 		values.push("REG_ATOI");
 		values.push("REG_BACKR");
-		values.push("REG_BACKTRACKING_MATCHER");
 	}
 
 	private void pushOwnedNames7(Vector<string> values) {
+		values.push("REG_BACKTRACKING_MATCHER");
 		values.push("REG_BADBR");
 		values.push("REG_BADMAX");
 		values.push("REG_BADPAT");
@@ -14730,10 +14732,10 @@ class GeneratedHostedAbiData {
 		values.push("SOL_MPTCP");
 		values.push("SOL_NETBEUI");
 		values.push("SOL_NETLINK");
-		values.push("SOL_NFC");
 	}
 
 	private void pushOwnedNames8(Vector<string> values) {
+		values.push("SOL_NFC");
 		values.push("SOL_PACKET");
 		values.push("SOL_PNPIPE");
 		values.push("SOL_PPPOL2TP");
@@ -14983,10 +14985,10 @@ class GeneratedHostedAbiData {
 		values.push("TIOCPKT_START");
 		values.push("TIOCPKT_STOP");
 		values.push("TIOCPTYGNAME");
-		values.push("TIOCPTYGRANT");
 	}
 
 	private void pushOwnedNames9(Vector<string> values) {
+		values.push("TIOCPTYGRANT");
 		values.push("TIOCPTYUNLK");
 		values.push("TIOCSBRK");
 		values.push("TIOCSCONS");
@@ -15236,10 +15238,10 @@ class GeneratedHostedAbiData {
 		values.push("atomic_fetch_and");
 		values.push("atomic_fetch_and_explicit");
 		values.push("atomic_fetch_or");
-		values.push("atomic_fetch_or_explicit");
 	}
 
 	private void pushOwnedNames10(Vector<string> values) {
+		values.push("atomic_fetch_or_explicit");
 		values.push("atomic_fetch_sub");
 		values.push("atomic_fetch_sub_explicit");
 		values.push("atomic_fetch_xor");
@@ -15489,10 +15491,10 @@ class GeneratedHostedAbiData {
 		values.push("ffs");
 		values.push("ffsctl");
 		values.push("ffsl");
-		values.push("ffsll");
 	}
 
 	private void pushOwnedNames11(Vector<string> values) {
+		values.push("ffsll");
 		values.push("fgetattrlist");
 		values.push("fgetc");
 		values.push("fgetpos");
@@ -15742,10 +15744,10 @@ class GeneratedHostedAbiData {
 		values.push("inet_pton");
 		values.push("initgroups");
 		values.push("initstate");
-		values.push("initstate_r");
 	}
 
 	private void pushOwnedNames12(Vector<string> values) {
+		values.push("initstate_r");
 		values.push("ino64_t");
 		values.push("ino_t");
 		values.push("int16_t");
@@ -15995,10 +15997,10 @@ class GeneratedHostedAbiData {
 		values.push("optarg");
 		values.push("opterr");
 		values.push("optind");
-		values.push("optopt");
 	}
 
 	private void pushOwnedNames13(Vector<string> values) {
+		values.push("optopt");
 		values.push("optreset");
 		values.push("osockaddr");
 		values.push("ostat");
@@ -16248,10 +16250,10 @@ class GeneratedHostedAbiData {
 		values.push("rsize_t");
 		values.push("ru_first");
 		values.push("ru_last");
-		values.push("rune_t");
 	}
 
 	private void pushOwnedNames14(Vector<string> values) {
+		values.push("rune_t");
 		values.push("rusage");
 		values.push("rusage_info_current");
 		values.push("rusage_info_t");
@@ -16501,10 +16503,10 @@ class GeneratedHostedAbiData {
 		values.push("strtok_r");
 		values.push("strtol");
 		values.push("strtold");
-		values.push("strtoll");
 	}
 
 	private void pushOwnedNames15(Vector<string> values) {
+		values.push("strtoll");
 		values.push("strtonum");
 		values.push("strtoq");
 		values.push("strtoul");
@@ -20200,6 +20202,7 @@ class GeneratedHostedAbiData {
 		names.put("NGREG", true);
 		names.put("NSS_BUFLEN_PASSWD", true);
 		names.put("OLCUC", true);
+		names.put("O_PATH", true);
 		names.put("O_RSYNC", true);
 		names.put("PF_ALG", true);
 		names.put("PF_ASH", true);
@@ -20207,10 +20210,10 @@ class GeneratedHostedAbiData {
 		names.put("PF_ATMSVC", true);
 		names.put("PF_AX25", true);
 		names.put("PF_BLUETOOTH", true);
-		names.put("PF_BRIDGE", true);
 	}
 
 	private void putPlatformTarget2Macros1(Map<string, bool> names) {
+		names.put("PF_BRIDGE", true);
 		names.put("PF_CAIF", true);
 		names.put("PF_CAN", true);
 		names.put("PF_ECONET", true);
@@ -20864,6 +20867,7 @@ class GeneratedHostedAbiData {
 		names.put("NGREG", true);
 		names.put("NSS_BUFLEN_PASSWD", true);
 		names.put("OLCUC", true);
+		names.put("O_PATH", true);
 		names.put("O_RSYNC", true);
 		names.put("PF_ALG", true);
 		names.put("PF_ASH", true);
@@ -20871,10 +20875,10 @@ class GeneratedHostedAbiData {
 		names.put("PF_ATMSVC", true);
 		names.put("PF_AX25", true);
 		names.put("PF_BLUETOOTH", true);
-		names.put("PF_BRIDGE", true);
 	}
 
 	private void putPlatformTarget3Macros1(Map<string, bool> names) {
+		names.put("PF_BRIDGE", true);
 		names.put("PF_CAIF", true);
 		names.put("PF_CAN", true);
 		names.put("PF_ECONET", true);
@@ -24084,6 +24088,7 @@ class GeneratedHostedAbiData {
 		names.put("NGREG", true);
 		names.put("NSS_BUFLEN_PASSWD", true);
 		names.put("OLCUC", true);
+		names.put("O_PATH", true);
 		names.put("O_RSYNC", true);
 		names.put("PF_ALG", true);
 		names.put("PF_ASH", true);
@@ -24091,10 +24096,10 @@ class GeneratedHostedAbiData {
 		names.put("PF_ATMSVC", true);
 		names.put("PF_AX25", true);
 		names.put("PF_BLUETOOTH", true);
-		names.put("PF_BRIDGE", true);
 	}
 
 	private void putPlatformTarget6Macros1(Map<string, bool> names) {
+		names.put("PF_BRIDGE", true);
 		names.put("PF_CAIF", true);
 		names.put("PF_CAN", true);
 		names.put("PF_ECONET", true);
@@ -24738,6 +24743,7 @@ class GeneratedHostedAbiData {
 		names.put("NGREG", true);
 		names.put("NSS_BUFLEN_PASSWD", true);
 		names.put("OLCUC", true);
+		names.put("O_PATH", true);
 		names.put("O_RSYNC", true);
 		names.put("PF_ALG", true);
 		names.put("PF_ASH", true);
@@ -24745,10 +24751,10 @@ class GeneratedHostedAbiData {
 		names.put("PF_ATMSVC", true);
 		names.put("PF_AX25", true);
 		names.put("PF_BLUETOOTH", true);
-		names.put("PF_BRIDGE", true);
 	}
 
 	private void putPlatformTarget7Macros1(Map<string, bool> names) {
+		names.put("PF_BRIDGE", true);
 		names.put("PF_CAIF", true);
 		names.put("PF_CAN", true);
 		names.put("PF_ECONET", true);
@@ -26907,6 +26913,7 @@ class GeneratedHostedAbiData {
 		names.put("O_NDELAY", true);
 		names.put("O_NOCTTY", true);
 		names.put("O_NOFOLLOW_ANY", true);
+		names.put("O_PATH", true);
 		names.put("O_POPUP", true);
 		names.put("O_RESOLVE_BENEATH", true);
 		names.put("O_RSYNC", true);
@@ -27122,10 +27129,10 @@ class GeneratedHostedAbiData {
 		names.put("SA_SIGINFO", true);
 		names.put("SA_STACK", true);
 		names.put("SA_USERSPACE_MASK", true);
-		names.put("SA_USERTRAMP", true);
 	}
 
 	private void putPlatformTarget8Macros6(Map<string, bool> names) {
+		names.put("SA_USERTRAMP", true);
 		names.put("SCM_CREDS", true);
 		names.put("SCM_DEVMEM_DMABUF", true);
 		names.put("SCM_DEVMEM_LINEAR", true);
@@ -27375,10 +27382,10 @@ class GeneratedHostedAbiData {
 		names.put("SO_TYPE", true);
 		names.put("SO_UPCALLCLOSEWAIT", true);
 		names.put("SO_USELOOPBACK", true);
-		names.put("SO_WANTMORE", true);
 	}
 
 	private void putPlatformTarget8Macros7(Map<string, bool> names) {
+		names.put("SO_WANTMORE", true);
 		names.put("SO_WANTOOBFLAG", true);
 		names.put("SO_WIFI_STATUS", true);
 		names.put("SO_ZEROCOPY", true);
@@ -27628,10 +27635,10 @@ class GeneratedHostedAbiData {
 		names.put("si_status", true);
 		names.put("si_stime", true);
 		names.put("si_syscall", true);
-		names.put("si_timerid", true);
 	}
 
 	private void putPlatformTarget8Macros8(Map<string, bool> names) {
+		names.put("si_timerid", true);
 		names.put("si_uid", true);
 		names.put("si_upper", true);
 		names.put("si_utime", true);
@@ -29962,6 +29969,7 @@ class GeneratedHostedAbiData {
 		names.put("O_NOFOLLOW", true);
 		names.put("O_NOFOLLOW_ANY", true);
 		names.put("O_NONBLOCK", true);
+		names.put("O_PATH", true);
 		names.put("O_POPUP", true);
 		names.put("O_RDONLY", true);
 		names.put("O_RDWR", true);
@@ -30132,10 +30140,10 @@ class GeneratedHostedAbiData {
 		names.put("REG_EXTENDED", true);
 		names.put("REG_ICASE", true);
 		names.put("REG_ILLSEQ", true);
-		names.put("REG_INVARG", true);
 	}
 
 	private void putPlatformTarget9Macros6(Map<string, bool> names) {
+		names.put("REG_INVARG", true);
 		names.put("REG_ITOA", true);
 		names.put("REG_LARGE", true);
 		names.put("REG_LITERAL", true);
@@ -30385,10 +30393,10 @@ class GeneratedHostedAbiData {
 		names.put("SO_GET_FILTER", true);
 		names.put("SO_INCOMING_CPU", true);
 		names.put("SO_INCOMING_NAPI_ID", true);
-		names.put("SO_INQ", true);
 	}
 
 	private void putPlatformTarget9Macros7(Map<string, bool> names) {
+		names.put("SO_INQ", true);
 		names.put("SO_KEEPALIVE", true);
 		names.put("SO_LABEL", true);
 		names.put("SO_LINGER", true);
@@ -30638,10 +30646,10 @@ class GeneratedHostedAbiData {
 		names.put("UNDERFLOW", true);
 		names.put("UQUAD_MAX", true);
 		names.put("USER_ADDR_NULL", true);
-		names.put("USER_FSIGNATURES_CDHASH_LEN", true);
 	}
 
 	private void putPlatformTarget9Macros8(Map<string, bool> names) {
+		names.put("USER_FSIGNATURES_CDHASH_LEN", true);
 		names.put("UTIME_NOW", true);
 		names.put("UTIME_OMIT", true);
 		names.put("UUID_DEFINE", true);
@@ -33026,6 +33034,7 @@ class GeneratedHostedAbiData {
 		names.put("O_NDELAY", true);
 		names.put("O_NOCTTY", true);
 		names.put("O_NOFOLLOW_ANY", true);
+		names.put("O_PATH", true);
 		names.put("O_POPUP", true);
 		names.put("O_RESOLVE_BENEATH", true);
 		names.put("O_RSYNC", true);
@@ -33241,10 +33250,10 @@ class GeneratedHostedAbiData {
 		names.put("SA_SIGINFO", true);
 		names.put("SA_STACK", true);
 		names.put("SA_USERSPACE_MASK", true);
-		names.put("SA_USERTRAMP", true);
 	}
 
 	private void putPlatformTarget10Macros6(Map<string, bool> names) {
+		names.put("SA_USERTRAMP", true);
 		names.put("SCM_CREDS", true);
 		names.put("SCM_DEVMEM_DMABUF", true);
 		names.put("SCM_DEVMEM_LINEAR", true);
@@ -33494,10 +33503,10 @@ class GeneratedHostedAbiData {
 		names.put("SO_TYPE", true);
 		names.put("SO_UPCALLCLOSEWAIT", true);
 		names.put("SO_USELOOPBACK", true);
-		names.put("SO_WANTMORE", true);
 	}
 
 	private void putPlatformTarget10Macros7(Map<string, bool> names) {
+		names.put("SO_WANTMORE", true);
 		names.put("SO_WANTOOBFLAG", true);
 		names.put("SO_WIFI_STATUS", true);
 		names.put("SO_ZEROCOPY", true);
@@ -33747,10 +33756,10 @@ class GeneratedHostedAbiData {
 		names.put("si_status", true);
 		names.put("si_stime", true);
 		names.put("si_syscall", true);
-		names.put("si_timerid", true);
 	}
 
 	private void putPlatformTarget10Macros8(Map<string, bool> names) {
+		names.put("si_timerid", true);
 		names.put("si_uid", true);
 		names.put("si_upper", true);
 		names.put("si_utime", true);

@@ -2829,6 +2829,17 @@ class FeNativeLinkPlan {
 		return paths.keys();
 	}
 
+	public Map<string, string> preprocessorDefinitions() {
+		Map<string, string> definitions = {};
+		for item in self.declarations {
+			if (item.kind != "define" || !item.selectedFor(self.target)) { continue; }
+			string value = item.detail.isEmpty() ? "1" : item.detail;
+			if (definitions.has(item.value) && definitions.get(item.value) != value) { FePackageFailure.fail(f"conflicting native definitions for '{item.value}'"); }
+			definitions.put(item.value, value);
+		}
+		return definitions;
+	}
+
 	public Vector<FeNativeBinding> bindingImports() {
 		Vector<FeNativeBinding> bindings = [];
 		for package in self.packages {

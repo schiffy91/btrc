@@ -874,13 +874,16 @@ class ModuleUnitCompiler:
         store = store or DisabledModuleUnitStore()
         timed = timed or (lambda _profile, _label, _start: None)
         self._target = source.native_plan.target.label
+        self._native_defines = source.native_plan.preprocessor_definitions()
         source_map = source.source_map(split_spaces=split_source_spaces)
         groups = source.graph.compilation_groups(source.root_source_path)
         facts = ProgramLoweringFacts()
         start = time.perf_counter()
         # One declarations-only session lowers every declaration without
         # bodies; it also computes the program facts every session shares.
-        declarations = self._lower(analyzed, filename, options, source_map, groups, _DECLARATIONS, facts)
+        declarations = self._lower(
+            analyzed, filename, options, source_map, groups, _DECLARATIONS, facts, native_defines=self._native_defines
+        )
         shared = SharedDeclarations(declarations)
         shared.configure_native_headers(analyzed.program.declarations)
         # The program unit is always lowered: it owns native adapters and
@@ -901,6 +904,7 @@ class ModuleUnitCompiler:
                 # The resolved row's canonical label: every spelling of one
                 # target, and the inferred host, key one set of units.
                 "target": source.native_plan.target.label,
+                "native-defines": self._native_defines,
                 "units-prefix": options.units_prefix if options.debug else None,
                 "generated-c-path": options.generated_c_path if options.debug else None,
             },
@@ -1472,7 +1476,17 @@ class ModuleUnitCompiler:
 
     def lower_group(self, analyzed, filename, options, source_map, groups, name, facts) -> IRModule:
         """Lower only what one group owns; shared declarations are merged later."""
-        return self._lower(analyzed, filename, options, source_map, groups, name, facts, declarations_elsewhere=True)
+        return self._lower(
+            analyzed,
+            filename,
+            options,
+            source_map,
+            groups,
+            name,
+            facts,
+            declarations_elsewhere=True,
+            native_defines=self._native_defines,
+        )
 
     @staticmethod
     def setjmp_functions(unit: IRModule) -> frozenset[str]:
