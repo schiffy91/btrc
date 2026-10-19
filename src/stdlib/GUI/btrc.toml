@@ -227,16 +227,24 @@ activation-failure = "abort"
 cancellation = "entry-barrier"
 
 [[native.bindings]]
+module = "MacOS.CoreFoundation"
+header = "MacOS/CoreFoundation.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"CFUUIDCreate", "CFUUIDCreateString", "CFStringGetCString", "kCFStringEncodingUTF8", "CFRetain", "CFRelease",
+	"CFRunLoopSourceContext", "CFRunLoopGetMain", "CFRunLoopSourceCreate", "CFRunLoopAddSource", "CFRunLoopSourceSignal", "CFRunLoopWakeUp", "CFRunLoopSourceInvalidate", "kCFRunLoopCommonModes",
+]
+os = ["macos"]
+
+[[native.bindings]]
 module = "MacOS.MacOSRunLoop"
 header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
-	"+[NSThread isMainThread]", "+[NSObject new]",
-	"+[NSNotificationCenter defaultCenter]", "-[NSNotificationCenter addObserverForName:object:queue:usingBlock:]", "-[NSNotificationCenter removeObserver:]",
-	"+[NSNotification notificationWithName:object:]", "-[NSNotification name]", "-[NSNotification object]", "+[NSNotificationQueue defaultQueue]",
-	"-[NSNotificationQueue enqueueNotification:postingStyle:]", "-[NSNotificationQueue dequeueNotificationsMatching:coalesceMask:]",
-	"NSPostASAP", "NSNotificationCoalescingOnName", "NSNotificationCoalescingOnSender",
+	"+[NSThread isMainThread]", "+[NSString stringWithUTF8String:]",
+	"+[NSNotificationCenter defaultCenter]", "-[NSNotificationCenter addObserverForName:object:queue:usingBlock:]", "-[NSNotificationCenter removeObserver:]", "-[NSNotificationCenter postNotificationName:object:]",
 	"-[NSApplication isRunning]", "-[NSApplication stop:]", "-[NSApplication postEvent:atStart:]",
 	"+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]", "NSEventTypeApplicationDefined"
 ]
@@ -558,7 +566,7 @@ os = ["macos"]
 
 [[native.frameworks]]
 name = "CoreFoundation"
-modules = ["MacOS.MacOSSystemText"]
+modules = ["MacOS.CoreFoundation", "MacOS.MacOSSystemText"]
 os = ["macos"]
 
 [[native.frameworks]]
