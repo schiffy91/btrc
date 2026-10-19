@@ -72,8 +72,17 @@
                 | /0(([uU]([lL]|ll|LL)?)|(([lL]|ll|LL)[uU]?))?/
                 | /0[0-7]+(([uU]([lL]|ll|LL)?)|(([lL]|ll|LL)[uU]?))?/
                 | /[1-9][0-9]*(([uU]([lL]|ll|LL)?)|(([lL]|ll|LL)[uU]?))?/
-    FLOAT_LIT   = /[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?[fF]?/
+    FLOAT_LIT   = /[0-9]+\.[0-9]*([eE][+-]?[0-9]+)?[fF]?/
+                | /\.[0-9]+([eE][+-]?[0-9]+)?[fF]?/
                 | /[0-9]+[eE][+-]?[0-9]+[fF]?/
+                -- C11 6.4.4.2: ".5f", "5.f" and "1.e5f" are floating
+                -- constants. A "." that follows an operand selects instead:
+                -- after an identifier, literal, "]", "++", "--", "self",
+                -- "super", "true", "false", "null", "." "?." or "->" it is a
+                -- DOT, and digits after a "." or "?." are a field index alone
+                -- (t.0.1). After ")" or "}" the lexer reads ".N" as one
+                -- FLOAT_LIT, which the parser takes as a tuple field when it
+                -- follows a postfix operand ("f().0"). "1..." keeps its dots.
     STRING_LIT  = /"([^"\\\r\n]|\\.)*"/
     CHAR_LIT    = /'([^'\\\r\n]|\\.)*'/
     FSTRING_LIT = /f"..."/ -- brace-balanced sub-lexing; see lexer
@@ -668,12 +677,12 @@
   postfix_op     = "(" arg_list ")"         (* function call *)
                  | "[" expr "]"             (* indexing *)
                  | "." member_name         (* field access *)
-                 | "." INT_LIT             (* tuple field: .0, .1, .2 *)
-                                           (* LIMITATION: chained tuple access
-                                              like x.0.1 does NOT parse — the
-                                              lexer greedily reads "0.1" as one
-                                              FLOAT_LIT. Use (x.0).1 or bind an
-                                              intermediate. *)
+                 | "." INT_LIT             (* tuple field: .0, .1, .2; chained
+                                              x.0.1 selects twice, because digits
+                                              after "." lex as a field index *)
+                 | FLOAT_LIT               (* only a plain ".N" after ")" or
+                                              "}": the tuple field N, as in
+                                              f().0; see @literals *)
                  | "?." member_name        (* optional chaining *)
                  | "->" member_name        (* arrow access *)
                  | "++"                     (* postfix increment *)

@@ -102,6 +102,12 @@ BATTERY = (
     ConstantProbe("bool-float-suffix-5000-digit-significand", f"(bool)1{'0' * 5000}e-5000f", 1),
     ConstantProbe("float-suffix-zero-huge-exponent", "(int)0e99999999f", 0),
     ConstantProbe("float-suffix-long-midpoint", f"(long long)16777217.{'0' * 5000}1f", 16777218),
+    # C11 6.4.4.2 spells a floating constant without a digit on one side.
+    ConstantProbe("leading-dot-float-suffix-cast", "(int).5f", 0),
+    ConstantProbe("leading-dot-exponent-cast", "(int).9e1", 9),
+    ConstantProbe("trailing-dot-float-suffix-cast", "(int)5.f", 5),
+    ConstantProbe("trailing-dot-exponent-cast", "(long long)1.e5f", 100000),
+    ConstantProbe("trailing-dot-cast", "(short)7.", 7),
     ConstantProbe("enum-member", "Color.GREEN", 1),
     ConstantProbe("variable", "x", NOT_CONSTANT),
 )

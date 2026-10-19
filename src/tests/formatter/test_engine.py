@@ -788,3 +788,20 @@ def test_a_wrapped_type_header_body_is_reindented_from_any_indentation(expected:
 def test_a_struct_typed_declaration_continuation_is_not_a_type_header() -> None:
     source = "struct P {\n\tint x;\n};\n\nint main() {\n\tstruct P p =\n\t\t{1};\n\treturn 0;\n}\n"
     assert formatted(source, indent_style="tabs") == source
+
+
+def test_leading_dot_constants_keep_their_operator_spacing() -> None:
+    """A ".5" that no operand precedes is a floating constant, not a selector."""
+    source = (
+        "int main() {\n"
+        "\tvar pair = (2, .5);\n"
+        "\tdouble a = .5;\n"
+        "\tint b = (int).5f + (int)5.f;\n"
+        "\tvar nested = (1, (2, 3));\n"
+        "\tint c = nested.1.0 + (nested).0;\n"
+        "\treturn a > .25 && -.5 < 1. ? b + c : 0;\n"
+        "}\n"
+    )
+    result = BtrcFormatter().format(source, "LeadingDot.btrc")
+    assert result == source
+    assert BtrcFormatter().format(result, "LeadingDot.btrc") == result

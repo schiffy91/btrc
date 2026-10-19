@@ -1,0 +1,60 @@
+// C11 6.4.4.2 floating constants without a digit on one side of the point
+// (.5, 5., 1.e5), and the tuple fields a dot after an operand still selects.
+#include <assert.h>
+
+// A cast of a floating constant is an integral constant expression.
+enum Scaled { HALF = (int).5f, FIVE = (int)5.f, LARGE = (int)1.e5f };
+
+// A literal just inside binary32's overflow and underflow midpoints keeps
+// its nearest finite, nonzero float.
+float largestFloat = 340282356779733661637539395458142568447.0f;
+float smallestFloat = 7.006492321624085354618647916449580656401309709382578858785341419448955413429303007433190941810607910156251e-46f;
+
+// 1e-50 is a nonzero double, so the division has a constant value.
+static double reciprocal = 1.0 / 1e-50;
+
+(int, (int, double)) nested() { return (1, (2, .5)); }
+
+int label(int value) {
+	switch (value) {
+		case (int)5.f: return 5;
+		case (int).5f: return 0;
+		case (int)1.e5f: return 100000;
+		default: return -1;
+	}
+}
+
+int main() {
+	float a = .5f;
+	double b = .25;
+	double c = 5.;
+	float d = 5.f;
+	float e = 1.e5f;
+	double g = 1.e5;
+	double h = .5e1;
+	double small = 1e-50;
+	assert(a == 0.5f && b == 0.25 && c == 5.0 && d == 5.0f);
+	assert(e == 100000.0f && g == 100000.0 && h == 5.0);
+	assert(small > 0.0 && 1.0 / small > 1e49);
+	assert(-.5 < 0.0 && 1 + .5 == 1.5 && 3. * 2 == 6.0);
+	print("PASS: leading- and trailing-dot constants");
+
+	assert((int).5f == 0 && (int)5.f == 5 && (int)1.e5f == 100000);
+	long long wide = (long long).25;
+	assert(wide == 0);
+	assert(HALF == 0 && FIVE == 5 && LARGE == 100000);
+	assert(label(5) == 5 && label(0) == 0 && label(100000) == 100000);
+	print("PASS: casts and case labels of dotted constants");
+
+	assert(largestFloat == 340282346638528859811704183484516925440.0f);
+	assert(smallestFloat > 0.0f && smallestFloat / 2.0f == 0.0f);
+	assert(reciprocal > 1e49);
+	print("PASS: float literals at the binary32 edges");
+
+	var pair = (3, (4, 6.5));
+	assert(pair.0 == 3 && pair.1.0 == 4 && pair.1.1 == 6.5);
+	assert(nested().0 == 1 && nested().1.0 == 2 && nested().1.1 == .5);
+	assert((pair).0 == 3 && (pair.1).1 == 6.5);
+	print("PASS: tuple fields after a dot");
+	return 0;
+}

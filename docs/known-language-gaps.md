@@ -53,11 +53,13 @@ Grammar keywords are reserved and cannot be used as source identifiers. Code
 generators escape schema field names that collide with those keywords, but that
 internal escaping does not create quoted identifiers in the language.
 
-Tuple element names such as `_0` and `_1` are ordinary postfix members. A
-second tuple access must currently use a parenthesized intermediate—
-`(value._1)._0`—because the unparenthesized numeric-looking boundary in
-`value._1._0` is intentionally not accepted by the lexer. The equivalent
-separate local binding is also supported.
+Tuple element names such as `_0` and `_1` are ordinary postfix members, and
+`value.1.0` selects twice: digits after a `.` lex as a field index alone, so
+the next `.` is a selector, not a fraction. A `.` after an operand never starts
+a floating constant (`t.5` is field 5), while `.5`, `5.` and `1.e5` elsewhere
+are C11 floating constants. A spaced or parenthesized numeric literal has no
+members (`5 .f` and `(5).x` are refused with `Numeric literal '5' has no field
+...`).
 
 Expression nesting has no language limit; each compiler's stack budget sets
 it. Every stage walks an expression recursively, and compile time grows
@@ -536,6 +538,10 @@ the exact rule.
 | 6 | Class compound assignment | Compound operators call the corresponding overload once and assign its result. | `classes/ClassCompoundAssignment.btrc` |
 | 7 | Nullable class element in a generic collection (`Vector<Box?>`) | `keep` and keep-parameter retains are null-guarded in both compilers; generic ownership paths use the terminal destructor. | `memory/NullableGenericArc.btrc`, `memory/NullableOwnershipOps.btrc` |
 | 8 | Valid multi-word C integer spellings | The parsers accept the valid signed/unsigned `short`, `long`, and `long long` spellings; invalid `long long double` is no longer treated as a supported base type. | `basics/ExtendedIntTypes.btrc` |
+| — | C11 floating constants with a bare point (`.5f`, `5.f`, `1.e5f`) | Both lexers read them as floating literals; `(int).5f` and `(int)5.f` are integral constants and valid case labels, and `(long long).25` compiles. A tuple field after `)` (`f().0`) and chained `t.0.1` still select. | `c_compat/FloatingConstantForms.btrc`, `btrc/test_floating_constant_parity.py` |
+| — | `f` literals at the binary32 edges | The range check compares the exact decimal with the binary32 midpoints (2^128 - 2^103 and 2^-150), not a double first rounded onto one, so literals just inside either edge are accepted as C accepts them. Fuzzed against `strtof`. | `btrc/test_floating_constant_parity.py`, `python/test_lexer.py` |
+| — | btrcc's float literal value | The AST stores a floating literal as a C `double` (ASDL `float`), so `1.0 / 1e-50` is not a known division by zero in btrcc, as in the reference. | `c_compat/FloatingConstantForms.btrc` |
+| — | Out-of-range floating casts in static initializers | `static int big = (int)1e30;` is refused in both compilers, naming the constant and the integer type, instead of emitting C that strict compilers reject. | `btrc/test_floating_constant_parity.py` |
 | — | Self-host parser diagnostics | Token expectations record one fatal expected/actual diagnostic, unwind to the program boundary, and prevent malformed ASTs from entering analysis or IR generation. | `btrc/test_parser_diagnostics.py` |
 | 10 | Capturing IIFEs | The call site creates a typed stack environment, initializes it in an `IRCommaExpr`, and passes its address to the lifted expression- or block-body lambda. Only the inert declaration is hoisted, so branches and loop conditions retain source evaluation semantics. | `functions/LambdaCaptureIife.btrc` |
 | 11 | Capturing lambda conversion to exact `CFunction<Signature>` | `CFunction` is the public spelling of one noncapturing C function-pointer word; result, parameter, pointer, and `const` shapes are checked recursively from the canonical hosted-ABI manifest. A direct inferred local may retain an associated environment only through its dedicated lexical path. Every environment-erasing conversion—explicit storage, aliasing, return, argument, assignment, default/field, or recursively nested collection literal—is rejected once at its source site. Direct `spawn(lambda)` and capturing IIFEs retain their environment-aware lowerings; the self-hosted compiler also fails closed at unsafe IR boundaries. | `btrc/test_cfunction_callback_contract.py`, `python/test_analyzer_lambda_contracts.py`, `functions/LambdaCaptureLocal.btrc` |

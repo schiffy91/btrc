@@ -13,6 +13,7 @@ from src.compiler.python.parser.parser import ParseError, Parser
 from src.compiler.python.syntax.ast.generated import (
     BinaryExpr,
     BraceInitializer,
+    CallExpr,
     CastExpr,
     CForStmt,
     ClassDecl,
@@ -21,6 +22,7 @@ from src.compiler.python.syntax.ast.generated import (
     EnumDecl,
     ExprStmt,
     FieldAccessExpr,
+    FloatLiteral,
     Identifier,
     IfStmt,
     InterfaceDecl,
@@ -296,16 +298,37 @@ class TestTupleAccess:
         assert isinstance(expr, FieldAccessExpr)
         assert expr.field == "_0"
 
-    def test_chained_tuple_access_workaround(self):
-        # Parenthesizing avoids the FLOAT_LIT mis-lex of `0.1`.
+    def test_parenthesized_chained_tuple_access(self):
         expr = parse_expr("(x.0).1")
         assert isinstance(expr, FieldAccessExpr)
         assert expr.field == "_1"
 
-    def test_chained_tuple_access_mislexes(self):
-        # Documented limitation: x.0.1 lexes `0.1` as a FLOAT_LIT.
-        with pytest.raises(ParseError):
-            parse_expr("x.0.1")
+    def test_chained_tuple_access(self):
+        # Digits after "." are a field index alone, so x.0.1 selects twice.
+        expr = parse_expr("x.0.1")
+        assert isinstance(expr, FieldAccessExpr)
+        assert expr.field == "_1"
+        assert isinstance(expr.obj, FieldAccessExpr)
+        assert expr.obj.field == "_0"
+
+    def test_tuple_field_of_a_call_result(self):
+        # After ")" the lexer reads ".0" as one floating token; it still selects.
+        expr = parse_expr("pair().0.1")
+        assert isinstance(expr, FieldAccessExpr)
+        assert expr.field == "_1"
+        assert expr.obj.field == "_0"
+        assert isinstance(expr.obj.obj, CallExpr)
+
+    def test_grouped_name_before_a_field_is_not_a_cast(self):
+        expr = parse_expr("(x).0")
+        assert isinstance(expr, FieldAccessExpr)
+        assert expr.field == "_0"
+
+    def test_keyword_cast_of_a_leading_dot_constant(self):
+        expr = parse_expr("(int).5")
+        assert isinstance(expr, CastExpr)
+        assert isinstance(expr.expr, FloatLiteral)
+        assert expr.expr.raw == ".5"
 
 
 # ---- C rows 2 and 6: braceless bodies and the empty statement ----
