@@ -62,9 +62,10 @@ class LinuxAction implements IQueuedAction {
 class LinuxActionQueue {
 	private ActionMailbox _mailbox;
 	private int _bound = 0;
+	private int _capacity;
 	private bool _closed = false;
 
-	public LinuxActionQueue(int capacity = 256) { self._mailbox = ActionMailbox(capacity); }
+	public LinuxActionQueue(int capacity = 256) { self._mailbox = ActionMailbox(capacity); self._capacity = capacity; }
 
 	private void requireOpen() { if (self._closed) { throw "Native action queue is closed"; } }
 
@@ -79,6 +80,8 @@ class LinuxActionQueue {
 		action.close();
 		self._bound--;
 	}
+
+	public bool canCapture() { self.requireOpen(); return self._mailbox.pendingCount() < self._capacity; }
 
 	public int pendingCount() { self.requireOpen(); return self._mailbox.pendingCount(); }
 
