@@ -206,7 +206,9 @@ APPLICABILITY_SCHEMA = "btrc.target-applicability/1"
 FRONTENDS = ("reference", "selfhost")
 STATUSES = TargetRunAdapter.STATUSES
 # The flags the strict-C11 matrix and the Windows lane hold every generated unit to.
-STRICT_CFLAGS = ("-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2")
+# zig cc treats -O2 as a release mode and defines NDEBUG, which compiles out every
+# assert a corpus program checks with; -UNDEBUG keeps them live on every toolchain.
+STRICT_CFLAGS = ("-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2", "-UNDEBUG")
 # Retained per stream by the local executor; more is an infrastructure error.
 OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024
 PROGRAM_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")

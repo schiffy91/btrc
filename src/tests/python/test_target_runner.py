@@ -47,6 +47,7 @@ from src.tests.target_runner import (
     TargetRows,
     TargetRunnerCommand,
 )
+from tools.native_plan import TargetToolchain
 from tools.qualification.adapters import TargetRunAdapter
 from tools.qualification.schema import (
     TARGET_SLICES,
@@ -886,6 +887,25 @@ def test_both_frontends_build_a_bundle_the_local_executor_runs(tmp_path, immutab
     )
     assert executed.counts() == compiled.counts(), executed.lines()
     assert {outcome.result.provenance["executor"] for outcome in executed.outcomes} == {"local"}
+
+
+@pytest.mark.parametrize("label", ["windows-x86_64", "windows-aarch64"])
+def test_the_strict_flags_keep_every_assert_live_under_zig(tmp_path, label):
+    """zig cc's -O2 defines NDEBUG; a corpus program's asserts must still run on the target."""
+
+    if shutil.which("zig") is None:
+        pytest.skip("requires zig for the windows-gnu rows")
+    source = tmp_path / "probe.c"
+    source.write_text(
+        "#include <assert.h>\n#ifdef NDEBUG\n#error NDEBUG compiles out the program's asserts\n#endif\n"
+        "int main(void) { assert(1); return 0; }\n",
+        encoding="utf-8",
+    )
+    toolchain = TargetToolchain(TargetRows.row(label))
+    for flags, compiles in ((STRICT_CFLAGS, True), (tuple(flag for flag in STRICT_CFLAGS if flag != "-UNDEBUG"), False)):
+        command = toolchain.compile_command(source, tmp_path / "probe.o", generated=True, flags=list(flags))
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT, check=False)
+        assert (completed.returncode == 0) == compiles, (flags, completed.stderr)
 
 
 @needs_cc
