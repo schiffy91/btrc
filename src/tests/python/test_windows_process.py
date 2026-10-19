@@ -29,6 +29,7 @@ import pytest
 from src.compiler.python.abi.generated import TARGET_ROWS
 from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.results import CompilerOptions
+from src.compiler.python.runtime.generated import RUNTIME_HELPER_ROWS
 from src.tests.process_limits import TOOL_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.target_runner import FRONTENDS, TargetBundle, TargetCorpusRunner
 from tools.native_plan import RuntimeObjects, TargetToolchain
@@ -40,7 +41,7 @@ RUNTIME = REPO / "src" / "runtime" / "c"
 ROWS = {row.label: row for row in TARGET_ROWS}
 TARGETS = {"windows-x64": "windows-x86_64", "windows-arm64": "windows-aarch64"}
 STRICT = ["-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2"]
-PASS_LINE = "process-windows PASS"
+PASS_LINE = "process-windows PASS checks="
 
 RUN = """import Library.Process;
 
@@ -104,7 +105,19 @@ def test_only_windows_gnu_rows_launch_through_the_runtime_seam(frontend, label, 
     windows = row.operating_system == "windows"
     seam = windows and row.environment == "gnu"
     assert [selected.source for selected in RuntimeObjects.selected([c_source])] == (["windows_os.c"] if seam else [])
-    assert ("__btrc_windows_launch(" in c_source) is seam
+    # The provider retains these windows_os.h sections verbatim, and nothing else of the seam.
+    sections = {row.name: row.c_source.strip() for row in RUNTIME_HELPER_ROWS}
+    retained = (
+        "__btrc_windows_launch_types",
+        "__btrc_windows_launch",
+        "__btrc_windows_launch_wait",
+        "__btrc_windows_launch_copy_output",
+        "__btrc_windows_launch_close",
+    )
+    for helper in retained:
+        assert (sections[helper] in c_source) is seam, helper
+    for helper in ("__btrc_windows_launch_terminate", "__btrc_windows_quote_argv_utf8"):
+        assert sections[helper] not in c_source, helper
     assert ("ChildProcess.run is unavailable on windows-msvc" in c_source) is (windows and not seam)
     for posix in ("fork(", "execve(", "waitpid(", "__btrc_posix_spawn_cloexec("):
         assert (posix in c_source) is not windows, posix
@@ -226,4 +239,5 @@ def test_process_fixture_builds_for_windows(frontend, target, request, tmp_path)
         ran = subprocess.run(
             [str(executable), "--parent", str(harness)], capture_output=True, text=True, timeout=600, check=False
         )
-        assert ran.returncode == 0 and ran.stdout.strip().endswith(PASS_LINE), (ran.stdout, ran.stderr)
+        last = ran.stdout.strip().splitlines()[-1] if ran.stdout.strip() else ""
+        assert ran.returncode == 0 and last.startswith(PASS_LINE), (ran.stdout, ran.stderr)

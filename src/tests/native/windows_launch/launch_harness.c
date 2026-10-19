@@ -837,6 +837,44 @@ static void check_wait_modes(void) {
     DeleteFileW(pid_file);
 }
 
+/* An explicit terminate ends the whole job with the caller's exit code; the
+ * wait then reports an ordinary exit with that code, not a timeout. */
+static void check_terminate(void) {
+    wchar_t marker[1024];
+    wchar_t started[1024];
+    char marker_utf8[2048];
+    temp_path(marker, 1024, L"btrc-terminate-marker");
+    temp_path(started, 1024, L"btrc-terminate-marker.started");
+    DeleteFileW(marker);
+    DeleteFileW(started);
+    to_utf8(marker, marker_utf8, (int)sizeof(marker_utf8));
+    char *argv[] = { self_utf8, "--tree", "2", marker_utf8, NULL };
+    __btrc_windows_launch_options_t options;
+    memset(&options, 0, sizeof(options));
+    options.executable_utf8 = self_utf8;
+    options.argv_utf8 = argv;
+    options.argc = 4;
+    __btrc_windows_launch_owner_t *owner = NULL;
+    __btrc_windows_launch_error_t error;
+    __btrc_windows_launch_result_t result;
+    CHECK("terminate launch", __btrc_windows_launch(&options, &owner, &error) == 0);
+    if (owner == NULL) return;
+    char pid[32] = { 0 };
+    for (int attempt = 0; attempt < 200 && (read_text(started, pid, sizeof(pid)) != 0 || pid[0] == 0); attempt++)
+        Sleep(50);
+    CHECK("terminate ends the job", __btrc_windows_launch_terminate(owner, 7, &error) == 0);
+    CHECK("terminate is idempotent", __btrc_windows_launch_terminate(owner, 7, &error) == 0);
+    CHECK("a terminated launch reports the caller's exit code",
+        __btrc_windows_launch_wait(owner, 2, 0, &result, &error) == 0 && result.state == 1 && result.has_exit_code
+            && result.native_exit_code == 7 && !result.timed_out);
+    CHECK("terminate kills the whole tree", pid[0] != 0 && process_gone(pid));
+    CHECK("close releases a terminated launch", __btrc_windows_launch_close(&owner, 1000, &error) == 0
+        && owner == NULL);
+    Sleep(3500);
+    CHECK("the terminated leaf never finished", !exists(marker));
+    DeleteFileW(started);
+}
+
 int main(int argc, char **argv) {
     wchar_t self_wide[1024];
     DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
@@ -854,6 +892,7 @@ int main(int argc, char **argv) {
     check_refusals();
     check_search_and_environment();
     check_wait_modes();
+    check_terminate();
     if (failures != 0) {
         report("windows-launch-seam FAIL failures=%d checks=%d\n", failures, checks);
         return 1;

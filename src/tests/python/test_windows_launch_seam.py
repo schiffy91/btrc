@@ -14,8 +14,9 @@ string literal. It also builds the native harness
 (src/tests/native/windows_launch/launch_harness.c); with
 BTRC_WIN32_EVIDENCE_DIR set the executables are copied there and windows.yml's
 process-native job runs them on Windows x64 and ARM64, where the harness
-checks quoting, exit codes, tree-killing deadlines, inherited-handle
-isolation, capture limits, stdin, refusals, PATH and environment rules.
+checks quoting, exit codes, tree-killing deadlines and explicit terminates,
+inherited-handle isolation, capture limits, stdin, refusals, PATH and
+environment rules.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ RUNTIME = REPO / "src" / "runtime" / "c"
 NATIVE = REPO / "src" / "tests" / "native" / "windows_launch"
 TARGETS = {"windows-x64": "x86_64-windows-gnu", "windows-arm64": "aarch64-windows-gnu"}
 STRICT = ["-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2"]
-PASS_LINE = "windows-launch-seam PASS"
+PASS_LINE = "windows-launch-seam PASS checks="
 
 
 def zig_compile(target: str, sources: list[Path], output: Path, *libraries: str) -> None:
@@ -277,6 +278,33 @@ def test_manifest_refuses_an_unknown_library_system(runtime_copy):
         RuntimeManifest.load(manifest)
 
 
+def test_the_windows_harness_exercises_every_seam_section():
+    """Every declaration section of windows_os.h is used by the launch harness the Windows runners execute:
+    the type section through its records, each entry point by a call. Only a windows-gnu build retains
+    these sections, so no host corpus program can pin them (test_platform_inventory's target-only rows)."""
+    harness = (NATIVE / "launch_harness.c").read_text(encoding="utf-8")
+    uses = {
+        "__btrc_windows_launch_types": (
+            "__btrc_windows_launch_owner_t",
+            "__btrc_windows_launch_options_t",
+            "__btrc_windows_launch_error_t",
+            "__btrc_windows_launch_result_t",
+        ),
+        "__btrc_windows_launch": ("__btrc_windows_launch(",),
+        "__btrc_windows_launch_wait": ("__btrc_windows_launch_wait(",),
+        "__btrc_windows_launch_copy_output": ("__btrc_windows_launch_copy_output(",),
+        "__btrc_windows_launch_terminate": ("__btrc_windows_launch_terminate(",),
+        "__btrc_windows_launch_close": ("__btrc_windows_launch_close(",),
+        "__btrc_windows_quote_argv_utf8": ("__btrc_windows_quote_argv_utf8(",),
+    }
+    manifest = RuntimeManifest.load(RUNTIME / "manifest.toml")
+    declared = {helper.name for helper in manifest.helpers if helper.asset == "windows_os.h"}
+    assert set(uses) == declared
+    for section, spellings in uses.items():
+        for spelling in spellings:
+            assert spelling in harness, f"{section}: the harness never uses {spelling}"
+
+
 @pytest.mark.parametrize("target", sorted(TARGETS))
 def test_launch_harness_builds_for_windows(target, tmp_path):
     executable = tmp_path / f"windows-launch-seam-{target}.exe"
@@ -288,4 +316,5 @@ def test_launch_harness_builds_for_windows(target, tmp_path):
         shutil.copy2(executable, Path(evidence) / executable.name)
     if sys.platform == "win32":
         ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=600, check=False)
-        assert ran.returncode == 0 and ran.stdout.strip().endswith(PASS_LINE), (ran.stdout, ran.stderr)
+        last = ran.stdout.strip().splitlines()[-1] if ran.stdout.strip() else ""
+        assert ran.returncode == 0 and last.startswith(PASS_LINE), (ran.stdout, ran.stderr)
