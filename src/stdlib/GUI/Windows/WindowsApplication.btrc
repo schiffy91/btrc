@@ -80,6 +80,12 @@ interface IWindowsApplication extends IApplication {
  * posted work, queued button actions and close requests. Quit closes
  * admission, drains admitted work, then closes windows and detached roots. */
 class WindowsApplication implements IWindowsApplication {
+	public ApplicationPublisherOutcome createPublisher(int capacity, IApplicationPublicationHandler handler, CallbackScope owner) { self.requireCreation(); throw WindowsUnsupported.error("IApplication.createPublisher"); }
+
+	public ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) { self.requireCreation(); throw WindowsUnsupported.error("IApplication.schedule"); }
+
+	public ApplicationHostAttachOutcome attachHost(IApplicationHost host, CallbackScope owner) { self.requireCreation(); throw WindowsUnsupported.error("IApplication.attachHost"); }
+
 	private WindowsContext _context;
 	private Vector<WindowsWindow> _windows = [];
 	private Vector<IView> _views = [];

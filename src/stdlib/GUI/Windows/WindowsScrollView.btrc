@@ -1,3 +1,6 @@
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.IContainer;
 import Library.Callback;
 import Library.Console;
 import Library.Math;
@@ -109,6 +112,26 @@ class WindowsScrollEvents implements IWindowSubclass {
 /* A native vertical scroll view: a viewport window with a scroll bar that
  * clips one document window, which holds the attached children. */
 class WindowsScrollView implements IScrollView, IWindowsView {
+	public ViewInteractionState interactionState() { return self._viewport.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._viewport.onInteractionStateChanged(handler, owner); }
+
+	public void insert(IView child, int index) { self.nativeHandle(); self._document.insert(child, index); }
+
+	public void move(IView child, int destinationIndex) { self.nativeHandle(); self._document.move(child, destinationIndex); }
+
+	public ContainerBatchResult applyBatch(long long expectedTreeRevision, Vector<ContainerEdit> edits) { self.nativeHandle(); return self._document.applyBatch(expectedTreeRevision, edits); }
+
+	public long long treeRevision() { self.nativeHandle(); return self._document.treeRevision(); }
+
+	public ScrollOffset offset() { self.nativeHandle(); throw WindowsUnsupported.error("IScrollView.offset"); }
+
+	public void scrollToOffset(ScrollOffset offset) { self.nativeHandle(); throw WindowsUnsupported.error("IScrollView.scrollToOffset"); }
+
+	public ScrollRect visibleRect() { self.nativeHandle(); throw WindowsUnsupported.error("IScrollView.visibleRect"); }
+
+	public ICallbackRegistration onOffsetChanged(IScrollControlEventHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("IScrollView.onOffsetChanged"); }
+
 	private WindowsContainer _viewport;
 	private WindowsContainer _document;
 	private WindowsScrollState _state;

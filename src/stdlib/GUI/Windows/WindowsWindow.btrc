@@ -79,6 +79,14 @@ class WindowsWindowEvents implements IWindowSubclass {
  * path: the attached root transfers its subtree's lifecycle to the window.
  * Dimensions are client-area logical points at the window's own DPI. */
 class WindowsWindow implements IWindow {
+	public WindowCloseRequestOutcome requestClose(WindowCloseReason reason) { self.nativeHandle(); throw WindowsUnsupported.error("IWindow.requestClose"); }
+
+	public ICallbackRegistration onCloseRequested(IWindowCloseRequestHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("IWindow.onCloseRequested"); }
+
+	public WindowState state() { self.nativeHandle(); throw WindowsUnsupported.error("IWindow.state"); }
+
+	public ICallbackRegistration onStateChanged(IWindowStateHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("IWindow.onStateChanged"); }
+
 	private HWND _window;
 	private WindowsContext _context;
 	private WindowsWindowState _state;

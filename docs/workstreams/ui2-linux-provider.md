@@ -419,3 +419,11 @@ The catalog check preserves 1,620 operation slots, 470 case slots and 300 family
 cells, with 70 pending IDs. It reports no undeclared or missing slots. Surface
 coverage remains absent (87 exported symbols have no surface row); this is not
 provider qualification or completion of the UI2 export fragment.
+
+The integrated Windows UI1 provider now declares every new UI2 method with its
+approved unsupported behavior. Leaf views delegate to the existing Windows view
+owner; containers and applications reject the new operations explicitly. The
+Windows x64 shell cross-build passes through the reference compiler (17.59 s)
+and the self-host compiler (10.11 s), and parsed method signatures match the
+expanded interfaces. This is compilation evidence only. No UI2 Windows catalog
+cell is promoted and no native UI2 behavior is claimed.

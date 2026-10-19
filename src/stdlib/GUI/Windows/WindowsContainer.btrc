@@ -34,6 +34,18 @@ class WindowsContainerChild {
  * into its HWND and keep their own logical frames; children never retain
  * their parent owner. */
 class WindowsContainer implements IContainer, IWindowsView {
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
+	public void insert(IView child, int index) { self.requireMutation(); throw WindowsUnsupported.error("IContainer.insert"); }
+
+	public void move(IView child, int destinationIndex) { self.requireMutation(); throw WindowsUnsupported.error("IContainer.move"); }
+
+	public ContainerBatchResult applyBatch(long long expectedTreeRevision, Vector<ContainerEdit> edits) { self.requireMutation(); throw WindowsUnsupported.error("IContainer.applyBatch"); }
+
+	public long long treeRevision() { self.nativeHandle(); throw WindowsUnsupported.error("IContainer.treeRevision"); }
+
 	private WindowsView _view;
 	private Vector<WindowsContainerChild> _children = [];
 	private bool _mutating = false;

@@ -1,3 +1,4 @@
+import Library.GUI.IView;
 import Library.Callback;
 import Library.Math;
 import Library.GUI.ITextField;
@@ -12,6 +13,16 @@ import Library.GUI.Windows.WindowsView;
  * selection, input composition and undo; text crosses as owned UTF-8. The
  * placeholder is the v6 cue banner. */
 class WindowsTextField implements ITextField, IWindowsView {
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
+	public ICallbackRegistration onDraftChanged(ITextControlEventHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("ITextField.onDraftChanged"); }
+
+	public ICallbackRegistration onCommit(ITextControlEventHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("ITextField.onCommit"); }
+
+	public ICallbackRegistration onCancel(ITextControlEventHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("ITextField.onCancel"); }
+
 	private WindowsView _view;
 	private WindowsContext _context;
 	private WindowsWideText? _placeholder;

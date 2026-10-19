@@ -60,6 +60,10 @@ interface IWindowsView extends IView {
  * subclass registrations (RemoveWindowSubclass) before DestroyWindow ends the
  * native lifetime, so no delivery reaches a closed receiver. */
 class WindowsView implements IWindowsView {
+	public ViewInteractionState interactionState() { self.nativeHandle(); throw WindowsUnsupported.error("IView.interactionState"); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("IView.onInteractionStateChanged"); }
+
 	private HWND _window;
 	private WindowsContext _context;
 	private bool _attached = false;

@@ -1,3 +1,4 @@
+import Library.GUI.IView;
 import Library.Callback;
 import Library.Console;
 import Library.GPU.GPUDevice;
@@ -94,6 +95,10 @@ class WindowsGPUSurface {
  * device without blocking. The view's CallbackScope owns programs and
  * readbacks, and the subtree retains this view until the device has closed. */
 class WindowsGPUView implements IGPUView, IWindowsView {
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
 	private WindowsView _view;
 	private WindowsGPUSurface? _target;
 	private GPUDevice? _device;

@@ -1,3 +1,4 @@
+import Library.GUI.IView;
 import Library.Callback;
 import Library.GUI.ILabel;
 import Library.GUI.Windows.Win32;
@@ -7,6 +8,10 @@ import Library.GUI.Windows.WindowsView;
 
 /* A STATIC control. Fitting sizes are the text's extent in the message font. */
 class WindowsLabel implements ILabel, IWindowsView {
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
 	private WindowsView _view;
 	private WindowsContext _context;
 
