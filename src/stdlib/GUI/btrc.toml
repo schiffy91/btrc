@@ -234,6 +234,7 @@ standard = "c11"
 symbols = [
 	"CFUUIDCreate", "CFUUIDCreateString", "CFStringGetCString", "kCFStringEncodingUTF8", "CFRetain", "CFRelease",
 	"CFRunLoopSourceContext", "CFRunLoopGetMain", "CFRunLoopSourceCreate", "CFRunLoopAddSource", "CFRunLoopSourceSignal", "CFRunLoopWakeUp", "CFRunLoopSourceInvalidate", "kCFRunLoopCommonModes",
+	"CFRunLoopTimerContext", "CFAbsoluteTimeGetCurrent", "CFRunLoopTimerCreate", "CFRunLoopAddTimer", "CFRunLoopTimerInvalidate", "CFRunLoopTimerIsValid",
 ]
 os = ["macos"]
 
@@ -704,7 +705,7 @@ symbols = [
 	"NSEventMaskMouseMoved", "NSEventMaskMouseEntered", "NSEventMaskMouseExited", "NSEventMaskLeftMouseDown", "NSEventMaskLeftMouseUp", "NSEventMaskLeftMouseDragged", "NSEventMaskRightMouseDown", "NSEventMaskRightMouseUp", "NSEventMaskRightMouseDragged", "NSEventMaskOtherMouseDown", "NSEventMaskOtherMouseUp", "NSEventMaskOtherMouseDragged", "NSEventMaskScrollWheel",
 	"NSEventPhaseBegan", "NSEventPhaseChanged", "NSEventPhaseEnded", "NSEventPhaseCancelled", "NSEventPhaseMayBegin", "NSEventPhaseStationary",
 	"-[NSTrackingArea initWithRect:options:owner:userInfo:]", "-[NSView addTrackingArea:]", "-[NSView removeTrackingArea:]", "NSTrackingMouseEnteredAndExited", "NSTrackingMouseMoved", "NSTrackingActiveInKeyWindow", "NSTrackingInVisibleRect",
-	"NSWindowDidResignKeyNotification", "NSApplicationDidResignActiveNotification"
+	"NSWindowDidResignKeyNotification", "NSApplicationDidResignActiveNotification", "-[NSNotification name]", "-[NSNotification object]"
 ]
 main-thread-globals = ["NSWindowDidResignKeyNotification", "NSApplicationDidResignActiveNotification"]
 
