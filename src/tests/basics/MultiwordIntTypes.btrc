@@ -11,9 +11,10 @@ int main() {
 	unsigned short us = 60000u;
 	assert(us == 60000u);
 
-	signed long sl = -9000000000;
+	// Within 32 bits: long is 32 bits on Windows (LLP64).
+	signed long sl = -2000000000;
 	assert(sl < 0);
-	assert(sl == -9000000000);
+	assert(sl == -2000000000);
 
 	// signed/unsigned with explicit width words still behave as their base
 	unsigned int ui = 4000000000u;

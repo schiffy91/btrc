@@ -1,11 +1,11 @@
 #include <assert.h>
 
 int main() {
-	// long value beyond 32-bit int range
-	long big = 9000000000;
+	// a value beyond 32-bit int range needs long long: long is 32 bits on Windows (LLP64)
+	long long big = 9000000000;
 	assert(big > 8000000000);
 
-	// long.toString()
+	// long long.toString()
 	string s = big.toString();
 	assert(s.len() == 10);
 	assert(s[0] == '9');

@@ -6,11 +6,11 @@ int main() {
 	int n = -42;
 	assert(strcmp(n.toString(), "-42") == 0);
 
-	// negative long .toString() also signed
-	long l = -9999999999;
+	// negative long .toString() also signed (within 32 bits: long is 32 bits on Windows)
+	long l = -1999999999;
 	string ls = l.toString();
 	assert(ls[0] == '-');
-	assert(strcmp(ls, "-9999999999") == 0);
+	assert(strcmp(ls, "-1999999999") == 0);
 
 	// negative double .toString() leads with '-'
 	double d = -3.5;
