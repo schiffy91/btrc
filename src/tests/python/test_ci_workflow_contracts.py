@@ -1421,12 +1421,13 @@ def test_the_android_corpus_lane_builds_on_linux_and_runs_on_a_kvm_emulator() ->
     rows = [shard.row for shard in TIERS.shards if shard.job == "host-android.yml/target-corpus"]
     assert rows == [
         {
-            "target": "android-x64-api29",
+            "target": f"android-x64-api{api}",
             "label": "android-x86_64",
-            "api": "29",
+            "api": api,
             "runner": "ubuntu-latest",
             "report_only": "true",
         }
+        for api in ("29", "36")
     ]
     assert run["needs"] == ["scope", "target-corpus-build"]
     assert run["runs-on"] == "${{ matrix.runner }}"

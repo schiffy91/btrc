@@ -522,8 +522,9 @@ reports = ["skip-report"]
 # per-frontend passed/failed/restricted/missing counts, its JUnit file and its
 # ledger records, and target-corpus-compile builds android-aarch64, which no
 # hosted runner executes natively (the android-device hardware entry). The
-# emulator row reports only (its job may fail without failing the run) until
-# the triage's failures are fixed; flip report_only to "false" then. The
+# emulator rows, API 29 (the row's minimum) and API 36, report only (their job
+# may fail without failing the run) until the triage's failures are fixed;
+# flip report_only to "false" then. The
 # workflow's own paths must include every changed_paths entry here. The
 # producer and its consumer run on exactly the same events.
 [[jobs]]
@@ -566,6 +567,26 @@ job = "host-android.yml/target-corpus"
 target = "android-x64-api29"
 label = "android-x86_64"
 api = "29"
+runner = "ubuntu-latest"
+report_only = "true"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "**/Android/**",
+  "tools/target_hosts/android/**",
+  "tools/target_hosts/summary.py",
+  "src/tests/target_runner.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "docs/design/platform-inventory.toml",
+  ".github/workflows/host-android.yml",
+]
+
+# The same bundle (built for API 29, the row's minimum) on the current API.
+[[shards]]
+job = "host-android.yml/target-corpus"
+target = "android-x64-api36"
+label = "android-x86_64"
+api = "36"
 runner = "ubuntu-latest"
 report_only = "true"
 tiers = ["main", "extended", "release"]

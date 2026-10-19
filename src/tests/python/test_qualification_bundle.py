@@ -277,7 +277,7 @@ def test_the_android_corpus_runs_in_every_full_tier_and_on_its_own_paths() -> No
     for tier in ("main", "extended", "release"):
         plan = manifest.plan("host-android.yml", tier)
         assert plan["jobs"] == corpus, tier
-        assert list(_rows(plan, "target-corpus")) == ["android-x64-api29"], tier
+        assert list(_rows(plan, "target-corpus")) == ["android-x64-api29", "android-x64-api36"], tier
     for changed in (
         ["tools/target_hosts/android/executor.py"],
         ["src/tests/target_runner.py"],
