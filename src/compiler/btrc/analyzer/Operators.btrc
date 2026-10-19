@@ -335,6 +335,48 @@ class OperatorSemantics {
 		return OP_DOMAIN_INVALID;
 	}
 
+	/* Why comparisonDomain refuses an operand pair, in the reference's words
+	 * (OperatorTypes.comparison_domain). */
+	public string comparisonFailure(string op, Node left, Node right) {
+		string operands = f"'{self.operandLabel(left)}' and '{self.operandLabel(right)}'";
+		if (TypeComposition.isSemanticScalarString(left) || TypeComposition.isSemanticScalarString(right)) {
+			return f"cannot compare string and non-string operands ({operands})";
+		}
+		if (self.isReferenceType(left) || self.isReferenceType(right)) {
+			if (op != "==" && op != "!=") {
+				return f"operator '{op}' is not defined for reference operands; only == and != are portable";
+			}
+			if ((left.genericArgs().len > 0 || right.genericArgs().len > 0) && (self.analyzed.isSubclass(left.base, right.base) || self.analyzed.isSubclass(right.base, left.base))) {
+				return "cannot compare generic inheritance references with mismatched positional specialization arguments or arities";
+			}
+			return f"cannot compare incompatible reference operands ({operands})";
+		}
+		return f"operator '{op}' is not defined for aggregate operands {operands}";
+	}
+
+	/* Why hashDomain refuses an operand, in the reference's words
+	 * (OperatorTypes.hash_domain). */
+	public string hashFailure(Node? operand) {
+		if (operand == null) { return "cannot resolve operand type for __btrc_hash"; }
+		if (operand.base == "__fn_ptr" || operand.base == "__realtime_fn_ptr") {
+			return "__btrc_hash does not support function-pointer operands portably";
+		}
+		return f"__btrc_hash is not defined for aggregate operand '{self.operandLabel(operand)}'";
+	}
+
+	/* A type as the reference's operator diagnostics spell it
+	 * (OperatorTypes.type_label). */
+	public string operandLabel(Node typeExpr) {
+		string label = typeExpr.base;
+		if (typeExpr.genericArgs().len > 0) {
+			Vector<string> arguments = [];
+			for argument in typeExpr.genericArgs() { arguments.push(self.operandLabel(argument)); }
+			label = label + "<" + Strings.join(arguments, ", ") + ">";
+		}
+		if (typeExpr.isArray) { label = label + "[]"; }
+		return label + "*".repeat(typeExpr.pointerDepth);
+	}
+
 	public int hashDomain(Node? operand) {
 		if (operand == null) { return HASH_DOMAIN_INVALID; }
 		if (TypeComposition.isSemanticScalarString(operand)) { return HASH_DOMAIN_STRING; }

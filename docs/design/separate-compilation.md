@@ -772,6 +772,9 @@ how btrcc lowers generics:
 - An exported instance member whose body failed lowering (a deferred invalid
   operator) is not a DCE root; if another unit still calls it, its deferred
   diagnostic is reported as whole-program DCE would.
+- With `--no-dce` a member no unit keeps is still dropped, as the reference
+  never lowers it, and a kept member carrying a deferred diagnostic leaves its
+  unit for the owner to refuse, as above.
 
 Records are stored as two files per key in the self-hosted artifact cache:
 `unit.c` holds the C text verbatim, and `record.txt` starts with the digests

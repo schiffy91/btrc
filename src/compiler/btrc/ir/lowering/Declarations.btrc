@@ -5467,6 +5467,7 @@ class DeclarationLowerer {
 		self.managedTypes.emitDescriptor(m, mangled, self.cycles.genericInstanceNeedsVisitor(inst), hasDestructorHook, interfaceCount);
 
 		/* --- methods --- */
+		int onDemandStart = m.functions.len;
 		int m2 = 0;
 		while (m2 < decl.members().len) {
 			Node mem = decl.members().get(m2);
@@ -5516,6 +5517,9 @@ class DeclarationLowerer {
 			m2 = m2 + 1;
 		}
 		self.emitGenericProperties(inst, decl, typeMap, m);
+		/* The reference lowers these methods and accessors, and whatever their
+		 * bodies create, only on demand (IRFunction.onDemand). */
+		for (int demandIndex = onDemandStart; demandIndex < m.functions.len; demandIndex++) { m.functions.get(demandIndex).onDemand = true; }
 		self.context.currentClass = savedClass;
 		self.context.currentReturnCType = savedReturnC;
 		self.context.currentReturnType = savedReturnType;

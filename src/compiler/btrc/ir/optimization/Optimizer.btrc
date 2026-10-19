@@ -70,6 +70,17 @@ class IROptimizer {
 	/* Complete stage-five cascade.  Every operation consumes and mutates only
      * structured IR plus immutable repositories supplied by the pipeline. */
 	public void optimize(IRModule module, bool eliminateDeadCode) {
+		/* Without DCE the module keeps the generic-instance callables the
+		 * reference lowers, and a deferred diagnostic one of them carries
+		 * fails the compile, as it fails the reference's lowering. */
+		if (!eliminateDeadCode) {
+			Map<string, bool> onDemand = {};
+			for definition in module.functions {
+				if (definition.onDemand) { onDemand.put(definition.name, true); }
+			}
+			self.keepDemanded(module, onDemand);
+			self.refuseDeferredDiagnostics(module);
+		}
 		RealtimeIRVerifier(module).validate(module);
 		BtrccPhaseTimer.mark("o-realtime");
 		self.setjmpSafety.apply(module);
@@ -113,6 +124,17 @@ class IROptimizer {
 				string diagnostic = self.invalidDiagnostic(definition.body);
 				if (!diagnostic.isEmpty()) { self.droppedInvalid.put(definition.name, diagnostic); }
 			}
+		}
+		if (!eliminateDeadCode) {
+			/* Without DCE a member no unit demands leaves as in whole-program
+			 * mode. A member some unit keeps whose body carries a deferred
+			 * diagnostic leaves too, so the owner refuses it as after DCE. */
+			self.keepDemanded(module, unneededInstances);
+			Vector<IRFunction> remaining = [];
+			for definition in module.functions {
+				if (!self.droppedInvalid.has(definition.name) || unneededInstances.has(definition.name)) { remaining.push(definition); }
+			}
+			module.functions = remaining;
 		}
 		RealtimeIRVerifier(module).validate(module);
 		self.setjmpSafety.applySolved(module, setjmpEffects);
@@ -743,6 +765,75 @@ class IROptimizer {
 				d = d + 1;
 			}
 			m.functionDecls = declarations;
+		}
+	}
+
+	/* Keep a function named in `candidates` only while code outside them names
+	 * it, directly or through other kept candidates: every other definition,
+	 * every global, macro body and Objective-C method is a root. The reference
+	 * lowers a generic class instance's methods and property accessors only on
+	 * demand (GenericSpecializer's selected callables), so without DCE this is
+	 * what removes the ones it never lowers; a module unit passes the members
+	 * no unit demands. Prototypes of removed definitions go with them. */
+	private void keepDemanded(IRModule m, Map<string, bool> candidates) {
+		Map<string, bool> names = {};
+		Map<string, IRFunction> byName = {};
+		for definition in m.functions {
+			if (candidates.has(definition.name)) {
+				names.put(definition.name, true);
+				byName.put(definition.name, definition);
+			}
+		}
+		if (names.len == 0) { return; }
+		Map<string, bool> demanded = {};
+		for definition in m.functions {
+			if (!names.has(definition.name)) { self.collectFuncRefs(definition.body, names, demanded); }
+		}
+		for global in m.globalDecls {
+			self.collectFuncRefs(global.init, names, demanded);
+			self.collectFuncRefs(global.arraySize, names, demanded);
+		}
+		for declaration in m.objectiveCClasses {
+			for method in declaration.methods { self.collectFuncRefs(method.body, names, demanded); }
+		}
+		for declaration in m.preprocessorDecls {
+			if (declaration.kind == IR_PREPROCESSOR_MACRO) { self.scanTextForKnownNames(declaration.replacement, names, demanded); }
+		}
+		Vector<string> worklist = demanded.keys();
+		while (worklist.len > 0) {
+			Map<string, bool> references = {};
+			self.collectFuncRefs(byName.get(worklist.pop()).body, names, references);
+			for reference in references.keys() {
+				if (!demanded.has(reference)) {
+					demanded.put(reference, true);
+					worklist.push(reference);
+				}
+			}
+		}
+		if (demanded.len == names.len) { return; }
+		Vector<IRFunction> kept = [];
+		for definition in m.functions {
+			if (!names.has(definition.name) || demanded.has(definition.name)) { kept.push(definition); }
+		}
+		m.functions = kept;
+		Vector<IRFunctionDecl> declarations = [];
+		for declaration in m.functionDecls {
+			if (!names.has(declaration.name) || demanded.has(declaration.name)) { declarations.push(declaration); }
+		}
+		Vector<IRFunctionDecl> previous = m.functionDecls;
+		if (self.moduleUnit) { keep previous; }
+		m.functionDecls = declarations;
+	}
+
+	/* The first deferred typed-operator diagnostic a remaining definition
+	 * carries fails the compile, as the reference's lowering fails on it. */
+	private void refuseDeferredDiagnostics(IRModule m) {
+		for definition in m.functions {
+			string diagnostic = self.invalidDiagnostic(definition.body);
+			if (!diagnostic.isEmpty()) {
+				fprintf(stderr, "error: %s\n", diagnostic);
+				exit(1);
+			}
 		}
 	}
 
