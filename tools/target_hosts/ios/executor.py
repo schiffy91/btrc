@@ -36,7 +36,10 @@ returns it, must be 0. A spawn that never starts the program within
 `launch_timeout_s`, a supervisor that reports no outcome by the program's
 deadline plus `GRACE_S`, or an output larger than `OUTPUT_LIMIT_BYTES` is an
 infrastructure error, raised with simctl's diagnostics; it is never encoded
-as a program outcome.
+as a program outcome. A launch withdrawn before the program could have
+started (simctl never started the supervisor, or the supervisor saw the
+cancel) is retried once in a fresh run directory, so the program still runs
+exactly once; ``provenance["launch_retries"]`` counts it.
 """
 
 from __future__ import annotations
@@ -58,7 +61,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -283,6 +286,10 @@ class SupervisorChannel:
         return warnings
 
 
+class LaunchWithdrawn(SimulatorError):
+    """A launch missed its deadline and was withdrawn before the program could start."""
+
+
 @dataclass(frozen=True)
 class Outcome:
     """What the supervisor reported for one launch."""
@@ -292,6 +299,7 @@ class Outcome:
     timed_out: bool
     elapsed_s: float
     launch_s: float
+    launch_retries: int = 0
 
 
 class IOSSimulatorExecutor:
@@ -308,6 +316,7 @@ class IOSSimulatorExecutor:
     LAUNCH_TIMEOUT_S = 60.0
     WARMUP_TIMEOUT_S = 600.0
     GRACE_S = 30.0
+    LAUNCH_ATTEMPTS = 2
     SELF_TEST_STATUS = 3
     OPTIONS: ClassVar[frozenset[str]] = frozenset(
         {"device_class", "runtime", "launch_timeout_s", "warmup_timeout_s", "diagnostics"}
@@ -567,7 +576,12 @@ class IOSSimulatorExecutor:
             stderr,
             outcome.timed_out,
             outcome.elapsed_s,
-            {**self.provenance, "launch_s": round(outcome.launch_s, 3), "cleanup_warnings": warnings},
+            {
+                **self.provenance,
+                "launch_s": round(outcome.launch_s, 3),
+                "launch_retries": outcome.launch_retries,
+                "warnings": warnings,
+            },
         )
 
     def launch(
@@ -582,7 +596,42 @@ class IOSSimulatorExecutor:
         cwd_policy: str,
         launch_timeout_s: float,
     ) -> tuple[Outcome, bytes, bytes, list[str]]:
-        """Run `program` once under the supervisor; return its outcome, streams and cleanup warnings."""
+        """Run `program` once under the supervisor; return its outcome, streams and warnings.
+
+        CoreSimulator occasionally takes more than a minute to start a spawned
+        process (one hosted corpus run saw it once in 2,013 spawns). A launch
+        withdrawn before the program could have started is retried, up to
+        `LAUNCH_ATTEMPTS` in all; the program still runs exactly once.
+        """
+
+        withdrawn: list[str] = []
+        while True:
+            try:
+                outcome, stdout, stderr, warnings = self.attempt(
+                    supervisor, staging, program, argv, stdin, env, timeout_s, cwd_policy, launch_timeout_s
+                )
+            except LaunchWithdrawn as error:
+                withdrawn.append(f"launch attempt {len(withdrawn) + 1} withdrawn: {error}")
+                if len(withdrawn) == self.LAUNCH_ATTEMPTS:
+                    for note in withdrawn[:-1]:
+                        error.add_note(note)
+                    raise
+                continue
+            return replace(outcome, launch_retries=len(withdrawn)), stdout, stderr, [*withdrawn, *warnings]
+
+    def attempt(
+        self,
+        supervisor: Path,
+        staging: Path,
+        program: Path,
+        argv: Sequence[str],
+        stdin: bytes,
+        env: Mapping[str, str],
+        timeout_s: float,
+        cwd_policy: str,
+        launch_timeout_s: float,
+    ) -> tuple[Outcome, bytes, bytes, list[str]]:
+        """One simctl spawn of the supervisor, in a run directory of its own."""
 
         warnings: list[str] = []
         run = Path(tempfile.mkdtemp(prefix="run-", dir=staging / "runs"))
@@ -609,7 +658,10 @@ class IOSSimulatorExecutor:
             raise
         finally:
             try:
-                remove_tree(run)
+                # A withdrawn launch keeps its cancel file until close(): a
+                # supervisor simctl starts late must still find it.
+                if not isinstance(primary, LaunchWithdrawn):
+                    remove_tree(run)
             except OSError as error:
                 if primary is not None:
                     primary.add_note(f"removing {run} also failed: {error}")
@@ -627,11 +679,14 @@ class IOSSimulatorExecutor:
         while child is None:
             event = channel.next(deadline)
             if event is None:
-                self.withdraw(control, channel, ready)
-                raise SimulatorError(
-                    f"the supervisor had not started the program {launch_timeout_s:g} s after simctl spawn; "
-                    f"{channel.describe()}"
+                state = "the supervisor was running" if ready else "simctl had not started the supervisor"
+                message = (
+                    f"the supervisor had not started the program {launch_timeout_s:g} s after simctl spawn "
+                    f"({state}); {channel.describe()}"
                 )
+                if self.withdraw(control, channel, ready):
+                    raise LaunchWithdrawn(message)
+                raise SimulatorError(message)
             kind, fields = event
             if kind == "ready":
                 ready = self.pid(fields, "pid")
@@ -686,20 +741,31 @@ class IOSSimulatorExecutor:
             raise SimulatorError(f"the supervisor reported no {name}: {fields}")
         return int(value)
 
-    def withdraw(self, control: Path, channel: SupervisorChannel, ready: int | None) -> None:
-        """Stop a launch that missed its deadline: the supervisor checks `cancel` before starting the program."""
+    def withdraw(self, control: Path, channel: SupervisorChannel, ready: int | None) -> bool:
+        """Stop a launch that missed its deadline; True when the program provably never started.
+
+        The supervisor checks `cancel` before it starts the program. One that
+        was already running is killed, and may have been inside posix_spawn,
+        unless it reports that it saw the cancel. One that simctl had not
+        started yet finds the cancel whenever it starts.
+        """
 
         with suppress(OSError):
             (control / "cancel").touch()
+        never_started = ready is None
         if ready is not None:
             with suppress(ProcessLookupError, PermissionError):
                 os.kill(ready, process_signal.SIGKILL)
-        # A child the supervisor started just before the cancel arrived still goes with its group.
         grace = time.monotonic() + 3
         while (event := channel.next(grace)) is not None and event[0] != "eof":
             if event[0] == "started":
+                # A child started just before the cancel arrived still goes with its group.
+                never_started = False
                 with suppress(SimulatorError):
                     self.host.kill_group(self.pid(event[1], "pid"))
+            elif event[0] == "cancelled":
+                never_started = True
+        return never_started
 
     def stop(self, child: int, ready: int | None) -> None:
         """Kill a program whose supervisor stopped answering, and the supervisor."""

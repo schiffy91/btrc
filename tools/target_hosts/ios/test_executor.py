@@ -26,6 +26,7 @@ from tools.target_hosts.ios.executor import (
     TARGET_EXECUTORS,
     ExecutionRequest,
     IOSSimulatorExecutor,
+    LaunchWithdrawn,
     MachOImage,
     XcodeSupervisorBuilder,
     digest,
@@ -455,13 +456,56 @@ def test_a_launch_that_misses_its_deadline_is_withdrawn_before_the_program_start
     executor.host.launcher = ("/bin/sh", "-c", 'sleep 2; exec "$0" "$@"')
     executor.launch_timeout_s = 0.3
     try:
-        with pytest.raises(SimulatorError, match="had not started the program"):
+        # Every attempt is late, so each is withdrawn and the last one raises.
+        with pytest.raises(LaunchWithdrawn, match="simctl had not started the supervisor") as caught:
             executor.run(ExecutionRequest("toucher", argv=(str(marker),)))
+        assert any("launch attempt 1 withdrawn" in note for note in caught.value.__notes__)
         time.sleep(3)
         assert not marker.exists(), "a withdrawn launch never runs the program"
         executor.host.launcher = ()
-        assert executor.run(ExecutionRequest("toucher", argv=(str(marker),))).exit_status == 0
+        result = executor.run(ExecutionRequest("toucher", argv=(str(marker),)))
+        assert result.exit_status == 0 and result.provenance["launch_retries"] == 0
         assert marker.exists()
+    finally:
+        executor.close()
+
+
+@needs_cc
+def test_a_launch_withdrawn_before_the_program_started_is_retried_and_runs_once(bundle, tmp_path):
+    stalled = tmp_path / "stalled"
+    executor = executor_for()
+    executor.prepare(bundle, LABEL)
+    # Only the first launch stalls past the deadline, as CoreSimulator once did on a hosted runner.
+    executor.host.launcher = (
+        "/bin/sh",
+        "-c",
+        f'if [ ! -e "{stalled}" ]; then : > "{stalled}"; sleep 2; fi; exec "$0" "$@"',
+    )
+    executor.launch_timeout_s = 0.3
+    try:
+        result = executor.run(SimulatorSpike.request("stdout"))
+    finally:
+        executor.close()
+    SimulatorSpike.check("stdout", result)
+    assert result.provenance["launch_retries"] == 1
+    assert "launch attempt 1 withdrawn" in result.provenance["warnings"][0]
+
+
+@needs_cc
+def test_a_late_launch_whose_supervisor_was_running_is_not_retried(bundle, tmp_path):
+    # Once the supervisor runs, a missed deadline may have caught it inside
+    # posix_spawn, so the launch is an error rather than a retry.
+    executor = executor_for(
+        host=ScriptedHost(
+            "import os, time; print('btrc-ios-supervisor ready pid=%d' % os.getpid(), flush=True); time.sleep(5)"
+        )
+    )
+    executor.prepare(bundle, LABEL)
+    executor.launch_timeout_s = 0.3
+    try:
+        with pytest.raises(SimulatorError, match="the supervisor was running") as caught:
+            executor.run(ExecutionRequest("stdout"))
+        assert not isinstance(caught.value, LaunchWithdrawn)
     finally:
         executor.close()
 
