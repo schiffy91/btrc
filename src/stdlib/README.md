@@ -39,7 +39,7 @@ the API surface, so the layout follows a few fixed rules.
   its `COMApartment` owns the apartment and the C runtime (`COMRuntime.c`)
   that compiler-generated COM bindings call.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
-  `Audio/Linux`, `Digest/MacOS`, `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`,
+  `Audio/Linux`, `Digest/MacOS`, `GUI/MacOS`, `GUI/Linux`, `GUI/Windows`, `Image/MacOS`,
   `Image/Linux`, `LocalApplicationChannel/MacOS`,
   `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`,
   `BackgroundJobs/MacOS`, `BackgroundJobs/Linux`, `Terminal/Windows`, and
@@ -99,7 +99,7 @@ the API surface, so the layout follows a few fixed rules.
 
 Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 (`Linux/`, `MacOS/`, `Unix/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`,
-`GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`), `HTTP`, `Image`
+`GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`, `Windows/`), `HTTP`, `Image`
 (`Linux/`, `MacOS/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`),
 `Realtime`, `Terminal` (`Unix/`, `Windows/`), `Tray` (`Linux/`, `MacOS/`), `UI`.
 Each group with behavior worth explaining has its own `README.md`.

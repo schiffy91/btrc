@@ -1,0 +1,153 @@
+import Library.GUI.Windows.Win32;
+import Library.GUI.Windows.WindowsText;
+import Library.GUI.Windows.WindowsActionQueue;
+
+#include <stdint.h>
+#include <string.h>
+
+/* The provider's window classes, registered once per process on the UI thread
+ * and kept for the process, like its DPI awareness. Their class procedure is
+ * the system's DefWindowProcW: each provider window's owner subclasses it
+ * through a checked stored registration (SetWindowSubclass), so no class
+ * procedure needs a context or a cast pointer in window user data. */
+class WindowsClasses {
+	class WindowsWideText? frame = null;
+	class WindowsWideText? view = null;
+	class WindowsWideText? edit = null;
+	class WindowsWideText? button = null;
+	class WindowsWideText? label = null;
+
+	class void ensureRegistered(HINSTANCE instance) {
+		if (WindowsClasses.frame != null) { return; }
+		var frame = WindowsWideText("BtrcWindow");
+		var view = WindowsWideText("BtrcView");
+		WindowsClasses.registerClass(instance, frame, (UINT)(CS_HREDRAW | CS_VREDRAW));
+		WindowsClasses.registerClass(instance, view, (UINT)0);
+		WindowsClasses.edit = WindowsWideText("Edit");
+		WindowsClasses.button = WindowsWideText("Button");
+		WindowsClasses.label = WindowsWideText("Static");
+		WindowsClasses.view = view;
+		WindowsClasses.frame = frame;
+	}
+
+	class void registerClass(HINSTANCE instance, WindowsWideText name, UINT style) {
+		WNDCLASSEXW description;
+		memset(&description, 0, sizeof(WNDCLASSEXW));
+		description.cbSize = (UINT)sizeof(WNDCLASSEXW);
+		description.style = style;
+		description.lpfnWndProc = DefWindowProcW;
+		description.hInstance = instance;
+		description.hCursor = LoadCursorW(null, (WCHAR*)(uintptr_t)32512);
+		description.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
+		description.lpszClassName = name.units();
+		if (RegisterClassExW(&description) == (ATOM)0 && GetLastError() != (DWORD)ERROR_CLASS_ALREADY_EXISTS) {
+			throw f"Cannot register a native window class ({(int)GetLastError()})";
+		}
+	}
+
+	class WCHAR* frameName() { var name = WindowsClasses.frame; if (name == null) { throw "Native window classes are not registered"; } return name.units(); }
+
+	class WCHAR* viewName() { var name = WindowsClasses.view; if (name == null) { throw "Native window classes are not registered"; } return name.units(); }
+
+	class WCHAR* editName() { var name = WindowsClasses.edit; if (name == null) { throw "Native window classes are not registered"; } return name.units(); }
+
+	class WCHAR* buttonName() { var name = WindowsClasses.button; if (name == null) { throw "Native window classes are not registered"; } return name.units(); }
+
+	class WCHAR* labelName() { var name = WindowsClasses.label; if (name == null) { throw "Native window classes are not registered"; } return name.units(); }
+}
+
+/* One application's native state on its UI thread: the Common Controls 6
+ * activation context that every control is created under, the message font,
+ * the hidden parking window that parents views no container holds, the
+ * loop's wake event, the click queue and the WM_COMMAND routes. Construction
+ * unwinds whatever it acquired when a later step fails; close releases it all
+ * once every view has closed. */
+class WindowsContext {
+	public HINSTANCE instance;
+	public HWND parking;
+	public HFONT font;
+	public HANDLE wake;
+	public WindowsActionQueue actions;
+	public WindowsCommands commands = WindowsCommands();
+	private HANDLE _activation;
+	private ULONG_PTR _cookie;
+	private bool _activated = false;
+	private bool _closed = false;
+
+	public WindowsContext(int workCapacity) {
+		self.instance = GetModuleHandleW(null);
+		self.parking = null;
+		self.font = null;
+		self.wake = null;
+		self._activation = INVALID_HANDLE_VALUE;
+		self._cookie = (ULONG_PTR)0;
+		self.actions = WindowsActionQueue(workCapacity);
+		try {
+			self.activateCommonControls();
+			WindowsClasses.ensureRegistered(self.instance);
+			self.wake = CreateEventW(null, 0, 0, null);
+			if (self.wake == null) { throw "Cannot create the native application wake event"; }
+			self.createFont();
+			self.parking = CreateWindowExW((DWORD)WS_EX_TOOLWINDOW, WindowsClasses.viewName(), null, (DWORD)WS_POPUP, 0, 0, 0, 0, null, null, self.instance, null);
+			if (self.parking == null) { throw "Cannot create the native parking window"; }
+		} catch (string error) {
+			self.close();
+			throw error;
+		}
+	}
+
+	/* Common Controls 6 (EDIT cue banners, themed BUTTON and EDIT) comes from
+	 * an activation context, here the comctl32 v6 manifest shell32.dll carries
+	 * as resource 124. It stays active on the UI thread for the application's
+	 * lifetime, so CreateWindowExW resolves EDIT, BUTTON and STATIC to v6's
+	 * versioned classes, which user32 registers by loading comctl32 v6 on
+	 * first use. The comctl32 the program imports (SetWindowSubclass) is the
+	 * unversioned one the loader binds, whose InitCommonControlsEx rejects
+	 * v6's class flags, so nothing here calls it. */
+	private void activateCommonControls() {
+		WCHAR directory[260];
+		UINT length = GetSystemDirectoryW(directory, (UINT)260);
+		if (length == (UINT)0 || length >= (UINT)260) { throw "Cannot locate the Windows system directory"; }
+		var source = WindowsWideText("shell32.dll");
+		ACTCTXW request;
+		memset(&request, 0, sizeof(ACTCTXW));
+		request.cbSize = (ULONG)sizeof(ACTCTXW);
+		request.dwFlags = (DWORD)(ACTCTX_FLAG_RESOURCE_NAME_VALID | ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID);
+		request.lpSource = source.units();
+		request.lpAssemblyDirectory = directory;
+		request.lpResourceName = (WCHAR*)(uintptr_t)124;
+		HANDLE activation = CreateActCtxW(&request);
+		if (activation == INVALID_HANDLE_VALUE) { throw f"Cannot create the Common Controls 6 activation context ({(int)GetLastError()})"; }
+		self._activation = activation;
+		ULONG_PTR cookie = (ULONG_PTR)0;
+		if (ActivateActCtx(activation, &cookie) == 0) { throw f"Cannot activate the Common Controls 6 activation context ({(int)GetLastError()})"; }
+		self._cookie = cookie;
+		self._activated = true;
+	}
+
+	/* The message font of the system DPI. Controls take it through WM_SETFONT;
+	 * the application deletes it after its last control is destroyed. */
+	private void createFont() {
+		NONCLIENTMETRICSW metrics;
+		memset(&metrics, 0, sizeof(NONCLIENTMETRICSW));
+		metrics.cbSize = (UINT)sizeof(NONCLIENTMETRICSW);
+		if (SystemParametersInfoForDpi((UINT)SPI_GETNONCLIENTMETRICS, metrics.cbSize, &metrics, (UINT)0, GetDpiForSystem()) == 0) { throw "Cannot read the native message font"; }
+		self.font = CreateFontIndirectW(&metrics.lfMessageFont);
+		if (self.font == null) { throw "Cannot create the native message font"; }
+	}
+
+	public bool isClosed() { return self._closed; }
+
+	public void wakeLoop() { if (self.wake != null) { SetEvent(self.wake); } }
+
+	public void close() {
+		if (self._closed) { return; }
+		self._closed = true;
+		self.actions.close();
+		if (self.parking != null) { DestroyWindow(self.parking); self.parking = null; }
+		if (self.font != null) { DeleteObject((HGDIOBJ)self.font); self.font = null; }
+		if (self.wake != null) { CloseHandle(self.wake); self.wake = null; }
+		if (self._activated) { DeactivateActCtx((DWORD)0, self._cookie); self._activated = false; }
+		if (self._activation != INVALID_HANDLE_VALUE) { ReleaseActCtx(self._activation); self._activation = INVALID_HANDLE_VALUE; }
+	}
+}

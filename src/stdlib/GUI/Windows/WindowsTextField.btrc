@@ -1,0 +1,87 @@
+import Library.Callback;
+import Library.Math;
+import Library.GUI.ITextField;
+import Library.GUI.Windows.Win32;
+import Library.GUI.Windows.WindowsText;
+import Library.GUI.Windows.WindowsContext;
+import Library.GUI.Windows.WindowsView;
+
+#include <stdint.h>
+
+/* A Common Controls 6 single-line EDIT control. Win32 owns editing,
+ * selection, input composition and undo; text crosses as owned UTF-8. The
+ * placeholder is the v6 cue banner. */
+class WindowsTextField implements ITextField, IWindowsView {
+	private WindowsView _view;
+	private WindowsContext _context;
+	private WindowsWideText? _placeholder;
+
+	public WindowsTextField(WindowsContext context, string text, string placeholder) {
+		self._context = context;
+		self._view = WindowsView(context, WindowsClasses.editName(), (DWORD)(ES_LEFT | ES_AUTOHSCROLL | WS_TABSTOP), (DWORD)WS_EX_CLIENTEDGE, text);
+		self.setPlaceholder(placeholder);
+	}
+
+	private HWND control() { return self._view.nativeHandle(); }
+
+	public HWND nativeHandle() { return self._view.nativeHandle(); }
+
+	public void attachTo(HWND parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(HWND parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() {
+		var window = self.control();
+		return (double)WindowsMetrics.textExtent(window, self._context.font, self.text()).cx / WindowsMetrics.scale(window) + 8.0;
+	}
+
+	/* One line of the message font inside the client edge and margins. */
+	public double fittingHeight() {
+		var window = self.control();
+		return (double)WindowsMetrics.textExtent(window, self._context.font, "Ag").cy / WindowsMetrics.scale(window) + 9.0;
+	}
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public string text() { return WindowsWideText.windowText(self.control()); }
+
+	/* Re-publishing unchanged state must not reset selection or composition. */
+	public void setText(string text) {
+		var window = self.control();
+		if (self.text().equals(text)) { return; }
+		WindowsWideText.setWindowText(window, text);
+	}
+
+	/* EM_SETCUEBANNER exists only in Common Controls 6, so a false result here
+	 * means the activation context did not reach this control. */
+	public void setPlaceholder(string text) {
+		var window = self.control();
+		var placeholder = WindowsWideText(text);
+		if (SendMessageW(window, (UINT)EM_SETCUEBANNER, (WPARAM)0, (LPARAM)(intptr_t)placeholder.units()) == (LRESULT)0) { throw "Native text field has no Common Controls 6 cue banner"; }
+		self._placeholder = placeholder;
+	}
+
+	public bool isEnabled() { return IsWindowEnabled(self.control()) != 0; }
+
+	public void setEnabled(bool enabled) { EnableWindow(self.control(), enabled ? 1 : 0); }
+
+	public void setFont(double size) {
+		self.control();
+		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native text field font size"; }
+		throw WindowsUnsupported.error("ITextField.setFont");
+	}
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+
+	public CallbackCancellation close() { return self._view.close(); }
+}

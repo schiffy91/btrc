@@ -14,6 +14,11 @@ module = "GUI"
 implementation = "Linux.GUIProvider"
 os = ["linux"]
 
+[[package.providers]]
+module = "GUI"
+implementation = "Windows.GUIProvider"
+os = ["windows"]
+
 [[native.pkg-config]]
 name = "sdl3"
 modules = ["Linux.SDL"]
@@ -706,3 +711,99 @@ symbols = [
 	"-[NSSlider doubleValue]", "-[NSSlider setDoubleValue:]", "-[NSSlider setEnabled:]", "-[NSSlider isEnabled]", "-[NSView setToolTip:]", "-[NSView toolTip]"
 ]
 os = ["macos"]
+
+# The Windows provider: Win32 windows and Common Controls 6 EDIT, BUTTON and
+# STATIC controls (user32, gdi32, comctl32). Every provider window's messages
+# reach its owner through a checked stored subclass registration.
+[[native.bindings]]
+module = "Windows.Win32"
+header = "Windows/Win32.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"HWND", "HINSTANCE", "HFONT", "HGDIOBJ", "HDC", "HANDLE", "ATOM", "WCHAR", "UINT", "ULONG", "DWORD", "WPARAM", "LPARAM", "LRESULT", "ULONG_PTR",
+	"RECT", "SIZE", "MSG", "MINMAXINFO", "SCROLLINFO", "TEXTMETRICW", "NONCLIENTMETRICSW", "WNDCLASSEXW", "ACTCTXW",
+	"GetModuleHandleW", "GetCurrentThreadId", "GetLastError", "GetSystemDirectoryW", "CreateEventW", "SetEvent", "CloseHandle", "INVALID_HANDLE_VALUE",
+	"MultiByteToWideChar", "WideCharToMultiByte", "CP_UTF8", "MB_ERR_INVALID_CHARS", "lstrlenW",
+	"CreateActCtxW", "ActivateActCtx", "DeactivateActCtx", "ReleaseActCtx", "ACTCTX_FLAG_RESOURCE_NAME_VALID", "ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID",
+	"SetProcessDpiAwarenessContext", "GetThreadDpiAwarenessContext", "AreDpiAwarenessContextsEqual", "DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2",
+	"GetDpiForWindow", "GetDpiForSystem", "AdjustWindowRectExForDpi", "SystemParametersInfoForDpi", "SystemParametersInfoW", "SPI_GETNONCLIENTMETRICS", "SPI_GETWHEELSCROLLLINES",
+	"RegisterClassExW", "DefWindowProcW", "LoadCursorW", "GetSysColorBrush", "COLOR_WINDOW", "CS_HREDRAW", "CS_VREDRAW", "ERROR_CLASS_ALREADY_EXISTS",
+	"CreateWindowExW", "DestroyWindow", "SetParent", "GetParent", "IsChild", "SetWindowPos", "ShowWindow", "IsWindowVisible", "IsWindowEnabled", "EnableWindow",
+	"GetClientRect", "GetActiveWindow", "GetWindowTextLengthW", "GetWindowTextW", "SetWindowTextW", "SendMessageW", "MessageBoxW",
+	"PeekMessageW", "TranslateMessage", "DispatchMessageW", "btrcWin32WaitForInput", "PM_REMOVE",
+	"SetWindowSubclass", "RemoveWindowSubclass", "DefSubclassProc",
+	"SetScrollInfo", "GetScrollInfo", "SIF_RANGE", "SIF_PAGE", "SIF_POS", "SIF_TRACKPOS", "SB_VERT",
+	"SB_LINEUP", "SB_LINEDOWN", "SB_PAGEUP", "SB_PAGEDOWN", "SB_THUMBTRACK", "SB_THUMBPOSITION", "SB_TOP", "SB_BOTTOM",
+	"GetDC", "ReleaseDC", "SelectObject", "DeleteObject", "GetTextMetricsW", "GetTextExtentPoint32W", "CreateFontIndirectW",
+	"WS_OVERLAPPEDWINDOW", "WS_POPUP", "WS_CHILD", "WS_VISIBLE", "WS_CLIPCHILDREN", "WS_CLIPSIBLINGS", "WS_TABSTOP", "WS_VSCROLL",
+	"WS_EX_TOOLWINDOW", "WS_EX_CONTROLPARENT", "WS_EX_CLIENTEDGE", "CW_USEDEFAULT",
+	"SWP_NOZORDER", "SWP_NOACTIVATE", "SWP_NOMOVE", "SW_SHOWNORMAL", "SW_SHOWNA", "SW_HIDE", "MB_OK", "MB_ICONINFORMATION",
+	"WM_QUIT", "WM_CLOSE", "WM_COMMAND", "WM_SIZE", "WM_DPICHANGED", "WM_GETMINMAXINFO", "WM_SETFONT", "WM_MOUSEWHEEL", "WM_VSCROLL",
+	"BS_PUSHBUTTON", "BN_CLICKED", "BM_CLICK", "ES_LEFT", "ES_AUTOHSCROLL", "EM_SETCUEBANNER", "SS_LEFT", "SS_NOPREFIX", "SS_ENDELLIPSIS"
+]
+os = ["windows"]
+
+# A provider window's subclass: SetWindowSubclass keeps the callback and its
+# context until RemoveWindowSubclass returns, so the registration is stored
+# and the view's CallbackScope removes it before DestroyWindow.
+[native.bindings.callbacks."SetWindowSubclass.pfnSubclass"]
+interface = "IWindowSubclass"
+context = ["uIdSubclass", "dwRefData"]
+context-index = [4, 5]
+lifetime = "stored"
+executor = "caller"
+failure = "abort"
+registration-status = "nonzero"
+activation-failure = "unpublished"
+unregister = "RemoveWindowSubclass"
+unregister-status = "nonzero"
+captured-handles = ["hWnd"]
+cancellation = "entry-barrier"
+
+[[native.libraries]]
+name = "user32"
+modules = ["Windows.Win32"]
+os = ["windows"]
+
+[[native.libraries]]
+name = "gdi32"
+modules = ["Windows.Win32"]
+os = ["windows"]
+
+[[native.libraries]]
+name = "comctl32"
+modules = ["Windows.Win32"]
+os = ["windows"]
+
+# The GPU child's surface over an HWND. Its header includes webgpu.h, which
+# the per-slice wgpu-native records supply, as for Library.GPU's WebGPU module.
+[[native.pkg-config]]
+name = "wgpu-native-windows-x86_64"
+modules = ["Windows.WebGPUSurface"]
+os = ["windows"]
+arch = ["x86_64"]
+
+[[native.pkg-config]]
+name = "wgpu-native-windows-aarch64"
+modules = ["Windows.WebGPUSurface"]
+os = ["windows"]
+arch = ["aarch64"]
+
+[[native.bindings]]
+module = "Windows.WebGPUSurface"
+header = "Windows/WebGPUSurface.h"
+language = "c"
+standard = "c11"
+symbols = ["WGPUInstance", "WGPUSurface", "wgpuCreateInstance", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuInstanceCreateSurface", "wgpuSurfaceAddRef", "wgpuSurfaceRelease", "WGPUSurfaceDescriptor", "WGPUSurfaceSourceWindowsHWND", "WGPUSType_SurfaceSourceWindowsHWND"]
+owned-results = ["wgpuCreateInstance", "wgpuInstanceCreateSurface"]
+borrowed-parameters = ["wgpuInstanceCreateSurface.instance"]
+os = ["windows"]
+[native.bindings.resources.WGPUInstance]
+ownership = "reference-counted"
+retain = "wgpuInstanceAddRef"
+release = "wgpuInstanceRelease"
+[native.bindings.resources.WGPUSurface]
+ownership = "reference-counted"
+retain = "wgpuSurfaceAddRef"
+release = "wgpuSurfaceRelease"

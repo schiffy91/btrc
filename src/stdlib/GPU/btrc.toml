@@ -9,6 +9,23 @@ name = "wgpu-native"
 modules = ["WebGPU"]
 os = ["macos", "linux"]
 
+# Windows links wgpu-native v27.0.4.0's pinned prebuilt release DLL
+# (nix/wgpu-native-prebuilt.nix) through a per-slice pkg-config record, so
+# a Windows row never resolves the host's wgpu-native: the x64 slice is the
+# MinGW archive's import library, the ARM64 slice the only ARM64 asset, the
+# MSVC build, whose DLL a MinGW program reaches through its import library.
+[[native.pkg-config]]
+name = "wgpu-native-windows-x86_64"
+modules = ["WebGPU"]
+os = ["windows"]
+arch = ["x86_64"]
+
+[[native.pkg-config]]
+name = "wgpu-native-windows-aarch64"
+modules = ["WebGPU"]
+os = ["windows"]
+arch = ["aarch64"]
+
 [[native.bindings]]
 module = "WebGPU"
 header = "WebGPUImports.h"
@@ -58,7 +75,7 @@ borrowed-parameters = [
 ]
 owned-records = ["WGPURequestAdapterOptions", "WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUSurfaceConfiguration", "WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo"]
 record-inputs = ["wgpuInstanceRequestAdapter.options", "wgpuInstanceRequestAdapter.callbackInfo", "wgpuAdapterRequestDevice.callbackInfo", "wgpuSurfaceConfigure.config", "wgpuDevicePopErrorScope.callbackInfo", "wgpuBufferMapAsync.callbackInfo"]
-os = ["macos", "linux"]
+os = ["macos", "linux", "windows"]
 [native.bindings.resources.WGPUInstance]
 ownership = "reference-counted"
 retain = "wgpuInstanceAddRef"

@@ -1,0 +1,124 @@
+/* The Win32 shell probe's UI Automation client: a separate process, because UI
+ * Automation from the target's own UI thread hangs, which reads the fixture
+ * window's control-view tree through COM IUIAutomation with checked claims
+ * (Library.COM). It never invokes a pattern: it records each element's control
+ * type, name, class, automation id, focus, enabled state and bounds, and an
+ * edit's Value, then writes one JSON line. Arguments: the window handle as a
+ * decimal integer, and the output path. */
+import Library.Bytes;
+import Library.COM.COMApartment;
+
+import ./UIAutomation.btrc;
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+class UIAutomationJson {
+	/* A JSON string for UTF-8 text, or null. */
+	class string text(string? value) {
+		if (value == null) { return "null"; }
+		var bytes = Bytes.fromString(value);
+		Bytes quoted = Bytes();
+		quoted.append('"');
+		for (int index = 0; index < bytes.len; index++) {
+			int unit = bytes.get(index);
+			if (unit == '"' || unit == '\\') {
+				quoted.append('\\');
+				quoted.append(unit);
+			} else if (unit < 32) {
+				string escaped = f"\\u00{UIAutomationJson.hex(unit >> 4)}{UIAutomationJson.hex(unit & 15)}";
+				quoted.appendBytes(Bytes.fromString(escaped));
+			} else {
+				quoted.append(unit);
+			}
+		}
+		quoted.append('"');
+		return quoted.toString();
+	}
+
+	class string hex(int digit) { return digit < 10 ? f"{digit}" : f"{(char)('a' + digit - 10)}"; }
+
+	class string flag(int value) { return value != 0 ? "true" : "false"; }
+}
+
+/* Walks the control view from the window, at most 256 elements and 8 levels. */
+class UIAutomationTree {
+	private IUIAutomationTreeWalker _walker;
+	public int nodes = 0;
+
+	public UIAutomationTree(IUIAutomationTreeWalker walker) { self._walker = walker; }
+
+	public string describe(IUIAutomationElement element, int depth) {
+		self.nodes++;
+		int controlType = 0;
+		int focused = 0;
+		int enabled = 0;
+		RECT bounds;
+		bounds.left = 0;
+		bounds.top = 0;
+		bounds.right = 0;
+		bounds.bottom = 0;
+		element.controlType(&controlType);
+		element.hasKeyboardFocus(&focused);
+		element.isEnabled(&enabled);
+		element.boundingRectangle(&bounds);
+		string json = f"{{\"control_type\":{controlType},\"name\":{UIAutomationJson.text(element.name())},\"class\":{UIAutomationJson.text(element.className())},\"automation_id\":{UIAutomationJson.text(element.automationId())}";
+		json = f"{json},\"focused\":{UIAutomationJson.flag(focused)},\"enabled\":{UIAutomationJson.flag(enabled)},\"bounds\":[{(int)bounds.left},{(int)bounds.top},{(int)(bounds.right - bounds.left)},{(int)(bounds.bottom - bounds.top)}]";
+		// UIA_EditControlTypeId: read the Value pattern; never set or invoke.
+		if (controlType == 50004) {
+			IUnknown? pattern = element.currentPattern(10002);
+			IUIAutomationValuePattern? value = (IUIAutomationValuePattern?)pattern;
+			string text = "null";
+			if (value != null) { text = UIAutomationJson.text(value.currentValue()); }
+			json = f"{json},\"value\":{text}";
+		}
+		string children = "";
+		if (depth < 8) {
+			IUIAutomationElement? child = self._walker.firstChild(element);
+			while (child != null && self.nodes < 256) {
+				string described = self.describe(child, depth + 1);
+				children = children.isEmpty() ? described : f"{children},{described}";
+				child = self._walker.nextSibling(child);
+			}
+		}
+		return f"{json},\"children\":[{children}]}}";
+	}
+}
+
+class UIAutomationProbe {
+	/* The tree of one window; every COM claim it takes ends when this returns. */
+	class string read(void* window) {
+		var created = UIAutomationCreate();
+		IUIAutomation? automation = created.value;
+		if (created.status < 0 || automation == null) { throw f"CoCreateInstance(CUIAutomation) failed with HRESULT {created.status}"; }
+		IUIAutomationElement? root = automation.elementFromHandle(window);
+		IUIAutomationTreeWalker? walker = automation.controlViewWalker();
+		if (root == null || walker == null) { throw "UI Automation returned no element or tree walker for the window"; }
+		var tree = UIAutomationTree(walker);
+		string described = tree.describe(root, 0);
+		return f"{{\"client\":\"uia-com\",\"view\":\"control\",\"nodes\":{tree.nodes},\"root\":{described}";
+	}
+}
+
+int main(int argc, char** argv) {
+	if (argc != 3) {
+		fprintf(stderr, "usage: UIAutomationProbe <hwnd> <output>\n");
+		return 2;
+	}
+	unsigned long long handle = strtoull(argv[1], null, 10);
+	COMApartment.initialize();
+	string tree = "";
+	try { tree = UIAutomationProbe.read((void*)(uintptr_t)handle); }
+	catch (string error) {
+		fprintf(stderr, "UI Automation: %s\n", (char*)error);
+		COMApartment.uninitialize();
+		return 1;
+	}
+	long long claims = COMApartment.liveClaims();
+	COMApartment.uninitialize();
+	FILE* output = fopen(argv[2], "wb");
+	if (output == null) { return 3; }
+	fprintf(output, "%s,\"claims\":%lld}\n", (char*)tree, claims);
+	fclose(output);
+	return claims == 0LL ? 0 : 4;
+}

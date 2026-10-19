@@ -1,0 +1,124 @@
+import Library.Callback;
+import Library.Math;
+import Library.GUI.IButton;
+import Library.GUI.Windows.Win32;
+import Library.GUI.Windows.WindowsText;
+import Library.GUI.Windows.WindowsContext;
+import Library.GUI.Windows.WindowsActionQueue;
+import Library.GUI.Windows.WindowsView;
+
+/* A Common Controls 6 push button. Its parent's WM_COMMAND (BN_CLICKED)
+ * queues the click through the application's routes; delivery runs after
+ * native dispatch on the UI thread. */
+class WindowsButton implements IButton, IWindowsView {
+	private WindowsView _view;
+	private WindowsContext _context;
+	private WindowsAction? _action;
+
+	public WindowsButton(WindowsContext context, string title) {
+		self._context = context;
+		self._view = WindowsView(context, WindowsClasses.buttonName(), (DWORD)(BS_PUSHBUTTON | WS_TABSTOP), (DWORD)0, title);
+		var action = context.actions.bind();
+		self._action = action;
+		context.commands.add(self._view.nativeHandle(), action);
+	}
+
+	private HWND control() { return self._view.nativeHandle(); }
+
+	public HWND nativeHandle() { return self._view.nativeHandle(); }
+
+	public void attachTo(HWND parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(HWND parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	/* The text's extent plus the bezel's padding, at least the standard
+	 * 75 by 23 point push button. */
+	public double fittingWidth() {
+		var window = self.control();
+		double width = (double)WindowsMetrics.textExtent(window, self._context.font, self.title()).cx / WindowsMetrics.scale(window) + 24.0;
+		return width > 75.0 ? width : 75.0;
+	}
+
+	public double fittingHeight() {
+		var window = self.control();
+		double height = (double)WindowsMetrics.textExtent(window, self._context.font, "Ag").cy / WindowsMetrics.scale(window) + 8.0;
+		return height > 23.0 ? height : 23.0;
+	}
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public string title() { return WindowsWideText.windowText(self.control()); }
+
+	public void setTitle(string title) { WindowsWideText.setWindowText(self.control(), title); }
+
+	public bool isEnabled() { return IsWindowEnabled(self.control()) != 0; }
+
+	public void setEnabled(bool enabled) { EnableWindow(self.control(), enabled ? 1 : 0); }
+
+	public void setFont(double size) {
+		self.control();
+		if (!Math.isFinite(size) || size <= 0.0 || size > ButtonTypography.maximumSize()) { throw "Invalid native button font size"; }
+		throw WindowsUnsupported.error("IButton.setFont");
+	}
+
+	public void setCentered(bool centered) { self.control(); throw WindowsUnsupported.error("IButton.setCentered"); }
+
+	public void setSystemSymbol(string name) { self.control(); throw WindowsUnsupported.error("IButton.setSystemSymbol"); }
+
+	public void setToolTip(string text) { self.control(); throw WindowsUnsupported.error("IButton.setToolTip"); }
+
+	public string toolTip() { self.control(); throw WindowsUnsupported.error("IButton.toolTip"); }
+
+	public void setSelected(bool selected) { self.control(); throw WindowsUnsupported.error("IButton.setSelected"); }
+
+	public bool isSelected() { self.control(); throw WindowsUnsupported.error("IButton.isSelected"); }
+
+	public void setTransparent(bool transparent) { self.control(); throw WindowsUnsupported.error("IButton.setTransparent"); }
+
+	public void setBordered(bool bordered) { self.control(); throw WindowsUnsupported.error("IButton.setBordered"); }
+
+	public void cancelPendingActions() {
+		self.control();
+		var action = self._action;
+		if (action != null) { action.discard(); }
+	}
+
+	/* Native tracking: BM_CLICK presses and releases the button, whose parent
+	 * receives BN_CLICKED; the click is queued, never delivered inline. */
+	public bool activate() {
+		var window = self.control();
+		if (IsWindowEnabled(window) == 0) { return false; }
+		SendMessageW(window, (UINT)BM_CLICK, (WPARAM)0, (LPARAM)0);
+		return true;
+	}
+
+	public ICallbackRegistration onAction(IButtonAction action, CallbackScope scope) {
+		self.control();
+		var native = self._action;
+		if (native == null) { throw "Native button is closed"; }
+		return native.onAction(action, scope);
+	}
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+
+	public CallbackCancellation close() {
+		var action = self._action;
+		if (action != null && self._view.isOpen()) {
+			self._view.requireDetached();
+			self._context.commands.remove(self._view.nativeHandle());
+			self._context.actions.unbind(action);
+			self._action = null;
+		}
+		return self._view.close();
+	}
+}

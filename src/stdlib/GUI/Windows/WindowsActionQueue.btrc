@@ -1,0 +1,144 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IButton;
+import Library.GUI.ActionMailbox;
+import Library.GUI.Windows.Win32;
+
+#include <stdint.h>
+
+/* Stable BTRC identity for one button's action subscription. Each queued
+ * click snapshots its generation; cancellation or replacement invalidates
+ * older clicks without touching the ring. No path leads back to the scope
+ * or to the button's owner. */
+class WindowsAction implements IQueuedAction {
+	private ActionMailbox _mailbox;
+	private int _generation = 0;
+	private bool _open = true;
+	private CallbackContext<IButtonAction, WindowsAction>? _handler;
+
+	public WindowsAction(ActionMailbox mailbox) { self._mailbox = mailbox; }
+
+	public bool accepts(int generation) { return self._open && self._generation == generation; }
+
+	/* A completed native click (BN_CLICKED), recorded during dispatch. */
+	public void clicked() { if (self._open) { self._mailbox.enqueue(self, self._generation); } }
+
+	public ICallbackRegistration onAction(IButtonAction receiver, CallbackScope scope) {
+		if (!self._open) { throw "Native action is closed"; }
+		if (self._handler != null) { throw "Cancel the existing button action before replacing it"; }
+		self.discard();
+		var handler = new CallbackContext<IButtonAction, WindowsAction>(receiver, WindowsAction.unregisterHandler);
+		handler.activate(scope);
+		self._handler = handler;
+		handler.publish(self);
+		return handler;
+	}
+
+	class bool unregisterHandler(WindowsAction action) {
+		action.discard();
+		action._handler = null;
+		return true;
+	}
+
+	public void deliver() {
+		var handler = self._handler;
+		if (handler == null) { return; }
+		var receiver = handler.enter();
+		if (receiver == null) { return; }
+		try { receiver.invoke(); }
+		finally { handler.leave(); handler.pollCompletion(); }
+	}
+
+	public void discard() {
+		if (self._generation == 2147483647) { throw "Native action generation is exhausted"; }
+		self._generation++;
+		self._mailbox.prune();
+	}
+
+	public void close() {
+		self._open = false;
+		self._mailbox.prune();
+		if (self._handler != null) { self._handler.cancel(); }
+	}
+}
+
+/* The application's click queue. Buttons bind one action each; dispatch runs
+ * on the UI thread after native messages, in click order. */
+class WindowsActionQueue {
+	private ActionMailbox _mailbox;
+	private int _bound = 0;
+	private bool _closed = false;
+
+	public WindowsActionQueue(int capacity = 256) { self._mailbox = ActionMailbox(capacity); }
+
+	private void requireOpen() { if (self._closed) { throw "Native action queue is closed"; } }
+
+	public WindowsAction bind() {
+		self.requireOpen();
+		self._bound++;
+		return WindowsAction(self._mailbox);
+	}
+
+	public void unbind(WindowsAction action) {
+		self.requireOpen();
+		action.close();
+		self._bound--;
+	}
+
+	public int pendingCount() { self.requireOpen(); return self._mailbox.pendingCount(); }
+
+	public void dispatchOne() {
+		self.requireOpen();
+		var action = self._mailbox.take();
+		if (action != null) { action.deliver(); }
+	}
+
+	public void close() {
+		if (self._closed) { return; }
+		if (self._bound != 0) { throw "Close native controls before their action queue"; }
+		self._closed = true;
+	}
+}
+
+/* One control whose parent's WM_COMMAND notifications name it by handle. */
+class WindowsCommandRoute {
+	public HWND control;
+	public WindowsAction action;
+
+	public WindowsCommandRoute(HWND control, WindowsAction action) { self.control = control; self.action = action; }
+}
+
+/* WM_COMMAND reaches a control's current parent, whichever container that is,
+ * and names the control by its HWND. Every parent's subclass asks this table,
+ * which maps a live control handle to its action and holds no view owner. A
+ * window handle is unique among live windows, and a route is removed before
+ * its control is destroyed. */
+class WindowsCommands {
+	private Vector<WindowsCommandRoute> _routes = [];
+
+	public void add(HWND control, WindowsAction action) {
+		for route in self._routes { if (route.control == control) { throw "Native control already has a command route"; } }
+		self._routes.push(WindowsCommandRoute(control, action));
+	}
+
+	public void remove(HWND control) {
+		for (int index = self._routes.len - 1; index >= 0; index--) {
+			if (self._routes.get(index).control == control) { self._routes.remove(index); }
+		}
+	}
+
+	/* A WM_COMMAND notification; true when it named a routed control. */
+	public bool command(WPARAM wParam, LPARAM lParam) {
+		if (lParam == (LPARAM)0) { return false; }
+		HWND control = (HWND)(intptr_t)lParam;
+		int code = (int)((wParam >> 16) & (WPARAM)65535);
+		for route in self._routes {
+			if (route.control != control) { continue; }
+			if (code == BN_CLICKED) { route.action.clicked(); }
+			return true;
+		}
+		return false;
+	}
+
+	public int count() { return self._routes.len; }
+}

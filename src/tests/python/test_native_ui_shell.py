@@ -2,25 +2,9 @@
 
 import pytest
 
-from src.tests.python.native_ui_shell_fixtures import SHELL, transpile, write_evidence
+from src.tests.python.native_ui_shell_fixtures import SHELL, write_evidence
 
-
-@pytest.mark.parametrize("frontend", ["python", "selfhost"])
-def test_windows_native_shell_provider_missing(tmp_path, request, frontend):
-    result = transpile(
-        SHELL / "NativeShell.btrc", tmp_path / "Shell.c", tmp_path / "Shell.json", frontend, request, "windows-x86_64"
-    )
-    assert result.returncode != 0
-    assert "has no provider for target windows-x86_64" in result.stderr, result.stderr
-    write_evidence(
-        "native-shell-provider-missing",
-        "windows",
-        frontend,
-        False,
-        {"diagnostic": result.stderr},
-        status="unavailable",
-        reason="GUI provider is not implemented",
-    )
+# The Windows rows live in test_native_ui_shell_windows.py (CX-UIA-15).
 
 
 @pytest.mark.parametrize("target", ["ios", "android"])
@@ -38,7 +22,9 @@ def test_mobile_shell_unavailable(target, frontend):
 
 
 def test_shell_probe_headers_share_one_contract():
-    assert (SHELL / "probes/macos/ShellProbe.h").read_bytes() == (SHELL / "probes/linux/ShellProbe.h").read_bytes()
+    contract = (SHELL / "probes/linux/ShellProbe.h").read_bytes()
+    for platform in ("macos", "windows"):
+        assert (SHELL / f"probes/{platform}/ShellProbe.h").read_bytes() == contract, platform
 
 
 def test_macos_diagnostics_preserve_timeout_and_continue(tmp_path, monkeypatch):

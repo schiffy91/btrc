@@ -132,7 +132,7 @@ def test_source_provider_selection_uses_compilation_target(tmp_path, package_com
     assert not successful and "private to package" in diagnostic
 
 
-@pytest.mark.parametrize("target", ["windows-x86_64", "windows-arm64"])
+@pytest.mark.parametrize("target", ["ios-aarch64", "android-aarch64"])
 def test_native_gui_has_no_fake_provider_for_unsupported_targets(tmp_path, package_compile, target):
     source = tmp_path / "Main.btrc"
     source.write_text("import Library.GUI;\nint main() { GUI.initialize(); return 0; }\n")
@@ -140,6 +140,19 @@ def test_native_gui_has_no_fake_provider_for_unsupported_targets(tmp_path, packa
     assert not successful
     assert "no provider" in diagnostic
     assert emitted == ""
+
+
+@pytest.mark.parametrize(
+    ("target", "label"), [("windows-x86_64", "windows-x86_64"), ("windows-arm64", "windows-aarch64")]
+)
+def test_native_gui_selects_the_win32_provider_on_windows(tmp_path, package_compile, target, label):
+    """The Windows rows select GUI/Windows, whose Win32 bindings read the row's MinGW headers."""
+    source = tmp_path / "Main.btrc"
+    source.write_text("import Library.GUI;\nint main() { GUI.initialize(); return 0; }\n")
+    successful, diagnostic, emitted = package_compile(source, target=target)
+    assert not successful and emitted == ""
+    assert "no provider" not in diagnostic
+    assert f"native imports for {label} require BTRC_NATIVE_TARGET" in diagnostic
 
 
 def test_source_provider_applies_to_compilation_entrypoint(tmp_path, package_compile):
