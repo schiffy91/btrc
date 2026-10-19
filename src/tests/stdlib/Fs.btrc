@@ -79,13 +79,17 @@ int main() {
 	assert(FileSystem.removeRecursive("/") != 0);
 	assert(FileSystem.removeRecursive("//") != 0);
 	assert(FileSystem.removeRecursive("/./") != 0);
-	/* A parent step through a real directory back to the root: dir's own
-	 * first component (Android before 16 has no /tmp). */
-	string belowRoot = dir.substring(1, dir.len() - 1);
-	assert(belowRoot.indexOf("/") > 0);
-	string topLevel = "/" + belowRoot.substring(0, belowRoot.indexOf("/"));
+	/* Step through an existing top-level directory back to its root. The
+	 * temporary path supplies it on Android and on Windows drive/UNC roots. */
+	bool windows = Platform.isWindows();
+	int rootLength = PathTools.rootLengthFor(dir, windows);
+	assert(rootLength > 0);
+	int topEnd = rootLength;
+	while (topEnd < dir.length() && !PathTools.isSeparatorFor(dir[topEnd], windows)) { topEnd++; }
+	assert(topEnd > rootLength);
+	string topLevel = dir.substring(0, topEnd);
 	assert(FileSystem.isDir(topLevel));
-	assert(FileSystem.removeRecursive(topLevel + "/..") != 0);
+	assert(FileSystem.removeRecursive(PathTools.join(topLevel, "..")) != 0);
 	assert(FileSystem.removeRecursive(dir) == 0);
 	assert(!FileSystem.exists(dir));
 	assert(FileSystem.readText(outsideMarker).equals("safe"));

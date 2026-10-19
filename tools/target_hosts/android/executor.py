@@ -508,6 +508,9 @@ class AndroidEmulatorExecutor:
         quote = shlex.quote
         return (
             f"mkdir -m 700 {quote(cwd)} || exit 90; cd {quote(cwd)} || exit 91; "
+            # Android's shell has no writable /tmp. The supervisor applies
+            # explicit request overrides after inheriting this per-run default.
+            f"TMPDIR={quote(cwd)}; export TMPDIR; "
             f'case "$(sha256sum < {quote(supervisor)})" in "{self.supervisor_digest} "*) ;; *) exit 92;; esac; '
             f'case "$(sha256sum < {quote(program)})" in "{self.programs[request.program_id]} "*) ;; *) exit 93;; esac; '
             f"exec {shlex.join(arguments)}"

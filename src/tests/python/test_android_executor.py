@@ -375,6 +375,46 @@ def test_each_run_gets_a_fresh_cwd_and_leaves_none_behind(tmp_path, built):
         executor.close()
 
 
+def test_each_run_gets_writable_temporary_storage_and_removes_it(tmp_path, built, monkeypatch):
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "unavailable-host-temp"))
+    probe = script(
+        tmp_path,
+        "temporary",
+        'test "$TMPDIR" = "$PWD" || exit 2\n'
+        'test ! -e "$TMPDIR/marker" || exit 3\n'
+        'printf data > "$TMPDIR/marker" || exit 4\n'
+        'printf "%s\\n" "$TMPDIR"\n',
+    )
+    executor, _ = executor_for(tmp_path, built)
+    executor.prepare(write_bundle(tmp_path / "bundle", {"temporary": probe}), "android-x86_64")
+    try:
+        paths = []
+        for _ in range(2):
+            result = executor.run(ExecutionRequest("temporary"))
+            assert result.exit_status == 0, result.stderr
+            path = Path(result.stdout.decode().strip())
+            assert path.parent == Path(executor.base) / "runs"
+            assert not path.exists()
+            paths.append(path)
+        assert paths[0] != paths[1]
+    finally:
+        executor.close()
+
+
+def test_a_request_can_override_its_temporary_directory(tmp_path, built):
+    temporary = tmp_path / "requested-temp"
+    temporary.mkdir()
+    probe = script(tmp_path, "temporary", 'printf data > "$TMPDIR/marker" || exit 4\n')
+    executor, _ = executor_for(tmp_path, built)
+    executor.prepare(write_bundle(tmp_path / "bundle", {"temporary": probe}), "android-x86_64")
+    try:
+        result = executor.run(ExecutionRequest("temporary", env={"TMPDIR": str(temporary)}))
+        assert result.exit_status == 0, result.stderr
+        assert (temporary / "marker").read_text() == "data"
+    finally:
+        executor.close()
+
+
 @pytest.mark.parametrize(
     "request_",
     [

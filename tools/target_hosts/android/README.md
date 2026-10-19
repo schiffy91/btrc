@@ -47,7 +47,10 @@ program's digests, and execs the supervisor. Nothing of an earlier run is
 alive by then, so the checked bytes are the launched bytes. The supervisor
 starts the program in a new session from that cwd, with its stdin (a file
 staged under `control/`, or `/dev/null`), the request's environment overrides
-and arguments. The program writes stdout straight to adb's stream; its stderr
+and arguments. `TMPDIR` defaults to that run's writable cwd, since Android's
+shell has no writable `/tmp`. An explicit request override takes precedence;
+temporary files under the default are removed with the cwd after the run.
+The program writes stdout straight to adb's stream; its stderr
 goes through a pipe the supervisor relays. At the deadline the supervisor kills
 the program's process group; when the program ends it kills every remaining
 descendant (it is a child subreaper, so a descendant that leaves the group is
