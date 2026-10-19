@@ -1,0 +1,113 @@
+import Library.Callback;
+import Library.Vector;
+import Library.UI.Element;
+import Library.GUI.MacOS.AppKitEvents;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSViewInput;
+import Library.GUI.ControlEvents;
+import Library.GUI.ISlider;
+import Library.GUI.MacOS.MacOSSlider;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class SliderObservation implements ISliderControlEventHandler {
+	public Vector<SliderControlEvent> events = [];
+	public void sliderEvent(SliderControlEvent event) { self.events.push(event); }
+}
+class SliderInput {
+	class NSEvent pointer(MacOSSlider slider, NSWindow window, unsigned long type, double x) {
+		var location = slider.nativeView().frame().origin; location.x = x; location.y = 20.0;
+		var event = NSEvent.mouseEventWithType(type, location, 0UL, 0.0, window.windowNumber(), null, 1L, 1L, 1.0);
+		if (event == null) { throw "Cannot create slider pointer input"; } return event;
+	}
+
+	class NSEvent key(MacOSSlider slider, NSWindow window, unsigned short code) {
+		var location = slider.nativeView().frame().origin;
+		var empty = AppKitText.nativeValue("");
+		var event = NSEvent.keyEventWithType(NSEventTypeKeyDown, location, 0UL, 0.0, window.windowNumber(), null, empty, empty, false, code);
+		if (event == null) { throw "Cannot create slider keyboard input"; } return event;
+	}
+}
+int main() {
+	NSApplication.sharedApplication();
+	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8);
+	var slider = MacOSSlider(0.0, 10.0, 10000); slider.stateNode().configure(context);
+	var owner = CallbackScope(); var receiver = SliderObservation();
+	slider.onPreview(receiver, owner); slider.onCommit(receiver, owner); slider.onCancel(receiver, owner);
+	assert(slider.value() == 0.0 && slider.range().step == 0.001);
+	slider.setRange(0.0, 10.0, 2.0); slider.setValue(3.0); assert(slider.value() == 4.0);
+	var snapshot = slider.range(); snapshot.maximum = 999.0; assert(slider.range().maximum == 10.0);
+	var native = (NSSlider?)slider.nativeView(); assert(native != null);
+	assert(native.doubleValue() == 4.0); native.setDoubleValue(8.0); assert(slider.value() == 4.0);
+	var range = SliderRange(); range.minimum = 3.0; range.maximum = 3.0; range.step = 0.0;
+	slider.setRangeValue(range, 3.0); assert(slider.value() == 3.0 && native.doubleValue() == 3.0);
+	bool invalid = false; try { slider.setRange(8.0, 7.0, 0.0); } catch (string error) { invalid = true; }
+	assert(invalid && slider.range().minimum == 3.0 && slider.range().maximum == 3.0);
+	assert(!context.dispatchOne() && receiver.events.isEmpty());
+	var window = NSWindow.new(); window.setReleasedWhenClosed(false);
+	var frame = slider.nativeView().frame(); frame.size.width = 200.0; frame.size.height = 40.0;
+	window.setContentSize(frame.size); window.setContentView(slider.nativeView());
+	slider.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+	slider.setRange(0.0, 10.0, 1.0); slider.setValue(4.0);
+	var down = SliderInput.pointer(slider, window, NSEventTypeLeftMouseDown, 20.0);
+	var drag = SliderInput.pointer(slider, window, NSEventTypeLeftMouseDragged, 100.0);
+	var up = SliderInput.pointer(slider, window, NSEventTypeLeftMouseUp, 190.0);
+	assert(slider.invoke(down) == null && receiver.events.isEmpty());
+	assert(slider.invoke(drag) == null && slider.value() == 5.0 && native.doubleValue() == 5.0);
+	assert(slider.invoke(up) == null && slider.value() == 10.0);
+	assert(slider.invoke(up) == up);
+	while (context.dispatchOne()) {}
+	assert(receiver.events.len == 2 && receiver.events.get(0).phase == CONTROL_PHASE_PREVIEW);
+	assert(receiver.events.get(1).phase == CONTROL_PHASE_COMMIT && receiver.events.get(1).value == 10.0);
+	assert(receiver.events.get(0).context.interaction == receiver.events.get(1).context.interaction);
+	receiver.events.clear();
+	assert(slider.invoke(down) == null);
+	assert(slider.invoke(SliderInput.key(slider, window, kVK_Escape)) == null && slider.value() == 10.0);
+	while (context.dispatchOne()) {}
+	assert(receiver.events.len == 2 && receiver.events.get(1).phase == CONTROL_PHASE_CANCEL);
+	assert(receiver.events.get(1).cancelReason == CONTROL_CANCEL_ESCAPE && receiver.events.get(1).context.origin == CONTROL_ORIGIN_USER);
+	receiver.events.clear();
+	assert(slider.invoke(down) == null); slider.setValue(7.0);
+	assert(slider.invoke(up) == up && slider.value() == 7.0);
+	while (context.dispatchOne()) {}
+	assert(receiver.events.len == 2 && receiver.events.get(1).context.origin == CONTROL_ORIGIN_MODEL);
+	assert(receiver.events.get(1).cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT);
+	receiver.events.clear();
+	assert(slider.invoke(down) == null); slider.setEnabled(false);
+	assert(slider.value() == 7.0 && slider.invoke(up) == up);
+	while (context.dispatchOne()) {}
+	assert(receiver.events.isEmpty()); // accepted events recheck eligibility
+	slider.setEnabled(true); assert(window.makeFirstResponder(native));
+	assert(slider.invoke(SliderInput.key(slider, window, kVK_LeftArrow)) == null && slider.value() == 6.0);
+	assert(slider.invoke(SliderInput.key(slider, window, kVK_PageUp)) == null && slider.value() == 10.0);
+	while (context.dispatchOne()) {}
+	assert(receiver.events.len == 2);
+	assert(receiver.events.get(0).adjustment == UI_RANGE_ADJUST_SMALL_DECREMENT);
+	assert(receiver.events.get(1).adjustment == UI_RANGE_ADJUST_LARGE_INCREMENT);
+	assert(receiver.events.get(0).input == SLIDER_INPUT_RELATIVE_ADJUSTMENT && receiver.events.get(0).count == 1);
+	slider.stateNode().detachWindow(); window.setContentView(null);
+	assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	for (int cycle = 0; cycle < 100; cycle++) {
+		var next = MacOSSlider(0.0, 10.0, 10); next.stateNode().configure(context);
+		var queue = context.createQueue(); var lifetime = CallbackScope(); var observed = SliderObservation();
+		next.onPreview(observed, lifetime); next.onCommit(observed, lifetime); next.onCancel(observed, lifetime);
+		window.setContentView(next.nativeView()); next.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+		assert(next.invoke(SliderInput.pointer(next, window, NSEventTypeLeftMouseDown, 20.0)) == null);
+		assert(next.invoke(SliderInput.pointer(next, window, NSEventTypeLeftMouseUp, 190.0)) == null);
+		while (context.dispatchOne()) {}
+		assert(observed.events.len == 2 && observed.events.get(1).phase == CONTROL_PHASE_COMMIT && next.value() == 10.0);
+		observed.events.clear();
+		assert(next.invoke(SliderInput.pointer(next, window, NSEventTypeLeftMouseDown, 20.0)) == null);
+		assert(next.invoke(SliderInput.key(next, window, kVK_Escape)) == null);
+		while (context.dispatchOne()) {}
+		assert(observed.events.len == 2 && observed.events.get(1).phase == CONTROL_PHASE_CANCEL && next.value() == 10.0);
+		next.stateNode().detachWindow(); window.setContentView(null);
+		assert(next.close() == CALLBACK_CANCELLATION_COMPLETE && next.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(lifetime.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.retireQueue(queue);
+	}
+	window.close();
+	context.close(); assert(signal.close());
+	print("PASS: UI2 macOS slider model and semantic controls"); return 0;
+}
