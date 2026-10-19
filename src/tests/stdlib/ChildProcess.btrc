@@ -44,6 +44,7 @@ string lines(string text) { return text.replace("\r\n", "\n"); }
 
 int childProbe(int argc, char** argv) {
 	string mode = Strings.copy(argv[1]);
+	if (mode.equals("--exit-status")) { return 143; }
 	if (mode.equals("--probe")) {
 		char cwd[4096];
 		assert(getcwd(cwd, 4096) != NULL);
@@ -248,15 +249,17 @@ int main(int argc, char** argv) {
 	ExecResult pathOverride = ChildProcess.run("helper with spaces", ["--probe"], cwd=root, environment=["PATH=" + root], timeoutMilliseconds=2000);
 	assert(pathOverride.code == 23);
 
-	// A signal and the exit status 128 + N share a code; only the signal
-	// sets terminatingSignal, here and through UnixShell.
+	// An explicit status has no terminating signal on any platform.
 	assert(result.terminatingSignal == 0);
+	ExecResult exited = ChildProcess.run(executable, ["--exit-status"], timeoutMilliseconds=5000);
+	assert(exited.code == 143 && exited.terminatingSignal == 0);
+#if !defined(_WIN32)
+	// Unix signals and status 128 + N share a code but remain distinguishable.
 	ExecResult signaled = ChildProcess.run("/bin/sh", ["-c", "kill -TERM $$"], timeoutMilliseconds=5000);
 	assert(signaled.code == 143 && signaled.terminatingSignal == 15);
-	ExecResult exited = ChildProcess.run("/bin/sh", ["-c", "exit 143"], timeoutMilliseconds=5000);
-	assert(exited.code == 143 && exited.terminatingSignal == 0);
 	ExecResult shellKilled = UnixShell().run("kill -KILL $$", logFailure=false);
 	assert(shellKilled.code == 137 && shellKilled.terminatingSignal == 9);
+#endif
 
 	bool rejected = false;
 	Vector<string> noArguments = [];
