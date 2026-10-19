@@ -18,3 +18,10 @@ os = ["android", "ios", "linux", "macos"]
 module = "FileSystemHandles"
 implementation = "Windows.Win32FileSystemProvider"
 os = ["windows"]
+
+# Search-only ancestor descriptors use Linux's O_PATH without requiring read access.
+[[native.defines]]
+name = "_GNU_SOURCE"
+value = "1"
+modules = ["FileSystem", "FileSystemHandles"]
+os = ["android", "linux"]
