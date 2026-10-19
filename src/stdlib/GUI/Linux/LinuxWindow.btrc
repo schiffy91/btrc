@@ -313,6 +313,8 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 
 	public SDL_Window* nativeWindow() { self.requireOpen(); return self._window; }
 
+	public bool canCaptureInput() { return self._host.events.canCapture(1); }
+
 	public int semanticPending() { return self._host.events.pendingCount() + (self._closeRequested ? 1 : 0); }
 
 	public bool dispatchSemantic() {

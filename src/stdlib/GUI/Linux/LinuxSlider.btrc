@@ -29,14 +29,17 @@ class LinuxSlider extends LinuxNodeView implements ISlider {
 		return self._interaction.inert() ? 0.0 : (self._interaction.value() - range.minimum) / (range.maximum - range.minimum);
 	}
 
-	private void valueFromX(double x) {
+	private double valueFromX(double x) {
 		double radius = self.knobRadius();
 		double track = Math.maxDouble(1.0, self.node().width - radius * 2.0);
 		double fraction = (x - radius) / track;
 		fraction = fraction < 0.0 ? 0.0 : (fraction > 1.0 ? 1.0 : fraction);
 		var range = self._interaction.range();
-		double next = fraction <= 0.0 ? range.minimum : (fraction >= 1.0 ? range.maximum : Math.maxDouble(range.minimum, Math.minDouble(range.maximum, range.minimum + fraction * (range.maximum - range.minimum))));
-		if (!self._interaction.preview(next)) { throw "Slider preview queue cannot admit native input"; }
+		return fraction <= 0.0 ? range.minimum : (fraction >= 1.0 ? range.maximum : Math.maxDouble(range.minimum, Math.minDouble(range.maximum, range.minimum + fraction * (range.maximum - range.minimum))));
+	}
+
+	private void previewFromX(double x) {
+		if (!self._interaction.preview(self.valueFromX(x))) { throw "Slider preview queue cannot admit native input"; }
 		self.node().invalidate();
 	}
 
@@ -69,10 +72,10 @@ class LinuxSlider extends LinuxNodeView implements ISlider {
 		if (!self._enabled || !self.node().effectiveEligible()) { return false; }
 		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
 			if (!self._interaction.begin(self.node().generation())) { return false; }
-			self.node().requestFocus(); self.valueFromX(event.logicalX); return true;
+			self.node().requestFocus(); self.previewFromX(event.logicalX); return true;
 		}
-		if (event.action == APP_POINTER_DRAGGED && self._interaction.active()) { self.valueFromX(event.logicalX); return true; }
-		if (event.action == APP_POINTER_RELEASED && self._interaction.active()) { self.valueFromX(event.logicalX); self._interaction.commit(); self.node().invalidate(); return true; }
+		if (event.action == APP_POINTER_DRAGGED && self._interaction.active()) { self.previewFromX(event.logicalX); return true; }
+		if (event.action == APP_POINTER_RELEASED && self._interaction.active()) { self._interaction.commitValue(self.valueFromX(event.logicalX)); self.node().invalidate(); return true; }
 		if (event.action == APP_POINTER_CANCELLED && self._interaction.active()) { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); self.node().invalidate(); return true; }
 		return false;
 	}
