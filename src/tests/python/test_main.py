@@ -636,6 +636,20 @@ def test_get_stdlib_source_skips_redefined_interface():
     assert "interface Iterable" not in skipped
 
 
+def test_relaxed_native_import_keeps_its_source_identity(tmp_path):
+    native = tmp_path / "Native.c"
+    native.write_text("int native_value(void) { return 1; }\n")
+    (tmp_path / "Stream.btrc").write_text("import ./Native.c;\nextern int native_value();\n")
+    repository = StdlibRepository(directory=str(tmp_path))
+    first = repository.source_mapped()
+    assert f'#include "{native.resolve()}"' in first.source
+    before = next(identity for identity in first.input_identities if identity.canonical == str(native.resolve()))
+    native.write_text("int native_value(void) { return 200; }\n")
+    second = repository.source_mapped()
+    after = next(identity for identity in second.input_identities if identity.canonical == str(native.resolve()))
+    assert not before.same_version(after.version)
+
+
 def test_find_stdlib_file_subdir():
     # GUI/GUI.btrc lives in a subdirectory; basename lookup should find it.
     path = STDLIB.find_file("GUI.btrc")

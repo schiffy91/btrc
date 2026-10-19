@@ -12,10 +12,8 @@ import Library.Vector;
 #include <time.h>
 #if defined(_WIN32)
 
-/* Windows identity through a held handle (the CRT stat has no file ID): the
- * one description FileSystemHandles' Windows handle owners also use. */
-import ./Windows/Win32FileIdentity.c
-
+/* The selected IO provider supplies the handle identity shared with
+ * FileSystemHandles; the CRT stat has no file ID. */
 extern int btrcWinDescribeStream(FILE* stream, long long* fields);
 #endif
 

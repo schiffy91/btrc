@@ -66,20 +66,39 @@ int main() {
 """
 
 
-def transpile_reference(source: Path, target: str) -> str:
+@pytest.mark.parametrize("target", ["windows-x64", "windows-arm64", "linux-x64"])
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+@pytest.mark.parametrize("relaxed", [False, True])
+def test_io_selects_stream_identity_without_importing_filesystem(target, frontend, relaxed, request, tmp_path):
+    source = tmp_path / "Stream.btrc"
+    source.write_text(
+        ("" if relaxed else "import Library.IO;\n")
+        + 'int main() { File stream = File("input", "rb"); return (int)stream.snapshot().kind(); }\n',
+        encoding="utf-8",
+    )
+    generated = (
+        transpile_reference(source, target, relaxed=relaxed)
+        if frontend == "reference"
+        else transpile_selfhost(request.getfixturevalue("immutable_btrcc"), source, target, relaxed=relaxed)
+    )
+    assert ("Windows/Win32FileIdentity.c" in generated) is target.startswith("windows-")
+    assert "FileSystem/Windows/Win32FileSystem.c" not in generated
+
+
+def transpile_reference(source: Path, target: str, *, relaxed: bool = False) -> str:
     result = Compiler().compile(
         source.read_text(encoding="utf-8"),
         str(source),
-        CompilerOptions(use_cache=False, use_ast_cache=False, target=target),
+        CompilerOptions(use_cache=False, use_ast_cache=False, target=target, strict_imports=not relaxed),
     )
     assert result.failure is None, result.failure
     assert result.c_source is not None
     return result.c_source
 
 
-def transpile_selfhost(btrcc: Path, source: Path, target: str) -> str:
+def transpile_selfhost(btrcc: Path, source: Path, target: str, *, relaxed: bool = False) -> str:
     completed = subprocess.run(
-        [str(btrcc), "--no-cache", "--target", target, str(source)],
+        [str(btrcc), "--no-cache", *(["--relaxed-imports"] if relaxed else []), "--target", target, str(source)],
         cwd=REPO,
         capture_output=True,
         text=True,

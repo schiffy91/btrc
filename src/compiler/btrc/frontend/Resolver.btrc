@@ -2448,23 +2448,35 @@ class FeFrontendResolver {
 		return false;
 	}
 
-	private Vector<string> sourceWithoutImports(string content) {
+	private Vector<string> sourceWithoutImports(string content, string path) {
 		Vector<string> lines = FeSourceText(content).lines();
 		Vector<FeDirective> directives = self.directiveScanner.scan(content);
 		Map<int, bool> covered = {};
+		Map<int, string> native = {};
 		int directiveIndex = 0;
 		while (directiveIndex < directives.len) {
 			FeDirective directive = directives.get(directiveIndex);
 			if (directive.kind.equals("import")) {
 				int line = directive.start;
 				while (line <= directive.end) { covered.put(line, true); line++; }
+				for imported in self.importResolver.resolveSpec(directive.payload, self.sourcePaths.directoryName(path)) {
+					if (imported.endsWith(".c")) {
+						string absolute = self.sourcePaths.absolute(imported);
+						self.importPolicy.check(path, absolute);
+						self.dependencies.addImport(path, absolute);
+						string include = self.importResolver.renderCInclude(absolute);
+						if (native.has(directive.start)) { include = native.get(directive.start) + "\n" + include; }
+						native.put(directive.start, include);
+					}
+				}
 			}
 			directiveIndex++;
 		}
 		Vector<string> kept = [];
 		int index = 0;
 		while (index < lines.len) {
-			if (!covered.has(index + 1)) { kept.push(lines.get(index)); }
+			if (native.has(index + 1)) { kept.push(native.get(index + 1)); }
+			else if (!covered.has(index + 1)) { kept.push(lines.get(index)); }
 			index++;
 		}
 		return kept;
@@ -2496,7 +2508,7 @@ class FeFrontendResolver {
 	private void composeRelaxed(string source, string path, Map<string, bool> userNames, Vector<string> lines) {
 		string content = self.conditioned(source, path, false);
 		if (self.namesIntersect(self.definedTypeNames(content), userNames)) { return; }
-		Vector<string> fileLines = self.sourceWithoutImports(content);
+		Vector<string> fileLines = self.sourceWithoutImports(content, path);
 		int lineIndex = 0;
 		while (lineIndex < fileLines.len) {
 			lines.push(fileLines.get(lineIndex));

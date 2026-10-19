@@ -76,8 +76,6 @@ class ResolutionFrame:
 class ImportResolver:
     """Resolve one source graph against packages and a stdlib repository."""
 
-    _C_TRIGRAPH_SUFFIXES = frozenset("=/'()!<>-")
-
     def __init__(
         self,
         stdlib: StdlibRepository | None = None,
@@ -242,16 +240,7 @@ class ImportResolver:
 
     def render_c_include(self, path: str) -> str:
         """Return a safe quoted C include directive for one imported C file."""
-
-        for character in path:
-            if character == '"' or ord(character) < 0x20 or ord(character) == 0x7F:
-                raise IncludeResolutionError(
-                    f"cannot import C file with a quote or control character in its path: {path!r}"
-                )
-        for index in range(len(path) - 2):
-            if path[index : index + 2] == "??" and path[index + 2] in self._C_TRIGRAPH_SUFFIXES:
-                raise IncludeResolutionError(f"cannot import C file whose path contains a C trigraph: {path!r}")
-        return f'#include "{path}"'
+        return SourceDirective.render_c_include(path)
 
     def _open_frame(
         self,

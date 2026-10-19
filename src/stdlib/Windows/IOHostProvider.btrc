@@ -1,0 +1,3 @@
+/* Native stream identity for Library.IO on Windows. The root manifest
+ * selects this source in both strict and relaxed composition. */
+import ./Win32FileIdentity.c

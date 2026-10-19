@@ -1,0 +1,2 @@
+/* Library.IO uses the host's fstat on Unix. Its selected provider needs no
+ * additional native source; the portable stream API stays in IO.btrc. */

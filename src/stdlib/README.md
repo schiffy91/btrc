@@ -11,6 +11,9 @@ the API surface, so the layout follows a few fixed rules.
   nothing with a native binding, a nested source graph, or a dependency on a
   group folder lives here; `Graph` is a folder for that reason even though it
   holds one module today.
+  The root manifest selects the private `Process` and `IO` host providers.
+  Strict imports, relaxed composition and the core archive load those providers
+  for the target row; root source files keep their imports within the prelude.
 - **A functional group with more than one module is a folder** named after the
   group, with a facade module of the same name inside it: `HTTP/HTTP.btrc`,
   `Terminal/Terminal.btrc`, `Daemon/Daemon.btrc`, `FileSystem/FileSystem.btrc`,

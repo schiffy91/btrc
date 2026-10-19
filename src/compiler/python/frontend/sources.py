@@ -796,6 +796,20 @@ class SourceDirective:
     start: int
     end: int
 
+    @classmethod
+    def render_c_include(cls, path: str) -> str:
+        """Render a C import as a header name valid before C11 preprocessing."""
+
+        for character in path:
+            if character == '"' or ord(character) < 0x20 or ord(character) == 0x7F:
+                raise IncludeResolutionError(
+                    f"cannot import C file with a quote or control character in its path: {path!r}"
+                )
+        for index in range(len(path) - 2):
+            if path[index : index + 2] == "??" and path[index + 2] in "=/'()!<>-":
+                raise IncludeResolutionError(f"cannot import C file whose path contains a C trigraph: {path!r}")
+        return f'#include "{path}"'
+
 
 class SourceDirectiveCachePort(Protocol):
     """Value-only persistence for directive spans keyed by complete source bytes."""
@@ -2461,12 +2475,12 @@ class StdlibRepository:
             path = os.path.join(self._directory, filename)
             if not os.path.isfile(path):
                 continue
-            self._compose_relaxed(path, conditionals, user_names, lines, source_positions, identities)
+            self._compose_relaxed(path, conditionals, user_names, lines, source_positions, identities, policy)
             for implementation in policy.provider_for(path) if policy is not None else ():
                 if implementation not in providers:
                     providers.append(implementation)
         for path in providers:
-            self._compose_relaxed(path, conditionals, user_names, lines, source_positions, identities)
+            self._compose_relaxed(path, conditionals, user_names, lines, source_positions, identities, policy)
         return StdlibSource(
             source="\n".join(lines),
             source_positions=tuple(source_positions),
@@ -2481,8 +2495,9 @@ class StdlibRepository:
         lines: list[str],
         source_positions: list[tuple[str, int]],
         identities: list[SourceReadIdentity],
+        policy: PackageImportPolicy | None,
     ) -> None:
-        """Append one conditioned file without its imports, unless it defines a name the user source does."""
+        """Append one conditioned file, retaining C imports and omitting composed language imports."""
 
         try:
             loaded = self._source_reader.read_source(path)
@@ -2492,7 +2507,7 @@ class StdlibRepository:
         content = conditionals.condition(loaded.text, path).text
         if self.defined_names(content) & user_names:
             return
-        file_lines, file_positions = self._source_without_imports(content, path)
+        file_lines, file_positions = self._source_without_imports(content, path, identities, policy)
         lines.extend(file_lines)
         source_positions.extend(file_positions)
 
@@ -2525,17 +2540,31 @@ class StdlibRepository:
         self,
         content: str,
         path: str,
+        identities: list[SourceReadIdentity],
+        policy: PackageImportPolicy | None,
     ) -> tuple[list[str], list[tuple[str, int]]]:
-        covered = {
-            line
-            for directive in self._directives.scan(content)
-            if directive.kind == "import"
-            for line in range(directive.start, directive.end + 1)
-        }
+        covered: set[int] = set()
+        native: dict[int, str] = {}
+        for directive in self._directives.scan(content):
+            if directive.kind != "import":
+                continue
+            covered.update(range(directive.start, directive.end + 1))
+            spec = directive.payload
+            if isinstance(spec, (ast.RelativePath, ast.QuotedPath)) and spec.path.endswith(".c"):
+                absolute = os.path.realpath(os.path.join(os.path.dirname(path), os.path.expanduser(spec.path)))
+                if policy is not None:
+                    policy.check(path, absolute)
+                try:
+                    identities.append(self._source_reader.read_source(absolute).identity)
+                except SourceReadError as error:
+                    raise IncludeResolutionError(str(error)) from error
+                native[directive.start] = SourceDirective.render_c_include(absolute)
         lines: list[str] = []
         positions: list[tuple[str, int]] = []
         for line_number, line in enumerate(content.split("\n"), start=1):
-            if line_number in covered:
+            if line_number in native:
+                line = native[line_number]
+            elif line_number in covered:
                 continue
             lines.append(line)
             positions.append((path, line_number))
