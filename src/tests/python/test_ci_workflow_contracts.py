@@ -562,9 +562,10 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         assert all(None not in values for values in names), (workflow, name, keys)
         assert len(set(names)) == len(rows), f"{workflow} {name}: skip-report names collide across the matrix"
         if workflow not in CORE_WORKFLOWS:
-            # A lane workflow (host-android.yml's JNI round trip) is selected by
-            # its paths, not a tier, and no ledger bundle collects its reports.
-            assert not any(entry.reference.startswith(f"{workflow}/") for entry in TIERS.jobs), workflow
+            # A lane workflow's test job (host-android.yml's JNI round trip) is
+            # selected by its paths, not a tier, and no ledger bundle collects its
+            # reports; only host-android.yml's corpus lane is tiered.
+            assert not any(entry.reference == f"{workflow}/{name}" for entry in TIERS.jobs), (workflow, name)
             continue
         # The tier manifest names the same reports, so the bundle expects them.
         tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{name}")
@@ -1363,6 +1364,108 @@ def test_android_license_acceptance_preserves_sdkmanager_status(sdk_exit: int) -
     )
     result = subprocess.run([bash, "-e", "-o", "pipefail", "-c", script], capture_output=True, timeout=10)
     assert result.returncode == sdk_exit, result.stderr.decode(errors="replace")
+
+
+def test_the_android_corpus_lane_is_tiered_beside_untiered_fixture_jobs() -> None:
+    """host-android.yml plans only its corpus jobs from ci/tiers.toml, with the core workflows' scope job."""
+
+    workflow = "host-android.yml"
+    document = _parsed(workflow)
+    jobs = document["jobs"]
+    assert document["env"]["CI_WORKFLOW"] == workflow
+    assert jobs["scope"] == _parsed("ci.yml")["jobs"]["scope"]
+    tiered = [entry for entry in TIERS.jobs if entry.workflow == workflow]
+    listed = {entry.job for entry in tiered}
+    assert listed == {"target-corpus-build", "target-corpus-compile", "target-corpus"}
+    assert set(jobs) - listed == {"scope", "tooling", "emulator"}
+    for name in listed:
+        assert jobs[name]["if"] == f"contains({PLAN}.jobs, '{name}')", name
+        assert jobs[name]["needs"] in ("scope", ["scope", "target-corpus-build"]), name
+    for name in ("tooling", "emulator"):
+        assert "scope" not in str(jobs[name].get("needs")), name
+    # Every change the plan would select must also start the workflow.
+    # A matrix job's tiers are its shards'.
+    conditions = [entry.condition for entry in tiered if entry.key is None]
+    conditions += [shard.condition for shard in TIERS.shards if shard.job.startswith(f"{workflow}/")]
+    for condition in conditions:
+        assert set(condition.tiers) == {"main", "extended", "release"}, condition
+        for event in ("push", "pull_request"):
+            assert set(condition.changed_paths) <= set(document["on"][event]["paths"]), (event, condition)
+
+
+def test_the_android_corpus_lane_builds_on_linux_and_runs_on_a_kvm_emulator() -> None:
+    """CX-P1-09: the whole corpus, through both compilers, on a hosted Android emulator."""
+
+    jobs = _parsed("host-android.yml")["jobs"]
+    build, compile_only, run = jobs["target-corpus-build"], jobs["target-corpus-compile"], jobs["target-corpus"]
+    for job, label in ((build, "android-x86_64"), (compile_only, "android-aarch64")):
+        assert job["runs-on"] == "ubuntu-latest", label
+        commands = _code("\n".join(step.get("run", "") for step in job["steps"]))
+        assert "nix develop --command make NIX= btrcc" in commands, label
+        assert '"$sdkmanager" --install "ndk;$ndk"' in commands, label
+        assert 'echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$ndk" >> "$GITHUB_ENV"' in commands, label
+        assert f"python3 -m src.tests.target_runner --target {label} --frontend both" in commands, label
+        assert f"--compile-only --btrcc bin/btrcc --jobs 4 --output build/target-corpus/{label}" in commands, label
+        # A program that fails to build is a result; only a runner error fails the build job.
+        assert 'if [ "$status" -gt 1 ]; then' in commands, label
+        assert f"python3 -m tools.target_hosts.summary build/target-corpus/{label}/target-run.json" in commands, label
+        final = job["steps"][-1]
+        assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT, label
+        assert final["with"]["name"] == f"target-corpus-build-reports-{label}", label
+    uploads = {step["with"]["name"]: step["with"] for step in build["steps"] if step.get("uses") == UPLOAD_ARTIFACT}
+    bundle = uploads["target-corpus-bundle-android-x86_64"]
+    assert bundle["path"] == "build/target-corpus/android-x86_64/bundle/"
+    assert bundle["if-no-files-found"] == "error"
+    # android-aarch64 has no hosted runner to execute on natively: compile-only, and no bundle leaves.
+    assert not any("bundle" in step.get("with", {}).get("name", "") for step in compile_only["steps"])
+    rows = [shard.row for shard in TIERS.shards if shard.job == "host-android.yml/target-corpus"]
+    assert rows == [
+        {
+            "target": "android-x64-api29",
+            "label": "android-x86_64",
+            "api": "29",
+            "runner": "ubuntu-latest",
+            "report_only": "true",
+        }
+    ]
+    assert run["needs"] == ["scope", "target-corpus-build"]
+    assert run["runs-on"] == "${{ matrix.runner }}"
+    assert run["strategy"]["matrix"] == _plan_matrix("target-corpus")
+    assert run["strategy"]["fail-fast"] == "false"
+    assert run["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
+    # The bundle pins each program's deadline; admission refuses another value.
+    assert build["env"]["BTRC_TEST_RUN_TIMEOUT"] == run["env"]["BTRC_TEST_RUN_TIMEOUT"]
+    assert compile_only["env"]["BTRC_TEST_RUN_TIMEOUT"] == run["env"]["BTRC_TEST_RUN_TIMEOUT"]
+    download = next(step for step in run["steps"] if str(step.get("uses", "")).startswith("actions/download-artifact@"))
+    assert download["with"] == {
+        "name": "target-corpus-bundle-${{ matrix.label }}",
+        "path": "build/target-corpus/bundle",
+    }
+    executed = _code("\n".join(step.get("run", "") for step in run["steps"]))
+    assert "sudo udevadm trigger --name-match=kvm" in executed
+    assert "python3 -m tools.target_hosts.android.sdk packages --api ${{ matrix.api }}" in executed
+    assert 'python3 -m tools.target_hosts.android.sdk install-archives --sdk "$ANDROID_SDK_ROOT"' in executed
+    assert (
+        'python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT" --api ${{ matrix.api }}' in executed
+    )
+    assert (
+        "python -m src.tests.target_runner --execute-bundle build/target-corpus/bundle --executor android-emulator"
+    ) in executed
+    for option in ("boot=true", "state=build/android-avds", "api=${{ matrix.api }}"):
+        assert f"--executor-option {option}" in executed, option
+    assert "--output build/target-corpus/run" in executed
+    assert (
+        'python -m tools.target_hosts.summary build/target-corpus/run/target-run.json >> "$GITHUB_STEP_SUMMARY"'
+        in executed
+    )
+    final = run["steps"][-1]
+    assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT
+    assert final["with"]["name"] == "target-corpus-run-${{ matrix.target }}"
+    assert final["with"]["path"].split() == ["build/target-corpus/run/", "build/android-avds/*.log"]
+    # The executor the lane names is the one the runner's registry resolves.
+    from src.tests.target_runner import ExecutorRegistry
+
+    assert ExecutorRegistry().spec("android-emulator") == "tools.target_hosts.android.executor:AndroidEmulatorExecutor"
 
 
 def test_windows_arm64_lane_keeps_cross_and_native_qualification_separate() -> None:

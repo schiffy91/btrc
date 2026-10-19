@@ -24,7 +24,9 @@ def _manifest() -> TierManifest:
 
 def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
     matrix = plan["matrix"].get(job, {"include": []})
-    key = {"native-bundle": "target", "linux-gui": "session", "win32-native": "target"}.get(job, "shard")
+    key = {"native-bundle": "target", "linux-gui": "session", "win32-native": "target", "target-corpus": "target"}.get(
+        job, "shard"
+    )
     return {row[key]: row for row in matrix["include"]}
 
 
@@ -34,7 +36,7 @@ def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
 def test_the_tracked_manifest_loads_and_describes_every_tier() -> None:
     manifest = _manifest()
     assert list(manifest.tiers) == ["docs", "pr", "lane", "main", "extended", "release", "native-gui", "hardware"]
-    assert manifest.workflows() == ["ci.yml", "macos.yml", "windows.yml"]
+    assert manifest.workflows() == ["ci.yml", "host-android.yml", "macos.yml", "windows.yml"]
     assert {runner.runner for runner in manifest.hardware} == {"macos", "linux", "ios", "android"}
 
 
@@ -267,6 +269,27 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
     assert manifest.plan("windows.yml", "pr", skips)["jobs"] == ["windows"]
     # A push or dispatch has no change list: changed-path entries stay out.
     assert manifest.plan("windows.yml", "lane")["jobs"] == []
+
+
+def test_the_android_corpus_runs_in_every_full_tier_and_on_its_own_paths() -> None:
+    manifest = _manifest()
+    corpus = ["target-corpus-build", "target-corpus-compile", "target-corpus"]
+    for tier in ("main", "extended", "release"):
+        plan = manifest.plan("host-android.yml", tier)
+        assert plan["jobs"] == corpus, tier
+        assert list(_rows(plan, "target-corpus")) == ["android-x64-api29"], tier
+    for changed in (
+        ["tools/target_hosts/android/executor.py"],
+        ["src/tests/target_runner.py"],
+        ["src/tests/fixtures/target-applicability.toml"],
+        ["src/stdlib/FileSystem/Android/Provider.btrc"],
+    ):
+        assert manifest.plan("host-android.yml", "pr", changed)["jobs"] == corpus, changed
+        assert manifest.plan("host-android.yml", "lane", changed)["jobs"] == corpus, changed
+    # A JNI change runs the workflow's untiered fixture and JNI jobs, never the corpus.
+    assert manifest.plan("host-android.yml", "pr", ["src/stdlib/Java/JNI.btrc"])["jobs"] == []
+    assert manifest.plan("host-android.yml", "docs", ["tools/target_hosts/android/README.md"])["jobs"] == []
+    assert manifest.expected_reports("release").get("host-android.yml/target-corpus") is None
 
 
 def test_a_lane_keeps_the_linux_matrix_and_the_macos_lane_jobs() -> None:

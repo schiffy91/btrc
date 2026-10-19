@@ -4,6 +4,7 @@
 # those workflows begins with a `scope` job that classifies the event into one
 # tier, then reads this file (`python3 -m tools.qualification tiers plan`) to
 # decide which jobs and matrix rows run. A job never names its tiers in YAML.
+# host-android.yml's corpus lane is tiered the same way; its other jobs are not.
 #
 # Integrator-owned data (WORKSTREAMS.md §3.3.1): a lane adds or moves a shard
 # through a `fragment: ci/tiers.toml …` commit, which Claude re-applies.
@@ -509,6 +510,75 @@ workflow = "windows.yml"
 job = "bootstrap"
 tiers = ["main", "extended", "release"]
 reports = ["skip-report"]
+
+# ------------------------------------------------------- host-android.yml ---
+# Only the corpus lane of host-android.yml is tiered; its CX-P1-05 fixture and
+# JNI jobs run on the workflow's paths alone, and its scope job plans just
+# these. The whole language and stdlib corpus through both compilers
+# (CX-P1-09): target-corpus-build cross-builds every applicable program for
+# android-x86_64 with the pinned NDK (src/tests/target_runner.py
+# --compile-only), target-corpus runs that bundle on a KVM x86_64 emulator of
+# the row's API through the android-emulator executor and publishes the
+# per-frontend passed/failed/restricted/missing counts, its JUnit file and its
+# ledger records, and target-corpus-compile builds android-aarch64, which no
+# hosted runner executes natively (the android-device hardware entry). The
+# emulator row reports only (its job may fail without failing the run) until
+# the triage's failures are fixed; flip report_only to "false" then. The
+# workflow's own paths must include every changed_paths entry here. The
+# producer and its consumer run on exactly the same events.
+[[jobs]]
+workflow = "host-android.yml"
+job = "target-corpus-build"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "**/Android/**",
+  "tools/target_hosts/android/**",
+  "tools/target_hosts/summary.py",
+  "src/tests/target_runner.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "docs/design/platform-inventory.toml",
+  ".github/workflows/host-android.yml",
+]
+
+[[jobs]]
+workflow = "host-android.yml"
+job = "target-corpus-compile"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "**/Android/**",
+  "tools/target_hosts/android/**",
+  "tools/target_hosts/summary.py",
+  "src/tests/target_runner.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "docs/design/platform-inventory.toml",
+  ".github/workflows/host-android.yml",
+]
+
+[[jobs]]
+workflow = "host-android.yml"
+job = "target-corpus"
+key = "target"
+
+[[shards]]
+job = "host-android.yml/target-corpus"
+target = "android-x64-api29"
+label = "android-x86_64"
+api = "29"
+runner = "ubuntu-latest"
+report_only = "true"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "**/Android/**",
+  "tools/target_hosts/android/**",
+  "tools/target_hosts/summary.py",
+  "src/tests/target_runner.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "docs/design/platform-inventory.toml",
+  ".github/workflows/host-android.yml",
+]
 
 # -------------------------------------------------------------- hardware ---
 # Nothing here runs on GitHub. Each entry names a runner the expected-skip
