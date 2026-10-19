@@ -1,0 +1,93 @@
+/* Drives btrc's package resolution for test_target_provider_matrix.py.
+ *
+ * `ProviderMatrixDriver GRAMMAR STDLIB TARGET PROGRAM...` resolves each
+ * program for one target row exactly as a compile does before it reads a
+ * native header (Pipeline.resolve): the package graph, the conditioned
+ * import graph with its provider selections, then the native link plan
+ * restricted to the loaded sources plus the stdlib's. For every program it
+ * prints, tab-separated:
+ *
+ *   begin INDEX
+ *   source PATH                       each loaded source
+ *   provider MODULE IMPLEMENTATION    each loaded module's selected provider
+ *   package NAME ROOT                 each package of the plan
+ *   declaration PACKAGE KIND VALUE DETAIL LANGUAGE STANDARD MODULES
+ *   binding PACKAGE MODULE HEADER LANGUAGE STANDARD SYMBOLS
+ *   end INDEX
+ *
+ * MODULES and SYMBOLS are comma-joined. Only records selected for the row are
+ * printed. A package failure (a module with no provider for the row) exits 1
+ * after "begin" with the reason on stderr, as a compile does; the caller
+ * resumes with the next program. */
+
+import Library.Console;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/frontend/Packages.btrc;
+import ../../../compiler/btrc/frontend/Resolver.btrc;
+import ../../../compiler/btrc/frontend/SourceIo.btrc;
+import ../../../compiler/btrc/frontend/Stdlib.btrc;
+import ../../../compiler/btrc/syntax/Grammar.btrc;
+
+class ProviderMatrixDriver {
+	private GrammarInfo grammar;
+	private string stdlibDirectory;
+	private string target;
+	private FeSourceFileReader files;
+	private FeStdlibRepository stdlib;
+	private FePackageImportPolicy? providers = null;
+
+	public ProviderMatrixDriver(GrammarInfo grammar, string stdlibDirectory, string target) {
+		self.grammar = grammar;
+		self.stdlibDirectory = stdlibDirectory;
+		self.target = target;
+		self.files = FeSourceFileReader();
+		self.stdlib = FeStdlibRepository(stdlibDirectory, self.files);
+	}
+
+	private FePackageImportPolicy providerPolicy(FePackageTarget target) {
+		FePackageImportPolicy? existing = self.providers;
+		if (existing != null) { return existing; }
+		FePackageImportPolicy created = FePackageImportPolicy(target);
+		self.providers = created;
+		return created;
+	}
+
+	public void report(string path) {
+		FeCanonicalPath.reset();
+		FeResolvedPackages packages = FePackageGraphResolver(self.files).resolveFor(path, self.target);
+		FeConditionalEnvironment environment = FeConditionalEnvironment.standard(self.grammar, packages);
+		FeFrontendResolver resolver = FeFrontendResolver(self.grammar, self.stdlib, true, true, packages, null, environment);
+		FeResolvedSource resolved = resolver.resolve(self.files.readRequired(path), path);
+		Vector<string> sources = resolved.dependencies.sourceIdentities();
+		FeNativeLinkPlan plan = packages.linkPlan;
+		plan.restrictToSources(sources);
+		plan.includeStdlib(self.stdlibDirectory, sources, self.files);
+		FePackageImportPolicy policy = self.providerPolicy(plan.target);
+		for source in sources {
+			Console.log("source\t" + source);
+			for implementation in policy.providersFor(source) { Console.log("provider\t" + source + "\t" + implementation); }
+		}
+		for package in plan.packages { Console.log("package\t" + package.name + "\t" + package.root); }
+		for declaration in plan.declarations {
+			if (!declaration.selectedFor(plan.target)) { continue; }
+			Console.log("declaration\t" + declaration.packageName + "\t" + declaration.kind + "\t" + declaration.value + "\t" + declaration.detail + "\t" + declaration.language + "\t" + declaration.standard + "\t" + Strings.join(declaration.modules, ","));
+		}
+		for binding in plan.bindingImports() { Console.log("binding\t" + binding.packageName + "\t" + binding.module + "\t" + binding.header + "\t" + binding.language + "\t" + binding.standard + "\t" + Strings.join(binding.symbols, ",")); }
+	}
+}
+
+int main(int argc, char** argv) {
+	if (argc < 4) { return 2; }
+	FeSourceFileReader files = FeSourceFileReader();
+	GrammarInfo grammar = EbnfGrammarParser(files.readRequired(Strings.copy(argv[1]))).parse();
+	ProviderMatrixDriver driver = ProviderMatrixDriver(grammar, Strings.copy(argv[2]), Strings.copy(argv[3]));
+	for (int index = 4; index < argc; index++) {
+		Console.log(f"begin\t{index - 4}");
+		driver.report(Strings.copy(argv[index]));
+		Console.log(f"end\t{index - 4}");
+	}
+	return 0;
+}
