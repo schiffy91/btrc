@@ -268,8 +268,16 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
         "the two-hour bootstrap waits for the main tier"
     )
     assert list(_rows(windows, "target-corpus")) == ["windows-x64", "windows-arm64"]
-    for runner in ("tools/target_hosts/windows/executor.py", "src/tests/fixtures/target-applicability.toml"):
-        assert manifest.plan("windows.yml", "pr", [runner])["jobs"] == ["target-corpus-build", "target-corpus"]
+    executor = ["tools/target_hosts/windows/executor.py"]
+    assert manifest.plan("windows.yml", "pr", executor)["jobs"] == ["target-corpus-build", "target-corpus"]
+    # win32-native's Process corpus bundle reads the applicability manifest too (CX-P2-06).
+    applicability = ["src/tests/fixtures/target-applicability.toml"]
+    assert manifest.plan("windows.yml", "pr", applicability)["jobs"] == [
+        "win32-native-build",
+        "win32-native",
+        "target-corpus-build",
+        "target-corpus",
+    ]
     assert manifest.plan("windows.yml", "lane", ["src/devex/vscode/package.json"])["jobs"] == ["windows"]
     # A platform's expected-skip manifest is read only by that platform's skip gate.
     skips = ["src/tests/fixtures/expected-skips/macos-hosted.json"]
