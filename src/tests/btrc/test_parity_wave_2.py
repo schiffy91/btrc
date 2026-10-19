@@ -19,10 +19,16 @@ rendered diagnostic, and a warning must read the same in both.
   (``(int)raw.c_cc[VMIN]``) stays refused, now with the reference compiler's
   diagnostic in btrcc too, where it read "managed ownership boundary ...
   requires a concrete type".
+- Narrowing into a loop. After ``if (box == null) return``, a local that never
+  escapes stays non-null in a loop body. The reference compiler kept escaped
+  locals by ``id()`` and never forgot them, so a later binding allocated where
+  a freed escaped one had been lost its facts at the loop's first unknown
+  store: a warning btrcc did not print.
 """
 
 from __future__ import annotations
 
+import gc
 import os
 import re
 import subprocess
@@ -125,6 +131,10 @@ def harness(immutable_btrcc: Path, tmp_path: Path) -> ParityHarness:
     return ParityHarness(immutable_btrcc, tmp_path)
 
 
+def _message(block: str) -> str:
+    return block.splitlines()[0]
+
+
 # Indexing: glob's matches through `found->gl_pathv[i]`, with a null errfunc.
 # The root directory is the one path every POSIX host has.
 GLOB = """#include <glob.h>
@@ -207,3 +217,92 @@ def test_an_unordered_c_macro_beside_opaque_storage_is_refused_alike(
         "\tstruct termios raw;\n\tmemset(&raw, 0, sizeof(raw));\n" + body + "}\n"
     )
     assert harness.refused(name, source) == message
+
+
+# Narrowing: many escaped locals are freed before the guarded loops run, so in
+# the old reference compiler some guarded `box` was allocated where an escaped
+# local had been. The control's `box` really escapes, and both compilers warn.
+def _escape_program(count: int) -> str:
+    lines = [
+        "class Box {",
+        "\tpublic int value;",
+        "\tpublic Box(int value) { self.value = value; }",
+        "\tpublic int get() { return self.value; }",
+        "}",
+        "",
+        "Box? makeBox(int value) { return value > 0 ? Box(value) : null; }",
+        "",
+    ]
+    calls = []
+    for index in range(count):
+        lines += [
+            f"int escapes{index}() {{",
+            "\tint first = 1;",
+            "\tint* view = &first;",
+            "\treturn *view;",
+            "}",
+            "",
+            f"int guarded{index}() {{",
+            "\tBox? box = makeBox(2);",
+            "\tif (box == null) { return 0; }",
+            "\tint keys[3];",
+            "\tfor (int index = 0; index < 3; index++) { keys[index] = box.get(); }",
+            "\treturn keys[0] + keys[1] + keys[2];",
+            "}",
+            "",
+        ]
+        calls.append(f"\ttotal = total + escapes{index}() + guarded{index}();")
+    return "\n".join(
+        [*lines, "int main() {", "\tint total = 0;", *calls, '\tprint(f"{total}");', "\treturn 0;", "}", ""]
+    )
+
+
+def test_narrowing_survives_into_a_loop_after_unrelated_escapes(harness: ParityHarness) -> None:
+    reference, selfhost = harness.accepted("GuardedLoops", _escape_program(60))
+    assert reference == selfhost == f"{60 * 7}\n"
+
+
+ESCAPED_GUARD = """class Box {
+\tpublic int value;
+\tpublic Box(int value) { self.value = value; }
+\tpublic int get() { return self.value; }
+}
+
+Box? makeBox(int value) { return value > 0 ? Box(value) : null; }
+
+int escaped() {
+\tBox? box = makeBox(2);
+\tif (box == null) { return 0; }
+\tvoid* slot = &box;
+\tint keys[3];
+\tfor (int index = 0; index < 3; index++) { keys[index] = box.get(); }
+\treturn slot == null ? 0 : keys[0];
+}
+
+int main() { return escaped() == 2 ? 0 : 1; }
+"""
+
+
+def test_a_local_whose_address_escaped_loses_its_narrowing_in_both(harness: ParityHarness) -> None:
+    reference, selfhost = harness.compile("EscapedGuard", ESCAPED_GUARD)
+    assert reference.returncode == selfhost.returncode == 0
+    assert reference.diagnostics == selfhost.diagnostics
+    assert [_message(block) for block in reference.diagnostics] == [
+        "warning: Non-optional access '.get' on nullable type 'Box?' — use '?.get' or check for null"
+    ]
+    assert ":14:58" in reference.diagnostics[0]
+
+
+def test_a_freed_escaped_symbol_never_marks_a_later_one() -> None:
+    """The reference session keeps each escaped symbol, so its address cannot be reused."""
+    from src.compiler.python.analyzer.program import AnalysisSession, SymbolInfo
+    from src.compiler.python.syntax.ast.generated import TypeExpr
+
+    session = AnalysisSession()
+    for _ in range(200):
+        escaped = SymbolInfo("first", TypeExpr(base="int"), "variable")
+        session.mark_address_escaped(escaped)
+        del escaped
+        gc.collect()
+        fresh = SymbolInfo("box", TypeExpr(base="Box", pointer_depth=1, is_nullable=True), "variable")
+        assert not session.address_escaped(fresh)
