@@ -301,6 +301,16 @@ def test_admission_refuses_another_row_a_translated_abi_or_no_exit_status(tmp_pa
     assert executor.base is None and not list((tmp_path / "device").iterdir())
 
 
+def test_an_api_29_emulator_names_its_avd_through_the_older_property(tmp_path, built):
+    properties = {name: value for name, value in PROPERTIES.items() if name != "ro.boot.qemu.avd_name"}
+    executor, _ = executor_for(tmp_path, built, properties={**properties, "ro.kernel.qemu.avd_name": "older-avd"})
+    executor.prepare(write_bundle(tmp_path / "bundle", {"probe": built["probe"]}), "android-x86_64")
+    try:
+        assert executor.provenance["avd"] == "older-avd"
+    finally:
+        executor.close()
+
+
 def test_admission_is_atomic_and_checks_every_digest(tmp_path, built):
     executor, _ = executor_for(tmp_path, built)
     executor.prepare(write_bundle(tmp_path / "good", {"probe": built["probe"]}), "android-x86_64")

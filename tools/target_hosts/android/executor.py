@@ -332,13 +332,17 @@ class AndroidEmulatorExecutor:
             "api": "ro.build.version.sdk",
             "fingerprint": "ro.build.fingerprint",
             "model": "ro.product.model",
+            # The emulator's AVD name: ro.boot.qemu.* from API 30, ro.kernel.qemu.* before.
             "avd": "ro.boot.qemu.avd_name",
+            "avd_kernel": "ro.kernel.qemu.avd_name",
         }
         listing = self.device("; ".join(f"getprop {name}" for name in names.values()) + "; getconf PAGESIZE")
         values = listing.stdout.decode(errors="replace").split("\n")
         if len(values) < len(names) + 1:
             raise RuntimeError(f"{self.serial} answered getprop with {listing.stdout!r}")
         facts = {key: values[index].strip() for index, key in enumerate(names)}
+        older = facts.pop("avd_kernel")
+        facts["avd"] = facts["avd"] or older
         facts["page_size"] = values[len(names)].strip()
         if facts["abi"] != ROWS[label]:
             raise ValueError(
