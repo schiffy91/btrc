@@ -69,6 +69,24 @@ int main() {
 	slider.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS);
 	while (queue.dispatchOne()) {}
 	assert(receiver.events.len == 3 && receiver.events.get(2).phase == CONTROL_PHASE_CANCEL);
+	/* The release value survives a full preview lane without a model revision
+	 * or another interaction. Duplicate release cannot overwrite it. */
+	receiver.events.clear();
+	assert(slider.begin(1LL) && slider.preview(6.0)); slider.commit();
+	assert(slider.begin(1LL) && !slider.preview(8.0));
+	failed = false; try { slider.commitValue(11.0); } catch (string error) { failed = true; }
+	assert(failed && slider.active() && slider.value() == 6.0);
+	slider.commitValue(8.5); slider.commitValue(2.0);
+	assert(slider.value() == 9.0 && !slider.active());
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 3);
+	var firstTerminal = receiver.events.get(1); var finalTerminal = receiver.events.get(2);
+	assert(finalTerminal.phase == CONTROL_PHASE_COMMIT && finalTerminal.value == 9.0);
+	assert(finalTerminal.context.interaction == firstTerminal.context.interaction + 1LL);
+	assert(finalTerminal.context.modelRevision == firstTerminal.context.modelRevision);
+	assert(finalTerminal.rangeRevision == firstTerminal.rangeRevision);
+	assert(finalTerminal.context.sequence > firstTerminal.context.sequence);
+	assert(finalTerminal.input == SLIDER_INPUT_ABSOLUTE_POINTER && finalTerminal.count == 0);
 	receiver.events.clear();
 	assert(slider.setRangeValue(9007199254740992.0, 9007199254741012.0, 0.0, 9007199254740992.0));
 	assert(slider.adjust(1LL, UI_RANGE_ADJUST_SMALL_INCREMENT, 1));
