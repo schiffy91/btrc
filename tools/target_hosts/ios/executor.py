@@ -298,7 +298,9 @@ class Outcome:
     signal: int | None
     timed_out: bool
     elapsed_s: float
+    # From simctl spawn until the program started, and until the supervisor itself ran.
     launch_s: float
+    spawn_s: float
     launch_retries: int = 0
 
 
@@ -313,7 +315,8 @@ class IOSSimulatorExecutor:
     RESERVED_PREFIXES: ClassVar[tuple[str, ...]] = ("SIMCTL_", "DYLD_")
     SUPERVISOR_SOURCE = Path(__file__).resolve().with_name("supervisor.c")
     NATIVE_MACHINES: ClassVar[frozenset[str]] = frozenset({"arm64", "aarch64"})
-    LAUNCH_TIMEOUT_S = 60.0
+    # Launches take a median 0.2 s; two hosted corpus runs saw single stalls of 44 s and over 60 s.
+    LAUNCH_TIMEOUT_S = 120.0
     WARMUP_TIMEOUT_S = 600.0
     GRACE_S = 30.0
     LAUNCH_ATTEMPTS = 2
@@ -579,6 +582,7 @@ class IOSSimulatorExecutor:
             {
                 **self.provenance,
                 "launch_s": round(outcome.launch_s, 3),
+                "spawn_s": round(outcome.spawn_s, 3),
                 "launch_retries": outcome.launch_retries,
                 "warnings": warnings,
             },
@@ -674,7 +678,7 @@ class IOSSimulatorExecutor:
         launched = time.monotonic()
         ready: int | None = None
         child: int | None = None
-        started = launched
+        started = spawned = launched
         deadline = launched + launch_timeout_s
         while child is None:
             event = channel.next(deadline)
@@ -689,7 +693,7 @@ class IOSSimulatorExecutor:
                 raise SimulatorError(message)
             kind, fields = event
             if kind == "ready":
-                ready = self.pid(fields, "pid")
+                ready, spawned = self.pid(fields, "pid"), time.monotonic()
             elif kind == "started":
                 child, started = self.pid(fields, "pid"), time.monotonic()
             else:
@@ -718,14 +722,14 @@ class IOSSimulatorExecutor:
         if channel.process.returncode != 0:
             raise SimulatorError(f"the supervisor exited {channel.process.returncode}; {channel.describe()}")
         number = self.number(fields, "status" if kind == "exit" else "number")
-        launch_s = started - launched
+        timing = {"launch_s": started - launched, "spawn_s": spawned - launched}
         if kind == "exit":
             if number > 255:
                 raise SimulatorError(f"the supervisor reported exit status {number}")
-            return Outcome(number, None, False, elapsed, launch_s)
+            return Outcome(number, None, False, elapsed, **timing)
         if not 1 <= number <= 127:
             raise SimulatorError(f"the supervisor reported signal {number}")
-        return Outcome(None, number, kind == "timeout", elapsed, launch_s)
+        return Outcome(None, number, kind == "timeout", elapsed, **timing)
 
     @staticmethod
     def pid(fields: Mapping[str, str], name: str) -> int:

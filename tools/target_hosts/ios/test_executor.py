@@ -170,7 +170,7 @@ def test_every_fixture_runs_under_the_supervisor_with_its_exact_outcome(prepared
         result = prepared.run(SimulatorSpike.request(invocation))
         SimulatorSpike.check(invocation, result)
         assert result.provenance["executor"] == "ios-simulator"
-        assert result.provenance["launch_s"] >= 0 and result.duration_s >= 0
+        assert 0 <= result.provenance["spawn_s"] <= result.provenance["launch_s"] and result.duration_s >= 0
     timed_out = prepared.run(SimulatorSpike.request("timeout"))
     assert (timed_out.exit_status, timed_out.signal) == (None, signal.SIGKILL)
     assert 0.5 <= timed_out.duration_s < 10

@@ -20,7 +20,7 @@ installed runtime is not the iOS 17 floor (MAC-P1-02).
 - `executor.py`: `IOSSimulatorExecutor`, the protocol-1 executor. Options
   (`--executor-option NAME=VALUE`): `device_class` (`iphone` or `ipad`),
   `runtime` (an iOS version prefix or runtime identifier; default the newest
-  available at or above 17.0), `launch_timeout_s` (60), `warmup_timeout_s`
+  available at or above 17.0), `launch_timeout_s` (120), `warmup_timeout_s`
   (600) and `diagnostics` (a directory for host observations when booting
   fails).
 - `supervisor.c`: the strict C11/POSIX program that runs inside the simulator
@@ -126,6 +126,19 @@ The failures had three causes:
   retried once, as described above).
 
 The three missing programs are the dispatching `@gpu` programs.
+
+With those fixes, run [39274756389](https://github.com/schiffy91/btrc/actions/runs/39274756389)
+passed the fixtures again and ran the corpus with no failure:
+
+| frontend | passed | failed | restricted | missing |
+| --- | ---: | ---: | ---: | ---: |
+| reference | 1007 | 0 | 11 | 3 |
+| selfhost | 1007 | 0 | 11 | 3 |
+
+Its 2,014 launches took a median of 0.19 s (p95 0.42 s). One took 44 s,
+shortly after boot, so the launch deadline is now 120 s, and provenance
+separates `spawn_s` (until the supervisor ran) from `launch_s` (until the
+program started).
 
 ## Local checks
 
