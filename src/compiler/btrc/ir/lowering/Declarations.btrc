@@ -7157,11 +7157,18 @@ class DeclarationLowerer {
 		self.appendPreprocessorDecl(module, IRPreprocessorDecl.include(header, true));
 	}
 
-	public void addStandardPreprocessorDecls(IRModule module) {
+	public void addStandardPreprocessorDecls(IRModule module, Map<string, string> nativeDefines) {
 		Vector<string> noParams = [];
-		self.appendPreprocessorDecl(module, IRPreprocessorDecl.macro("_DEFAULT_SOURCE", false, noParams, ""));
+		if (!nativeDefines.has("_DEFAULT_SOURCE")) { self.appendPreprocessorDecl(module, IRPreprocessorDecl.macro("_DEFAULT_SOURCE", false, noParams, "")); }
 		Vector<string> noParams2 = [];
-		self.appendPreprocessorDecl(module, IRPreprocessorDecl.macro("_DARWIN_C_SOURCE", false, noParams2, ""));
+		if (!nativeDefines.has("_DARWIN_C_SOURCE")) { self.appendPreprocessorDecl(module, IRPreprocessorDecl.macro("_DARWIN_C_SOURCE", false, noParams2, "")); }
+		Vector<string> names = nativeDefines.keys(); names.sort();
+		for name in names {
+			string value = nativeDefines.get(name);
+			if (value.contains("\r") || value.contains("\n") || self.preprocessorTrim(value).endsWith("\\")) { self.preprocessorFail(f"native define '{name}' must fit one preprocessor line"); }
+			Vector<string> parameters = [];
+			self.appendPreprocessorDecl(module, IRPreprocessorDecl.macro(name, false, parameters, value));
+		}
 
 		Vector<string> headers = [
 			"stdio.h", "stdlib.h", "string.h", "stdbool.h", "stdint.h",

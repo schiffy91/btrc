@@ -188,6 +188,11 @@ def test_ios_rows_refuse_clock_settime_that_macos_declares() -> None:
         assert not _unavailable(label, "functions", "clock_settime"), label
 
 
+def test_search_only_path_descriptors_are_linux_and_android_macros() -> None:
+    for label in LABELS:
+        assert _unavailable(label, "macros", "O_PATH") != label.startswith(("linux-", "android-")), label
+
+
 def test_windows_api_names_are_unavailable_on_every_non_windows_row() -> None:
     for label in LABELS:
         windows = label.startswith("windows-")

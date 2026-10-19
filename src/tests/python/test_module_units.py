@@ -1479,6 +1479,93 @@ def test_every_unit_carries_the_whole_directive_list_in_source_order(compiler: s
         assert ran.stdout == "3 12 16\n", c_compiler
 
 
+def test_package_defines_reach_headers_and_invalidate_units(compiler: str, tmp_path, request):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "Main.btrc").write_text('import "./Probe.btrc";\nint main() { return probe() == 8 ? 0 : 1; }\n')
+    (source / "Probe.btrc").write_text(
+        '#include "Feature.h"\nextern int featureValue();\nint probe() { return featureValue(); }\n'
+    )
+    (source / "Feature.h").write_text(
+        "#ifndef FEATURE_LEVEL\n#error missing package definition\n#endif\n"
+        "#ifdef INACTIVE_FEATURE\n#error inactive target definition\n#endif\n"
+        "static inline int featureValue(void) { return FEATURE_LEVEL + BARE_SWITCH; }\n"
+    )
+    manifest = source / "btrc.toml"
+
+    def define(level):
+        manifest.write_text(
+            'manifest-version = 1\n[package]\nname = "features"\n'
+            f'[[native.defines]]\nname = "FEATURE_LEVEL"\nvalue = "{level}"\nmodules = ["Probe"]\n'
+            '[[native.defines]]\nname = "BARE_SWITCH"\nvalue = ""\nmodules = ["Probe"]\n'
+            '[[native.defines]]\nname = "INACTIVE_FEATURE"\nvalue = "1"\nos = ["android"]\n'
+        )
+
+    def build(name, cache, module_units):
+        output = tmp_path / name
+        output.mkdir()
+        result = subprocess.run(
+            [
+                *_timing_command(compiler, request),
+                str(source / "Main.btrc"),
+                "-o",
+                str(output / "p.c"),
+                "--emit-units",
+                str(output / "p"),
+                *(["--module-units", "--jobs", "1"] if module_units else []),
+            ],
+            cwd=source,
+            env={
+                **os.environ,
+                "BTRC_HOME": str(ROOT / "src"),
+                "PYTHONPATH": str(ROOT),
+                "BTRC_CACHE_DIR": str(tmp_path / cache),
+            },
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert result.returncode == 0, result.stderr
+        texts = {path.name: path.read_text() for path in sorted(output.glob("p*.c"))}
+        for text in texts.values():
+            assert text.index("#define FEATURE_LEVEL ") < text.index("#include")
+            assert "#define BARE_SWITCH 1" in text
+            assert "#define INACTIVE_FEATURE" not in text
+        return output, texts
+
+    define(7)
+    whole, _ = build("whole", "whole-cache", False)
+    units, _ = build("units", "cache", True)
+    for output in (whole, units):
+        executable = output / "program"
+        compiled = subprocess.run(
+            [
+                *C_COMPILER,
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                f"-I{source}",
+                *map(str, sorted(output.glob("p*.c"))),
+                "-o",
+                str(executable),
+                "-lm",
+                "-lpthread",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        subprocess.run([str(executable)], check=True, timeout=30)
+    define(11)
+    _, warm = build("warm", "cache", True)
+    _, cold = build("cold", "cold-cache", True)
+    assert warm == cold
+    assert all("#define FEATURE_LEVEL 11" in text for text in warm.values())
+
+
 _DYING_WORKER = """
 import os, sys
 from pathlib import Path

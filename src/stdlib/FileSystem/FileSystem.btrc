@@ -421,7 +421,16 @@ class FileSystem {
 	class int openDirectoryNoFollow(string path) {
 		if (path == null || path.isEmpty()) { return -1; }
 		bool absolute = path[0] == '/';
-		int descriptor = open(absolute ? "/" : ".", (int)O_RDONLY | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+		// Ancestors need search permission, not permission to list their names.
+#if defined(__linux__) || defined(__ANDROID__)
+		int access = (int)O_PATH;
+#elif defined(__APPLE__)
+		int access = (int)O_SEARCH;
+#else
+		int access = (int)O_RDONLY;
+#endif
+		int flags = access | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC;
+		int descriptor = open(absolute ? "/" : ".", flags);
 		if (descriptor < 0) { return -1; }
 		Vector<string> components = Strings.split(path, "/");
 		for component in components {
@@ -432,7 +441,7 @@ class FileSystem {
 				close(descriptor);
 				return -1;
 			}
-			int next = openat(descriptor, component, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+			int next = openat(descriptor, component, flags);
 			close(descriptor);
 			if (next < 0) { return -1; }
 			descriptor = next;

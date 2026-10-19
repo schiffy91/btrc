@@ -76,11 +76,51 @@ void createRegular(string path, string content, int mode) {
 #endif
 }
 
+#if !defined(_WIN32)
+void checkSearchOnlyAncestor(string parent) {
+	string ancestor = PathTools.join(parent, "search-only");
+	string writable = PathTools.join(ancestor, "writable");
+	string doomed = PathTools.join(writable, "doomed");
+	string alias = PathTools.join(parent, "search-alias");
+	assert(FileSystem.mkdir(ancestor, 448) == 0);
+	assert(FileSystem.mkdir(writable, 448) == 0);
+	assert(FileSystem.mkdir(doomed, 448) == 0);
+	assert(FileSystem.writeText(PathTools.join(doomed, "marker"), "keep"));
+	assert(FileSystem.symlink(ancestor, alias) == 0);
+	assert(chmod(ancestor, (mode_t)0111) == 0);
+	int listing = open(ancestor, (int)O_RDONLY | (int)O_DIRECTORY);
+	bool searchOnly = listing < 0 || (int)geteuid() == 0;
+	if (listing >= 0) { close(listing); }
+	var privateOpen = FileSystem.openPrivateDirectory(PathTools.join(writable, "private"));
+	bool opened = privateOpen.ok();
+	bool closed = opened && privateOpen.value().close().ok();
+	var aliasOpen = FileSystem.openPrivateDirectory(PathTools.join(alias, "writable/private"));
+	bool rejectedAlias = !aliasOpen.ok() && aliasOpen.error().kind() == FS_SYMLINK;
+	bool protectedTree = FileSystem.removeRecursive(PathTools.join(alias, "writable/doomed")) != 0 && FileSystem.exists(PathTools.join(doomed, "marker"));
+	bool removed = FileSystem.removeRecursive(doomed) == 0 && !FileSystem.exists(doomed);
+	bool deniedSearch = true;
+	if ((int)geteuid() != 0) {
+		assert(chmod(ancestor, (mode_t)0000) == 0);
+		var denied = FileSystem.openPrivateDirectory(PathTools.join(writable, "denied"));
+		deniedSearch = !denied.ok() && denied.error().kind() == FS_ACCESS_DENIED;
+	}
+	// Restore permissions before assertions so a failing probe leaves no trap
+	// for its owning temporary directory's cleanup.
+	assert(chmod(ancestor, (mode_t)0700) == 0);
+	assert(FileSystem.removeRecursive(alias) == 0);
+	assert(FileSystem.removeRecursive(ancestor) == 0);
+	assert(searchOnly && opened && closed && rejectedAlias && protectedTree && removed && deniedSearch);
+}
+#endif
+
 int main() {
 	FileSystemOutcome<TemporaryDirectory> temporaryOpen = FileSystem.createTemporaryDirectory("btrc_private_directory_real");
 	assert(temporaryOpen.ok());
 	TemporaryDirectory temporary = temporaryOpen.value();
 	string parent = temporary.path();
+#if !defined(_WIN32)
+	checkSearchOnlyAncestor(parent);
+#endif
 	string privatePath = PathTools.join(parent, "private");
 
 	FileSystemOutcome<PrivateDirectory> privateOpen = FileSystem.openPrivateDirectory(privatePath);

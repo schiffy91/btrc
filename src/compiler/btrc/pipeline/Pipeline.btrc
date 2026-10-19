@@ -247,6 +247,7 @@ class CompilerPipeline {
 			if (!resolved.strictImports) { return self.failure("error: module units require strict imports"); }
 			Map<string, bool>? stdlibKeys = options.runDce ? StdlibReachability.classify(program.declarations(), self.hostedAbi) : null;
 			ModuleUnitProgram unitProgram = ModuleUnitProgram(program, analyzed, analyzer, self.hostedAbi, runtimeHelpers, resolved, sourcePath, stdlibKeys, packages.linkPlan.target.label());
+			unitProgram.nativeDefines = packages.linkPlan.preprocessorDefinitions();
 			if (records != null) {
 				unitProgram.interfaceDigest = records.interfaceDigest;
 				unitProgram.knownSourceDigests = records.groupSourceDigests;
@@ -287,6 +288,7 @@ class CompilerPipeline {
 
 		IRLowerer lowerer = IRLowerer(analyzed, self.hostedAbi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), runtimeHelpers, sourcePath, resolved.stdlibLineCount, resolved.userLines);
 		if (options.runDce) { lowerer.setStdlibKeys(StdlibReachability.classify(program.declarations(), self.hostedAbi)); }
+		lowerer.setNativeDefines(packages.linkPlan.preprocessorDefinitions());
 		lowerer.setDebug(options.debug);
 		IRModule module = lowerer.lower(program);
 		module.debug = options.debug;

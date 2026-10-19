@@ -19,7 +19,7 @@ from ..analyzer.analyzer import SemanticAnalyzer
 from ..backend.c_emitter import CEmitter
 from ..frontend.imports import FrontendVisibilityError
 from ..frontend.native_imports import NativeHeaderSource
-from ..frontend.packages import NativeGeneratedUnit, NativeLinkPlan, PackageTarget
+from ..frontend.packages import IncludeResolutionError, NativeGeneratedUnit, NativeLinkPlan, PackageTarget
 from ..frontend.sources import (
     CompilerStdlibSource,
     ConditionalEnvironment,
@@ -555,6 +555,8 @@ class CompilationPipeline:
         if isinstance(error, RecursionError):
             message = "expression or declaration nested too deeply to compile"
             return CompilerFailure(CompilerFailureKind.FRONTEND, message)
+        if isinstance(error, IncludeResolutionError):
+            return CompilerFailure(CompilerFailureKind.PACKAGE, str(error))
         if isinstance(error, StdlibArchiveError):
             return CompilerFailure(CompilerFailureKind.ARCHIVE, str(error))
         if isinstance(error, HostedAvailabilityError):
@@ -619,7 +621,9 @@ class CompilationPipeline:
             split_spaces=split_source_spaces,
         )
         start = time.perf_counter()
-        module = self._lower_session(analyzed, filename, options, source_map)
+        module = self._lower_session(
+            analyzed, filename, options, source_map, native_defines=source.native_plan.preprocessor_definitions()
+        )
         self._timed(profile, "lower", start)
         return module
 
@@ -639,6 +643,7 @@ class CompilationPipeline:
         owned_group=None,
         program_facts=None,
         declarations_elsewhere=False,
+        native_defines=(),
     ) -> IRLowerer:
         return IRLowerer(
             analyzed,
@@ -658,6 +663,7 @@ class CompilationPipeline:
             owned_group=owned_group,
             program_facts=program_facts,
             declarations_elsewhere=declarations_elsewhere,
+            native_defines=native_defines,
         )
 
     @staticmethod
@@ -833,7 +839,7 @@ class CompilationPipeline:
                     profile=profile,
                     timed=self._timed,
                 )
-            except (CodegenError, RecursionError) as error:
+            except (CodegenError, IncludeResolutionError, RecursionError) as error:
                 return self._result(source, options, profile, failure=self.failure_for(error), **common)
             return self._result(
                 source,
@@ -892,7 +898,7 @@ class CompilationPipeline:
                 c_source, c_units = units[0], tuple(units[1:])
             else:
                 c_source = self.emit(module, profile)
-        except (CodegenError, StdlibArchiveError, RecursionError) as error:
+        except (CodegenError, IncludeResolutionError, StdlibArchiveError, RecursionError) as error:
             return self._result(source, options, profile, failure=self.failure_for(error), **common)
         return self._result(
             source,

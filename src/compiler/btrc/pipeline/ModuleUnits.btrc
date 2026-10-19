@@ -810,6 +810,7 @@ class ModuleUnitProgram {
 	public Map<string, bool>? stdlibKeys;
 	/* The resolved row's canonical label, which unit keys spell. */
 	public string target;
+	public Map<string, string> nativeDefines = {};
 	/* The program's pre-analysis interface digest when validation records
 	 * computed it (per-group, cached); empty otherwise. */
 	public string interfaceDigest = "";
@@ -904,6 +905,7 @@ class ModuleUnitCompiler {
 		IRLowerer lowerer = IRLowerer(input.analyzed, input.hostedAbi, input.declarations, input.operators, input.expressionTypes, input.gpuSemantics, input.managedValues, input.cycles, input.runtimeHelpers, input.sourcePath, input.resolved.stdlibLineCount, lines);
 		lowerer.shareProgramFacts(self.facts);
 		if (self.options.runDce) { lowerer.setStdlibKeys(input.stdlibKeys); }
+		lowerer.setNativeDefines(input.nativeDefines);
 		lowerer.setDebug(self.options.debug);
 		lowerer.configureModuleUnit(ownedGroup, self.groupOfFile, declarationsElsewhere);
 		return lowerer;
@@ -1896,6 +1898,8 @@ class ModuleUnitCompiler {
 		Map<string, string> sources = self.groupSourceDigests();
 		BtrccPhaseTimer.mark("u-sources");
 		string context = f"debug={self.options.debug};dce={self.options.runDce};target={input.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
+		Vector<string> defineNames = input.nativeDefines.keys(); defineNames.sort();
+		for name in defineNames { string value = input.nativeDefines.get(name); context += f";define={name.len()}:{name}{value.len()}:{value}"; }
 		Vector<ModuleUnitGroupState> states = [];
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";

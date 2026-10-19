@@ -58,6 +58,7 @@ class IRLowerer {
 	private GpuPipeline gpuPipeline;
 	private RuntimeHelperCatalog runtimeHelpers;
 	private LoweringProgramFacts? programFacts = null;
+	private Map<string, string> nativeDefines = {};
 
 	public IRLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry semanticDeclarations, OperatorSemantics operators, ExpressionTypeResolver expressionTypes, GpuSemantics gpuSemantics, ManagedValueSemantics managedValues, CycleSemantics cycles, RuntimeHelperCatalog runtimeHelpers, string sourceFile, int stdlibLineCount, Vector<FeLine> userLines) {
 		self.analyzed = analyzed;
@@ -108,6 +109,8 @@ class IRLowerer {
 	 * stdlib declarations and only the callables the program reaches enter the
 	 * lowerer; the IR-level elimination stays the check. Null lowers everything. */
 	public void setStdlibKeys(Map<string, bool>? keys) { self.stdlibKeys = keys; }
+
+	public void setNativeDefines(Map<string, string> defines) { self.nativeDefines = defines; }
 
 	public void setDebug(bool enabled) { self.context.debug = enabled; }
 
@@ -166,7 +169,7 @@ class IRLowerer {
 				facts.alignmentsComputed = true;
 			}
 		}
-		self.declarations.addStandardPreprocessorDecls(module);
+		self.declarations.addStandardPreprocessorDecls(module, self.nativeDefines);
 		if (facts != null && facts.trycatchComputed) { self.context.setExceptionsEnabled(facts.usesTrycatch); }
 		else {
 			bool usesTrycatch = self.statements.programUsesTrycatch(program);
