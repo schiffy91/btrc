@@ -169,11 +169,14 @@ class ExpressionLowerer {
 		output.push(IRNode.assignment(IRNode.variable(name), IRNode.literal("NULL")));
 	}
 
-	private void addProjectionOperands(OwnershipBoundary boundary, OwnershipProjectionPlan plan, Map<string, Node> varTypes, CallableFlowState callableFlow) {
+	private void addProjectionOperands(OwnershipBoundary boundary, OwnershipProjectionPlan plan, string opaqueContext, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		int index = 0;
 		while (index < plan.expressions.len) {
 			Node expression = plan.expressions.get(index);
 			Node? typeExpr = self.resolvedExpressionType(expression, varTypes);
+			/* An opaque C operand cannot be staged in a typed temporary, as
+			 * Python's _prepare_operand_evaluation refuses it. */
+			if (typeExpr == null) { self.ownershipSemantics.failOpaqueOperand(expression, opaqueContext, false); }
 			Node concreteType = self.operandPlanner.requireType(typeExpr, expression);
 			boundary.addLoweredOperand(expression, concreteType, self.lowerExpr(expression, varTypes, callableFlow), plan.owned.get(index), plan.retained.get(index));
 			index = index + 1;
@@ -194,7 +197,7 @@ class ExpressionLowerer {
 		bool forceOrder = projectionTarget && plan.expressions.len > 0 && self.operandPlanner.requiresOrder(ordered, environment);
 		if (!plan.requiresBoundary() && !forceOrder) { return null; }
 		OwnershipBoundary boundary = self.callOwnership.boundary();
-		self.addProjectionOperands(boundary, plan, varTypes, callableFlow);
+		self.addProjectionOperands(boundary, plan, "assignment target", varTypes, callableFlow);
 		IRNode lowered = self.materializeAssignmentCore(assignmentPlan, varTypes, callableFlow);
 		boundary.restore();
 		Node? resultType = self.resolvedExpressionType(expression, varTypes);
@@ -223,7 +226,7 @@ class ExpressionLowerer {
 		OwnershipProjectionPlan plan = self.ownershipSemantics.assignmentTargetOperands(expression.operand, environment, self.context.currentPropertyBacking, callableFlow);
 		if (!plan.requiresBoundary()) { return null; }
 		OwnershipBoundary boundary = self.callOwnership.boundary();
-		self.addProjectionOperands(boundary, plan, varTypes, callableFlow);
+		self.addProjectionOperands(boundary, plan, "expression", varTypes, callableFlow);
 		IRNode lowered = self.lowerUnaryCore(expression, varTypes, callableFlow);
 		boundary.restore();
 		Node? resultType = self.resolvedExpressionType(expression, varTypes);
@@ -350,6 +353,10 @@ class ExpressionLowerer {
 		}
 		OwnershipBoundary boundary = self.callOwnership.boundary();
 		self.addOwnedProjectionRoots(boundary, expression.obj, varTypes, callableFlow);
+		/* An opaque C receiver or key cannot be staged in a typed temporary,
+		 * as Python's _prepare_operand_evaluation refuses it. */
+		if (objectType == null) { self.ownershipSemantics.failOpaqueOperand(expression.obj, "expression", false); }
+		if (indexType == null && !indexConverted) { self.ownershipSemantics.failOpaqueOperand(expression.index, "expression", false); }
 		if (objectOwned || objectPinned || roots.len > 0 || orderingRequired) {
 			Node concreteObjectType = self.operandPlanner.requireType(objectType, expression.obj);
 			boundary.addLoweredOperand(expression.obj, concreteObjectType, self.lowerExpr(expression.obj, varTypes, callableFlow), objectOwned, objectPinned);
@@ -1309,7 +1316,10 @@ class ExpressionLowerer {
 		bool receiverIsArray = receiverType != null && receiverType.isArray;
 		IRNode stableReceiver = receiver;
 		bool directArrayBinding = receiver.kind == IRK_VAR && receiverIsArray && receiver.arrayStorageKnown && receiver.arrayStorageRoot == receiver.name;
-		if (!directArrayBinding) {
+		/* An opaque C receiver or key (a member of a record a C header
+		 * declares) has no type to hold in a temporary, so it is used as
+		 * written, as Python's materialize_target uses it. */
+		if (!directArrayBinding && receiverType != null) {
 			stableReceiver = self.storageTemporary(storage, receiverType, "__btrc_storage_receiver");
 			if (receiverIsArray) {
 				stableReceiver.arrayStorageKnown = true;
@@ -1317,8 +1327,11 @@ class ExpressionLowerer {
 			}
 			storage.setup.push(IRNode.binary(stableReceiver, "=", receiver));
 		}
-		IRNode stableIndex = self.storageTemporary(storage, indexType, "__btrc_storage_index");
-		storage.setup.push(IRNode.binary(stableIndex, "=", index));
+		IRNode stableIndex = index;
+		if (indexType != null) {
+			stableIndex = self.storageTemporary(storage, indexType, "__btrc_storage_index");
+			storage.setup.push(IRNode.binary(stableIndex, "=", index));
+		}
 		IRNode physical = IRNode.indexAccess(stableReceiver, stableIndex);
 		physical.storageRootKnown = true;
 		if (receiverIsArray) { physical.storageRoot = IRNode.arrayStorageRootValue(stableReceiver); }
@@ -4020,6 +4033,8 @@ class ExpressionLowerer {
 			callableFlow.setBindingAbi(assignment.target.name, plan.callableAbi);
 			callableFlow.recordExceptional();
 		}
-		return self.assignments.materializePlain(plan, target, value);
+		/* An untyped (opaque C) element still has its stabilized key, so the
+		 * store keeps the target's setup, as Python's materialize_store does. */
+		return self.assignments.wrapPhysical(storage, self.assignments.materializePlain(plan, target, value));
 	}
 }

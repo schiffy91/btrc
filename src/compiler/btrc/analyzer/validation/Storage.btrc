@@ -1212,9 +1212,11 @@ class StorageValidator {
 	public void validateIndex(Node expression, Map<string, Node> vars, bool requireGetter) {
 		Node? objectType = self.types.inferType(expression.obj,  vars);
 		Node? indexType = self.types.inferType(expression.index,  vars);
-		if (objectType == null) {
-			TypeValidator.fail("Cannot determine whether expression is indexable", expression);
-		}
+		/* A receiver with no btrc type is opaque C storage, such as a pointer
+		 * or array member of a record a C header declares (`glob_t`'s
+		 * `gl_pathv`): C indexes it, as the reference compiler's
+		 * _validate_index_expr accepts. */
+		if (objectType == null) { return; }
 		Node concreteObject = objectType;
 		if (concreteObject.base == "Tuple" && !concreteObject.isArray && concreteObject.pointerDepth == 0) {
 			TypeValidator.fail("Tuple values are not dynamically indexable; use ._N fields", expression);
