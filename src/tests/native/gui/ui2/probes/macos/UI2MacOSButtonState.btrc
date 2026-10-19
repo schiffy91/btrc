@@ -1,0 +1,36 @@
+import Library.Callback;
+import Library.GUI.IButton;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSActionQueue;
+
+#include <assert.h>
+
+class StateButtonAction implements IButtonAction {
+	public int calls = 0;
+	public void invoke() { self.calls++; }
+}
+int main() {
+	NSApplication.sharedApplication();
+	var signal = MacOSRunLoopSignal(); var actions = MacOSActionQueue(8, signal);
+	var context = MacOSViewContext(MacOSSemanticWake(signal), 8); var events = context.createQueue();
+	var button = MacOSButton("State", actions); button.stateNode().configure(context);
+	button.stateNode().attachWindow(events, true, WINDOW_EXPOSURE_EXPOSED);
+	var receiver = StateButtonAction(); var owner = CallbackScope(); button.onAction(receiver, owner);
+	assert(button.activate() && actions.pendingCount() == 1);
+	button.setVisible(false); assert(actions.pendingCount() == 0 && receiver.calls == 0);
+	assert(button.activate()); actions.dispatchOne(); assert(receiver.calls == 0);
+	button.setVisible(true); assert(button.activate()); actions.dispatchOne(); assert(receiver.calls == 1);
+	assert(button.activate()); var taken = actions.take(); assert(taken != null);
+	button.setVisible(false); taken.deliver(); assert(receiver.calls == 1 && taken.ineligibleCount() == 3LL);
+	button.setVisible(true);
+	assert(button.activate() && actions.pendingCount() == 1);
+	button.setEnabled(false); assert(actions.pendingCount() == 0 && !button.interactionState().localEnabled && !button.interactionState().effectiveEligible);
+	button.setEnabled(true); assert(button.activate());
+	button.stateNode().windowChanged(false, WINDOW_EXPOSURE_NOT_EXPOSED); assert(actions.pendingCount() == 0 && receiver.calls == 1);
+	button.stateNode().detachWindow(); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(button.close() == CALLBACK_CANCELLATION_COMPLETE); actions.close(); context.close(); assert(signal.close());
+	print("PASS: UI2 macOS eligibility loss retires pending native button actions"); return 0;
+}

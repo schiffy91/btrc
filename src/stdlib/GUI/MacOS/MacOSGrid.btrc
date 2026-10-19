@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Math;
 import Library.Callback;
 import Library.Console;
@@ -124,6 +125,12 @@ class MacOSGrid implements IGrid, IMacOSView {
 	private MacOSGridLayout _layout;
 
 	public MacOSGrid(int columns, int rows, double columnSpacing = 0.0, double rowSpacing = 0.0) { self._layout = MacOSGridLayout(columns, rows, columnSpacing, rowSpacing); self._container = MacOSContainer(self._layout); }
+
+	public MacOSViewState stateNode() { return self._container.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._container.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._container.onInteractionStateChanged(handler, owner); }
 
 	public NSView nativeView() { return self._container.nativeView(); }
 

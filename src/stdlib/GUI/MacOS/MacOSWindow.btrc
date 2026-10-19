@@ -1,3 +1,5 @@
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.ControlEventQueue;
 import Library.Math;
 import Library.Callback;
 import Library.Console;
@@ -89,6 +91,10 @@ class MacOSWindowKeys implements IAppKitEventMonitor {
 /* Main-thread native window owner. attachRoot is the only mounting path: the
  * attached root transfers its subtree's lifecycle to the window. */
 class MacOSWindow implements IWindow {
+	private MacOSViewContext? _viewContext;
+	private ControlEventQueue? _semantic;
+	private bool _rootStateAttached = false;
+	private ApplicationActivity _activity = APPLICATION_ACTIVITY_UNKNOWN;
 	private NSWindow? _window;
 	private IView? _root;
 	private unsigned long _rootMask = 0UL;
@@ -99,10 +105,11 @@ class MacOSWindow implements IWindow {
 	private MacOSWindowEvents _events;
 	private CallbackScope _callbacks;
 
-	public MacOSWindow(string title, double width, double height, MacOSRunLoopSignal? signal = null) {
+	public MacOSWindow(string title, double width, double height, MacOSRunLoopSignal? signal = null, MacOSViewContext? context = null) {
 		self._window = null;
 		self.requireMainThread();
 		self.requireSize(width, height);
+		self._viewContext = context; if (context != null) { self._semantic = context.createQueue(); }
 		self._events = MacOSWindowEvents(signal);
 		self._callbacks = CallbackScope();
 		var nativeTitle = AppKitText.nativeValue(title);
@@ -154,6 +161,7 @@ class MacOSWindow implements IWindow {
 	public void dispatchPendingEvents() {
 		self.requireMainThread();
 		if (self._window != null && self._events.closed) { self.close(); }
+		else { self.refreshViewState(); }
 	}
 
 	public IView? root() { self.requireMainThread(); return self._root; }
@@ -171,6 +179,8 @@ class MacOSWindow implements IWindow {
 		var native = self.projection(view);
 		var child = native.nativeView();
 		MacOSView.validateAttachment(child, parent);
+		var context = self._viewContext; var semantic = self._semantic;
+		if (context != null && semantic != null) { native.stateNode().configure(context); native.stateNode().validateWindow(semantic); }
 		var previousFrame = child.frame();
 		self._rootMask = child.autoresizingMask();
 		self._root = view;
@@ -179,8 +189,10 @@ class MacOSWindow implements IWindow {
 			child.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
 			var bounds = parent.bounds();
 			view.arrange(0.0, 0.0, bounds.size.width, bounds.size.height);
+			if (semantic != null) { self._rootStateAttached = true; native.stateNode().attachWindow(semantic, self.inputEligible(), self.viewExposure()); }
 		} catch (string error) {
 			try {
+				if (self._rootStateAttached) { native.stateNode().detachWindow(); self._rootStateAttached = false; }
 				child.setAutoresizingMask(self._rootMask);
 				child.setFrame(previousFrame);
 				if (child.superview() == parent) { native.detachFrom(parent); }
@@ -205,6 +217,7 @@ class MacOSWindow implements IWindow {
 			var child = native.nativeView();
 			// Keep alias-close admission reserved until native state is restored.
 			child.setAutoresizingMask(self._rootMask);
+			if (self._rootStateAttached) { native.stateNode().detachWindow(); self._rootStateAttached = false; }
 			native.detachFrom(parent);
 			self._root = null;
 		} catch (string error) {
@@ -242,9 +255,17 @@ class MacOSWindow implements IWindow {
 
 	public void setTitle(string title) { self.nativeWindow().setTitle(AppKitText.nativeValue(title)); }
 
-	public void show() { self.nativeWindow().makeKeyAndOrderFront(null); }
+	public void show() { self.nativeWindow().makeKeyAndOrderFront(null); self.refreshViewState(); }
 
-	public void hide() { self.nativeWindow().orderOut(null); }
+	public void hide() { self.nativeWindow().orderOut(null); self.refreshViewState(); }
+
+	private bool inputEligible() { var window = self._window; return window != null && self.isOpen() && window.isVisible() && !window.isMiniaturized() && self._activity != APPLICATION_ACTIVITY_SUSPENDED; }
+
+	private WindowExposure viewExposure() { var window = self._window; return window == null || !window.isVisible() || window.isMiniaturized() ? WINDOW_EXPOSURE_NOT_EXPOSED : WINDOW_EXPOSURE_UNKNOWN; }
+
+	private void refreshViewState() { var root = self._root; if (self._rootStateAttached && root != null && root.isOpen()) { self.projection(root).stateNode().windowChanged(self.inputEligible(), self.viewExposure()); } }
+
+	public void applicationActivity(ApplicationActivity activity) { self.requireMainThread(); self._activity = activity; self.refreshViewState(); }
 
 	public bool isVisible() { return self.isOpen() && self.nativeWindow().isVisible(); }
 
@@ -282,7 +303,7 @@ class MacOSWindow implements IWindow {
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		if (self._mutating) { throw "Window root mutation is already active"; }
 		if (!self._closing) {
-			self._closing = true;
+			self._closing = true; self.refreshViewState();
 			// Programmatic close may precede native close by an asynchronous
 			// subtree drain. Wake its owner even without an NSWindow event.
 			self._events.wake();
@@ -308,6 +329,7 @@ class MacOSWindow implements IWindow {
 					window.endEditingFor(null);
 					var parent = window.contentView();
 					if (parent == null) { throw "Window has no content view"; }
+					if (self._rootStateAttached) { self.projection(root).stateNode().detachWindow(); self._rootStateAttached = false; }
 					self.projection(root).detachFrom(parent);
 					self._rootClosing = true;
 					result = root.close();
@@ -317,6 +339,7 @@ class MacOSWindow implements IWindow {
 			if (result == CALLBACK_CANCELLATION_COMPLETE) {
 				if (!self._events.closed) { window.close(); }
 				self._window = null;
+				if (self._viewContext != null && self._semantic != null) { self._viewContext.retireQueue(self._semantic); self._semantic = null; }
 			}
 		} catch (string error) {
 			self._closeFailure = error;

@@ -1,0 +1,69 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class ViewObservation implements IViewInteractionStateHandler {
+	public Vector<ViewInteractionState> states = [];
+	public void interactionChanged(ViewInteractionState state) { assert(NSThread.isMainThread()); self.states.push(state); }
+}
+class ClosingViewObservation implements IViewInteractionStateHandler {
+	public MacOSView view;
+	public MacOSViewContext context;
+	public ICallbackRegistration? registration;
+	public int calls = 0;
+	public ClosingViewObservation(MacOSView view, MacOSViewContext context) { self.view = view; self.context = context; }
+
+	public void interactionChanged(ViewInteractionState state) {
+		bool rejected = false; try { self.context.dispatchOne(); } catch (string error) { rejected = true; } assert(rejected);
+		self.calls++; assert(self.view.close() == CALLBACK_CANCELLATION_PENDING);
+		assert(self.registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
+	}
+}
+int main() {
+	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8); var windowEvents = context.createQueue();
+	var root = MacOSView(); var child = MacOSView(); root.stateNode().configure(context);
+	child.attachTo(root.nativeView()); root.stateNode().addChild(child.stateNode());
+	// Window facts are injected here; native window observation is not qualified.
+	root.stateNode().attachWindow(windowEvents, true, WINDOW_EXPOSURE_EXPOSED);
+	assert(root.interactionState().effectiveEligible && child.interactionState().effectiveEligible);
+	var rootObserver = ViewObservation(); var childObserver = ViewObservation(); var owner = CallbackScope();
+	var rootRegistration = root.onInteractionStateChanged(rootObserver, owner); var childRegistration = child.onInteractionStateChanged(childObserver, owner);
+	assert(!context.pending() && rootObserver.states.isEmpty() && childObserver.states.isEmpty());
+	bool duplicate = false; try { root.onInteractionStateChanged(rootObserver, owner); } catch (string error) { duplicate = true; } assert(duplicate);
+	root.setVisible(false);
+	assert(root.nativeView().isHidden() && !child.interactionState().effectiveEligible && child.interactionState().localVisible);
+	assert(rootObserver.states.isEmpty() && childObserver.states.isEmpty());
+	while (context.dispatchOne()) {}
+	assert(rootObserver.states.len == 1 && childObserver.states.len == 1);
+	assert(!rootObserver.states.get(0).effectiveEligible && !childObserver.states.get(0).inheritedEligible);
+	var alias = child.interactionState(); alias.localVisible = false; alias.stateRevision = 0LL;
+	assert(child.interactionState().localVisible && child.interactionState().stateRevision > 0LL);
+	child.stateNode().setEnabled(false); root.setVisible(true);
+	assert(root.interactionState().effectiveEligible && !child.interactionState().effectiveEligible && !child.interactionState().localEnabled);
+	child.stateNode().setEnabled(true); assert(child.interactionState().effectiveEligible);
+	root.stateNode().windowChanged(true, WINDOW_EXPOSURE_NOT_EXPOSED);
+	assert(child.interactionState().effectiveEligible); // Occlusion alone preserves editing eligibility.
+	root.stateNode().windowChanged(false, WINDOW_EXPOSURE_NOT_EXPOSED);
+	assert(!root.interactionState().effectiveEligible && !child.interactionState().effectiveEligible);
+	root.stateNode().detachWindow(); root.stateNode().attachWindow(windowEvents, true, WINDOW_EXPOSURE_EXPOSED);
+	while (context.dispatchOne()) {}
+	assert(rootObserver.states.get(rootObserver.states.len - 1).stateRevision == root.interactionState().stateRevision);
+	assert(childObserver.states.get(childObserver.states.len - 1).stateRevision == child.interactionState().stateRevision);
+	assert(rootRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE && childRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	root.stateNode().detachWindow(); root.stateNode().removeChild(child.stateNode()); child.detachFrom(root.nativeView());
+	assert(child.close() == CALLBACK_CANCELLATION_COMPLETE && root.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.retireQueue(windowEvents);
+	var closing = MacOSView(); closing.stateNode().configure(context); var closer = ClosingViewObservation(closing, context); var closingOwner = CallbackScope();
+	closer.registration = closing.onInteractionStateChanged(closer, closingOwner); closing.setVisible(false);
+	assert(context.dispatchOne() && closer.calls == 1);
+	assert(closing.pollClose() == CALLBACK_CANCELLATION_COMPLETE && closer.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(closingOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && !context.pending());
+	context.close(); assert(signal.close());
+	print("PASS: UI2 macOS native view state subtree eligibility and deferred observations"); return 0;
+}

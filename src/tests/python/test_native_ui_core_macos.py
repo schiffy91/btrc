@@ -47,6 +47,9 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
     ("fixture", "marker"),
     [
         ("UI2MacOSSignal", "PASS: UI2 macOS scoped common-mode wake and worker signal"),
+        ("UI2MacOSViewInput", "PASS: UI2 macOS pointer admission follows effective eligibility"),
+        ("UI2MacOSButtonState", "PASS: UI2 macOS eligibility loss retires pending native button actions"),
+        ("UI2MacOSViewState", "PASS: UI2 macOS native view state subtree eligibility and deferred observations"),
         ("UI2MacOSPublisher", "PASS: UI2 macOS worker publication and cancellation drain"),
         ("UI2MacOSExecutor", "PASS: UI2 macOS executor worker delivery timers suspension and callback drain"),
         ("UI2MacOSScheduler", "PASS: UI2 macOS scheduled work uses common-mode deadlines and later turns"),
@@ -73,6 +76,21 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
     (source.parent / "Foundation.btrc").write_text("")
     root = Path(__file__).resolve().parents[3]
     source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
+    if fixture in {"UI2MacOSButtonState", "UI2MacOSViewInput"}:
+        (package / "Application.h").write_text("#import <AppKit/AppKit.h>\n")
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "Application.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["+[NSApplication sharedApplication]"'
+            + (
+                ', "+[NSWindow new]", "-[NSWindow setReleasedWhenClosed:]", "-[NSWindow setContentSize:]", '
+                '"-[NSWindow setContentView:]", "-[NSWindow windowNumber]", "-[NSWindow close]", '
+                '"+[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]", "NSEventTypeLeftMouseDown"'
+                if fixture == "UI2MacOSViewInput"
+                else ""
+            )
+            + "]\n"
+        )
     if fixture == "UI2MacOSApplicationHost":
         for suffix in ("h", "m"):
             name = f"{fixture}.{suffix}"

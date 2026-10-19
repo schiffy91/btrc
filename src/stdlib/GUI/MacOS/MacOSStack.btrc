@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Math;
 import Library.Console;
 import Library.Callback;
@@ -79,6 +80,12 @@ class MacOSStack implements IStack, IMacOSView {
 	private MacOSStackLayout _layout;
 
 	public MacOSStack(bool vertical, double spacing) { self._layout = MacOSStackLayout(vertical, spacing); self._container = MacOSContainer(self._layout); }
+
+	public MacOSViewState stateNode() { return self._container.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._container.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._container.onInteractionStateChanged(handler, owner); }
 
 	public NSView nativeView() { return self._container.nativeView(); }
 

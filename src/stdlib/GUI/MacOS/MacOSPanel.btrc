@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Image;
 import Library.Math;
 import Library.Callback;
@@ -70,6 +71,12 @@ class MacOSPanel implements IPanel, IMacOSView {
 	private MacOSPanelLayout _layout;
 
 	public MacOSPanel(RGBA fill, double radius = 0.0) { self._layout = MacOSPanelLayout(fill, radius); self._container = MacOSContainer(self._layout); }
+
+	public MacOSViewState stateNode() { return self._container.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._container.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._container.onInteractionStateChanged(handler, owner); }
 
 	public NSView nativeView() { return self._container.nativeView(); }
 

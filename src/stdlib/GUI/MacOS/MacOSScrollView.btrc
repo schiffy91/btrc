@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Math;
 import Library.Callback;
 import Library.Console;
@@ -104,6 +105,12 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 	private MacOSScrollLayout _layout;
 
 	public MacOSScrollView() { self._layout = MacOSScrollLayout(); self._container = MacOSContainer(self._layout); }
+
+	public MacOSViewState stateNode() { return self._container.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._container.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._container.onInteractionStateChanged(handler, owner); }
 
 	public NSView nativeView() { return self._container.nativeView(); }
 

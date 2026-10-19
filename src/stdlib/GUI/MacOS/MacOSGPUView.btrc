@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Callback;
 import Library.Console;
 import Library.GUI.IGPUView;
@@ -28,6 +29,12 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 	private void requireExecutor() { self._work.isOpen(); }
 
 	private void requireOpen() { self.requireExecutor(); if (self._closing || self._closed) { throw "GPU view is closing or closed"; } }
+
+	public MacOSViewState stateNode() { return self._view.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
 
 	public NSView nativeView() { self.requireOpen(); return self._view.nativeView(); }
 

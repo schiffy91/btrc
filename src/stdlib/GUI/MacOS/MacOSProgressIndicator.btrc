@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.GUI.MacOS.MacOSView;
 import Library.Callback;
 import Library.GUI.IProgressIndicator;
@@ -18,6 +19,12 @@ class MacOSProgressIndicator implements IProgressIndicator, IMacOSView {
 		indicator.setIndeterminate(true);
 		indicator.setDisplayedWhenStopped(false);
 	}
+
+	public MacOSViewState stateNode() { return self._view.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
 
 	public NSView nativeView() { return self._view.nativeView(); }
 

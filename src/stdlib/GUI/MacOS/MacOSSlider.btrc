@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Math;
 import Library.Callback;
 import Library.GUI.ISlider;
@@ -37,6 +38,12 @@ class MacOSSlider implements ISlider, IMacOSView {
 		return self._slider;
 	}
 
+	public MacOSViewState stateNode() { return self._view.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
 	public NSView nativeView() { return self._view.nativeView(); }
 
 	public void attachTo(NSView parent) { self._view.attachTo(parent); }
@@ -72,7 +79,10 @@ class MacOSSlider implements ISlider, IMacOSView {
 		slider.setDoubleValue(value);
 	}
 
-	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
+	public void setEnabled(bool enabled) {
+		var state = self._view.stateNode(); state.requireMutation(); var control = self.control(); bool previous = control.isEnabled();
+		state.setEnabled(enabled); try { control.setEnabled(enabled); } catch (string error) { state.setEnabled(previous); throw error; }
+	}
 
 	public bool isEnabled() { return self.control().isEnabled(); }
 

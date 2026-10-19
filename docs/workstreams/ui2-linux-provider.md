@@ -53,10 +53,29 @@ suspension, publisher capacity exhaustion, callback failures, and close during
 publication delivery. After the clock correction, all 26 targeted native and
 public Tray seam checks passed. Generated-source, lint and format checks pass.
 
+MacOSViewState now owns subtree eligibility, detached/window semantic routes,
+and revisioned interaction observations. Leaves and container wrappers expose
+that state through IView. MacOSApplication owns the terminal pool and services
+window queues through the same native and host wake. Eligibility loss settles
+capture and queued button delivery before hiding the native view. Buttons
+recheck eligibility at delivery and count ineligible receipts. Pointer routing
+checks eligibility before entry and again after a receiver changes state.
+
+The broader native and portable run passed 50 checks and exposed a dispatch
+guard error in four view-state rows: returning from inside `try` skips `finally`
+in BTRC. The service now returns after cleanup. All 12 view-state, button and
+pointer rows pass after that repair, including recursive dispatch rejection
+and closing inside a callback. These probes use real AppKit views and native
+events, with injected window eligibility. Native window observation, modal
+barriers, control editing settlement, cross-control semantic ordering and the
+full application composition still need qualification. Older native fixtures
+that expect callbacks from detached buttons must mount eligible views under
+the revised contract; they cannot be treated as UI2 acceptance unchanged.
+
 The two whole-application probes remain registered and fail in all eight
-frontend/build combinations because view, control and window methods in 16
-macOS classes are unfinished. They cover worker publication and host lifetime,
-including delegate preservation and direct-close completion. The application
+frontend/build combinations because container, control and window methods in
+eight macOS classes are unfinished. They cover worker publication and host
+lifetime, including delegate preservation and direct-close completion. The application
 wiring has no runtime qualification yet. The current Linux scheduler composition
 also needs native qualification. Both complete desktop providers must pass
 acceptance before the interface can land.

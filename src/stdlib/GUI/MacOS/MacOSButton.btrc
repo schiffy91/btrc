@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Math;
 import Library.Callback;
 import Library.GUI.IButton;
@@ -28,7 +29,7 @@ class MacOSButton implements IButton, IMacOSView {
 		button.setButtonType(NSButtonTypeMomentaryPushIn);
 		button.setBezelStyle(NSBezelStyleRounded);
 		button.setContinuous(false);
-		if (actions != null) { self._action = actions.bind(button); }
+		if (actions != null) { var action = actions.bind(button, self._view.stateNode()); self._action = action; self._view.bindEligibility(action); }
 	}
 
 	private NSButton control() {
@@ -36,6 +37,12 @@ class MacOSButton implements IButton, IMacOSView {
 		if (self._button == null) { throw "Native button is closed"; }
 		return self._button;
 	}
+
+	public MacOSViewState stateNode() { return self._view.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
 
 	public NSView nativeView() { return self._view.nativeView(); }
 
@@ -65,7 +72,10 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public void setTitle(string title) { self.control().setTitle(AppKitText.nativeValue(title)); self.placeSymbol(); }
 
-	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
+	public void setEnabled(bool enabled) {
+		var state = self._view.stateNode(); state.requireMutation(); var control = self.control(); bool previous = control.isEnabled();
+		state.setEnabled(enabled); try { control.setEnabled(enabled); } catch (string error) { state.setEnabled(previous); throw error; }
+	}
 
 	/* AppKit still tracks and dispatches a transparent button. Its parent owns
 	 * custom content, such as an artwork card, rather than a second painted bezel. */

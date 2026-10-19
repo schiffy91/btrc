@@ -3,6 +3,7 @@ import Library.Vector;
 import Library.GUI.IView;
 import Library.GUI.MacOS.AppKitEvents;
 import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSViewState;
 
 class MacOSViewFocus implements IAppKitNotificationObserver {
 	private MacOSViewInput _input;
@@ -16,6 +17,7 @@ class MacOSViewFocus implements IAppKitNotificationObserver {
  * admission closes and in-flight dispatch drains. */
 class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 	private NSView? _view;
+	private MacOSViewState _state;
 	private IViewPointerHandler? _pointer;
 	private IViewScrollHandler? _scroll;
 	private CallbackScope _native = CallbackScope();
@@ -27,9 +29,9 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 	private double _y = 0.0;
 	private AppKeyModifiers _modifiers = AppKeyModifiers(false, false, false, false);
 
-	public MacOSViewInput(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll) {
+	public MacOSViewInput(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, MacOSViewState state) {
 		if ((pointer == null) == (scroll == null)) { throw "View input requires exactly one handler"; }
-		self._view = view;
+		self._view = view; self._state = state;
 		self._pointer = pointer;
 		self._scroll = scroll;
 	}
@@ -98,7 +100,7 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 		var view = self._view;
 		if (!self._open || view == null) { return native; }
 		var window = view.window();
-		if (window == null || view.isHiddenOrHasHiddenAncestor()) { self.cancelCapture(); return native; }
+		if (window == null || !self._state.effectiveEligible() || view.isHiddenOrHasHiddenAncestor()) { self.cancelCapture(); return native; }
 		bool matching = native.window() == window;
 		var location = view.convertPoint(native.locationInWindow(), null);
 		var bounds = view.bounds();
@@ -130,13 +132,13 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 			self._inside = inside;
 			consumed = self.pointer(inside ? APP_POINTER_ENTERED : APP_POINTER_EXITED);
 		}
-		if (!self._open) { return consumed ? null : native; }
+		if (!self._open || !self._state.effectiveEligible()) { return consumed ? null : native; }
 		if (type == NSEventTypeMouseMoved) { if (inside) { consumed = self.pointer(APP_POINTER_MOVED) || consumed; } }
 		else if (type == NSEventTypeLeftMouseDown || type == NSEventTypeRightMouseDown || type == NSEventTypeOtherMouseDown) {
 			if (inside) {
 				var button = self.button(native.buttonNumber());
 				bool pressed = self.pointer(APP_POINTER_PRESSED, button, (int)native.clickCount());
-				if (pressed && self._open && self._captured == APP_POINTER_BUTTON_NONE) { self._captured = button; }
+				if (pressed && self._open && self._state.effectiveEligible() && self._captured == APP_POINTER_BUTTON_NONE) { self._captured = button; }
 				consumed = pressed || consumed;
 			}
 		} else if (type == NSEventTypeLeftMouseUp || type == NSEventTypeRightMouseUp || type == NSEventTypeOtherMouseUp) {
@@ -177,10 +179,10 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 		return state;
 	}
 
-	class ICallbackRegistration subscribe(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope viewOwner, CallbackScope owner, Vector<MacOSViewInput> inputs) {
+	class ICallbackRegistration subscribe(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope viewOwner, CallbackScope owner, Vector<MacOSViewInput> inputs, MacOSViewState state) {
 		viewOwner.pollCompletion();
 		for (int index = inputs.len - 1; index >= 0; index--) { if (!inputs.get(index).isOpen()) { inputs.remove(index); } }
-		var registration = MacOSViewInput(view, pointer, scroll);
+		var registration = MacOSViewInput(view, pointer, scroll, state);
 		try {
 			viewOwner.track(registration);
 			owner.track(registration);

@@ -2,22 +2,38 @@ import Library.Callback;
 import Library.Vector;
 import Library.GUI.IButton;
 import Library.GUI.ActionMailbox;
+import Library.GUI.MacOS.MacOSViewState;
 import Library.GUI.MacOS.MacOSRunLoop;
 
 /* The provider's projection of a queued action, compared by identity. */
-interface IMacOSAction extends IQueuedAction {}
+interface IMacOSAction extends IQueuedAction { void discard(); long long ineligibleCount(); }
 
 /* Stable BTRC identity, not a native sender. It has no path back to the scope
  * that owns its subscription. Each queued entry snapshots its generation. */
-class MacOSAction implements IMacOSAction, IAppKitButtonAction {
+class MacOSAction implements IMacOSAction, IAppKitButtonAction, IMacOSViewEligibility {
 	private MacOSActionMailbox _mailbox;
 	private int _generation = 0;
 	private bool _open = true;
+	private MacOSViewState? _state;
+	private long long _ineligible = 0LL;
 	private CallbackContext<IButtonAction, MacOSAction>? _handler;
 
-	public MacOSAction(MacOSActionMailbox mailbox) { mailbox.requireMainThread(); self._mailbox = mailbox; }
+	public MacOSAction(MacOSActionMailbox mailbox, MacOSViewState? state = null) { mailbox.requireMainThread(); self._mailbox = mailbox; self._state = state; }
 
-	public bool accepts(int generation) { self._mailbox.requireMainThread(); return self._open && self._generation == generation; }
+	/* Manual provider queues expose action identities without a domain receiver.
+	 * A subscribed action always rechecks its view before user delivery. */
+	private bool eligible() { var state = self._state; return self._handler == null || state == null || state.effectiveEligible(); }
+
+	public long long ineligibleCount() { self._mailbox.requireMainThread(); return self._ineligible; }
+
+	public void eligibilityLost() { self._mailbox.requireMainThread(); self._mailbox.prune(); }
+
+	public bool accepts(int generation) {
+		self._mailbox.requireMainThread();
+		if (!self._open || self._generation != generation) { return false; }
+		if (!self.eligible()) { self._ineligible++; return false; }
+		return true;
+	}
 
 	public void invoke() { self._mailbox.requireMainThread(); if (self._open) { self._mailbox.enqueue(self, self._generation); } }
 
@@ -41,6 +57,8 @@ class MacOSAction implements IMacOSAction, IAppKitButtonAction {
 
 	public void deliver() {
 		self._mailbox.requireMainThread();
+		if (!self._open) { return; }
+		if (!self.eligible()) { self._ineligible++; return; }
 		var handler = self._handler;
 		if (handler == null) { return; }
 		var receiver = handler.enter();
@@ -116,9 +134,9 @@ class MacOSActionBinding {
 	private CallbackScope _scope;
 	private bool _closed = false;
 
-	public MacOSActionBinding(NSButton control, MacOSActionMailbox mailbox) {
+	public MacOSActionBinding(NSButton control, MacOSActionMailbox mailbox, MacOSViewState? state) {
 		self._control = control;
-		self._action = MacOSAction(mailbox);
+		self._action = MacOSAction(mailbox, state);
 		self._scope = CallbackScope();
 		try { control.setTarget(self._action, self._scope); }
 		catch (string error) { self.close(); throw error; }
@@ -160,10 +178,10 @@ class MacOSActionQueue {
 		return -1;
 	}
 
-	public IMacOSAction bind(NSButton control) {
+	public MacOSAction bind(NSButton control, MacOSViewState? state = null) {
 		self.requireOpen();
 		if (self.indexOf(control) >= 0) { throw "Native control is already bound"; }
-		var binding = MacOSActionBinding(control, self._mailbox);
+		var binding = MacOSActionBinding(control, self._mailbox, state);
 		self._bindings.push(binding);
 		return binding.action();
 	}

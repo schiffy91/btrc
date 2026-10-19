@@ -2,6 +2,7 @@ import Library.Callback;
 import Library.Console;
 import Library.Vector;
 import Library.GUI.IApplication;
+import Library.GUI.ControlEventQueue;
 import Library.GUI.ApplicationPublisher;
 import Library.GUI.ApplicationScheduler;
 import Library.GUI.MacOS.MacOSRunLoop;
@@ -9,7 +10,7 @@ import Library.GUI.MacOS.MacOSRunLoop;
 /* AppKit's main-thread work owner. The application calls one bounded turn
  * from its common-mode source; native input and window teardown stay with
  * their existing owners. Publishers retain the source through worker drain. */
-class MacOSApplicationExecutor {
+class MacOSApplicationExecutor implements IControlEventWake {
 	private ApplicationScheduler _scheduler;
 	private MacOSRunLoopSignal _signal;
 	private Vector<ApplicationPublisher> _publishers = [];
@@ -33,7 +34,7 @@ class MacOSApplicationExecutor {
 	public ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) {
 		self.requireMainThread();
 		var result = self._scheduler.schedule(work, MacOSApplicationExecutor.now(), delaySeconds, policy, replacementKey);
-		if (result.kind == SCHEDULE_ACCEPTED || result.kind == SCHEDULE_REPLACED) { self.updateDeadline(); self.requestTurn(); }
+		if (result.kind == SCHEDULE_ACCEPTED || result.kind == SCHEDULE_REPLACED) { self.updateDeadline(); if (!self.requestTurn()) { throw "Application wake failed"; } }
 		return result;
 	}
 
@@ -77,10 +78,10 @@ class MacOSApplicationExecutor {
 		return true;
 	}
 
-	public void requestTurn() {
+	public bool requestTurn() {
 		self.requireMainThread();
-		if (!self._signal.requestTurn()) { throw "Application native wake failed"; }
-		if (self._host != null && !self._host.requestTurn()) { throw "Application host wake failed"; }
+		if (!self._signal.requestTurn()) { return false; }
+		return self._host == null || self._host.requestTurn();
 	}
 
 	public void updateDeadline() {
@@ -94,7 +95,7 @@ class MacOSApplicationExecutor {
 		self.requireMainThread(); if (self._closing) { return; }
 		self._suspended = suspended; self._scheduler.suspend(suspended);
 		for publisher in self._publishers { publisher.suspend(suspended); }
-		self.updateDeadline(); self.requestTurn();
+		self.updateDeadline(); if (!self.requestTurn()) { throw "Application wake failed"; }
 	}
 
 	private void runScheduled() {
@@ -125,7 +126,7 @@ class MacOSApplicationExecutor {
 			else { self.runScheduled(); self.runPublishers(); }
 			self._publisherFirst = !self._publisherFirst;
 		} finally { self._servicing = false; }
-		self.updateDeadline(); if (self.runnable()) { self.requestTurn(); }
+		self.updateDeadline(); if (self.runnable() && !self.requestTurn()) { throw "Application wake failed"; }
 	}
 
 	public bool runnable() {

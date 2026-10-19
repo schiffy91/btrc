@@ -1,0 +1,48 @@
+import Library.Callback;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSViewInput;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class InputObservation implements IViewPointerHandler {
+	public MacOSViewState state;
+	public int presses = 0;
+	public int cancels = 0;
+	public bool hideOnEntry = false;
+	public InputObservation(MacOSViewState state) { self.state = state; }
+
+	public bool pointer(AppPointerEvent event) {
+		if (event.action == APP_POINTER_ENTERED && self.hideOnEntry) { self.state.setVisible(false); }
+		if (event.action == APP_POINTER_PRESSED) { self.presses++; return true; }
+		if (event.action == APP_POINTER_CANCELLED) { self.cancels++; }
+		return false;
+	}
+}
+int main() {
+	NSApplication.sharedApplication();
+	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8); var events = context.createQueue();
+	var view = MacOSView(); view.stateNode().configure(context);
+	var window = NSWindow.new(); window.setReleasedWhenClosed(false);
+	var frame = view.nativeView().frame(); frame.size.width = 200.0; frame.size.height = 100.0;
+	window.setContentSize(frame.size); window.setContentView(view.nativeView());
+	// Exercise the native monitor with injected window eligibility. The window stays hidden.
+	view.stateNode().attachWindow(events, true, WINDOW_EXPOSURE_EXPOSED);
+	var receiver = InputObservation(view.stateNode()); var owner = CallbackScope(); view.onPointer(receiver, owner);
+	var input = MacOSViewInput(view.nativeView(), receiver, null, view.stateNode());
+	var location = frame.origin; location.x = 50.0; location.y = 50.0;
+	var down = NSEvent.mouseEventWithType(NSEventTypeLeftMouseDown, location, 0UL, 0.0, window.windowNumber(), null, 1L, 1L, 1.0);
+	assert(down != null);
+	view.stateNode().setEnabled(false); assert(input.invoke(down) == down && receiver.presses == 0);
+	view.stateNode().setEnabled(true); assert(input.invoke(down) == null && receiver.presses == 1);
+	view.stateNode().setEnabled(false); input.detach(); assert(receiver.cancels == 1);
+	assert(input.invoke(down) == down && receiver.presses == 1);
+	view.stateNode().setEnabled(true); receiver.hideOnEntry = true;
+	assert(input.invoke(down) == down && receiver.presses == 1 && !view.interactionState().effectiveEligible);
+	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && input.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	view.stateNode().detachWindow(); window.setContentView(null); assert(view.close() == CALLBACK_CANCELLATION_COMPLETE);
+	window.close(); context.close(); assert(signal.close());
+	print("PASS: UI2 macOS pointer admission follows effective eligibility"); return 0;
+}

@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Vector;
 import Library.Callback;
 import Library.GUI.ISelect;
@@ -31,6 +32,12 @@ class MacOSSelect implements ISelect, IMacOSView {
 	private void validateSelection(int count, int index) {
 		if (count == 0 ? index != -1 : index < 0 || index >= count) { throw "Native selection index is out of range"; }
 	}
+
+	public MacOSViewState stateNode() { return self._view.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
 
 	public NSView nativeView() { return self._view.nativeView(); }
 
@@ -101,7 +108,10 @@ class MacOSSelect implements ISelect, IMacOSView {
 		return title == null ? "" : AppKitText.ownedValue(title);
 	}
 
-	public void setEnabled(bool enabled) { self.control().setEnabled(enabled); }
+	public void setEnabled(bool enabled) {
+		var state = self._view.stateNode(); state.requireMutation(); var control = self.control(); bool previous = control.isEnabled();
+		state.setEnabled(enabled); try { control.setEnabled(enabled); } catch (string error) { state.setEnabled(previous); throw error; }
+	}
 
 	public void setFont(double size) {
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native selection font size"; }

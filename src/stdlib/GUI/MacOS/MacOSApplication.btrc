@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Console;
 import Library.Platform;
 import Library.Timer;
@@ -46,6 +47,7 @@ import Library.Image;
 class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotificationObserver {
 	public bool quitRequested = false;
 	private MacOSApplicationExecutor _executor;
+	private MacOSViewContext _viewContext;
 	private string _workFailure = "";
 	private bool _workFailed = false;
 	private MacOSActionQueue _actions;
@@ -60,8 +62,8 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 	private Timer _shutdownClock = Timer();
 	private bool _shutdownTimed = false;
 
-	public MacOSApplicationEvents(MacOSApplicationExecutor executor, MacOSActionQueue actions, Vector<MacOSWindow> windows, Vector<IView> views, CallbackScope shutdown) {
-		self._executor = executor;
+	public MacOSApplicationEvents(MacOSApplicationExecutor executor, MacOSViewContext viewContext, MacOSActionQueue actions, Vector<MacOSWindow> windows, Vector<IView> views, CallbackScope shutdown) {
+		self._executor = executor; self._viewContext = viewContext;
 		self._actions = actions;
 		self._windows = windows;
 		self._views = views;
@@ -76,6 +78,8 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 		try {
 			self.dispatchWindowEvents();
 			self._executor.serviceTurn();
+			unsigned long long semanticStart = MacOSApplicationExecutor.now();
+			for (int count = 0; count < 64 && !self.quitRequested && MacOSApplicationExecutor.now() - semanticStart < 2000000ULL; count++) { if (!self._viewContext.dispatchOne()) { break; } }
 			unsigned long long started = MacOSApplicationExecutor.now();
 			int count = self._actions.pendingCount();
 			for (int index = 0; index < count && index < 64 && !self.quitRequested && MacOSApplicationExecutor.now() - started < 2000000ULL; index++) { self._actions.dispatchOne(); }
@@ -84,7 +88,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 		finally {
 			self._dispatchingEvents = false;
 			if (self.quitRequested && self._executor.pendingWork() == 0) { self.stop(NSApplication.sharedApplication()); }
-			else if (!self.quitRequested) { self._actions.wake(); }
+			else if (!self.quitRequested) { self._actions.wake(); if (self._viewContext.pending() && !self._viewContext.wake.requestTurn()) { self.failWork("Application semantic wake failed"); } }
 		}
 	}
 
@@ -289,6 +293,7 @@ class MacOSApplication implements IApplication {
 	private MacOSApplicationEvents _events;
 	private CallbackScope _callbacks;
 	private MacOSApplicationExecutor _executor;
+	private MacOSViewContext _viewContext;
 	private MacOSHostAttachment? _attachment;
 	private CallbackScope _shutdown;
 	private MacOSActionQueue _actions;
@@ -306,7 +311,8 @@ class MacOSApplication implements IApplication {
 		self._actions = MacOSActionQueue(workCapacity, self._signal);
 		self._shutdown = CallbackScope();
 		self._executor = MacOSApplicationExecutor(workCapacity, self._signal);
-		self._events = MacOSApplicationEvents(self._executor, self._actions, self._windows, self._views, self._shutdown);
+		self._viewContext = MacOSViewContext(self._executor, workCapacity);
+		self._events = MacOSApplicationEvents(self._executor, self._viewContext, self._actions, self._windows, self._views, self._shutdown);
 		self._callbacks = CallbackScope();
 		try {
 			self._signal.subscribe(self._events, self._callbacks);
@@ -399,7 +405,7 @@ class MacOSApplication implements IApplication {
 		catch (string error) { attachment.abort(); result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = error; return result; }
 		if (!self._executor.installHost(host)) { attachment.abort(); result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = "Publisher wake transition is busy"; return result; }
 		self._attachment = attachment; result.kind = APPLICATION_HOST_ATTACHED; result.attachment = attachment;
-		try { self._executor.updateDeadline(); self._executor.requestTurn(); }
+		try { self._executor.updateDeadline(); if (!self._executor.requestTurn()) { throw "Application host wake failed"; } }
 		catch (string error) { self._events.failWork(error); }
 		return result;
 	}
@@ -410,6 +416,7 @@ class MacOSApplication implements IApplication {
 		self.requireMainThread();
 		if (activity < APPLICATION_ACTIVITY_ACTIVE || activity > APPLICATION_ACTIVITY_UNKNOWN) { throw "Invalid application activity"; }
 		self._executor.suspend(activity == APPLICATION_ACTIVITY_SUSPENDED);
+		for window in self._windows { window.applicationActivity(activity); }
 	}
 
 	public void recordHostFailure(string error) {
@@ -437,7 +444,7 @@ class MacOSApplication implements IApplication {
 
 	public IWindow createWindow(string title, double width, double height) {
 		self.requireCreation();
-		var window = MacOSWindow(title, width, height, self._signal);
+		var window = MacOSWindow(title, width, height, self._signal, self._viewContext);
 		self._windows.push(window);
 		return window;
 	}
@@ -448,6 +455,9 @@ class MacOSApplication implements IApplication {
 	}
 
 	private void rememberView(IView view) {
+		var native = (IMacOSView?)view;
+		if (native == null) { throw "GUI view belongs to another provider"; }
+		native.stateNode().configure(self._viewContext);
 		for (int index = self._views.len - 1; index >= 0; index--) {
 			var previous = self._views.get(index);
 			if (!previous.isOpen() && previous.pollClose() == CALLBACK_CANCELLATION_COMPLETE) { self._views.remove(index); }
@@ -507,7 +517,7 @@ class MacOSApplication implements IApplication {
 			if (self._callbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Application callbacks must drain before shutdown"; }
 		} catch (string error) { self._closeFailure = error; throw error; }
 		release self._views;
-		self._actions.close();
+		self._actions.close(); self._viewContext.close();
 		self._closed = true;
 		var attachment = self._attachment; self._attachment = null;
 		if (attachment != null) { attachment.applicationClosed(self._events.workFailed()); }

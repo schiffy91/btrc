@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Callback;
 import Library.Vector;
 import Library.Console;
@@ -28,7 +29,8 @@ class MacOSContainerChild {
 
 /* A native grouping view with BTRC-owned children, not an OS-handle registry.
  * Native parents are queried when needed; children never retain BTRC parents. */
-class MacOSContainer implements IContainer, IMacOSView {
+class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
+	private MacOSViewState _state;
 	private NSView? _view;
 	private Vector<MacOSContainerChild> _children = [];
 	private IMacOSContainerLayout? _layout;
@@ -44,11 +46,20 @@ class MacOSContainer implements IContainer, IMacOSView {
 		self._layout = layout;
 		self._view = layout == null ? NSView.new() : layout.nativeView();
 		if (self._view == null) { throw "Cannot create native container"; }
+		self._state = MacOSViewState(self);
 	}
 
 	private void requireMainThread() {
 		if (!NSThread.isMainThread()) { throw "Native containers require the main thread"; }
 	}
+
+	public MacOSViewState stateNode() { return self._state; }
+
+	public ViewInteractionState interactionState() { return self._state.snapshot(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._state.observe(handler, owner); }
+
+	public void eligibilityLost() { self.cancelPointerCapture(); }
 
 	public NSView nativeView() {
 		self.requireMainThread();
@@ -65,6 +76,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 	}
 
 	private NSView mutationView() {
+		self._state.requireMutation();
 		var view = self.nativeView();
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		return view;
@@ -98,6 +110,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 		var childParent = self._layout == null ? parent : self._layout.childParent();
 		var native = self.projection(child);
 		var childView = native.nativeView();
+		self._state.validateChild(native.stateNode());
 		MacOSView.validateAttachment(childView, childParent);
 		// Retain before publishing to AppKit, so allocation cannot fail after
 		// native attachment has transferred the child's lifecycle to this tree.
@@ -109,6 +122,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 			attached = true;
 			if (self._layout != null) { self._layout.arrangeChild(childView); }
 			MacOSContainer.pinTop(entry, childView, childParent);
+			self._state.addChild(native.stateNode());
 		} catch (string error) {
 			if (attached) {
 				try { self.detachChild(entry, parent); }
@@ -141,6 +155,7 @@ class MacOSContainer implements IContainer, IMacOSView {
 		var native = self.projection(entry.view);
 		var child = native.nativeView();
 		if (self._layout != null) { self._layout.forgetChild(child); }
+		if (self._state.hasChild(native.stateNode())) { self._state.removeChild(native.stateNode()); }
 		native.detachFrom(childParent);
 		if (entry.pinned) { child.setAutoresizingMask(entry.autoresizingMask); entry.pinned = false; }
 		child.setTranslatesAutoresizingMaskIntoConstraints(entry.translatesAutoresizing);
@@ -199,23 +214,23 @@ class MacOSContainer implements IContainer, IMacOSView {
 
 	public bool isVisible() { return !self.nativeView().isHidden(); }
 
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs); }
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs, self._state); }
 
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs); }
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs, self._state); }
 
 	public void cancelPointerCapture() {
 		MacOSViewInput.detached(self._inputs);
 		for child in self._children { if (!child.closing) { self.projection(child.view).cancelPointerCapture(); } }
 	}
 
-	public void setVisible(bool visible) { self.nativeView().setHidden(!visible); }
+	public void setVisible(bool visible) { self._state.requireMutation(); var view = self.nativeView(); bool previous = !view.isHidden(); self._state.setVisible(visible); try { view.setHidden(!visible); } catch (string error) { self._state.setVisible(previous); throw error; } }
 
 	public CallbackCancellation close() {
 		self.requireMainThread();
 		if (self._view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
-		if (!self._closing) { self._closing = true; self._input.cancel(); }
+		if (!self._closing) { self._closing = true; } self._state.close(); self._input.cancel();
 		return self.pollClose();
 	}
 
@@ -225,6 +240,8 @@ class MacOSContainer implements IContainer, IMacOSView {
 		var view = self._view;
 		if (view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var semantic = self._state.pollClose();
+		if (semantic != CALLBACK_CANCELLATION_COMPLETE) { return semantic; }
 		var input = self._input.pollCompletion();
 		if (input != CALLBACK_CANCELLATION_COMPLETE) { return input; }
 		self._mutating = true;

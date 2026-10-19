@@ -1,0 +1,251 @@
+import Library.Callback;
+import Library.Console;
+import Library.Vector;
+import Library.GUI.IApplicationNativeWake;
+import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+class MacOSSemanticWake implements IControlEventWake {
+	private IApplicationNativeWake _signal;
+	public MacOSSemanticWake(IApplicationNativeWake signal) { self._signal = signal; }
+
+	public bool requestTurn() { return self._signal.requestTurn(); }
+}
+
+/* Application-owned terminal credits and one semantic stream per window.
+ * Detached controls use the same pool, so attachment never changes credits. */
+class MacOSViewContext {
+	public ControlEventQueue detachedEvents;
+	public IControlEventWake wake;
+	private ControlEventTerminalPool _pool;
+	private Vector<ControlEventQueue> _queues = [];
+	private int _capacity;
+	private int _cursor = 0;
+	private bool _closed = false;
+	private bool _dispatching = false;
+	public MacOSViewContext(IControlEventWake wake, int capacity = 256) {
+		self.requireMainThread(); self._capacity = capacity; self._pool = ControlEventTerminalPool(65536);
+		self.wake = wake; self.detachedEvents = self.createQueue();
+	}
+
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native view state requires the main thread"; } }
+
+	public ControlEventQueue createQueue() {
+		self.requireMainThread(); if (self._closed) { throw "Native view context is closed"; }
+		var queue = ControlEventQueue(self._capacity, self._pool); queue.setWake(self.wake); self._queues.push(queue); return queue;
+	}
+
+	public void retireQueue(ControlEventQueue queue) {
+		self.requireMainThread(); if (queue == self.detachedEvents) { throw "Detached semantic stream belongs to the application"; }
+		for (int index = 0; index < self._queues.len; index++) {
+			if (self._queues.get(index) == queue) { queue.close(); self._queues.remove(index); if (index < self._cursor) { self._cursor--; } return; }
+		}
+	}
+
+	public bool dispatchOne() {
+		self.requireMainThread(); if (self._dispatching) { throw "Semantic delivery cannot re-enter"; } if (self._closed) { return false; }
+		self._dispatching = true;
+		bool delivered = false;
+		try {
+			for (int examined = 0; examined < self._queues.len && !delivered; examined++) {
+				if (self._cursor >= self._queues.len) { self._cursor = 0; }
+				delivered = self._queues.get(self._cursor++).dispatchOne();
+			}
+		} finally { self._dispatching = false; }
+		return delivered;
+	}
+
+	public bool pending() { self.requireMainThread(); for queue in self._queues { if (queue.pendingCount() > 0) { return true; } } return false; }
+
+	public void close() { self.requireMainThread(); if (self._closed) { return; } self._closed = true; for queue in self._queues { queue.close(); } self._queues.clear(); }
+}
+
+interface IMacOSViewEligibility { void eligibilityLost(); }
+class MacOSViewObservation implements IControlEventTarget {
+	private MacOSViewState _state;
+	public MacOSViewObservation(MacOSViewState state) { self._state = state; }
+
+	public ControlEventDisposition admission(long long generation) { return self._state.observationAdmission(generation); }
+}
+
+/* The native owners supply visibility, enabled preferences and window facts.
+ * Marking reaches the whole subtree before any cancellation callback runs. */
+class MacOSViewState implements IControlEventTarget {
+	private MacOSViewContext? _context;
+	private ControlEventQueue? _queue;
+	private ControlEventQueue? _nextQueue;
+	private IMacOSViewEligibility? _owner;
+	private Vector<MacOSViewState> _children = [];
+	private CallbackScope _callbacks = CallbackScope();
+	private Vector<IControlEventChannel> _channels = [];
+	private ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>? _observation;
+	private ViewInteractionState _state = ViewInteractionState();
+	private long long _generation = 1LL;
+	private bool _parented = false;
+	private bool _inherited = false;
+	private bool _closing = false;
+	private bool _closed = false;
+	private bool _changed = false;
+	private bool _lost = false;
+	public MacOSViewState(IMacOSViewEligibility owner) {
+		self.requireMainThread(); self._owner = owner;
+		self._state.localVisible = true; self._state.localEnabled = true; self._state.layoutParticipating = true;
+		self._state.exposure = WINDOW_EXPOSURE_UNKNOWN; self._state.stateRevision = 1LL;
+	}
+
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native view state requires the main thread"; } }
+
+	private void requireOpen() { self.requireMainThread(); if (self._closing || self._closed) { throw "Native view state is closing or closed"; } if (self._state.faulted) { throw "Native view is quarantined"; } }
+
+	private void validateContext(MacOSViewContext context) {
+		if (context == null || (self._context != null && self._context != context)) { throw "Native views cannot cross application contexts"; }
+		for child in self._children { child.validateContext(context); }
+	}
+
+	public void configure(MacOSViewContext context) {
+		self.requireOpen(); self.validateContext(context); self._context = context;
+		if (self._queue == null) { self._queue = context.detachedEvents; self._nextQueue = self._queue; }
+		for child in self._children { child.configure(context); }
+	}
+
+	public void requireMutation() { self.requireOpen(); }
+
+	public MacOSViewContext? context() { return self._context; }
+
+	public ControlEventQueue events() { self.requireMainThread(); if (self._queue == null) { throw "Native semantic callbacks require an application context"; } return self._queue; }
+
+	public long long generation() { return self._generation; }
+
+	public bool effectiveEligible() { return !self._closing && !self._closed && self._state.effectiveEligible; }
+
+	public ControlEventDisposition observationAdmission(long long generation) { return self._closing || self._closed ? CONTROL_EVENT_CLOSED : generation != self._generation ? CONTROL_EVENT_STALE_GENERATION : CONTROL_EVENT_DELIVERED; }
+
+	public ControlEventDisposition admission(long long generation) { var status = self.observationAdmission(generation); return status == CONTROL_EVENT_DELIVERED && !self.effectiveEligible() ? CONTROL_EVENT_INELIGIBLE : status; }
+
+	public ViewInteractionState snapshot() {
+		self.requireMainThread(); if (self._closing || self._closed) { throw "Native view state is closing or closed"; }
+		var result = ViewInteractionState(); var state = self._state;
+		result.localVisible = state.localVisible; result.localEnabled = state.localEnabled; result.inheritedEligible = state.inheritedEligible;
+		result.effectiveEligible = state.effectiveEligible; result.layoutParticipating = state.layoutParticipating; result.exposure = state.exposure;
+		result.faulted = state.faulted; result.stateRevision = state.stateRevision; return result;
+	}
+
+	class void deliverState(IViewInteractionStateHandler receiver, ViewInteractionState state) { receiver.interactionChanged(state); }
+
+	public ICallbackRegistration observe(IViewInteractionStateHandler receiver, CallbackScope owner) {
+		self.requireOpen(); self._callbacks.pollCompletion();
+		for (int index = self._channels.len - 1; index >= 0; index--) { if (self._channels.get(index).pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) { self._channels.remove(index); } }
+		if (self._observation != null && self._observation.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing interaction state handler first"; }
+		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self.events(), MacOSViewObservation(self), receiver, MacOSViewState.deliverState, self._callbacks);
+		try { owner.track(channel); } catch (string error) { channel.cancel(); throw error; }
+		self._observation = channel; self._channels.push(channel); return channel;
+	}
+
+	public void ownChannel(IControlEventChannel channel) {
+		self.requireOpen(); self._callbacks.pollCompletion();
+		try { self._callbacks.track(channel); } catch (string error) { channel.cancel(); throw error; }
+		self._channels.push(channel);
+	}
+
+	private void revision() { if (self._state.stateRevision == 9223372036854775807LL) { throw "Native interaction revisions exhausted"; } self._state.stateRevision++; self._changed = true; }
+
+	private void mark(bool inherited, WindowExposure exposure) {
+		self._inherited = inherited;
+		bool eligible = !self._closing && !self._closed && !self._state.faulted && self._parented && inherited && self._state.localVisible && self._state.localEnabled;
+		if (self._state.inheritedEligible != inherited || self._state.effectiveEligible != eligible || self._state.exposure != exposure) {
+			if (self._state.effectiveEligible && !eligible) { self._lost = true; }
+			self.revision(); self._state.inheritedEligible = inherited; self._state.effectiveEligible = eligible; self._state.exposure = exposure;
+		}
+		for child in self._children { child.mark(eligible, exposure); }
+	}
+
+	private void settle() {
+		if (self._lost) { self._lost = false; var owner = self._owner; if (owner != null) { owner.eligibilityLost(); } }
+		for child in self._children { child.settle(); }
+	}
+
+	private void route(ControlEventQueue? queue) { self._nextQueue = queue; for child in self._children { child.route(queue); } }
+
+	private void commitRoute() {
+		if (self._queue != self._nextQueue) {
+			if (self._generation == 9223372036854775807LL) { throw "Native view generations exhausted"; }
+			self._generation++; self._queue = self._nextQueue;
+			for channel in self._channels { if (channel.isOpen()) { channel.rebind(self.events()); } }
+		}
+		for child in self._children { child.commitRoute(); }
+	}
+
+	private void publish() {
+		if (self._changed) {
+			self._changed = false; var channel = self._observation;
+			if (!self._closing && !self._closed && channel != null && channel.isOpen() && !channel.publish(self.snapshot(), self._generation, 0LL, 1LL)) { throw "Interaction state semantic source is unavailable"; }
+		}
+		for child in self._children { child.publish(); }
+	}
+
+	private void refresh() { self.mark(self._inherited, self._state.exposure); self.settle(); self.commitRoute(); self.publish(); }
+
+	public void setVisible(bool visible) { self.requireOpen(); if (self._state.localVisible == visible) { return; } self.revision(); self._state.localVisible = visible; self.refresh(); }
+
+	public void setEnabled(bool enabled) { self.requireOpen(); if (self._state.localEnabled == enabled) { return; } self.revision(); self._state.localEnabled = enabled; self.refresh(); }
+
+	public void setLayoutParticipating(bool participating) { self.requireOpen(); if (self._state.layoutParticipating == participating) { return; } self.revision(); self._state.layoutParticipating = participating; self.publish(); }
+
+	public void quarantine() { self.requireOpen(); self.revision(); self._state.faulted = true; self.refresh(); }
+
+	private bool contains(MacOSViewState node) { if (self == node) { return true; } for child in self._children { if (child.contains(node)) { return true; } } return false; }
+
+	public bool hasChild(MacOSViewState child) { for entry in self._children { if (entry == child) { return true; } } return false; }
+
+	public void validateChild(MacOSViewState child) {
+		self.requireOpen(); child.requireOpen();
+		if (child._parented || child.contains(self)) { throw "Native view already has a parent or creates a cycle"; }
+		var context = self._context;
+		if (context != null && child._context == null) { child.configure(context); }
+		if (context != child._context) { throw "Native views cannot cross application contexts"; }
+	}
+
+	public void addChild(MacOSViewState child) {
+		self.validateChild(child); self._children.push(child); child._parented = true;
+		child.route(self._queue); child.mark(self.effectiveEligible(), self._state.exposure); child.settle(); child.commitRoute(); child.publish();
+	}
+
+	public void removeChild(MacOSViewState child) {
+		self.requireMainThread(); int found = -1;
+		for (int index = 0; index < self._children.len; index++) { if (self._children.get(index) == child) { found = index; break; } }
+		if (found < 0) { throw "View state does not belong to this parent"; }
+		child._parented = false; child.route(child._context == null ? null : child._context.detachedEvents);
+		child.mark(false, WINDOW_EXPOSURE_UNKNOWN); child.settle(); child.commitRoute(); child.publish(); self._children.remove(found);
+	}
+
+	public void validateWindow(ControlEventQueue queue) { self.requireOpen(); if (self._parented || self._context == null || queue.terminalPool() != self._context.detachedEvents.terminalPool()) { throw "Window root has no matching application context or is already attached"; } }
+
+	public void attachWindow(ControlEventQueue queue, bool eligible, WindowExposure exposure) {
+		self.validateWindow(queue);
+		self._parented = true; self.route(queue); self.mark(eligible, exposure); self.settle(); self.commitRoute(); self.publish();
+	}
+
+	public void windowChanged(bool eligible, WindowExposure exposure) { self.requireOpen(); self.mark(eligible, exposure); self.settle(); self.publish(); }
+
+	public void detachWindow() {
+		self.requireMainThread(); if (!self._parented || self._context == null) { throw "View has no window attachment"; }
+		var context = self._context; if (context == null) { throw "View has no application context"; }
+		self._parented = false; self.route(context.detachedEvents); self.mark(false, WINDOW_EXPOSURE_UNKNOWN); self.settle(); self.commitRoute(); self.publish();
+	}
+
+	public CallbackCancellation close() {
+		self.requireMainThread(); if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { self._closing = true; self.mark(false, self._state.exposure); self.settle(); self._callbacks.cancel(); }
+		return self.pollClose();
+	}
+
+	public CallbackCancellation pollClose() {
+		self.requireMainThread(); if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var result = self._callbacks.pollCompletion(); if (result != CALLBACK_CANCELLATION_COMPLETE) { return result; }
+		self._closed = true; self._owner = null; self._observation = null; self._channels.clear(); return result;
+	}
+
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("View state destroyed before callback drain"); } }
+}

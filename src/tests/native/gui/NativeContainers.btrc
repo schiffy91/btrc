@@ -1,3 +1,4 @@
+import Library.GUI.MacOS.MacOSViewState;
 import Library.Callback;
 import Library.GUI.IApplication;
 import Library.GUI.IView;
@@ -67,6 +68,12 @@ class FailingView implements IMacOSView {
 		self._observer = observer;
 		self._failClose = failClose;
 	}
+
+	public MacOSViewState stateNode() { return self._view.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
 
 	public NSView nativeView() { if (self._observeQuery) { self.verifyReentry(); } return self._view.nativeView(); }
 
