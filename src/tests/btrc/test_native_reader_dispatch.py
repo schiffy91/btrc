@@ -109,11 +109,18 @@ def test_native_reader_host_completes_all_requests_and_reaps_children(native_rea
 
 
 @pytest.mark.parametrize("mode", ["failure", "nul", "large", "timeout"])
-def test_reference_reader_capture_and_timeout_reap_children(reader_process, mode):
+def test_reference_reader_capture_and_timeout_reap_children(reader_process, mode, monkeypatch):
     script, marker = reader_process
     read = NativeHeaderRead((sys.executable, str(script), "1", mode, str(marker)), (0,))
-    expected = subprocess.TimeoutExpired if mode == "timeout" else NativeImportError
-    with pytest.raises(expected):
+    if mode == "timeout":
+        monkeypatch.setattr(NativeHeaderRead, "timeout", property(lambda self: 1))
+    diagnostic = {
+        "failure": "ReaderFailure",
+        "nul": "contains NUL",
+        "large": "exceeds capture allowance",
+        "timeout": "timed out after 1 s",
+    }[mode]
+    with pytest.raises(NativeImportError, match=diagnostic):
         read.read(dict(os.environ))
     if mode == "timeout":
         assert marker.exists(), "timeout fixture never started its descendant"

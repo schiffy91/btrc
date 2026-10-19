@@ -539,8 +539,8 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
     stdlib_b = tmp_path / "stdlib_b"
     stdlib_a.mkdir()
     stdlib_b.mkdir()
-    (stdlib_a / "Vector.btrc").write_text("import Library.Strings\nclass Alpha { }\n", encoding="utf-8")
-    (stdlib_a / "zeta.btrc").write_text("class Zeta { }\n", encoding="utf-8")
+    (stdlib_a / "Vector.btrc").write_text("import Library.Zeta;\nclass Alpha { }\n", encoding="utf-8")
+    (stdlib_a / "Zeta.btrc").write_text("class Zeta { }\n", encoding="utf-8")
     (stdlib_b / "Strings.btrc").write_text("class Beta { }\n", encoding="utf-8")
     first_input = tmp_path / "first_input.btrc"
     second_input = tmp_path / "second_input.btrc"
@@ -574,7 +574,7 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         "        grammar, second, false, true);\n"
         "    if (firstSnapshot.count() != 2\n"
         '            || !PathTools.basename(firstSnapshot.pathAt(0)).equals("Vector.btrc")\n'
-        '            || !PathTools.basename(firstSnapshot.pathAt(1)).equals("zeta.btrc")) { return 2; }\n'
+        '            || !PathTools.basename(firstSnapshot.pathAt(1)).equals("Zeta.btrc")) { return 2; }\n'
         "    if (secondSnapshot.count() != 1\n"
         '            || !PathTools.basename(secondSnapshot.pathAt(0)).equals("Strings.btrc")) { return 3; }\n'
         '    if (!first.requiredModuleForCompilation("Vector", firstSnapshot).found\n'
@@ -584,7 +584,7 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         '    string firstSource = firstResolver.sourceAtSnapshot("int userValue;\\n", firstSnapshot);\n'
         '    if (!firstSource.contains("class Alpha")\n'
         '            || !firstSource.contains("class Zeta")\n'
-        '            || firstSource.contains("import Library.Strings")) { return 6; }\n'
+        '            || firstSource.contains("import Library.Zeta")) { return 6; }\n'
         '    if (!secondResolver.sourceAtSnapshot("int userValue;\\n", secondSnapshot).contains("class Beta")) { return 7; }\n'
         '    if (secondResolver.sourceAtSnapshot("class Beta { }\\n", secondSnapshot).contains("class Beta")) { return 8; }\n'
         "    if (!sourceFiles.validateInputs().isEmpty()) { return 9; }\n"
