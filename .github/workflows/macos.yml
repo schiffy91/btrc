@@ -7,14 +7,13 @@ on:
     branches: [main]
   # Manual dispatch (`gh workflow run`) reruns these hosted jobs without a push:
   # `-f focus=native-gui` runs only the native-GUI job, `-f focus=extended`
-  # the extended tier, `-f focus=target-corpus` the target-runner corpus
-  # lanes alone.
+  # the extended tier.
   workflow_dispatch:
     inputs:
       focus:
         description: Which jobs to run
         type: choice
-        options: [full, native-gui, extended, target-corpus]
+        options: [full, native-gui, extended]
         default: full
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
@@ -59,8 +58,6 @@ jobs:
   #   release, extended  release.yml's call (its tier input), or a dispatch
   #         with focus=extended.
   #   native-gui  a dispatch with focus=native-gui.
-  #   target-corpus  a dispatch with focus=target-corpus: the target-runner
-  #         corpus lanes alone.
   #   main  a push, a full dispatch, the ci:full label (added before a push or
   #         a rerun), a change under FULL_PATHS (the compilers, their specs and
   #         runtime, the stdlib modules btrcc imports, the CI hotspots), or a
@@ -141,7 +138,7 @@ jobs:
           }
           tier=$(classify)
           case "$tier" in
-            docs | pr | lane | main | extended | release | native-gui | target-corpus) ;;
+            docs | pr | lane | main | extended | release | native-gui) ;;
             *) echo "::error::unknown tier: $tier"; exit 1 ;;
           esac
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
@@ -452,134 +449,3 @@ jobs:
           path: build/skip-report*.json
           if-no-files-found: warn
           retention-days: 14
-
-  # The whole language and stdlib corpus on the hosted iOS simulator through
-  # both compilers (CX-P1-08). The iOS SDK comes only from Xcode, so one macOS
-  # job both builds and runs: src/tests/target_runner.py --compile-only
-  # cross-builds every applicable program for the simulator row with Xcode's
-  # clang and the nix-built native header reader, then --execute-bundle runs
-  # the bundle on a booted simulator through the ios-simulator executor
-  # (tools/target_hosts/ios/executor.py): one simctl spawn per program, whose
-  # supervisor reports the program's wait status. The row's runner image
-  # supplies Xcode, and its default Xcode is the toolchain recorded. The step
-  # summary carries the per-frontend counts; the artifact the per-program
-  # logs, the JUnit files, the ledger records and the inventory.
-  target-corpus:
-    needs: scope
-    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'target-corpus')
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['target-corpus'] }}
-    name: target-corpus (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 240
-    # A report-only row (ci/tiers.toml) shows its failures without failing the run.
-    continue-on-error: ${{ matrix.report_only == 'true' }}
-    # Each program's run deadline, as the CI corpus shards give it. The bundle
-    # pins it, and the run admits the bundle only with the same value.
-    env:
-      BTRC_TEST_RUN_TIMEOUT: "60"
-      BTRC_TEST_TRANSPILE_TIMEOUT: "600"
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
-        with:
-          use-flakehub: false
-
-      # Without its reader the target runner could not read a single native
-      # header, so build it as its own step and root the dev shell with it.
-      - name: Build the native header reader
-        run: |
-          test "$(uname -s)" = Darwin
-          test "$(uname -m)" = arm64
-          reader="$(nix build .#btrc-native-header --out-link "$RUNNER_TEMP/btrc-native-header-root" --print-out-paths --print-build-logs)/bin/btrc-native-header"
-          test -x "$reader"
-          exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
-          test "$exported" = "$reader"
-          nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true
-
-      # Before any guest boots: CoreSimulator's first answer is slow on a cold
-      # three-core runner, and these are the toolchain the results record.
-      - name: Record the Xcode, SDK and simulator inventory
-        timeout-minutes: 10
-        run: |
-          mkdir -p build/target-corpus/inventory
-          xcodebuild -version | tee build/target-corpus/inventory/xcode-version.txt
-          xcrun --sdk iphonesimulator --show-sdk-version | tee build/target-corpus/inventory/sdk-version.txt
-          xcrun simctl list -j runtimes > build/target-corpus/inventory/runtimes.json
-
-      - name: Build the self-hosted compiler
-        run: nix develop --command make NIX= btrcc
-
-      # A program that fails to build is a failed result the run reports too,
-      # so only a runner error (exit 2) fails this step.
-      - name: Cross-build every applicable corpus program for the simulator through both compilers
-        run: |
-          set -uo pipefail
-          status=0
-          nix develop --command python3 -m src.tests.target_runner --target "${{ matrix.label }}" --frontend both \
-            --compile-only --btrcc bin/btrcc --jobs 3 --output build/target-corpus/build || status=$?
-          if [ "$status" -gt 1 ]; then
-            echo "::error::the target runner could not build the ${{ matrix.label }} bundle (exit $status)"
-            exit "$status"
-          fi
-
-      # Admission checks the bundle against this checkout; the executor stages
-      # a private copy of each program, boots the row's device class, and
-      # takes every outcome from its supervisor's waitpid.
-      - name: Run every program on the simulator through both compilers
-        run: |
-          nix develop --command python3 -m src.tests.target_runner --execute-bundle build/target-corpus/build/bundle \
-            --executor ios-simulator --executor-option device_class=${{ matrix.device_class }} \
-            --executor-option diagnostics=build/target-corpus/diagnostics --output build/target-corpus/run
-
-      - name: Publish the counts
-        if: always()
-        run: |
-          python3 - build/target-corpus/run/target-run.json build/target-corpus/build/target-run.json >> "$GITHUB_STEP_SUMMARY" <<'PY'
-          import json
-          import os
-          import sys
-
-          # The run's report when the run got that far, else the build's.
-          path = next((path for path in sys.argv[1:] if os.path.isfile(path)), None)
-          if path is None:
-              sys.exit(0)
-          with open(path, encoding="utf-8") as stream:
-              report = json.load(stream)
-          device = (report.get("executor_provenance") or {}).get("device", "no device: compile-only")
-          os_build = (report.get("executor_provenance") or {}).get("os_build", "")
-          print(f"### {report['target']['label']} ({report['mode']}): the corpus on {device} {os_build}".rstrip())
-          print()
-          print("| frontend | passed | failed | restricted | missing |")
-          print("| --- | ---: | ---: | ---: | ---: |")
-          for frontend, counts in report["counts"].items():
-              cells = " | ".join(str(counts[status]) for status in ("passed", "failed", "restricted", "missing"))
-              print(f"| {frontend} | {cells} |")
-          failed = [result for result in report["results"] if result["status"] == "failed"]
-          if failed:
-              print()
-              print("| frontend | failed program | phase | reason |")
-              print("| --- | --- | --- | --- |")
-              for result in failed:
-                  reason = next(iter((result.get("reason") or "").splitlines()), "")[:200].replace("|", "\\|")
-                  print(f"| {result['frontend']} | {result['program']} | {result.get('phase')} | {reason} |")
-          PY
-
-      # Everything but the bundle's executables: the build and run reports,
-      # the C of every program that failed to build, the inventory, and the
-      # host diagnostics a failed boot leaves.
-      - name: Retain the run
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: target-corpus-${{ matrix.target }}
-          path: |
-            build/target-corpus/
-            !build/target-corpus/build/bundle/
-          if-no-files-found: warn
-          retention-days: 30

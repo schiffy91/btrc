@@ -93,11 +93,11 @@ entry adaptation CL-P1-21 owns and the host-entry encoding CX-P2-41 owns.
 
 ## Hosted evidence
 
-- `host-ios.yml`: the fixtures on iPhone and iPad (`simulator`), and the
-  portable tests on Linux (`portable`).
-- `macos.yml`'s `target-corpus` job (`ci/tiers.toml` row `ios-simulator`): the
-  whole corpus through both compilers; `gh workflow run macos.yml -f
-  focus=target-corpus` runs it alone.
+`host-ios.yml` runs on one hosted macOS runner (`simulator`): the fixtures on
+iPhone and iPad, then the whole corpus through both compilers on an iPhone,
+whose step reports only until its failures are triaged. Its `portable` job
+runs the portable tests on Linux. A lane workflow has no `ci/tiers.toml` rows;
+folding it into the tiers is CL-R-39.
 
 ## Local checks
 

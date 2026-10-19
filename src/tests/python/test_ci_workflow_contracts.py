@@ -1198,57 +1198,6 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
     assert "podman" not in job
 
 
-def test_the_ios_corpus_lane_builds_and_runs_on_one_simulator_runner() -> None:
-    """CX-P1-08: the whole corpus, through both compilers, on the hosted iOS simulator."""
-
-    job = _parsed("macos.yml")["jobs"]["target-corpus"]
-    text = _job(_workflow("macos.yml"), "target-corpus")
-    rows = [shard.row for shard in TIERS.shards if shard.job == "macos.yml/target-corpus"]
-    assert rows == [
-        {
-            "target": "ios-simulator",
-            "label": "ios-aarch64-simulator",
-            "runner": "xcode-27",
-            "device_class": "iphone",
-            "report_only": "true",
-        }
-    ]
-    assert job["runs-on"] == "${{ matrix.runner }}"
-    assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
-    # The bundle pins each program's deadline; the run admits it only with the same value.
-    assert job["env"]["BTRC_TEST_RUN_TIMEOUT"] == "60"
-    # The native header reader is built and rooted before the target runner reads a header.
-    reader = _step_containing(text, "nix build .#btrc-native-header")
-    assert 'nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true' in reader
-    commands = _code("\n".join(step.get("run", "") for step in job["steps"]))
-    words = " ".join(commands.replace("\\\n", " ").split())
-    assert "nix develop --command make NIX= btrcc" in commands
-    assert (
-        'python3 -m src.tests.target_runner --target "${{ matrix.label }}" --frontend both '
-        "--compile-only --btrcc bin/btrcc --jobs 3 --output build/target-corpus/build"
-    ) in words
-    # A program that fails to build is a result; only a runner error fails the build step.
-    assert 'if [ "$status" -gt 1 ]; then' in commands
-    assert (
-        "python3 -m src.tests.target_runner --execute-bundle build/target-corpus/build/bundle "
-        "--executor ios-simulator --executor-option device_class=${{ matrix.device_class }}"
-    ) in words
-    assert '>> "$GITHUB_STEP_SUMMARY"' in commands
-    names = [step.get("name") for step in job["steps"]]
-    assert names.index("Record the Xcode, SDK and simulator inventory") < names.index(
-        "Run every program on the simulator through both compilers"
-    )
-    final = job["steps"][-1]
-    assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT
-    assert final["with"]["name"] == "target-corpus-${{ matrix.target }}"
-    # Everything but the bundle's executables.
-    assert final["with"]["path"].split() == ["build/target-corpus/", "!build/target-corpus/build/bundle/"]
-    # The executor the lane names is the one the runner's registry resolves.
-    from src.tests.target_runner import ExecutorRegistry
-
-    assert ExecutorRegistry().spec("ios-simulator") == "tools.target_hosts.ios.executor:IOSSimulatorExecutor"
-
-
 def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     job = _job(_workflow("windows.yml"), "windows")
 
@@ -1319,7 +1268,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                 "focus": {
                     "description": "Which jobs to run",
                     "type": "choice",
-                    "options": ["full", "native-gui", "extended", "target-corpus"],
+                    "options": ["full", "native-gui", "extended"],
                     "default": "full",
                 }
             }
@@ -1327,9 +1276,6 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
         expected = {"ci.yml": ["native-gui", "linux-gui"], "macos.yml": ["native-gui"]}.get(workflow, [])
         assert TIERS.plan(workflow, "native-gui")["jobs"] == expected, workflow
-        # `-f focus=target-corpus` runs the target-runner corpus lanes alone.
-        expected = {"macos.yml": ["target-corpus"]}.get(workflow, [])
-        assert TIERS.plan(workflow, "target-corpus")["jobs"] == expected, workflow
 
     linux = _job(_workflow("ci.yml"), "native-gui")
     assert _code(linux).count("make NIX=") == 1
@@ -1405,6 +1351,63 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
         assert f"--compilers {compiler}" in android, compiler
     assert android.count("src/tests/python/test_native_jni_android.py") == 2
     assert 'echo "BTRC_ANDROID_JNI_REQUIRED=1"' in android
+
+
+def test_the_ios_corpus_runs_in_the_simulator_job_through_both_compilers() -> None:
+    """CX-P1-08: the whole corpus on the hosted iOS simulator, on the fixtures' one macOS runner."""
+
+    workflow = _parsed("host-ios.yml")
+    for event in ("push", "pull_request"):
+        paths = workflow["on"][event]["paths"]
+        for path in (
+            "tools/target_hosts/ios/**",
+            "src/tests/target_runner.py",
+            "src/tests/fixtures/target-applicability.toml",
+        ):
+            assert path in paths, (event, path)
+    job = workflow["jobs"]["simulator"]
+    text = _job(_workflow("host-ios.yml"), "simulator")
+    # The bundle pins each program's deadline; the run admits it only with the same value.
+    assert job["env"]["BTRC_TEST_RUN_TIMEOUT"] == "60"
+    reader = _step_containing(text, "nix build .#btrc-native-header")
+    assert 'nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true' in reader
+    steps = {step.get("name"): step for step in job["steps"]}
+    names = list(steps)
+    # The toolchain is recorded before any guest boots, and the fixtures run before the corpus.
+    assert names.index("Record the Xcode and simulator inventory") < names.index("iPhone")
+    assert names.index("iPad") < names.index("Build the self-hosted compiler")
+    assert steps["Build the self-hosted compiler"]["run"] == "nix develop --command make NIX= btrcc"
+    build = " ".join(
+        steps["Cross-build every applicable corpus program for the simulator through both compilers"]["run"]
+        .replace("\\\n", " ")
+        .split()
+    )
+    assert (
+        "nix develop --command python3 -m src.tests.target_runner --target ios-aarch64-simulator --frontend both "
+        "--compile-only --btrcc bin/btrcc --jobs 3 --output build/target-corpus/build || status=$?"
+    ) in build
+    # A program that fails to build is a result; only a runner error fails the build step.
+    assert 'if [ "$status" -gt 1 ]; then' in build
+    run = steps["Run every corpus program on the simulator through both compilers"]
+    assert " ".join(run["run"].replace("\\\n", " ").split()) == (
+        "nix develop --command python3 -m src.tests.target_runner --execute-bundle build/target-corpus/build/bundle "
+        "--executor ios-simulator --executor-option device_class=iphone "
+        "--executor-option diagnostics=build/target-corpus/diagnostics --output build/target-corpus/run"
+    )
+    # The corpus reports only until its failures are triaged; the fixtures still gate the job.
+    assert run["continue-on-error"] == "true"
+    assert "continue-on-error" not in steps["iPhone"] and "continue-on-error" not in job
+    summary = steps["Publish the corpus counts"]
+    assert summary["if"] == "always()" and '>> "$GITHUB_STEP_SUMMARY"' in summary["run"]
+    corpus = steps["Retain the corpus run"]
+    assert corpus["if"] == "always()" and corpus["uses"] == UPLOAD_ARTIFACT
+    assert corpus["with"]["name"] == "target-corpus-ios-simulator"
+    # Everything but the bundle's executables.
+    assert corpus["with"]["path"].split() == ["build/target-corpus/", "!build/target-corpus/build/bundle/"]
+    # The executor the lane names is the one the runner's registry resolves.
+    from src.tests.target_runner import ExecutorRegistry
+
+    assert ExecutorRegistry().spec("ios-simulator") == "tools.target_hosts.ios.executor:IOSSimulatorExecutor"
 
 
 @pytest.mark.parametrize("sdk_exit", [0, 7])
