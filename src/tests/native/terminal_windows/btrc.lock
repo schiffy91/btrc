@@ -1,0 +1,1 @@
+{"manifest-hash":"4da05667d22f1350625f778789eed120c5fb6fb0b2df1b9d775419e77f3c47f4","packages":[{"dependencies":{},"manifest-hash":"9ffd0a69f4ca70ae5f800145dc9a80e3e14535796426b1101e1866932e897e0f","name":"terminalConsoleFixture","source":{"path":"."}}],"root":"terminalConsoleFixture","schema":3}

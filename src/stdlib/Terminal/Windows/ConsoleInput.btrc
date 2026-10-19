@@ -1,0 +1,122 @@
+/* Win32 console input for the Windows terminal providers: which standard
+ * handle is a console, and one line of console input as UTF-8.
+ *
+ * ReadConsoleW returns UTF-16. A line is collected as code units, then
+ * converted once, so a surrogate pair split across two reads stays one
+ * character; unpaired surrogates become U+FFFD rather than an error. The
+ * CRLF that Enter produces is one terminator, and any other CR is kept. */
+
+import Library.Bytes;
+
+/* Lets a caller interrupt a line between reads (the password session). */
+interface IConsoleReadGate {
+	/* Called before each blocking read; false ends the line as interrupted. */
+	bool enterRead();
+
+	/* Called after each read returns. */
+	void leaveRead();
+}
+
+/* One line of console input. */
+class ConsoleLine {
+	/* The line without its terminator, cut to the caller's byte limit. */
+	public string text;
+	/* The line held more bytes than the limit. */
+	public bool overflowed;
+	/* Ctrl-C, a cancelled read or the gate ended the line. */
+	public bool interrupted;
+	/* ReadConsoleW failed, or input ended before a terminator. */
+	public bool ended;
+
+	public ConsoleLine() {
+		self.text = "";
+		self.overflowed = false;
+		self.interrupted = false;
+		self.ended = false;
+	}
+}
+
+class ConsoleInput {
+	/* Standard input when it is a console, else null (a pipe, a file, or the
+	 * NUL device, which is a character device without a console mode). */
+	class HANDLE standardInput() {
+		HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+		if (input == null || input == INVALID_HANDLE_VALUE || GetFileType(input) != (DWORD)FILE_TYPE_CHAR) { return null; }
+		DWORD mode = (DWORD)0;
+		if (GetConsoleMode(input, &mode) == 0) { return null; }
+		return input;
+	}
+
+	/* Read up to the end of one line, keeping at most `limit` bytes of it.
+	 * A Ctrl-C during ReadConsoleW completes the read with no characters and
+	 * ERROR_OPERATION_ABORTED, which ends the line as interrupted. */
+	class ConsoleLine readLine(HANDLE input, int limit, IConsoleReadGate? gate) {
+		ConsoleLine line = ConsoleLine();
+		Bytes units = Bytes();
+		int stored = 0;
+		/* Each code unit is at least one UTF-8 byte; one extra completes a
+		 * surrogate pair that straddles the limit. */
+		int unitLimit = limit < 2147483646 ? limit + 1 : limit;
+		bool terminated = false;
+		WCHAR buffer[256];
+		while (!terminated) {
+			if (gate != null && !gate.enterRead()) {
+				line.interrupted = true;
+				break;
+			}
+			DWORD count = (DWORD)0;
+			SetLastError((DWORD)0);
+			BOOL succeeded = ReadConsoleW(input, buffer, (DWORD)256, &count, null);
+			DWORD error = GetLastError();
+			if (gate != null) { gate.leaveRead(); }
+			if (succeeded == 0 || count == (DWORD)0) {
+				if (error == (DWORD)ERROR_OPERATION_ABORTED) {
+					line.interrupted = true;
+				} else {
+					line.ended = true;
+				}
+				break;
+			}
+			for (int index = 0; index < (int)count; index++) {
+				int unit = (int)buffer[index];
+				if (unit == '\n') {
+					terminated = true;
+					break;
+				}
+				if (stored < unitLimit) {
+					units.append(unit & 255);
+					units.append((unit >> 8) & 255);
+					stored++;
+				} else {
+					line.overflowed = true;
+				}
+			}
+		}
+		/* Enter delivers CRLF; its CR is part of the terminator. */
+		if (terminated && !line.overflowed && stored > 0 && units.get(2 * stored - 2) == '\r' && units.get(2 * stored - 1) == 0) {
+			stored--;
+		}
+		Bytes text = ConsoleInput.utf8(units, stored);
+		if (text.len > limit) {
+			line.overflowed = true;
+			text = text.slice(0, limit);
+		}
+		line.text = text.toStringLossy();
+		return line;
+	}
+
+	/* `count` UTF-16 code units, held two bytes each in `units`, as UTF-8. */
+	class Bytes utf8(Bytes units, int count) {
+		Bytes text = Bytes();
+		if (count <= 0) { return text; }
+		WCHAR* wide = (WCHAR*)units.data;
+		int size = WideCharToMultiByte((UINT)CP_UTF8, (DWORD)0, wide, count, null, 0, null, null);
+		if (size <= 0) { return text; }
+		char* bytes = (char*)malloc((size_t)size);
+		if (bytes == null) { return text; }
+		int written = WideCharToMultiByte((UINT)CP_UTF8, (DWORD)0, wide, count, bytes, size, null, null);
+		if (written > 0) { text.appendRaw(bytes, written); }
+		free(bytes);
+		return text;
+	}
+}

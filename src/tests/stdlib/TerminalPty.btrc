@@ -1,0 +1,140 @@
+/* Library.Terminal on a real Unix pseudo-terminal: a hidden password prompt
+ * restores ECHO, an interrupt during it is replayed under the caller's
+ * handler, raw mode delivers keys byte by byte and comes back, and the size
+ * and colour checks read the terminal. A pseudo-terminal, fork and POSIX
+ * signals do not exist on Windows, whose console counterpart is
+ * test_windows_terminal.py. */
+import Library.Terminal;
+import Library.Terminal.TerminalPasswordInput;
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <unistd.h>
+
+extern int openpty(int* amaster, int* aslave, char* name, void* termp, void* winp);
+
+volatile sig_atomic_t passwordInterruptSignals = 0;
+
+void countPasswordInterrupt(int signalNumber) {
+	if (signalNumber == SIGTERM) { passwordInterruptSignals++; }
+}
+
+int main() {
+	/* Exercise password input on a real terminal and prove ECHO is restored. */
+	int ptyMaster = -1;
+	int ptySlave = -1;
+	assert(openpty(&ptyMaster, &ptySlave, NULL, NULL, NULL) == 0);
+	struct termios beforePassword;
+	assert(tcgetattr(ptySlave, &beforePassword) == 0);
+	beforePassword.c_lflag = (tcflag_t)beforePassword.c_lflag | (tcflag_t)ECHO;
+	assert(tcsetattr(ptySlave, TCSANOW, &beforePassword) == 0);
+	int savedStdin = dup(STDIN_FILENO);
+	assert(savedStdin >= 0);
+	assert(write(ptyMaster, "pty-secret\n", 11) == (ssize_t)11);
+	assert(dup2(ptySlave, STDIN_FILENO) == STDIN_FILENO);
+	clearerr(stdin);
+	assert(Terminal.promptPassword("pty secret: ").equals("pty-secret"));
+	struct termios afterPassword;
+	assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
+	assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO) == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
+
+	/* An interrupt wakes the prompt through its self-pipe, restores ECHO and
+     * descriptor flags, then replays the signal under the caller's handler. */
+	int flagsBeforeInterrupt = fcntl(STDIN_FILENO, F_GETFL, 0);
+	assert(flagsBeforeInterrupt >= 0);
+	struct sigaction testSignalAction;
+	memset(&testSignalAction, 0, sizeof(testSignalAction));
+	testSignalAction.sa_handler = countPasswordInterrupt;
+	assert(sigemptyset(&testSignalAction.sa_mask) == 0);
+	assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
+	pid_t interruptChild = fork();
+	assert(interruptChild >= (pid_t)0);
+	if (interruptChild == (pid_t)0) {
+		poll(NULL, (nfds_t)0, 100);
+		kill(getppid(), SIGTERM);
+		_exit(0);
+	}
+	assert(Terminal.promptPassword("interrupt secret: ").isEmpty());
+	int interruptStatus = 0;
+	assert(waitpid(interruptChild, &interruptStatus, 0) == interruptChild);
+	assert(WIFEXITED(interruptStatus) && WEXITSTATUS(interruptStatus) == 0);
+	assert((int)passwordInterruptSignals == 1);
+	assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
+	assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO) == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
+	assert(fcntl(STDIN_FILENO, F_GETFL, 0) == flagsBeforeInterrupt);
+	int passwordSignalRead = TerminalPasswordInput.signalReadDescriptor();
+	int passwordSignalWrite = TerminalPasswordInput.signalWriteDescriptor();
+	assert(passwordSignalRead >= 0);
+	assert(passwordSignalWrite >= 0);
+	assert((fcntl(passwordSignalRead, F_GETFD, 0) & FD_CLOEXEC) != 0);
+	assert((fcntl(passwordSignalWrite, F_GETFD, 0) & FD_CLOEXEC) != 0);
+	raise(SIGTERM);
+	assert((int)passwordInterruptSignals == 2);
+	testSignalAction.sa_handler = SIG_DFL;
+	assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
+
+	/* Raw mode: keys arrive one byte at a time, unechoed, Ctrl-C is the byte
+	 * 3 rather than SIGINT, and the canonical, echoing mode comes back. */
+	TerminalRawMode? raw = Terminal.enterRawMode();
+	if (raw == null) {
+		print("FAIL: no raw mode on the pseudo-terminal");
+		return 1;
+	}
+	struct termios rawAttributes;
+	assert(tcgetattr(STDIN_FILENO, &rawAttributes) == 0);
+	assert(((tcflag_t)rawAttributes.c_lflag & ((tcflag_t)ECHO | (tcflag_t)ICANON | (tcflag_t)ISIG)) == (tcflag_t)0);
+	assert(write(ptyMaster, "ab\003\033[A", 6) == (ssize_t)6);
+	assert(raw.readByte() == 'a');
+	assert(raw.readByte() == 'b');
+	assert(raw.readByte() == 3);
+	assert(raw.readByte() == 27);
+	assert(raw.readByte() == '[');
+	assert(raw.readByte() == 'A');
+	assert(raw.restore());
+	assert(!raw.isActive());
+	assert(raw.readByte() == -1);
+	assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
+	assert(((tcflag_t)afterPassword.c_lflag & ((tcflag_t)ECHO | (tcflag_t)ICANON | (tcflag_t)ISIG)) == ((tcflag_t)beforePassword.c_lflag & ((tcflag_t)ECHO | (tcflag_t)ICANON | (tcflag_t)ISIG)));
+
+	/* The size and the colour check read the terminal on standard output. */
+	struct winsize window;
+	memset(&window, 0, sizeof(window));
+	window.ws_col = (unsigned short)100;
+	window.ws_row = (unsigned short)30;
+	assert(ioctl(ptySlave, (unsigned long)TIOCSWINSZ, &window) == 0);
+	fflush(stdout);
+	int savedStdout = dup(STDOUT_FILENO);
+	assert(savedStdout >= 0);
+	assert(dup2(ptySlave, STDOUT_FILENO) == STDOUT_FILENO);
+	TerminalSize? size = Terminal.size();
+	assert(setenv("TERM", "xterm-256color", 1) == 0);
+	bool colors = Terminal.enableColors();
+	assert(setenv("TERM", "dumb", 1) == 0);
+	bool dumbColors = Terminal.enableColors();
+	assert(dup2(savedStdout, STDOUT_FILENO) == STDOUT_FILENO);
+	close(savedStdout);
+	if (size == null) {
+		print("FAIL: no size for the pseudo-terminal");
+		return 1;
+	}
+	assert(size.columns == 100 && size.rows == 30);
+	assert(colors);
+	assert(!dumbColors);
+
+	assert(dup2(savedStdin, STDIN_FILENO) == STDIN_FILENO);
+	clearerr(stdin);
+	close(savedStdin);
+	close(ptyMaster);
+	close(ptySlave);
+
+	print("PASS: test_stdlib_terminal_pty");
+	return 0;
+}
