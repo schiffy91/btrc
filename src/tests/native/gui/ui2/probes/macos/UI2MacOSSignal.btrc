@@ -1,5 +1,4 @@
 import Library.Callback;
-import Library.Timer;
 import Library.BackgroundJobs.NativeWorker;
 import Library.GUI.MacOS.MacOSRunLoop;
 
@@ -77,16 +76,16 @@ int main() {
 	}
 	var timed = MacOSRunLoopSignal(); var timedScope = CallbackScope(); var timedReceiver = SignalReceiver();
 	timed.subscribe(timedReceiver, timedScope);
-	long long began = MonotonicClock.nanoseconds(); assert(began >= 0LL);
+	unsigned long long began = MacOSRunLoopSignal.now();
 	timed.scheduleDeadline((unsigned long long)began + 3000000000ULL);
 	timed.scheduleDeadline((unsigned long long)began + 40000000ULL);
 	while (timedReceiver.calls == 0) { CFRunLoopRunInMode(mode, 1.0, (Boolean)1); }
-	assert(timedReceiver.calls == 1 && MonotonicClock.nanoseconds() - began >= 30000000LL);
+	assert(timedReceiver.calls == 1 && MacOSRunLoopSignal.now() - began >= 30000000ULL);
 	CFRunLoopRunInMode(mode, 0.01, (Boolean)0); assert(timedReceiver.calls == 1);
-	timed.scheduleDeadline((unsigned long long)MonotonicClock.nanoseconds() + 10000000ULL);
+	timed.scheduleDeadline((unsigned long long)MacOSRunLoopSignal.now() + 10000000ULL);
 	timed.scheduleDeadline(0ULL);
 	CFRunLoopRunInMode(mode, 0.03, (Boolean)0); assert(timedReceiver.calls == 1);
-	timed.scheduleDeadline((unsigned long long)MonotonicClock.nanoseconds() + 10000000ULL);
+	timed.scheduleDeadline((unsigned long long)MacOSRunLoopSignal.now() + 10000000ULL);
 	assert(timed.close() && timedScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	CFRunLoopRunInMode(mode, 0.03, (Boolean)0); assert(timedReceiver.calls == 1);
 	bool closedTimerRejected = false;

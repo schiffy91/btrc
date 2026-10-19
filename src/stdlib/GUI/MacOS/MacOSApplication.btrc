@@ -1,4 +1,3 @@
-import Library.Math;
 import Library.Console;
 import Library.Platform;
 import Library.Timer;
@@ -17,6 +16,7 @@ import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSActionQueue;
 import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSApplicationExecutor;
 import Library.GUI.IStack;
 import Library.GUI.MacOS.MacOSStack;
 import Library.GUI.IGPUView;
@@ -45,8 +45,7 @@ import Library.Image;
  * from exiting the process before ordinary BTRC shutdown has run. */
 class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotificationObserver {
 	public bool quitRequested = false;
-	private int _pendingWork = 0;
-	private int _workCapacity;
+	private MacOSApplicationExecutor _executor;
 	private string _workFailure = "";
 	private bool _workFailed = false;
 	private MacOSActionQueue _actions;
@@ -61,27 +60,30 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 	private Timer _shutdownClock = Timer();
 	private bool _shutdownTimed = false;
 
-	public MacOSApplicationEvents(int workCapacity, MacOSActionQueue actions, Vector<MacOSWindow> windows, Vector<IView> views, CallbackScope shutdown) {
-		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
-		self._workCapacity = workCapacity;
+	public MacOSApplicationEvents(MacOSApplicationExecutor executor, MacOSActionQueue actions, Vector<MacOSWindow> windows, Vector<IView> views, CallbackScope shutdown) {
+		self._executor = executor;
 		self._actions = actions;
 		self._windows = windows;
 		self._views = views;
 		self._shutdown = shutdown;
 	}
 
-	public void invoke(NSNotification notification) {
+	public void invoke(NSNotification notification) { self.serviceTurn(); }
+
+	public void serviceTurn() {
 		if (self.quitRequested || self._dispatchingEvents) { return; }
 		self._dispatchingEvents = true;
 		try {
 			self.dispatchWindowEvents();
+			self._executor.serviceTurn();
+			unsigned long long started = MacOSApplicationExecutor.now();
 			int count = self._actions.pendingCount();
-			for (int index = 0; index < count && !self.quitRequested; index++) { self._actions.dispatchOne(); }
+			for (int index = 0; index < count && index < 64 && !self.quitRequested && MacOSApplicationExecutor.now() - started < 2000000ULL; index++) { self._actions.dispatchOne(); }
 			self.dispatchWindowEvents();
 		} catch (string error) { self.failWork(error); }
 		finally {
 			self._dispatchingEvents = false;
-			if (self.quitRequested && self._pendingWork == 0) { self.stop(NSApplication.sharedApplication()); }
+			if (self.quitRequested && self._executor.pendingWork() == 0) { self.stop(NSApplication.sharedApplication()); }
 			else if (!self.quitRequested) { self._actions.wake(); }
 		}
 	}
@@ -101,7 +103,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 		if (pending && NSApplication.sharedApplication().isRunning()) { self.armShutdown(); }
 	}
 
-	public int pendingWork() { return self._pendingWork; }
+	public int pendingWork() { return self._executor.pendingWork(); }
 
 	public string workFailure() { return self._workFailure; }
 
@@ -120,23 +122,6 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 
 	public bool shutdownExpired() { return self._shutdownTimed && (double)self._shutdownClock.elapsed() >= 10.0; }
 
-	public void requireWorkCapacity(int delayed) {
-		if (self.quitRequested) { throw "Application quit has been requested"; }
-		if (delayed >= self._workCapacity - self._pendingWork) { throw "Application work capacity exceeded"; }
-	}
-
-	public void admitWork() {
-		if (self.quitRequested) { throw "Application quit has been requested"; }
-		if (self._pendingWork == self._workCapacity) { throw "Application work capacity exceeded"; }
-		self._pendingWork++;
-	}
-
-	public void finishWork() {
-		if (self._pendingWork <= 0) { throw "Application work completed without admission"; }
-		self._pendingWork--;
-		if (self.quitRequested && self._pendingWork == 0 && !self._dispatchingEvents) { self.stop(NSApplication.sharedApplication()); }
-	}
-
 	public void failWork(string error) {
 		self.recordFailure(error);
 		self.requestQuit(NSApplication.sharedApplication());
@@ -145,10 +130,11 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 	public void requestQuit(NSApplication application) {
 		if (self.quitRequested) { return; }
 		self.quitRequested = true;
+		self._executor.close();
 		// A modal caller may itself be admitted work. Unwind its native loop
 		// before waiting for that work to return; keep owned views alive.
 		if (application.modalWindow() != null) { application.stopModalWithCode(NSModalResponseAbort); }
-		if (self._pendingWork == 0 && !self._dispatchingEvents) { self.stop(application); }
+		if (self._executor.pendingWork() == 0 && !self._dispatchingEvents) { self.stop(application); }
 	}
 
 	private void stop(NSApplication application) {
@@ -167,7 +153,13 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 		if (tick != null) { tick.cancel(); }
 		try {
 			if (!self.quitRequested) { self.dispatchWindowEvents(); return; }
-			if (self._pendingWork > 0 || self._dispatchingEvents) { self.armShutdown(); return; }
+			var work = self._executor.pollClose();
+			if (work == CALLBACK_CANCELLATION_PENDING || self._dispatchingEvents) {
+				self.startShutdownDeadline();
+				if (self.shutdownExpired()) { throw "Application work shutdown did not complete"; }
+				self.armShutdown(); return;
+			}
+			if (work != CALLBACK_CANCELLATION_COMPLETE) { throw "Application work shutdown failed without completion"; }
 			var result = self.closeViews();
 			if (result == CALLBACK_CANCELLATION_PENDING) {
 				self.startShutdownDeadline();
@@ -253,57 +245,51 @@ class MacOSShutdownWork implements IAppKitDelayedWork {
 	public void invoke(NSTimer timer) { self._events.advanceShutdown(); }
 }
 
-/* Native completion remains admitted during quit so it can retire queued work.
- * Only domain delivery is abandoned. Scheduling state has no scope backreference;
- * user work may retain the application until the generated adapter completes. */
-class MacOSApplicationWork implements IAppKitApplicationWork {
-	private IApplicationWork _work;
-	private MacOSApplicationEvents _events;
+/* A host runs bounded turns through the same AppKit source and work owner. */
+class MacOSHostAttachment implements IApplicationHostAttachment {
+	private MacOSApplication? _application;
+	private bool _closing = false;
+	private CallbackCancellation _result = CALLBACK_CANCELLATION_NOT_REQUESTED;
+	public MacOSHostAttachment(MacOSApplication application) { self._application = application; }
 
-	public MacOSApplicationWork(IApplicationWork work, MacOSApplicationEvents events) { self._work = work; self._events = events; }
+	public void abort() { self._application = null; self._closing = true; self._result = CALLBACK_CANCELLATION_COMPLETE; }
 
-	public void invoke() {
-		try { if (!self._events.quitRequested) { self._work.run(); } }
-		catch (string error) { self._events.failWork(error); }
-		finally { self._events.finishWork(); }
-	}
-}
+	public void applicationClosed(bool failed) { self._application = null; self._closing = true; self._result = failed ? CALLBACK_CANCELLATION_FAILED : CALLBACK_CANCELLATION_COMPLETE; }
 
-/* A cancellable native timer uses the same generated stored-block lifetime as
- * other subscriptions. The independent application scope owns cancellation;
- * this receiver owns no application or scope. A fired timer cancels itself
- * while admitted, and the generated adapter completes cleanup after return. */
-class MacOSDelayedWork implements IAppKitDelayedWork {
-	private IApplicationWork _work;
-	private MacOSApplicationEvents _events;
-	private ICallbackRegistration? _registration;
+	public bool isOpen() { return !self._closing && self._application != null; }
 
-	public MacOSDelayedWork(IApplicationWork work, MacOSApplicationEvents events) { self._work = work; self._events = events; }
-
-	public void bind(ICallbackRegistration registration) { self._registration = registration; }
-
-	public void invoke(NSTimer timer) {
-		var registration = self._registration;
-		if (registration == null) { throw "Delayed work was delivered before timer publication"; }
+	public void serviceTurn() {
+		var application = self._application; if (application == null) { return; }
 		try {
-			if (!self._events.quitRequested) {
-				self._events.admitWork();
-				try { self._work.run(); } finally { self._events.finishWork(); }
-			}
-		} catch (string error) { self._events.failWork(error); }
-		finally { registration.cancel(); self._registration = null; }
+			application.serviceHostTurn();
+			if (self._closing || application.quitRequested()) { self._closing = true; self.pollCompletion(); }
+		} catch (string error) { application.recordHostFailure(error); self._closing = true; self._result = CALLBACK_CANCELLATION_FAILED; }
+	}
+
+	public void transition(ApplicationActivity activity) { var application = self._application; if (application == null || self._closing) { throw "Application host is detached"; } application.transition(activity); }
+
+	public CallbackCancellation cancel() { self._closing = true; var application = self._application; if (application != null) { application.requestQuit(); } return self.pollCompletion(); }
+
+	public CallbackCancellation pollCompletion() {
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (self._result == CALLBACK_CANCELLATION_FAILED) { return self._result; }
+		var application = self._application; if (application == null) { return self._result; }
+		self._result = application.finishHostClose();
+		if (self._result == CALLBACK_CANCELLATION_COMPLETE || self._result == CALLBACK_CANCELLATION_FAILED) { self._application = null; }
+		return self._result;
 	}
 }
 
-/* One application owner on the main thread. AppKit's run loop, entered by
- * run(), is the only native event dispatch. */
+/* One application owner on the main thread. Desktop run() configures AppKit;
+ * attachHost() preserves the host's delegate and existing native loop. */
 class MacOSApplication implements IApplication {
 	private NSApplication _application;
 	private bool _running = false;
+	private bool _desktopConfigured = false;
 	private MacOSApplicationEvents _events;
 	private CallbackScope _callbacks;
-	private CallbackScope _work;
-	private CallbackScope _delayed;
+	private MacOSApplicationExecutor _executor;
+	private MacOSHostAttachment? _attachment;
 	private CallbackScope _shutdown;
 	private MacOSActionQueue _actions;
 	private MacOSRunLoopSignal _signal;
@@ -319,22 +305,27 @@ class MacOSApplication implements IApplication {
 		self._signal = MacOSRunLoopSignal();
 		self._actions = MacOSActionQueue(workCapacity, self._signal);
 		self._shutdown = CallbackScope();
-		self._events = MacOSApplicationEvents(workCapacity, self._actions, self._windows, self._views, self._shutdown);
+		self._executor = MacOSApplicationExecutor(workCapacity, self._signal);
+		self._events = MacOSApplicationEvents(self._executor, self._actions, self._windows, self._views, self._shutdown);
 		self._callbacks = CallbackScope();
-		self._work = CallbackScope();
-		self._delayed = CallbackScope();
 		try {
-			self._application.setDelegate(self._events, self._callbacks);
 			self._signal.subscribe(self._events, self._callbacks);
-			// Unbundled executables otherwise cannot receive keyboard focus. A
-			// background session (BTRC_GUI_BACKGROUND, set by local test runs on
-			// a desktop someone is using) asks for an accessory app instead: it
-			// shows no Dock icon and macOS does not bring it to the front when
-			// it launches, so it never takes the user's focus.
-			var policy = Environment.has("BTRC_GUI_BACKGROUND") ? NSApplicationActivationPolicyAccessory : NSApplicationActivationPolicyRegular;
-			if (self._application.activationPolicy() != policy && !self._application.setActivationPolicy(policy)) { throw "Cannot enable native application activation"; }
-			self._application.finishLaunching();
+
 		} catch (string error) { self.close(); throw error; }
+	}
+
+	private void configureDesktop() {
+		if (self._desktopConfigured) { return; }
+		self._application.setDelegate(self._events, self._callbacks);
+		// Unbundled executables otherwise cannot receive keyboard focus. A
+		// background session (BTRC_GUI_BACKGROUND, set by local test runs on
+		// a desktop someone is using) asks for an accessory app instead: it
+		// shows no Dock icon and macOS does not bring it to the front when
+		// it launches, so it never takes the user's focus.
+		var policy = Environment.has("BTRC_GUI_BACKGROUND") ? NSApplicationActivationPolicyAccessory : NSApplicationActivationPolicyRegular;
+		if (self._application.activationPolicy() != policy && !self._application.setActivationPolicy(policy)) { throw "Cannot enable native application activation"; }
+		self._application.finishLaunching();
+		self._desktopConfigured = true;
 	}
 
 	private void requireMainThread() {
@@ -346,12 +337,13 @@ class MacOSApplication implements IApplication {
 		if (self._closing || self._closed) { throw "Application shutdown has started"; }
 	}
 
-	public bool isRunning() { self.requireMainThread(); return self._running; }
+	public bool isRunning() { self.requireMainThread(); return self._running || self._attachment != null; }
 
 	public void run() {
 		self.requireMainThread();
-		if (self._running) { throw "Native application loop is already active"; }
+		if (self._running || self._attachment != null) { throw "Native application loop is already active or host-attached"; }
 		if (self._closed) { throw "Application shutdown has completed"; }
+		self.configureDesktop();
 		while (true) {
 			if (self._events.quitRequested && self._events.pendingWork() == 0) {
 				var result = self.close();
@@ -376,35 +368,70 @@ class MacOSApplication implements IApplication {
 		if (self._events.workFailed()) { throw self._events.workFailure(); }
 	}
 
+	public ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) {
+		self.requireMainThread(); return self._executor.schedule(work, delaySeconds, policy, replacementKey);
+	}
+
+	public ApplicationPublisherOutcome createPublisher(int capacity, IApplicationPublicationHandler handler, CallbackScope owner) {
+		self.requireMainThread(); return self._executor.createPublisher(capacity, handler, owner);
+	}
+
 	public void post(IApplicationWork work) {
-		self.requireMainThread();
-		if (self._closing || self._closed) { throw "Application shutdown has started"; }
-		if (work == null) { throw "Application work is required"; }
-		self._work.pollCompletion();
-		self._delayed.pollCompletion();
-		self._events.requireWorkCapacity(self._delayed.pendingCount());
-		self._events.admitWork();
-		try { NSRunLoop.currentRunLoop().performBlock(MacOSApplicationWork(work, self._events), self._work); }
-		catch (string error) { self._events.finishWork(); throw error; }
+		var result = self.schedule(work, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+		if (result.kind != SCHEDULE_ACCEPTED) { throw "Application work admission failed"; }
 	}
 
 	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
+		var result = self.schedule(work, delaySeconds, WORK_SUSPENSION_DEFER, 0LL);
+		if (result.kind != SCHEDULE_ACCEPTED || result.registration == null) { throw "Application delayed work admission failed"; }
+		return result.registration;
+	}
+
+	public ApplicationHostAttachOutcome attachHost(IApplicationHost host, CallbackScope owner) {
 		self.requireMainThread();
-		if (self._closing || self._closed) { throw "Application shutdown has started"; }
-		if (work == null || !Math.isFinite(delaySeconds) || delaySeconds < 0.0) { throw "Delayed work requires a finite nonnegative delay and a receiver"; }
-		self._delayed.pollCompletion();
-		self._events.requireWorkCapacity(self._delayed.pendingCount());
-		var receiver = MacOSDelayedWork(work, self._events);
-		var registration = NSTimer.scheduledTimerWithTimeInterval(delaySeconds, false, receiver, self._delayed);
-		// NSTimer delivers on a later run-loop turn, never inside its factory.
-		receiver.bind(registration);
-		return registration;
+		if (host == null || owner == null) { throw "Application host and owner are required"; }
+		var result = ApplicationHostAttachOutcome(); result.attachment = null; result.error = "";
+		if (self._closing || self._closed || self._events.quitRequested) { result.kind = APPLICATION_HOST_APPLICATION_CLOSED; return result; }
+		if (self._attachment != null) { result.kind = APPLICATION_HOST_ALREADY_ATTACHED; return result; }
+		if (self._running || self._events.eventsActive()) { result.kind = APPLICATION_HOST_APPLICATION_RUNNING; return result; }
+		var attachment = MacOSHostAttachment(self);
+		try { owner.track(attachment); }
+		catch (string error) { attachment.abort(); result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = error; return result; }
+		if (!self._executor.installHost(host)) { attachment.abort(); result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = "Publisher wake transition is busy"; return result; }
+		self._attachment = attachment; result.kind = APPLICATION_HOST_ATTACHED; result.attachment = attachment;
+		try { self._executor.updateDeadline(); self._executor.requestTurn(); }
+		catch (string error) { self._events.failWork(error); }
+		return result;
+	}
+
+	public bool quitRequested() { self.requireMainThread(); return self._events.quitRequested; }
+
+	public void transition(ApplicationActivity activity) {
+		self.requireMainThread();
+		if (activity < APPLICATION_ACTIVITY_ACTIVE || activity > APPLICATION_ACTIVITY_UNKNOWN) { throw "Invalid application activity"; }
+		self._executor.suspend(activity == APPLICATION_ACTIVITY_SUSPENDED);
+	}
+
+	public void recordHostFailure(string error) {
+		self.requireMainThread(); self._events.recordFailure(error);
+		try { self._events.requestQuit(self._application); } catch (string shutdownError) { self._events.recordFailure(shutdownError); }
+	}
+
+	public void serviceHostTurn() {
+		self.requireMainThread(); if (self._closed || self._events.eventsActive()) { return; }
+		try { self._events.serviceTurn(); } catch (string error) { self._events.failWork(error); }
+	}
+
+	public CallbackCancellation finishHostClose() {
+		self.requireMainThread(); if (self._events.eventsActive()) { return CALLBACK_CANCELLATION_PENDING; }
+		var result = self.close();
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._attachment = null; return self._events.workFailed() ? CALLBACK_CANCELLATION_FAILED : result; }
+		return result;
 	}
 
 	public void requestQuit() {
 		self.requireMainThread();
-		if (self._closed) { return; }
-		self.requireIdle();
+		if (self._closed || self._events.quitRequested) { return; }
 		self._events.requestQuit(self._application);
 	}
 
@@ -467,23 +494,23 @@ class MacOSApplication implements IApplication {
 		self.requireMainThread();
 		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (self._running) { throw "Request application quit before closing a running application"; }
-		if (self._events.eventsActive()) { throw "Application events must return before closing"; }
-		if (self._events.pendingWork() > 0) { throw "Run the application to drain pending work before closing"; }
-		self._events.requestQuit(self._application);
 		self._closing = true;
+		self._events.requestQuit(self._application);
+		if (self._running || self._events.eventsActive()) { return CALLBACK_CANCELLATION_PENDING; }
+		var work = self._executor.close();
+		if (work != CALLBACK_CANCELLATION_COMPLETE) { return work; }
 		var views = self._events.closeViews();
 		if (views != CALLBACK_CANCELLATION_COMPLETE) { return views; }
 		if (!self._signal.close()) { return CALLBACK_CANCELLATION_PENDING; }
 		try {
 			if (self._shutdown.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Native subtree completions must drain before shutdown"; }
-			if (self._delayed.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Delayed application work must drain before shutdown"; }
-			if (self._work.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Application work must drain before shutdown"; }
 			if (self._callbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Application callbacks must drain before shutdown"; }
 		} catch (string error) { self._closeFailure = error; throw error; }
 		release self._views;
 		self._actions.close();
 		self._closed = true;
+		var attachment = self._attachment; self._attachment = null;
+		if (attachment != null) { attachment.applicationClosed(self._events.workFailed()); }
 		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 

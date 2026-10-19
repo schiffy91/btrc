@@ -1,5 +1,4 @@
 import Library.Callback;
-import Library.Timer;
 import Library.GUI.IApplication;
 import Library.GUI.ApplicationScheduler;
 import Library.GUI.MacOS.MacOSRunLoop;
@@ -21,12 +20,12 @@ class SchedulerTurn implements IAppKitNotificationObserver {
 		self.active = true; self.turns++; self.queue.beginRound();
 		try {
 			for (int count = 0; count < 64; count++) {
-				long long now = MonotonicClock.nanoseconds(); assert(now >= 0LL);
+				unsigned long long now = MacOSRunLoopSignal.now();
 				if (!self.queue.runOne((unsigned long long)now)) { break; }
 			}
 		} finally { self.active = false; }
 		self.signal.scheduleDeadline(self.queue.nextDeadline());
-		if (self.queue.runnable((unsigned long long)MonotonicClock.nanoseconds())) { self.signal.wake(); }
+		if (self.queue.runnable((unsigned long long)MacOSRunLoopSignal.now())) { self.signal.wake(); }
 	}
 }
 class ScheduledNativeWork implements IApplicationWork {
@@ -38,7 +37,7 @@ class ScheduledNativeWork implements IApplicationWork {
 	public ScheduledNativeWork(SchedulerTurn owner) { self.owner = owner; }
 
 	public void submit(double delay) {
-		long long now = MonotonicClock.nanoseconds(); assert(now >= 0LL);
+		unsigned long long now = MacOSRunLoopSignal.now();
 		self.expected = ApplicationScheduler.deadlineAfter((unsigned long long)now, delay);
 		var result = self.owner.queue.schedule(self, (unsigned long long)now, delay, WORK_SUSPENSION_DEFER, 0LL);
 		assert(result.kind == SCHEDULE_ACCEPTED && result.registration != null); self.registration = result.registration;
@@ -47,7 +46,7 @@ class ScheduledNativeWork implements IApplicationWork {
 	}
 
 	public void run() {
-		assert(NSThread.isMainThread() && (unsigned long long)MonotonicClock.nanoseconds() >= self.expected);
+		assert(NSThread.isMainThread() && (unsigned long long)MacOSRunLoopSignal.now() >= self.expected);
 		assert(self.owner.turns > self.previousTurn); self.previousTurn = self.owner.turns; self.calls++;
 		assert(self.registration.cancel() == CALLBACK_CANCELLATION_PENDING);
 		if (self.calls < 3) { self.submit(self.calls == 1 ? 0.0 : 0.02); }

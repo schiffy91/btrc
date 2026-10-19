@@ -1,6 +1,5 @@
 import Library.Callback;
 import Library.Console;
-import Library.Timer;
 import Library.GUI.IApplicationNativeWake;
 import Library.GUI.MacOS.CoreFoundation;
 
@@ -72,6 +71,12 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 		callbackGateLeave(self._gate); return true;
 	}
 
+	class unsigned long long now() {
+		double nanoseconds = CACurrentMediaTime() * 1000000000.0;
+		if (!(nanoseconds >= 0.0) || nanoseconds >= 18446744073709551616.0) { throw "Cannot read native run-loop deadline clock"; }
+		return (unsigned long long)nanoseconds;
+	}
+
 	/* A single common-mode timer signals the same source. The timer owns a
   * native reference to the source; no managed receiver crosses its context. */
 	class CFRunLoopTimerRef createTimer(CFRunLoopSourceRef source, double delay) {
@@ -84,7 +89,7 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 		CFRunLoopSourceSignal((CFRunLoopSourceRef)raw); CFRunLoopWakeUp(CFRunLoopGetMain());
 	}
 
-	/* Deadlines use CLOCK_MONOTONIC nanoseconds, matching Library.Timer. A
+	/* Deadlines use CACurrentMediaTime in nanoseconds, excluding sleep. A
   * callback consumer rechecks that clock before executing delayed work. */
 	public void scheduleDeadline(unsigned long long deadline) {
 		self.requireMainThread();
@@ -92,9 +97,7 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 		if (deadline == self._deadline && (deadline == 0ULL || (self._timer != null && CFRunLoopTimerIsValid(self._timer) != (Boolean)0))) { return; }
 		CFRunLoopTimerRef replacement = null;
 		if (deadline != 0ULL) {
-			long long reading = MonotonicClock.nanoseconds();
-			if (reading < 0LL) { throw "Cannot read native run-loop deadline clock"; }
-			unsigned long long now = (unsigned long long)reading;
+			unsigned long long now = MacOSRunLoopSignal.now();
 			double delay = deadline > now ? (double)(deadline - now) / 1000000000.0 : 0.0;
 			replacement = MacOSRunLoopSignal.createTimer(self._source, delay);
 			if (replacement == null) { throw "Cannot create native run-loop deadline timer"; }

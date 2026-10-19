@@ -1,0 +1,116 @@
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.IApplication;
+import Library.GUI.MacOS.MacOSApplicationExecutor;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./Foundation.btrc;
+#include <assert.h>
+
+class ExecutorHost implements IApplicationHost {
+	public Atomic<int> wakes;
+	public unsigned long long deadline = 0ULL;
+	public ExecutorHost() { self.wakes.init(0); }
+
+	public bool requestTurn() { self.wakes.fetchAdd(1, MemoryOrder.ACQ_REL); return true; }
+
+	public void scheduleTurn(unsigned long long deadline) { assert(NSThread.isMainThread()); self.deadline = deadline; }
+}
+class ExecutorReceiver implements IApplicationPublicationHandler, IApplicationWork {
+	public MacOSApplicationExecutor executor;
+	public int publications = 0;
+	public int scheduled = 0;
+	public bool closedInside = false;
+	public ExecutorReceiver(MacOSApplicationExecutor executor) { self.executor = executor; }
+
+	private void finish() {
+		if (self.publications == 16 && self.scheduled == 4) {
+			assert(self.executor.close() == CALLBACK_CANCELLATION_PENDING); self.closedInside = true;
+		}
+	}
+
+	public void deliver(ApplicationPublication publication) {
+		assert(NSThread.isMainThread()); self.publications++;
+		assert(publication.sequence == (long long)self.publications && publication.payload == 100LL + publication.sequence);
+		self.finish();
+	}
+
+	public void run() {
+		assert(NSThread.isMainThread()); self.scheduled++;
+		bool rejected = false; try { self.executor.serviceTurn(); } catch (string error) { rejected = true; } assert(rejected);
+		if (self.scheduled < 4) { assert(self.executor.schedule(self, 0.01, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_ACCEPTED); }
+		self.finish();
+	}
+}
+class ExecutorWorker implements INativeWorkerBody {
+	public IApplicationPublisher publisher;
+	public ExecutorWorker(IApplicationPublisher publisher) { self.publisher = publisher; }
+
+	public int workLoop() {
+		for (long long sequence = 1LL; sequence <= 16LL; sequence++) {
+			assert(self.publisher.tryPublish(1LL, sequence, WORK_SUSPENSION_DEFER, 0LL, 100LL + sequence) == PUBLISH_ACCEPTED);
+		}
+		return 0;
+	}
+}
+class ExecutorTurn implements IAppKitNotificationObserver {
+	public MacOSApplicationExecutor executor;
+	public ExecutorTurn(MacOSApplicationExecutor executor) { self.executor = executor; }
+
+	public void invoke(NSNotification notification) { self.executor.serviceTurn(); }
+}
+class ExecutorFailure implements IApplicationWork {
+	public void run() { throw "executor callback failure"; }
+}
+class ExecutorClosingReceiver implements IApplicationPublicationHandler {
+	public MacOSApplicationExecutor executor;
+	public ICallbackRegistration? registration;
+	public int calls = 0;
+	public ExecutorClosingReceiver(MacOSApplicationExecutor executor) { self.executor = executor; }
+
+	public void deliver(ApplicationPublication publication) {
+		self.calls++;
+		assert(self.executor.close() == CALLBACK_CANCELLATION_PENDING);
+		assert(self.registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
+	}
+}
+int main() {
+	var mode = CFStringCreateWithCString(null, "BTRC.UI2.ExecutorCommonMode", kCFStringEncodingUTF8);
+	CFRunLoopAddCommonMode(CFRunLoopGetMain(), mode);
+	var signal = MacOSRunLoopSignal(); var executor = MacOSApplicationExecutor(2, signal);
+	var sourceScope = CallbackScope(); signal.subscribe(ExecutorTurn(executor), sourceScope);
+	var receiver = ExecutorReceiver(executor); var owner = CallbackScope();
+	var created = executor.createPublisher(16, receiver, owner); assert(created.kind == APPLICATION_PUBLISHER_CREATED);
+	var host = ExecutorHost(); assert(executor.installHost(host)); assert(!executor.installHost(host));
+	executor.suspend(true);
+	var scheduled = executor.schedule(receiver, 0.01, WORK_SUSPENSION_DEFER, 0LL); assert(scheduled.kind == SCHEDULE_ACCEPTED);
+	assert(host.deadline == 0ULL);
+	var worker = NativeWorker(); assert(worker.start(ExecutorWorker(created.publisher)) == NATIVE_WORKER_STARTED);
+	assert(worker.join() && !worker.workerFailed());
+	executor.serviceTurn(); assert(receiver.scheduled == 0 && receiver.publications == 0);
+	executor.suspend(false); assert(host.deadline != 0ULL);
+	while (!receiver.closedInside) { CFRunLoopRunInMode(mode, 2.0, (Boolean)1); }
+	assert(executor.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !executor.servicing());
+	assert(created.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && host.deadline == 0ULL);
+	assert(host.wakes.load(MemoryOrder.ACQUIRE) > 0 && scheduled.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(executor.schedule(receiver, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_CLOSED);
+	assert(executor.createPublisher(1, receiver, owner).kind == APPLICATION_PUBLISHER_CLOSED);
+	assert(created.publisher.tryPublish(1LL, 17LL, WORK_SUSPENSION_DEFER, 0LL, 117LL) == PUBLISH_CLOSED);
+	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && sourceScope.cancel() == CALLBACK_CANCELLATION_COMPLETE && signal.close());
+	var failureSignal = MacOSRunLoopSignal(); var failureExecutor = MacOSApplicationExecutor(1, failureSignal);
+	var failedWork = failureExecutor.schedule(ExecutorFailure(), 0.0, WORK_SUSPENSION_DEFER, 0LL);
+	bool failed = false; try { failureExecutor.serviceTurn(); } catch (string error) { failed = error == "executor callback failure"; }
+	assert(failed && !failureExecutor.servicing() && failureExecutor.pendingWork() == 0);
+	assert(failedWork.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(failureExecutor.close() == CALLBACK_CANCELLATION_COMPLETE && failureSignal.close());
+	var closeSignal = MacOSRunLoopSignal(); var closeExecutor = MacOSApplicationExecutor(1, closeSignal); var closeOwner = CallbackScope();
+	var closeReceiver = ExecutorClosingReceiver(closeExecutor);
+	var closePublisher = closeExecutor.createPublisher(65536, closeReceiver, closeOwner); assert(closePublisher.kind == APPLICATION_PUBLISHER_CREATED);
+	closeReceiver.registration = closePublisher.registration;
+	assert(closeExecutor.createPublisher(1, closeReceiver, closeOwner).kind == APPLICATION_PUBLISHER_BUDGET_EXHAUSTED);
+	assert(closePublisher.publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 1LL) == PUBLISH_ACCEPTED);
+	closeExecutor.serviceTurn(); assert(closeReceiver.calls == 1 && closeExecutor.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(closeOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && closeSignal.close());
+	CFRelease(mode);
+	print("PASS: UI2 macOS executor worker delivery timers suspension and callback drain"); return 0;
+}

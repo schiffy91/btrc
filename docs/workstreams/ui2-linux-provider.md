@@ -31,25 +31,37 @@ interface and ui2-approved.md govern; no second portable ownership model.
 
 ## Integration update, 2026-10-19
 
-The publisher now lives in the shared private
-`src/stdlib/GUI/ApplicationPublisher.btrc`. LinuxContext supplies SDL wakeups;
-MacOSRunLoopSignal supplies CoreFoundation wakeups. Receipt storage, replacement,
-cancellation and host notification use the same owner on both platforms. This
-replaces the LinuxPublisher source named in the historical checkpoint below.
-The shared private `ApplicationScheduler.btrc` now owns delayed work, replacement,
-suspension and cancellation. LinuxApplication uses it; macOS has a real
-common-mode source/timer composition probe, but application wiring is still
-pending. Entered callbacks remain charged against capacity and cancellation
-stays pending until they return. Reposted work waits for the next service turn.
+`ApplicationPublisher.btrc` and `ApplicationScheduler.btrc` are shared private
+owners. LinuxApplication uses both. MacOSApplication now routes scheduled work
+and worker publications through MacOSApplicationExecutor, driven by its
+common-mode source. Entered callbacks remain charged against capacity, and
+cancellation stays pending until they return. Reposted work waits for the next
+service turn.
 
-Focused tests passed through both compilers, plain and ASan/UBSan: 34 queue,
-slider, publisher, scheduler and macOS wake/deadline checks, plus four native
-scheduler composition checks. The input notification projection also compiles
-through both compilers. The whole MacOSApplication probe still fails to compile
-because its UI2 control, lifecycle and application methods are unfinished.
-The current Linux scheduler composition still needs native qualification.
+The macOS executor allows 64 deliveries and 2 ms per work class per turn, with
+65,536 slots available across publishers. These are implementation limits;
+E40 acceptance measurements remain pending. Deadlines use `CACurrentMediaTime`
+in nanoseconds, selected from Apple's `QuartzCore/CABase.h` through a C binding.
+One common-mode CoreFoundation timer wakes the source, and the scheduler
+rechecks the clock before delivery. The per-item `NSRunLoop.performBlock`
+binding has been removed. Desktop delegate and activation setup occur only in
+`run()`, preserving an attached host's delegate.
 
-## Qualification state
+The focused 42-test run passed through both compilers, plain and ASan/UBSan.
+It covers the shared owners and native source/timer/executor, including
+suspension, publisher capacity exhaustion, callback failures, and close during
+publication delivery. After the clock correction, all 26 targeted native and
+public Tray seam checks passed. Generated-source, lint and format checks pass.
+
+The two whole-application probes remain registered and fail in all eight
+frontend/build combinations because view, control and window methods in 16
+macOS classes are unfinished. They cover worker publication and host lifetime,
+including delegate preservation and direct-close completion. The application
+wiring has no runtime qualification yet. The current Linux scheduler composition
+also needs native qualification. Both complete desktop providers must pass
+acceptance before the interface can land.
+
+## Original qualification state
 
 Claim precedes implementation. Existing Linux 96-row repair and four Grid04
 rows are being qualified from immutable archives by another agent. No UI2

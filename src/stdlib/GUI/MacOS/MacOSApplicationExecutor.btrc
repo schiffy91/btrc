@@ -1,0 +1,161 @@
+import Library.Callback;
+import Library.Console;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.ApplicationPublisher;
+import Library.GUI.ApplicationScheduler;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+/* AppKit's main-thread work owner. The application calls one bounded turn
+ * from its common-mode source; native input and window teardown stay with
+ * their existing owners. Publishers retain the source through worker drain. */
+class MacOSApplicationExecutor {
+	private ApplicationScheduler _scheduler;
+	private MacOSRunLoopSignal _signal;
+	private Vector<ApplicationPublisher> _publishers = [];
+	private int _publisherUsed = 0;
+	private int _publisherCursor = 0;
+	private bool _publisherFirst = false;
+	private bool _servicing = false;
+	private bool _suspended = false;
+	private bool _closing = false;
+	private bool _closed = false;
+	private IApplicationHost? _host;
+
+	public MacOSApplicationExecutor(int capacity, MacOSRunLoopSignal signal) {
+		self.requireMainThread(); self._scheduler = ApplicationScheduler(capacity); self._signal = signal;
+	}
+
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Application work requires the main thread"; } }
+
+	class unsigned long long now() { return MacOSRunLoopSignal.now(); }
+
+	public ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) {
+		self.requireMainThread();
+		var result = self._scheduler.schedule(work, MacOSApplicationExecutor.now(), delaySeconds, policy, replacementKey);
+		if (result.kind == SCHEDULE_ACCEPTED || result.kind == SCHEDULE_REPLACED) { self.updateDeadline(); self.requestTurn(); }
+		return result;
+	}
+
+	public ApplicationPublisherOutcome createPublisher(int capacity, IApplicationPublicationHandler handler, CallbackScope owner) {
+		self.requireMainThread();
+		if (capacity <= 0 || capacity > 65536 || handler == null || owner == null) { throw "Publisher requires bounded capacity, receiver and owner"; }
+		var result = ApplicationPublisherOutcome(); result.publisher = null; result.registration = null;
+		if (self._closing) { result.kind = APPLICATION_PUBLISHER_CLOSED; return result; }
+		self.prunePublishers();
+		if (capacity > 65536 - self._publisherUsed) { result.kind = APPLICATION_PUBLISHER_BUDGET_EXHAUSTED; return result; }
+		var publisher = ApplicationPublisher(capacity, self._signal, self._host);
+		if (!publisher.initialized()) { result.kind = APPLICATION_PUBLISHER_RESOURCE_FAILED; return result; }
+		publisher.activate(handler, owner); publisher.suspend(self._suspended);
+		self._publishers.push(publisher); self._publisherUsed += capacity;
+		result.kind = APPLICATION_PUBLISHER_CREATED; result.publisher = publisher; result.registration = publisher; return result;
+	}
+
+	private void prunePublishers() {
+		for (int index = self._publishers.len - 1; index >= 0; index--) {
+			var publisher = self._publishers.get(index);
+			if (publisher.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) {
+				self._publisherUsed -= publisher.capacity(); self._publishers.remove(index);
+				if (index < self._publisherCursor) { self._publisherCursor--; }
+			}
+		}
+	}
+
+	/* The caller installs its scoped host attachment before committing this
+	 * route. A racing worker refuses the change without replacing any route. */
+	public bool installHost(IApplicationHost host) {
+		self.requireMainThread();
+		if (host == null || self._closing || self._host != null || self._servicing) { return false; }
+		int locked = 0;
+		while (locked < self._publishers.len && self._publishers.get(locked).beginHostChange()) { locked++; }
+		if (locked != self._publishers.len) {
+			for (int index = 0; index < locked; index++) { self._publishers.get(index).endHostChange(); }
+			return false;
+		}
+		self._host = host;
+		for publisher in self._publishers { publisher.setHostLocked(host); publisher.endHostChange(); }
+		return true;
+	}
+
+	public void requestTurn() {
+		self.requireMainThread();
+		if (!self._signal.requestTurn()) { throw "Application native wake failed"; }
+		if (self._host != null && !self._host.requestTurn()) { throw "Application host wake failed"; }
+	}
+
+	public void updateDeadline() {
+		self.requireMainThread();
+		unsigned long long deadline = self._scheduler.nextDeadline();
+		self._signal.scheduleDeadline(deadline);
+		if (self._host != null) { self._host.scheduleTurn(deadline); }
+	}
+
+	public void suspend(bool suspended) {
+		self.requireMainThread(); if (self._closing) { return; }
+		self._suspended = suspended; self._scheduler.suspend(suspended);
+		for publisher in self._publishers { publisher.suspend(suspended); }
+		self.updateDeadline(); self.requestTurn();
+	}
+
+	private void runScheduled() {
+		unsigned long long start = MacOSApplicationExecutor.now();
+		for (int count = 0; count < 64 && !self._closing && MacOSApplicationExecutor.now() - start < 2000000ULL; count++) {
+			if (!self._scheduler.runOne(MacOSApplicationExecutor.now())) { break; }
+		}
+	}
+
+	private void runPublishers() {
+		int count = self._publishers.len;
+		unsigned long long start = MacOSApplicationExecutor.now();
+		for (int index = 0; index < count && index < 64 && !self._closing && MacOSApplicationExecutor.now() - start < 2000000ULL; index++) {
+			if (self._publisherCursor >= self._publishers.len) { self._publisherCursor = 0; }
+			self._publishers.get(self._publisherCursor++).deliverOne();
+		}
+		self.prunePublishers();
+	}
+
+	public void serviceTurn() {
+		self.requireMainThread();
+		if (self._servicing) { throw "Application work dispatch cannot re-enter"; }
+		if (self._closing) { return; }
+		self._servicing = true;
+		try {
+			self._scheduler.beginRound();
+			if (self._publisherFirst) { self.runPublishers(); self.runScheduled(); }
+			else { self.runScheduled(); self.runPublishers(); }
+			self._publisherFirst = !self._publisherFirst;
+		} finally { self._servicing = false; }
+		self.updateDeadline(); if (self.runnable()) { self.requestTurn(); }
+	}
+
+	public bool runnable() {
+		self.requireMainThread(); if (self._closing) { return false; }
+		if (self._scheduler.runnable(MacOSApplicationExecutor.now())) { return true; }
+		for publisher in self._publishers { if (publisher.pending()) { return true; } }
+		return false;
+	}
+
+	public bool servicing() { self.requireMainThread(); return self._servicing; }
+
+	public int pendingWork() { self.requireMainThread(); return self._scheduler.pendingCount(); }
+
+	public CallbackCancellation close() {
+		self.requireMainThread(); if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		self._closing = true; self._scheduler.close();
+		for publisher in self._publishers { publisher.cancel(); }
+		self.updateDeadline(); return self.pollClose();
+	}
+
+	public CallbackCancellation pollClose() {
+		self.requireMainThread(); if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (self._servicing || self._scheduler.pollClose() != CALLBACK_CANCELLATION_COMPLETE) { return CALLBACK_CANCELLATION_PENDING; }
+		for publisher in self._publishers {
+			var result = publisher.pollCompletion(); if (result != CALLBACK_CANCELLATION_COMPLETE) { return result; }
+		}
+		self._publishers.clear(); self._publisherUsed = 0; self._host = null; self._closed = true;
+		return CALLBACK_CANCELLATION_COMPLETE;
+	}
+
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Application executor destroyed before callback drain"); } }
+}

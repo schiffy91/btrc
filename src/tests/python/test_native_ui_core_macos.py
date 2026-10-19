@@ -48,7 +48,13 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
     [
         ("UI2MacOSSignal", "PASS: UI2 macOS scoped common-mode wake and worker signal"),
         ("UI2MacOSPublisher", "PASS: UI2 macOS worker publication and cancellation drain"),
+        ("UI2MacOSExecutor", "PASS: UI2 macOS executor worker delivery timers suspension and callback drain"),
         ("UI2MacOSScheduler", "PASS: UI2 macOS scheduled work uses common-mode deadlines and later turns"),
+        pytest.param(
+            "UI2MacOSApplicationHost",
+            "PASS: UI2 macOS host attachment preserves delegate and drains application work",
+            marks=pytest.mark.macos_gui,
+        ),
         pytest.param(
             "UI2MacOSApplicationPublisher",
             "PASS: UI2 macOS application worker publication and shutdown",
