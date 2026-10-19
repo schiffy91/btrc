@@ -9,11 +9,10 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from .bundle import METADATA_TIMEOUT_S, ROOT, acceptance_cases, digest
-from .executor import ExecutionRequest, WindowsNativeExecutor
+from .executor import ExecutionRequest, WindowsNativeExecutor, private_directory
 
 
 def assert_dead(pid):
@@ -85,23 +84,25 @@ def validate_cases(manifest, *, root=ROOT):
     return cases
 
 
-def check(bundle, report, label):
+def check(bundle, report, runner):
+    """Run every acceptance case on this host; `runner` names the hosted runner in the report."""
     if sys.platform != "win32":
         raise RuntimeError("native Windows is required; Linux mocks are not execution evidence")
     bundle, report = Path(bundle).resolve(), Path(report).resolve()
     rows = []
-    outcome = {"results": rows, "complete": False, "passed": 0, "failed": 0, "skipped": 0}
+    outcome = {"results": rows, "complete": False, "passed": 0, "failed": 0, "skipped": 0, "runner": runner}
     try:
         manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
         cases = validate_cases(manifest)
         outcome["target"] = manifest["target"]
         outcome["expected"] = len(cases)
-        with tempfile.TemporaryDirectory(prefix="btrc bundle λ ") as directory:
-            relocated = Path(directory) / "programs with spaces"
+        with private_directory("btrc bundle λ ", outcome.setdefault("cleanup_warnings", [])) as directory:
+            relocated = directory / "programs with spaces"
             shutil.copytree(bundle, relocated)
             executor = WindowsNativeExecutor()
             try:
-                executor.prepare(relocated, label)
+                # The executor admits a bundle only for its own targets.toml row.
+                executor.prepare(relocated, manifest["target"])
                 for case in cases:
                     row = {"name": case["name"], "frontend": case.get("frontend", "C fixture"), "passed": False}
                     rows.append(row)
@@ -152,9 +153,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
-    parser.add_argument("--label", default="native Windows host spike")
+    parser.add_argument("--runner", default="native Windows host spike", help="the hosted runner, for the report")
     args = parser.parse_args(argv)
-    check(args.bundle, args.report, args.label)
+    check(args.bundle, args.report, args.runner)
 
 
 if __name__ == "__main__":

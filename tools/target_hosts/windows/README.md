@@ -1,178 +1,166 @@
-# Windows native host spike (CX-P1-06)
+# Windows native target host (CX-P1-06, CX-P1-07)
 
-This standalone spike exposes the proposed CL-P1-17 protocol:
-`prepare(bundle_dir, label)`, `run(ExecutionRequest) -> ExecutionResult`, and
-`close()`. Integration into the shared target runner is CX-P1-07 after that
-contract is frozen. No shared runner, compiler, runtime, test corpus, or
-workflow file changes are included here.
-
-## Build a bounded bundle on Linux
-
-Use the repository's pinned development shell and a freshly built self-hosted
-compiler from the same source revision:
+`executor.py` is the `windows-native` executor of the shared target runner:
+`src/tests/target_runner.py` freezes executor protocol 1 in its docstring
+(`prepare(bundle_dir, label)`, `run(ExecutionRequest) -> ExecutionResult`,
+`close()`), and its registry imports this module and finds
+`WindowsNativeExecutor` through `TARGET_EXECUTORS`. The runner builds a
+bundle on Linux and runs it here:
 
 ```sh
-export BTRC_TEST_RUNNER=linux-devcontainer
+nix develop --command python3 -m src.tests.target_runner --target windows-x86_64 --frontend both \
+  --compile-only --btrcc bin/btrcc --output build/target-corpus/windows-x86_64
+```
+
+```powershell
+python -m src.tests.target_runner --execute-bundle build/target-corpus/windows-x86_64/bundle --executor windows-native
+```
+
+`windows.yml`'s `target-corpus-build` and `target-corpus` jobs do exactly
+this for `windows-x86_64` on `windows-latest` and `windows-aarch64` on
+`windows-11-arm`, through both compilers, on every main-tier run; see
+"The corpus lane" below.
+
+`bundle.py` and `check.py` are the original spike: six PE executables (two C
+fixtures and two corpus programs through both compilers) and 16 fixed
+execution cases that `host-windows.yml` runs on both architectures.
+
+## Admission (`prepare`)
+
+The executor reads only `bundle.json` (`btrc.target-bundle/1`), which both
+the runner and `bundle.py` write. It refuses:
+
+- a bundle built for another `targets.toml` row than the `label` it is
+  given, or a row that is not one of `bundle.TARGETS` (the two gnu rows);
+- an architecture this hardware would only emulate: `IsWow64Process2`
+  supplies the native machine, which must equal the row's PE machine, so an
+  ARM64 bundle under x64 emulation is never ARM64 evidence;
+- any built program whose artifact is not exactly `<program_id>.exe`, is not
+  a regular file inside the bundle, resolves to another extension (a `.cmd`
+  or `.bat` launcher behind a link), lacks a SHA-256, or whose bytes do not
+  match that digest and the row's PE machine.
+
+Every built program is copied into a private staging directory and opened
+with a handle that shares only reading: until `close`, no process can write,
+replace or delete the copy (`CreateProcessW`'s own open of the image needs
+only shared reading). The digest and PE machine are checked on the bytes read
+through that handle, so the bytes checked are the bytes every run launches;
+the bundle directory is never read again. Programs the bundle records as
+failed, restricted or missing are not staged. Admission is atomic: any
+refusal removes the new staging directory and keeps the previously admitted
+bundle, if any.
+
+## Launch and outcome (`run`)
+
+Each request creates a Job Object with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION`.
+Assigning an already running target after `Popen` would leave a window in
+which it could spawn an unowned child, so `Popen` starts a Python launch gate
+(this file with `--gate`) waiting on a uniquely named event; the executor
+assigns the gate to the job before releasing the event, and only then does
+the gate create the program. The program and its descendants inherit the
+job; breakaway is not enabled. A failure to assign kills the unreleased gate.
+The gate uses the base interpreter rather than a venv redirector and sets
+inherited error-mode flags that suppress system, GP-fault and open-file
+dialogs. Gate and program start detached in new process groups, and the gate
+forwards all three standard handles explicitly.
+
+The outcome comes only from the operating system:
+
+- **Exit status and crashes.** The gate exits with the program's full 32-bit
+  status, and the executor reads the gate's process exit code. Known crash
+  NTSTATUS values map to a POSIX signal number, keeping the original value in
+  `provenance.ntstatus` (an application that calls `ExitProcess` with a crash
+  code is indistinguishable from that crash). Ordinary exits 124 and 137 are
+  never timeouts.
+- **Deadline.** Only the executor's own deadline (which includes setup) sets
+  `timed_out`; `TerminateJobObject` then ends the whole tree before the pipes
+  drain. A normal return also terminates remaining descendants, and the job's
+  accounting must reach zero active processes within 10 s or the run is an
+  infrastructure error.
+- **Launch failure.** The gate is the job's first process. If the job's
+  accounting (`TotalProcesses`) shows that no second process ever started,
+  the program never launched: that is an infrastructure error carrying the
+  gate's own stderr (it reports `CreateProcessW` failures with their
+  `winerror` and `errno`), never a program outcome.
+
+No file decides anything. The gate writes no status or error marker; the
+request and staged stdin sit in a control directory inside the staging root,
+neither in nor beside the program's fresh, empty cwd (its name contains
+spaces and a Greek lambda), and nothing reads them back after launch. A
+program that overwrites every file it can find still gets its own exit
+status. Only the request's environment overrides are serialized, merged
+case-insensitively. Both pipes drain concurrently with a 1 MiB limit per
+stream; overflow is an infrastructure failure, never a truncated result.
+Directories are removed with a read-only retry, so a program that leaves a
+read-only file behind does not leak its cwd; a removal that still fails is
+recorded in `provenance.cleanup_warnings` without discarding the result.
+
+`provenance` names the executor, a device class (the processor model and
+architecture, never a host name), the Windows build and edition, and the
+bundle's toolchain.
+
+This harness runs trusted repository programs under the runner's own user:
+the staging handle, private directories and OS-derived outcome address
+accidental interference, not a hostile same-user sandbox.
+
+## The corpus lane
+
+`windows.yml` (planned by `ci/tiers.toml`) runs it in the main, extended and
+release tiers, and on a pull request that touches a Windows provider, this
+directory, the runner or its applicability data:
+
+1. `target-corpus-build` (Ubuntu, the pinned dev shell) builds `bin/btrcc`,
+   then `src.tests.target_runner --compile-only --frontend both` for
+   `windows-x86_64` and `windows-aarch64` with zig 0.16.0 and the strict C11
+   flags. Each bundle (`bundle.json` and the executables) is an artifact; the
+   compile-only reports and the C of every program that failed to build are
+   another.
+2. `target-corpus` runs on `windows-latest` (x64; Windows Server, a stand-in
+   for the Windows 11 x64 slice) and `windows-11-arm` (ARM64) with a native
+   Python of the runner's architecture. `--execute-bundle` admits the bundle
+   only for this checkout's revision, goldens and request pins, then runs
+   every program serially through this executor. The step summary carries
+   the per-frontend passed/failed/restricted/missing counts and every
+   failure; the `target-corpus-run-<target>` artifact keeps each program's
+   streams and JSON, `target-run.json`, `junit.xml` and `ledger.jsonl` (the
+   `TargetRunAdapter` records).
+
+Both rows report only until the triaged failures are fixed: the job shows
+red without failing the run.
+
+## The spike bundle (`bundle.py`, `check.py`)
+
+```sh
 nix develop --command make NIX= btrcc
 nix develop --command python3 -m tools.target_hosts.windows.bundle --record-compiler-provenance bin/btrcc.provenance.json
 nix develop --command python3 -m tools.target_hosts.windows.bundle --target windows-x86_64 --output build/windows-host-x64
-nix develop --command python3 -m tools.target_hosts.windows.bundle --target windows-aarch64 --output build/windows-host-arm64
 ```
-
-`--btrcc /absolute/path/to/btrcc --compiler-receipt /absolute/path/to/receipt.json`
-selects a separately built compiler. If that binary is relocated outside its
-checkout or installation tree, set `BTRC_HOME="$PWD/src"` in the source-matched
-checkout so it can locate the grammar and standard library.
-Record its receipt immediately after building
-it from the stated checkout; never generate a receipt to relabel an unknown binary.
-The receipt binds the binary SHA-256, full build-source revision and a digest of
-tracked compiler/spec/runtime/stdlib/generator input contents. Bundle construction
-requires both digests to match and verifies that the recorded source revision
-exists and has the same compiler inputs as the current HEAD. The receipt records
-tracked-tree and compiler-input dirty state; dirty compiler inputs are refused.
-Tool-only branch changes may reuse a source-identical compiler. The source commit
-must be available in the producer checkout (fetch it when reusing a separate build). This is retained build provenance,
-not a cryptographic attestation of who performed the build. Both
-bundles use `zig cc` with the existing Windows workflow's exact strict flags:
-`-std=c11 -O2 -Wall -Wextra -Werror -pedantic`, the Windows runtime include
-directory and forced `btrc_win_compat.h`, and `-lm`. Targets are
-`x86_64-windows-gnu` and `aarch64-windows-gnu`.
-
-Each bundle contains six PE executables: two strict C11 fixtures and the
-existing `BracesInCodeGen` and `PathWindowsLexical` corpus programs compiled
-through both Python and self-hosted frontends with explicit `--target`.
-No corpus program is edited. The manifest records the source revision,
-self-hosted compiler build receipt, Zig version, flags, executable digests, PE
-machine values, and 16 execution cases with arguments, deadlines, expected
-stdout/stderr digests and expected process outcomes.
-
-## Execute on a native Windows runner
-
-Keep the repository checkout available for the Python host tooling and
-download the matching bundle. Python 3.13 or later is sufficient; the
-native execution path uses only its standard library.
 
 ```powershell
-python -m tools.target_hosts.windows.check --bundle build/windows-host-x64 --report build/windows-host-x64-results.json --label windows-latest
+python -m tools.target_hosts.windows.check --bundle build/windows-host-x64 --report build/windows-host-x64-results.json --runner windows-latest
 ```
 
-On `windows-11-arm`, use `windows-host-arm64` and a corresponding report
-name. `IsWow64Process2` supplies the native hardware architecture, which must
-match the bundle PE machine. An ARM64 bundle run under x64 emulation cannot
-be accepted as ARM64 evidence. `windows-latest` is Windows Server 2025, a
-stand-in for the Windows 11 x64 slice; ARM64 hosted runner availability still
-needs confirmation.
+The compiler receipt binds the binary's SHA-256, the full build-source
+revision and a digest of the tracked compiler, spec, runtime, stdlib and
+generator inputs; bundle construction refuses a mismatch or dirty compiler
+inputs. `bundle.py` writes `bundle.json` for the executor and `manifest.json`
+for the 16 acceptance cases: NUL and non-UTF-8 streams, 256 KiB binary stdin,
+argv quoting, environment, the isolated cwd, exits 3/124/137, a raised access
+violation, deadline expiry and a three-generation process tree (both on
+expiry and on a normal return while descendants hold the pipes; each observed
+PID is then checked dead). `check.py` copies the bundle to a path with spaces
+and a Greek lambda, admits it for its own row, recomputes every golden from
+this checkout, and records each case; any failure leaves `complete=false`.
 
-The checker copies the bundle to a path containing spaces and a Greek lambda,
-then runs every case from a different temporary working directory with those
-characters. Admission requires the exact 16 unique case identities, including both
-tree cases and all four corpus/frontend cases, their exact executable mappings, argv,
-stdin, environment, deadlines, expected outcomes and evidence policies. Golden
-digests are recomputed from the runner checkout, whose revision must match the
-bundle. Empty, truncated or modified cases cannot yield a successful report.
-Ordinary case failures retain an error row and the checker continues collecting
-all remaining cases; any failure leaves `complete=false`. Admission failures and
-interrupts abort while retaining the evidence already collected. Byte streams remain bytes: fixtures cover NUL and non-UTF-8
-output, 256 KiB binary stdin, arguments with quoting/empty/trailing-backslash
-cases, environment, working directory, ordinary exits 3/124/137, a raised
-EXCEPTION_ACCESS_VIOLATION status (not a hardware memory fault), deadline expiry,
-and a three-generation process tree.
-The tree also has a normal-return case: its parent waits until its grandchild
-is running, then returns while both descendants still hold the output pipes.
-The two corpus programs use an explicit CRLF-to-LF stdout comparison, matching
-the existing Windows workflow's newline policy. Reports retain raw stream
-digests alongside outcomes, duration and provenance; they never silently
-normalize fixture streams.
-
-## Process ownership and the assignment race
-
-Each request creates a Job Object with
-`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION`. Assigning an already running target
-after `Popen` normally leaves a window in which that target can spawn an
-unowned child. Here `Popen` starts a Python launch gate waiting on a uniquely
-named event. The host assigns the gate to the job before releasing the event;
-only then can the gate create the target. The target and descendants inherit
-the job, and breakaway is not enabled. A failure to assign kills the unreleased
-gate. Job handles are not inherited by the gate or target. The gate uses the
-base Python interpreter rather than a venv redirector, and sets inherited error
-mode flags to suppress system/GP-fault/open-file dialogs for all target programs,
-including corpus executables. Exact CreateProcessW failures retain winerror,
-errno and message in an atomic error record, distinct from a target exit.
-
-Timeouts use `TerminateJobObject`, drain the captured pipes, and query job
-accounting until no active processes remain. Normal returns also terminate
-remaining descendants: polling the gate process distinguishes its completion
-from descendants that still hold its pipes open. The deadline
-includes setup time. Stdin uses a binary temporary file, avoiding Windows
-`communicate`'s synchronous stdin write blocking beyond that deadline.
-Handles close before the working directory is removed. The target cwd starts
-empty; request, stdin and status records live in a sibling control directory.
-Only target environment overrides are serialized; merging is case-insensitive.
-The gate and target start detached in new process groups, so the target
-cannot signal the harness through its console. The gate explicitly forwards all
-three standard handles to its target: detached Windows processes cannot rely on
-console inheritance for the binary stdin file and stdout/stderr capture pipes.
-Both pipes drain concurrently with a 1 MiB retained-byte limit per stream;
-overflow is an infrastructure failure, never
-a successful truncated digest. Failed temporary-directory removal is retained as
-`provenance.cleanup_warnings` without discarding the completed result; Job Object
-termination/accounting failures still fail execution.
-
-Admission commits bundle state only after every check succeeds, and each run
-rechecks the executable digest immediately before spawning. Program mappings
-must be exactly `<program>.exe`; batch/cmd launchers are refused. This harness
-runs trusted repository fixtures under the same Windows user: sibling control
-files and repeated digests address accidental cwd collisions and stale artifacts,
-not a hostile same-user sandbox or an atomic filesystem-to-CreateProcess guarantee.
-The tree fixture prints the PIDs of its parent, child and grandchild; the
-checker requires all three generations; the executor queries job accounting until empty,
-then independently checks that each observed PID is dead. This is an
-execution assertion, not evidence supplied by a portable mock.
-
-The gate writes a completion marker after the target returns, then exits with
-the full 32-bit target status. The parent reads the gate process exit code, never
-a numeric status supplied by a cwd file. A missing marker is an infrastructure error. Known NTSTATUS
-values map to signal-like results, and their original hexadecimal value is
-retained. This is a Windows exit-code convention: an application deliberately
-calling `ExitProcess` with a crash NTSTATUS is indistinguishable from that
-crash code. Ordinary exits 124 and 137 are not classified as timeouts.
-Only a host deadline expiry sets `timed_out`. Cleanup has a separate bounded
-10-second allowance; a failure to empty the job raises an infrastructure
-error rather than claiming a successful cleanup.
-
-## Validation and remaining evidence
+## Validation
 
 ```sh
-nix develop --command python3 -m pytest tools/target_hosts/windows/test_executor.py -q -rs
-nix develop --command ruff check tools/target_hosts/windows
-nix develop --command ruff format --check tools/target_hosts/windows
+nix develop --command python3 -m pytest -p src.tests.conftest tools/target_hosts/windows/test_executor.py -q -rs
+nix develop --command python3 -m pytest src/tests/python/test_target_runner.py -q
 ```
 
-Build commands have finite deadlines; the Linux producer terminates the
-compiler process group after success, failure or timeout before a bounded pipe
-drain. Metadata subprocesses also have finite deadlines.
-
-`test_executor.py` is collected by the `host-windows.yml` bundle job, not by
-the shared unit shard. Invoke it explicitly for local changes; its builder/validator
-roundtrip uses stubbed compiler effects and does not claim native execution.
-
-The portable suite exercises admission failures, binary transport, launch
-ordering, timeout cleanup, normal and crash statuses, and the tree-evidence
-checker using a fake transport. It does not exercise Windows APIs.
-Two portable tests also create actual POSIX descendants holding inherited
-pipes to exercise normal-return and error cleanup; these remain stand-in
-transport checks, not Windows process evidence. Their status/ready files publish
-atomically and tests assert descendants are terminated (an exited Linux zombie
-awaiting the host reaper is distinguished from a live process). Executor-clock
-injection is local to the instance; tests do not replace process-global clocks.
-Cleanup exceptions are suppressed only when this invocation itself raised a
-primary error, never merely because its caller is handling another exception.
-
-The integrator installed `host-windows.yml` in batch35. Its first run,
-[37311381559](https://github.com/schiffy91/btrc/actions/runs/37311381559), verified
-the original spike at merged revision `87727690`: both downloaded native reports
-contain 16 passed, 0 failed, 0 skipped, including both tree cases and both corpus
-programs through both compilers. x64 is hosted Windows Server 2025 stand-in
-evidence; ARM64 ran natively on `windows-11-arm`. This baseline does not validate
-subsequent hardening; that requires the follow-up PR's own host lane results.
-No Wine or Linux mock result is counted as native Windows evidence.
+`test_executor.py` uses fake transports and POSIX process groups as stand-ins
+for the Windows APIs; none of it is native Windows evidence. Native evidence
+comes from `host-windows.yml` (the spike's 16 cases) and `windows.yml`'s
+corpus lane.
