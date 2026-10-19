@@ -7,9 +7,10 @@
    would (Unicode text, Enter, Ctrl-C, an arrow key) and checks every line the
    program reports, its exit status, and that no secret ever reached the
    screen. Then it runs the program's "default" case, whose Ctrl-C reaches
-   Windows' default handler, and a "probe" in the same pseudoconsole, which
-   must find the console's echo restored. Prints one "conpty-terminal" line
-   per check and exits 0 only when every check passed.
+   Windows' default handler, beside a "probe" on the same pseudoconsole,
+   which must find the console's echo restored once "default" has ended.
+   Prints one "conpty-terminal" line per check and exits 0 only when every
+   check passed.
 
    Ctrl-C reaches the program only when its process group processes it: the
    harness clears an inherited "ignore Ctrl-C" flag before starting it, and
@@ -259,7 +260,17 @@ int main(void)
 	contains_no(&screen, "third secret hidden", "omega-s3cr3t");
 
 	/* Windows' default handler ends the process; the prompt's handler has
-	   restored the echo first, as the next program on this console sees. */
+	   restored the echo first, as a probe kept on the same console sees once
+	   the gate file appears. The probe survives the Ctrl-C, which reaches
+	   every process on the console, with a handler of its own. */
+	wchar_t gate[MAX_PATH + 64];
+	DWORD temporary = GetTempPathW(MAX_PATH, gate);
+	_snwprintf(gate + temporary, 63, L"btrc-conpty-gate-%lu.txt", (unsigned long)GetCurrentProcessId());
+	DeleteFileW(gate);
+	SetEnvironmentVariableW(L"TERMINAL_CONSOLE_GATE", gate);
+	PROCESS_INFORMATION probe;
+	int probing = start(console, program, L"probe", &probe);
+	report("probe ready", probing && wait_for(&screen, &cursor, "probe waiting"), NULL);
 	if (start(console, program, L"default", &process)) {
 		report("default prompt", wait_for(&screen, &cursor, "default secret:"), NULL);
 		Sleep(300);
@@ -269,13 +280,14 @@ int main(void)
 	} else {
 		report("default start", 0, "CreateProcessW failed");
 	}
-	if (start(console, program, L"probe", &process)) {
-		expect_line(&screen, &cursor, "restored before exit", "probe ", "echo=1 line=1 processed=1");
-		status = finish(&process);
+	HANDLE opened = CreateFileW(gate, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (opened != INVALID_HANDLE_VALUE) CloseHandle(opened);
+	if (probing) {
+		expect_line(&screen, &cursor, "restored before exit", "probe echo", "=1 line=1 processed=1");
+		status = finish(&probe);
 		report("probe exit", status == 0, NULL);
-	} else {
-		report("probe start", 0, "CreateProcessW failed");
 	}
+	DeleteFileW(gate);
 
 	ClosePseudoConsole(console);
 	CloseHandle(input_write);

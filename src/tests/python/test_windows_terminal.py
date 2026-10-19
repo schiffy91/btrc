@@ -57,9 +57,10 @@ EXPECTED = "".join(
         "exit ok",
         "first secret hidden ok",
         "third secret hidden ok",
+        "probe ready ok",
         "default prompt ok",
         "default ctrl-c exit ok",
-        "restored before exit ok: echo=1 line=1 processed=1",
+        "restored before exit ok: =1 line=1 processed=1",
         "probe exit ok",
         "PASS",
     )

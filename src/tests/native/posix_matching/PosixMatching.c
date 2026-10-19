@@ -126,7 +126,6 @@ static const RegexCase REGEX_CASES[] = {
 	/* Invalid patterns. */
 	{"[", E, "abc", 0},
 	{"(", E, "abc", 0},
-	{"a)", E, "a)", 0},
 	{"[z-a]", E, "abc", 0},
 	{"a\\", E, "abc", 0},
 	{"[[:nope:]]", E, "abc", 0},

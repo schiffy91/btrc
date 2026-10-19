@@ -105,8 +105,10 @@ programs and a non-ASCII glob natively on x64 and ARM64.
 differences that remain: a malformed pattern can get a different `REG_*` code
 than on glibc or macOS (`Library.Regex` reports every one as an invalid
 pattern); `RE_DUP_MAX` is 255, as on macOS, where glibc allows 32767; an empty
-pattern compiles, as on glibc, where macOS refuses it; and matching stays
-byte-wise in the C locale even after `setlocale`.
+pattern compiles, as on glibc, where macOS refuses it; an unmatched `)` in an
+extended pattern is an error, as on macOS, where glibc reads it as a literal;
+and matching stays byte-wise in the C locale even after `setlocale`. The
+parity table holds only cases on which glibc and macOS agree.
 
 ## Coverage
 

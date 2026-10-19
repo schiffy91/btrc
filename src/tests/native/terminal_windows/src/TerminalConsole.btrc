@@ -7,8 +7,9 @@
  *   (unset)  the journey below, ending in "PASS: terminal console";
  *   default  a password prompt with no handler of the caller's: Ctrl-C ends
  *            the process through Windows' default handler;
- *   probe    print the console input mode, which "default" must have left
- *            restored. */
+ *   probe    wait on the same console until TERMINAL_CONSOLE_GATE exists,
+ *            then print the console input mode, which "default" must have
+ *            left restored. */
 import Library.Terminal;
 
 import ./Console.btrc;
@@ -59,6 +60,22 @@ int main() {
 		return 3;
 	}
 	if (scenario != null && strcmp(scenario, "probe") == 0) {
+		/* Attached before "default" starts and kept alive through its Ctrl-C,
+		 * which every process on the console receives; the harness creates
+		 * TERMINAL_CONSOLE_GATE once "default" has ended. */
+		SetConsoleCtrlHandler(callerControl, TRUE);
+		char* gate = getenv("TERMINAL_CONSOLE_GATE");
+		mark("probe waiting");
+		bool opened = false;
+		for (int wait = 0; wait < 4000 && gate != null && !opened; wait++) {
+			FILE* file = fopen(gate, "r");
+			if (file != null) {
+				fclose(file);
+				opened = true;
+			} else {
+				Sleep((DWORD)5);
+			}
+		}
 		printf("probe echo=%d line=%d processed=%d\n", inputFlag((DWORD)ENABLE_ECHO_INPUT), inputFlag((DWORD)ENABLE_LINE_INPUT), inputFlag((DWORD)ENABLE_PROCESSED_INPUT));
 		fflush(stdout);
 		return 0;
