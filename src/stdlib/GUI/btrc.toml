@@ -232,6 +232,7 @@ header = "MacOS/CoreFoundation.h"
 language = "c"
 standard = "c11"
 symbols = [
+	"CACurrentMediaTime",
 	"CFUUIDCreate", "CFUUIDCreateString", "CFStringGetCString", "kCFStringEncodingUTF8", "CFRetain", "CFRelease",
 	"CFRunLoopSourceContext", "CFRunLoopGetMain", "CFRunLoopSourceCreate", "CFRunLoopAddSource", "CFRunLoopSourceSignal", "CFRunLoopWakeUp", "CFRunLoopSourceInvalidate", "kCFRunLoopCommonModes",
 	"CFRunLoopTimerContext", "CFAbsoluteTimeGetCurrent", "CFRunLoopTimerCreate", "CFRunLoopAddTimer", "CFRunLoopTimerInvalidate", "CFRunLoopTimerIsValid",
@@ -458,7 +459,6 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
-	"+[NSRunLoop currentRunLoop]", "-[NSRunLoop performBlock:]",
 	"+[NSTimer scheduledTimerWithTimeInterval:repeats:block:]", "-[NSTimer invalidate]", "-[NSTimer isValid]",
 	"+[NSThread isMainThread]", "+[NSApplication sharedApplication]", "-[NSApplication finishLaunching]",
 	"-[NSApplication activationPolicy]", "-[NSApplication setActivationPolicy:]", "NSApplicationActivationPolicyRegular", "NSApplicationActivationPolicyAccessory",
@@ -479,14 +479,6 @@ slot-getter = "-[NSApplication delegate]"
 methods = ["-[NSApplicationDelegate applicationShouldTerminate:]"]
 activation-failure = "abort"
 cancellation = "entry-barrier"
-
-[native.bindings.callbacks."-[NSRunLoop performBlock:].block"]
-interface = "IAppKitApplicationWork"
-lifetime = "one-shot"
-failure = "abort"
-executor = "caller"
-activation-failure = "abort"
-cancellation = "abandon"
 
 [native.bindings.callbacks."+[NSTimer scheduledTimerWithTimeInterval:repeats:block:].block"]
 interface = "IAppKitDelayedWork"
@@ -557,7 +549,7 @@ release = "wgpuSurfaceRelease"
 
 [[native.frameworks]]
 name = "QuartzCore"
-modules = ["MacOS.MetalLayer", "MacOS.MacOSPanel"]
+modules = ["MacOS.MetalLayer", "MacOS.MacOSPanel", "MacOS.CoreFoundation"]
 os = ["macos"]
 
 [[native.pkg-config]]
