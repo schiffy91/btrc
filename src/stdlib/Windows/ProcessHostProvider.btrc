@@ -1,0 +1,246 @@
+/* The Windows host seam of Library.Process: `[[package.providers]]` in the
+ * root btrc.toml selects it for windows rows, and ChildProcess.run calls it
+ * once its portable validation has passed (docs/design/windows-os-services.md,
+ * "Process and shell"). It owns no native handle: the runtime's
+ * reader-free windows_os.c object resolves and validates the executable,
+ * quotes the command line, merges the environment, starts the child suspended
+ * inside a kill-on-close job with an explicit stdio handle list, and drains
+ * the overlapped pipes under one deadline. This module only marshals values
+ * across that seam and reads the result back.
+ *
+ * The integers it passes are the runtime's (windows_os.h): stdin 0 = NUL,
+ * 1 = inherit; output 0 = collect, 1 = stream, 2 = combine, 3 = suppress;
+ * wait 1 = until the deadline, 2 = unbounded; result state 2 = timed out,
+ * 3 = capture limit, 4 = capture I/O failed; error stages 1, 2, 4, 5, 15 and
+ * 17 and validation reasons 2, 3, 4, 7 and 8 select a message below. */
+import Library.Bytes;
+import Library.Strings;
+import Library.Vector;
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* What one launch produced, before Process.btrc shapes its ExecResult. */
+class ProcessHostOutcome {
+	public int code;
+	public string out;
+	public string err;
+	public int capturedStdoutBytes;
+	public int capturedStderrBytes;
+	public bool timedOut;
+	public bool captureExceeded;
+	public bool captureFailed;
+	/* Nonempty when the child never ran: the reason, for err. */
+	public string failure;
+
+	public ProcessHostOutcome() {
+		self.code = 0;
+		self.out = "";
+		self.err = "";
+		self.capturedStdoutBytes = 0;
+		self.capturedStderrBytes = 0;
+		self.timedOut = false;
+		self.captureExceeded = false;
+		self.captureFailed = false;
+		self.failure = "";
+	}
+
+	class ProcessHostOutcome failed(string message) {
+		ProcessHostOutcome outcome = ProcessHostOutcome();
+		outcome.code = 127;
+		outcome.failure = message;
+		return outcome;
+	}
+}
+
+class ProcessHostProvider {
+	/* Windows names compare without regard to case and may hold any
+	 * character but '=' and NUL, so ProgramFiles(x86) is a valid name. */
+	class bool isEnvironmentName(string name) { return name != null && !name.isEmpty() && !name.contains("="); }
+
+	class bool sameName(string left, string right) { return left.toLower().equals(right.toLower()); }
+
+	class string assignmentName(string assignment) {
+		int split = assignment.find("=", 0);
+		return split <= 0 ? "" : assignment.substring(0, split);
+	}
+
+	/* The portable checks of ChildProcess.validateEnvironment, with the
+	 * Windows name grammar and case-insensitive names. Throws its messages. */
+	class void validateEnvironment(Vector<string> environment, Vector<string> unsetEnvironment) {
+		if (environment == null || unsetEnvironment == null || environment.len < 0 || unsetEnvironment.len < 0) {
+			throw "child environment vectors must be valid vectors";
+		}
+		for item in environment {
+			if (item == null) {
+				throw "child environment overrides cannot contain null";
+			}
+			if (item.find("=", 0) <= 0) {
+				throw f"invalid environment assignment: {item}";
+			}
+		}
+		for name in unsetEnvironment {
+			if (name == null) {
+				throw "child environment unsets cannot contain null";
+			}
+			if (!ProcessHostProvider.isEnvironmentName(name)) {
+				throw f"invalid environment variable name: {name}";
+			}
+		}
+		for item in environment {
+			string name = ProcessHostProvider.assignmentName(item);
+			for unset in unsetEnvironment {
+				if (ProcessHostProvider.sameName(name, unset)) {
+					throw "child environment variable cannot be both set and unset";
+				}
+			}
+		}
+		for (int left = 0; left < environment.len; left++) {
+			string name = ProcessHostProvider.assignmentName(environment.get(left));
+			for (int right = left + 1; right < environment.len; right++) {
+				if (ProcessHostProvider.sameName(name, ProcessHostProvider.assignmentName(environment.get(right)))) {
+					throw "duplicate child environment override";
+				}
+			}
+		}
+	}
+
+	/* A NULL-terminated array of raw copies, or NULL for a failed allocation. */
+	class char** copyStrings(Vector<string> values) {
+		if (values.len < 0 || values.len > 2147483645) { return NULL; }
+		int count = values.len;
+		char** result = (char**)calloc((size_t)count + (size_t)1, sizeof(char*));
+		if (result == NULL) { return NULL; }
+		for (int index = 0; index < count; index++) {
+			string value = values.get(index);
+			size_t length = strlen(value);
+			char* copy = (char*)malloc(length + (size_t)1);
+			if (copy == NULL) {
+				ProcessHostProvider.freeStrings(result);
+				return NULL;
+			}
+			memcpy(copy, value, length + (size_t)1);
+			result[index] = copy;
+		}
+		return result;
+	}
+
+	class void freeStrings(char** entries) {
+		if (entries == NULL) { return; }
+		int index = 0;
+		while (entries[index] != NULL) {
+			free(entries[index]);
+			index++;
+		}
+		free(entries);
+	}
+
+	/* The ExecResult text for a launch the runtime refused or could not
+	 * start. The POSIX provider's messages are kept where the cause matches. */
+	class string failureMessage(int stage, int reason) {
+		if (stage == 4) { return "failed to execute child process\n"; }
+		if (stage == 5 && reason == 8) {
+			return "failed to execute child process: a batch file needs cmd.exe, which ChildProcess.run never inserts; run its interpreter with an argument vector\n";
+		}
+		if (stage == 5) { return "failed to execute child process: not a launchable Windows executable image\n"; }
+		if (stage == 17) { return "failed to enter working directory\n"; }
+		if ((stage == 1 || stage == 2) && reason == 2) { return "failed to start child process: arguments are not valid UTF-8\n"; }
+		if (stage == 1 && reason == 3) { return "failed to start child process: a Windows program name cannot contain a double quote\n"; }
+		if (stage == 1 && reason == 4) { return "failed to start child process: the command line exceeds 32767 UTF-16 units\n"; }
+		if (stage == 1 && reason == 7) { return "failed to start child process: a drive-relative path cannot name a Windows child path\n"; }
+		if (stage == 15) { return "failed to start child process: unsupported Windows host\n"; }
+		return "failed to start child process\n";
+	}
+
+	/* The retained bytes of one stream (1 stdout, 2 stderr) as a Bytes. */
+	class Bytes captured(__btrc_windows_launch_owner_t* owner, int stream) {
+		Bytes result = Bytes();
+		size_t size = (size_t)0;
+		if (__btrc_windows_launch_copy_output(owner, (uint32_t)stream, NULL, (size_t)0, &size) != 0 || size == (size_t)0 || size > (size_t)2147483646) {
+			return result;
+		}
+		unsigned char* buffer = (unsigned char*)malloc(size);
+		if (buffer == NULL) { return result; }
+		size_t written = (size_t)0;
+		if (__btrc_windows_launch_copy_output(owner, (uint32_t)stream, buffer, size, &written) == 0) {
+			result.appendRaw((char*)buffer, (int)written);
+		}
+		free(buffer);
+		return result;
+	}
+
+	/* Launch, wait under timeoutMilliseconds (0 waits for the child and every
+	 * EOF, as on Unix) and collect. Modes are the public enum values. */
+	class ProcessHostOutcome run(string executable, Vector<string> arguments, string cwd, Vector<string> environment, Vector<string> unsetEnvironment, int timeoutMilliseconds, int maxStdoutBytes, int maxStderrBytes, string stdinData, int stdinMode, int stdoutMode, int stderrMode) {
+#if !defined(__MINGW32__)
+		/* The seam is qualified on the windows-gnu rows only; the MSVC row
+		 * keeps Process's imports and refuses the launch (design, M cells). */
+		return ProcessHostOutcome.failed("ChildProcess.run is unavailable on windows-msvc: the launch seam is qualified only for the MinGW (gnu) rows\n");
+#else
+		Vector<string> vector = [executable];
+		for argument in arguments {
+			vector.push(argument);
+		}
+		char** argv = ProcessHostProvider.copyStrings(vector);
+		char** overrides = ProcessHostProvider.copyStrings(environment);
+		char** unsets = ProcessHostProvider.copyStrings(unsetEnvironment);
+		if (argv == NULL || overrides == NULL || unsets == NULL) {
+			ProcessHostProvider.freeStrings(argv);
+			ProcessHostProvider.freeStrings(overrides);
+			ProcessHostProvider.freeStrings(unsets);
+			return ProcessHostOutcome.failed("failed to allocate child arguments");
+		}
+		__btrc_windows_launch_options_t options;
+		memset(&options, 0, sizeof(options));
+		options.executable_utf8 = argv[0];
+		options.argv_utf8 = argv;
+		options.argc = (size_t)arguments.len + (size_t)1;
+		options.cwd_utf8 = cwd == null || cwd.isEmpty() ? NULL : (char*)cwd;
+		options.environment_overrides_utf8 = overrides;
+		options.override_count = (size_t)environment.len;
+		options.environment_unsets_utf8 = unsets;
+		options.unset_count = (size_t)unsetEnvironment.len;
+		bool hasStdinData = stdinData != null && !stdinData.isEmpty();
+		options.stdin_bytes = hasStdinData ? (unsigned char*)stdinData : NULL;
+		options.stdin_size = hasStdinData ? strlen(stdinData) : (size_t)0;
+		options.stdin_mode = (uint32_t)stdinMode;
+		options.stdout_mode = (uint32_t)stdoutMode;
+		options.stderr_mode = (uint32_t)stderrMode;
+		options.stdout_limit = (size_t)maxStdoutBytes;
+		options.stderr_limit = (size_t)maxStderrBytes;
+		__btrc_windows_launch_error_t error;
+		memset(&error, 0, sizeof(error));
+		__btrc_windows_launch_owner_t* owner = NULL;
+		int launched = __btrc_windows_launch(&options, &owner, &error);
+		ProcessHostProvider.freeStrings(argv);
+		ProcessHostProvider.freeStrings(overrides);
+		ProcessHostProvider.freeStrings(unsets);
+		if (launched != 0) {
+			return ProcessHostOutcome.failed(ProcessHostProvider.failureMessage((int)error.stage, (int)error.native_code));
+		}
+		__btrc_windows_launch_result_t result;
+		memset(&result, 0, sizeof(result));
+		if (timeoutMilliseconds > 0) {
+			__btrc_windows_launch_wait(owner, (uint32_t)1, (uint64_t)timeoutMilliseconds, &result, &error);
+		} else {
+			__btrc_windows_launch_wait(owner, (uint32_t)2, (uint64_t)0, &result, &error);
+		}
+		ProcessHostOutcome outcome = ProcessHostOutcome();
+		Bytes output = ProcessHostProvider.captured(owner, 1);
+		Bytes errors = ProcessHostProvider.captured(owner, 2);
+		outcome.out = output.toStringLossy();
+		outcome.err = errors.toStringLossy();
+		outcome.capturedStdoutBytes = output.len;
+		outcome.capturedStderrBytes = errors.len;
+		outcome.timedOut = result.timed_out != (uint32_t)0;
+		outcome.captureExceeded = result.capture_exceeded != (uint32_t)0;
+		/* A wait the runtime could not finish is a failed capture. */
+		outcome.captureFailed = result.capture_failed != (uint32_t)0 || (result.state != (uint32_t)1 && result.state != (uint32_t)2 && result.state != (uint32_t)3);
+		/* The native DWORD keeps its bits in the signed code. */
+		outcome.code = (int)(int32_t)result.native_exit_code;
+		__btrc_windows_launch_close(&owner, (uint64_t)10000, &error);
+		return outcome;
+#endif
+	}
+}

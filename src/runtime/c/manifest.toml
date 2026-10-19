@@ -2422,3 +2422,89 @@ headers = []
 source_visible = true
 realtime_effect = "safe"
 order = { python = 222, btrc = 208 }
+
+# The Windows launch seam (CL-P2-02, docs/design/windows-os-services.md). These
+# sections only declare; windows_os.c defines them and is linked whole by every
+# program that retains one (the [[external_objects]] row below).
+[[helpers]]
+name = "__btrc_windows_launch_types"
+category = "process"
+asset = "windows_os.h"
+dependencies = []
+headers = ["stddef.h", "stdint.h"]
+provided_types = [
+  "__btrc_windows_launch_owner_t",
+  "__btrc_windows_launch_options_t",
+  "__btrc_windows_launch_error_t",
+  "__btrc_windows_launch_result_t",
+]
+source_visible = false
+order = { python = 223, btrc = 209 }
+
+[[helpers]]
+name = "__btrc_windows_launch"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 224, btrc = 210 }
+
+[[helpers]]
+name = "__btrc_windows_launch_wait"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 225, btrc = 211 }
+
+[[helpers]]
+name = "__btrc_windows_launch_copy_output"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+source_visible = true
+realtime_effect = "safe"
+order = { python = 226, btrc = 212 }
+
+[[helpers]]
+name = "__btrc_windows_launch_terminate"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 227, btrc = 213 }
+
+[[helpers]]
+name = "__btrc_windows_launch_close"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 228, btrc = 214 }
+
+[[helpers]]
+name = "__btrc_windows_quote_argv_utf8"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+source_visible = true
+realtime_effect = "safe"
+order = { python = 229, btrc = 215 }
+
+# Runtime C compiled as its own translation unit, selected per row and linked
+# whole when an emitted unit retains any section of its declarations asset; no
+# builder relies on --gc-sections or /OPT:REF to drop part of it.
+[[external_objects]]
+source = "windows_os.c"
+declarations = "windows_os.h"
+libraries = [{ os = ["windows"], names = ["kernel32"] }]

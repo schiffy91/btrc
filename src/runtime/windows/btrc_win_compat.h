@@ -94,10 +94,11 @@ int BTRC_WIN_REMOVE_DIRECTORY(const char *path);
 #define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400UL
 #endif
 
-/* Process launch has no Windows backend yet and must fail before fork/spawn.
-   Map the POSIX environ symbol to a null, translation-unit-local sentinel so
-   imported process code still cross-compiles without colliding with UCRT's
-   function-like `_environ` macro. */
+/* Process launch on Windows goes through the runtime's windows_os.c, which
+   reads the native environment block itself; no POSIX path reads environ.
+   Map the POSIX symbol to a null, translation-unit-local sentinel so retained
+   POSIX code still cross-compiles without colliding with UCRT's function-like
+   `_environ` macro. */
 #ifdef environ
 #undef environ
 #endif

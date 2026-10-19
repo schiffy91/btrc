@@ -736,6 +736,58 @@ class NativeBuildReport:
                 temporary.unlink(missing_ok=True)
 
 
+class RuntimeObjects:
+    """The runtime's separately compiled objects that emitted C retains.
+
+    The runtime manifest's ``[[external_objects]]`` rows each name a C source
+    beside it and the declaration asset whose sections an emitted unit pastes
+    (docs/design/windows-os-services.md, "Selection unit"). A unit that names
+    any of those sections' helpers selects the whole object, which every
+    builder compiles as its own translation unit, without the Windows overlay
+    a generated unit gets, and links with the row's system libraries. Nothing
+    relies on the linker to drop part of an object. The compilers never read
+    these rows; build drivers do, as they recognize the compute runtime by its
+    header.
+    """
+
+    DIRECTORY = Path(__file__).resolve().parents[1] / "src" / "runtime" / "c"
+    _ROWS: ClassVar[tuple | None] = None
+    # Comments and string or character literals: a compiler's own C names
+    # these helpers in its catalog strings without retaining them.
+    _NON_CODE = re.compile(r"/\*.*?\*/|//[^\n]*|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'", re.DOTALL)
+    _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+    @classmethod
+    def rows(cls) -> tuple:
+        if cls._ROWS is None:
+            from tools.compiler_codegen.runtime import RuntimeManifest
+
+            cls._ROWS = RuntimeManifest.load(cls.DIRECTORY / "manifest.toml").external_objects
+        return cls._ROWS
+
+    @classmethod
+    def selected(cls, texts: Sequence[str]) -> tuple:
+        """The object rows any of these emitted units retains, in manifest order:
+        a row is retained when a unit's code (not a comment or literal) names
+        one of its sections' helpers."""
+        rows = cls.rows()
+        wanted = {name for row in rows for name in row.helpers}
+        present: set[str] = set()
+        for text in texts:
+            if any(name in text for name in wanted):
+                present.update(wanted.intersection(cls._IDENTIFIER.findall(cls._NON_CODE.sub(" ", text))))
+        return tuple(row for row in rows if present.intersection(row.helpers))
+
+    @classmethod
+    def sources(cls, rows: Sequence) -> list[Path]:
+        return [cls.DIRECTORY / row.source for row in rows]
+
+    @staticmethod
+    def library_flags(rows: Sequence, operating_system: str) -> list[str]:
+        names = (name for row in rows for name in row.libraries_for(operating_system))
+        return [f"-l{name}" for name in dict.fromkeys(names)]
+
+
 class TargetToolchain:
     """The compiler drivers, arguments and sysroot that build one target row.
 
@@ -1419,7 +1471,17 @@ class NativePlanBuilder:
             if not output.is_absolute():
                 output = output.absolute()
             parent = PlanPaths.real_directory(str(output.parent), "native output directory")
-            inputs = {plan_path.absolute(), generated, *emitted, *(unit.path for unit in plan.units)}
+            runtime_objects = RuntimeObjects.selected(
+                [path.read_text(encoding="utf-8", errors="replace") for path in (generated, *emitted)]
+            )
+            runtime_sources = RuntimeObjects.sources(runtime_objects)
+            inputs = {
+                plan_path.absolute(),
+                generated,
+                *emitted,
+                *(unit.path for unit in plan.units),
+                *runtime_sources,
+            }
             self._validate_destination(output, inputs, "native output")
             if report_path is not None:
                 report_path = report_path.absolute()
@@ -1511,6 +1573,30 @@ class NativePlanBuilder:
                         )
                     )
                     objects.append(generated_object)
+                # Runtime objects the emitted units retain compile as their
+                # own units, without the generated-unit overlay.
+                for index, source in enumerate(runtime_sources):
+                    runtime_object = temporary / f"runtime-{index}.o"
+                    commands.append(
+                        (
+                            [
+                                *tools["cc"],
+                                "-x",
+                                "c",
+                                "-std=c11",
+                                *toolchain.arguments,
+                                *strict,
+                                f"-O{optimization}",
+                                "-c",
+                                str(source),
+                                "-o",
+                                str(runtime_object),
+                            ],
+                            source,
+                            runtime_object,
+                        )
+                    )
+                    objects.append(runtime_object)
                 for index, unit in enumerate((*plan.units, *plan.generated_units)):
                     object_path = temporary / f"native-{index}.o"
                     policy = []
@@ -1632,6 +1718,11 @@ class NativePlanBuilder:
                     framework_flags = [part for name in dict.fromkeys(plan.frameworks) for part in ("-framework", name)]
                     # So may system libraries (ole32 for Library.COM): each links once, after the objects.
                     library_flags = [f"-l{name}" for name in dict.fromkeys(plan.libraries)]
+                    library_flags += [
+                        flag
+                        for flag in RuntimeObjects.library_flags(runtime_objects, plan.operating_system)
+                        if flag not in library_flags
+                    ]
                     report.link_command = [
                         *tools["cxx" if plan.linker_language == "c++" else "cc"],
                         *toolchain.arguments,

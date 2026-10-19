@@ -1,0 +1,902 @@
+/* The Windows launch seam's native harness (CL-P2-02). test_windows_launch_seam.py
+ * builds it for x64 and ARM64 with the strict C11 flags; windows.yml's
+ * process-native job runs it on a runner of each architecture.
+ *
+ * With no arguments it launches itself through windows_os.c in the child
+ * modes below and checks each outcome: argv quoting round trips, exit codes,
+ * deadlines that kill a three-level tree, a descendant that keeps the output
+ * pipe after its parent exits, inherited-handle isolation, capture limits,
+ * stdin backpressure, launch refusals, PATH and environment rules, the
+ * working directory and the wait modes. It prints a line per failed check
+ * and, when every check passes, exactly "windows-launch-seam PASS checks=<n>".
+ * Children write with WriteFile, never through the CRT's text-mode streams. */
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
+
+#include "windows_os.h"
+
+static int checks = 0;
+static int failures = 0;
+static char self_utf8[4096];
+static wchar_t temp_root[1024];
+
+static void emit(const char *text, size_t length) {
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD written = 0;
+    while (length > 0 && WriteFile(output, text, (DWORD)length, &written, NULL) && written > 0) {
+        text += written;
+        length -= written;
+    }
+}
+
+static void report(const char *format, ...) {
+    char line[1024];
+    va_list arguments;
+    va_start(arguments, format);
+    int length = vsnprintf(line, sizeof(line), format, arguments);
+    va_end(arguments);
+    if (length < 0) return;
+    if ((size_t)length >= sizeof(line)) length = (int)sizeof(line) - 1;
+    emit(line, (size_t)length);
+}
+
+#define CHECK(name, condition)                                                  \
+    do {                                                                        \
+        checks++;                                                               \
+        if (!(condition)) {                                                     \
+            failures++;                                                         \
+            report("FAIL %s (line %d)\n", (name), __LINE__);                    \
+        }                                                                       \
+    } while (0)
+
+static int to_utf8(const wchar_t *wide, char *buffer, int capacity) {
+    int written = WideCharToMultiByte(CP_UTF8, 0, wide, -1, buffer, capacity, NULL, NULL);
+    return written > 0 ? 0 : -1;
+}
+
+static int to_wide(const char *text, wchar_t *buffer, int capacity) {
+    return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, buffer, capacity) > 0 ? 0 : -1;
+}
+
+/* ---- Child modes -------------------------------------------------------- */
+
+static void emit_hex_argument(const char *text) {
+    static const char digits[] = "0123456789abcdef";
+    emit("arg=", 4);
+    for (const unsigned char *cursor = (const unsigned char *)text; *cursor != 0; cursor++) {
+        char pair[2] = { digits[*cursor >> 4], digits[*cursor & 15] };
+        emit(pair, 2);
+    }
+    emit("\n", 1);
+}
+
+static int child_echo(void) {
+    int count = 0;
+    LPWSTR *arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (arguments == NULL) return 90;
+    for (int index = 2; index < count; index++) {
+        char utf8[8192];
+        if (to_utf8(arguments[index], utf8, (int)sizeof(utf8)) != 0) return 91;
+        emit_hex_argument(utf8);
+    }
+    LocalFree(arguments);
+    return 0;
+}
+
+static int write_file(const wchar_t *path, const char *text) {
+    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return -1;
+    DWORD written = 0;
+    BOOL ok = WriteFile(file, text, (DWORD)strlen(text), &written, NULL);
+    CloseHandle(file);
+    return ok ? 0 : -1;
+}
+
+/* --tree depth marker: each level launches the next through the seam and
+ * waits for it; the leaf records its PID in marker.started, sleeps, then
+ * writes marker. A deadline that kills the tree leaves marker absent. */
+static int child_tree(int depth, const char *marker) {
+    if (depth > 0) {
+        char depth_text[16];
+        snprintf(depth_text, sizeof(depth_text), "%d", depth - 1);
+        char *argv[] = { self_utf8, "--tree", depth_text, (char *)marker, NULL };
+        __btrc_windows_launch_options_t options;
+        memset(&options, 0, sizeof(options));
+        options.executable_utf8 = self_utf8;
+        options.argv_utf8 = argv;
+        options.argc = 4;
+        options.stdout_mode = 3;
+        options.stderr_mode = 3;
+        __btrc_windows_launch_owner_t *owner = NULL;
+        __btrc_windows_launch_error_t error;
+        __btrc_windows_launch_result_t result;
+        if (__btrc_windows_launch(&options, &owner, &error) != 0) return 80;
+        __btrc_windows_launch_wait(owner, 2, 0, &result, &error);
+        __btrc_windows_launch_close(&owner, 5000, &error);
+        return 0;
+    }
+    wchar_t wide[1024];
+    char started[1100];
+    snprintf(started, sizeof(started), "%s.started", marker);
+    if (to_wide(started, wide, 1024) != 0) return 81;
+    char pid[32];
+    snprintf(pid, sizeof(pid), "%lu", (unsigned long)GetCurrentProcessId());
+    if (write_file(wide, pid) != 0) return 82;
+    Sleep(3000);
+    if (to_wide(marker, wide, 1024) != 0) return 83;
+    write_file(wide, "survived");
+    return 0;
+}
+
+/* --orphan ms: start a plain CreateProcessW grandchild that inherits this
+ * child's stdout and sleeps, then exit at once. */
+static int child_orphan(const char *milliseconds) {
+    wchar_t command[2048];
+    wchar_t self_wide[1024];
+    wchar_t sleep_wide[32];
+    if (to_wide(self_utf8, self_wide, 1024) != 0 || to_wide(milliseconds, sleep_wide, 32) != 0) return 70;
+    swprintf(command, 2048, L"\"%ls\" --sleep %ls", self_wide, sleep_wide);
+    STARTUPINFOW startup;
+    memset(&startup, 0, sizeof(startup));
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    PROCESS_INFORMATION process;
+    if (!CreateProcessW(self_wide, command, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process)) return 71;
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return 0;
+}
+
+/* --handle value path: "leaked" if value names path's file in this process. */
+static int child_handle(const char *value, const char *path) {
+    HANDLE handle = (HANDLE)(uintptr_t)strtoull(value, NULL, 10);
+    DWORD flags = 0;
+    if (!GetHandleInformation(handle, &flags) || GetFileType(handle) != FILE_TYPE_DISK) {
+        emit("isolated", 8);
+        return 0;
+    }
+    wchar_t final[2048];
+    wchar_t expected[1024];
+    DWORD length = GetFinalPathNameByHandleW(handle, final, 2048, FILE_NAME_NORMALIZED);
+    if (length == 0 || length >= 2048 || to_wide(path, expected, 1024) != 0) {
+        emit("isolated", 8);
+        return 0;
+    }
+    /* The final path carries a \\?\ prefix. */
+    const wchar_t *tail = final;
+    if (wcsncmp(tail, L"\\\\?\\", 4) == 0) tail += 4;
+    const char *verdict = CompareStringOrdinal(tail, -1, expected, -1, TRUE) == CSTR_EQUAL ? "leaked" : "isolated";
+    emit(verdict, strlen(verdict));
+    return 0;
+}
+
+static int child_flood(const char *count_text) {
+    size_t count = (size_t)strtoull(count_text, NULL, 10);
+    char *buffer = (char *)malloc(65536);
+    if (buffer == NULL) return 60;
+    HANDLE outputs[2] = { GetStdHandle(STD_OUTPUT_HANDLE), GetStdHandle(STD_ERROR_HANDLE) };
+    char fills[2] = { 'x', 'y' };
+    for (int stream = 0; stream < 2; stream++) {
+        memset(buffer, fills[stream], 65536);
+        size_t remaining = count;
+        while (remaining > 0) {
+            DWORD chunk = remaining > 65536 ? 65536 : (DWORD)remaining;
+            DWORD written = 0;
+            if (!WriteFile(outputs[stream], buffer, chunk, &written, NULL) || written == 0) {
+                free(buffer);
+                return 61;
+            }
+            remaining -= written;
+        }
+    }
+    free(buffer);
+    return 0;
+}
+
+static int child_cat(void) {
+    char buffer[65536];
+    HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    for (;;) {
+        DWORD got = 0;
+        if (!ReadFile(input, buffer, sizeof(buffer), &got, NULL) || got == 0) break;
+        DWORD offset = 0;
+        while (offset < got) {
+            DWORD written = 0;
+            if (!WriteFile(output, buffer + offset, got - offset, &written, NULL)) return 50;
+            offset += written;
+        }
+    }
+    return 0;
+}
+
+static int child_env(const char *name) {
+    wchar_t wide_name[256];
+    wchar_t value[4096];
+    char utf8[8192];
+    if (to_wide(name, wide_name, 256) != 0) return 40;
+    DWORD length = GetEnvironmentVariableW(wide_name, value, 4096);
+    if (length == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND) {
+        emit("<unset>", 7);
+        return 0;
+    }
+    if (length >= 4096 || to_utf8(value, utf8, (int)sizeof(utf8)) != 0) return 41;
+    emit(utf8, strlen(utf8));
+    return 0;
+}
+
+/* Prints 1 when the block's names are in CreateProcessW's required order. */
+static int child_env_order(void) {
+    wchar_t *block = GetEnvironmentStringsW();
+    if (block == NULL) return 30;
+    const wchar_t *previous = NULL;
+    int previous_length = 0;
+    int sorted = 1;
+    for (const wchar_t *entry = block; *entry != 0; entry += wcslen(entry) + 1) {
+        int length = (int)wcslen(entry);
+        int name = length;
+        for (int index = 1; index < length; index++) {
+            if (entry[index] == L'=') {
+                name = index;
+                break;
+            }
+        }
+        if (previous != NULL && CompareStringOrdinal(previous, previous_length, entry, name, TRUE) == CSTR_GREATER_THAN)
+            sorted = 0;
+        previous = entry;
+        previous_length = name;
+    }
+    FreeEnvironmentStringsW(block);
+    emit(sorted ? "1" : "0", 1);
+    return 0;
+}
+
+static int child_cwd(void) {
+    wchar_t directory[2048];
+    char utf8[4096];
+    DWORD length = GetCurrentDirectoryW(2048, directory);
+    if (length == 0 || length >= 2048 || to_utf8(directory, utf8, (int)sizeof(utf8)) != 0) return 20;
+    emit(utf8, strlen(utf8));
+    return 0;
+}
+
+static int child(int argc, char **argv) {
+    const char *mode = argv[1];
+    if (strcmp(mode, "--echo") == 0) return child_echo();
+    if (strcmp(mode, "--exit") == 0 && argc > 2) ExitProcess((UINT)strtoul(argv[2], NULL, 16));
+    if (strcmp(mode, "--sleep") == 0 && argc > 2) {
+        Sleep((DWORD)strtoul(argv[2], NULL, 10));
+        return 0;
+    }
+    if (strcmp(mode, "--sleep-pid") == 0 && argc > 3) {
+        wchar_t wide[1024];
+        char pid[32];
+        snprintf(pid, sizeof(pid), "%lu", (unsigned long)GetCurrentProcessId());
+        if (to_wide(argv[2], wide, 1024) != 0 || write_file(wide, pid) != 0) return 10;
+        Sleep((DWORD)strtoul(argv[3], NULL, 10));
+        return 0;
+    }
+    if (strcmp(mode, "--tree") == 0 && argc > 3) return child_tree(atoi(argv[2]), argv[3]);
+    if (strcmp(mode, "--orphan") == 0 && argc > 2) return child_orphan(argv[2]);
+    if (strcmp(mode, "--handle") == 0 && argc > 3) return child_handle(argv[2], argv[3]);
+    if (strcmp(mode, "--flood") == 0 && argc > 2) return child_flood(argv[2]);
+    if (strcmp(mode, "--cat") == 0) return child_cat();
+    if (strcmp(mode, "--close-stdin") == 0) {
+        CloseHandle(GetStdHandle(STD_INPUT_HANDLE));
+        return 0;
+    }
+    if (strcmp(mode, "--env") == 0 && argc > 2) return child_env(argv[2]);
+    if (strcmp(mode, "--env-order") == 0) return child_env_order();
+    if (strcmp(mode, "--cwd") == 0) return child_cwd();
+    return 64;
+}
+
+/* ---- The parent's checks ------------------------------------------------ */
+
+typedef struct {
+    const char *executable;
+    char *argv[16];
+    size_t argc;
+    const char *cwd;
+    char *overrides[4];
+    size_t override_count;
+    char *unsets[4];
+    size_t unset_count;
+    const unsigned char *input;
+    size_t input_size;
+    uint32_t stdout_mode;
+    uint32_t stderr_mode;
+    size_t limit;
+    uint32_t wait_mode;
+    uint64_t timeout_ms;
+} spec_t;
+
+typedef struct {
+    int launched;
+    __btrc_windows_launch_error_t error;
+    __btrc_windows_launch_result_t result;
+    unsigned char *out;
+    size_t out_size;
+    unsigned char *err;
+    size_t err_size;
+    ULONGLONG elapsed_ms;
+} outcome_t;
+
+static void spec_init(spec_t *spec, const char *mode) {
+    memset(spec, 0, sizeof(*spec));
+    spec->executable = self_utf8;
+    spec->argv[0] = self_utf8;
+    spec->argv[1] = (char *)mode;
+    spec->argc = 2;
+    spec->limit = 8u * 1024u * 1024u;
+    spec->wait_mode = 1;
+    spec->timeout_ms = 30000;
+}
+
+static void spec_arg(spec_t *spec, const char *argument) { spec->argv[spec->argc++] = (char *)argument; }
+
+static unsigned char *copy_stream(__btrc_windows_launch_owner_t *owner, uint32_t stream, size_t *size) {
+    *size = 0;
+    if (__btrc_windows_launch_copy_output(owner, stream, NULL, 0, size) != 0) return NULL;
+    unsigned char *buffer = (unsigned char *)malloc(*size + 1);
+    if (buffer == NULL) return NULL;
+    size_t written = 0;
+    if (*size > 0 && __btrc_windows_launch_copy_output(owner, stream, buffer, *size, &written) != 0) {
+        free(buffer);
+        return NULL;
+    }
+    buffer[*size] = 0;
+    return buffer;
+}
+
+static outcome_t run(const spec_t *spec) {
+    outcome_t outcome;
+    memset(&outcome, 0, sizeof(outcome));
+    __btrc_windows_launch_options_t options;
+    memset(&options, 0, sizeof(options));
+    char *argv[17];
+    for (size_t index = 0; index < spec->argc; index++) argv[index] = spec->argv[index];
+    argv[spec->argc] = NULL;
+    options.executable_utf8 = (char *)spec->executable;
+    options.argv_utf8 = argv;
+    options.argc = spec->argc;
+    options.cwd_utf8 = (char *)spec->cwd;
+    options.environment_overrides_utf8 = (char **)spec->overrides;
+    options.override_count = spec->override_count;
+    options.environment_unsets_utf8 = (char **)spec->unsets;
+    options.unset_count = spec->unset_count;
+    options.stdin_bytes = (unsigned char *)spec->input;
+    options.stdin_size = spec->input_size;
+    options.stdout_mode = spec->stdout_mode;
+    options.stderr_mode = spec->stderr_mode;
+    options.stdout_limit = spec->limit;
+    options.stderr_limit = spec->limit;
+    __btrc_windows_launch_owner_t *owner = NULL;
+    ULONGLONG started = GetTickCount64();
+    outcome.launched = __btrc_windows_launch(&options, &owner, &outcome.error);
+    if (outcome.launched != 0) {
+        outcome.elapsed_ms = GetTickCount64() - started;
+        return outcome;
+    }
+    __btrc_windows_launch_wait(owner, spec->wait_mode, spec->timeout_ms, &outcome.result, &outcome.error);
+    outcome.elapsed_ms = GetTickCount64() - started;
+    outcome.out = copy_stream(owner, 1, &outcome.out_size);
+    outcome.err = copy_stream(owner, 2, &outcome.err_size);
+    __btrc_windows_launch_error_t closing;
+    __btrc_windows_launch_close(&owner, 10000, &closing);
+    return outcome;
+}
+
+static void release(outcome_t *outcome) {
+    free(outcome->out);
+    free(outcome->err);
+    outcome->out = NULL;
+    outcome->err = NULL;
+}
+
+static int exited_with(const outcome_t *outcome, uint32_t code) {
+    return outcome->launched == 0 && outcome->result.state == 1 && outcome->result.has_exit_code
+        && outcome->result.native_exit_code == code;
+}
+
+static int refused(const outcome_t *outcome, uint32_t stage, uint32_t reason) {
+    return outcome->launched != 0 && outcome->error.stage == stage
+        && (reason == 0 || outcome->error.native_code == reason);
+}
+
+static void temp_path(wchar_t *buffer, size_t capacity, const wchar_t *name) {
+    swprintf(buffer, capacity, L"%ls%ls", temp_root, name);
+}
+
+static int exists(const wchar_t *path) { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
+
+static int process_gone(const char *pid_text) {
+    DWORD pid = (DWORD)strtoul(pid_text, NULL, 10);
+    HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    if (process == NULL) return 1;
+    int gone = WaitForSingleObject(process, 5000) == WAIT_OBJECT_0;
+    CloseHandle(process);
+    return gone;
+}
+
+static int read_text(const wchar_t *path, char *buffer, DWORD capacity) {
+    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return -1;
+    DWORD got = 0;
+    BOOL ok = ReadFile(file, buffer, capacity - 1, &got, NULL);
+    CloseHandle(file);
+    if (!ok) return -1;
+    buffer[got] = 0;
+    return 0;
+}
+
+static void check_quoting(void) {
+    static const struct {
+        size_t count;
+        const char *items[4];
+    } vectors[] = {
+        { 1, { "a b" } },
+        { 1, { "q\"x" } },
+        { 1, { "" } },
+        { 1, { "tail\\" } },
+        { 1, { "a\\\\\"b" } },
+        { 1, { "\\\\server\\share\\" } },
+        { 1, { "tab\there" } },
+        { 1, { "new\nline" } },
+        { 1, { "trailing space " } },
+        { 1, { "two\\\\" } },
+        { 2, { "\"", "\\\"" } },
+        { 3, { "x", "", "y" } },
+        /* e-acute, two CJK ideographs, and U+1F600 (a surrogate pair) */
+        { 3, { "\xc3\xa9", "\xe4\xb8\xad\xe6\x96\x87", "\xf0\x9f\x98\x80" } },
+        { 1, { "plain-ascii" } },
+    };
+    for (size_t vector = 0; vector < sizeof(vectors) / sizeof(vectors[0]); vector++) {
+        spec_t spec;
+        spec_init(&spec, "--echo");
+        char expected[4096];
+        size_t used = 0;
+        expected[0] = 0;
+        for (size_t index = 0; index < vectors[vector].count; index++) {
+            spec_arg(&spec, vectors[vector].items[index]);
+            used += (size_t)snprintf(expected + used, sizeof(expected) - used, "arg=");
+            for (const unsigned char *cursor = (const unsigned char *)vectors[vector].items[index]; *cursor; cursor++)
+                used += (size_t)snprintf(expected + used, sizeof(expected) - used, "%02x", *cursor);
+            used += (size_t)snprintf(expected + used, sizeof(expected) - used, "\n");
+        }
+        outcome_t outcome = run(&spec);
+        int same = exited_with(&outcome, 0) && outcome.out != NULL && outcome.out_size == used
+            && memcmp(outcome.out, expected, used) == 0;
+        if (!same) report("quoting vector %u printed: %s\n", (unsigned)vector, outcome.out ? (char *)outcome.out : "");
+        CHECK("argv round trip", same);
+        release(&outcome);
+    }
+
+    size_t required = 0;
+    __btrc_windows_launch_error_t error;
+    char *quoted_program[] = { "a\"b", NULL };
+    CHECK("quote in argv[0] refused",
+        __btrc_windows_quote_argv_utf8(quoted_program, 1, NULL, 0, &required, &error) != 0 && error.stage == 1
+            && error.native_code == 3);
+    char *long_argument = (char *)malloc(40001);
+    memset(long_argument, 'a', 40000);
+    long_argument[40000] = 0;
+    char *too_long[] = { "p", long_argument, NULL };
+    CHECK("command line over 32767 units refused",
+        __btrc_windows_quote_argv_utf8(too_long, 2, NULL, 0, &required, &error) != 0 && error.stage == 1
+            && error.native_code == 4);
+    free(long_argument);
+    char *invalid[] = { "p", "\xff", NULL };
+    CHECK("invalid UTF-8 refused",
+        __btrc_windows_quote_argv_utf8(invalid, 2, NULL, 0, &required, &error) != 0 && error.stage == 2);
+    char *simple[] = { "p", "a b", NULL };
+    uint16_t small_buffer[9];
+    memset(small_buffer, 0, sizeof(small_buffer));
+    CHECK("size query counts the NUL",
+        __btrc_windows_quote_argv_utf8(simple, 2, NULL, 0, &required, &error) == 0 && required == 10);
+    CHECK("short buffer writes nothing",
+        __btrc_windows_quote_argv_utf8(simple, 2, small_buffer, 9, &required, &error) != 0 && error.stage == 18
+            && small_buffer[0] == 0);
+    spec_t quoted;
+    spec_init(&quoted, "--echo");
+    quoted.argv[0] = "a\"b";
+    outcome_t outcome = run(&quoted);
+    CHECK("launch refuses a quoted argv[0]", refused(&outcome, 1, 3));
+    release(&outcome);
+}
+
+static void check_exit_codes(void) {
+    static const char *const codes[] = { "0", "17", "C0000005" };
+    static const uint32_t values[] = { 0u, 0x17u, 0xC0000005u };
+    for (size_t index = 0; index < 3; index++) {
+        spec_t spec;
+        spec_init(&spec, "--exit");
+        spec_arg(&spec, codes[index]);
+        outcome_t outcome = run(&spec);
+        CHECK("exit code kept bit for bit", exited_with(&outcome, values[index]));
+        release(&outcome);
+    }
+    spec_t large;
+    spec_init(&large, "--exit");
+    spec_arg(&large, "0");
+    large.timeout_ms = 0xFFFFFFFFu;
+    outcome_t outcome = run(&large);
+    CHECK("UINT32_MAX is a finite wait", exited_with(&outcome, 0));
+    release(&outcome);
+}
+
+static void check_tree_timeout(void) {
+    wchar_t marker[1024];
+    wchar_t started[1024];
+    char marker_utf8[2048];
+    temp_path(marker, 1024, L"btrc-tree-marker");
+    temp_path(started, 1024, L"btrc-tree-marker.started");
+    DeleteFileW(marker);
+    DeleteFileW(started);
+    to_utf8(marker, marker_utf8, (int)sizeof(marker_utf8));
+    spec_t spec;
+    spec_init(&spec, "--tree");
+    spec_arg(&spec, "2");
+    spec_arg(&spec, marker_utf8);
+    spec.timeout_ms = 1500;
+    outcome_t outcome = run(&spec);
+    CHECK("deadline reports a timeout", outcome.launched == 0 && outcome.result.state == 2 && outcome.result.timed_out
+        && !outcome.result.has_exit_code);
+    CHECK("deadline returns promptly", outcome.elapsed_ms < 6000);
+    release(&outcome);
+    char pid[32] = { 0 };
+    CHECK("the leaf was running", read_text(started, pid, sizeof(pid)) == 0);
+    CHECK("the whole tree was killed", pid[0] != 0 && process_gone(pid));
+    Sleep(3500);
+    CHECK("the leaf never finished", !exists(marker));
+    DeleteFileW(started);
+}
+
+static void check_orphaned_pipe(void) {
+    spec_t spec;
+    spec_init(&spec, "--orphan");
+    spec_arg(&spec, "1500");
+    spec.wait_mode = 2;
+    outcome_t outcome = run(&spec);
+    CHECK("no deadline waits for the descendant's EOF", exited_with(&outcome, 0) && outcome.elapsed_ms >= 1200);
+    release(&outcome);
+    spec.wait_mode = 1;
+    spec.timeout_ms = 400;
+    outcome = run(&spec);
+    CHECK("a deadline ends a descendant holding the pipe",
+        outcome.launched == 0 && outcome.result.state == 2 && outcome.elapsed_ms < 1400);
+    release(&outcome);
+}
+
+static void check_handle_isolation(void) {
+    wchar_t path[1024];
+    char path_utf8[2048];
+    temp_path(path, 1024, L"btrc-inherited.txt");
+    to_utf8(path, path_utf8, (int)sizeof(path_utf8));
+    SECURITY_ATTRIBUTES inheritable;
+    memset(&inheritable, 0, sizeof(inheritable));
+    inheritable.nLength = sizeof(inheritable);
+    inheritable.bInheritHandle = TRUE;
+    HANDLE file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, &inheritable,
+        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    CHECK("inheritable probe handle opened", file != INVALID_HANDLE_VALUE);
+    if (file == INVALID_HANDLE_VALUE) return;
+    char value[32];
+    snprintf(value, sizeof(value), "%llu", (unsigned long long)(uintptr_t)file);
+    spec_t spec;
+    spec_init(&spec, "--handle");
+    spec_arg(&spec, value);
+    spec_arg(&spec, path_utf8);
+    outcome_t outcome = run(&spec);
+    CHECK("only the stdio handles are inherited",
+        exited_with(&outcome, 0) && outcome.out != NULL && strcmp((char *)outcome.out, "isolated") == 0);
+    release(&outcome);
+    DWORD flags = 0;
+    CHECK("the parent's inheritance flag is unchanged",
+        GetHandleInformation(file, &flags) && (flags & HANDLE_FLAG_INHERIT) != 0);
+    CloseHandle(file);
+    DeleteFileW(path);
+}
+
+static void check_capture(void) {
+    spec_t spec;
+    spec_init(&spec, "--flood");
+    spec_arg(&spec, "1000000");
+    spec.limit = 4096;
+    outcome_t outcome = run(&spec);
+    CHECK("capture limit ends the run", outcome.launched == 0 && outcome.result.state == 3
+        && outcome.result.capture_exceeded && outcome.out_size == 4096 && outcome.result.stdout_bytes_seen >= 4096);
+    release(&outcome);
+
+    spec_init(&spec, "--flood");
+    spec_arg(&spec, "3000000");
+    outcome = run(&spec);
+    int intact = exited_with(&outcome, 0) && outcome.out_size == 3000000 && outcome.err_size == 3000000;
+    for (size_t index = 0; intact && index < outcome.out_size; index++)
+        intact = outcome.out[index] == 'x' && outcome.err[index] == 'y';
+    CHECK("both streams drain concurrently", intact);
+    release(&outcome);
+
+    spec_init(&spec, "--flood");
+    spec_arg(&spec, "10");
+    spec.stderr_mode = 2;
+    outcome = run(&spec);
+    CHECK("combine shares the stdout pipe", exited_with(&outcome, 0) && outcome.out_size == 20 && outcome.err_size == 0);
+    release(&outcome);
+
+    spec_init(&spec, "--flood");
+    spec_arg(&spec, "10");
+    spec.stdout_mode = 3;
+    spec.stderr_mode = 3;
+    outcome = run(&spec);
+    CHECK("suppress captures nothing", exited_with(&outcome, 0) && outcome.out_size == 0 && outcome.err_size == 0);
+    release(&outcome);
+}
+
+static void check_stdin(void) {
+    size_t size = 2u * 1024u * 1024u;
+    unsigned char *input = (unsigned char *)malloc(size);
+    CHECK("stdin buffer allocated", input != NULL);
+    if (input == NULL) return;
+    for (size_t index = 0; index < size; index++) input[index] = (unsigned char)(index % 251);
+    spec_t spec;
+    spec_init(&spec, "--cat");
+    spec.input = input;
+    spec.input_size = size;
+    outcome_t outcome = run(&spec);
+    CHECK("stdin streams under backpressure", exited_with(&outcome, 0) && outcome.out_size == size
+        && memcmp(outcome.out, input, size) == 0);
+    release(&outcome);
+    spec_init(&spec, "--close-stdin");
+    spec.input = input;
+    spec.input_size = size;
+    outcome = run(&spec);
+    CHECK("a child closing stdin early is no failure", exited_with(&outcome, 0) && !outcome.result.capture_failed);
+    release(&outcome);
+    free(input);
+}
+
+static void check_refusals(void) {
+    spec_t spec;
+    spec_init(&spec, "--exit");
+    spec_arg(&spec, "0");
+    spec.executable = "C:\\btrc-nonexistent-directory\\nothing.exe";
+    outcome_t outcome = run(&spec);
+    CHECK("a missing executable is not found", refused(&outcome, 4, 0));
+    release(&outcome);
+
+    spec_init(&spec, "--exit");
+    spec_arg(&spec, "0");
+    spec.cwd = "C:\\btrc-nonexistent-directory";
+    outcome = run(&spec);
+    CHECK("a missing cwd is a directory failure", refused(&outcome, 17, 0));
+    release(&outcome);
+
+    wchar_t batch[1024];
+    char batch_utf8[2048];
+    temp_path(batch, 1024, L"btrc-refused.bat");
+    write_file(batch, "@echo off\r\n");
+    to_utf8(batch, batch_utf8, (int)sizeof(batch_utf8));
+    spec_init(&spec, "--exit");
+    spec.executable = batch_utf8;
+    outcome = run(&spec);
+    CHECK("a batch file is refused", refused(&outcome, 5, 8));
+    release(&outcome);
+    DeleteFileW(batch);
+
+    wchar_t text[1024];
+    char text_utf8[2048];
+    temp_path(text, 1024, L"btrc-not-an-image.exe");
+    write_file(text, "not a portable executable");
+    to_utf8(text, text_utf8, (int)sizeof(text_utf8));
+    spec_init(&spec, "--exit");
+    spec.executable = text_utf8;
+    outcome = run(&spec);
+    CHECK("a non-PE .exe is refused", refused(&outcome, 5, 9));
+    release(&outcome);
+    DeleteFileW(text);
+}
+
+static void check_search_and_environment(void) {
+    wchar_t directory[1024];
+    char directory_utf8[2048];
+    temp_path(directory, 1024, L"btrc-path-probe");
+    CreateDirectoryW(directory, NULL);
+    to_utf8(directory, directory_utf8, (int)sizeof(directory_utf8));
+    wchar_t copy[1100];
+    wchar_t self_wide[1024];
+    to_wide(self_utf8, self_wide, 1024);
+    swprintf(copy, 1100, L"%ls\\btrc-path-child.exe", directory);
+    CHECK("PATH probe copied", CopyFileW(self_wide, copy, FALSE) != 0);
+
+    char path_override[2200];
+    snprintf(path_override, sizeof(path_override), "PATH=%s", directory_utf8);
+    spec_t spec;
+    spec_init(&spec, "--exit");
+    spec_arg(&spec, "5");
+    spec.executable = "btrc-path-child";
+    spec.overrides[0] = path_override;
+    spec.override_count = 1;
+    outcome_t outcome = run(&spec);
+    CHECK("a bare name searches the child's PATH and probes .exe", exited_with(&outcome, 5));
+    release(&outcome);
+
+    spec.overrides[0] = "PATH=";
+    spec.cwd = directory_utf8;
+    outcome = run(&spec);
+    CHECK("an empty PATH never searches the cwd", refused(&outcome, 4, 0));
+    release(&outcome);
+
+    char lower_path[2200];
+    snprintf(lower_path, sizeof(lower_path), "path=;;%s", directory_utf8);
+    spec.overrides[0] = lower_path;
+    spec.cwd = NULL;
+    outcome = run(&spec);
+    CHECK("the override replaces Path case-insensitively and skips empty entries", exited_with(&outcome, 5));
+    release(&outcome);
+
+    spec.overrides[0] = "PATH=.";
+    spec.cwd = directory_utf8;
+    outcome = run(&spec);
+    CHECK("a relative PATH entry resolves against the child cwd", exited_with(&outcome, 5));
+    release(&outcome);
+
+    spec.override_count = 0;
+    spec.executable = ".\\btrc-path-child";
+    outcome = run(&spec);
+    CHECK("an explicit relative path resolves against the child cwd", exited_with(&outcome, 5));
+    release(&outcome);
+
+    spec_init(&spec, "--cwd");
+    spec.cwd = directory_utf8;
+    outcome = run(&spec);
+    CHECK("the child starts in its cwd", exited_with(&outcome, 0) && outcome.out != NULL
+        && CompareStringA(LOCALE_INVARIANT, NORM_IGNORECASE, (char *)outcome.out, -1, directory_utf8, -1) == CSTR_EQUAL);
+    release(&outcome);
+
+    spec_init(&spec, "--env");
+    spec_arg(&spec, "btrc_case_probe");
+    spec.overrides[0] = "BTRC_CASE_PROBE=one";
+    spec.override_count = 1;
+    outcome = run(&spec);
+    CHECK("an override reaches the child", exited_with(&outcome, 0) && outcome.out != NULL
+        && strcmp((char *)outcome.out, "one") == 0);
+    release(&outcome);
+
+    SetEnvironmentVariableW(L"BTRC_UNSET_PROBE", L"inherited");
+    spec_init(&spec, "--env");
+    spec_arg(&spec, "BTRC_UNSET_PROBE");
+    spec.unsets[0] = "btrc_unset_probe";
+    spec.unset_count = 1;
+    outcome = run(&spec);
+    CHECK("an unset removes the inherited name without regard to case", exited_with(&outcome, 0)
+        && outcome.out != NULL && strcmp((char *)outcome.out, "<unset>") == 0);
+    release(&outcome);
+    SetEnvironmentVariableW(L"BTRC_UNSET_PROBE", NULL);
+
+    spec_init(&spec, "--env-order");
+    spec.overrides[0] = "AAA_BTRC_FIRST=1";
+    spec.overrides[1] = "zzz_btrc_last=1";
+    spec.override_count = 2;
+    outcome = run(&spec);
+    CHECK("the environment block is sorted", exited_with(&outcome, 0) && outcome.out != NULL
+        && strcmp((char *)outcome.out, "1") == 0);
+    release(&outcome);
+
+    DeleteFileW(copy);
+    RemoveDirectoryW(directory);
+}
+
+static void check_wait_modes(void) {
+    __btrc_windows_launch_options_t options;
+    memset(&options, 0, sizeof(options));
+    char *argv[] = { self_utf8, "--sleep", "800", NULL };
+    options.executable_utf8 = self_utf8;
+    options.argv_utf8 = argv;
+    options.argc = 3;
+    __btrc_windows_launch_owner_t *owner = NULL;
+    __btrc_windows_launch_error_t error;
+    __btrc_windows_launch_result_t result;
+    CHECK("poll launch", __btrc_windows_launch(&options, &owner, &error) == 0);
+    if (owner == NULL) return;
+    CHECK("poll reports a running child", __btrc_windows_launch_wait(owner, 0, 0, &result, &error) == 0
+        && result.state == 0);
+    CHECK("an unbounded wait completes", __btrc_windows_launch_wait(owner, 2, 0, &result, &error) == 0
+        && result.state == 1 && result.native_exit_code == 0);
+    CHECK("close releases a completed launch", __btrc_windows_launch_close(&owner, 1000, &error) == 0
+        && owner == NULL);
+
+    wchar_t pid_file[1024];
+    char pid_file_utf8[2048];
+    temp_path(pid_file, 1024, L"btrc-abandoned.pid");
+    DeleteFileW(pid_file);
+    to_utf8(pid_file, pid_file_utf8, (int)sizeof(pid_file_utf8));
+    char *abandoned[] = { self_utf8, "--sleep-pid", pid_file_utf8, "20000", NULL };
+    options.argv_utf8 = abandoned;
+    options.argc = 4;
+    CHECK("abandoned launch", __btrc_windows_launch(&options, &owner, &error) == 0);
+    if (owner == NULL) return;
+    char pid[32] = { 0 };
+    for (int attempt = 0; attempt < 100 && read_text(pid_file, pid, sizeof(pid)) != 0; attempt++) Sleep(50);
+    CHECK("close of an active launch returns", __btrc_windows_launch_close(&owner, 5000, &error) == 0
+        && owner == NULL);
+    CHECK("close of an active launch kills its tree", pid[0] != 0 && process_gone(pid));
+    DeleteFileW(pid_file);
+}
+
+/* An explicit terminate ends the whole job with the caller's exit code; the
+ * wait then reports an ordinary exit with that code, not a timeout. */
+static void check_terminate(void) {
+    wchar_t marker[1024];
+    wchar_t started[1024];
+    char marker_utf8[2048];
+    temp_path(marker, 1024, L"btrc-terminate-marker");
+    temp_path(started, 1024, L"btrc-terminate-marker.started");
+    DeleteFileW(marker);
+    DeleteFileW(started);
+    to_utf8(marker, marker_utf8, (int)sizeof(marker_utf8));
+    char *argv[] = { self_utf8, "--tree", "2", marker_utf8, NULL };
+    __btrc_windows_launch_options_t options;
+    memset(&options, 0, sizeof(options));
+    options.executable_utf8 = self_utf8;
+    options.argv_utf8 = argv;
+    options.argc = 4;
+    __btrc_windows_launch_owner_t *owner = NULL;
+    __btrc_windows_launch_error_t error;
+    __btrc_windows_launch_result_t result;
+    CHECK("terminate launch", __btrc_windows_launch(&options, &owner, &error) == 0);
+    if (owner == NULL) return;
+    char pid[32] = { 0 };
+    for (int attempt = 0; attempt < 200 && (read_text(started, pid, sizeof(pid)) != 0 || pid[0] == 0); attempt++)
+        Sleep(50);
+    CHECK("terminate ends the job", __btrc_windows_launch_terminate(owner, 7, &error) == 0);
+    CHECK("terminate is idempotent", __btrc_windows_launch_terminate(owner, 7, &error) == 0);
+    CHECK("a terminated launch reports the caller's exit code",
+        __btrc_windows_launch_wait(owner, 2, 0, &result, &error) == 0 && result.state == 1 && result.has_exit_code
+            && result.native_exit_code == 7 && !result.timed_out);
+    CHECK("terminate kills the whole tree", pid[0] != 0 && process_gone(pid));
+    CHECK("close releases a terminated launch", __btrc_windows_launch_close(&owner, 1000, &error) == 0
+        && owner == NULL);
+    Sleep(3500);
+    CHECK("the terminated leaf never finished", !exists(marker));
+    DeleteFileW(started);
+}
+
+int main(int argc, char **argv) {
+    wchar_t self_wide[1024];
+    DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
+    if (length == 0 || length >= 1024 || to_utf8(self_wide, self_utf8, (int)sizeof(self_utf8)) != 0) return 2;
+    if (argc >= 2) return child(argc, argv);
+    DWORD temp_length = GetTempPathW(1024, temp_root);
+    if (temp_length == 0 || temp_length >= 1000) return 3;
+    check_quoting();
+    check_exit_codes();
+    check_tree_timeout();
+    check_orphaned_pipe();
+    check_handle_isolation();
+    check_capture();
+    check_stdin();
+    check_refusals();
+    check_search_and_environment();
+    check_wait_modes();
+    check_terminate();
+    if (failures != 0) {
+        report("windows-launch-seam FAIL failures=%d checks=%d\n", failures, checks);
+        return 1;
+    }
+    report("windows-launch-seam PASS checks=%d\n", checks);
+    return 0;
+}

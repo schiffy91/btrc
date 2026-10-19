@@ -605,8 +605,8 @@ id = "Library.HTTP.HTTPClient"
 group = "stdlib/HTTP"
 title = "HTTPS client via curl"
 regression = ["src/tests/python/test_stdlib_process_security.py::test_http_client_is_direct_and_protocol_restricted", "src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "ChildProcess.run(curl) needs Process; win sys/wait.h shim empty, no CreateProcessW backend; WinHTTP is the native alternative" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "ChildProcess.run(curl) needs Process; win sys/wait.h shim empty, no CreateProcessW backend; WinHTTP is the native alternative" }
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "ChildProcess.run now launches through the CreateProcessW provider, but the client's contract is a curl child and its local test stand-in a /bin/sh script; the Windows transport is WinHTTP (platforms-p3-sockets-http)" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "ChildProcess.run now launches through the CreateProcessW provider, but the client's contract is a curl child and its local test stand-in a /bin/sh script; the Windows transport is WinHTTP (platforms-p3-sockets-http)" }
 ios-device = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "spawns curl via ChildProcess.run; iOS forbids posix_spawn of child processes, contract needs NSURLSession" }
 ios-simulator = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "spawns curl via ChildProcess.run; iOS forbids posix_spawn of child processes, contract needs NSURLSession" }
 android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "spawns curl via ChildProcess.run; no curl on Android and W^X blocks exec of app binaries, needs HttpURLConnection/JNI" }
@@ -981,9 +981,9 @@ kind = "operation"
 id = "Library.Process"
 group = "stdlib"
 title = "ChildProcess spawn/wait and UnixShell"
-regression = ["src/tests/python/test_stdlib_process_security.py::test_process_descriptor_bound_is_computed_before_fork", "src/tests/python/test_stdlib_process_security.py::test_process_rejects_null_elements_and_conflicting_environment_edits", "src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "calls fork/execve/waitpid (Process.btrc); win compat sys/wait.h, poll.h empty shims; CreateProcessW backend planned" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "calls fork/execve/waitpid (Process.btrc); win compat sys/wait.h, poll.h empty shims; CreateProcessW backend planned" }
+regression = ["src/tests/python/test_stdlib_process_security.py::test_process_descriptor_bound_is_computed_before_fork", "src/tests/python/test_stdlib_process_security.py::test_process_rejects_null_elements_and_conflicting_environment_edits", "src/tests/runner.py::test_btrc_file", "src/tests/python/test_windows_launch_seam.py::test_launch_harness_builds_for_windows", "src/tests/python/test_windows_process.py::test_process_fixture_builds_for_windows", "src/tests/python/test_windows_process.py::test_process_corpus_builds_for_windows_through_both_frontends"]
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Windows/ProcessHostProvider over the runtime's windows_os.c seam: quoted command line, sorted Unicode environment, explicit stdio handle list, kill-on-close job, overlapped pipes under one deadline; UnixShell, descriptor launches and foreground handoff refused (adaptations rows 1, 1b); checked natively by test_windows_launch_seam.py and test_windows_process.py" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Windows/ProcessHostProvider over the runtime's windows_os.c seam: quoted command line, sorted Unicode environment, explicit stdio handle list, kill-on-close job, overlapped pipes under one deadline; UnixShell, descriptor launches and foreground handoff refused (adaptations rows 1, 1b); checked natively by test_windows_launch_seam.py and test_windows_process.py" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS sandbox forbids fork/execve/posix_spawn of child processes for App Store apps" }
 ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS sandbox forbids fork/execve/posix_spawn of child processes for App Store apps" }
 android-arm64 = { parity = "adapted", implementation = "partial", owner = "A1", status = "implemented-unverified", reason = "bionic has fork/execve/waitpid but /bin/sh and PATH /usr/bin:/bin absent (/system/bin); exec from app dirs blocked API29+" }
@@ -3206,8 +3206,8 @@ id = "runtime.__btrc_posix_spawn_cloexec"
 group = "runtime/process"
 title = "__btrc_posix_spawn_cloexec (process.c)"
 regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_process_uses_platform_fast_paths_without_weakening_fallback"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "returns -2 to request the fork path, which MinGW lacks; CreateProcessW needed" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "returns -2 to request the fork path, which MinGW lacks; CreateProcessW needed" }
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "not retained on Windows: ChildProcess launches through windows_os.c's CreateProcessW seam (runtime.__btrc_windows_launch) instead of the fork path MinGW lacks" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "not retained on Windows: ChildProcess launches through windows_os.c's CreateProcessW seam (runtime.__btrc_windows_launch) instead of the fork path MinGW lacks" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "posix_spawn is marked unavailable in the iOS SDK; spawning child processes is forbidden" }
 ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "posix_spawn is marked unavailable in the iOS SDK; spawning child processes is forbidden" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "non-Apple branch returns -2 -> fork/execve path in bionic, as on Linux" }
@@ -4165,6 +4165,104 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "runtime.__btrc_windows_launch"
+group = "runtime/process"
+title = "__btrc_windows_launch (windows_os.c)"
+regression = ["src/tests/python/test_windows_process.py::test_only_windows_gnu_rows_launch_through_the_runtime_seam", "src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): a windows_os.h section of the separately compiled windows_os.c, retained only by Windows/ProcessHostProvider on the windows-gnu rows"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "CreateProcessW of a suspended child under the SRW spawn lock with an explicit handle list, assigned to a kill-on-close job before ResumeThread; the reference platforms carry only its unsupported-host stub; launch_harness.c runs it on windows.yml's win32-native x64 runner" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "CreateProcessW of a suspended child under the SRW spawn lock with an explicit handle list, assigned to a kill-on-close job before ResumeThread; the reference platforms carry only its unsupported-host stub; launch_harness.c runs it on windows.yml's win32-native ARM64 runner" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_launch_close"
+group = "runtime/process"
+title = "__btrc_windows_launch_close (windows_os.c)"
+regression = ["src/tests/python/test_windows_process.py::test_only_windows_gnu_rows_launch_through_the_runtime_seam", "src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): a windows_os.h section of the separately compiled windows_os.c, retained only by Windows/ProcessHostProvider on the windows-gnu rows"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "bounded close: an abandoned active launch terminates its job and cancels pending pipe I/O, a timed-out close keeps ownership for a retry; launch_harness.c runs it on windows.yml's win32-native x64 runner" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "bounded close: an abandoned active launch terminates its job and cancels pending pipe I/O, a timed-out close keeps ownership for a retry; launch_harness.c runs it on windows.yml's win32-native ARM64 runner" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which nulls the owner exactly as on macOS and Linux; no provider of this slice retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which nulls the owner exactly as on macOS and Linux; no provider of this slice retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which nulls the owner exactly as on macOS and Linux; no provider of this slice retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which nulls the owner exactly as on macOS and Linux; no provider of this slice retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_launch_copy_output"
+group = "runtime/process"
+title = "__btrc_windows_launch_copy_output (windows_os.c)"
+regression = ["src/tests/python/test_windows_process.py::test_only_windows_gnu_rows_launch_through_the_runtime_seam", "src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): a windows_os.h section of the separately compiled windows_os.c, retained only by Windows/ProcessHostProvider on the windows-gnu rows"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "copies a completed launch's retained capture, reporting the required size without a partial copy; launch_harness.c runs it on windows.yml's win32-native x64 runner" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "copies a completed launch's retained capture, reporting the required size without a partial copy; launch_harness.c runs it on windows.yml's win32-native ARM64 runner" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which fails exactly as on macOS and Linux; no provider of this slice retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which fails exactly as on macOS and Linux; no provider of this slice retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which fails exactly as on macOS and Linux; no provider of this slice retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which fails exactly as on macOS and Linux; no provider of this slice retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_launch_terminate"
+group = "runtime/process"
+title = "__btrc_windows_launch_terminate (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): a windows_os.h section of the separately compiled windows_os.c that no provider retains yet; the launch harness the Windows runners execute calls it"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "idempotent TerminateJobObject of the whole launch tree with the caller's exit code; launch_harness.c runs it on windows.yml's win32-native x64 runner" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "idempotent TerminateJobObject of the whole launch tree with the caller's exit code; launch_harness.c runs it on windows.yml's win32-native ARM64 runner" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_launch_types"
+group = "runtime/process"
+title = "__btrc_windows_launch_types (windows_os.h)"
+regression = ["src/tests/python/test_windows_process.py::test_only_windows_gnu_rows_launch_through_the_runtime_seam", "src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): a windows_os.h section of the separately compiled windows_os.c, retained only by Windows/ProcessHostProvider on the windows-gnu rows"
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "SDK-free C11 records (stddef.h, stdint.h) with the same layout on every target" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "SDK-free C11 records (stddef.h, stdint.h) with the same layout on every target" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "SDK-free C11 records (stddef.h, stdint.h) with the same layout on every target" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "SDK-free C11 records (stddef.h, stdint.h) with the same layout on every target" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "SDK-free C11 records (stddef.h, stdint.h) with the same layout on every target" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "SDK-free C11 records (stddef.h, stdint.h) with the same layout on every target" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_launch_wait"
+group = "runtime/process"
+title = "__btrc_windows_launch_wait (windows_os.c)"
+regression = ["src/tests/python/test_windows_process.py::test_only_windows_gnu_rows_launch_through_the_runtime_seam", "src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): a windows_os.h section of the separately compiled windows_os.c, retained only by Windows/ProcessHostProvider on the windows-gnu rows"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "one WaitForMultipleObjects loop over the child and its overlapped pipes under one deadline; an expired deadline terminates the whole job; launch_harness.c runs it on windows.yml's win32-native x64 runner" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "one WaitForMultipleObjects loop over the child and its overlapped pipes under one deadline; an expired deadline terminates the whole job; launch_harness.c runs it on windows.yml's win32-native ARM64 runner" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "off Windows windows_os.c builds only its stub, which reports an unsupported host (stage 15) exactly as on macOS and Linux; no provider of this slice retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_quote_argv_utf8"
+group = "runtime/process"
+title = "__btrc_windows_quote_argv_utf8 (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): a windows_os.h section of the separately compiled windows_os.c that no provider retains; the launch harness the Windows runners execute calls it, and the launch entry quotes through the same code"
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "portable C11 quoting the host probe round-trips through a CommandLineToArgvW model; launch_harness.c checks it against the real CommandLineToArgvW on windows.yml's win32-native x64 runner" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "portable C11 quoting the host probe round-trips through a CommandLineToArgvW model; launch_harness.c checks it against the real CommandLineToArgvW on windows.yml's win32-native ARM64 runner" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "portable C11 quoting, identical on every target" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "portable C11 quoting, identical on every target" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "portable C11 quoting, identical on every target" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "portable C11 quoting, identical on every target" }
+
+[[rows]]
+kind = "operation"
 id = "runtime.__btrc_zfill"
 group = "runtime/strings"
 title = "__btrc_zfill (strings.c)"
@@ -4338,8 +4436,8 @@ id = "corpus.stdlib"
 group = "corpus"
 title = "Corpus: stdlib modules and packages (110)"
 regression = ["src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "equivalent", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "pure modules, Terminal, PatternAny and Glob port; Process/Daemon/Http*/FileSystemHandles lack Win32 backends; TerminalPty needs a POSIX pseudo-terminal" }
-windows-arm64 = { parity = "equivalent", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "pure modules, Terminal, PatternAny and Glob port; Process/Daemon/Http*/FileSystemHandles lack Win32 backends; TerminalPty needs a POSIX pseudo-terminal" }
+windows-x64 = { parity = "equivalent", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "pure modules, Terminal, PatternAny and Glob port; Process has its CreateProcessW provider (the Process corpus runs natively in windows.yml's win32-native); Daemon/Http*/FileSystemHandles lack Win32 backends; TerminalPty needs a POSIX pseudo-terminal" }
+windows-arm64 = { parity = "equivalent", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "pure modules, Terminal, PatternAny and Glob port; Process has its CreateProcessW provider (the Process corpus runs natively on windows-11-arm in windows.yml's win32-native); Daemon/Http*/FileSystemHandles lack Win32 backends; TerminalPty needs a POSIX pseudo-terminal" }
 ios-device = { parity = "equivalent", implementation = "partial", owner = "I1", status = "implemented-unverified", reason = "pure modules port; Process/ChildProcess/Daemon/fork os-restricted on iOS; /tmp and TMPDIR paths outside app sandbox" }
 ios-simulator = { parity = "equivalent", implementation = "partial", owner = "I1", status = "implemented-unverified", reason = "pure modules port; Process/ChildProcess/Daemon/fork os-restricted on iOS; /tmp and TMPDIR paths outside app sandbox" }
 android-arm64 = { parity = "equivalent", implementation = "partial", owner = "A1", status = "implemented-unverified", reason = "pure modules port; Daemon/Terminal termios restricted under app model; /tmp paths need getFilesDir/cacheDir" }

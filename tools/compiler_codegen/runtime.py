@@ -136,6 +136,38 @@ class RuntimeHelperSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeObjectLibrariesSpec:
+    """The system libraries one external object needs on some operating systems."""
+
+    operating_systems: tuple[str, ...]
+    names: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeExternalObjectSpec:
+    """A runtime C source compiled as its own translation unit and linked whole.
+
+    Its declarations asset holds SDK-free helper sections that emitted units
+    paste; a unit that retains any of them selects this object
+    (docs/design/windows-os-services.md, "Selection unit"). The compilers never
+    read this row: the build drivers do, through ``RuntimeObjects``.
+    """
+
+    source: str
+    declarations: str
+    helpers: tuple[str, ...]
+    libraries: tuple[RuntimeObjectLibrariesSpec, ...]
+
+    def libraries_for(self, operating_system: str) -> tuple[str, ...]:
+        return tuple(
+            name
+            for libraries in self.libraries
+            if operating_system in libraries.operating_systems
+            for name in libraries.names
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeManifest:
     """Validated authoritative runtime specification and extracted payloads."""
 
@@ -145,6 +177,7 @@ class RuntimeManifest:
     marker_version: int
     freestanding: FreestandingRuntimeSpec
     helpers: tuple[RuntimeHelperSpec, ...]
+    external_objects: tuple[RuntimeExternalObjectSpec, ...] = ()
 
     _ROOT_KEYS = frozenset(
         {
@@ -155,8 +188,15 @@ class RuntimeManifest:
             "runtime_call_features",
             "header_features",
             "helpers",
+            "external_objects",
         }
     )
+    _EXTERNAL_OBJECT_KEYS = frozenset({"source", "declarations", "libraries"})
+    _OBJECT_LIBRARY_KEYS = frozenset({"os", "names"})
+    _OPERATING_SYSTEMS = frozenset({"android", "ios", "linux", "macos", "windows"})
+    # Declaration assets: their sections are pasted like helpers, but they only
+    # declare what one external object defines.
+    _DECLARATION_ASSETS = ("windows_os.h",)
     _FREESTANDING_KEYS = frozenset({"calls", "objects", "types", "literals"})
     _CALL_FEATURE_KEYS = frozenset({"prefix", "macro"})
     _HEADER_FEATURE_KEYS = frozenset({"header", "macro"})
@@ -202,8 +242,11 @@ class RuntimeManifest:
         "threads.c",
         "trycatch.c",
         "gpu.c",
+        "windows_os.h",
     )
     _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+    # A function definition: a parameter list followed by a body.
+    _DEFINITION = re.compile(r"\)\s*\{")
     _C_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     _C_NON_CODE = re.compile(
         r"/\*.*?\*/|//(?:\\\n|[^\n])*(?:\n|$)|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
@@ -352,9 +395,68 @@ class RuntimeManifest:
             marker_version=marker_version,
             freestanding=freestanding,
             helpers=tuple(helpers),
+            external_objects=cls._external_objects(document.get("external_objects", []), asset_root, helpers),
         )
         manifest._validate(sections_by_asset, expected_asset_order)
         return manifest
+
+    @classmethod
+    def _external_objects(
+        cls, value: Any, asset_root: Path, helpers: list[RuntimeHelperSpec]
+    ) -> tuple[RuntimeExternalObjectSpec, ...]:
+        if not isinstance(value, list):
+            raise RuntimeManifestError("external_objects must be an array of tables")
+        objects: list[RuntimeExternalObjectSpec] = []
+        for index, table in enumerate(value):
+            context = f"external_objects[{index}]"
+            if not isinstance(table, dict):
+                raise RuntimeManifestError(f"{context} must be a table")
+            cls._FIELDS.require_keys(table, cls._EXTERNAL_OBJECT_KEYS, context)
+            source = cls._FIELDS.string(table, "source", context)
+            declarations = cls._FIELDS.string(table, "declarations", context)
+            if Path(source).name != source or not source.endswith(".c") or source in cls._ASSETS:
+                raise RuntimeManifestError(f"{context}.source must name a separate runtime C file: {source!r}")
+            if declarations not in cls._DECLARATION_ASSETS:
+                raise RuntimeManifestError(f"{context}.declarations is not a declaration asset: {declarations!r}")
+            try:
+                text = (asset_root / source).read_bytes().decode("utf-8")
+            except (OSError, UnicodeDecodeError) as error:
+                raise RuntimeManifestError(f"cannot read external runtime object {source}: {error}") from error
+            if f'#include "{declarations}"' not in text:
+                raise RuntimeManifestError(f"{source} must include its declarations {declarations}")
+            members = tuple(helper.name for helper in helpers if helper.asset == declarations)
+            if not members:
+                raise RuntimeManifestError(f"{context}.declarations declares no helper")
+            for helper in helpers:
+                if helper.asset == declarations and cls._DEFINITION.search(cls._C_NON_CODE.sub(" ", helper.source)):
+                    raise RuntimeManifestError(f"declaration section {helper.name} defines a function")
+            raw_libraries = table.get("libraries")
+            if not isinstance(raw_libraries, list):
+                raise RuntimeManifestError(f"{context}.libraries must be an array of tables")
+            libraries: list[RuntimeObjectLibrariesSpec] = []
+            for library_index, entry in enumerate(raw_libraries):
+                library_context = f"{context}.libraries[{library_index}]"
+                if not isinstance(entry, dict):
+                    raise RuntimeManifestError(f"{library_context} must be a table")
+                cls._FIELDS.require_keys(entry, cls._OBJECT_LIBRARY_KEYS, library_context)
+                systems = cls._string_tuple(entry, "os", library_context)
+                unknown = sorted(set(systems) - cls._OPERATING_SYSTEMS)
+                if unknown:
+                    raise RuntimeManifestError(f"{library_context}.os names unknown systems: {unknown!r}")
+                names = cls._string_tuple(entry, "names", library_context)
+                invalid = [name for name in names if not cls._IDENTIFIER.fullmatch(name)]
+                if invalid:
+                    raise RuntimeManifestError(f"{library_context}.names are not library names: {invalid!r}")
+                libraries.append(RuntimeObjectLibrariesSpec(operating_systems=systems, names=names))
+            objects.append(
+                RuntimeExternalObjectSpec(
+                    source=source, declarations=declarations, helpers=members, libraries=tuple(libraries)
+                )
+            )
+        declared = [external.declarations for external in objects]
+        if sorted(declared) != sorted(set(declared)) or set(declared) != set(cls._DECLARATION_ASSETS):
+            raise RuntimeManifestError("every declaration asset belongs to exactly one external object")
+        return tuple(objects)
 
     def helpers_for(self, catalog: str) -> tuple[RuntimeHelperSpec, ...]:
         if catalog not in self._CATALOGS:

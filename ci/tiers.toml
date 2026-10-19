@@ -450,7 +450,9 @@ reports = ["skip-report"]
 
 # A stored C window subclass from the real MinGW commctrl.h and real COM (a
 # registry-free server DLL with a BTRC sink, an ole32 stream), the overlay's
-# regex, fnmatch and glob, and the console terminal: a Linux runner builds both
+# regex, fnmatch and glob, the console terminal, and Library.Process's
+# CreateProcessW provider (the runtime seam's harness, the Process fixture and
+# the Process corpus bundle): a Linux runner builds both
 # compilers' executables and the server (win32-native-build), then each
 # Windows runner executes those of its architecture (win32-native). A job
 # that waits on another must run on exactly the same events
@@ -473,6 +475,11 @@ changed_paths = [
   "src/tests/stdlib/PatternAny.btrc",
   "src/tests/stdlib/Glob.btrc",
   "src/tests/stdlib/Terminal.btrc",
+  "src/tests/python/test_windows_launch_seam.py",
+  "src/tests/python/test_windows_process.py",
+  "src/tests/native/windows_launch/**",
+  "src/tests/native/process_windows/**",
+  "src/tests/fixtures/target-applicability.toml",
   "src/compiler/**/native_imports.py",
   "src/compiler/**/NativeImports.btrc",
   "src/runtime/windows/**",
@@ -481,6 +488,11 @@ changed_paths = [
   "src/stdlib/Pattern.btrc",
   "src/stdlib/Regex.btrc",
   "src/stdlib/Terminal/**",
+  "src/stdlib/Process.btrc",
+  "src/stdlib/Windows/**",
+  "src/tests/stdlib/ChildProcess*.btrc",
+  "src/tests/stdlib/Process*.btrc",
+  "src/tests/stdlib/Shell*.btrc",
 ]
 reports = ["skip-report"]
 
@@ -508,6 +520,11 @@ changed_paths = [
   "src/tests/stdlib/PatternAny.btrc",
   "src/tests/stdlib/Glob.btrc",
   "src/tests/stdlib/Terminal.btrc",
+  "src/tests/python/test_windows_launch_seam.py",
+  "src/tests/python/test_windows_process.py",
+  "src/tests/native/windows_launch/**",
+  "src/tests/native/process_windows/**",
+  "src/tests/fixtures/target-applicability.toml",
   "src/compiler/**/native_imports.py",
   "src/compiler/**/NativeImports.btrc",
   "src/runtime/windows/**",
@@ -516,6 +533,11 @@ changed_paths = [
   "src/stdlib/Pattern.btrc",
   "src/stdlib/Regex.btrc",
   "src/stdlib/Terminal/**",
+  "src/stdlib/Process.btrc",
+  "src/stdlib/Windows/**",
+  "src/tests/stdlib/ChildProcess*.btrc",
+  "src/tests/stdlib/Process*.btrc",
+  "src/tests/stdlib/Shell*.btrc",
 ]
 
 [[shards]]
@@ -537,6 +559,11 @@ changed_paths = [
   "src/tests/stdlib/PatternAny.btrc",
   "src/tests/stdlib/Glob.btrc",
   "src/tests/stdlib/Terminal.btrc",
+  "src/tests/python/test_windows_launch_seam.py",
+  "src/tests/python/test_windows_process.py",
+  "src/tests/native/windows_launch/**",
+  "src/tests/native/process_windows/**",
+  "src/tests/fixtures/target-applicability.toml",
   "src/compiler/**/native_imports.py",
   "src/compiler/**/NativeImports.btrc",
   "src/runtime/windows/**",
@@ -545,6 +572,11 @@ changed_paths = [
   "src/stdlib/Pattern.btrc",
   "src/stdlib/Regex.btrc",
   "src/stdlib/Terminal/**",
+  "src/stdlib/Process.btrc",
+  "src/stdlib/Windows/**",
+  "src/tests/stdlib/ChildProcess*.btrc",
+  "src/tests/stdlib/Process*.btrc",
+  "src/tests/stdlib/Shell*.btrc",
 ]
 
 # The whole language and stdlib corpus on real Windows through both compilers

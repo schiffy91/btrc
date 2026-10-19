@@ -1,0 +1,1 @@
+{"asset":"windows_os.h","btrc_order":211,"category":"process","dependencies":["__btrc_windows_launch_types"],"headers":[],"name":"__btrc_windows_launch_wait","provided_objects":[],"provided_types":[],"python_order":225,"realtime_effect":"blocking","source_sha256":"7283fa6b08e9255d92ba23732c5b95a3ed363b3be9b1a432b6687ae8bdd55859","source_size":406,"source_visible":true}

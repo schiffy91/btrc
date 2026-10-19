@@ -189,7 +189,7 @@ from src.tests.runner_capabilities import (
     loopback_listener_error,
 )
 from tools.host_c_compiler import HostCCompiler
-from tools.native_plan import NativePlanError, TargetToolchain
+from tools.native_plan import NativePlanError, RuntimeObjects, TargetToolchain
 from tools.qualification.adapters import HostProvenance, TargetRunAdapter
 from tools.qualification.schema import LedgerDocument, Provenance
 
@@ -1223,12 +1223,25 @@ class ProgramBuilder:
             ),
             "compile",
         )
+        # A separately compiled runtime object the program retains is its own
+        # unit, built without the generated-unit overlay and linked whole.
+        runtime_objects = RuntimeObjects.selected([c_source])
+        runtime_paths = []
+        for index, source in enumerate(RuntimeObjects.sources(runtime_objects)):
+            runtime_path = work / f"{program_id}.runtime-{index}.o"
+            self.run_tool(
+                self.toolchain.compile_command(source, runtime_path, generated=False, flags=self.configuration.cflags),
+                "compile",
+            )
+            runtime_paths.append(runtime_path)
         self.run_tool(
             [
                 *self.toolchain.drivers["cc"],
                 *self.toolchain.arguments,
                 str(object_path),
+                *(str(path) for path in runtime_paths),
                 *link_flags,
+                *RuntimeObjects.library_flags(runtime_objects, self.row.operating_system),
                 *self.toolchain.runtime_libraries(),
                 "-o",
                 str(artifact),
@@ -1237,6 +1250,8 @@ class ProgramBuilder:
         )
         c_path.unlink()
         object_path.unlink()
+        for path in runtime_paths:
+            path.unlink()
         return BuildResult(
             program.source, frontend, program_id, "built", artifact=artifact.name, sha256=TargetBundle.digest(artifact)
         )

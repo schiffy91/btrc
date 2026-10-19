@@ -1,7 +1,12 @@
 /* btrc standard library — Process execution
  * ChildProcess runs an executable with a structured argv; UnixShell runs a
- * POSIX shell command line through /bin/sh. Windows needs a native process
- * provider, which does not exist yet.
+ * POSIX shell command line through /bin/sh. `[[package.providers]]` in the
+ * root btrc.toml selects the host seam: Windows/ProcessHostProvider launches
+ * through the runtime's CreateProcessW and job-object seam on windows rows,
+ * and the bodies below serve every other row (Unix/ProcessHostProvider is
+ * their selection-only shell). Windows refuses UnixShell, descriptor-backed
+ * launches and foreground handoff with the platform-adaptations diagnostics
+ * (docs/design/windows-os-services.md, "Process and shell").
  */
 
 import Library.Bytes;
@@ -22,7 +27,11 @@ import Library.Vector;
 #include <time.h>
 #include <unistd.h>
 
+/* Only the POSIX bodies read environ; the Windows provider merges the native
+ * environment block in the runtime. */
+#if !defined(_WIN32)
 extern char** environ;
+#endif
 
 class ProcessStatus {
 	public int raw;
@@ -30,10 +39,16 @@ class ProcessStatus {
 	public ProcessStatus(int raw) { self.raw = raw; }
 
 	public int code() {
+#if defined(_WIN32)
+		/* A Windows exit code is the child's own DWORD, bit for bit; there is
+		 * no wait status to decode. */
+		return self.raw;
+#else
 		if (self.raw == -1) { return 127; }
 		if (WIFEXITED(self.raw)) { return WEXITSTATUS(self.raw); }
 		if (WIFSIGNALED(self.raw)) { return 128 + WTERMSIG(self.raw); }
 		return self.raw;
+#endif
 	}
 
 	public bool ok() { return self.code() == 0; }
@@ -278,7 +293,12 @@ class ChildProcessEnvironment {
 		return false;
 	}
 
+	/* POSIX only: the Windows provider merges the native block in the
+	 * runtime, so there this never builds an envp. */
 	class char** build(Vector<string> environment, Vector<string> unsetEnvironment) {
+#if defined(_WIN32)
+		return NULL;
+#else
 		if (environ == NULL || environment == null || unsetEnvironment == null || environment.len < 0 || unsetEnvironment.len < 0) { return NULL; }
 		int inheritedCount = 0;
 		while (environ[inheritedCount] != NULL) {
@@ -316,6 +336,7 @@ class ChildProcessEnvironment {
 		}
 		result[count] = NULL;
 		return result;
+#endif
 	}
 }
 
@@ -635,8 +656,15 @@ class ChildProcess {
 			throw "stdinData cannot be combined with CHILD_STDIN_INHERIT";
 		}
 		if (foreground && !hasStdinData) { stdinMode = CHILD_STDIN_INHERIT; }
+#if defined(_WIN32)
+		ProcessHostProvider.validateEnvironment(environment, unsetEnvironment);
+#else
 		ChildProcess.validateEnvironment(environment, unsetEnvironment);
+#endif
 		string command = ChildProcess.render(executable, arguments);
+#if defined(_WIN32)
+		return ChildProcess.runOnWindows(command, executable, arguments, cwd, environment, unsetEnvironment, timeoutMilliseconds, maxStdoutBytes, maxStderrBytes, stdinData, stdout, stderr, executableDescriptor, descriptorMappings, workingDirectoryDescriptor, foreground, stdinMode);
+#else
 		int descriptorBound = -1;
 		int maximumChildDescriptor = 2;
 		bool usesExplicitDescriptorSetup = workingDirectoryDescriptor >= 0 || descriptorMappings.len > 0;
@@ -1088,6 +1116,42 @@ class ChildProcess {
 		result.captureExceeded = captureExceeded;
 		result.captureFailed = captureFailed;
 		return result;
+#endif
+	}
+
+	/* The Windows half of run, after its portable validation. The result
+	 * follows the same precedence as the POSIX body: capture failure 127,
+	 * capture limit 125, timeout 124, then the child's own exit code. Only
+	 * windows rows call it; every row declares it, so Process's classes have
+	 * one shape on every target. */
+	class ExecResult runOnWindows(string command, string executable, Vector<string> arguments, string cwd, Vector<string> environment, Vector<string> unsetEnvironment, int timeoutMilliseconds, int maxStdoutBytes, int maxStderrBytes, string stdinData, CommandOutput stdout, CommandOutput stderr, int executableDescriptor, Vector<ChildDescriptorMapping> descriptorMappings, int workingDirectoryDescriptor, bool foreground, ChildStdin stdinMode) {
+#if !defined(_WIN32)
+		return ChildProcess.failure(command, "ChildProcess.runOnWindows runs only on windows rows\n");
+#else
+		if (executableDescriptor >= 0 || workingDirectoryDescriptor >= 0 || descriptorMappings.len > 0) {
+			return ChildProcess.failure(command, "ChildProcess.run is unavailable on Windows: exact executable/cwd descriptors and arbitrary descriptor mappings need a native handle contract; use path-based launch with explicit stdio handles\n");
+		}
+		if (foreground) {
+			return ChildProcess.failure(command, "ChildProcess.run is unavailable on Windows: a console has no controlling-terminal foreground handoff; use a background child\n");
+		}
+		ProcessHostOutcome outcome = ProcessHostProvider.run(executable, arguments, cwd, environment, unsetEnvironment, timeoutMilliseconds, maxStdoutBytes, maxStderrBytes, stdinData, (int)stdinMode, (int)stdout, (int)stderr);
+		if (!outcome.failure.isEmpty()) {
+			return ChildProcess.failure(command, outcome.failure);
+		}
+		int code = outcome.captureFailed ? 127 : (outcome.captureExceeded ? 125 : (outcome.timedOut ? 124 : outcome.code));
+		string errorText = outcome.err;
+		if (outcome.captureFailed) {
+			errorText = errorText + "failed to poll child output\n";
+		}
+		if (outcome.captureExceeded) {
+			errorText = errorText + "child output exceeded capture limit\n";
+		}
+		ExecResult result = ExecResult(code, outcome.out, errorText, command, outcome.capturedStdoutBytes, outcome.capturedStderrBytes);
+		result.timedOut = outcome.timedOut;
+		result.captureExceeded = outcome.captureExceeded;
+		result.captureFailed = outcome.captureFailed;
+		return result;
+#endif
 	}
 }
 
@@ -1141,8 +1205,16 @@ class UnixShell {
 			UnixShell.logError(f"LOG: {visible}");
 		}
 
+#if defined(_WIN32)
+		/* No POSIX shell exists. The shell environment keeps its POSIX
+		 * grammar, so a malformed request still throws exactly as on Unix. */
+		Vector<string> noUnsets = [];
+		ChildProcess.validateEnvironment(env, noUnsets);
+		var child = ChildProcess.failure(visible, "UnixShell.run is unavailable on Windows: there is no POSIX /bin/sh; use ChildProcess.run with an argument vector\n");
+#else
 		bool hasStdin = stdin != null && !stdin.isEmpty();
 		var child = ChildProcess.run("/bin/sh", ["-c", command], cwd=cwd, environment=env, timeoutMilliseconds=timeoutMilliseconds, maxStdoutBytes=maxStdoutBytes, maxStderrBytes=maxStderrBytes, stdinData=stdin, stdout=stdout, stderr=stderr, foreground=foreground, stdinMode=hasStdin ? CHILD_STDIN_NULL : CHILD_STDIN_INHERIT);
+#endif
 		var code = child.code;
 
 		if ((logFailure || throwOnFailure) && code != 0) {

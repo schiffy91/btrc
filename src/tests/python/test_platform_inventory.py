@@ -19,9 +19,13 @@ and the last tests below compile every cited program with those compilers and
 look for the helper's definition. A helper no
 corpus program can reach says why in its note, and that reason is checked:
 ``corpus-unreached (archive-api)`` is an arc_runtime API root that only a
-stdlib archive selects, and ``corpus-unreached (unselected)`` is a catalog row
+stdlib archive selects, ``corpus-unreached (unselected)`` is a catalog row
 no lowering in either compiler selects, no source can name and no helper
-depends on.
+depends on, and ``corpus-unreached (target-only)`` is a declaration section of
+a separately compiled runtime object (``[[external_objects]]``) that only a
+non-host target row's provider retains or its native harness calls, so no
+corpus program built for this host can carry it; such a row cites the tests
+that name it.
 
 The frozen ``operation`` denominator in ``tools/qualification/denominators.toml``
 holds the same ids, so a row deleted from the ledger is a missing slot and a
@@ -72,6 +76,7 @@ ARCHIVE_API_TEST = (
     "::test_shared_api_completion_reaches_fixed_point_and_externalizes"
 )
 UNSELECTED = "corpus-unreached (unselected): "
+TARGET_ONLY = "corpus-unreached (target-only): "
 PYTHON_CATALOG = "python-catalog only: "
 # Handwritten compiler and stdlib sources: a helper none of them names is selected by no lowering.
 HANDWRITTEN = (
@@ -249,7 +254,10 @@ def catalogs() -> dict[str, set[str]]:
 
 
 def test_every_runtime_helper_is_reached_by_a_cited_corpus_program_or_proven_unreached():
-    manifest = tomllib.loads(RUNTIME_MANIFEST.read_text(encoding="utf-8"))["helpers"]
+    root = tomllib.loads(RUNTIME_MANIFEST.read_text(encoding="utf-8"))
+    manifest = root["helpers"]
+    object_declarations = {row["declarations"] for row in root.get("external_objects", ())}
+    object_sections = {helper["name"] for helper in manifest if helper["asset"] in object_declarations}
     carried = catalogs()
     visible = {helper["name"] for helper in manifest if helper["source_visible"]}
     depended = {dependency for helper in manifest for dependency in helper["dependencies"]}
@@ -286,6 +294,9 @@ def test_every_runtime_helper_is_reached_by_a_cited_corpus_program_or_proven_unr
             assert naming == [], f"{name}: selected or named by {naming}"
             assert VERIFIER in others, f"{name}: cites no proof that it is unselected"
             others.remove(VERIFIER)
+        elif note.startswith(TARGET_ONLY):
+            assert name in object_sections, f"{name}: not a section of a separately compiled runtime object"
+            assert others, f"{name}: cites no test that builds or exercises it for its target"
         else:
             pytest.fail(f"{name}: no corpus program reaches it and its note gives no checked reason")
         for nodeid in others:
