@@ -108,6 +108,10 @@ standard = "c11"
 symbols = ["FT_Library", "FT_Face", "FT_Init_FreeType", "FT_Done_FreeType", "FT_New_Face", "FT_Done_Face", "FT_Set_Pixel_Sizes", "FT_Load_Char", "FT_LOAD_DEFAULT", "FT_LOAD_RENDER", "FT_PIXEL_MODE_MONO", "FT_PIXEL_MODE_GRAY"]
 borrowed-parameters = ["FT_New_Face.library", "FT_Set_Pixel_Sizes.face", "FT_Load_Char.face"]
 read-only-borrows = ["FT_New_Face.filepathname"]
+# FreeType.h includes <ft2build.h>, which only the freetype2 pkg-config record
+# below supplies; no iOS or Android sysroot has it, so the binding selects the
+# same desktop systems.
+os = ["linux", "macos", "windows"]
 
 # FreeType 2.14.3's valid freshly created claims have reference count one.
 # This private provider does not import FT_Reference_* or expose raw handles.
