@@ -421,28 +421,36 @@ jobs:
   # A stored C window subclass from the real MinGW commctrl.h, and real COM
   # (interop step 5's exit: a registry-free server DLL with a BTRC sink, and
   # an ole32 stream), through both compilers (test_native_win32_subclass.py,
-  # test_native_com_windows.py). The header reader and zig run under Nix,
+  # test_native_com_windows.py). Regex, fnmatch and glob over the overlay's
+  # vendored musl engine: the PosixMatching parity table with the Linux C
+  # library's output to match, the regex, fnmatch and glob corpus programs
+  # through both compilers, a non-ASCII glob and two linked overlay units
+  # (test_regex_parity.py, test_windows_posix_overlay.py). The console
+  # terminal through both compilers with its pseudoconsole harness
+  # (test_windows_terminal.py). The header reader and zig run under Nix,
   # which Windows lacks, so a Linux runner builds the executables and the
   # server and win32-native runs them on x64 and ARM64 Windows.
   win32-native-build:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'win32-native-build')
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
         with:
           use-flakehub: false
-      - name: Build the window subclass and the COM programs with both compilers for x64 and ARM64
-        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Build the Win32, COM, matching and console programs with both compilers for x64 and ARM64
+        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py --skip-report=build/skip-report-windows-win32-native-build.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: win32-native-executables
           path: |
             build/win32/*.exe
             build/win32/*.dll
+            build/win32/*.stdout
+            build/win32/*.stderr
           if-no-files-found: error
           retention-days: 7
       - name: Retain the skip report
@@ -493,6 +501,45 @@ jobs:
             output=$("./win32/com-stream-$frontend-${{ matrix.target }}.exe" | tr -d '\r')
             echo "$frontend ${{ matrix.target }}: $output"
             test "$output" = "$(printf 'com-stream status=0 written=4 same=1\ncom-stream-release claims=0 last=0')"
+          done
+      # The parity table's expected output is the Linux C library's, printed by
+      # the same program on the build runner.
+      - name: Match regular expressions and fnmatch as glibc does
+        run: |
+          ./win32/posix-matching-${{ matrix.target }}.exe | tr -d '\r' > posix-matching.actual
+          diff -u "win32/posix-matching-${{ matrix.target }}.stdout" posix-matching.actual
+          tail -n 1 posix-matching.actual
+      - name: Glob non-ASCII names and link two units of the overlay
+        run: |
+          for program in glob-unicode posix-overlay-units; do
+            output=$("./win32/$program-${{ matrix.target }}.exe" | tr -d '\r')
+            echo "$program ${{ matrix.target }}: $output"
+            test "$output" = "$(tr -d '\r' < "win32/$program-${{ matrix.target }}.stdout")"
+          done
+      # Each corpus program runs as the corpus runner runs it: stdout and stderr
+      # must equal its goldens. TMPDIR gives FileSystem.tempDir a writable root.
+      - name: Run the regex, fnmatch, glob and terminal corpus programs through each compiler
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          count=0
+          for executable in win32/corpus-*-${{ matrix.target }}.exe; do
+            base="${executable%.exe}"
+            "./$executable" > program.stdout 2> program.stderr
+            tr -d '\r' < program.stdout > program.stdout.lf
+            tr -d '\r' < program.stderr > program.stderr.lf
+            diff -u "$base.stdout" program.stdout.lf
+            diff -u "$base.stderr" program.stderr.lf
+            echo "$(basename "$base"): $(tail -n 1 program.stdout.lf)"
+            count=$((count + 1))
+          done
+          test "$count" -eq 10
+      - name: Drive the console terminal through a pseudoconsole with each compiler's program
+        run: |
+          for frontend in reference selfhost; do
+            output=$("./win32/conpty-terminal-${{ matrix.target }}.exe" "./win32/terminal-console-$frontend-${{ matrix.target }}.exe" | tr -d '\r')
+            echo "$output"
+            test "$output" = "$(tr -d '\r' < "win32/conpty-terminal-${{ matrix.target }}.stdout")"
           done
 
   bootstrap:

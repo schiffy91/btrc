@@ -449,9 +449,10 @@ changed_paths = [
 reports = ["skip-report"]
 
 # A stored C window subclass from the real MinGW commctrl.h and real COM (a
-# registry-free server DLL with a BTRC sink, an ole32 stream): a Linux runner
-# builds both compilers' executables and the server (win32-native-build), then
-# each Windows runner executes those of its architecture (win32-native). A job
+# registry-free server DLL with a BTRC sink, an ole32 stream), the overlay's
+# regex, fnmatch and glob, and the console terminal: a Linux runner builds both
+# compilers' executables and the server (win32-native-build), then each
+# Windows runner executes those of its architecture (win32-native). A job
 # that waits on another must run on exactly the same events
 # (test_ci_workflow_contracts.py).
 [[jobs]]
@@ -462,10 +463,24 @@ changed_tiers = ["pr", "lane"]
 changed_paths = [
   "src/tests/python/test_native_win32_subclass.py",
   "src/tests/python/test_native_com_windows.py",
+  "src/tests/python/test_regex_parity.py",
+  "src/tests/python/test_windows_posix_overlay.py",
+  "src/tests/python/test_windows_terminal.py",
+  "src/tests/python/windows_evidence_fixtures.py",
+  "src/tests/native/posix_matching/**",
+  "src/tests/native/terminal_windows/**",
+  "src/tests/strings/Regex*.btrc",
+  "src/tests/stdlib/PatternAny.btrc",
+  "src/tests/stdlib/Glob.btrc",
+  "src/tests/stdlib/Terminal.btrc",
   "src/compiler/**/native_imports.py",
   "src/compiler/**/NativeImports.btrc",
+  "src/runtime/windows/**",
   "src/stdlib/Callback.btrc",
   "src/stdlib/COM/**",
+  "src/stdlib/Pattern.btrc",
+  "src/stdlib/Regex.btrc",
+  "src/stdlib/Terminal/**",
 ]
 reports = ["skip-report"]
 
@@ -483,10 +498,24 @@ changed_tiers = ["pr", "lane"]
 changed_paths = [
   "src/tests/python/test_native_win32_subclass.py",
   "src/tests/python/test_native_com_windows.py",
+  "src/tests/python/test_regex_parity.py",
+  "src/tests/python/test_windows_posix_overlay.py",
+  "src/tests/python/test_windows_terminal.py",
+  "src/tests/python/windows_evidence_fixtures.py",
+  "src/tests/native/posix_matching/**",
+  "src/tests/native/terminal_windows/**",
+  "src/tests/strings/Regex*.btrc",
+  "src/tests/stdlib/PatternAny.btrc",
+  "src/tests/stdlib/Glob.btrc",
+  "src/tests/stdlib/Terminal.btrc",
   "src/compiler/**/native_imports.py",
   "src/compiler/**/NativeImports.btrc",
+  "src/runtime/windows/**",
   "src/stdlib/Callback.btrc",
   "src/stdlib/COM/**",
+  "src/stdlib/Pattern.btrc",
+  "src/stdlib/Regex.btrc",
+  "src/stdlib/Terminal/**",
 ]
 
 [[shards]]
@@ -498,10 +527,24 @@ changed_tiers = ["pr", "lane"]
 changed_paths = [
   "src/tests/python/test_native_win32_subclass.py",
   "src/tests/python/test_native_com_windows.py",
+  "src/tests/python/test_regex_parity.py",
+  "src/tests/python/test_windows_posix_overlay.py",
+  "src/tests/python/test_windows_terminal.py",
+  "src/tests/python/windows_evidence_fixtures.py",
+  "src/tests/native/posix_matching/**",
+  "src/tests/native/terminal_windows/**",
+  "src/tests/strings/Regex*.btrc",
+  "src/tests/stdlib/PatternAny.btrc",
+  "src/tests/stdlib/Glob.btrc",
+  "src/tests/stdlib/Terminal.btrc",
   "src/compiler/**/native_imports.py",
   "src/compiler/**/NativeImports.btrc",
+  "src/runtime/windows/**",
   "src/stdlib/Callback.btrc",
   "src/stdlib/COM/**",
+  "src/stdlib/Pattern.btrc",
+  "src/stdlib/Regex.btrc",
+  "src/stdlib/Terminal/**",
 ]
 
 [[jobs]]
