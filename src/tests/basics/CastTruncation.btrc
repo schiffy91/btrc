@@ -1,10 +1,11 @@
 #include <assert.h>
 
 int main() {
-	// Cast of a large double to long retains the value
+	// Cast of a large double to long long retains the value. Not long: on
+	// Windows (LLP64) long is 32 bits, and converting 4e9 to it is undefined.
 	double d = 4000000000.0;
-	long l = (long)d;
-	assert(l == 4000000000L);
+	long long l = (long long)d;
+	assert(l == 4000000000LL);
 
 	// float to int truncates toward zero
 	double neg = -3.9;

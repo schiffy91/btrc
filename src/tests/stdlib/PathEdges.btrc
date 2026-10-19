@@ -2,6 +2,7 @@
  * and a relative no-slash path. These hit the loops that strip trailing '/' and
  * scan backward for the last separator. */
 import Library.FileSystem;
+import Library.Platform;
 
 #include <assert.h>
 
@@ -26,11 +27,14 @@ int main() {
 	assert(PathTools.dirname("").equals("."));
 	assert(PathTools.basename("").equals(""));
 
-	// join keeps a single separator and handles empty sides.
-	assert(PathTools.join("/a/", "b").equals("/a/b"));
-	assert(PathTools.join("/a", "b").equals("/a/b"));
-	assert(PathTools.join("", "b").equals("b"));
-	assert(PathTools.join("a", "").equals("a"));
+	// join keeps a single separator and handles empty sides. These pin the
+	// POSIX spelling, so they name it: join itself uses '\' on Windows.
+	assert(PathTools.joinFor("/a/", "b", false).equals("/a/b"));
+	assert(PathTools.joinFor("/a", "b", false).equals("/a/b"));
+	assert(PathTools.joinFor("", "b", false).equals("b"));
+	assert(PathTools.joinFor("a", "", false).equals("a"));
+	// The host's join agrees with its own platform's rules.
+	assert(PathTools.join("/a", "b").equals(PathTools.joinFor("/a", "b", Platform.isWindows())));
 
 	// Platform-independent probes cover drive, UNC, and drive-relative forms.
 	assert(PathTools.isAbsoluteFor("C:\\a\\b", true));
