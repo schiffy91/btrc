@@ -430,13 +430,25 @@ class Application implements IApplicationDelegate {
 			exit(4);
 		}
 		string path = state + "/btrc-persist.txt";
+		// Each launch also records its line beside the state file, because
+		// simctl's console relay can drop the output of an app that exits
+		// right after printing, and this launch cannot be repeated.
+		string report = "";
+		string reportPath = "";
 		if (FileSystem.exists(path)) {
-			printf("btrc-persist read %s at %s\\n", FileSystem.readText(path), path);
+			report = "btrc-persist read " + FileSystem.readText(path) + " at " + path;
+			reportPath = state + "/btrc-persist-launch-2.txt";
 		} else {
-			bool written = FileSystem.writeText(path, "first launch");
-			printf("btrc-persist wrote %d at %s\\n", (int)written, path);
+			string written = FileSystem.writeText(path, "first launch") ? "1" : "0";
+			report = "btrc-persist wrote " + written + " at " + path;
+			reportPath = state + "/btrc-persist-launch-1.txt";
 		}
+		printf("%s\\n", report);
 		fflush(stdout);
+		if (!FileSystem.writeText(reportPath, report + "\\n")) {
+			printf("btrc-persist cannot record %s\\n", reportPath);
+			exit(5);
+		}
 		exit(0);
 	}
 	public void applicationDidBecomeActive(UIApplication application) {}
@@ -472,20 +484,25 @@ def test_uikit_application_state_persists_across_launches(frontend, tmp_path: Pa
         print(f"{frontend} on {device}: {outputs!r}")
         container = _xcrun("simctl", "get_app_container", device, identifier, "data", timeout=60).stdout.strip()
         assert container, "the simulator reports no data container"
-        first = re.search(r"btrc-persist wrote 1 at ([^\r\n]+)", outputs[0])
-        second = re.search(r"btrc-persist read first launch at ([^\r\n]+)", outputs[1])
-        assert second, outputs
-        written = second.group(1)
-        if first is None:
-            # simctl's console relay can drop every line of a launch (seen on a
-            # hosted runner); the second launch read what the first wrote, so
-            # the first launch's file must exist where the second found it.
-            assert Path(written).is_file(), outputs
-        else:
-            assert first.group(1) == written, outputs
-        assert written.startswith(os.path.realpath(container) + "/Library/Application Support/") or written.startswith(
-            container + "/Library/Application Support/"
-        ), (container, written)
+        # The console relay can drop every line of an app that exits right
+        # after printing (hosted run 39166663427 lost the first launch's), the
+        # first launch cannot be repeated, and the second can lose its line as
+        # well. Each launch also records its line beside the state file,
+        # inside the container the host can read.
+        reports = {path.name: path for path in Path(container).rglob("btrc-persist-launch-*.txt")}
+        assert set(reports) == {"btrc-persist-launch-1.txt", "btrc-persist-launch-2.txt"}, (reports, outputs)
+        recorded = [reports[f"btrc-persist-launch-{launch}.txt"].read_text() for launch in (1, 2)]
+        for launch, line in enumerate(recorded):
+            # A relayed line must agree with the recorded one.
+            assert line.strip() in outputs[launch] or "btrc-persist" not in outputs[launch], (recorded, outputs)
+        first = re.fullmatch(r"btrc-persist wrote 1 at ([^\r\n]+)\n", recorded[0])
+        second = re.fullmatch(r"btrc-persist read first launch at ([^\r\n]+)\n", recorded[1])
+        assert first and second, (recorded, outputs)
+        assert reports["btrc-persist-launch-1.txt"].parent.samefile(Path(first.group(1)).parent), (reports, recorded)
+        assert first.group(1) == second.group(1), outputs
+        assert first.group(1).startswith(os.path.realpath(container) + "/Library/Application Support/") or first.group(
+            1
+        ).startswith(container + "/Library/Application Support/"), (container, first.group(1))
     finally:
         _xcrun("simctl", "uninstall", device, identifier, timeout=120)
 
