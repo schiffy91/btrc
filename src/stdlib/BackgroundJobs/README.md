@@ -133,3 +133,40 @@ input on either side; the pool never changes the process's `SIGPIPE`
 disposition, and concurrent pools cannot undo each other's. Workers leave
 through `_exit`, never running the owner's exit path or flushing its stdio
 buffers twice. `suggestedWorkers()` is one per online CPU, at most four.
+
+## Native completion-ready subscription
+
+`BackgroundJobExecutor.subscribeCompletionReady(BackgroundJobCompletionWake wake,
+void* context, CallbackScope owner) -> ICallbackRegistration` runs on the
+executor's owner thread and the scope's creating thread. There is exactly one
+live endpoint per executor. A second subscription, a closed executor, an invalid
+scope or a null wake throws; cancellation must complete before replacement.
+The subscription participates in the scope's existing cancellation protocol.
+
+`BackgroundJobCompletionWake` is `CFunction<void, void*, bool>`. It is a native
+wake endpoint, **not a managed UI receiver**. The bool is the current ready level:
+true while any terminal slots remain, false when they are drained. Registration
+immediately publishes that level, including an already-terminal result; an empty
+executor therefore calls the endpoint with false on subscription. Partial drains
+keep it true. Cancellation and executor close clear it. The endpoint stores the
+level in native/atomic storage and signals a bounded native wake source. Its GUI
+adapter uses the application publisher path to schedule owner-thread draining.
+Queue saturation cannot replace or consume a job completion.
+
+The endpoint can run on a worker or the owner thread, under the queue mutex.
+It must be bounded and nonthrowing, must never call any job API or invoke a UI
+receiver, and must not acquire a lock held by an owner waiting on this queue.
+Its context is borrowed raw storage: retain it until cancellation reports
+`CALLBACK_CANCELLATION_COMPLETE` or executor close succeeds. A pending cancellation
+seals further ready publication but retains the context until in-flight native
+wakes finish. `pollCompletion` is nonblocking and retries that retirement;
+synchronization failure is retryable through `cancel`. Old registration aliases
+cannot cancel a later subscription. Close joins existing workers using the
+existing blocking close contract, retires the endpoint and releases no context
+it does not own. This hook is not a nonblocking shutdown adapter.
+
+Only owner-thread `poll()` or `awaitCompletion()` transfers a
+`BackgroundJobCompletion`. Unsubscribing never changes its ticket, result or
+work ownership. No managed result is handed to a worker-side UI callback.
+The paired, sanitized regression is
+`test_background_jobs_runtime.py::test_completion_ready_subscription`.

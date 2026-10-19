@@ -43,6 +43,7 @@ class GUIProvider {
 
 	class DirectoryPickerOutcome chooseDirectory(IApplication application, DirectoryPickerRequest request) {
 		var linux = GUIProvider.linuxApplication(application);
+		linux.context().requireNoCloseDecision();
 		var window = linux.firstWindow();
 		var pump = (ILinuxDialogPump?)linux;
 		if (pump == null) { throw "GUI application cannot run native dialogs"; }

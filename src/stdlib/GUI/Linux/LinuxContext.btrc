@@ -1,6 +1,9 @@
 import Library.Math;
 import Library.Image;
 import Library.GUI.Linux.LinuxFonts;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.IApplication;
+import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxActionQueue;
 
 /* A monotonically increasing revision a window compares against its last
@@ -105,16 +108,56 @@ class LinuxMetrics {
 	class double spinnerSize() { return 24.0; }
 }
 
+/* UI-only semantic wakes share the current application host route. The
+ * queue owns post-admission failure accounting; this adapter never retries. */
+class LinuxSemanticWake implements IControlEventWake {
+	public IApplicationHost? host = null;
+	public bool requestTurn() { if (!btrcSdlPushWake()) { return false; } return self.host == null || self.host.requestTurn(); }
+}
+
 /* Application-wide services every drawn view shares. Views retain it; it
  * retains no view. */
 class LinuxContext {
+	public int mutationDepth = 0;
+	private int _closeDecisions = 0;
+
+	public void requireUI() { if (!SDL_IsMainThread()) { throw "Native window operations require the UI thread"; } }
+
+	public void requireMutationAllowed() { self.requireUI(); if (self.mutationDepth > 0) { throw "Cannot admit window close during native tree mutation"; } }
+
+	public void enterCloseDecision() {
+		self.requireUI();
+		if (self._closeDecisions == 2147483647) { throw "Close decision callback admission is exhausted"; }
+		self._closeDecisions++;
+	}
+
+	public void leaveCloseDecision() {
+		self.requireUI();
+		if (self._closeDecisions <= 0) { throw "Close decision callback admission underflow"; }
+		self._closeDecisions--;
+	}
+
+	public void requireNoCloseDecision() {
+		self.requireUI();
+		if (self._closeDecisions != 0) { throw "Nested modal operations are forbidden inside close-decision callbacks"; }
+	}
 	public LinuxFonts fonts;
+	public ControlEventTerminalPool terminalPool;
+	public ControlEventQueue detachedEvents;
+	public LinuxSemanticWake semanticWake;
+	private int _semanticCapacity;
 	public LinuxIds ids;
 	public LinuxActionQueue actions;
 	public LinuxTheme darkTheme;
 	public LinuxTheme lightTheme;
 
+	public ControlEventQueue createSemanticQueue() { var queue = ControlEventQueue(self._semanticCapacity, self.terminalPool); queue.setWake(self.semanticWake); return queue; }
+
 	public LinuxContext(int workCapacity) {
+		self._semanticCapacity = workCapacity;
+		self.terminalPool = ControlEventTerminalPool(16384);
+		self.semanticWake = LinuxSemanticWake();
+		self.detachedEvents = self.createSemanticQueue();
 		self.fonts = LinuxFonts();
 		self.ids = LinuxIds();
 		self.actions = LinuxActionQueue(workCapacity);

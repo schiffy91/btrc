@@ -8,6 +8,7 @@ import Library.App;
 import Library.Image;
 import Library.GUI.IWindow;
 import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
@@ -112,7 +113,7 @@ interface ILinuxWindow extends IWindow {
  * hit-testing that tree, and keyboard input goes to window subscriptions,
  * then the focused control. Closing drains the subtree, then the GPU
  * resources, then the native window, in that order. */
-class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
+class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarget {
 	private SDL_Window* _window;
 	private unsigned int _id = 0u;
 	private LinuxContext _context;
@@ -128,8 +129,20 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	private Vector<LinuxWindowKeys> _keys = [];
 	private string _title;
 	private bool _visible = false;
+	private bool _requestedVisible = false;
+	private bool _focusObserved = false;
+	private ApplicationActivity _activity = APPLICATION_ACTIVITY_UNKNOWN;
+	private WindowState? _state;
+	private ControlEventChannel<IWindowStateHandler, WindowState>? _stateChannel;
+	private bool _callbacksClosing = false;
 	private bool _focused = false;
+	private bool _suspended = false;
 	private bool _closeRequested = false;
+	private ControlEventChannel<LinuxWindowCloseReceiver, IWindowCloseTransaction>? _closeChannel;
+	private LinuxWindowCloseRegistration? _closeRegistration;
+	private LinuxWindowCloseTransaction? _transaction;
+	private long long _nextCloseInteraction = 1LL;
+	private long long _nextSaveAttempt = 1LL;
 	private bool _closing = false;
 	private bool _closed = false;
 	private bool _rootClosing = false;
@@ -170,13 +183,166 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 			self._host.scale = surface.backingScale();
 			self._device = GPUDevice(surface.nativeInstance(), surface.nativeSurface());
 			self._host.width = width;
-			self._host.height = height;
+			self._host.height = height; self.refreshWindowState();
 		} catch (string error) { self.destroyNative(); throw error; }
 	}
+
+	class void deliverState(IWindowStateHandler receiver, WindowState state) { receiver.stateChanged(state); }
+
+	public ControlEventDisposition admission(long long generation) { return self.isOpen() ? CONTROL_EVENT_DELIVERED : CONTROL_EVENT_CLOSED; }
+
+	private WindowState copyState(WindowState current) {
+		var state = WindowState(); state.width = current.width; state.height = current.height; state.backingScale = current.backingScale;
+		state.requestedVisible = current.requestedVisible; state.nativeVisible = current.nativeVisible; state.minimized = current.minimized;
+		state.windowActive = current.windowActive; state.applicationActivity = current.applicationActivity; state.exposure = current.exposure;
+		state.notExposedReason = current.notExposedReason; state.presentable = current.presentable; state.stateRevision = current.stateRevision; return state;
+	}
+
+	private void refreshWindowState() {
+		var old = self._state; var next = WindowState();
+		next.width = old == null ? self._host.width : old.width; next.height = old == null ? self._host.height : old.height;
+		next.backingScale = old == null ? self._host.scale : old.backingScale;
+		unsigned long long flags = 0ULL; int pixelWidth = 0; int pixelHeight = 0;
+		if (self._window != null) {
+			int width = 0; int height = 0; SDL_GetWindowSize(self._window, &width, &height);
+			next.width = (double)width; next.height = (double)height; next.backingScale = (double)SDL_GetWindowPixelDensity(self._window);
+			SDL_GetWindowSizeInPixels(self._window, &pixelWidth, &pixelHeight); flags = SDL_GetWindowFlags(self._window);
+		}
+		next.requestedVisible = self._requestedVisible;
+		next.nativeVisible = self.isOpen() && (flags & (unsigned long long)SDL_WINDOW_HIDDEN) == 0ULL;
+		next.minimized = self._window != null && (flags & (unsigned long long)SDL_WINDOW_MINIMIZED) != 0ULL;
+		next.windowActive = self.isOpen() && self._focused; next.applicationActivity = self._activity;
+		next.exposure = WINDOW_EXPOSURE_UNKNOWN; next.notExposedReason = WINDOW_EXPOSURE_REASON_NONE;
+		if (!next.nativeVisible) { next.exposure = WINDOW_EXPOSURE_NOT_EXPOSED; next.notExposedReason = WINDOW_EXPOSURE_REASON_HIDDEN; }
+		else if (next.minimized) { next.exposure = WINDOW_EXPOSURE_NOT_EXPOSED; next.notExposedReason = WINDOW_EXPOSURE_REASON_MINIMIZED; }
+		next.presentable = next.nativeVisible && !next.minimized && !self._suspended && pixelWidth > 0 && pixelHeight > 0;
+		if (old != null && old.width == next.width && old.height == next.height && old.backingScale == next.backingScale && old.requestedVisible == next.requestedVisible && old.nativeVisible == next.nativeVisible && old.minimized == next.minimized && old.windowActive == next.windowActive && old.applicationActivity == next.applicationActivity && old.exposure == next.exposure && old.notExposedReason == next.notExposedReason && old.presentable == next.presentable) { return; }
+		if (old != null && old.stateRevision == 9223372036854775807LL) { throw "Window state revisions exhausted"; }
+		next.stateRevision = old == null ? 1LL : old.stateRevision + 1LL; self._state = next;
+		var channel = self._stateChannel;
+		if (channel != null && channel.isOpen() && !channel.publish(next, 1LL, 0LL, 1LL)) { throw "Window state semantic source is unavailable"; }
+	}
+
+	public WindowState state() { self.refreshWindowState(); var state = self._state; if (state == null) { throw "Window state unavailable"; } return self.copyState(state); }
+
+	public ICallbackRegistration onStateChanged(IWindowStateHandler receiver, CallbackScope owner) {
+		self.requireOpen();
+		if (self._stateChannel != null && self._stateChannel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing window state handler first"; }
+		self.refreshWindowState();
+		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._host.events, self, receiver, LinuxWindow.deliverState, owner);
+		try { self._callbacks.track(channel); } catch (string error) { channel.cancel(); throw error; }
+		self._stateChannel = channel; return channel;
+	}
+
+	public ICallbackRegistration onCloseRequested(IWindowCloseRequestHandler handler, CallbackScope owner) {
+		if (handler == null || owner == null) { throw "Window close handler and owner are required"; }
+		self.requireOpen(); self._context.requireMutationAllowed();
+		var previous = self._closeRegistration;
+		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing close handler first"; }
+		var receiver = LinuxWindowCloseReceiver(self, handler);
+		var channel = new ControlEventChannel<LinuxWindowCloseReceiver, IWindowCloseTransaction>(self._host.events, self, receiver, LinuxWindowCloseReceiver.deliver, self._callbacks);
+		var registration = LinuxWindowCloseRegistration(self, channel);
+		try { owner.track(registration); self._callbacks.track(registration); }
+		catch (string error) { registration.cancel(); throw error; }
+		self._closeChannel = channel; self._closeRegistration = registration;
+		return registration;
+	}
+
+	public WindowCloseRequestOutcome requestClose(WindowCloseReason reason) {
+		self._context.requireUI(); self._context.requireMutationAllowed();
+		if (reason != WINDOW_CLOSE_NATIVE_REQUEST && reason != WINDOW_CLOSE_APPLICATION_QUIT && reason != WINDOW_CLOSE_PROGRAM_REQUEST) { throw "Invalid window close reason"; }
+		var result = WindowCloseRequestOutcome();
+		if (self._window == null) { result.kind = WINDOW_CLOSE_REQUEST_CLOSED; return result; }
+		if (self._closing || self._closed) { result.kind = WINDOW_CLOSE_REQUEST_CLOSING; return result; }
+		var pending = self._transaction;
+		if (pending != null && pending.pending()) { result.kind = WINDOW_CLOSE_REQUEST_ALREADY_PENDING; result.transaction = pending; return result; }
+		var channel = self._closeChannel; var registration = self._closeRegistration;
+		if (registration == null || !registration.isOpen() || channel == null || !channel.isOpen()) {
+			result.kind = WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER; self.close(); return result;
+		}
+		if (self._nextCloseInteraction == 9223372036854775807LL) { throw "Window close interaction identities exhausted"; }
+		var ticket = channel.beginInteraction();
+		if (ticket == null) { throw "Window close handler is no longer live"; }
+		var transaction = LinuxWindowCloseTransaction(self, self._context, false);
+		long long interaction = self._nextCloseInteraction++;
+		try { channel.publishTerminal(transaction, 1LL, interaction, ticket); }
+		catch (string error) { ticket.retire(); transaction.resolve(WINDOW_CLOSE_CANCELLED); throw error; }
+		/* requestTurn never services inline: publish identity only after the
+		 * terminal has a committed queue receipt. Failed admission leaves no pending request. */
+		self._transaction = transaction;
+		result.kind = WINDOW_CLOSE_REQUEST_PENDING; result.transaction = transaction; return result;
+	}
+
+	public bool isPendingClose(LinuxWindowCloseTransaction transaction) { self._context.requireUI(); return self._transaction == transaction && self.isOpen(); }
+
+	public long long nextCloseSaveAttempt() {
+		self._context.requireUI();
+		if (self._nextSaveAttempt == 9223372036854775807LL) { throw "Window save attempts exhausted"; }
+		return self._nextSaveAttempt++;
+	}
+
+	public void retireCloseTransaction(LinuxWindowCloseTransaction transaction) {
+		self._context.requireUI(); if (self._transaction == transaction) { self._transaction = null; }
+	}
+
+	public void consumeCloseAuthorization(LinuxWindowCloseTransaction transaction) {
+		self._context.requireUI();
+		if (!self.isPendingClose(transaction) || transaction.state() != WINDOW_CLOSE_AUTHORIZED) { throw "Window close authorization is stale"; }
+		transaction.resolve(WINDOW_CLOSE_CLOSING); self._transaction = null; self.close();
+	}
+
+	public void closeHandlerCancelled(LinuxWindowCloseRegistration registration) {
+		self._context.requireUI(); if (self._closeRegistration != registration) { return; }
+		var pending = self._transaction;
+		if (pending != null) {
+			if (self._closing || self._closed) { pending.resolve(WINDOW_CLOSE_OWNER_LOST); }
+			else { pending.resolve(WINDOW_CLOSE_CANCELLED); }
+			self._transaction = null;
+		}
+	}
+
+	public void enterCloseDecision() { self._context.enterCloseDecision(); }
+
+	public void leaveCloseDecision() { self._context.leaveCloseDecision(); }
+
+	public bool focusObserved() { return self._focusObserved; }
+
+	public void applicationActivity(ApplicationActivity activity) { self._activity = activity; self._suspended = activity == APPLICATION_ACTIVITY_SUSPENDED; self.refreshInteraction(); }
 
 	public unsigned int nativeId() { return self._id; }
 
 	public SDL_Window* nativeWindow() { self.requireOpen(); return self._window; }
+
+	public int semanticPending() { return self._host.events.pendingCount() + (self._closeRequested ? 1 : 0); }
+
+	public bool dispatchSemantic() {
+		self._context.requireUI();
+		if (self._context.mutationDepth > 0) { return false; }
+		bool requested = self.serviceNativeClose();
+		bool delivered = self._host.events.dispatchOne();
+		return requested || delivered;
+	}
+
+	/* Capture only records readiness. Transaction admission and user delivery
+	 * belong to the ordinary bounded semantic turn, never SDL dispatch. */
+	public bool serviceNativeClose() {
+		self._context.requireMutationAllowed();
+		if (!self._closeRequested) { return false; }
+		self._closeRequested = false;
+		self.requestClose(WINDOW_CLOSE_NATIVE_REQUEST); return true;
+	}
+
+	public void suspendInput(bool suspended) { self._suspended = suspended; self.refreshInteraction(); }
+
+	private void refreshInteraction() {
+		bool visible = self.isVisible();
+		bool minimized = self._window != null && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_MINIMIZED) != 0ULL;
+		self._host.eligible = self.isOpen() && visible && !minimized && !self._suspended;
+		self._host.exposure = !visible || minimized ? WINDOW_EXPOSURE_NOT_EXPOSED : WINDOW_EXPOSURE_UNKNOWN;
+		if (self._root != null) { self._root.node().refreshInteraction(self._host.eligible); }
+		if (!self._host.eligible) { self.cancelCapture(); if (self._host.focusedId != 0) { self.moveFocus(0); } }
+		self.refreshWindowState();
+	}
 
 	public bool owns(int viewId) { return self.locate(viewId) != null; }
 
@@ -208,10 +374,10 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	/* Hidden windows present nothing, so they never keep the loop awake. */
-	public bool needsFrame() { return self.isVisible() && (self._host.invalidation.revision() != self._paintedRevision || (self._wakeAt != 0ULL && SDL_GetTicksNS() >= self._wakeAt)); }
+	public bool needsFrame() { return !self._suspended && self.isVisible() && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_MINIMIZED) == 0ULL && (self._host.invalidation.revision() != self._paintedRevision || (self._wakeAt != 0ULL && SDL_GetTicksNS() >= self._wakeAt)); }
 
 	/* When a painted view asked to be redrawn (a caret blink, a spinner); zero for none. */
-	public unsigned long long wakeAt() { return self.isVisible() ? self._wakeAt : 0ULL; }
+	public unsigned long long wakeAt() { return !self._suspended && self.isVisible() && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_MINIMIZED) == 0ULL ? self._wakeAt : 0ULL; }
 
 	private RGBA background() { var theme = self._dark ? self._context.darkTheme : self._context.lightTheme; return theme.dark ? RGBA(30, 30, 33, 255) : RGBA(238, 238, 240, 255); }
 
@@ -303,7 +469,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		var root = self._root;
 		if (root == null) { return path; }
 		var node = root.node();
-		if (!node.visible || x < node.x || y < node.y || x >= node.x + node.width || y >= node.y + node.height) { return path; }
+		if (!node.effectiveEligible() || x < node.x || y < node.y || x >= node.x + node.width || y >= node.y + node.height) { return path; }
 		ILinuxView current = root;
 		double originX = node.x;
 		double originY = node.y;
@@ -317,7 +483,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 			for (int index = currentNode.children.len - 1; index >= 0; index--) {
 				var child = currentNode.children.get(index);
 				var childNode = child.node();
-				if (!childNode.visible || !childNode.isOpen()) { continue; }
+				if (!childNode.effectiveEligible()) { continue; }
 				double childX = originX + currentNode.contentOffsetX + childNode.x;
 				double childY = originY + currentNode.contentOffsetY + childNode.y;
 				if (x >= childX && y >= childY && x < childX + childNode.width && y < childY + childNode.height) { next = child; nextX = childX; nextY = childY; break; }
@@ -514,7 +680,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		}
 		if (self._host.focusedId != 0) {
 			var focused = self.locate(self._host.focusedId);
-			if (focused != null) { focused.view.key(event); }
+			if (focused != null && focused.view.node().effectiveEligible()) { focused.view.key(event); }
 		}
 	}
 
@@ -526,6 +692,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	private void moveFocus(int id) {
+		if (id != 0) { var candidate = self.locate(id); if (candidate == null || !candidate.view.node().effectiveEligible()) { id = 0; } }
 		int previous = self._host.focusedId;
 		self._host.focusedId = id;
 		if (previous != 0) {
@@ -565,17 +732,18 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		unsigned int type = event->type;
 		if (type == (unsigned int)SDL_EVENT_WINDOW_CLOSE_REQUESTED) { self._closeRequested = true; self._host.invalidation.mark(); return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_RESIZED || type == (unsigned int)SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || type == (unsigned int)SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED || type == (unsigned int)SDL_EVENT_WINDOW_EXPOSED) {
-			self.layoutRoot();
+			self.layoutRoot(); self.refreshWindowState();
 			self._host.invalidation.mark();
 			return;
 		}
-		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_GAINED) { self._focused = true; self._host.invalidation.mark(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_LOST) { self._focused = false; self.cancelCapture(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_GAINED) { self._focused = true; self._focusObserved = true; self.refreshWindowState(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_LOST) { self._focused = false; self._focusObserved = true; self.cancelCapture(); self.refreshWindowState(); self._host.invalidation.mark(); return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_LEAVE) { self._pointerInside = false; if (self._captureButton == APP_POINTER_BUTTON_NONE) { self.clearHover(); } return; }
 		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_ENTER) { self._pointerInside = true; return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_SHOWN) { self._visible = true; self.layoutRoot(); self._host.invalidation.mark(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_HIDDEN) { self._visible = false; return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_MINIMIZED) { return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_SHOWN) { self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_HIDDEN) { self._visible = false; self.refreshInteraction(); return; }
+		if (type == (unsigned int)SDL_EVENT_WINDOW_MINIMIZED || type == (unsigned int)SDL_EVENT_WINDOW_RESTORED) { self.refreshInteraction(); self._host.invalidation.mark(); return; }
+		if (!self._host.eligible) { return; }
 		if (type == (unsigned int)SDL_EVENT_MOUSE_MOTION) {
 			self._pointerX = (double)event->x;
 			self._pointerY = (double)event->y;
@@ -609,10 +777,20 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 			self.applyFocus();
 			return;
 		}
+		if (type == (unsigned int)SDL_EVENT_TEXT_EDITING) {
+			if (event->text != null && self._host.focusedId != 0) {
+				var focused = self.locate(self._host.focusedId);
+				if (focused != null && focused.view.node().effectiveEligible()) {
+					var target = (ILinuxTextTarget?)focused.view;
+					if (target != null) { target.textEditing(Strings.copy((char*)event->text), event->data1, event->data2); }
+				}
+			}
+			return;
+		}
 		if (type == (unsigned int)SDL_EVENT_TEXT_INPUT) {
 			if (event->text != null && self._host.focusedId != 0) {
 				var focused = self.locate(self._host.focusedId);
-				if (focused != null) { focused.view.textInput(Strings.copy((char*)event->text)); }
+				if (focused != null && focused.view.node().effectiveEligible()) { focused.view.textInput(Strings.copy((char*)event->text)); }
 			}
 			return;
 		}
@@ -620,8 +798,9 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 
 	/* Called by the application after dispatch so focus moves settle. */
 	public void settle() {
+		if (self._host.focusInvalidated) { self._host.focusInvalidated = false; self.syncTextInput(); }
 		self.applyFocus();
-		if (self._host.focusedId != 0 && self.locate(self._host.focusedId) == null) { self.moveFocus(0); }
+		if (self._host.focusedId != 0) { var focused = self.locate(self._host.focusedId); if (focused == null || !focused.view.node().effectiveEligible()) { self.moveFocus(0); } }
 		if (self._host.overlayId != 0 && self.locate(self._host.overlayId) == null) { self._host.overlayId = 0; }
 	}
 
@@ -655,7 +834,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		SDL_SetWindowSize(self._window, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height));
 		self._host.width = width;
 		self._host.height = height;
-		self.layoutRoot();
+		self.layoutRoot(); self.refreshWindowState();
 	}
 
 	public void setMinimumContentSize(double width, double height) {
@@ -676,6 +855,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		node.attached = true;
 		self._root = native;
 		native.attachTo(self._host);
+		self.refreshInteraction();
 		self.layoutRoot();
 		self._host.invalidation.mark();
 	}
@@ -685,27 +865,30 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		var root = self._root;
 		if (root == null) { return null; }
 		ILinuxView detaching = root;
+		/* End editing while the old route and native composition host remain
+		 * valid, before focus departure can authorize an ordinary blur commit. */
+		detaching.node().attached = false;
+		detaching.node().markInteraction(false); detaching.node().settleInteraction();
 		self.cancelCapture();
 		self.clearHover();
 		if (self._host.focusedId != 0) { self.moveFocus(0); }
 		self._host.overlayId = 0;
-		detaching.node().attached = false;
-		detaching.attachTo(null);
+		detaching.attachTo(null); detaching.node().markInteraction(false); detaching.node().finishAttachment(); detaching.node().publishInteraction();
 		self._root = null;
 		self._host.invalidation.mark();
 		return root;
 	}
 
-	public void show() { self.requireOpen(); SDL_ShowWindow(self._window); self._visible = true; self.layoutRoot(); self._host.invalidation.mark(); }
+	public void show() { self.requireOpen(); if (!SDL_ShowWindow(self._window)) { throw "Cannot show native window"; } self._requestedVisible = true; self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); }
 
-	public void hide() { self.requireOpen(); SDL_HideWindow(self._window); self._visible = false; }
+	public void hide() { self.requireOpen(); if (!SDL_HideWindow(self._window)) { throw "Cannot hide native window"; } self._requestedVisible = false; self._visible = false; self.refreshInteraction(); }
 
 	public bool isVisible() { return self.isOpen() && self._visible && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_HIDDEN) == 0ULL; }
 
 	public bool isFocused() { return self.isOpen() && self._focused; }
 
 	public void showAlert(string title, string message) {
-		self.requireOpen();
+		self.requireOpen(); self._context.requireNoCloseDecision();
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title, message, self._window);
 	}
 
@@ -719,14 +902,21 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 	}
 
 	public CallbackCancellation close() {
+		self._context.requireUI();
+		if (self._context.mutationDepth > 0) { throw "Cannot close a window during native tree mutation"; }
 		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
-		if (!self._closing) { self._closing = true; self._host.invalidation.mark(); }
+		if (!self._closing) {
+			self._closing = true; self._closeRequested = false;
+			var pending = self._transaction;
+			if (pending != null) { pending.resolve(WINDOW_CLOSE_OWNER_LOST); self._transaction = null; }
+			self.refreshInteraction(); self._host.invalidation.mark();
+		}
 		return self.pollClose();
 	}
 
 	private void destroyNative() {
-		self._host.poller = null;
+		self._host.poller = null; self._host.events.close();
 		self._painter = null;
 		self._captureRenderer = null;
 		self._captureTarget = null;
@@ -746,7 +936,10 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 		if (self._closeFailure != "") { throw self._closeFailure; }
 		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
 		try {
-			if (self._callbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Window callbacks must drain before shutdown"; }
+			CallbackCancellation callbacks = CALLBACK_CANCELLATION_NOT_REQUESTED;
+			if (!self._callbacksClosing) { self._callbacksClosing = true; callbacks = self._callbacks.cancel(); }
+			else { callbacks = self._callbacks.pollCompletion(); }
+			if (callbacks != CALLBACK_CANCELLATION_COMPLETE) { return callbacks; }
 			self._keys.clear();
 			var root = self._root;
 			if (root != null) {
@@ -777,10 +970,118 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller {
 			self._device = null;
 			self._host.device = null;
 			self.destroyNative();
-			self._closed = true;
+			self._closed = true; self.refreshWindowState();
 		} catch (string error) { self._closeFailure = error; throw error; }
 		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
 	public void __del__() { if (self._window != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
+}
+
+class LinuxWindowCloseTransaction implements IWindowCloseTransaction {
+	private LinuxContext _context;
+	private LinuxWindow? _owner;
+	private WindowCloseState _state = WINDOW_CLOSE_AWAITING_DECISION;
+	private long long _revision = 0LL;
+	private bool _hasRevision = false;
+	private long long _attempt = 0LL;
+	private bool _coordinated;
+
+	public LinuxWindowCloseTransaction(LinuxWindow owner, LinuxContext context, bool coordinated) {
+		context.requireUI(); self._context = context; self._owner = owner; self._coordinated = coordinated;
+	}
+
+	private WindowCloseOutcome outcome(WindowCloseOutcomeKind kind) {
+		var result = WindowCloseOutcome(); result.kind = kind; result.state = self._state; result.attempt = self._attempt; return result;
+	}
+
+	public WindowCloseState state() { self._context.requireUI(); return self._state; }
+
+	public bool pending() { self._context.requireUI(); return self._state == WINDOW_CLOSE_AWAITING_DECISION || self._state == WINDOW_CLOSE_SAVING || self._state == WINDOW_CLOSE_AUTHORIZED; }
+
+	/* Cancellation seals the existing registration first; already admitted
+	 * callbacks may finish, but their later decisions cannot revive this owner. */
+	public void resolve(WindowCloseState state) {
+		self._context.requireUI();
+		if (!self.pending()) { return; }
+		if (state != WINDOW_CLOSE_CANCELLED && state != WINDOW_CLOSE_OWNER_LOST && state != WINDOW_CLOSE_CLOSING) { throw "Invalid close transaction retirement"; }
+		self._state = state; self._attempt = 0LL; self._owner = null;
+	}
+
+	private WindowCloseOutcome authorize(LinuxWindow owner) {
+		self._state = WINDOW_CLOSE_AUTHORIZED; self._attempt = 0LL;
+		if (!self._coordinated) { owner.consumeCloseAuthorization(self); }
+		return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+	}
+
+	public WindowCloseOutcome decide(WindowCloseDecision decision, long long documentRevision) {
+		self._context.requireUI();
+		var owner = self._owner;
+		if (owner == null || !self.pending() || !owner.isPendingClose(self)) { return self.outcome(WINDOW_CLOSE_OUTCOME_NOT_PENDING); }
+		if (self._hasRevision && documentRevision < self._revision) { return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_REVISION); }
+		if (decision != WINDOW_CLOSE_DECISION_SAVE && decision != WINDOW_CLOSE_DECISION_DISCARD && decision != WINDOW_CLOSE_DECISION_CANCEL) { throw "Invalid close decision"; }
+		if (self._state == WINDOW_CLOSE_AUTHORIZED) { throw "Close authorization is awaiting coordinated consumption"; }
+		if (decision == WINDOW_CLOSE_DECISION_CANCEL) {
+			self._revision = documentRevision; self._hasRevision = true; self.resolve(WINDOW_CLOSE_CANCELLED); owner.retireCloseTransaction(self);
+			return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+		}
+		if (self._state == WINDOW_CLOSE_SAVING) {
+			if (decision != WINDOW_CLOSE_DECISION_SAVE || documentRevision <= self._revision) { throw "Only a newer document revision may update an active save"; }
+			self._revision = documentRevision; self._hasRevision = true; return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+		}
+		if (decision == WINDOW_CLOSE_DECISION_DISCARD) { self._revision = documentRevision; self._hasRevision = true; return self.authorize(owner); }
+		/* Exhaustion fails before changing the transaction's revision/state. */
+		long long attempt = owner.nextCloseSaveAttempt();
+		self._revision = documentRevision; self._hasRevision = true; self._attempt = attempt; self._state = WINDOW_CLOSE_SAVING;
+		return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED);
+	}
+
+	public WindowCloseOutcome completeSave(long long attempt, long long savedRevision, bool succeeded, string error) {
+		self._context.requireUI();
+		var owner = self._owner;
+		if (owner == null || !self.pending() || !owner.isPendingClose(self)) { return self.outcome(WINDOW_CLOSE_OUTCOME_NOT_PENDING); }
+		if (attempt <= 0LL || attempt != self._attempt) { return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT); }
+		if (self._state != WINDOW_CLOSE_SAVING) { throw "No matching save is active"; }
+		if (!succeeded) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; return self.outcome(WINDOW_CLOSE_OUTCOME_APPLIED); }
+		if (!self._hasRevision || savedRevision > self._revision) { throw "Save completion revision was not acknowledged"; }
+		if (savedRevision < self._revision) { self._state = WINDOW_CLOSE_AWAITING_DECISION; self._attempt = 0LL; return self.outcome(WINDOW_CLOSE_OUTCOME_STALE_REVISION); }
+		return self.authorize(owner);
+	}
+}
+
+/* This adaptor does not own a second callback gate. The semantic channel owns
+ * receiver entry and drain; cancellation additionally resolves the Window's
+ * pending transaction, including cancellation through either owning scope. */
+class LinuxWindowCloseRegistration implements ICallbackRegistration {
+	private LinuxWindow? _owner;
+	private ICallbackRegistration _channel;
+	public LinuxWindowCloseRegistration(LinuxWindow owner, ICallbackRegistration channel) { self._owner = owner; self._channel = channel; }
+
+	public bool isOpen() { return self._channel.isOpen(); }
+
+	public CallbackCancellation cancel() {
+		var owner = self._owner;
+		var result = self._channel.cancel();
+		if (owner != null) { owner.closeHandlerCancelled(self); }
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._owner = null; }
+		return result;
+	}
+
+	public CallbackCancellation pollCompletion() {
+		var result = self._channel.pollCompletion();
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._owner = null; }
+		return result;
+	}
+}
+
+class LinuxWindowCloseReceiver {
+	private LinuxWindow _owner;
+	private IWindowCloseRequestHandler _handler;
+	public LinuxWindowCloseReceiver(LinuxWindow owner, IWindowCloseRequestHandler handler) { self._owner = owner; self._handler = handler; }
+
+	class void deliver(LinuxWindowCloseReceiver receiver, IWindowCloseTransaction transaction) {
+		receiver._owner.enterCloseDecision();
+		try { receiver._handler.closeRequested(transaction); }
+		finally { receiver._owner.leaveCloseDecision(); }
+	}
 }

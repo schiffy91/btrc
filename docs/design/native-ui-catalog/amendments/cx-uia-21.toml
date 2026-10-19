@@ -1,0 +1,183 @@
+release = "ui0-source-inventory-2026-09-21"
+
+[current]
+interface_files = 20
+interfaces = 37
+interface_declarations = 202
+facade_declarations = 29
+
+[[additions]]
+source = "ITextField.btrc"
+owner = "ITextField"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E01", "E39"]
+declarations = ["ICallbackRegistration onDraftChanged(ITextControlEventHandler handler, CallbackScope owner);", "ICallbackRegistration onCommit(ITextControlEventHandler handler, CallbackScope owner);", "ICallbackRegistration onCancel(ITextControlEventHandler handler, CallbackScope owner);"]
+parent = "IView"
+
+[[additions]]
+source = "ITextField.btrc"
+owner = "ITextControlEventHandler"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E01"]
+declarations = ["void textEvent(TextControlEvent event);"]
+
+[[additions]]
+source = "ISelect.btrc"
+owner = "ISelect"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E02", "E33", "E39"]
+declarations = ["void setOptions(SelectModel model);", "SelectModel optionsState();", "string? selectedKey();", "void setSelectedKey(string? key);", "ICallbackRegistration onChanged(ISelectionControlEventHandler handler, CallbackScope owner);", "ICallbackRegistration onCommit(ISelectionControlEventHandler handler, CallbackScope owner);", "ICallbackRegistration onCancel(ISelectionControlEventHandler handler, CallbackScope owner);"]
+parent = "IView"
+
+[[additions]]
+source = "ISelect.btrc"
+owner = "ISelectionControlEventHandler"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E02", "E33"]
+declarations = ["void selectionEvent(SelectionControlEvent event);"]
+
+[[additions]]
+source = "ISlider.btrc"
+owner = "ISlider"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E03", "E34", "E39"]
+declarations = ["SliderRange range();", "void setRange(double minimum, double maximum, double step);", "void setRangeValue(SliderRange range, double value);", "ICallbackRegistration onPreview(ISliderControlEventHandler handler, CallbackScope owner);", "ICallbackRegistration onCommit(ISliderControlEventHandler handler, CallbackScope owner);", "ICallbackRegistration onCancel(ISliderControlEventHandler handler, CallbackScope owner);"]
+parent = "IView"
+
+[[additions]]
+source = "ISlider.btrc"
+owner = "ISliderControlEventHandler"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E03", "E34"]
+declarations = ["void sliderEvent(SliderControlEvent event);"]
+
+[[additions]]
+source = "IScrollView.btrc"
+owner = "IScrollView"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2"]
+declarations = ["ScrollOffset offset();", "ScrollRect visibleRect();", "void scrollToOffset(ScrollOffset offset);", "ICallbackRegistration onOffsetChanged(IScrollControlEventHandler handler, CallbackScope owner);"]
+parent = "IContainer"
+
+[[additions]]
+source = "IScrollView.btrc"
+owner = "IScrollControlEventHandler"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2"]
+declarations = ["void scrollEvent(ScrollControlEvent event);"]
+
+[[additions]]
+source = "IApplication.btrc"
+owner = "IApplication"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E04", "E24", "E30"]
+declarations = ["ApplicationPublisherOutcome createPublisher(int capacity, IApplicationPublicationHandler handler, CallbackScope owner);", "ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey);", "ApplicationHostAttachOutcome attachHost(IApplicationHost host, CallbackScope owner);"]
+
+[[additions]]
+source = "IApplication.btrc"
+owner = "IApplicationPublisher"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E04", "E24", "E40"]
+declarations = ["PublishOutcome tryPublish(long long generation, long long sequence, WorkSuspensionPolicy suspension, long long replacementKey, long long payload);", "PublishCancelOutcome requestCancel(long long generation, long long sequence);"]
+
+[[additions]]
+source = "IApplication.btrc"
+owner = "IApplicationPublicationHandler"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E04", "E24"]
+declarations = ["void deliver(ApplicationPublication publication);"]
+
+[[additions]]
+source = "IApplication.btrc"
+owner = "IApplicationHost"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E30", "E40"]
+declarations = ["bool requestTurn();", "void scheduleTurn(unsigned long long monotonicDeadlineNs);"]
+reason = "Provisional host link until CL-P2-22 and CL-UIA-22"
+
+[[additions]]
+source = "IApplication.btrc"
+owner = "IApplicationHostAttachment"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E30", "E40", "E42"]
+declarations = ["void serviceTurn();", "void transition(ApplicationActivity activity);"]
+parent = "ICallbackRegistration"
+reason = "Provisional host link until CL-P2-22 and CL-UIA-22"
+
+[[additions]]
+source = "GUI.btrc"
+owner = "GUI"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E04", "E24", "E30"]
+declarations = ["class ApplicationPublisherOutcome createPublisher(int capacity, IApplicationPublicationHandler handler, CallbackScope owner)", "class ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey)", "class ApplicationHostAttachOutcome attachHost(IApplicationHost host, CallbackScope owner)"]
+
+[[additions]]
+source = "IWindow.btrc"
+owner = "IWindow"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E42", "E46"]
+declarations = ["WindowCloseRequestOutcome requestClose(WindowCloseReason reason);", "ICallbackRegistration onCloseRequested(IWindowCloseRequestHandler handler, CallbackScope owner);", "WindowState state();", "ICallbackRegistration onStateChanged(IWindowStateHandler handler, CallbackScope owner);"]
+
+[[additions]]
+source = "IWindow.btrc"
+owner = "IWindowCloseRequestHandler"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E46"]
+declarations = ["void closeRequested(IWindowCloseTransaction transaction);"]
+
+[[additions]]
+source = "IWindow.btrc"
+owner = "IWindowCloseTransaction"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E46"]
+declarations = ["WindowCloseOutcome decide(WindowCloseDecision decision, long long documentRevision);", "WindowCloseOutcome completeSave(long long attempt, long long savedRevision, bool succeeded, string error);", "WindowCloseState state();"]
+
+[[additions]]
+source = "IWindow.btrc"
+owner = "IWindowStateHandler"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E42"]
+declarations = ["void stateChanged(WindowState state);"]
+
+[[additions]]
+source = "IContainer.btrc"
+owner = "IContainer"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E29"]
+declarations = ["void insert(IView child, int index);", "void move(IView child, int destinationIndex);", "ContainerBatchResult applyBatch(long long expectedTreeRevision, Vector<ContainerEdit> edits);", "long long treeRevision();"]
+parent = "IView"
+
+[[additions]]
+source = "IView.btrc"
+owner = "IView"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E39"]
+declarations = ["ViewInteractionState interactionState();", "ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner);"]
+
+[[additions]]
+source = "IView.btrc"
+owner = "IViewInteractionStateHandler"
+decision = "CL-UIA-13 (ui2-approved.md)"
+scope = "in-scope"
+links = ["UI2", "E39"]
+declarations = ["void interactionChanged(ViewInteractionState state);"]

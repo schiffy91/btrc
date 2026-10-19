@@ -1,0 +1,73 @@
+import Library.BackgroundJobs;
+import Library.Callback;
+import Library.OwnedBuffer;
+
+#include <assert.h>
+#include <sched.h>
+
+/* The native bindings bind job_fault_* and FAULT_MUTEX_TRYLOCK from the existing
+ * fault-control header. Only the generated test unit intercepts pthread calls. */
+void retryWake(void* context, bool ready) {
+	int* calls = (int*)context;
+	/* Work is held before becoming terminal: only owner wake calls occur. */
+	assert(!ready);
+	(*calls)++;
+}
+
+class RetryWork extends BackgroundJobWork {
+	public Atomic<int>* state;
+
+	public RetryWork(Atomic<int>* state) { self.state = state; }
+}
+
+BackgroundJobCompletionKind holdRetryWork(BackgroundJobWork work, BackgroundJobCancellation cancellation) {
+	Atomic<int>* state = ((RetryWork)work).state;
+	state->store(1, MemoryOrder.RELEASE);
+	while (state->load(MemoryOrder.ACQUIRE) < 2) { sched_yield(); }
+	return BACKGROUND_JOB_COMPLETED;
+}
+
+int main() {
+	job_fault_reset();
+	var opened = BackgroundJobExecutor.open(1, 1);
+	assert(opened.kind == BACKGROUND_JOBS_OPENED && opened.executor != null);
+	BackgroundJobExecutor executor = opened.executor;
+	/* Hold the sole worker outside the queue mutex, so the retry cannot race
+	 * an unrelated worker-startup lock and return EBUSY nondeterministically. */
+	AtomicBuffer<int> storage = AtomicBuffer(1);
+	assert(storage.opened());
+	Atomic<int>* state = storage.borrow();
+	state->init(0);
+	assert(executor.submit(BackgroundJobGeneration(1ULL), RetryWork(state), holdRetryWork).kind == BACKGROUND_JOB_SUBMITTED);
+	while (state->load(MemoryOrder.ACQUIRE) != 1) { sched_yield(); }
+	var scope = CallbackScope();
+	int wakeCalls = 0;
+	var registration = executor.subscribeCompletionReady(retryWake, (void*)&wakeCalls, scope);
+	assert(wakeCalls == 1 && registration.isOpen());
+	int before = job_fault_calls(FAULT_MUTEX_TRYLOCK);
+	job_fault_at(FAULT_MUTEX_TRYLOCK, before + 1);
+	assert(registration.cancel() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
+	assert(!registration.isOpen());
+	assert(job_fault_calls(FAULT_MUTEX_TRYLOCK) == before + 1);
+	assert(wakeCalls == 1);
+	for (int poll = 0; poll < 3; poll++) {
+		assert(registration.pollCompletion() == CALLBACK_CANCELLATION_RETRYABLE_FAILURE);
+		assert(job_fault_calls(FAULT_MUTEX_TRYLOCK) == before + 1);
+		assert(wakeCalls == 1);
+	}
+	/* Only explicit cancellation retries the native retirement operation. */
+	assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(job_fault_calls(FAULT_MUTEX_TRYLOCK) == before + 2);
+	assert(wakeCalls == 2);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(job_fault_calls(FAULT_MUTEX_TRYLOCK) == before + 2);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	state->store(2, MemoryOrder.RELEASE);
+	assert(executor.close(BACKGROUND_JOBS_DRAIN).kind == BACKGROUND_JOBS_CLOSED);
+	assert(wakeCalls == 2);
+	storage.close();
+	job_fault_reset();
+	print("PASS: completion-ready explicit retry");
+	return 0;
+}

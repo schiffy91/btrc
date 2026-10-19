@@ -1,0 +1,252 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IScrollView;
+import Library.GUI.ITextField;
+import Library.GUI.ISelect;
+import Library.GUI.IView;
+import Library.GUI.ControlEvents;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+
+class UI2LinuxScrollReceiver implements IScrollControlEventHandler {
+	public Vector<ScrollControlEvent> events = [];
+	public void scrollEvent(ScrollControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
+}
+
+class UI2LinuxReplacingScrollReceiver implements IScrollControlEventHandler {
+	public IScrollView view;
+	public CallbackScope scope = CallbackScope();
+	public CallbackScope replacement = CallbackScope();
+	public int calls = 0;
+	public bool rejectedWhileEntered = false;
+	public UI2LinuxReplacingScrollReceiver(IScrollView view) { self.view = view; }
+
+	public void scrollEvent(ScrollControlEvent event) {
+		self.calls++;
+		if (self.calls != 1) { return; }
+		assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING);
+		try { self.view.onOffsetChanged(self, self.replacement); }
+		catch (string error) { self.rejectedWhileEntered = true; }
+	}
+}
+
+class UI2LinuxRegistrationChecks {
+	class void enteredReplacement() {
+		var application = LinuxApplication(16); var window = application.createWindow("UI2 registration drain", 180.0, 100.0);
+		var scroll = application.createScrollView(); window.attachRoot(scroll); window.show(); UI2LinuxTextChecks.pump(application);
+		var receiver = UI2LinuxReplacingScrollReceiver(scroll); scroll.onOffsetChanged(receiver, receiver.scope);
+		scroll.setContentSize(400.0, 400.0); UI2LinuxTextChecks.pump(application);
+		assert(receiver.calls == 1 && receiver.rejectedWhileEntered && receiver.scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		scroll.onOffsetChanged(receiver, receiver.replacement); scroll.scrollTo(10.0); UI2LinuxTextChecks.pump(application); assert(receiver.calls == 2);
+		assert(receiver.replacement.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+class UI2LinuxTextReceiver implements ITextControlEventHandler {
+	public Vector<TextControlEvent> events = [];
+	public void textEvent(TextControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
+}
+
+class UI2LinuxSelectionReceiver implements ISelectionControlEventHandler {
+	public Vector<SelectionControlEvent> events = [];
+	public void selectionEvent(SelectionControlEvent event) { assert(SDL_IsMainThread()); self.events.push(event); }
+}
+
+class UI2LinuxSelectionChecks {
+	class SelectOption option(string key, string title, bool enabled) { var option = SelectOption(); option.key = key; option.title = title; option.enabled = enabled; return option; }
+
+	class SelectModel model(Vector<SelectOption> options, string? key, SelectAvailability availability) { var model = SelectModel(); model.options = options; model.selectedKey = key; model.availability = availability; model.statusText = "status"; return model; }
+
+	class void selected(ISelect select, string expected) { var key = select.selectedKey(); if (key == null) { throw "Missing selected key"; } assert(key.equals(expected)); }
+
+	class void keyedSelection() {
+		var application = LinuxApplication(64); var window = application.createWindow("UI2 keyed selection", 240.0, 160.0);
+		var select = application.createSelect(); window.attachRoot(select); window.show();
+		var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var a = UI2LinuxSelectionChecks.option("a", "duplicate", true); var b = UI2LinuxSelectionChecks.option("b", "duplicate", true);
+		Vector<SelectOption> options = [a, b]; select.setOptions(UI2LinuxSelectionChecks.model(options, "a", SELECT_AVAILABILITY_READY));
+		a.title = "caller mutation"; options.clear(); assert(select.itemCount() == 2 && select.selectedTitle().equals("duplicate"));
+		var copy = select.optionsState(); copy.options.get(0).title = "returned mutation"; assert(select.selectedTitle().equals("duplicate"));
+		var changed = UI2LinuxSelectionReceiver(); var commits = UI2LinuxSelectionReceiver(); var cancels = UI2LinuxSelectionReceiver(); var scope = CallbackScope();
+		select.onChanged(changed, scope); select.onCommit(commits, scope); select.onCancel(cancels, scope); UI2LinuxTextChecks.pump(application);
+		assert(changed.events.len == 0 && commits.events.len == 0 && cancels.events.len == 0);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_DOWN); UI2LinuxTextChecks.pump(application);
+		assert(changed.events.len == 1); long long interaction = changed.events.get(0).context.interaction;
+		Vector<SelectOption> reordered = [UI2LinuxSelectionChecks.option("b", "renamed", true), UI2LinuxSelectionChecks.option("a", "duplicate", true)];
+		select.setOptions(UI2LinuxSelectionChecks.model(reordered, "a", SELECT_AVAILABILITY_READY));
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		UI2LinuxSelectionChecks.selected(select, "b"); assert(select.selectedIndex() == 0 && commits.events.len == 1 && commits.events.get(0).context.interaction == interaction && cancels.events.len == 0);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application); assert(commits.events.len == 1);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_DOWN); UI2LinuxTextChecks.pump(application);
+		select.setItemEnabled(1, false); UI2LinuxTextChecks.pump(application);
+		assert(cancels.events.len == 1 && cancels.events.get(0).context.origin == CONTROL_ORIGIN_MODEL && cancels.events.get(0).cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT && commits.events.len == 1);
+		UI2LinuxSelectionChecks.selected(select, "b");
+		bool rejected = false; Vector<SelectOption> duplicate = [UI2LinuxSelectionChecks.option("x", "one", true), UI2LinuxSelectionChecks.option("x", "two", true)];
+		try { select.setOptions(UI2LinuxSelectionChecks.model(duplicate, "x", SELECT_AVAILABILITY_READY)); } catch (string error) { rejected = true; }
+		assert(rejected && select.itemCount() == 2); UI2LinuxSelectionChecks.selected(select, "b");
+		select.setSelectedKey("a"); UI2LinuxSelectionChecks.selected(select, "a"); assert(!select.isItemEnabled(1));
+		select.setSelectedKey(null); assert(select.selectedIndex() == -1 && select.selectedKey() == null);
+		Vector<SelectOption> none = []; select.setOptions(UI2LinuxSelectionChecks.model(none, null, SELECT_AVAILABILITY_EMPTY)); assert(select.itemCount() == 0 && select.selectedIndex() == -1);
+		Vector<string> legacy = ["same", "same"]; select.setItems(legacy, 1); var firstLegacyKey = select.selectedKey(); select.setItems(legacy, 1); var secondLegacyKey = select.selectedKey();
+		if (firstLegacyKey == null || secondLegacyKey == null) { throw "Missing legacy key"; } assert(!firstLegacyKey.equals(secondLegacyKey));
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+class UI2LinuxTextChecks {
+	class void pump(LinuxApplication application) { for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); } }
+
+	class void focus(unsigned int window) { btrcSdlPushPointerButton(window, 12.0f, 12.0f, 1u, 1, 1u); btrcSdlPushPointerButton(window, 12.0f, 12.0f, 1u, 0, 1u); }
+
+	class void replaceDraft(unsigned int window, string text) {
+		btrcSdlPushKey(window, (unsigned int)SDL_SCANCODE_A, (unsigned int)SDLK_A, (unsigned int)SDL_KMOD_CTRL, 1, 0);
+		assert(btrcSdlPushText(window, text) == 1);
+	}
+
+	class void key(unsigned int window, unsigned int key) { btrcSdlPushKey(window, 0u, key, 0u, 1, 0); btrcSdlPushKey(window, 0u, key, 0u, 0, 0); }
+
+	class void compositionCommitOrdering() {
+		var application = LinuxApplication(32); var window = application.createWindow("UI2 IME Return ordering", 240.0, 60.0);
+		var field = application.createTextField("", ""); window.attachRoot(field); window.show();
+		var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var receiver = UI2LinuxTextReceiver(); var scope = CallbackScope(); field.onCommit(receiver, scope);
+		UI2LinuxTextChecks.pump(application); UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.pump(application);
+		assert(btrcSdlPushEditing(native.nativeId(), "final", 5, 0) == 1); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("final") && receiver.events.len == 0);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN);
+		assert(btrcSdlPushText(native.nativeId(), "final") == 1); UI2LinuxTextChecks.pump(application);
+		assert(receiver.events.len == 1 && receiver.events.get(0).text.equals("final") && !receiver.events.get(0).composing);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		assert(receiver.events.len == 1);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void refocusAfterEligibilityLoss() {
+		var application = LinuxApplication(32); var window = application.createWindow("UI2 immediate refocus", 240.0, 60.0);
+		var field = application.createTextField("accepted", ""); window.attachRoot(field); window.show();
+		var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var commits = UI2LinuxTextReceiver(); var scope = CallbackScope(); field.onCommit(commits, scope);
+		UI2LinuxTextChecks.pump(application); UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.replaceDraft(native.nativeId(), "retained"); UI2LinuxTextChecks.pump(application);
+		/* No pump may repair focus between these two model changes. */
+		field.setEnabled(false); field.setEnabled(true);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.replaceDraft(native.nativeId(), "resumed"); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN);
+		UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("resumed") && commits.events.len == 1 && commits.events.get(0).text.equals("resumed"));
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void detachEditing(bool composing, bool containerChild) {
+		var application = LinuxApplication(32); var window = application.createWindow("UI2 editor route migration", 240.0, 60.0);
+		var field = application.createTextField("accepted", ""); var container = application.createContainer();
+		if (containerChild) { container.attach(field); field.arrange(0.0, 0.0, 240.0, 60.0); window.attachRoot(container); }
+		else { window.attachRoot(field); }
+		window.show(); var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var commits = UI2LinuxTextReceiver(); var cancels = UI2LinuxTextReceiver(); var scope = CallbackScope();
+		field.onCommit(commits, scope); field.onCancel(cancels, scope);
+		UI2LinuxTextChecks.pump(application); UI2LinuxTextChecks.focus(native.nativeId());
+		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "retained"); UI2LinuxTextChecks.pump(application);
+		if (composing) { assert(btrcSdlPushEditing(native.nativeId(), "marked", 3, 0) == 1); UI2LinuxTextChecks.pump(application); assert(field.text().equals("retainedmarked")); }
+		if (containerChild) { assert(container.detach(field) == field); }
+		else { assert(window.detachRoot() == field); }
+		assert(field.text().equals("retained") && !field.interactionState().effectiveEligible && field.interactionState().exposure == WINDOW_EXPOSURE_UNKNOWN);
+		UI2LinuxTextChecks.pump(application); assert(commits.events.len == 0 && cancels.events.len == 0);
+		if (containerChild) { container.attach(field); }
+		else { window.attachRoot(field); }
+		UI2LinuxTextChecks.pump(application); assert(field.interactionState().effectiveEligible && commits.events.len == 0 && cancels.events.len == 0);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		assert(commits.events.len == 1 && commits.events.get(0).text.equals("retained") && !commits.events.get(0).composing && cancels.events.len == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void textLifecycle() {
+		var application = LinuxApplication(64); var window = application.createWindow("UI2 text semantics", 240.0, 60.0);
+		var field = application.createTextField("accepted", "placeholder"); window.attachRoot(field); window.show();
+		var native = (ILinuxWindow?)window; if (native == null) { throw "Missing Linux window"; }
+		var draft = UI2LinuxTextReceiver(); var commits = UI2LinuxTextReceiver(); var cancels = UI2LinuxTextReceiver(); var scope = CallbackScope();
+		field.onDraftChanged(draft, scope); field.onCommit(commits, scope); field.onCancel(cancels, scope);
+		UI2LinuxTextChecks.pump(application); assert(draft.events.len == 0 && commits.events.len == 0 && cancels.events.len == 0);
+		UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.replaceDraft(native.nativeId(), "draft"); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("draft") && draft.events.len > 0 && commits.events.len == 0);
+		assert(draft.events.get(draft.events.len - 1).phase == CONTROL_PHASE_DRAFT);
+		/* Publishing the accepted baseline cannot erase an unfinished draft. */
+		field.setText("accepted"); assert(field.text().equals("draft"));
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_ESCAPE); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("accepted") && cancels.events.len == 1 && commits.events.len == 0);
+		assert(cancels.events.get(0).cancelReason == CONTROL_CANCEL_ESCAPE);
+		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "committed"); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		assert(commits.events.len == 1 && commits.events.get(0).text.equals("committed") && !commits.events.get(0).composing);
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application); assert(commits.events.len == 1);
+		assert(btrcSdlPushEditing(native.nativeId(), "IME", 1, 1) == 1); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("committedIME") && draft.events.get(draft.events.len - 1).composing);
+		field.setText("committed"); assert(field.text().equals("committedIME"));
+		UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_ESCAPE); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("committed") && !draft.events.get(draft.events.len - 1).composing && cancels.events.len == 1 && commits.events.len == 1);
+		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "abandoned"); UI2LinuxTextChecks.pump(application);
+		field.setText("model"); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("model") && cancels.events.len == 2 && commits.events.len == 1);
+		assert(cancels.events.get(1).context.origin == CONTROL_ORIGIN_MODEL && cancels.events.get(1).cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT);
+		UI2LinuxTextChecks.replaceDraft(native.nativeId(), "retained"); UI2LinuxTextChecks.pump(application);
+		assert(btrcSdlPushEditing(native.nativeId(), "候", 1, 0) == 1); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("retained候") && draft.events.get(draft.events.len - 1).composing);
+		field.setEnabled(false); UI2LinuxTextChecks.pump(application);
+		assert(field.text().equals("retained") && cancels.events.len == 2 && commits.events.len == 1);
+		/* SYSTEM cancellation was settled but its queued receipt is ineligible;
+		 * a later real interaction commits the retained dirty draft just once. */
+		field.setEnabled(true); UI2LinuxTextChecks.focus(native.nativeId()); UI2LinuxTextChecks.key(native.nativeId(), (unsigned int)SDLK_RETURN); UI2LinuxTextChecks.pump(application);
+		assert(commits.events.len == 2 && commits.events.get(1).text.equals("retained"));
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); window.close(); UI2LinuxTextChecks.pump(application);
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	UI2LinuxRegistrationChecks.enteredReplacement(); UI2LinuxSelectionChecks.keyedSelection();
+	UI2LinuxTextChecks.textLifecycle(); UI2LinuxTextChecks.compositionCommitOrdering();
+	UI2LinuxTextChecks.refocusAfterEligibilityLoss();
+	UI2LinuxTextChecks.detachEditing(false, false); UI2LinuxTextChecks.detachEditing(true, false);
+	UI2LinuxTextChecks.detachEditing(false, true); UI2LinuxTextChecks.detachEditing(true, true);
+	var application = LinuxApplication(32); var window = application.createWindow("UI2 scroll geometry", 200.0, 150.0);
+	var scroll = application.createScrollView(); window.attachRoot(scroll); window.show();
+	var receiver = UI2LinuxScrollReceiver(); var scope = CallbackScope(); scroll.onOffsetChanged(receiver, scope);
+	assert(receiver.events.len == 0); scroll.setContentSize(800.0, 600.0);
+	var requested = ScrollOffset(); requested.x = 120.0; requested.y = 80.0; scroll.scrollToOffset(requested);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(scroll.offset().x == 120.0 && scroll.offset().y == 80.0);
+	assert(receiver.events.len > 0 && receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_MODEL);
+	int count = receiver.events.len; scroll.scrollToOffset(scroll.offset());
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(receiver.events.len == count);
+	scroll.scrollTo(95.0); assert(scroll.offset().x == 120.0 && scroll.offset().y == 95.0);
+	var native = (ILinuxWindow?)window; assert(native != null);
+	btrcSdlPushWheel(native.nativeId(), 50.0f, 50.0f, -2.0f, -3.0f);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(scroll.offset().x > 120.0 && scroll.offset().y > 95.0);
+	assert(receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_USER);
+	requested.x = 900.0; requested.y = 900.0; scroll.scrollToOffset(requested);
+	assert(scroll.offset().x == 600.0 && scroll.offset().y == 450.0);
+	scroll.arrange(0.0, 0.0, 250.0, 190.0);
+	assert(scroll.offset().x == 550.0 && scroll.offset().y == 410.0);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_SYSTEM);
+	scroll.setContentSize(20.0, 20.0);
+	assert(scroll.offset().x == 0.0 && scroll.offset().y == 0.0);
+	assert(scroll.visibleRect().width == 20.0 && scroll.visibleRect().height == 20.0);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	count = receiver.events.len; scroll.setContentSize(1000.0, 1000.0); scroll.scrollTo(10.0);
+	for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+	assert(receiver.events.len == count);
+	window.close();
+	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
+	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	printf("PASS: UI2 Linux two-axis geometry and native wheel observations\n"); SDL_Quit(); return 0;
+}

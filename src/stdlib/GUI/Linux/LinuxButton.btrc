@@ -107,12 +107,16 @@ class LinuxButton extends LinuxNodeView implements IButton {
 		self.node().invalidate();
 	}
 
+	public bool locallyEnabled() { return self._enabled; }
+
+	public void eligibilityLost() { self.node().cancelOwnPointerCapture(); self._pressed = false; self.node().invalidate(); }
+
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
 	public void setEnabled(bool enabled) {
 		self.node().requireOpen();
 		if (enabled == self._enabled) { return; }
-		self._enabled = enabled;
+		self._enabled = enabled; self.node().localEligibilityChanged();
 		if (!enabled) { self._pressed = false; }
 		self.node().invalidate();
 	}

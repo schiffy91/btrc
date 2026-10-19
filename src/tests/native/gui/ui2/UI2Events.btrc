@@ -1,0 +1,46 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.IApplication;
+import Library.GUI.ITextField;
+import Library.GUI.ISelect;
+import Library.GUI.ISlider;
+import Library.GUI.IScrollView;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+
+#include <assert.h>
+
+/* Owning event snapshots remain observable after native callback storage dies. */
+class UI2Events implements ITextControlEventHandler, ISelectionControlEventHandler, ISliderControlEventHandler, IScrollControlEventHandler, IApplicationPublicationHandler, IViewInteractionStateHandler, IWindowStateHandler, IWindowCloseRequestHandler {
+	public Vector<TextControlEvent> text = [];
+	public Vector<SelectionControlEvent> selection = [];
+	public Vector<SliderControlEvent> slider = [];
+	public Vector<ScrollControlEvent> scroll = [];
+	public Vector<ApplicationPublication> publications = [];
+	public Vector<ViewInteractionState> interaction = [];
+	public Vector<WindowState> windows = [];
+	public Vector<IWindowCloseTransaction> closes = [];
+
+	public void textEvent(TextControlEvent event) { self.text.push(event); }
+
+	public void selectionEvent(SelectionControlEvent event) { self.selection.push(event); }
+
+	public void sliderEvent(SliderControlEvent event) { self.slider.push(event); }
+
+	public void scrollEvent(ScrollControlEvent event) { self.scroll.push(event); }
+
+	public void deliver(ApplicationPublication publication) { self.publications.push(publication); }
+
+	public void interactionChanged(ViewInteractionState state) { self.interaction.push(state); }
+
+	public void stateChanged(WindowState state) { self.windows.push(state); }
+
+	public void closeRequested(IWindowCloseTransaction transaction) { self.closes.push(transaction); }
+
+	public int textCount(ControlPhase phase) {
+		int result = 0;
+		for event in self.text { if (event.phase == phase) { result++; } }
+		return result;
+	}
+}

@@ -79,3 +79,8 @@ int job_fault_cond_destroy(pthread_cond_t *condition) {
     if (status == 0) live_conditions--;
     return status;
 }
+
+int job_fault_mutex_trylock(pthread_mutex_t *mutex) {
+    if (fail(FAULT_MUTEX_TRYLOCK)) return EINVAL;
+    return pthread_mutex_trylock(mutex);
+}

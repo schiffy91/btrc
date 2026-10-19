@@ -1,0 +1,26 @@
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.ISelect;
+import Library.GUI.ISlider;
+import Library.GUI.IImageView;
+import Library.GUI.IImageHandle;
+
+/* Test-only native input seam implemented by CX-UIA-22/23. Drivers report
+ * injected input as stand-in evidence; IME, assistive and hardware rows require
+ * their own native evidence. drain advances bounded turns, not a nested loop. */
+interface IUI2Probe {
+	void drain();
+	void editText(ITextField field, string text, bool composing);
+	void commitText(ITextField field);
+	void cancelText(ITextField field);
+	bool isComposing(ITextField field);
+	void chooseKey(ISelect select, string key);
+	void sliderPreview(ISlider slider, double value);
+	void sliderCommit(ISlider slider);
+	void sliderCancel(ISlider slider);
+	void nativeClose(IWindow window);
+	void nativeQuit();
+	IImageHandle image();
+	long long imageStamp(IImageView view);
+}

@@ -11,6 +11,7 @@ typedef enum ThreadFault {
     FAULT_JOIN,
     FAULT_MUTEX_DESTROY,
     FAULT_COND_DESTROY,
+    FAULT_MUTEX_TRYLOCK,
     FAULT_OPERATION_COUNT
 } ThreadFault;
 

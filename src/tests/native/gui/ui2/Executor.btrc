@@ -1,0 +1,82 @@
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+
+#include "UI2Probe.btrc"
+#include "UI2Events.btrc"
+#include <assert.h>
+
+class UI2Work implements IApplicationWork {
+	public int calls = 0;
+
+	public void run() { self.calls++; }
+}
+
+/* Pull host injection is a stand-in for suspension, not OS suspension evidence. */
+class UI2Host implements IApplicationHost {
+	private Atomic<bool> open;
+	private Atomic<bool> requested;
+	public unsigned long long deadline = 0ULL;
+
+	public UI2Host() { self.open.init(true); self.requested.init(false); }
+
+	public bool requestTurn() { bool open = self.open.load(MemoryOrder.ACQUIRE); self.requested.store(open, MemoryOrder.RELEASE); return open; }
+
+	public void close() { self.open.store(false, MemoryOrder.RELEASE); }
+
+	public void scheduleTurn(unsigned long long monotonicDeadlineNs) { self.deadline = monotonicDeadlineNs; }
+}
+
+class UI2ExecutorChecks {
+	/* E04/E40 identity records survive bursts beyond the old 4096 pump bound.
+	 * The driver records native-input/presentation service gaps and plain-build
+	 * latency budgets; this count oracle also runs with sanitizers. */
+	class void publications(IApplication application, IUI2Probe probe, int burst) {
+		assert(burst == 4095 || burst == 4096 || burst == 4097 || burst == 8193);
+		var events = UI2Events(); var scope = CallbackScope();
+		var created = application.createPublisher(16, events, scope);
+		assert(created.kind == APPLICATION_PUBLISHER_CREATED && created.publisher != null && created.registration != null);
+		var publisher = created.publisher;
+		for (int index = 1; index <= burst; index++) {
+			PublishOutcome result = publisher.tryPublish(1LL, (long long)index, WORK_SUSPENSION_DEFER, 0LL, (long long)index);
+			int turns = 0;
+			while (result == PUBLISH_FULL && turns < 10000) {
+				probe.drain(); turns++;
+				result = publisher.tryPublish(1LL, (long long)index, WORK_SUSPENSION_DEFER, 0LL, (long long)index);
+			}
+			assert(result == PUBLISH_ACCEPTED);
+		}
+		for (int turn = 0; turn < 10000 && events.publications.len < burst; turn++) { probe.drain(); }
+		assert(events.publications.len == burst);
+		for (int index = 0; index < burst; index++) {
+			assert(events.publications.get(index).sequence == (long long)index + 1LL);
+			assert(events.publications.get(index).payload == (long long)index + 1LL);
+		}
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(publisher.tryPublish(1LL, (long long)burst + 1LL, WORK_SUSPENSION_DEFER, 0LL, 0LL) == PUBLISH_CLOSED);
+	}
+
+	/* E30 host-attached journey: no inline delivery, cancel/defer/replace while
+	 * suspended, one delivery on resume, and no replay on another resume. */
+	class void hosted(IApplication application) {
+		var host = UI2Host(); var scope = CallbackScope();
+		var attached = application.attachHost(host, scope);
+		assert(attached.kind == APPLICATION_HOST_ATTACHED && attached.attachment != null);
+		var attachment = attached.attachment;
+		attachment.transition(APPLICATION_ACTIVITY_SUSPENDED);
+		var cancelled = UI2Work(); var deferred = UI2Work(); var old = UI2Work(); var latest = UI2Work();
+		assert(application.schedule(cancelled, 0.0, WORK_SUSPENSION_CANCEL, 0LL).kind == SCHEDULE_CANCELLED);
+		assert(application.schedule(deferred, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_ACCEPTED);
+		assert(application.schedule(old, 0.0, WORK_SUSPENSION_REPLACE, 1LL).kind == SCHEDULE_ACCEPTED);
+		assert(application.schedule(latest, 0.0, WORK_SUSPENSION_REPLACE, 1LL).kind == SCHEDULE_REPLACED);
+		attachment.serviceTurn(); assert(cancelled.calls == 0 && deferred.calls == 0 && old.calls == 0 && latest.calls == 0);
+		attachment.transition(APPLICATION_ACTIVITY_ACTIVE);
+		for (int turn = 0; turn < 100 && latest.calls == 0; turn++) { attachment.serviceTurn(); }
+		assert(cancelled.calls == 0 && deferred.calls == 1 && old.calls == 0 && latest.calls == 1);
+		attachment.transition(APPLICATION_ACTIVITY_ACTIVE); attachment.serviceTurn(); assert(latest.calls == 1);
+		attachment.cancel();
+		for (int turn = 0; turn < 100 && attachment.pollCompletion() == CALLBACK_CANCELLATION_PENDING; turn++) { attachment.serviceTurn(); }
+		assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		host.close(); assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}

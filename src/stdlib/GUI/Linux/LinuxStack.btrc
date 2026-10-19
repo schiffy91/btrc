@@ -87,10 +87,6 @@ class LinuxStack extends LinuxContainerView implements IStack {
 
 	public void arrange(double x, double y, double width, double height) { self.node().arrange(x, y, width, height); self.relayout(); }
 
-	public void attach(IView child) { self.node().attachChild(LinuxComposite.projection(child)); self.relayout(); }
-
-	public IView detach(IView child) { var detached = self.node().detachChild(LinuxComposite.projection(child)); self.relayout(); return detached; }
-
 	public double spacing() { self.node().requireOpen(); return self._spacing; }
 
 	public void setSpacing(double spacing) { self.node().requireOpen(); self.validateLength(spacing); self._spacing = spacing; self.relayout(); self.node().invalidate(); }

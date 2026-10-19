@@ -20,6 +20,11 @@ recorded_at = "2026-10-04T02:27:57Z"
 btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
 runner = "github-macos"
 
+[runs.cx-uia-21-approved-contract]
+source = "approved contract at base; implementation qualification pending"
+btrc_revision = "87dd60d7c602448cdd1bcf78ab3134b772e3aed5"
+recorded_at = "2026-10-07T16:27:08.007710+00:00"
+
 [[operations]]
 id = "GUI.capture"
 owner = "GUI"
@@ -72,39 +77,39 @@ links = ["N36", "UI7"]
 [operations.macos.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.chooseDirectory. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No direct GUI.chooseDirectory test call found. Existing MacOSDirectoryPickerConformance/test_native_app_runtime coverage uses direct provider and cannot establish façade behavior."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.chooseDirectory. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No direct GUI.chooseDirectory test call found. Existing MacOSDirectoryPickerConformance/test_native_app_runtime coverage uses direct provider and cannot establish façade behavior. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.chooseDirectory. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No direct GUI.chooseDirectory test call found. Existing MacOSDirectoryPickerConformance/test_native_app_runtime coverage uses direct provider and cannot establish façade behavior."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.chooseDirectory. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No direct GUI.chooseDirectory test call found. Existing MacOSDirectoryPickerConformance/test_native_app_runtime coverage uses direct provider and cannot establish façade behavior. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.chooseDirectory. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._picker.error.equals(\"Native event dispatch is already active\")); L-controls C49 calls in pointer callback, C140 asserts error `Native event dispatch is already active`. **Negative reentrancy only**; no chosen/cancelled directory outcome. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.chooseDirectory. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._picker.error.equals(\"Native event dispatch is already active\")); L-controls C49 calls in pointer callback, C140 asserts error `Native event dispatch is already active`. **Negative reentrancy only**; no chosen/cancelled directory outcome. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.chooseDirectory. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._picker.error.equals(\"Native event dispatch is already active\")); L-controls C49 calls in pointer callback, C140 asserts error `Native event dispatch is already active`. **Negative reentrancy only**; no chosen/cancelled directory outcome. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.chooseDirectory. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._picker.error.equals(\"Native event dispatch is already active\")); L-controls C49 calls in pointer callback, C140 asserts error `Native event dispatch is already active`. **Negative reentrancy only**; no chosen/cancelled directory outcome. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "GUI.close"
@@ -115,40 +120,40 @@ links = ["N01", "UI1"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.close. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE && !view.isOpen()); A-GUI NG68–69 running-close rejected preserving open window; NG238 COMPLETE; NG261 COMPLETE and image view closed; NG282–283 setup-without-run closes button. G P122 COMPLETE after full GPU drain. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.close. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE && !view.isOpen()); A-GUI NG68–69 running-close rejected preserving open window; NG238 COMPLETE; NG261 COMPLETE and image view closed; NG282–283 setup-without-run closes button. G P122 COMPLETE after full GPU drain. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.close. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE && !view.isOpen()); A-GUI NG68–69 running-close rejected preserving open window; NG238 COMPLETE; NG261 COMPLETE and image view closed; NG282–283 setup-without-run closes button. G P122 COMPLETE after full GPU drain. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.close. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE && !view.isOpen()); A-GUI NG68–69 running-close rejected preserving open window; NG238 COMPLETE; NG261 COMPLETE and image view closed; NG282–283 setup-without-run closes button. G P122 COMPLETE after full GPU drain. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[True-python]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.close. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(result == CALLBACK_CANCELLATION_COMPLETE); L-shutdown S55–60 repeated close eventually COMPLETE after stuck view released; S61 both root/child closed. L-reparent R94 COMPLETE after run. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.close. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(result == CALLBACK_CANCELLATION_COMPLETE); L-shutdown S55–60 repeated close eventually COMPLETE after stuck view released; S61 both root/child closed. L-reparent R94 COMPLETE after run. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[True-selfhost]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.close. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(result == CALLBACK_CANCELLATION_COMPLETE); L-shutdown S55–60 repeated close eventually COMPLETE after stuck view released; S61 both root/child closed. L-reparent R94 COMPLETE after run. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.close. Assertion candidate in src/tests/native/gui/linux/LinuxGUIShutdown.btrc: assert(result == CALLBACK_CANCELLATION_COMPLETE); L-shutdown S55–60 repeated close eventually COMPLETE after stuck view released; S61 both root/child closed. L-reparent R94 COMPLETE after run. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "GUI.createButton"
@@ -763,40 +768,40 @@ links = ["N01", "N18", "UI4"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSlider-native slider, stepped tracking-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeSlider-native slider, stepped tracking-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.createSlider. Assertion candidate in src/tests/native/gui/NativeSlider.btrc: assert(slider.value() == 50.0); A-Slider factory118;121/124/126 values;129 53 quantizes50;134–135 reversed bounds rejected;136–138 continuous .375 retained. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.createSlider. Assertion candidate in src/tests/native/gui/NativeSlider.btrc: assert(slider.value() == 50.0); A-Slider factory118;121/124/126 values;129 53 quantizes50;134–135 reversed bounds rejected;136–138 continuous .375 retained. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSlider-native slider, stepped tracking-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeSlider-native slider, stepped tracking-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.createSlider. Assertion candidate in src/tests/native/gui/NativeSlider.btrc: assert(slider.value() == 50.0); A-Slider factory118;121/124/126 values;129 53 quantizes50;134–135 reversed bounds rejected;136–138 continuous .375 retained. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.createSlider. Assertion candidate in src/tests/native/gui/NativeSlider.btrc: assert(slider.value() == 50.0); A-Slider factory118;121/124/126 values;129 53 quantizes50;134–135 reversed bounds rejected;136–138 continuous .375 retained. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.createSlider. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._slider.value() > 40.0 && self._slider.value() < 80.0); L-controls C194 factory; C130 synthetic tracking yields value strictly between40 and80. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.createSlider. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._slider.value() > 40.0 && self._slider.value() < 80.0); L-controls C194 factory; C130 synthetic tracking yields value strictly between40 and80. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.createSlider. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._slider.value() > 40.0 && self._slider.value() < 80.0); L-controls C194 factory; C130 synthetic tracking yields value strictly between40 and80. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.createSlider. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._slider.value() > 40.0 && self._slider.value() < 80.0); L-controls C194 factory; C130 synthetic tracking yields value strictly between40 and80. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "GUI.createTextField"
@@ -939,40 +944,40 @@ links = ["N04", "UI2"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.post. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(failed == fail); A-GUI NG66 posted QuitWork; NG72 expected failure propagation,73–75 owned closures. A-Delayed ND70–71 asserts post capacity rejection while delayed queue fills; ND73 reuses released capacity. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.post. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(failed == fail); A-GUI NG66 posted QuitWork; NG72 expected failure propagation,73–75 owned closures. A-Delayed ND70–71 asserts post capacity rejection while delayed queue fills; ND73 reuses released capacity. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.post. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(failed == fail); A-GUI NG66 posted QuitWork; NG72 expected failure propagation,73–75 owned closures. A-Delayed ND70–71 asserts post capacity rejection while delayed queue fills; ND73 reuses released capacity. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.post. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(failed == fail); A-GUI NG66 posted QuitWork; NG72 expected failure propagation,73–75 owned closures. A-Delayed ND70–71 asserts post capacity rejection while delayed queue fills; ND73 reuses released capacity. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.post. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); L-controls C256 initial post and C164 reposts lead C258 journey.passed; proves dispatch progressed through assertions. L-shutdown S45 post triggers S50 expected shutdown failure. No direct FIFO/queue-capacity assertion in these Linux façade fixtures. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.post. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); L-controls C256 initial post and C164 reposts lead C258 journey.passed; proves dispatch progressed through assertions. L-shutdown S45 post triggers S50 expected shutdown failure. No direct FIFO/queue-capacity assertion in these Linux façade fixtures. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.post. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); L-controls C256 initial post and C164 reposts lead C258 journey.passed; proves dispatch progressed through assertions. L-shutdown S45 post triggers S50 expected shutdown failure. No direct FIFO/queue-capacity assertion in these Linux façade fixtures. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.post. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); L-controls C256 initial post and C164 reposts lead C258 journey.passed; proves dispatch progressed through assertions. L-shutdown S45 post triggers S50 expected shutdown failure. No direct FIFO/queue-capacity assertion in these Linux façade fixtures. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "GUI.postAfter"
@@ -983,40 +988,40 @@ links = ["N04", "UI2"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeDelayedWork-native delayed work cancellation, bounded capacity and orderly shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeDelayedWork-native delayed work cancellation, bounded capacity and orderly shutdown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.postAfter. Assertion candidate in src/tests/native/gui/NativeDelayedWork.btrc: assert(delivered == expectedDelivered && destroyed == expectedDestroyed); A-Delayed ND22 time>=minimum; ND52 delayed call; ND56–59 cancel completes without delivery and exactly-once destruction; ND65–71 shared capacity; ND78–81 negative/NaN rejection; ND94/99 delayed delivery and destruction totals. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.postAfter. Assertion candidate in src/tests/native/gui/NativeDelayedWork.btrc: assert(delivered == expectedDelivered && destroyed == expectedDestroyed); A-Delayed ND22 time>=minimum; ND52 delayed call; ND56–59 cancel completes without delivery and exactly-once destruction; ND65–71 shared capacity; ND78–81 negative/NaN rejection; ND94/99 delayed delivery and destruction totals. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeDelayedWork-native delayed work cancellation, bounded capacity and orderly shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeDelayedWork-native delayed work cancellation, bounded capacity and orderly shutdown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.postAfter. Assertion candidate in src/tests/native/gui/NativeDelayedWork.btrc: assert(delivered == expectedDelivered && destroyed == expectedDestroyed); A-Delayed ND22 time>=minimum; ND52 delayed call; ND56–59 cancel completes without delivery and exactly-once destruction; ND65–71 shared capacity; ND78–81 negative/NaN rejection; ND94/99 delayed delivery and destruction totals. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.postAfter. Assertion candidate in src/tests/native/gui/NativeDelayedWork.btrc: assert(delivered == expectedDelivered && destroyed == expectedDestroyed); A-Delayed ND22 time>=minimum; ND52 delayed call; ND56–59 cancel completes without delivery and exactly-once destruction; ND65–71 shared capacity; ND78–81 negative/NaN rejection; ND94/99 delayed delivery and destruction totals. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-python]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.postAfter. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); L-reparent R73 call(.001) must progress to R93 journey.passed. Positive dispatch integration, **no delay lower-bound, cancellation or capacity assertion**. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.postAfter. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); L-reparent R73 call(.001) must progress to R93 journey.passed. Positive dispatch integration, **no delay lower-bound, cancellation or capacity assertion**. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-selfhost]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.postAfter. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); L-reparent R73 call(.001) must progress to R93 journey.passed. Positive dispatch integration, **no delay lower-bound, cancellation or capacity assertion**. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.postAfter. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); L-reparent R73 call(.001) must progress to R93 journey.passed. Positive dispatch integration, **no delay lower-bound, cancellation or capacity assertion**. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "GUI.rasterizeText"
@@ -1067,40 +1072,40 @@ links = ["N01", "UI1"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.requestQuit. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(!window.isOpen() && !root.isOpen() && !nested.isOpen()); A-GUI NG25 call followed NG27–28 late-create rejection, NG73–75 owned shutdown; A-Delayed ND27 then ND29–30 rejects later timer scheduling, final totals99. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.requestQuit. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(!window.isOpen() && !root.isOpen() && !nested.isOpen()); A-GUI NG25 call followed NG27–28 late-create rejection, NG73–75 owned shutdown; A-Delayed ND27 then ND29–30 rejects later timer scheduling, final totals99. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.requestQuit. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(!window.isOpen() && !root.isOpen() && !nested.isOpen()); A-GUI NG25 call followed NG27–28 late-create rejection, NG73–75 owned shutdown; A-Delayed ND27 then ND29–30 rejects later timer scheduling, final totals99. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.requestQuit. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(!window.isOpen() && !root.isOpen() && !nested.isOpen()); A-GUI NG25 call followed NG27–28 late-create rejection, NG73–75 owned shutdown; A-Delayed ND27 then ND29–30 rejects later timer scheduling, final totals99. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.requestQuit. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(stranger.join().equals(\"GUI requires the main thread\")); L-controls C181 worker call asserts exact main-thread rejection C184; C161 UI call returns through GUI.run and C258–259 asserts journey and closed root. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.requestQuit. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(stranger.join().equals(\"GUI requires the main thread\")); L-controls C181 worker call asserts exact main-thread rejection C184; C161 UI call returns through GUI.run and C258–259 asserts journey and closed root. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.requestQuit. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(stranger.join().equals(\"GUI requires the main thread\")); L-controls C181 worker call asserts exact main-thread rejection C184; C161 UI call returns through GUI.run and C258–259 asserts journey and closed root. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.requestQuit. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(stranger.join().equals(\"GUI requires the main thread\")); L-controls C181 worker call asserts exact main-thread rejection C184; C161 UI call returns through GUI.run and C258–259 asserts journey and closed root. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 
 [[operations]]
 id = "GUI.run"
@@ -1111,37 +1116,142 @@ links = ["N01", "UI1"]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[reference-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.run. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(failed == fail); A-GUI NG22–23 recursive run rejected; NG71–72 failure expected; NG73–75 shutdown; NG172–174 action failure delivery and canceled registration; NG188–192 queue overflow rejects with no action delivered; native retention bound additionally asserted by Python driver. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.run. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(failed == fail); A-GUI NG22–23 recursive run rejected; NG71–72 failure expected; NG73–75 shutdown; NG172–174 action failure delivery and canceled registration; NG188–192 queue overflow rejects with no action delivered; native retention bound additionally asserted by Python driver. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.macos.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.run. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(failed == fail); A-GUI NG22–23 recursive run rejected; NG71–72 failure expected; NG73–75 shutdown; NG172–174 action failure delivery and canceled registration; NG188–192 queue overflow rejects with no action delivered; native retention bound additionally asserted by Python driver. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.run. Assertion candidate in src/tests/native/gui/NativeGUI.btrc: assert(failed == fail); A-GUI NG22–23 recursive run rejected; NG71–72 failure expected; NG73–75 shutdown; NG172–174 action failure delivery and canceled registration; NG188–192 queue overflow rejects with no action delivered; native retention bound additionally asserted by Python driver. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.reference]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.run. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); L-controls C257 run then C258 journey and C259 root closed. L-shutdown S49–52 asserts exact deadline error, >=9s, repeated polls; no claim of Mac-specific exception/FIFO cases. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.run. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); L-controls C257 run then C258 journey and C259 root closed. L-shutdown S49–52 asserts exact deadline error, >=9s, repeated polls; no claim of Mac-specific exception/FIFO cases. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.linux.selfhost]
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.run. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); L-controls C257 run then C258 journey and C259 root closed. L-shutdown S49–52 asserts exact deadline error, >=9s, repeated polls; no claim of Mac-specific exception/FIFO cases. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
+note = "Source: src/stdlib/GUI/GUI.btrc; operation GUI.run. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(journey.passed); L-controls C257 run then C258 journey and C259 root closed. L-shutdown S49–52 asserts exact deadline error, >=9s, repeated polls; no claim of Mac-specific exception/FIFO cases. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.windows]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 [operations.android]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
+
+[[operations]]
+id = "GUI.createPublisher"
+owner = "GUI"
+links = ["UI2", "E04", "E24", "E30"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+
+[[operations]]
+id = "GUI.schedule"
+owner = "GUI"
+links = ["UI2", "E04", "E24", "E30"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+
+[[operations]]
+id = "GUI.attachHost"
+owner = "GUI"
+links = ["UI2", "E04", "E24", "E30"]
+[operations.macos]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing. Host link is provisional until CL-P2-22 and CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.linux]
+implementation = "missing"
+parity = "missing"
+note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing. Host link is provisional until CL-P2-22 and CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.windows]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22. Host link is provisional until CL-P2-22 and CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22. Host link is provisional until CL-P2-22 and CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"
+[operations.android]
+implementation = "missing"
+parity = "missing"
+note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22. Host link is provisional until CL-P2-22 and CL-UIA-22."
+evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
+run = "cx-uia-21-approved-contract"

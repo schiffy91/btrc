@@ -1,0 +1,27 @@
+import Library.Callback;
+import Library.GUI.GUI;
+import Library.GUI.IApplication;
+
+#include "Executor.btrc"
+#include <assert.h>
+
+class UI2FacadeChecks {
+	/* The host path must release the facade slot just as GUI.run does. This
+	 * runs with the real provider, separately from an application's own loop. */
+	class void hostLifetime() {
+		GUI.initialize(4);
+		var host = UI2Host(); var scope = CallbackScope();
+		var attached = GUI.attachHost(host, scope);
+		assert(attached.kind == APPLICATION_HOST_ATTACHED && attached.attachment != null);
+		assert(GUI.attachHost(host, scope).kind == APPLICATION_HOST_ALREADY_ATTACHED);
+		var attachment = attached.attachment;
+		attachment.cancel();
+		for (int turn = 0; turn < 100 && attachment.pollCompletion() == CALLBACK_CANCELLATION_PENDING; turn++) { attachment.serviceTurn(); }
+		assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		host.close();
+		/* Reinitialization proves that detach cleared the old application slot. */
+		GUI.initialize(4);
+		assert(GUI.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}

@@ -1,0 +1,135 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxTextField;
+
+import ./WindowCloseProbe.btrc;
+#include <assert.h>
+
+class LinuxCloseRequests implements IWindowCloseRequestHandler {
+	public Vector<IWindowCloseTransaction> requests = [];
+	public LinuxWindow? closeDuring;
+	public LinuxWindow? modalTarget;
+	public bool closePending = false;
+	public bool modalRejected = false;
+	public bool throwAfter = false;
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		assert(SDL_IsMainThread()); self.requests.push(transaction);
+		var target = self.modalTarget;
+		if (target != null) {
+			try { target.showAlert("must not open", "close callback"); }
+			catch (string error) { self.modalRejected = !error.isEmpty(); }
+		}
+		if (self.throwAfter) { throw "controlled Linux close receiver failure"; }
+		var closing = self.closeDuring;
+		if (closing != null) { self.closePending = closing.close() == CALLBACK_CANCELLATION_PENDING; }
+	}
+}
+
+class LinuxCloseStates implements IWindowStateHandler {
+	public int calls = 0;
+	public void stateChanged(WindowState state) { self.calls++; }
+}
+
+class LinuxCloseChecks {
+	class IWindowCloseTransaction pending(WindowCloseRequestOutcome result, WindowCloseRequestOutcomeKind kind) {
+		assert(result.kind == kind); var transaction = result.transaction;
+		if (transaction == null) { throw "Pending close lacks transaction identity"; }
+		return transaction;
+	}
+
+	class void events(LinuxWindow first, LinuxWindow second) {
+		BtrcSdlEvent event;
+		int count = 0;
+		while (btrcSdlPollEvent(&event) != 0) {
+			assert(count++ < 1000);
+			if (event.window == first.nativeId()) { first.dispatch(&event); }
+			else if (event.window == second.nativeId()) { second.dispatch(&event); }
+		}
+	}
+
+	class void drain(LinuxWindow window) {
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (window.pollClose() == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) {}
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	var context = LinuxContext(4); var scope = CallbackScope();
+	var first = LinuxWindow(context, "UI2 first", 320.0, 200.0);
+	var second = LinuxWindow(context, "UI2 second", 320.0, 200.0);
+	var field = LinuxTextField(context, "preserved draft", ""); first.attachRoot(field);
+	var a = LinuxCloseRequests(); var b = LinuxCloseRequests(); a.modalTarget = second;
+	var ar = first.onCloseRequested(a, scope); var br = second.onCloseRequested(b, scope);
+	bool duplicateRejected = false;
+	try { first.onCloseRequested(LinuxCloseRequests(), scope); } catch (string error) { duplicateRejected = !error.isEmpty(); }
+	assert(duplicateRejected && ar.isOpen());
+	first.show(); second.show(); LinuxCloseChecks.events(first, second);
+	assert(ui2PushWindowClose(first.nativeId()) == 1); LinuxCloseChecks.events(first, second);
+	assert(a.requests.len == 0 && first.isOpen() && first.root() == field);
+	assert(first.dispatchSemantic()); assert(a.requests.len == 1 && a.modalRejected); a.modalTarget = null;
+	var original = a.requests.get(0);
+	assert(LinuxCloseChecks.pending(first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_ALREADY_PENDING) == original);
+	var other = LinuxCloseChecks.pending(second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	assert(other != original && b.requests.len == 0); assert(second.dispatchSemantic()); assert(b.requests.len == 1);
+	var saving = original.decide(WINDOW_CLOSE_DECISION_SAVE, 4LL);
+	assert(saving.state == WINDOW_CLOSE_SAVING && saving.attempt > 0LL);
+	assert(original.decide(WINDOW_CLOSE_DECISION_SAVE, 5LL).attempt == saving.attempt);
+	assert(original.completeSave(saving.attempt + 1LL, 5LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT);
+	assert(original.completeSave(saving.attempt, 4LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+	assert(original.state() == WINDOW_CLOSE_AWAITING_DECISION && first.isOpen());
+	assert(original.decide(WINDOW_CLOSE_DECISION_DISCARD, 4LL).kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+	var retry = original.decide(WINDOW_CLOSE_DECISION_SAVE, 5LL); assert(retry.attempt > saving.attempt);
+	assert(original.completeSave(retry.attempt, 5LL, false, "save failed").state == WINDOW_CLOSE_AWAITING_DECISION);
+	assert(original.decide(WINDOW_CLOSE_DECISION_CANCEL, 5LL).state == WINDOW_CLOSE_CANCELLED);
+	assert(first.isOpen() && first.root() == field && field.text() == "preserved draft");
+	assert(original.completeSave(retry.attempt, 5LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	assert(br.cancel() == CALLBACK_CANCELLATION_COMPLETE && other.state() == WINDOW_CLOSE_CANCELLED && second.isOpen());
+	assert(second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER); LinuxCloseChecks.drain(second);
+	var final = LinuxCloseChecks.pending(first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	assert(first.dispatchSemantic()); var currentSave = final.decide(WINDOW_CLOSE_DECISION_SAVE, 6LL);
+	assert(final.completeSave(currentSave.attempt, 6LL, true, "").state == WINDOW_CLOSE_CLOSING); LinuxCloseChecks.drain(first);
+	assert(final.decide(WINDOW_CLOSE_DECISION_DISCARD, 6LL).kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING && !field.isOpen());
+	assert(first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_CLOSED);
+
+	var callbackWindow = LinuxWindow(context, "callback close", 160.0, 100.0);
+	var callback = LinuxCloseRequests(); callback.closeDuring = callbackWindow; var cr = callbackWindow.onCloseRequested(callback, scope);
+	var forced = LinuxCloseChecks.pending(callbackWindow.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	assert(callbackWindow.dispatchSemantic()); assert(callback.closePending && forced.state() == WINDOW_CLOSE_OWNER_LOST);
+	LinuxCloseChecks.drain(callbackWindow); assert(cr.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE); callback.closeDuring = null;
+
+	var pressureContext = LinuxContext(1); int credits = pressureContext.terminalPool.available();
+	var pressure = LinuxWindow(pressureContext, "terminal reservation", 160.0, 100.0);
+	var states = LinuxCloseStates(); var requests = LinuxCloseRequests();
+	pressure.onStateChanged(states, scope); pressure.onCloseRequested(requests, scope); pressure.setContentSize(180.0, 110.0);
+	var reserved = LinuxCloseChecks.pending(pressure.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	assert(states.calls == 0 && requests.requests.len == 0);
+	assert(pressure.dispatchSemantic()); assert(states.calls == 1 && requests.requests.len == 0);
+	assert(pressure.dispatchSemantic()); assert(requests.requests.len == 1);
+	assert(reserved.decide(WINDOW_CLOSE_DECISION_DISCARD, 0LL).state == WINDOW_CLOSE_CLOSING); LinuxCloseChecks.drain(pressure);
+	assert(pressureContext.terminalPool.available() == credits);
+
+	var throwing = LinuxWindow(context, "throwing decision", 160.0, 100.0);
+	var receiver = LinuxCloseRequests(); receiver.throwAfter = true; throwing.onCloseRequested(receiver, scope);
+	var failed = LinuxCloseChecks.pending(throwing.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	bool caught = false;
+	try { throwing.dispatchSemantic(); } catch (string error) { caught = error == "controlled Linux close receiver failure"; }
+	assert(caught); context.requireNoCloseDecision(); throwing.close(); LinuxCloseChecks.drain(throwing);
+	assert(failed.state() == WINDOW_CLOSE_OWNER_LOST);
+
+	var rejectedScope = CallbackScope(); rejectedScope.cancel();
+	var rejected = LinuxWindow(context, "rejected registration", 160.0, 100.0);
+	int oldCredits = context.terminalPool.available(); bool refused = false;
+	try { rejected.onCloseRequested(LinuxCloseRequests(), rejectedScope); } catch (string error) { refused = !error.isEmpty(); }
+	assert(refused && context.terminalPool.available() == oldCredits);
+	assert(rejected.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER); LinuxCloseChecks.drain(rejected);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	SDL_Quit();
+	print("PASS: UI2 Linux native close preserves transaction and save authority");
+	return 0;
+}
