@@ -293,8 +293,12 @@ class ChildProcessEnvironment {
 		return false;
 	}
 
-#if !defined(_WIN32)
+	/* POSIX only: the Windows provider merges the native block in the
+	 * runtime, so there this never builds an envp. */
 	class char** build(Vector<string> environment, Vector<string> unsetEnvironment) {
+#if defined(_WIN32)
+		return NULL;
+#else
 		if (environ == NULL || environment == null || unsetEnvironment == null || environment.len < 0 || unsetEnvironment.len < 0) { return NULL; }
 		int inheritedCount = 0;
 		while (environ[inheritedCount] != NULL) {
@@ -332,8 +336,8 @@ class ChildProcessEnvironment {
 		}
 		result[count] = NULL;
 		return result;
-	}
 #endif
+	}
 }
 
 /* Materialize argv as an independently owned raw snapshot in the parent. COW
@@ -1115,11 +1119,15 @@ class ChildProcess {
 #endif
 	}
 
-#if defined(_WIN32)
 	/* The Windows half of run, after its portable validation. The result
 	 * follows the same precedence as the POSIX body: capture failure 127,
-	 * capture limit 125, timeout 124, then the child's own exit code. */
+	 * capture limit 125, timeout 124, then the child's own exit code. Only
+	 * windows rows call it; every row declares it, so Process's classes have
+	 * one shape on every target. */
 	class ExecResult runOnWindows(string command, string executable, Vector<string> arguments, string cwd, Vector<string> environment, Vector<string> unsetEnvironment, int timeoutMilliseconds, int maxStdoutBytes, int maxStderrBytes, string stdinData, CommandOutput stdout, CommandOutput stderr, int executableDescriptor, Vector<ChildDescriptorMapping> descriptorMappings, int workingDirectoryDescriptor, bool foreground, ChildStdin stdinMode) {
+#if !defined(_WIN32)
+		return ChildProcess.failure(command, "ChildProcess.runOnWindows runs only on windows rows\n");
+#else
 		if (executableDescriptor >= 0 || workingDirectoryDescriptor >= 0 || descriptorMappings.len > 0) {
 			return ChildProcess.failure(command, "ChildProcess.run is unavailable on Windows: exact executable/cwd descriptors and arbitrary descriptor mappings need a native handle contract; use path-based launch with explicit stdio handles\n");
 		}
@@ -1143,8 +1151,8 @@ class ChildProcess {
 		result.captureExceeded = outcome.captureExceeded;
 		result.captureFailed = outcome.captureFailed;
 		return result;
-	}
 #endif
+	}
 }
 
 class Command {
