@@ -62,9 +62,13 @@ supported standalone Windows program.
 
 The following boundaries remain intentional:
 
-* `Process` spawn/wait, raw-mode `Terminal`, sockets, `Regex`, and glob/fnmatch
-  need real Win32 backends. Retained calls to these APIs fail compilation or at
-  runtime instead of silently using link-only stubs.
+* `Process` launches through its own Win32 backend, not this overlay:
+  `Windows/ProcessHostProvider.btrc` calls the runtime's separately compiled
+  `src/runtime/c/windows_os.c` (CreateProcessW with an explicit stdio handle
+  list, a kill-on-close job, overlapped pipes), which every builder links when
+  emitted C retains it. Raw-mode `Terminal`, sockets, `Regex`, and glob/fnmatch
+  still need real Win32 backends. Retained calls to those APIs fail compilation
+  or at runtime instead of silently using link-only stubs.
 * Filesystem and compiler I/O generally uses narrow C-runtime functions or
   Win32 `A` APIs. Non-ASCII paths outside the active Windows code page are not
   supported consistently. `realpath` alone has an explicit UTF-8/UTF-16 bridge.

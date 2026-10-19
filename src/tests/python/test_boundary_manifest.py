@@ -531,6 +531,7 @@ def test_runtime_snapshot_reader_preserves_pinned_v1_rows(tmp_path: Path) -> Non
         "threads.c",
         "trycatch.c",
         "gpu.c",
+        "windows_os.h",
     ):
         (runtime_root / asset).write_text("/* empty */\n", encoding="utf-8")
     (runtime_root / "manifest.toml").write_text(

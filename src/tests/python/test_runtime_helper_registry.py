@@ -129,7 +129,10 @@ def test_runtime_assets_are_cohesive_domains_with_no_behavior_outside_markers() 
         "strings.c",
         "threads.c",
         "trycatch.c",
+        "windows_os.h",
     }
+    # A declaration asset only declares; its external object defines it.
+    assert {(row.source, row.declarations) for row in manifest.external_objects} == {("windows_os.c", "windows_os.h")}
 
 
 def test_runtime_helpers_do_not_aggregate_initialize_local_error_buffers() -> None:

@@ -49,6 +49,12 @@ functions = [
   "__btrc_terminal_foreground_group",
   "__btrc_validate_executable_descriptor",
   "__btrc_validate_working_directory_descriptor",
+  "__btrc_windows_launch",
+  "__btrc_windows_launch_close",
+  "__btrc_windows_launch_copy_output",
+  "__btrc_windows_launch_terminate",
+  "__btrc_windows_launch_wait",
+  "__btrc_windows_quote_argv_utf8",
   "_setjmp",
   "a64l",
   "abort",
@@ -3687,6 +3693,10 @@ types = [
   "BtrcGPUAsyncWaitOutcome",
   "DIR",
   "FILE",
+  "__btrc_windows_launch_error_t",
+  "__btrc_windows_launch_options_t",
+  "__btrc_windows_launch_owner_t",
+  "__btrc_windows_launch_result_t",
   "accessx_descriptor",
   "active_reg_t",
   "atomic_bool",
@@ -3979,6 +3989,10 @@ typedefs = [
   "BtrcGPUAsyncWaitOutcome",
   "DIR",
   "FILE",
+  "__btrc_windows_launch_error_t",
+  "__btrc_windows_launch_options_t",
+  "__btrc_windows_launch_owner_t",
+  "__btrc_windows_launch_result_t",
   "active_reg_t",
   "atomic_bool",
   "atomic_char",
@@ -6592,6 +6606,16 @@ owned = [
   "__btrc_terminal_foreground_group",
   "__btrc_validate_executable_descriptor",
   "__btrc_validate_working_directory_descriptor",
+  "__btrc_windows_launch",
+  "__btrc_windows_launch_close",
+  "__btrc_windows_launch_copy_output",
+  "__btrc_windows_launch_error_t",
+  "__btrc_windows_launch_options_t",
+  "__btrc_windows_launch_owner_t",
+  "__btrc_windows_launch_result_t",
+  "__btrc_windows_launch_terminate",
+  "__btrc_windows_launch_wait",
+  "__btrc_windows_quote_argv_utf8",
   "_setjmp",
   "a64l",
   "abort",
@@ -11804,6 +11828,103 @@ parameters = [
 variadic = false
 return_effect = "value"
 raw_lifetime = false
+
+[[functions]]
+name = "__btrc_windows_launch"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_options_t", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_launch_close"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "uint64_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_launch_copy_output"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "uint32_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "size_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "safe"
+
+[[functions]]
+name = "__btrc_windows_launch_terminate"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "uint32_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_launch_wait"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_launch_owner_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "uint32_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "uint64_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_launch_result_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_quote_argv_utf8"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "char", pointer_depth = 2, is_const = false, effect = "read" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "uint16_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "size_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "safe"
 
 [[functions]]
 name = "abort"
