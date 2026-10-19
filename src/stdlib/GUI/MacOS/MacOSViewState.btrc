@@ -24,6 +24,7 @@ class MacOSViewContext {
 	private int _cursor = 0;
 	private bool _closed = false;
 	private bool _dispatching = false;
+	private bool _treeMutation = false;
 	public MacOSViewContext(IControlEventWake wake, int capacity = 256) {
 		self.requireMainThread(); self._capacity = capacity; self._pool = ControlEventTerminalPool(65536);
 		self.wake = wake; self.detachedEvents = self.createQueue();
@@ -44,7 +45,7 @@ class MacOSViewContext {
 	}
 
 	public bool dispatchOne() {
-		self.requireMainThread(); if (self._dispatching) { throw "Semantic delivery cannot re-enter"; } if (self._closed) { return false; }
+		self.requireMainThread(); if (self._dispatching) { throw "Semantic delivery cannot re-enter"; } if (self._closed || self._treeMutation) { return false; }
 		self._dispatching = true;
 		bool delivered = false;
 		try {
@@ -58,7 +59,24 @@ class MacOSViewContext {
 
 	public bool pending() { self.requireMainThread(); for queue in self._queues { if (queue.pendingCount() > 0) { return true; } } return false; }
 
-	public void close() { self.requireMainThread(); if (self._closed) { return; } self._closed = true; for queue in self._queues { queue.close(); } self._queues.clear(); }
+	public bool treeMutationActive() { self.requireMainThread(); return self._treeMutation; }
+
+	public void beginTreeMutation() {
+		self.requireMainThread();
+		if (self._closed) { throw "Native view context is closed"; }
+		if (self._treeMutation) { throw "Native tree mutation is already active"; }
+		self._treeMutation = true;
+	}
+
+	/* A container releases delivery only after it has a coherent result. A wake
+	 * serviced during mutation may have consumed the original queue signal. */
+	public void endTreeMutation() {
+		self.requireMainThread(); if (!self._treeMutation) { throw "Native tree mutation is not active"; }
+		self._treeMutation = false;
+		if (self.pending() && !self.wake.requestTurn()) { throw "Native tree mutation cannot resume semantic delivery"; }
+	}
+
+	public void close() { self.requireMainThread(); if (self._treeMutation) { throw "Native tree mutation is already active"; } if (self._closed) { return; } self._closed = true; for queue in self._queues { queue.close(); } self._queues.clear(); }
 }
 
 interface IMacOSViewEligibility { void eligibilityLost(); }
@@ -214,12 +232,44 @@ class MacOSViewState implements IControlEventTarget {
 		child.route(self._queue); child.mark(self.effectiveEligible(), self._state.exposure); child.settle(); child.commitRoute(); child.publish();
 	}
 
+	/* Commit membership before any settlement callback. Reordering retained
+	 * children preserves their route, generation and interaction revision. */
+	public void replaceChildren(Vector<MacOSViewState> children) {
+		self.requireOpen();
+		Vector<MacOSViewState> next = []; Vector<MacOSViewState> removed = [];
+		for child in children {
+			if (child == null) { throw "Native child state is missing"; }
+			child.requireOpen();
+			for previous in next { if (previous == child) { throw "Native child state is duplicated"; } }
+			if (!self.hasChild(child)) { self.validateChild(child); }
+			next.push(child);
+		}
+		for child in self._children {
+			bool retained = false; for candidate in next { if (candidate == child) { retained = true; break; } }
+			if (!retained) { removed.push(child); }
+		}
+		var context = self._context;
+		for child in next { if (context != null && child._context == null) { child.configure(context); } }
+		self._children = next;
+		for child in removed {
+			child._parented = false; child.route(child._context == null ? null : child._context.detachedEvents);
+			child.mark(false, WINDOW_EXPOSURE_UNKNOWN);
+		}
+		for child in next { child._parented = true; child.route(self._queue); child.mark(self.effectiveEligible(), self._state.exposure); }
+		string failure = "";
+		for child in removed { try { child.settle(); } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
+		for child in next { try { child.settle(); } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
+		for child in removed { child.commitRoute(); child.publish(); }
+		for child in next { child.commitRoute(); child.publish(); }
+		if (!failure.isEmpty()) { throw failure; }
+	}
+
 	public void removeChild(MacOSViewState child) {
 		self.requireMainThread(); int found = -1;
 		for (int index = 0; index < self._children.len; index++) { if (self._children.get(index) == child) { found = index; break; } }
 		if (found < 0) { throw "View state does not belong to this parent"; }
-		child._parented = false; child.route(child._context == null ? null : child._context.detachedEvents);
-		child.mark(false, WINDOW_EXPOSURE_UNKNOWN); child.settle(); child.commitRoute(); child.publish(); self._children.remove(found);
+		self._children.remove(found); child._parented = false; child.route(child._context == null ? null : child._context.detachedEvents);
+		child.mark(false, WINDOW_EXPOSURE_UNKNOWN); child.settle(); child.commitRoute(); child.publish();
 	}
 
 	public void validateWindow(ControlEventQueue queue) { self.requireOpen(); if (self._parented || self._context == null || queue.terminalPool() != self._context.detachedEvents.terminalPool()) { throw "Window root has no matching application context or is already attached"; } }

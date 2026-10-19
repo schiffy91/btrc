@@ -12,6 +12,20 @@ class ViewObservation implements IViewInteractionStateHandler {
 	public Vector<ViewInteractionState> states = [];
 	public void interactionChanged(ViewInteractionState state) { assert(NSThread.isMainThread()); self.states.push(state); }
 }
+class TreeSettlement implements IMacOSViewEligibility {
+	public MacOSViewState? parent;
+	public MacOSViewState? first;
+	public MacOSViewState? second;
+	public int calls = 0;
+	public bool fail = false;
+	public void eligibilityLost() {
+		if (self.parent == null) { return; }
+		self.calls++;
+		assert(!self.parent.hasChild(self.first) && !self.parent.hasChild(self.second));
+		assert(!self.first.effectiveEligible() && !self.second.effectiveEligible());
+		if (self.fail) { throw "injected settlement failure"; }
+	}
+}
 class ClosingViewObservation implements IViewInteractionStateHandler {
 	public MacOSView view;
 	public MacOSViewContext context;
@@ -66,6 +80,36 @@ int main() {
 	assert(context.dispatchOne() && closer.calls == 1);
 	assert(closing.pollClose() == CALLBACK_CANCELLATION_COMPLETE && closer.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(closingOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && !context.pending());
+	var settlement = TreeSettlement(); var parent = MacOSViewState(settlement);
+	var first = MacOSViewState(settlement); var second = MacOSViewState(settlement);
+	settlement.parent = parent; settlement.first = first; settlement.second = second;
+	parent.configure(context); var treeEvents = context.createQueue(); parent.attachWindow(treeEvents, true, WINDOW_EXPOSURE_EXPOSED);
+	Vector<MacOSViewState> children = [first, second]; parent.replaceChildren(children);
+	assert(first.effectiveEligible() && second.effectiveEligible());
+	long long firstGeneration = first.generation(); long long firstRevision = first.snapshot().stateRevision;
+	Vector<MacOSViewState> reordered = [second, first]; parent.replaceChildren(reordered);
+	assert(settlement.calls == 0 && first.generation() == firstGeneration && first.snapshot().stateRevision == firstRevision);
+	Vector<MacOSViewState> duplicateChildren = [first, first]; bool duplicateTree = false;
+	try { parent.replaceChildren(duplicateChildren); } catch (string error) { duplicateTree = true; }
+	assert(duplicateTree && parent.hasChild(first) && parent.hasChild(second) && settlement.calls == 0);
+	// The caller's vector is not the parent's mutable membership store.
+	reordered.clear(); assert(parent.hasChild(first) && parent.hasChild(second));
+	Vector<MacOSViewState> emptyChildren = []; parent.replaceChildren(emptyChildren);
+	assert(settlement.calls == 2 && !parent.hasChild(first) && !parent.hasChild(second));
+	parent.replaceChildren(children); settlement.fail = true; bool settlementFailed = false;
+	try { parent.replaceChildren(emptyChildren); } catch (string error) { settlementFailed = error == "injected settlement failure"; }
+	assert(settlementFailed && settlement.calls == 4 && !parent.hasChild(first) && !parent.hasChild(second));
+	assert(first.events() == context.detachedEvents && second.events() == context.detachedEvents);
+	settlement.parent = null; settlement.first = null; settlement.second = null;
+	parent.detachWindow(); assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE && parent.close() == CALLBACK_CANCELLATION_COMPLETE);
+	context.retireQueue(treeEvents);
+	var held = MacOSView(); held.stateNode().configure(context); var heldOwner = CallbackScope(); var heldObserver = ViewObservation();
+	var heldRegistration = held.onInteractionStateChanged(heldObserver, heldOwner);
+	context.beginTreeMutation(); assert(context.treeMutationActive()); held.setVisible(false);
+	bool nested = false; try { context.beginTreeMutation(); } catch (string error) { nested = true; } assert(nested);
+	assert(context.pending() && !context.dispatchOne() && heldObserver.states.isEmpty());
+	context.endTreeMutation(); assert(!context.treeMutationActive() && context.dispatchOne() && heldObserver.states.len == 1);
+	assert(heldRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE && heldOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && held.close() == CALLBACK_CANCELLATION_COMPLETE);
 	context.close(); assert(signal.close());
 	print("PASS: UI2 macOS native view state subtree eligibility and deferred observations"); return 0;
 }

@@ -41,7 +41,7 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 
 	public void bindEligibility(IMacOSViewEligibility receiver) { self._state.requireMutation(); if (self._controlEligibility != null || receiver == null) { throw "Native view eligibility receiver is already bound or missing"; } self._controlEligibility = receiver; }
 
-	public void eligibilityLost() { self.cancelPointerCapture(); var receiver = self._controlEligibility; if (receiver != null) { receiver.eligibilityLost(); } }
+	public void eligibilityLost() { var receiver = self._controlEligibility; try { if (receiver != null) { receiver.eligibilityLost(); } } finally { self.cancelPointerCapture(); } }
 
 	public NSView nativeView() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
