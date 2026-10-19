@@ -24,6 +24,7 @@ import subprocess
 import sys
 import urllib.request
 import zipfile
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -383,6 +384,28 @@ def test_windows_native_shell_builds(tmp_path, request, monkeypatch, frontend, t
     publish(target, [executable, client, dll])
 
 
+def uia_summary(trees):
+    """How many cycles read a UI Automation tree, why the others did not, and what the first tree held."""
+    available = [tree for tree in trees if isinstance(tree, dict)]
+    summary = {
+        "cycles_with_tree": len(available),
+        "unavailable": sorted({tree for tree in trees if isinstance(tree, str)})[:3],
+    }
+    if available:
+        types, names = Counter(), []
+
+        def walk(node):
+            types[node["control_type"]] += 1
+            if node.get("name"):
+                names.append(node["name"])
+            for child in node.get("children", []):
+                walk(child)
+
+        walk(available[0]["root"])
+        summary.update(control_types=dict(types), names=names[:12], claims=available[0].get("claims"))
+    return summary
+
+
 def run_shell(command, environment, timeout):
     try:
         return subprocess.run(
@@ -489,7 +512,7 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target):
             "fresh_process_restores": 100,
             "e46": "missing",
             "e47": "fixture-only; stdlib missing",
-            "accessibility": trees[0],
+            "accessibility": uia_summary(trees),
             "probe": {key: value for key, value in probes[0].items() if key != "accessibility"},
             "gate_cycles": cycles == 100,
         },
