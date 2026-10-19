@@ -13,12 +13,15 @@ architecture; on Windows itself the test runs it. Elsewhere it proves the
 selection, the generated C and the link, not the execution.
 
 It also pins what the provider must leave alone: on every other row the
-FileSystem package compiles exactly the POSIX bodies, with no Win32 C.
+FileSystem package compiles exactly the POSIX bodies, with no Win32 C. And the
+one structure layout the provider cannot take from the headers it includes,
+REPARSE_DATA_BUFFER, is checked against MinGW's own declaration.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -180,6 +183,43 @@ def test_windows_rows_compile_no_posix_handle_bodies(target, tmp_path):
     assert f'{PROVIDER_C}"' in source.replace("\\", "/")
     for posix in ("openat(", "fdopendir(", "fstatat(", "unlinkat(", "flock("):
         assert posix not in source, posix
+
+
+@pytest.mark.parametrize("target", sorted(TARGETS))
+def test_the_reparse_buffer_offsets_are_the_sdk_layout(target, zig, tmp_path):
+    """The provider reads REPARSE_DATA_BUFFER through named byte offsets, since
+    the user-mode headers it includes omit the structure. Each offset must be
+    offsetof over the structure MinGW declares in ntdef.h, on each architecture."""
+
+    provider = (REPO / PROVIDER_C).read_text(encoding="utf-8")
+    offsets = dict(re.findall(r"^#define (BTRC_WIN_REPARSE_\w+) (\d+)$", provider, re.MULTILINE))
+    fields = {
+        "BTRC_WIN_REPARSE_NAME_FIELDS": "SymbolicLinkReparseBuffer.SubstituteNameOffset",
+        "BTRC_WIN_REPARSE_SYMLINK_PATH": "SymbolicLinkReparseBuffer.PathBuffer",
+        "BTRC_WIN_REPARSE_MOUNT_POINT_PATH": "MountPointReparseBuffer.PathBuffer",
+    }
+    assert set(offsets) == set(fields), offsets
+    checks = "\n".join(
+        f'_Static_assert(offsetof(REPARSE_DATA_BUFFER, {field}) == {offsets[name]}, "{name}");'
+        for name, field in fields.items()
+    )
+    layout = tmp_path / "layout.c"
+    layout.write_text(
+        "#include <stddef.h>\n#include <ntdef.h>\n"
+        "_Static_assert(offsetof(REPARSE_DATA_BUFFER, MountPointReparseBuffer.SubstituteNameOffset) == "
+        'offsetof(REPARSE_DATA_BUFFER, SymbolicLinkReparseBuffer.SubstituteNameOffset), "shared name fields");\n'
+        f"{checks}\nint main(void) {{ return 0; }}\n",
+        encoding="utf-8",
+    )
+    built = subprocess.run(
+        [zig, "cc", "-target", f"{TARGETS[target]}-windows-gnu", "-std=c11", "-pedantic-errors", "-Wall", "-Werror"]
+        + ["-c", str(layout), "-o", str(tmp_path / "layout.o")],
+        capture_output=True,
+        text=True,
+        timeout=C_COMPILE_TIMEOUT,
+        check=False,
+    )
+    assert built.returncode == 0, built.stderr
 
 
 def test_the_report_checker_accepts_only_complete_reports():

@@ -49,6 +49,15 @@
 #define BTRC_WIN_NT_STATUS_NOT_A_DIRECTORY ((NTSTATUS)0xC0000103L)
 #define BTRC_WIN_NT_STATUS_FILE_IS_A_DIRECTORY ((NTSTATUS)0xC00000BAL)
 
+/* Byte offsets into REPARSE_DATA_BUFFER, which the user-mode headers included
+ * here omit (MinGW declares it in ntdef.h and ddk/ntifs.h, which conflict
+ * with them): where the name offsets and lengths start, and where a symbolic
+ * link's and a mount point's PathBuffer start. test_windows_filesystem_handles.py
+ * checks each against offsetof over MinGW's ntdef.h on x64 and ARM64. */
+#define BTRC_WIN_REPARSE_NAME_FIELDS 8
+#define BTRC_WIN_REPARSE_SYMLINK_PATH 20
+#define BTRC_WIN_REPARSE_MOUNT_POINT_PATH 16
+
 static inline ACCESS_MASK btrcWinAccess(int purpose) {
     switch (purpose) {
         case BTRC_WIN_PURPOSE_READ:
@@ -917,18 +926,17 @@ static inline int btrcWinReadLink(char* path, char** target) {
         free(buffer);
         return (int)error;
     }
-    /* REPARSE_DATA_BUFFER (ntifs.h, which user-mode SDK headers omit): a ULONG
-     * tag, two USHORT lengths, then four USHORT name offsets and lengths; a
-     * symbolic link adds a ULONG of flags before its names. */
+    /* The four USHORT name offsets and lengths follow the tag and data length;
+     * the BTRC_WIN_REPARSE_* offsets name where each kind's names start. */
     ULONG tag = 0;
     USHORT offsets[4] = { 0, 0, 0, 0 };
     memcpy(&tag, buffer, sizeof(tag));
-    memcpy(offsets, buffer + 8, sizeof(offsets));
+    memcpy(offsets, buffer + BTRC_WIN_REPARSE_NAME_FIELDS, sizeof(offsets));
     size_t names = 0;
     if (tag == IO_REPARSE_TAG_SYMLINK) {
-        names = 20;
+        names = BTRC_WIN_REPARSE_SYMLINK_PATH;
     } else if (tag == IO_REPARSE_TAG_MOUNT_POINT) {
-        names = 16;
+        names = BTRC_WIN_REPARSE_MOUNT_POINT_PATH;
     } else {
         free(buffer);
         return BTRC_WIN_STATUS_WRONG_TYPE;
