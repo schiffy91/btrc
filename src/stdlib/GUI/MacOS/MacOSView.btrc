@@ -67,7 +67,7 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 	class void attachNative(NSView child, NSView parent) {
 		MacOSView.validateAttachment(child, parent);
 		try {
-			parent.addSubview(child);
+			parent.addSubview(child, NSWindowAbove, null);
 			var window = child.window();
 			if (window != null) { window.setAcceptsMouseMovedEvents(true); }
 		} catch (string error) {
@@ -80,6 +80,15 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		if (parent == null || child == null || child.superview() != parent) { throw "View does not belong to this native parent"; }
 		child.removeFromSuperview();
+	}
+
+	/* Reinsert within the same native parent. Removing first ends field editing
+	 * and loses marked text even when the logical owner has not changed. */
+	class void moveNative(NSView child, NSView parent, NSView? sibling, bool after) {
+		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
+		if (parent == null || child == null || child.superview() != parent) { throw "View does not belong to this native parent"; }
+		if (sibling != null && (sibling == child || sibling.superview() != parent)) { throw "Native ordering requires a different sibling in the same parent"; }
+		parent.addSubview(child, after ? NSWindowAbove : NSWindowBelow, sibling);
 	}
 
 	public void attachTo(NSView parent) {

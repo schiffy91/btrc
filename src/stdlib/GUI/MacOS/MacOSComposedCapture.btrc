@@ -48,7 +48,7 @@ class MacOSComposedCapture {
 				proxy.setImageScaling(NSImageScaleAxesIndependently);
 				proxy.setImage(image);
 				proxies.push(proxy);
-				view.addSubview(proxy);
+				view.addSubview(proxy, NSWindowAbove, null);
 			}
 			captured = MacOSViewCapture.captureTiff(root, maximumPixels, maximumBytes);
 		} finally {

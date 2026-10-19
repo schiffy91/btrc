@@ -1,0 +1,23 @@
+import Library.GUI.MacOS.MacOSView;
+
+#include <assert.h>
+
+int main() {
+	var probe = BTRCUI2ViewOrder.new();
+	var child = probe.childView(); var parent = probe.parentView(); var sibling = probe.siblingView();
+	assert(probe.verifyChildFirst(true));
+	MacOSView.moveNative(child, parent, sibling, true); assert(probe.verifyChildFirst(false));
+	MacOSView.moveNative(child, parent, sibling, false); assert(probe.verifyChildFirst(true));
+	MacOSView.moveNative(child, parent, null, true); assert(probe.verifyChildFirst(false));
+	MacOSView.moveNative(child, parent, null, false); assert(probe.verifyChildFirst(true));
+	MacOSView.moveNative(child, parent, sibling, false); assert(probe.verifyChildFirst(true));
+	bool rejected = false; try { MacOSView.moveNative(child, parent, child, true); } catch (string error) { rejected = true; }
+	assert(rejected && probe.verifyChildFirst(true));
+	var foreign = NSView.new();
+	rejected = false; try { MacOSView.moveNative(child, foreign, null, true); } catch (string error) { rejected = true; }
+	assert(rejected && probe.verifyChildFirst(true));
+	rejected = false; try { MacOSView.moveNative(child, parent, foreign, true); } catch (string error) { rejected = true; }
+	assert(rejected && probe.verifyChildFirst(true));
+	probe.finish();
+	print("PASS: UI2 macOS native reorder preserves the active editor and marked text"); return 0;
+}

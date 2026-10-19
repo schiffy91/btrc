@@ -11,7 +11,7 @@ void checkDetachFault(bool after) {
 	bool closed = false; try { closed = child.close() == CALLBACK_CANCELLATION_COMPLETE; } catch (string error) {}
 	if (!closed) {
 		// Repair the native setup before asserting, including the old stale flag.
-		if (detached) { parent.nativeView().addSubview(child.nativeView()); }
+		if (detached) { MacOSView.attachNative(child.nativeView(), parent.nativeView()); }
 		child.detachFrom(parent.nativeView()); assert(child.close() == CALLBACK_CANCELLATION_COMPLETE);
 	}
 	assert(parent.close() == CALLBACK_CANCELLATION_COMPLETE);

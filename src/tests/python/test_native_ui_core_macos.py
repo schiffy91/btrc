@@ -51,6 +51,7 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
         ("UI2MacOSButtonState", "PASS: UI2 macOS eligibility loss retires pending native button actions"),
         ("UI2MacOSViewState", "PASS: UI2 macOS native view state subtree eligibility and deferred observations"),
         ("UI2MacOSDetachFault", "PASS: UI2 macOS detach failures retain actual attachment ownership"),
+        ("UI2MacOSViewOrder", "PASS: UI2 macOS native reorder preserves the active editor and marked text"),
         ("UI2MacOSPublisher", "PASS: UI2 macOS worker publication and cancellation drain"),
         ("UI2MacOSExecutor", "PASS: UI2 macOS executor worker delivery timers suspension and callback drain"),
         ("UI2MacOSScheduler", "PASS: UI2 macOS scheduled work uses common-mode deadlines and later turns"),
@@ -92,15 +93,29 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
             )
             + "]\n"
         )
-    if fixture == "UI2MacOSDetachFault":
+    if fixture in {"UI2MacOSDetachFault", "UI2MacOSViewOrder"}:
         for suffix in ("h", "m"):
             name = f"{fixture}.{suffix}"
             (package / name).write_text((root / "src/tests/native/gui/ui2/probes/macos" / name).read_text())
+        methods = (
+            ["+[BTRCUI2DetachFault armView:after:]"]
+            if fixture == "UI2MacOSDetachFault"
+            else [
+                "+[BTRCUI2ViewOrder new]",
+                "-[BTRCUI2ViewOrder parentView]",
+                "-[BTRCUI2ViewOrder childView]",
+                "-[BTRCUI2ViewOrder siblingView]",
+                "-[BTRCUI2ViewOrder verifyChildFirst:]",
+                "-[BTRCUI2ViewOrder finish]",
+            ]
+        )
         manifest.write_text(
-            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "UI2MacOSDetachFault.h"\n'
+            manifest.read_text() + f'\n[[native.bindings]]\nmodule = "Main"\nheader = "{fixture}.h"\n'
             'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
-            'symbols = ["+[BTRCUI2DetachFault armView:after:]"]\n'
-            '[[native.sources]]\npath = "UI2MacOSDetachFault.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+            + "symbols = ["
+            + ", ".join(f'"{method}"' for method in methods)
+            + "]\n"
+            + f'[[native.sources]]\npath = "{fixture}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     if fixture == "UI2MacOSApplicationHost":
         for suffix in ("h", "m"):
@@ -142,8 +157,9 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
     assert marker in ran.stdout
 
 
-def test_macos_ui2_input_notification_bindings(native_project, native_compile, gui_provider_root):
+@pytest.mark.parametrize("module", ["MacOSViewInput", "MacOSComposedCapture"])
+def test_macos_ui2_provider_native_bindings(native_project, native_compile, gui_provider_root, module):
     source, _sdk, _triple = native_project
-    source.write_text("import Library.GUI.MacOS.MacOSViewInput;\nint main() { return 0; }\n")
+    source.write_text(f"import Library.GUI.MacOS.{module};\nint main() {{ return 0; }}\n")
     result = native_compile(source, data_root=gui_provider_root)
     assert result.successful, str(result.failure) + str(result.diagnostics)
