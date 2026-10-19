@@ -1,10 +1,16 @@
 """tools/JavaClassReader.c: the JNI class-file reader (native-interop-ownership.md §2.3, §3).
 
 The reader turns public Java declarations into the native ABI document both
-compilers decode. Its fixture package is src/tests/native/java/dev/btrc/fixture.
+compilers decode. Its fixture package is src/tests/native/java/dev/btrc/fixture,
+with stand-ins for the androidx, javax (JSR-305) and JSpecify nullability
+annotations beside it. Reader v2 adds those annotations (a reference marked
+NonNull is "nonnull", every other one "nullable"), `--native` for
+RegisterNatives targets of any access, and nested classes checked through
+their InnerClasses entries.
 The default dev shell and the CI image carry no JDK, so ``ClassFileWriter``
-below assembles the same classes, with the access flags and descriptors javac
-gives them (``javap -v``), and every assertion runs against that assembly.
+below assembles the same classes, with the access flags, descriptors and
+annotations javac gives them (``javap -v``), and every assertion runs against
+that assembly.
 Where a JDK 17 or later is configured (``nix develop .#platforms`` sets
 JAVA_HOME), the same assertions also run against javac's own output, which
 keeps the assembled model honest. That variant is added where a JDK exists
@@ -31,12 +37,52 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.frontend.native_imports import NativeHeaderCodec
+from src.tests.python.test_native_header_reader import assert_codec_parity, describe
+from src.tests.python.test_native_header_reader import codec_probe as codec_probe
+
 REPO = Path(__file__).resolve().parents[3]
 FIXTURE_SOURCES = REPO / "src" / "tests" / "native" / "java"
 TARGET = "aarch64-linux-android29"
 SCHEMA = "btrc.native-declarations.v3"
+IDENTITY = "btrc-class-reader/2"
 PACKAGE = "dev/btrc/fixture"
 WIDGET = f"{PACKAGE}/Widget"
+ANNOTATED = f"{PACKAGE}/Annotated"
+SPECIFIED = f"{PACKAGE}/Specified"
+
+# The nullability annotations, as class files name them.
+ANDROIDX_NONNULL = "Landroidx/annotation/NonNull;"
+ANDROIDX_NULLABLE = "Landroidx/annotation/Nullable;"
+JAVAX_NONNULL = "Ljavax/annotation/Nonnull;"
+JAVAX_NULLABLE = "Ljavax/annotation/Nullable;"
+JAVAX_CHECK_FOR_NULL = "Ljavax/annotation/CheckForNull;"
+JAVAX_WHEN = "Ljavax/annotation/meta/When;"
+JSPECIFY_NONNULL = "Lorg/jspecify/annotations/NonNull;"
+JSPECIFY_NULLABLE = "Lorg/jspecify/annotations/Nullable;"
+
+# Annotation attributes (JVMS 4.7.16-4.7.20), type annotation targets and type path steps.
+VISIBLE = "RuntimeVisibleAnnotations"
+INVISIBLE = "RuntimeInvisibleAnnotations"
+VISIBLE_PARAMETERS = "RuntimeVisibleParameterAnnotations"
+INVISIBLE_PARAMETERS = "RuntimeInvisibleParameterAnnotations"
+VISIBLE_TYPES = "RuntimeVisibleTypeAnnotations"
+INVISIBLE_TYPES = "RuntimeInvisibleTypeAnnotations"
+FIELD_TARGET = b"\x13"
+RETURN_TARGET = b"\x14"
+RECEIVER_TARGET = b"\x15"
+ARRAY = (0, 0)
+INNER_TYPE = (1, 0)
+WILDCARD = (2, 0)
+
+
+def parameter_target(index: int) -> bytes:
+    return bytes([0x16, index])
+
+
+def type_argument(index: int) -> tuple[int, int]:
+    return (3, index)
+
 
 ACC_PUBLIC = 0x0001
 ACC_PRIVATE = 0x0002
@@ -135,17 +181,45 @@ class ClassFileWriter:
         header = struct.pack(">HHHH", access, self.utf8(name), self.utf8(descriptor), len(attributes))
         self._fields.append(header + b"".join(attributes))
 
-    def method(self, access: int, name: str, descriptor: str) -> None:
+    def method(self, access: int, name: str, descriptor: str, *extra: bytes) -> None:
         attributes = []
         if not access & (ACC_NATIVE | ACC_ABSTRACT):
             # max_stack, max_locals, one `return`, no handlers, no attributes.
             attributes.append(self.attribute("Code", struct.pack(">HHI", 2, 4, 1) + b"\xb1" + struct.pack(">HH", 0, 0)))
+        attributes += extra
         header = struct.pack(">HHHH", access, self.utf8(name), self.utf8(descriptor), len(attributes))
         self._methods.append(header + b"".join(attributes))
 
-    def inner_class(self, inner: str, outer: str, simple: str, access: int) -> None:
-        indices = (self.class_ref(inner), self.class_ref(outer), self.utf8(simple), access)
-        self._inner.append(struct.pack(">HHHH", *indices))
+    def inner_class(self, inner: str, outer: str | None, simple: str | None, access: int) -> None:
+        """One InnerClasses entry; a local class has no outer class, an anonymous one no name either."""
+        outer_index = 0 if outer is None else self.class_ref(outer)
+        name_index = 0 if simple is None else self.utf8(simple)
+        self._inner.append(struct.pack(">HHHH", self.class_ref(inner), outer_index, name_index, access))
+
+    # Annotations (JVMS 4.7.16): an annotation's bytes, its element values,
+    # and the three attribute forms that carry them.
+
+    def annotation(self, descriptor: str, *pairs: tuple[str, bytes]) -> bytes:
+        body = struct.pack(">HH", self.utf8(descriptor), len(pairs))
+        return body + b"".join(struct.pack(">H", self.utf8(name)) + value for name, value in pairs)
+
+    def enum_value(self, descriptor: str, constant: str) -> bytes:
+        return b"e" + struct.pack(">HH", self.utf8(descriptor), self.utf8(constant))
+
+    def annotations(self, name: str, *annotations: bytes) -> bytes:
+        return self.attribute(name, struct.pack(">H", len(annotations)) + b"".join(annotations))
+
+    def parameter_annotations(self, name: str, *parameters: tuple[bytes, ...]) -> bytes:
+        body = bytes([len(parameters)])
+        body += b"".join(struct.pack(">H", len(parameter)) + b"".join(parameter) for parameter in parameters)
+        return self.attribute(name, body)
+
+    def type_annotations(self, name: str, *entries: tuple[bytes, tuple[tuple[int, int], ...], bytes]) -> bytes:
+        """Each entry is (target type and info, type path steps, annotation)."""
+        body = struct.pack(">H", len(entries))
+        for target, path, annotation in entries:
+            body += target + bytes([len(path)]) + b"".join(bytes(step) for step in path) + annotation
+        return self.attribute(name, body)
 
     def build(self) -> bytes:
         attributes = list(self.attributes)
@@ -253,10 +327,130 @@ def assembled_fixture() -> dict[str, bytes]:
     base.method(ACC_PUBLIC | ACC_ABSTRACT, "reset", "()V")
     classes[f"{PACKAGE}/Base"] = base
     internal = ClassFileWriter(f"{PACKAGE}/Internal", access=ACC_SUPER)
-    internal.method(0, "<init>", "()V")
-    internal.method(ACC_PUBLIC | ACC_STATIC, "value", "()I")
+    exposed = ClassFileWriter(f"{PACKAGE}/Internal$Exposed")
+    for writer in (internal, exposed):
+        writer.method(0 if writer is internal else ACC_PUBLIC, "<init>", "()V")
+        writer.method(ACC_PUBLIC | ACC_STATIC, "value", "()I")
+        writer.inner_class(f"{PACKAGE}/Internal$Exposed", f"{PACKAGE}/Internal", "Exposed", ACC_PUBLIC | ACC_STATIC)
     classes[f"{PACKAGE}/Internal"] = internal
+    classes[f"{PACKAGE}/Internal$Exposed"] = exposed
+    classes[ANNOTATED] = annotated_writer()
+    classes.update(specified_writers())
     return {f"{name}.class": writer.build() for name, writer in classes.items()}
+
+
+def annotated_writer() -> ClassFileWriter:
+    """dev.btrc.fixture.Annotated: androidx and JSR-305 declaration annotations, and natives of every access."""
+    writer = ClassFileWriter(ANNOTATED)
+    nonnull = writer.annotation(ANDROIDX_NONNULL)
+    nullable = writer.annotation(ANDROIDX_NULLABLE)
+    always = writer.annotation(JAVAX_NONNULL)
+
+    def when(constant: str) -> bytes:
+        return writer.annotation(JAVAX_NONNULL, ("when", writer.enum_value(JAVAX_WHEN, constant)))
+
+    string = "Ljava/lang/String;"
+    for name, descriptor, attribute in (
+        ("name", string, writer.annotations(INVISIBLE, nonnull)),
+        ("alias", string, writer.annotations(INVISIBLE, nullable)),
+        ("tags", f"[{string}", writer.annotations(INVISIBLE, nonnull)),
+        ("count", "I", writer.annotations(INVISIBLE, nonnull)),
+        ("code", string, writer.annotations(VISIBLE, always)),
+        ("maybe", string, writer.annotations(VISIBLE, when("MAYBE"))),
+        ("unknown", string, writer.annotations(VISIBLE, when("UNKNOWN"))),
+        ("checked", string, writer.annotations(VISIBLE, writer.annotation(JAVAX_CHECK_FOR_NULL))),
+        ("conflicted", string, writer.annotations(INVISIBLE, nonnull, nullable)),
+    ):
+        writer.field(ACC_PUBLIC, name, descriptor, attribute)
+    writer.method(ACC_PUBLIC, "<init>", f"({string})V", writer.parameter_annotations(INVISIBLE_PARAMETERS, (nonnull,)))
+    writer.method(
+        ACC_PUBLIC | ACC_STATIC,
+        "create",
+        f"({string}{string}I)L{ANNOTATED};",
+        writer.annotations(INVISIBLE, nonnull),
+        writer.parameter_annotations(INVISIBLE_PARAMETERS, (nonnull,), (nullable,), ()),
+    )
+    writer.method(
+        ACC_PUBLIC,
+        "describe",
+        f"(Ljava/lang/Object;[Ljava/lang/Object;{string}){string}",
+        writer.annotations(VISIBLE, always),
+        writer.parameter_annotations(
+            VISIBLE_PARAMETERS, (when("NEVER"),), (always,), (writer.annotation(JAVAX_NULLABLE),)
+        ),
+    )
+    writer.method(
+        ACC_PUBLIC | ACC_NATIVE,
+        "peek",
+        f"(L{ANNOTATED};){string}",
+        writer.annotations(INVISIBLE, nonnull),
+        writer.parameter_annotations(INVISIBLE_PARAMETERS, (nonnull,)),
+    )
+    writer.method(
+        ACC_PRIVATE | ACC_NATIVE, "poke", f"({string})V", writer.parameter_annotations(INVISIBLE_PARAMETERS, (nonnull,))
+    )
+    writer.method(ACC_PRIVATE | ACC_STATIC | ACC_NATIVE, "tally", "()I")
+    writer.method(ACC_PROTECTED | ACC_NATIVE, "guard", "()V")
+    writer.method(ACC_NATIVE, "share", "()V")
+    writer.method(ACC_PRIVATE, "hidden", "()V")
+    return writer
+
+
+def specified_writers() -> dict[str, ClassFileWriter]:
+    """dev.btrc.fixture.Specified and its member classes: JSpecify's type annotations."""
+    holder = f"{SPECIFIED}$Holder"
+    inner = f"{SPECIFIED}$Inner"
+    specified = ClassFileWriter(SPECIFIED)
+    nonnull = specified.annotation(JSPECIFY_NONNULL)
+    nullable = specified.annotation(JSPECIFY_NULLABLE)
+
+    def types(*entries):
+        return specified.type_annotations(VISIBLE_TYPES, *entries)
+
+    for name, descriptor, attribute in (
+        ("name", "Ljava/lang/String;", types((FIELD_TARGET, (), nonnull))),
+        ("names", "[Ljava/lang/String;", types((FIELD_TARGET, (ARRAY,), nullable), (FIELD_TARGET, (), nonnull))),
+        ("grid", "[[Ljava/lang/String;", types((FIELD_TARGET, (), nullable), (FIELD_TARGET, (ARRAY,), nonnull))),
+        ("holder", f"L{holder};", types((FIELD_TARGET, (), nonnull))),
+        ("inner", f"L{inner};", types((FIELD_TARGET, (INNER_TYPE,), nonnull))),
+        ("outerMarked", f"L{inner};", types((FIELD_TARGET, (), nonnull))),
+        ("list", "Ljava/util/List;", types((FIELD_TARGET, (type_argument(0),), nonnull))),
+    ):
+        specified.field(ACC_PUBLIC, name, descriptor, attribute)
+    specified.method(ACC_PUBLIC, "<init>", "()V")
+    specified.method(
+        ACC_PUBLIC,
+        "label",
+        f"(Ljava/lang/Object;L{holder};)Ljava/lang/String;",
+        types((RETURN_TARGET, (), nonnull), (parameter_target(0), (), nullable), (parameter_target(1), (), nonnull)),
+    )
+    specified.method(
+        ACC_PUBLIC,
+        "first",
+        "([Ljava/lang/Object;)Ljava/lang/Object;",
+        types((RETURN_TARGET, (), nonnull), (parameter_target(0), (), nonnull)),
+    )
+    specified.inner_class(holder, SPECIFIED, "Holder", ACC_PUBLIC | ACC_STATIC)
+    specified.inner_class(inner, SPECIFIED, "Inner", ACC_PUBLIC)
+    nested = ClassFileWriter(holder)
+    nested.method(ACC_PUBLIC, "<init>", "()V")
+    nested.inner_class(holder, SPECIFIED, "Holder", ACC_PUBLIC | ACC_STATIC)
+    # An inner class's constructor takes its enclosing instance first; javac
+    # counts only the declared parameters in formal parameter indices.
+    member = ClassFileWriter(inner)
+    member.field(ACC_FINAL | ACC_SYNTHETIC, "this$0", f"L{SPECIFIED};")
+    member.method(
+        ACC_PUBLIC,
+        "<init>",
+        f"(L{SPECIFIED};Ljava/lang/String;Ljava/lang/String;)V",
+        member.type_annotations(
+            VISIBLE_TYPES,
+            (parameter_target(0), (), member.annotation(JSPECIFY_NONNULL)),
+            (parameter_target(1), (), member.annotation(JSPECIFY_NULLABLE)),
+        ),
+    )
+    member.inner_class(inner, SPECIFIED, "Inner", ACC_PUBLIC)
+    return {SPECIFIED: specified, holder: nested, inner: member}
 
 
 # ---- JDK, layouts and the reader ---------------------------------------------
@@ -372,9 +566,13 @@ class Run:
     stderr: str
 
 
-def run_reader(reader: Path, classpath: list[Path | str], *symbols: str, target: str = TARGET) -> Run:
+def run_reader(
+    reader: Path, classpath: list[Path | str], *symbols: str, target: str = TARGET, natives: tuple[str, ...] = ()
+) -> Run:
+    """Runs the reader on --symbol for each symbol, then --native for each of `natives`."""
     arguments = [reader, f"--target={target}", "--classpath=" + ":".join(map(str, classpath))]
     arguments += [f"--symbol={symbol}" for symbol in symbols]
+    arguments += [f"--native={symbol}" for symbol in natives]
     completed = subprocess.run(arguments, capture_output=True, timeout=60)
     return Run(completed.returncode, completed.stdout.decode(), completed.stderr.decode(errors="replace"))
 
@@ -413,14 +611,14 @@ JDOUBLE = primitive("jdouble", 64, None)
 VOID = qualified({"kind": "builtin", "name": "void"}, "unannotated")
 
 
-def java_object(binary_name: str) -> dict:
+def java_object(binary_name: str, nullability: str = "nullable") -> dict:
     return qualified(
-        {"kind": "java_object", "name": binary_name.replace("/", "."), "binary_name": binary_name}, "nullable"
+        {"kind": "java_object", "name": binary_name.replace("/", "."), "binary_name": binary_name}, nullability
     )
 
 
-def java_array(element: dict) -> dict:
-    return qualified({"kind": "java_array", "element": element}, "nullable")
+def java_array(element: dict, nullability: str = "nullable") -> dict:
+    return qualified({"kind": "java_array", "element": element}, nullability)
 
 
 def function(result: dict, *parameters: dict) -> dict:
@@ -429,6 +627,7 @@ def function(result: dict, *parameters: dict) -> dict:
 
 
 STRING = java_object("java/lang/String")
+NONNULL_STRING = java_object("java/lang/String", "nonnull")
 
 
 def java_class(
@@ -504,7 +703,7 @@ def document(declarations: list[dict], read: list[bytes], *, target: str = TARGE
     value = {
         "schema": SCHEMA,
         "target": target,
-        "clang": f"btrc-class-reader/1 sha256:{digest}",
+        "clang": f"{IDENTITY} sha256:{digest}",
         "big_endian": False,
         "character_bits": 8,
         "declarations": declarations,
@@ -629,7 +828,7 @@ def test_identity_is_the_smali_form(reader, package):
     assert declarations[2]["constructor"] is True
     assert declarations[2]["type"]["return_type"]["name"] == "void"
     assert declarations[2]["source"] == f"{package.directory}!dev/btrc/fixture/Widget.class"
-    assert re.fullmatch(r"btrc-class-reader/1 sha256:[0-9a-f]{64}", json.loads(run.stdout)["clang"])
+    assert re.fullmatch(r"btrc-class-reader/2 sha256:[0-9a-f]{64}", json.loads(run.stdout)["clang"])
 
 
 HIDDEN = [
@@ -642,6 +841,19 @@ HIDDEN = [
     (
         "dev.btrc.fixture.Widget$Guarded",
         "unknown class dev.btrc.fixture.Widget$Guarded (a member class that is not public)",
+    ),
+    # Public in its own entry, but enclosed by a package-private class.
+    (
+        "dev.btrc.fixture.Internal$Exposed",
+        "unknown class dev.btrc.fixture.Internal$Exposed (its enclosing class dev.btrc.fixture.Internal is hidden)",
+    ),
+    (
+        "dev.btrc.fixture.Internal$Exposed.value()I",
+        "unknown class dev.btrc.fixture.Internal$Exposed (its enclosing class dev.btrc.fixture.Internal is hidden)",
+    ),
+    (
+        "dev.btrc.fixture.Annotated.poke(Ljava/lang/String;)V",
+        "unknown member dev.btrc.fixture.Annotated.poke(Ljava/lang/String;)V (not public)",
     ),
     ("dev.btrc.fixture.Widget.nothing()V", "unknown member dev.btrc.fixture.Widget.nothing()V"),
     ("dev.btrc.fixture.Widget.add(JJ)J", "unknown member dev.btrc.fixture.Widget.add(JJ)J"),
@@ -777,6 +989,488 @@ def test_unrelated_constants_with_nul_and_lone_surrogates_do_not_reject_a_class(
     assert b"\xc0\x80" in widget and b"\xed\xa0\x80" in widget
 
 
+# ---- Nullability annotations ------------------------------------------------------------
+
+
+@pytest.mark.parametrize("layout", ["directory", "archive"])
+def test_nullability_annotations_mark_nonnull_references(reader, package, layout):
+    """androidx, JSR-305 and JSpecify NonNull make a reference nonnull; every other reference stays nullable."""
+    entry = package.entry(layout)
+    a = "dev.btrc.fixture.Annotated"
+    s = "dev.btrc.fixture.Specified"
+    object_ = java_object("java/lang/Object")
+    holder = f"{SPECIFIED}$Holder"
+    inner = f"{SPECIFIED}$Inner"
+    fields = [
+        (f"{a}.name:Ljava/lang/String;", NONNULL_STRING),
+        (f"{a}.alias:Ljava/lang/String;", STRING),
+        (f"{a}.tags:[Ljava/lang/String;", java_array(STRING, "nonnull")),
+        (f"{a}.count:I", JINT),
+        (f"{a}.code:Ljava/lang/String;", NONNULL_STRING),
+        (f"{a}.maybe:Ljava/lang/String;", STRING),
+        (f"{a}.unknown:Ljava/lang/String;", STRING),
+        (f"{a}.checked:Ljava/lang/String;", STRING),
+        (f"{a}.conflicted:Ljava/lang/String;", STRING),
+    ]
+    methods = [
+        (f"{a}.<init>(Ljava/lang/String;)V", function(VOID, NONNULL_STRING), False, False),
+        (
+            f"{a}.create(Ljava/lang/String;Ljava/lang/String;I)L{ANNOTATED};",
+            function(java_object(ANNOTATED, "nonnull"), NONNULL_STRING, STRING, JINT),
+            True,
+            False,
+        ),
+        (
+            f"{a}.describe(Ljava/lang/Object;[Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/String;",
+            function(NONNULL_STRING, object_, java_array(object_, "nonnull"), STRING),
+            False,
+            False,
+        ),
+        (
+            f"{a}.peek(L{ANNOTATED};)Ljava/lang/String;",
+            function(NONNULL_STRING, java_object(ANNOTATED, "nonnull")),
+            False,
+            True,
+        ),
+    ]
+    specified_fields = [
+        (f"{s}.name:Ljava/lang/String;", NONNULL_STRING),
+        (f"{s}.names:[Ljava/lang/String;", java_array(STRING, "nonnull")),
+        (f"{s}.grid:[[Ljava/lang/String;", java_array(java_array(STRING, "nonnull"))),
+        (f"{s}.holder:L{holder};", java_object(holder, "nonnull")),
+        (f"{s}.inner:L{inner};", java_object(inner, "nonnull")),
+        (f"{s}.outerMarked:L{inner};", java_object(inner)),
+        (f"{s}.list:Ljava/util/List;", java_object("java/util/List")),
+    ]
+    specified_methods = [
+        (
+            f"{s}.label(Ljava/lang/Object;L{holder};)Ljava/lang/String;",
+            function(NONNULL_STRING, object_, java_object(holder, "nonnull")),
+        ),
+        (
+            f"{s}.first([Ljava/lang/Object;)Ljava/lang/Object;",
+            function(java_object("java/lang/Object", "nonnull"), java_array(object_, "nonnull")),
+        ),
+    ]
+    constructor = f"{s}$Inner.<init>(L{SPECIFIED};Ljava/lang/String;Ljava/lang/String;)V"
+    symbols = [symbol for symbol, _ in fields] + [symbol for symbol, *_ in methods]
+    symbols += [symbol for symbol, _ in specified_fields + specified_methods] + [constructor]
+    run = run_reader(reader, [entry], *symbols)
+    assert run.returncode == 0, run.stderr
+    expected = [java_class(ANNOTATED, entry)]
+    expected += [java_field(symbol, value, entry) for symbol, value in fields]
+    expected += [
+        java_method(symbol, signature, entry, static=static, native=native)
+        for symbol, signature, static, native in methods
+    ]
+    expected.append(java_class(SPECIFIED, entry))
+    expected += [java_field(symbol, value, entry) for symbol, value in specified_fields]
+    expected += [java_method(symbol, signature, entry) for symbol, signature in specified_methods]
+    expected.append(java_class(inner, entry))
+    expected.append(java_method(constructor, function(VOID, java_object(SPECIFIED), NONNULL_STRING, STRING), entry))
+    read = [package.classes[f"{name}.class"] for name in (ANNOTATED, SPECIFIED, inner)]
+    assert run.stdout == document(expected, read)
+
+
+def edges_class() -> tuple[bytes, list[tuple[str, dict]], list[tuple[str, dict, bool]]]:
+    """A class whose annotations javac never writes this way: (bytes, field expectations, method expectations).
+
+    Each expectation is the symbol and the type the reader must report.
+    """
+    name = f"{PACKAGE}/Edges"
+    middle = f"{name}$Middle"
+    leaf = f"{middle}$Leaf"
+    local = f"{name}$1Local"
+    writer = ClassFileWriter(name)
+    # Inner (non-static) member classes two deep, and a local class.
+    writer.inner_class(middle, name, "Middle", ACC_PUBLIC)
+    writer.inner_class(leaf, middle, "Leaf", ACC_PUBLIC)
+    writer.inner_class(local, None, "Local", 0)
+    nonnull = writer.annotation(JSPECIFY_NONNULL)
+
+    def types(*entries):
+        return writer.type_annotations(VISIBLE_TYPES, *entries)
+
+    def integer(value: int) -> int:
+        return writer.constant(3, struct.pack(">i", value))
+
+    def when(value: bytes) -> bytes:
+        return writer.annotations(VISIBLE, writer.annotation(JAVAX_NONNULL, ("when", value)))
+
+    every = (
+        ("b", b"B" + struct.pack(">H", integer(1))),
+        ("c", b"C" + struct.pack(">H", integer(2))),
+        ("d", b"D" + struct.pack(">H", writer.constant(6, struct.pack(">d", 1.5)))),
+        ("f", b"F" + struct.pack(">H", writer.constant(4, struct.pack(">f", 2.5)))),
+        ("i", b"I" + struct.pack(">H", integer(3))),
+        ("j", b"J" + struct.pack(">H", writer.constant(5, struct.pack(">q", 4)))),
+        ("s", b"S" + struct.pack(">H", integer(5))),
+        ("z", b"Z" + struct.pack(">H", integer(1))),
+        ("text", b"s" + struct.pack(">H", writer.utf8("text"))),
+        ("kind", writer.enum_value("Ljava/lang/annotation/ElementType;", "FIELD")),
+        ("type", b"c" + struct.pack(">H", writer.utf8("Ljava/lang/String;"))),
+        # A NonNull nested as an element value marks nothing.
+        ("nested", b"@" + writer.annotation(ANDROIDX_NONNULL)),
+        (
+            "list",
+            b"[" + struct.pack(">H", 2) + b"I" + struct.pack(">H", integer(6)) + b"@" + writer.annotation("Lx/Y;"),
+        ),
+    )
+    unknown = writer.annotation("Ldev/btrc/fixture/Every;", *every)
+    string = "Ljava/lang/String;"
+    fields = [
+        (
+            "levels",
+            "[[I",
+            types(
+                (FIELD_TARGET, (), nonnull), (FIELD_TARGET, (ARRAY,), nonnull), (FIELD_TARGET, (ARRAY, ARRAY), nonnull)
+            ),
+            java_array(java_array(JINT, "nonnull"), "nonnull"),
+        ),
+        ("beyond", f"[{string}", types((FIELD_TARGET, (ARRAY, ARRAY), nonnull)), java_array(STRING)),
+        (
+            "wildcard",
+            "Ljava/util/List;",
+            types((FIELD_TARGET, (type_argument(0), WILDCARD), nonnull)),
+            java_object("java/util/List"),
+        ),
+        ("leaf", f"L{leaf};", types((FIELD_TARGET, (INNER_TYPE, INNER_TYPE), nonnull)), java_object(leaf, "nonnull")),
+        (
+            "halfLeaf",
+            f"L{leaf};",
+            types((FIELD_TARGET, (INNER_TYPE,), nonnull), (FIELD_TARGET, (), nonnull)),
+            java_object(leaf),
+        ),
+        (
+            "undescribed",
+            f"L{name}$Gone;",
+            types((FIELD_TARGET, (), nonnull), (FIELD_TARGET, (INNER_TYPE,), nonnull)),
+            java_object(f"{name}$Gone"),
+        ),
+        ("local", f"L{local};", types((FIELD_TARGET, (), nonnull)), java_object(local)),
+        ("innerOnTop", string, types((FIELD_TARGET, (INNER_TYPE,), nonnull)), STRING),
+        (
+            "kotlin",
+            string,
+            writer.annotations(INVISIBLE, writer.annotation("Lorg/jetbrains/annotations/NotNull;")),
+            NONNULL_STRING,
+        ),
+        (
+            "recent",
+            string,
+            writer.annotations(INVISIBLE, writer.annotation("Landroidx/annotation/RecentlyNonNull;")),
+            NONNULL_STRING,
+        ),
+        (
+            "platform",
+            string,
+            writer.annotations(INVISIBLE, writer.annotation("Landroid/annotation/NonNull;")),
+            NONNULL_STRING,
+        ),
+        (
+            "support",
+            string,
+            writer.annotations(INVISIBLE, writer.annotation("Landroid/support/annotation/NonNull;")),
+            NONNULL_STRING,
+        ),
+        (
+            "recentNull",
+            string,
+            writer.annotations(INVISIBLE, writer.annotation("Landroidx/annotation/RecentlyNullable;")),
+            STRING,
+        ),
+        (
+            "kotlinNull",
+            string,
+            writer.annotations(INVISIBLE, writer.annotation("Lorg/jetbrains/annotations/Nullable;")),
+            STRING,
+        ),
+        ("skipped", string, writer.annotations(VISIBLE, unknown), STRING),
+        (
+            "elements",
+            string,
+            writer.annotations(VISIBLE, unknown, writer.annotation(ANDROIDX_NONNULL, *every)),
+            NONNULL_STRING,
+        ),
+        ("whenAlways", string, when(writer.enum_value(JAVAX_WHEN, "ALWAYS")), NONNULL_STRING),
+        ("whenForeign", string, when(writer.enum_value("Lother/When;", "ALWAYS")), STRING),
+        ("whenArray", string, when(b"[" + struct.pack(">H", 1) + writer.enum_value(JAVAX_WHEN, "ALWAYS")), STRING),
+        ("whenText", string, when(b"s" + struct.pack(">H", writer.utf8("ALWAYS"))), STRING),
+        ("mixed", string, writer.annotations(INVISIBLE, writer.annotation(ANDROIDX_NULLABLE)), STRING),
+        (
+            "invisibleType",
+            string,
+            writer.type_annotations(INVISIBLE_TYPES, (FIELD_TARGET, (), nonnull)),
+            NONNULL_STRING,
+        ),
+        # Parameter annotations belong to methods; on a field they are skipped unread.
+        ("fieldParameters", string, writer.attribute(VISIBLE_PARAMETERS, b"\xff"), STRING),
+    ]
+    for field, descriptor, attribute, _ in fields:
+        extra = (types((FIELD_TARGET, (), nonnull)),) if field == "mixed" else ()
+        writer.field(ACC_PUBLIC, field, descriptor, attribute, *extra)
+    every_target = types(
+        (RECEIVER_TARGET, (), nonnull),
+        (b"\x01\x00", (), nonnull),
+        (b"\x12\x00\x00", (), nonnull),
+        (b"\x17\x00\x00", (), nonnull),
+    )
+    methods = [
+        # One parameter annotation for two parameters of a static method: checked, not applied.
+        (
+            "fewer",
+            f"({string}{string})V",
+            ACC_PUBLIC | ACC_STATIC,
+            (writer.parameter_annotations(INVISIBLE_PARAMETERS, (writer.annotation(ANDROIDX_NONNULL),)),),
+            function(VOID, STRING, STRING),
+        ),
+        ("targets", f"(){string}", ACC_PUBLIC, (every_target,), function(STRING)),
+        (
+            "<init>",
+            "()V",
+            ACC_PUBLIC,
+            (types((RETURN_TARGET, (), nonnull)), writer.annotations(INVISIBLE, writer.annotation(ANDROIDX_NONNULL))),
+            function(VOID),
+        ),
+        (
+            "count",
+            "()I",
+            ACC_PUBLIC,
+            (writer.annotations(INVISIBLE, writer.annotation(ANDROIDX_NONNULL)),),
+            function(JINT),
+        ),
+    ]
+    for method, descriptor, access, attributes, _ in methods:
+        writer.method(access, method, descriptor, *attributes)
+    dotted = name.replace("/", ".")
+    return (
+        writer.build(),
+        [(f"{dotted}.{field}:{descriptor}", value) for field, descriptor, _, value in fields],
+        [
+            (f"{dotted}.{method}{descriptor}", signature, bool(access & ACC_STATIC))
+            for method, descriptor, access, _, signature in methods
+        ],
+    )
+
+
+def test_annotation_edge_cases_mark_only_what_they_settle(reader, tmp_path):
+    """Array levels, type paths, nested types, every element value kind and each recognized family."""
+    data, fields, methods = edges_class()
+    entry = write_directory(tmp_path, {f"{PACKAGE}/Edges.class": data})
+    symbols = [symbol for symbol, _ in fields] + [symbol for symbol, *_ in methods]
+    run = run_reader(reader, [entry], *symbols)
+    assert run.returncode == 0, run.stderr
+    expected = [java_class(f"{PACKAGE}/Edges", entry)]
+    expected += [java_field(symbol, value, entry) for symbol, value in fields]
+    expected += [java_method(symbol, signature, entry, static=static) for symbol, signature, static in methods]
+    assert run.stdout == document(expected, [data])
+
+
+def test_inner_constructor_parameter_annotations_skip_the_enclosing_instance(reader, tmp_path):
+    """javac counts an inner class constructor's declared parameters only; a table as long as the descriptor maps one to one."""
+    outer = f"{PACKAGE}/Outer"
+    name = f"{outer}$Room"
+    descriptor = f"(L{outer};Ljava/lang/String;)V"
+    shorter = ClassFileWriter(name)
+    shorter.inner_class(name, outer, "Room", ACC_PUBLIC)
+    shorter.method(
+        ACC_PUBLIC,
+        "<init>",
+        descriptor,
+        shorter.parameter_annotations(INVISIBLE_PARAMETERS, (shorter.annotation(ANDROIDX_NONNULL),)),
+    )
+    full = ClassFileWriter(name)
+    full.inner_class(name, outer, "Room", ACC_PUBLIC)
+    full.method(
+        ACC_PUBLIC,
+        "<init>",
+        descriptor,
+        full.parameter_annotations(INVISIBLE_PARAMETERS, (), (full.annotation(ANDROIDX_NONNULL),)),
+    )
+    # A static member class has no enclosing instance, so a shorter table is not applied.
+    nested = ClassFileWriter(name)
+    nested.inner_class(name, outer, "Room", ACC_PUBLIC | ACC_STATIC)
+    nested.method(
+        ACC_PUBLIC,
+        "<init>",
+        descriptor,
+        nested.parameter_annotations(INVISIBLE_PARAMETERS, (nested.annotation(ANDROIDX_NONNULL),)),
+    )
+    enclosing = ClassFileWriter(outer).build()
+    symbol = f"{name.replace('/', '.')}.<init>{descriptor}"
+    for case, (writer, parameter) in enumerate(((shorter, NONNULL_STRING), (full, NONNULL_STRING), (nested, STRING))):
+        data = writer.build()
+        entry = write_directory(tmp_path / str(case), {f"{name}.class": data, f"{outer}.class": enclosing})
+        run = run_reader(reader, [entry], symbol)
+        expected = [java_class(name, entry), java_method(symbol, function(VOID, java_object(outer), parameter), entry)]
+        assert run.stdout == document(expected, [data, enclosing])
+
+
+# ---- Natives ------------------------------------------------------------------------------
+
+
+def test_natives_select_native_methods_of_any_access(reader, package):
+    """--native reports ACC_NATIVE methods whatever their access, and public methods as they are."""
+    entry = package.directory
+    a = "dev.btrc.fixture.Annotated"
+    peek = f"{a}.peek(L{ANNOTATED};)Ljava/lang/String;"
+    natives = (
+        f"{a}.poke(Ljava/lang/String;)V",
+        f"{a}.tally()I",
+        f"{a}.guard()V",
+        f"{a}.share()V",
+        peek,
+        # Public but not native: reported with native_method false, for the importer to refuse.
+        f"{a}.describe(Ljava/lang/Object;[Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/String;",
+    )
+    # A public native may be given by both options; it is reported once.
+    run = run_reader(reader, [entry], peek, natives=natives)
+    assert run.returncode == 0, run.stderr
+    object_ = java_object("java/lang/Object")
+    expected = [
+        java_class(ANNOTATED, entry),
+        java_method(peek, function(NONNULL_STRING, java_object(ANNOTATED, "nonnull")), entry, native=True),
+        java_method(natives[0], function(VOID, NONNULL_STRING), entry, native=True),
+        java_method(natives[1], function(JINT), entry, static=True, native=True),
+        java_method(natives[2], function(VOID), entry, native=True),
+        java_method(natives[3], function(VOID), entry, native=True),
+        java_method(natives[5], function(NONNULL_STRING, object_, java_array(object_, "nonnull"), STRING), entry),
+    ]
+    assert run.stdout == document(expected, [package.classes[f"{ANNOTATED}.class"]])
+
+
+NATIVE_REFUSALS = [
+    (
+        (),
+        ("dev.btrc.fixture.Annotated.hidden()V",),
+        "unknown member dev.btrc.fixture.Annotated.hidden()V (neither public nor native)",
+    ),
+    # Given by both options, a method is held to --symbol's rule as well.
+    (
+        ("dev.btrc.fixture.Annotated.poke(Ljava/lang/String;)V",),
+        ("dev.btrc.fixture.Annotated.poke(Ljava/lang/String;)V",),
+        "unknown member dev.btrc.fixture.Annotated.poke(Ljava/lang/String;)V (not public)",
+    ),
+    ((), ("dev.btrc.fixture.Annotated.poke(J)V",), "unknown member dev.btrc.fixture.Annotated.poke(J)V"),
+    ((), ("dev.btrc.fixture.Internal.value()I",), "unknown class dev.btrc.fixture.Internal (not public)"),
+    (
+        (),
+        ("dev.btrc.fixture.Widget.lambda$run$0(Ljava/lang/Runnable;)V",),
+        "unknown member dev.btrc.fixture.Widget.lambda$run$0(Ljava/lang/Runnable;)V (neither public nor native)",
+    ),
+]
+
+
+@pytest.mark.parametrize(("symbols", "natives", "message"), NATIVE_REFUSALS, ids=[n[0] for _, n, _ in NATIVE_REFUSALS])
+def test_natives_refuse_what_registration_cannot_bind(reader, package, symbols, natives, message):
+    assert failure(run_reader(reader, [package.directory], *symbols, natives=natives)) == message
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "dev.btrc.fixture.Annotated",
+        "dev.btrc.fixture.Annotated.name:Ljava/lang/String;",
+        "dev.btrc.fixture.Annotated.<init>(Ljava/lang/String;)V",
+        "dev.btrc.fixture.Widget.<clinit>()V",
+    ],
+)
+def test_natives_name_methods_other_than_initializers(reader, package, symbol):
+    message = f"invalid symbol {symbol}: --native selects a method other than <init> and <clinit>"
+    assert failure(run_reader(reader, [package.directory], natives=(symbol,))) == message
+
+
+def test_a_synthetic_native_is_hidden(reader, tmp_path):
+    writer = ClassFileWriter(f"{PACKAGE}/Holder")
+    writer.method(ACC_PRIVATE | ACC_NATIVE | ACC_SYNTHETIC, "shim", "()V")
+    entry = write_directory(tmp_path, {f"{PACKAGE}/Holder.class": writer.build()})
+    symbol = "dev.btrc.fixture.Holder.shim()V"
+    assert failure(run_reader(reader, [entry], natives=(symbol,))) == f"unknown member {symbol} (synthetic)"
+
+
+# ---- Nested classes -----------------------------------------------------------------------
+
+
+def nested_chain(
+    *, middle_access: int = ACC_PUBLIC | ACC_STATIC, top_access: int = ACC_PUBLIC | ACC_SUPER
+) -> dict[str, bytes]:
+    """Chain, Chain$Middle and Chain$Middle$Leaf, each class file with its own InnerClasses entry."""
+    top = f"{PACKAGE}/Chain"
+    middle = f"{top}$Middle"
+    leaf = f"{middle}$Leaf"
+    chain = ClassFileWriter(top, access=top_access)
+    chain.inner_class(middle, top, "Middle", middle_access)
+    between = ClassFileWriter(middle, access=ACC_PUBLIC | ACC_SUPER if middle_access & ACC_PUBLIC else ACC_SUPER)
+    between.inner_class(middle, top, "Middle", middle_access)
+    between.inner_class(leaf, middle, "Leaf", ACC_PUBLIC | ACC_STATIC)
+    last = ClassFileWriter(leaf)
+    last.method(ACC_PUBLIC | ACC_STATIC, "value", "()I")
+    last.inner_class(leaf, middle, "Leaf", ACC_PUBLIC | ACC_STATIC)
+    last.inner_class(middle, top, "Middle", middle_access)
+    return {f"{top}.class": chain.build(), f"{middle}.class": between.build(), f"{leaf}.class": last.build()}
+
+
+def test_a_member_class_is_read_with_its_enclosing_classes(reader, tmp_path):
+    """Each enclosing class is read, after the member class, and enters the digest."""
+    classes = nested_chain()
+    entry = write_directory(tmp_path, classes)
+    leaf = f"{PACKAGE}/Chain$Middle$Leaf"
+    symbol = "dev.btrc.fixture.Chain$Middle$Leaf.value()I"
+    run = run_reader(reader, [entry], symbol)
+    expected = [java_class(leaf, entry), java_method(symbol, function(JINT), entry, static=True)]
+    read = [classes[f"{name}.class"] for name in (leaf, f"{PACKAGE}/Chain$Middle", f"{PACKAGE}/Chain")]
+    assert run.stdout == document(expected, read)
+
+
+def test_member_classes_need_visible_enclosing_classes(reader, tmp_path):
+    leaf = "dev.btrc.fixture.Chain$Middle$Leaf"
+    hidden_middle = write_directory(tmp_path / "private", nested_chain(middle_access=ACC_PRIVATE | ACC_STATIC))
+    assert failure(run_reader(reader, [hidden_middle], leaf)) == (
+        f"unknown class {leaf} (its enclosing class dev.btrc.fixture.Chain$Middle is hidden)"
+    )
+    hidden_top = write_directory(tmp_path / "package", nested_chain(top_access=ACC_SUPER))
+    assert failure(run_reader(reader, [hidden_top], leaf)) == (
+        f"unknown class {leaf} (its enclosing class dev.btrc.fixture.Chain is hidden)"
+    )
+    classes = nested_chain()
+    alone = write_directory(tmp_path / "alone", {name: data for name, data in classes.items() if "Leaf" in name})
+    assert failure(run_reader(reader, [alone], leaf)) == (
+        f"unknown class {leaf} (its enclosing class dev.btrc.fixture.Chain$Middle is not on the classpath)"
+    )
+
+
+@pytest.mark.parametrize(("outer", "simple"), [(None, "Local"), (None, None), (f"{PACKAGE}/Chain", None)])
+def test_local_and_anonymous_classes_are_hidden(reader, tmp_path, outer, simple):
+    """Their binary names are the compiler's choice, so no binding names them; javac never makes one public."""
+    name = f"{PACKAGE}/Chain$1Local"
+    writer = ClassFileWriter(name)
+    writer.inner_class(name, outer, simple, ACC_PUBLIC)
+    entry = write_directory(tmp_path, {f"{name}.class": writer.build()})
+    assert failure(run_reader(reader, [entry], "dev.btrc.fixture.Chain$1Local")) == (
+        "unknown class dev.btrc.fixture.Chain$1Local (a local or anonymous class)"
+    )
+
+
+def test_classes_that_enclose_each_other_are_malformed(reader, tmp_path):
+    first = f"{PACKAGE}/Loop$A"
+    second = f"{PACKAGE}/Loop$B"
+    looping = {}
+    for name, outer in ((first, second), (second, first)):
+        writer = ClassFileWriter(name)
+        writer.inner_class(name, outer, name.rsplit("$", 1)[1], ACC_PUBLIC | ACC_STATIC)
+        looping[f"{name}.class"] = writer.build()
+    entry = write_directory(tmp_path / "pair", looping)
+    assert failure(run_reader(reader, [entry], "dev.btrc.fixture.Loop$A")) == (
+        f"malformed class file {entry}!{first}.class: nested classes enclose each other"
+    )
+    alone = ClassFileWriter(first)
+    alone.inner_class(first, first, "A", ACC_PUBLIC | ACC_STATIC)
+    entry = write_directory(tmp_path / "self", {f"{first}.class": alone.build()})
+    assert failure(run_reader(reader, [entry], "dev.btrc.fixture.Loop$A")) == (
+        f"malformed class file {entry}!{first}.class: nested classes enclose each other"
+    )
+
+
 # ---- Arguments ----------------------------------------------------------------------
 
 
@@ -785,7 +1479,7 @@ def test_unrelated_constants_with_nul_and_lone_surrogates_do_not_reject_a_class(
     [
         ([], "--target is required"),
         (["--target=t", "--symbol=a.B"], "--classpath is required"),
-        (["--target=t", "--classpath=x"], "at least one --symbol is required"),
+        (["--target=t", "--classpath=x"], "at least one --symbol or --native is required"),
         (["--target=t", "--target=u", "--classpath=x", "--symbol=a.B"], "--target is given more than once"),
         (["--target=", "--classpath=x", "--symbol=a.B"], "--target must be a non-empty UTF-8 triple"),
         (["--target=t", "--classpath=a::b", "--symbol=a.B"], "empty classpath entry in --classpath=a::b"),
@@ -921,6 +1615,165 @@ def test_malformed_class_files_fail(reader, tmp_path, case, data, problem):
     assert message == f"malformed class file {entry}!{WIDGET}.class: {problem}", case
 
 
+def _malformed_annotations() -> list[tuple[str, bytes, str, str]]:
+    """(case, Widget.class bytes, the symbol that decodes the damage, the problem the reader names).
+
+    Annotations are decoded for the members the document prints, so each
+    case damages one member and selects it.
+    """
+    cases = []
+    widget = "dev.btrc.fixture.Widget"
+
+    def field_case(case, make, problem, descriptor="Ljava/lang/String;"):
+        writer = ClassFileWriter(WIDGET)
+        writer.field(ACC_PUBLIC, "value", descriptor, make(writer))
+        cases.append((case, writer.build(), f"{widget}.value:{descriptor}", problem))
+
+    def method_case(case, make, problem, descriptor="(Ljava/lang/String;)V"):
+        writer = ClassFileWriter(WIDGET)
+        writer.method(ACC_PUBLIC, "run", descriptor, make(writer))
+        cases.append((case, writer.build(), f"{widget}.run{descriptor}", problem))
+
+    def element(writer, value):
+        return writer.annotations(VISIBLE, writer.annotation("Lx/Y;", ("v", value)))
+
+    def nested_arrays(writer, depth):
+        value = b"Z" + struct.pack(">H", writer.constant(3, struct.pack(">i", 1)))
+        for _ in range(depth):
+            value = b"[" + struct.pack(">H", 1) + value
+        return element(writer, value)
+
+    bad_visible = "bad RuntimeVisibleAnnotations attribute"
+    field_case(
+        "annotations-short",
+        lambda w: w.attribute(INVISIBLE, struct.pack(">H", 2) + w.annotation(ANDROIDX_NONNULL)),
+        "bad RuntimeInvisibleAnnotations attribute",
+    )
+    field_case(
+        "annotations-trailing",
+        lambda w: w.attribute(VISIBLE, struct.pack(">H", 1) + w.annotation(JAVAX_NONNULL) + b"\x00"),
+        bad_visible,
+    )
+    field_case(
+        "annotation-type-not-utf8",
+        lambda w: w.attribute(VISIBLE, struct.pack(">HHH", 1, w.class_ref("x/Y"), 0)),
+        bad_visible,
+    )
+    field_case("element-tag-unknown", lambda w: element(w, b"x" + struct.pack(">H", w.utf8("v"))), bad_visible)
+    field_case("element-int-not-integer", lambda w: element(w, b"I" + struct.pack(">H", w.utf8("v"))), bad_visible)
+    field_case(
+        "element-long-second-slot",
+        lambda w: element(w, b"J" + struct.pack(">H", w.constant(5, struct.pack(">q", 7)) + 1)),
+        bad_visible,
+    )
+    field_case(
+        "element-enum-not-utf8",
+        lambda w: element(w, b"e" + struct.pack(">HH", w.class_ref("x/Y"), w.class_ref("x/Y"))),
+        bad_visible,
+    )
+    field_case(
+        "element-class-not-utf8",
+        lambda w: element(w, b"c" + struct.pack(">H", w.constant(3, struct.pack(">i", 1)))),
+        bad_visible,
+    )
+    field_case("element-nesting-too-deep", lambda w: nested_arrays(w, 64), "annotations nest too deeply")
+    field_case(
+        "field-return-target",
+        lambda w: w.type_annotations(VISIBLE_TYPES, (RETURN_TARGET, (), w.annotation(JSPECIFY_NONNULL))),
+        "bad RuntimeVisibleTypeAnnotations attribute",
+    )
+    field_case(
+        "invisible-types-short",
+        lambda w: w.attribute(INVISIBLE_TYPES, struct.pack(">H", 1)),
+        "bad RuntimeInvisibleTypeAnnotations attribute",
+    )
+    bad_types = "bad RuntimeVisibleTypeAnnotations attribute"
+    method_case(
+        "method-field-target",
+        lambda w: w.type_annotations(VISIBLE_TYPES, (FIELD_TARGET, (), w.annotation(JSPECIFY_NONNULL))),
+        bad_types,
+    )
+    method_case(
+        "method-code-target",
+        lambda w: w.type_annotations(VISIBLE_TYPES, (b"\x43\x00\x00", (), w.annotation(JSPECIFY_NONNULL))),
+        bad_types,
+    )
+    method_case(
+        "parameter-index-out-of-range",
+        lambda w: w.type_annotations(VISIBLE_TYPES, (parameter_target(1), (), w.annotation(JSPECIFY_NONNULL))),
+        bad_types,
+    )
+    method_case(
+        "path-kind-unknown",
+        lambda w: w.type_annotations(VISIBLE_TYPES, (RETURN_TARGET, ((4, 0),), w.annotation(JSPECIFY_NONNULL))),
+        bad_types,
+    )
+    method_case(
+        "path-array-argument",
+        lambda w: w.type_annotations(VISIBLE_TYPES, (RETURN_TARGET, ((0, 1),), w.annotation(JSPECIFY_NONNULL))),
+        bad_types,
+    )
+    method_case(
+        "parameters-exceed-descriptor",
+        lambda w: w.parameter_annotations(INVISIBLE_PARAMETERS, (), ()),
+        "bad RuntimeInvisibleParameterAnnotations attribute",
+    )
+    method_case(
+        "parameters-short",
+        lambda w: w.attribute(VISIBLE_PARAMETERS, b"\x01"),
+        "bad RuntimeVisibleParameterAnnotations attribute",
+    )
+    for case, entry, problem in (
+        ("inner-not-a-class", lambda w: (w.utf8("x"), 0, 0), "bad InnerClasses attribute"),
+        ("outer-not-a-class", lambda w: (w.this_class, w.utf8("x"), 0), "bad InnerClasses attribute"),
+        ("name-not-utf8", lambda w: (w.this_class, 0, w.this_class), "bad InnerClasses attribute"),
+    ):
+        writer = ClassFileWriter(WIDGET)
+        writer.attributes.append(writer.attribute("InnerClasses", struct.pack(">HHHHH", 1, *entry(writer), 0)))
+        cases.append((case, writer.build(), widget, problem))
+    twice = ClassFileWriter(WIDGET)
+    for _ in range(2):
+        twice.attributes.append(twice.attribute("InnerClasses", struct.pack(">H", 0)))
+    cases.append(("inner-classes-twice", twice.build(), widget, "bad InnerClasses attribute"))
+    return cases
+
+
+MALFORMED_ANNOTATIONS = _malformed_annotations()
+
+
+@pytest.mark.parametrize(
+    ("case", "data", "symbol", "problem"), MALFORMED_ANNOTATIONS, ids=[case for case, *_ in MALFORMED_ANNOTATIONS]
+)
+def test_malformed_annotations_and_inner_classes_fail(reader, tmp_path, case, data, symbol, problem):
+    entry = write_directory(tmp_path, {f"{WIDGET}.class": data})
+    message = failure(run_reader(reader, [entry], symbol))
+    assert message == f"malformed class file {entry}!{WIDGET}.class: {problem}", case
+
+
+def test_annotation_values_nest_up_to_the_bound(reader, tmp_path):
+    """An annotation's values may nest 63 arrays deep; one more is malformed (above)."""
+    writer = ClassFileWriter(WIDGET)
+    value = b"Z" + struct.pack(">H", writer.constant(3, struct.pack(">i", 1)))
+    for _ in range(63):
+        value = b"[" + struct.pack(">H", 1) + value
+    nonnull = writer.annotation(ANDROIDX_NONNULL, ("v", value))
+    writer.field(ACC_PUBLIC, "value", "Ljava/lang/String;", writer.annotations(INVISIBLE, nonnull))
+    data = writer.build()
+    entry = write_directory(tmp_path, {f"{WIDGET}.class": data})
+    symbol = "dev.btrc.fixture.Widget.value:Ljava/lang/String;"
+    run = run_reader(reader, [entry], symbol)
+    assert run.stdout == document([java_class(WIDGET, entry), java_field(symbol, NONNULL_STRING, entry)], [data])
+
+
+def test_annotations_of_members_not_printed_are_never_decoded(reader, tmp_path):
+    """A damaged annotation on another member does not reject the class."""
+    writer = ClassFileWriter(WIDGET)
+    writer.field(ACC_PUBLIC, "broken", "I", writer.attribute(VISIBLE, b"\xff\xff"))
+    writer.field(ACC_PUBLIC, "value", "I")
+    entry = write_directory(tmp_path, {f"{WIDGET}.class": writer.build()})
+    assert run_reader(reader, [entry], "dev.btrc.fixture.Widget.value:I").returncode == 0
+
+
 def test_a_member_declared_twice_is_malformed(reader, tmp_path):
     writer = ClassFileWriter(WIDGET)
     writer.method(ACC_PUBLIC, "run", "()V")
@@ -938,20 +1791,63 @@ def test_a_class_file_declaring_another_class_fails(reader, tmp_path):
     )
 
 
-def test_every_truncation_and_byte_flip_fails_cleanly(reader, tmp_path):
-    """Hostile input never crashes the reader: each prefix fails, each corruption fails or still parses."""
-    data = assembled_fixture()[f"{PACKAGE}/Base.class"]
-    path = tmp_path / PACKAGE / "Base.class"
+def fuzzed_class() -> bytes:
+    """A small class whose one method carries every annotation form the reader decodes, and an inner type."""
+    name = f"{PACKAGE}/Fuzzed"
+    node = f"{name}$Node"
+    writer = ClassFileWriter(name)
+    writer.inner_class(node, name, "Node", ACC_PUBLIC)
+    nested = b"[" + struct.pack(">H", 1) + b"@" + writer.annotation(ANDROIDX_NULLABLE)
+    writer.method(
+        ACC_PUBLIC | ACC_NATIVE,
+        "run",
+        f"(L{node};[I)Ljava/lang/String;",
+        writer.annotations(INVISIBLE, writer.annotation(ANDROIDX_NONNULL)),
+        writer.parameter_annotations(
+            VISIBLE_PARAMETERS,
+            (writer.annotation(JAVAX_NONNULL, ("when", writer.enum_value(JAVAX_WHEN, "ALWAYS"))),),
+            (writer.annotation("Lx/Y;", ("v", nested)),),
+        ),
+        writer.type_annotations(
+            VISIBLE_TYPES,
+            (parameter_target(0), (INNER_TYPE,), writer.annotation(JSPECIFY_NONNULL)),
+            (parameter_target(1), (), writer.annotation(JSPECIFY_NONNULL)),
+        ),
+    )
+    return writer.build()
+
+
+FUZZED = [
+    ("Base", lambda: assembled_fixture()[f"{PACKAGE}/Base.class"], "dev.btrc.fixture.Base.reset()V"),
+    (
+        "Fuzzed",
+        fuzzed_class,
+        "dev.btrc.fixture.Fuzzed.run(Ldev/btrc/fixture/Fuzzed$Node;[I)Ljava/lang/String;",
+    ),
+]
+
+
+@pytest.mark.parametrize(("name", "make", "symbol"), FUZZED, ids=[name for name, *_ in FUZZED])
+def test_every_truncation_and_byte_flip_fails_cleanly(reader, tmp_path, name, make, symbol):
+    """Hostile input never crashes the reader: each prefix fails, each corruption fails or still parses.
+
+    Fuzzed's method is printed, so its annotations and the InnerClasses entry
+    its type path needs are decoded under every corruption too.
+    """
+    data = make()
+    path = tmp_path / PACKAGE / f"{name}.class"
     path.parent.mkdir(parents=True)
+    path.write_bytes(data)
+    assert run_reader(reader, [tmp_path], symbol).returncode == 0
     crashes = []
     for length in range(len(data)):
         path.write_bytes(data[:length])
-        run = run_reader(reader, [tmp_path], "dev.btrc.fixture.Base.reset()V")
+        run = run_reader(reader, [tmp_path], symbol)
         if run.returncode != 1 or not run.stderr.startswith("JavaClassReader: malformed class file"):
             crashes.append(("prefix", length, run))
     for offset in range(len(data)):
         path.write_bytes(_patched(data, offset, bytes([data[offset] ^ 0xFF])))
-        run = run_reader(reader, [tmp_path], "dev.btrc.fixture.Base.reset()V")
+        run = run_reader(reader, [tmp_path], symbol)
         if run.returncode not in (0, 1) or (run.returncode == 1 and run.stdout):
             crashes.append(("flip", offset, run))
     assert crashes == []
@@ -1035,7 +1931,7 @@ def test_single_entry_jars_read_stored_or_deflated(reader, tmp_path):
         entry.write_bytes(_single_entry_jar(data, compression=compression)[0])
         run = run_reader(reader, [entry], "dev.btrc.fixture.Widget.run(Ljava/lang/Runnable;)V")
         assert run.returncode == 0, run.stderr
-        assert json.loads(run.stdout)["clang"] == "btrc-class-reader/1 sha256:" + hashlib.sha256(data).hexdigest()
+        assert json.loads(run.stdout)["clang"] == f"{IDENTITY} sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def test_a_missing_jar_fails_but_a_missing_directory_is_skipped(reader, package, tmp_path):
@@ -1045,6 +1941,44 @@ def test_a_missing_jar_fails_but_a_missing_directory_is_skipped(reader, package,
     )
     run = run_reader(reader, [tmp_path / "missing", package.directory], "dev.btrc.fixture.Widget")
     assert run.returncode == 0, run.stderr
+
+
+# ---- Both compilers' codecs --------------------------------------------------------------
+
+
+def test_reader_v2_documents_decode_identically_in_both_codecs(reader, codec_probe, tmp_path):
+    """Nonnull references, natives of any access and an inner class constructor, through both compilers."""
+    entry = write_directory(tmp_path / "classes", assembled_fixture())
+    a = "dev.btrc.fixture.Annotated"
+    create = f"{a}.create(Ljava/lang/String;Ljava/lang/String;I)L{ANNOTATED};"
+    tags = f"{a}.tags:[Ljava/lang/String;"
+    grid = "dev.btrc.fixture.Specified.grid:[[Ljava/lang/String;"
+    constructor = f"dev.btrc.fixture.Specified$Inner.<init>(L{SPECIFIED};Ljava/lang/String;Ljava/lang/String;)V"
+    poke = f"{a}.poke(Ljava/lang/String;)V"
+    tally = f"{a}.tally()I"
+    run = run_reader(
+        reader,
+        [entry],
+        create,
+        tags,
+        grid,
+        constructor,
+        target="aarch64-unknown-linux-android29",
+        natives=(poke, tally),
+    )
+    assert run.returncode == 0, run.stderr
+    assert_codec_parity(codec_probe, tmp_path, run.stdout)
+    exports = {declaration.name: declaration for declaration in NativeHeaderCodec().decode(run.stdout).exports}
+    assert (
+        describe(exports[create].signature)
+        == "(Ljava/lang/String;,Ljava/lang/String;?,jint)Ldev/btrc/fixture/Annotated;@java"
+    )
+    assert describe(exports[tags].value_type) == "[Ljava/lang/String;?"
+    assert describe(exports[grid].value_type) == "[[Ljava/lang/String;??"
+    assert describe(exports[constructor].signature) == (
+        "(Ldev/btrc/fixture/Specified;?,Ljava/lang/String;,Ljava/lang/String;?)void@java"
+    )
+    assert exports[poke].native_method and exports[tally].native_method and exports[tally].static_member
 
 
 # ---- Build wiring ------------------------------------------------------------------------
