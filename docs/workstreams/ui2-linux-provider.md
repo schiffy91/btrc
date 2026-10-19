@@ -395,3 +395,24 @@ then registers successfully after COMPLETE and receives another observation.
 Text, scroll, view-state and window-state duplicate-channel guards now test
 cancellation completion rather than merely closed admission. Selection uses the
 same rule. Runtime/semantic proof for this new fixture remains pending.
+
+## Integration repair, 2026-10-19
+
+Branch `codex/ui2-completion-20261019` reconciles the retained SDK, fixture and
+resize branches with the combined platform candidate at `2be60a73`. It preserves
+the current Linux GUI test markers, Windows provider, platform skip rows and
+BackgroundJobs Windows thread-count fixture. The recovered UI2 source is still
+incomplete and must not land on main independently of its macOS provider.
+
+The first execution of `test_ui2_semantic_queue[plain-python]` aborted with
+`Callback scope collected before independent cancellation`. Channel cancellation
+closed its handler but left the private scope retaining the registration. The
+channel now cancels and polls that owning scope, including failed activation.
+The same plain reference test passes after the repair. The remaining compiler
+and sanitizer rows are being run against a fresh portable self-host build;
+this checkpoint does not claim those results yet.
+
+The catalog check preserves 1,620 operation slots, 470 case slots and 300 family
+cells, with 70 pending IDs. It reports no undeclared or missing slots. Surface
+coverage remains absent (87 exported symbols have no surface row); this is not
+provider qualification or completion of the UI2 export fragment.

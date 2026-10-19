@@ -230,7 +230,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 		var handler = new CallbackContext<Receiver, ControlEventTerminalPool>(receiver, ControlEventTerminalPool.unregister);
 		handler.activate(self._scope); self._handler = handler;
 		try { owner.track(self); handler.publish(queue.terminalPool()); }
-		catch (string error) { handler.abortActivation(); self._cancelling = true; self.releaseReservation(); throw error; }
+		catch (string error) { handler.abortActivation(); self._cancelling = true; self._scope.cancel(); self.releaseReservation(); throw error; }
 	}
 
 	public bool isOpen() { return !self._cancelling && self._handler != null && self._handler.isOpen(); }
@@ -305,15 +305,13 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 		self._cancelling = true;
 		self._queue.cancelRegistration(self._identity);
 		for ticket in self._tickets { if (!ticket.queued()) { ticket.retire(); } }
-		var handler = self._handler;
-		self._cancellation = handler == null ? CALLBACK_CANCELLATION_COMPLETE : handler.cancel();
+		self._cancellation = self._scope.cancel();
 		return self.pollCompletion();
 	}
 
 	public CallbackCancellation pollCompletion() {
 		if (!self._cancelling) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
-		var handler = self._handler;
-		if (handler != null) { self._cancellation = handler.pollCompletion(); }
+		self._cancellation = self._scope.pollCompletion();
 		if (self._cancellation == CALLBACK_CANCELLATION_COMPLETE) {
 			if (self._pending != 0) { return CALLBACK_CANCELLATION_PENDING; }
 			self.releaseReservation(); self._tickets.clear(); self._baseTicket = null; self._target = null;
