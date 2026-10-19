@@ -424,25 +424,54 @@ jobs:
   # test_native_com_windows.py). The header reader and zig run under Nix,
   # which Windows lacks, so a Linux runner builds the executables and the
   # server and win32-native runs them on x64 and ARM64 Windows.
+  # The Windows FileSystem provider rides the same pair of jobs: its own cases
+  # (test_windows_filesystem_handles.py) and the FileSystem corpus programs,
+  # bundled by src/tests/target_runner.py through both compilers for each
+  # architecture and executed there by the windows-native executor.
   win32-native-build:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'win32-native-build')
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
         with:
           use-flakehub: false
-      - name: Build the window subclass and the COM programs with both compilers for x64 and ARM64
-        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Build the self-hosted compiler once for every program below
+        run: nix develop --command make NIX= btrcc
+      - name: Build the window subclass, the COM and the FileSystem case programs with both compilers for x64 and ARM64
+        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_windows_filesystem_handles.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Bundle the FileSystem corpus programs with both compilers for x64 and ARM64
+        run: |
+          set -euo pipefail
+          programs=(
+            --program 'stdlib/AdvisoryFileLock*.btrc' --program 'stdlib/ApplicationDirectories.btrc'
+            --program 'stdlib/FileSystem*.btrc' --program 'stdlib/FileTree*.btrc' --program 'stdlib/Fs*.btrc'
+            --program 'stdlib/Path*.btrc' --program 'stdlib/PrivateDirectory*.btrc' --program 'stdlib/RegularFileSnapshot*.btrc'
+          )
+          for pair in windows-x86_64:windows-x64 windows-aarch64:windows-arm64; do
+            row="${pair%%:*}"
+            name="${pair##*:}"
+            nix develop --command python3 -m src.tests.target_runner --target "$row" --frontend both --compile-only \
+              --btrcc bin/btrcc --jobs 4 "${programs[@]}" \
+              --bundle "build/windows-filesystem/$name" --output "build/windows-filesystem/$name-build"
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: win32-native-executables
           path: |
             build/win32/*.exe
             build/win32/*.dll
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-filesystem-bundles
+          path: |
+            build/windows-filesystem/windows-x64
+            build/windows-filesystem/windows-arm64
           if-no-files-found: error
           retention-days: 7
       - name: Retain the skip report
@@ -462,15 +491,27 @@ jobs:
       matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['win32-native'] }}
     name: win32-native (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
     steps:
+      # The checkout supplies the goldens and the runner that admits the
+      # FileSystem bundle: it must be the revision the bundle was built at.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - name: Install the test dependencies
+        run: python -m pip install '.[dev]'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: win32-native-executables
           path: win32
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: windows-filesystem-bundles
+          path: windows-filesystem
       - name: Subclass a real window through each compiler's program
         run: |
           for frontend in reference selfhost; do
@@ -494,6 +535,36 @@ jobs:
             echo "$frontend ${{ matrix.target }}: $output"
             test "$output" = "$(printf 'com-stream status=0 written=4 same=1\ncom-stream-release claims=0 last=0')"
           done
+      # Long \\?\ paths, a UNC path (\\localhost\C$ where the runner allows the
+      # administrative share), non-ASCII names, junctions never followed and a
+      # junction swapped during traversal, owner-only DACLs, LockFileEx across
+      # processes, an interrupted durable replace and the known folders.
+      - name: Run the Windows FileSystem provider cases through each compiler's program
+        run: |
+          mkdir -p build
+          for frontend in reference selfhost; do
+            report="build/windows-fs-cases-$frontend.txt"
+            status=0
+            "./win32/windows-fs-cases-$frontend-${{ matrix.target }}.exe" > "$report" || status=$?
+            echo "$frontend ${{ matrix.target }} (exit $status):"
+            cat "$report"
+            test "$status" -eq 0
+            python -c 'import sys; from pathlib import Path; from src.tests.python.test_windows_filesystem_handles import check_output; check_output(Path(sys.argv[1]).read_text(encoding="utf-8"))' "$report"
+          done
+      - name: Run the FileSystem corpus programs from both compilers' bundle
+        run: |
+          python -m src.tests.target_runner --execute-bundle "windows-filesystem/${{ matrix.target }}" \
+            --executor windows-native --frontend both --output "build/windows-filesystem-run" \
+            --program 'stdlib/AdvisoryFileLock*.btrc' --program 'stdlib/ApplicationDirectories.btrc' \
+            --program 'stdlib/FileSystem*.btrc' --program 'stdlib/FileTree*.btrc' --program 'stdlib/Fs*.btrc' \
+            --program 'stdlib/Path*.btrc' --program 'stdlib/PrivateDirectory*.btrc' --program 'stdlib/RegularFileSnapshot*.btrc'
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-filesystem-run-${{ matrix.target }}
+          path: build/windows-filesystem-run
+          if-no-files-found: ignore
+          retention-days: 7
 
   bootstrap:
     needs: scope
