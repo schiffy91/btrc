@@ -9024,6 +9024,7 @@ HOSTED_MACRO_NAMES: tuple[str, ...] = (
     'O_NOFOLLOW',
     'O_NOFOLLOW_ANY',
     'O_NONBLOCK',
+    'O_PATH',
     'O_POPUP',
     'O_RDONLY',
     'O_RDWR',
@@ -12160,6 +12161,7 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     'O_NOFOLLOW',
     'O_NOFOLLOW_ANY',
     'O_NONBLOCK',
+    'O_PATH',
     'O_POPUP',
     'O_RDONLY',
     'O_RDWR',
@@ -16632,6 +16634,7 @@ HOSTED_PLATFORM_MACRO_NAMES: tuple[str, ...] = (
     'O_NOFOLLOW',
     'O_NOFOLLOW_ANY',
     'O_NONBLOCK',
+    'O_PATH',
     'O_POPUP',
     'O_RDONLY',
     'O_RDWR',
@@ -21150,6 +21153,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'NGREG',
                     'NSS_BUFLEN_PASSWD',
                     'OLCUC',
+                    'O_PATH',
                     'O_RSYNC',
                     'PF_ALG',
                     'PF_ASH',
@@ -21809,6 +21813,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'NGREG',
                     'NSS_BUFLEN_PASSWD',
                     'OLCUC',
+                    'O_PATH',
                     'O_RSYNC',
                     'PF_ALG',
                     'PF_ASH',
@@ -24998,6 +25003,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'NGREG',
                     'NSS_BUFLEN_PASSWD',
                     'OLCUC',
+                    'O_PATH',
                     'O_RSYNC',
                     'PF_ALG',
                     'PF_ASH',
@@ -25647,6 +25653,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'NGREG',
                     'NSS_BUFLEN_PASSWD',
                     'OLCUC',
+                    'O_PATH',
                     'O_RSYNC',
                     'PF_ALG',
                     'PF_ASH',
@@ -27781,6 +27788,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'O_NDELAY',
                     'O_NOCTTY',
                     'O_NOFOLLOW_ANY',
+                    'O_PATH',
                     'O_POPUP',
                     'O_RESOLVE_BENEATH',
                     'O_RSYNC',
@@ -30795,6 +30803,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'O_NOFOLLOW',
                     'O_NOFOLLOW_ANY',
                     'O_NONBLOCK',
+                    'O_PATH',
                     'O_POPUP',
                     'O_RDONLY',
                     'O_RDWR',
@@ -33818,6 +33827,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'O_NDELAY',
                     'O_NOCTTY',
                     'O_NOFOLLOW_ANY',
+                    'O_PATH',
                     'O_POPUP',
                     'O_RESOLVE_BENEATH',
                     'O_RSYNC',
@@ -34888,7 +34898,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
 HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT = 32
-HOSTED_ABI_FINGERPRINT = '33d2d291fad09a477638afc4e5e75f7c587f766cdc37a4369a85cde0c13dd628'
+HOSTED_ABI_FINGERPRINT = 'fa958b8c81e7a8d34373a86ce892ee359b976868cb7d6bf200bdcece4512e649'
 
 TARGET_ROWS: tuple[GeneratedTargetRow, ...] = (
     GeneratedTargetRow(
