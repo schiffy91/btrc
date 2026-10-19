@@ -63,11 +63,23 @@ def _hits(paths: list[Path], patterns) -> list[str]:
     return hits
 
 
+# Not the alias index: a hosted-ABI target row's table of typedef names the
+# row lacks (GeneratedPlatformTargetRow.typedefs), which HostedAbi merges into
+# the row's unavailable-name set for the availability check. Exempt by file
+# and exact receiver, so a real alias-index iteration there still fails.
+BTRC_EXEMPT = (("src/compiler/btrc/analyzer/HostedAbi.btrc", "row.typedefs.keys()"),)
+
+
 def test_no_consumer_iterates_the_typedef_alias_index() -> None:
     # TypeSubstitution.freeze (ir/lowering/generics.py) copies the table into
     # a frozen resolution snapshot; it reads names through it, never lists them.
     assert _hits(_python_sources(), PYTHON_ITERATIONS) == []
-    assert _hits(_btrc_sources(), BTRC_ITERATIONS) == []
+    btrc_hits = [
+        hit
+        for hit in _hits(_btrc_sources(), BTRC_ITERATIONS)
+        if not any(hit.startswith(f"{path}:") and receiver in hit for path, receiver in BTRC_EXEMPT)
+    ]
+    assert btrc_hits == []
 
 
 def test_the_scan_sees_an_iteration() -> None:

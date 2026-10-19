@@ -409,7 +409,7 @@
         "btrcc.compile.BenchCollections_peak": 22134784,
         "btrcc.compile.BenchGenerics_cpu_ms": 25.946,
         "btrcc.compile.BenchGenerics_ms": 26.214,
-        "btrcc.compile.BenchGenerics_peak": 14065664,
+        "btrcc.compile.BenchGenerics_peak": 15265792,
         "btrcc.compile.BenchHello_cpu_ms": 13.413,
         "btrcc.compile.BenchHello_ms": 13.632,
         "btrcc.compile.BenchHello_peak": 14045184,
