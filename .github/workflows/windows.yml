@@ -542,16 +542,21 @@ jobs:
       - name: Run the Windows FileSystem provider cases through each compiler's program
         run: |
           mkdir -p build
+          failed=0
           for frontend in reference selfhost; do
             report="build/windows-fs-cases-$frontend.txt"
             status=0
             "./win32/windows-fs-cases-$frontend-${{ matrix.target }}.exe" > "$report" || status=$?
             echo "$frontend ${{ matrix.target }} (exit $status):"
             cat "$report"
-            test "$status" -eq 0
-            python -c 'import sys; from pathlib import Path; from src.tests.python.test_windows_filesystem_handles import check_output; check_output(Path(sys.argv[1]).read_text(encoding="utf-8"))' "$report"
+            if [ "$status" -ne 0 ] || ! python -c 'import sys; from pathlib import Path; from src.tests.python.test_windows_filesystem_handles import check_output; check_output(Path(sys.argv[1]).read_text(encoding="utf-8"))' "$report"; then
+              failed=1
+            fi
           done
+          test "$failed" -eq 0
+      # Runs even when a case above fails, so one run reports both.
       - name: Run the FileSystem corpus programs from both compilers' bundle
+        if: ${{ !cancelled() }}
         run: |
           python -m src.tests.target_runner --execute-bundle "windows-filesystem/${{ matrix.target }}" \
             --executor windows-native --frontend both --output "build/windows-filesystem-run" \

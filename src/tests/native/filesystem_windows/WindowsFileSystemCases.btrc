@@ -6,7 +6,9 @@
  * test_windows_filesystem_handles.py builds it with both compilers for x64 and
  * ARM64, and windows.yml runs each build on its own architecture. Every case
  * prints one `case=<name> ok` line (or `case=unc skipped <reason>` where the
- * runner denies the administrative share); the last line is PASS. */
+ * runner denies the administrative share); the last line is PASS. A case that
+ * fails prints `case=<name> FAIL: <check>`, with the provider's error where
+ * there is one, and the remaining cases still run; the program then exits 1. */
 import Library.Bytes;
 import Library.FileSystem;
 import Library.FileSystem.ApplicationDirectories;
@@ -37,10 +39,7 @@ extern char* btrcTestEnvironment(string variable);
 static Atomic<int> racerStop;
 
 void check(bool condition, string message) {
-	if (!condition) {
-		fprintf(stderr, "FAIL: %s\n", message);
-		exit(1);
-	}
+	if (!condition) { throw message; }
 }
 
 string kindName(FileSystemErrorKind kind) {
@@ -56,6 +55,14 @@ string kindName(FileSystemErrorKind kind) {
 	return "io";
 }
 
+/* A failed check that names the provider's error: kind, operation, native
+ * code and message. */
+void fail(string message, FileSystemError error) { throw message + ": " + kindName(error.kind()) + " in '" + error.operation() + "' (native " + Strings.fromInt(error.nativeCode()) + "): " + error.message(); }
+
+void committed(DurableReplaceOutcome outcome, string message) {
+	if (!outcome.committed()) { fail(message, outcome.error()); }
+}
+
 string join(string directory, string name) { return directory + "\\" + name; }
 
 void writeFile(string path, string content) { check(FileSystem.writeText(path, content), "write " + path); }
@@ -64,11 +71,11 @@ void writeFile(string path, string content) { check(FileSystem.writeText(path, c
 Vector<string> entryNames(string path) {
 	Vector<string> names = [];
 	var opened = FileSystem.openDirectoryExact(path);
-	check(opened.ok(), "open directory " + path);
+	if (!opened.ok()) { fail("open directory " + path, opened.error()); }
 	DirectoryHandle directory = opened.value();
 	while (true) {
 		DirectoryStepOutcome step = directory.next();
-		check(step.ok(), "read directory " + path);
+		if (!step.ok()) { fail("read directory " + path, step.error()); }
 		if (step.kind() == DIRECTORY_STEP_END) { break; }
 		names.push(step.entry().name());
 	}
@@ -78,13 +85,13 @@ Vector<string> entryNames(string path) {
 
 PrivateDirectory privateDirectory(string path) {
 	var opened = FileSystem.openPrivateDirectory(path);
-	check(opened.ok(), "open private directory " + path);
+	if (!opened.ok()) { fail("open private directory " + path, opened.error()); }
 	return opened.value();
 }
 
 ExclusiveFileLease lease(PrivateDirectory directory, string name) {
 	var acquired = directory.acquireExclusiveLease(name);
-	check(acquired.ok(), "acquire lease " + name);
+	if (!acquired.ok()) { fail("acquire lease " + name, acquired.error()); }
 	return acquired.value();
 }
 
@@ -97,7 +104,7 @@ void caseLongPaths(string root) {
 	int depth = 0;
 	while (current.path().len() < 400) {
 		var child = current.openChildDirectory(segment + Strings.fromInt(depth));
-		check(child.ok(), "create long child");
+		if (!child.ok()) { fail("create long child", child.error()); }
 		current = child.value();
 		chain.push(current);
 		depth++;
@@ -105,7 +112,7 @@ void caseLongPaths(string root) {
 	string deepest = current.path();
 	check(deepest.len() > 260, "path exceeds MAX_PATH");
 	ExclusiveFileLease owner = lease(current, "long.lock");
-	check(owner.replaceRegularChildDurably("data.bin", Bytes.fromString("long path")).committed(), "replace past MAX_PATH");
+	committed(owner.replaceRegularChildDurably("data.bin", Bytes.fromString("long path")), "replace past MAX_PATH");
 	PrivateFileReadOutcome read = owner.readRegularChild("data.bin", 64);
 	check(read.found() && read.bytes().toString().equals("long path"), "read past MAX_PATH");
 	check(owner.close().ok(), "close long lease");
@@ -170,7 +177,7 @@ void caseNonAscii(string root) {
 	string name = "naïve-日本語-ü";
 	PrivateDirectory directory = privateDirectory(join(root, name));
 	ExclusiveFileLease owner = lease(directory, "verrou.lock");
-	check(owner.replaceRegularChildDurably("données.bin", Bytes.fromString("été")).committed(), "replace a non-ASCII child");
+	committed(owner.replaceRegularChildDurably("données.bin", Bytes.fromString("été")), "replace a non-ASCII child");
 	PrivateFileReadOutcome read = owner.readRegularChild("données.bin", 64);
 	check(read.found() && read.bytes().toString().equals("été"), "read a non-ASCII child");
 	check(owner.close().ok(), "close the non-ASCII lease");
@@ -254,6 +261,8 @@ void caseJunctionSwap(string root) {
 			}
 			return swaps;
 		});
+	/* Nothing inside the loop throws, so the racer is always stopped. */
+	bool entered = false;
 	for (int round = 0; round < 300; round++) {
 		var opened = FileSystem.openDirectoryExact(tree);
 		if (opened.ok()) {
@@ -269,7 +278,7 @@ void caseJunctionSwap(string root) {
 				while (true) {
 					DirectoryStepOutcome innerStep = inner.next();
 					if (!innerStep.ok() || innerStep.kind() == DIRECTORY_STEP_END) { break; }
-					check(!innerStep.entry().name().equals("must-survive.txt"), "a listing entered the junction");
+					if (innerStep.entry().name().equals("must-survive.txt")) { entered = true; }
 				}
 				inner.close();
 			}
@@ -284,6 +293,7 @@ void caseJunctionSwap(string root) {
 	}
 	racerStop.store(1, MemoryOrder.RELEASE);
 	int swaps = racer.join();
+	check(!entered, "a listing entered the junction");
 	check(swaps > 0, "the racer swapped the junction in");
 	check(FileSystem.readText(join(outside, "must-survive.txt")).equals("safe"), "the outside file survives");
 	Vector<string> outsideNames = entryNames(outside);
@@ -355,7 +365,7 @@ int holdLock(string lock, string ready, string releaseMarker) {
 void caseInterruptedReplace(string root) {
 	PrivateDirectory directory = privateDirectory(join(root, "replace"));
 	ExclusiveFileLease owner = lease(directory, "replace.lock");
-	check(owner.replaceRegularChildDurably("state.bin", Bytes.fromString("old")).committed(), "write the old state");
+	committed(owner.replaceRegularChildDurably("state.bin", Bytes.fromString("old")), "write the old state");
 	void* holder = null;
 	check(btrcTestHoldOpen(join(directory.path(), "state.bin"), &holder) == 0, "hold the target");
 	DurableReplaceOutcome interrupted = owner.replaceRegularChildDurably("state.bin", Bytes.fromString("new"));
@@ -365,7 +375,7 @@ void caseInterruptedReplace(string root) {
 	check(read.found() && read.bytes().toString().equals("old"), "the old state survives");
 	Vector<string> names = entryNames(directory.path());
 	check(names.len == 2 && names.contains("state.bin") && names.contains("replace.lock"), "no temporary file is left");
-	check(owner.replaceRegularChildDurably("state.bin", Bytes.fromString("new")).committed(), "a later replace commits");
+	committed(owner.replaceRegularChildDurably("state.bin", Bytes.fromString("new")), "a later replace commits");
 	check(owner.readRegularChild("state.bin", 64).bytes().toString().equals("new"), "the new state is read");
 	check(owner.close().ok() && directory.close().ok(), "close the replace directory");
 	print("case=interrupted-replace ok");
@@ -422,7 +432,7 @@ void caseHandleCount(string root) {
 		check(held.ok() && held.value().close().ok(), "lock cycle");
 		PrivateDirectory privateRoot = privateDirectory(join(directoryPath, "private"));
 		ExclusiveFileLease owner = lease(privateRoot, "cycle.lock");
-		check(owner.replaceRegularChildDurably("state.bin", Bytes.fromString("x")).committed(), "replace cycle");
+		committed(owner.replaceRegularChildDurably("state.bin", Bytes.fromString("x")), "replace cycle");
 		check(owner.close().ok() && privateRoot.close().ok(), "private cycle");
 	}
 	int after = btrcTestHandleCount();
@@ -437,22 +447,49 @@ int main(int argc, char** argv) {
 		if (mode.equals("hold")) { return holdLock(Strings.copy(argv[2]), Strings.copy(argv[3]), Strings.copy(argv[4])); }
 	}
 	var temporary = FileSystem.createTemporaryDirectory("btrc-windows-fs-cases");
-	check(temporary.ok(), "create the temporary directory");
+	if (!temporary.ok()) {
+		fprintf(stderr, "FAIL: create the temporary directory: %s\n", temporary.error().message());
+		return 1;
+	}
 	string root = temporary.value().path();
-	check(btrcTestOwnerOnly(root) == 1, "the temporary directory is owner-only");
-	caseLongPaths(root);
-	caseUnc(root);
-	caseNonAscii(root);
-	caseReparsePoints(root);
-	caseJunctionSwap(root);
-	caseDenied(root);
-	caseLockProcesses(root);
-	caseInterruptedReplace(root);
-	caseNameRules(root);
-	caseKnownFolders();
-	caseHandleCount(root);
-	check(temporary.value().close().ok(), "remove the temporary directory");
-	check(!FileSystem.exists(root), "the temporary directory is gone");
+	if (btrcTestOwnerOnly(root) != 1) {
+		fprintf(stderr, "FAIL: the temporary directory is not owner-only\n");
+		return 1;
+	}
+	/* Each case runs to its first failed check, which is reported as that
+	 * case's verdict; later cases still run, so one run reports them all. */
+	Vector<string> names = ["long-paths", "unc", "non-ascii", "reparse-points", "junction-swap", "dacl-denied", "lock-processes", "interrupted-replace", "name-rules", "known-folders", "handle-count"];
+	int failures = 0;
+	for (int index = 0; index < names.len; index++) {
+		try {
+			runCase(index, root);
+		} catch (string failure) {
+			print("case=" + names.get(index) + " FAIL: " + failure);
+			failures++;
+		}
+	}
+	if (failures > 0) {
+		fprintf(stderr, "FAIL: %d windows filesystem cases\n", failures);
+		return 1;
+	}
+	if (!temporary.value().close().ok() || FileSystem.exists(root)) {
+		fprintf(stderr, "FAIL: remove the temporary directory\n");
+		return 1;
+	}
 	print("PASS: windows filesystem cases");
 	return 0;
+}
+
+void runCase(int index, string root) {
+	if (index == 0) { caseLongPaths(root); }
+	if (index == 1) { caseUnc(root); }
+	if (index == 2) { caseNonAscii(root); }
+	if (index == 3) { caseReparsePoints(root); }
+	if (index == 4) { caseJunctionSwap(root); }
+	if (index == 5) { caseDenied(root); }
+	if (index == 6) { caseLockProcesses(root); }
+	if (index == 7) { caseInterruptedReplace(root); }
+	if (index == 8) { caseNameRules(root); }
+	if (index == 9) { caseKnownFolders(); }
+	if (index == 10) { caseHandleCount(root); }
 }
