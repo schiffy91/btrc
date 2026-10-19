@@ -104,8 +104,18 @@ and selects the Windows half with `#if defined(_WIN32)`; the provider returns a
 imports nothing from Process. Every row resolves Process through both
 frontends (`test_windows_process.py`); the BtrccMain and MacOSMain C keep every
 Process-related line, changing only in the generated hosted-ABI and runtime
-catalog data the new runtime rows add, and WindowsMain retains no launch helper.
+catalog data the new runtime rows add and in the resolver's relaxed composition
+below, and WindowsMain retains no launch helper.
 The MSVC row keeps Process's imports and refuses `ChildProcess.run` (its M cell).
+The relaxed composition (`--relaxed-imports`, and the reference compiler's
+prebuilt stdlib archive) used to concatenate only the root modules, so a root
+module with a provider could not compile there for a Windows row. Both
+compilers now append, after the root modules, the providers the root manifest
+selects for the target, each once and in root-module order, as the strict graph
+loads them (`test_relaxed_composition_loads_the_selected_provider`). On the
+other rows the selected Unix shell declares nothing, so their relaxed
+composition gains only its comment lines, after every root module, and their C
+is unchanged.
 
 Every compiler-import edit satisfies WORKSTREAMS §3.4: own btrcc build,
 bootstrap fixed point, zero-warning BtrccMain/WindowsMain (x64 and ARM64)/

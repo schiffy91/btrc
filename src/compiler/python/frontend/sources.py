@@ -34,7 +34,14 @@ from ..parser.parser import Parser
 from ..syntax.ast.codec import AstJsonCodec
 from ..syntax.tokens import SourceSymbolDirective, Token, TokenKind, TokenVocabulary
 from .native_imports import NativeDeclarationImporter, NativeGeneratedSource, NativeHeaderSource
-from .packages import IncludeResolutionError, NativeLinkPlan, PackageTarget, PackageUniverse, ResolvedPackages
+from .packages import (
+    IncludeResolutionError,
+    NativeLinkPlan,
+    PackageImportPolicy,
+    PackageTarget,
+    PackageUniverse,
+    ResolvedPackages,
+)
 from .symbol_index import StdlibSymbolIndex
 
 
@@ -2437,36 +2444,57 @@ class StdlibRepository:
         """Compose relaxed-mode stdlib text, each file conditioned, with native source positions.
 
         ``user_source`` is already conditioned; the stdlib files are conditioned
-        for ``environment``, the host target when none is given.
+        for ``environment``, the host target when none is given. After the root
+        modules come the providers the root manifest selects for that target
+        (``[[package.providers]]``), each once, in root-module order, as the
+        strict import graph would load them.
         """
-        conditionals = SourceConditionals(environment or ConditionalEnvironment.for_host())
+        selected = environment or ConditionalEnvironment.for_host()
+        conditionals = SourceConditionals(selected)
+        policy = PackageImportPolicy(selected.target) if selected.target is not None else None
         user_names = self.defined_names(user_source)
         lines: list[str] = []
         source_positions: list[tuple[str, int]] = []
         identities: list[SourceReadIdentity] = []
+        providers: list[str] = []
         for filename in self.discover_files():
             path = os.path.join(self._directory, filename)
             if not os.path.isfile(path):
                 continue
-            try:
-                loaded = self._source_reader.read_source(path)
-                identities.append(loaded.identity)
-            except SourceReadError as error:
-                raise IncludeResolutionError(str(error)) from error
-            content = conditionals.condition(loaded.text, path).text
-            if self.defined_names(content) & user_names:
-                continue
-            file_lines, file_positions = self._source_without_imports(
-                content,
-                path,
-            )
-            lines.extend(file_lines)
-            source_positions.extend(file_positions)
+            self._compose_relaxed(path, conditionals, user_names, lines, source_positions, identities)
+            for implementation in policy.provider_for(path) if policy is not None else ():
+                if implementation not in providers:
+                    providers.append(implementation)
+        for path in providers:
+            self._compose_relaxed(path, conditionals, user_names, lines, source_positions, identities)
         return StdlibSource(
             source="\n".join(lines),
             source_positions=tuple(source_positions),
             input_identities=tuple(identities),
         )
+
+    def _compose_relaxed(
+        self,
+        path: str,
+        conditionals: SourceConditionals,
+        user_names: set[str],
+        lines: list[str],
+        source_positions: list[tuple[str, int]],
+        identities: list[SourceReadIdentity],
+    ) -> None:
+        """Append one conditioned file without its imports, unless it defines a name the user source does."""
+
+        try:
+            loaded = self._source_reader.read_source(path)
+            identities.append(loaded.identity)
+        except SourceReadError as error:
+            raise IncludeResolutionError(str(error)) from error
+        content = conditionals.condition(loaded.text, path).text
+        if self.defined_names(content) & user_names:
+            return
+        file_lines, file_positions = self._source_without_imports(content, path)
+        lines.extend(file_lines)
+        source_positions.extend(file_positions)
 
     def cached_declarations(self, stdlib_source: str) -> list:
         """Return independently decoded declarations from the persistent cache."""

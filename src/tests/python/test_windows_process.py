@@ -50,6 +50,11 @@ int main() {
 	return result.code;
 }
 """
+RELAXED = """int main() {
+	ExecResult result = ChildProcess.run("tool", ["x"]);
+	return result.code;
+}
+"""
 RENDER = """import Library.Process;
 
 int main() {
@@ -59,18 +64,18 @@ int main() {
 """
 
 
-def transpile(frontend: str, source: Path, label: str, request) -> str:
+def transpile(frontend: str, source: Path, label: str, request, *, relaxed: bool = False) -> str:
     if frontend == "reference":
         result = Compiler().compile(
             source.read_text(encoding="utf-8"),
             str(source),
-            CompilerOptions(use_cache=False, use_ast_cache=False, target=label),
+            CompilerOptions(use_cache=False, use_ast_cache=False, target=label, strict_imports=not relaxed),
         )
         assert result.c_source is not None, (result.failure, result.diagnostics)
         return result.c_source
     btrcc = request.getfixturevalue("immutable_btrcc")
     completed = subprocess.run(
-        [str(btrcc), "--no-cache", "--target", label, str(source)],
+        [str(btrcc), "--no-cache", *(["--relaxed-imports"] if relaxed else []), "--target", label, str(source)],
         cwd=REPO,
         capture_output=True,
         text=True,
@@ -121,6 +126,18 @@ def test_only_windows_gnu_rows_launch_through_the_runtime_seam(frontend, label, 
     assert ("ChildProcess.run is unavailable on windows-msvc" in c_source) is (windows and not seam)
     for posix in ("fork(", "execve(", "waitpid(", "__btrc_posix_spawn_cloexec("):
         assert (posix in c_source) is not windows, posix
+
+
+@pytest.mark.parametrize("label", sorted(ROWS))
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_relaxed_composition_loads_the_selected_provider(frontend, label, request, tmp_path):
+    """Relaxed imports (and the prebuilt archive) compose the root modules, then the
+    providers the root manifest selects for the row, as the strict graph loads them."""
+    c_source = transpile(frontend, write(tmp_path, "Relaxed.btrc", RELAXED), label, request, relaxed=True)
+    row = ROWS[label]
+    seam = row.operating_system == "windows" and row.environment == "gnu"
+    assert [selected.source for selected in RuntimeObjects.selected([c_source])] == (["windows_os.c"] if seam else [])
+    assert ("fork(" in c_source) is (row.operating_system != "windows")
 
 
 def build(c_source: str, label: str, executable: Path, work: Path) -> None:
