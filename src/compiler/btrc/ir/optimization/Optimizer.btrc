@@ -136,6 +136,139 @@ class IROptimizer {
 		self.unneededInstances = {};
 	}
 
+	/* The references surviving code makes to names in `unavailable`, the
+	 * hosted names the target row does not declare (platform-target-contract.md
+	 * §2.4). Run once the reachability graph is final, so a stdlib function DCE
+	 * removed is never refused, and with DCE off every reference counts, as in
+	 * C. One "owner\tname" entry per reference, sorted; the owner is the
+	 * function, global or prototype that names it. A function counts its calls
+	 * and identifiers unless one of its parameters or locals binds the name, as
+	 * C scoping does, and always counts its function references and the
+	 * identifiers of every C type it spells. A global counts the same in its
+	 * type, initializer and array size; an extern global or a prototype without
+	 * a definition also counts its own name. Under --module-units each worker
+	 * reports its unit's references and only the owner process refuses.
+	 * Mirrors IROptimizer.unavailable_hosted_references. */
+	public Vector<string> unavailableHostedReferences(IRModule module, Map<string, bool> unavailable) {
+		Vector<string> references = [];
+		if (unavailable.len == 0) { return references; }
+		Map<string, bool> found = {};
+		/* Type texts known to spell no unavailable name, and one owner's
+		 * names: nearly every owner has none, so the maps are reused. */
+		Map<string, bool> clean = {};
+		Map<string, bool> named = {};
+		Map<string, bool> referenced = {};
+		Map<string, bool> declared = {};
+		for definition in module.functions {
+			self.hostedTypeNames(definition.returnType, unavailable, clean, referenced);
+			for parameter in definition.params {
+				self.hostedTypeNames(parameter.cType, unavailable, clean, referenced);
+				if (unavailable.has(parameter.name)) { declared.put(parameter.name, true); }
+			}
+			self.collectHostedNames(definition.body, unavailable, clean, named, referenced, declared);
+			self.takeHostedReferences(definition.name, named, referenced, declared, found);
+		}
+		for global in module.globalDecls {
+			self.hostedTypeNames(global.cType, unavailable, clean, referenced);
+			self.collectHostedNames(global.init, unavailable, clean, named, referenced, declared);
+			self.collectHostedNames(global.arraySize, unavailable, clean, named, referenced, declared);
+			if (global.isExtern && unavailable.has(global.name)) { referenced.put(global.name, true); }
+			self.takeHostedReferences(global.name, named, referenced, declared, found);
+		}
+		Map<string, bool> defined = {};
+		for definition in module.functions { defined.put(definition.name, true); }
+		for declaration in module.functionDecls {
+			if (unavailable.has(declaration.name) && !defined.has(declaration.name)) { found.put(declaration.name + "\t" + declaration.name, true); }
+		}
+		references = found.keys();
+		references.sort();
+		return references;
+	}
+
+	/* The diagnostic for the reference that sorts first by (owner, name), or
+	 * "" when there is none. Emission order differs between whole-program and
+	 * module-unit builds, so the sort keeps one message for one program in
+	 * both; an "owner\tname" entry sorts as its pair does, because a tab sorts
+	 * before every identifier character. Mirrors
+	 * IROptimizer.refuse_unavailable_references. */
+	class string unavailableHostedDiagnostic(Vector<string> references, string label) {
+		if (references.len == 0) { return ""; }
+		Vector<string> ordered = references.sorted();
+		string first = ordered.get(0);
+		int tab = first.indexOf("\t");
+		string owner = first.substring(0, tab);
+		string name = first.substring(tab + 1, first.length() - tab - 1);
+		return "'" + name + "' is not available on target " + label + " (hosted ABI); referenced from " + owner;
+	}
+
+	/* Record one owner's references in `found` and empty its maps for the
+	 * next owner. */
+	private void takeHostedReferences(string owner, Map<string, bool> named, Map<string, bool> referenced, Map<string, bool> declared, Map<string, bool> found) {
+		for name in referenced.keys() { found.put(owner + "\t" + name, true); }
+		for name in named.keys() {
+			if (!declared.has(name)) { found.put(owner + "\t" + name, true); }
+		}
+		if (named.len > 0) { named.clear(); }
+		if (referenced.len > 0) { referenced.clear(); }
+		if (declared.len > 0) { declared.clear(); }
+	}
+
+	/* The unavailable names one C type text spells, into `referenced`; a text
+	 * that spells none is remembered in `clean` and never scanned again. */
+	private void hostedTypeNames(string text, Map<string, bool> unavailable, Map<string, bool> clean, Map<string, bool> referenced) {
+		if (text.isEmpty() || clean.has(text)) { return; }
+		Map<string, bool> spelled = {};
+		self.scanTextForKnownNames(text, unavailable, spelled);
+		if (spelled.len == 0) {
+			clean.put(text, true);
+			return;
+		}
+		for name in spelled.keys() { referenced.put(name, true); }
+	}
+
+	/* Names in `unavailable` one IR tree spells: identifiers and direct calls,
+	 * which a local can bind, into `named`; function references and the
+	 * identifiers of every C type text, as IRTypeDeclarationPlanner.expressionTypes
+	 * reads them, into `referenced`; and the locals it declares into
+	 * `declared`. */
+	private void collectHostedNames(IRNode? node, Map<string, bool> unavailable, Map<string, bool> clean, Map<string, bool> named, Map<string, bool> referenced, Map<string, bool> declared) {
+		if (node == null) { return; }
+		int domain = node.payloadDomain();
+		if (node.kind == IRK_VAR && unavailable.has(node.name)) { named.put(node.name, true); }
+		if (node.kind == IRK_FUNCTION_REF && unavailable.has(node.name)) { referenced.put(node.name, true); }
+		if (node.kind == IRK_VAR_DECL && unavailable.has(node.name)) { declared.put(node.name, true); }
+		string callee = domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "";
+		if (node.kind == IRK_CALL && unavailable.has(callee)) { named.put(callee, true); }
+		self.hostedTypeNames(domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : "", unavailable, clean, referenced);
+		self.hostedTypeNames(domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : "", unavailable, clean, referenced);
+		var parameters = (domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null);
+		if (parameters != null) {
+			for parameter in parameters { self.hostedTypeNames(parameter.cType, unavailable, clean, referenced); }
+		}
+		var cleanup = (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null);
+		if (cleanup != null) { self.hostedTypeNames(cleanup.cType, unavailable, clean, referenced); }
+		self.collectHostedNames(node.left, unavailable, clean, named, referenced, declared);
+		self.collectHostedNames(node.right, unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames(node.expr, unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), unavailable, clean, named, referenced, declared);
+		self.collectHostedNames((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), unavailable, clean, named, referenced, declared);
+		for argument in node.args() { self.collectHostedNames(argument, unavailable, clean, named, referenced, declared); }
+		for statement in node.stmts() { self.collectHostedNames(statement, unavailable, clean, named, referenced, declared); }
+	}
+
 	private void eliminateUnreachable(IRModule module) {
 		self.eliminateDeadGlobals(module);
 		self.eliminateDeadFunctions(module);
