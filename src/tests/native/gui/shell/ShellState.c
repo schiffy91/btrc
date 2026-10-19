@@ -8,6 +8,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef _WIN32
+#include <windows.h>
+/* Windows' rename refuses an existing destination; MoveFileExA replaces it in
+ * one step on the same volume, as POSIX rename does. */
+static int publish(const char *temporary, const char *checkpoint) {
+    return MoveFileExA(temporary, checkpoint, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) ? 0 : -1;
+}
+#else
+static int publish(const char *temporary, const char *checkpoint) { return rename(temporary, checkpoint); }
+#endif
 
 void shellStateCommit(const char *directory, int sequence) {
     char journal[4096];
@@ -26,7 +36,7 @@ void shellStateCheckpoint(const char *directory, const char *draft, double ancho
     assert(state);
     assert(fprintf(state, "%s\n%.0f\n%d\n", draft, anchor, commits) > 0);
     assert(fflush(state) == 0 && fsync(fileno(state)) == 0);
-    assert(fclose(state) == 0 && rename(temporary, checkpoint) == 0);
+    assert(fclose(state) == 0 && publish(temporary, checkpoint) == 0);
 }
 static char draft[32];
 static double anchor;
