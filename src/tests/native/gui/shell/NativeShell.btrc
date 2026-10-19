@@ -184,7 +184,8 @@ int main(int argc, char** argv) {
 	bool restore = argc == 3 && strcmp(argv[2], "restore") == 0;
 	if (restore) { shellStateLoad(argv[1]); }
 	int cycles = restore ? 1 : (argc > 1 ? atoi(argv[1]) : 100);
-	assert(cycles > 0 && cycles <= 100);
+	/* Windows adds two initialization cycles before its 100-cycle census. */
+	assert(cycles > 0 && cycles <= 102);
 	int frames = 0;
 	int nativeHandles = 0;
 	int privateHandles = 0;

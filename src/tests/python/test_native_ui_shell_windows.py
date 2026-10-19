@@ -7,8 +7,8 @@ pinned prebuilt DLL (nix/wgpu-native-prebuilt.nix), whose per-slice pkg-config
 record they write. With BTRC_WIN32_EVIDENCE_DIR set, each row's executables
 and DLL are copied into its own directory there. windows.yml's win32-native
 job runs the execution tests on Windows x64 and ARM64 against that directory:
-100 shell cycles with the window counts and GDI/USER objects after every
-teardown, 100 fresh-process restores, and the UI Automation tree a separate COM
+100 measured shell cycles after two initialization cycles, with window counts
+and GDI/USER objects after every teardown, 100 fresh-process restores, and the UI Automation tree a separate COM
 client process reads. The execution tests skip off Windows; the build tests
 skip on Windows, which has no dev shell. Hosted GPU frames are correctness
 evidence from Windows' software adapter, never a pacing or hardware result.
@@ -477,8 +477,10 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     directory = (Path(evidence) / f"native-shell-{target}").resolve()
     executable = directory / shell_name(frontend, target, sanitized)
     assert executable.is_file(), sorted(path.name for path in directory.iterdir()) if directory.is_dir() else directory
-    cycles = int(os.environ.get("BTRC_UI_SHELL_CYCLES", "100"))
-    assert 1 <= cycles <= 100
+    measured_cycles = int(os.environ.get("BTRC_UI_SHELL_CYCLES", "100"))
+    assert 1 <= measured_cycles <= 100
+    warmup_cycles = 2
+    cycles = measured_cycles + warmup_cycles
     state = tmp_path / "state"
     state.mkdir()
     environment = {**os.environ}
@@ -513,9 +515,12 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     ]
     assert [row[0] for row in resources] == list(range(1, cycles + 1)), message
     assert all(row[3] == 0 for row in resources), resources
-    # 0 leaked: every teardown returns the process to the GDI and USER object
-    # counts of the first, which already holds process-global caches.
-    assert {row[1:3] for row in resources} == {resources[0][1:3]}, resources
+    # Hosted run 39286206398 reached the same 18 GDI / 9 USER baseline in
+    # cycle one in three rows, and cycle two in the fourth. Initialize those
+    # process caches before the census, then require 100 further teardowns
+    # to match. Provider windows must reach zero even during initialization.
+    baseline = resources[warmup_cycles - 1][1:3]
+    assert {row[1:3] for row in resources[warmup_cycles:]} == {baseline}, resources
     probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
     trees = [probe["accessibility"] for probe in probes]
     (artifacts / "uia-trees.json").write_text(json.dumps(trees, indent=1), encoding="utf-8")
@@ -545,12 +550,14 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     gpu = re.findall(r"^GPU: (.*)$", result.stdout, re.MULTILINE)
     monkeypatch.setenv("BTRC_TEST_RUNNER", os.environ.get("BTRC_TEST_RUNNER", "windows"))
     write_evidence(
-        "native-shell" if cycles == 100 else "native-shell-smoke",
+        "native-shell" if measured_cycles == 100 else "native-shell-smoke",
         target,
         frontend,
         sanitized,
         {
             "cycles": cycles,
+            "warmup_cycles": warmup_cycles,
+            "measured_cycles": measured_cycles,
             "frames": frames,
             "gpu": gpu[:3],
             "native_handles": native,
@@ -563,7 +570,7 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
             "e47": "fixture-only; stdlib missing",
             "accessibility": uia_summary(trees),
             "probe": {key: value for key, value in probes[0].items() if key != "accessibility"},
-            "gate_cycles": cycles == 100,
+            "gate_cycles": measured_cycles == 100,
         },
         build_mode="ubsan" if sanitized else "plain",
     )
