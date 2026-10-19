@@ -69,6 +69,11 @@ the API surface, so the layout follows a few fixed rules.
   (`MacOS.MacOSWindow`). The root `btrc.toml` names `btrc_stdlib_runtime`,
   exports the prelude and depends on every group by path; both compilers
   resolve that graph, and ordinary export visibility applies between groups.
+  Its own `[[package.providers]]` select `Process`'s private host seam:
+  `Windows/ProcessHostProvider` (the CreateProcessW provider over the
+  runtime's `windows_os.c`) on windows rows and the declaration-free
+  `Unix/ProcessHostProvider` shell on every other row, where `Process.btrc`
+  keeps its POSIX bodies.
   A group that imports another group (`Daemon` imports `FileSystem`, `Tray`
   imports `GUI`) does not list it under `[dependencies]`: every group is
   already a dependency of the root package, so `import Library.<Group>...`

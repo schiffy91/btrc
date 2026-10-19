@@ -6,7 +6,7 @@ import Library.Vector;
 
 string rendered(Command command) { return command; }
 
-int main() {
+int main(int argc, char** argv) {
 	UnixShell sh = UnixShell();
 	Vector<string> emptyArguments = [];
 	// A malformed request throws; it is never reported as a child failure.
@@ -84,6 +84,36 @@ int main() {
 		conflictingEnvironmentRejected = error.contains("both set and unset");
 	}
 	assert(conflictingEnvironmentRejected);
+	// This program is its own child for the Windows checks below.
+	if (argc > 1) { return childProbe(argc, argv); }
+#if defined(_WIN32)
+	// Windows has no POSIX shell: UnixShell refuses with the adaptation
+	// diagnostic, and the argv API does the shell lines' work. A status is the
+	// child's own exit code, with nothing to decode.
+	string program = f"{argv[0]}";
+	ExecResult refused = sh.run("printf '  hi  '", logFailure=false);
+	assert(refused.code == 127 && refused.stdout().isEmpty());
+	assert(refused.stderr().equals("UnixShell.run is unavailable on Windows: there is no POSIX /bin/sh; use ChildProcess.run with an argument vector\n"));
+	assert(ProcessStatus(0).ok());
+	assert(ProcessStatus(7).code() == 7);
+	assert(!ProcessStatus(7).ok());
+	// Command.command is argv[0]: it is quoted like every argument.
+	assert(Command("printf").arg("direct").render().equals("printf direct"));
+	assert(Command("my tool").arg("a b").render().equals("'my tool' 'a b'"));
+	string commandText = Command("printf").arg("direct");
+	assert(commandText.equals("printf direct"));
+	assert(rendered(Command("printf").arg("direct")).equals("printf direct"));
+	assert(f"{Command("printf").arg("direct")}".equals("printf direct"));
+	assert(ChildProcess.run(program,["--print", "  hi  "]).trimmed().equals("hi"));
+	assert(ChildProcess.run(program,["--exit", "1"]).code == 1);
+	assert(ChildProcess.run(program,["--exit", "7"]).code == 7);
+	assert(ChildProcess.run(program,["--print", "quiet"], stdout=COMMAND_OUTPUT_STREAM, stderr=COMMAND_OUTPUT_STREAM).code == 0);
+	assert(ChildProcess.run(program,["--print-error", "err"]).stderr().equals("err"));
+	assert(ChildProcess.run(program,["--cat"], stdinData="secret input").stdout().equals("secret input"));
+	// Text-mode stdio writes LF as CRLF.
+	assert(ChildProcess.run(program,["--cat"], stdinData="line\n").stdout().replace("\r\n", "\n").equals("line\n"));
+	assert(ChildProcess.run(program,["--cat"], stdinData="temp check").stdout().equals("temp check"));
+#else
 	assert(sh.run("printf '  hi  '", logFailure=false).trimmed().equals("hi"));
 	assert(ProcessStatus(0).ok());
 	assert(ProcessStatus(7 << 8).code() == 7);
@@ -112,6 +142,29 @@ int main() {
 	// measured how busy that directory was: with hundreds of thousands of
 	// foreign entries, concurrent scans stalled past the run timeout.
 	assert(sh.run("cat", stdin="temp check").stdout().equals("temp check"));
+#endif
 	print("PASS");
 	return 0;
+}
+
+/* The modes of this program as its own child, which the Windows checks use. */
+int childProbe(int argc, char** argv) {
+	string mode = f"{argv[1]}";
+	if (mode.equals("--exit") && argc > 2) { return atoi(argv[2]); }
+	if (mode.equals("--print") && argc > 2) {
+		fputs(argv[2], stdout);
+		return 0;
+	}
+	if (mode.equals("--print-error") && argc > 2) {
+		fputs(argv[2], stderr);
+		return 0;
+	}
+	if (mode.equals("--cat")) {
+		char buffer[256];
+		size_t count = fread(buffer, 1, 255, stdin);
+		buffer[(int)count] = '\0';
+		fputs(buffer, stdout);
+		return 0;
+	}
+	return 64;
 }

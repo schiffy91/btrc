@@ -25,8 +25,16 @@ int main() {
 
 	// env values reach the shell's environment verbatim; nothing is quoted.
 	UnixShell sh = UnixShell();
+#if defined(_WIN32)
+	// Windows has no POSIX shell: the run is refused with the adaptation
+	// diagnostic, after the same request validation as on Unix.
+	ExecResult refused = sh.run("printenv FOO", env=["FOO=a b"], logFailure=false);
+	assert(refused.code == 127 && refused.stdout().isEmpty());
+	assert(refused.stderr().equals("UnixShell.run is unavailable on Windows: there is no POSIX /bin/sh; use ChildProcess.run with an argument vector\n"));
+#else
 	assert(sh.run("printenv FOO", env=["FOO=a b"], logFailure=false).stdout().equals("a b\n"));
 	assert(sh.run("printenv FOO", env=["FOO=it's $HOME"], logFailure=false).stdout().equals("it's $HOME\n"));
+#endif
 
 	// Missing '=' throws.
 	bool noEq = false;

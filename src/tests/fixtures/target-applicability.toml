@@ -84,40 +84,85 @@ scope = "build"
 reason = "the exact filesystem handles call POSIX symlink() and fcntl(F_GETFD), which MinGW lacks; the Win32 handle provider is platforms-p3-fs-windows (platform adaptations, Windows row 7)"
 cites = "corpus.stdlib@windows-arm64"
 
-[[programs]]
-paths = [
-    "stdlib/ChildProcess*.btrc",
-    "stdlib/Daemon.btrc",
-    "stdlib/HttpClientLocal.btrc",
-    "stdlib/HttpFramingSafety.btrc",
-    "stdlib/ImagePpm.btrc",
-    "stdlib/Process.btrc",
-    "stdlib/ProcessStatusPipe.btrc",
-    "stdlib/ShellCwdEnv.btrc",
-    "stdlib/Shellwords.btrc",
-]
-targets = ["windows-x86_64"]
-status = "missing"
-scope = "build"
-reason = "reaches the POSIX Process provider (struct rlimit, fork and exec); the Windows provider over CreateProcessW is platforms-p3-windows-launch-seam and platforms-p3-process-terminal (platform adaptations, Windows rows 1 and 4)"
-cites = "corpus.stdlib@windows-x64"
+# Library.Process has its Windows provider (CL-P2-02's launch seam under
+# CX-P2-06's ProcessHostProvider): ChildProcess, Process, ProcessStatusPipe
+# and Shellwords build and run on both Windows rows. What stays out is POSIX
+# by contract, or waits on another provider.
 
 [[programs]]
 paths = [
-    "stdlib/ChildProcess*.btrc",
-    "stdlib/Daemon.btrc",
-    "stdlib/HttpClientLocal.btrc",
-    "stdlib/HttpFramingSafety.btrc",
-    "stdlib/ImagePpm.btrc",
-    "stdlib/Process.btrc",
-    "stdlib/ProcessStatusPipe.btrc",
-    "stdlib/ShellCwdEnv.btrc",
-    "stdlib/Shellwords.btrc",
+    "stdlib/ChildProcessClosedFds.btrc",
+    "stdlib/ChildProcessDescriptor.btrc",
+    "stdlib/ChildProcessDescriptorMapping.btrc",
 ]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "POSIX descriptor contracts (descriptor-limit closing after fork, fcntl leases, fexecve); Windows refuses descriptor-backed launches with the platform-adaptations row 1 diagnostic and passes the child only its three stdio handles through STARTUPINFOEX's handle list, both checked natively by test_windows_process.py and test_windows_launch_seam.py"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/ShellCwdEnv.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "run"
+reason = "the program exercises UnixShell's cwd and environment through /bin/sh; Windows refuses UnixShell.run (platform adaptations, Windows row 1b), which Process, Shellwords and ChildProcess check there"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/ImagePpm.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "the program provokes a short write by lowering RLIMIT_FSIZE with setrlimit, which Windows has no counterpart for"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/Daemon.btrc"]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "build"
+reason = "DaemonControlFiles checks uid_t ownership and the supervisor is a /bin/sh script; the native Windows supervisor is CX-P2-08 (platform adaptations, Windows row 4)"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/Daemon.btrc"]
 targets = ["windows-aarch64"]
 status = "missing"
 scope = "build"
-reason = "reaches the POSIX Process provider (struct rlimit, fork and exec); the Windows provider over CreateProcessW is platforms-p3-windows-launch-seam and platforms-p3-process-terminal (platform adaptations, Windows rows 1 and 4)"
+reason = "DaemonControlFiles checks uid_t ownership and the supervisor is a /bin/sh script; the native Windows supervisor is CX-P2-08 (platform adaptations, Windows row 4)"
+cites = "corpus.stdlib@windows-arm64"
+
+[[programs]]
+paths = ["stdlib/HttpClientLocal.btrc"]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "run"
+reason = "its curl stand-in is a /bin/sh script on PATH; the Windows HTTP transport is WinHTTP (platforms-p3-sockets-http, platform adaptations, Windows rows 6 and 10)"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/HttpClientLocal.btrc"]
+targets = ["windows-aarch64"]
+status = "missing"
+scope = "run"
+reason = "its curl stand-in is a /bin/sh script on PATH; the Windows HTTP transport is WinHTTP (platforms-p3-sockets-http, platform adaptations, Windows rows 6 and 10)"
+cites = "corpus.stdlib@windows-arm64"
+
+[[programs]]
+paths = ["stdlib/HttpFramingSafety.btrc"]
+targets = ["windows-x86_64"]
+status = "missing"
+scope = "build"
+reason = "DescriptorFlags.closeOnExec calls fcntl(F_GETFD) on a BSD socket; the Winsock provider is platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/HttpFramingSafety.btrc"]
+targets = ["windows-aarch64"]
+status = "missing"
+scope = "build"
+reason = "DescriptorFlags.closeOnExec calls fcntl(F_GETFD) on a BSD socket; the Winsock provider is platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
 cites = "corpus.stdlib@windows-arm64"
 
 [[programs]]
