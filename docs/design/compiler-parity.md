@@ -56,6 +56,27 @@ minimal program joins one of the batteries above.
   already includes is emitted once by both compilers (`btrcc` always
   deduplicated; Python repeated it).
 
+### Resolved in parity wave 2 (found writing `Library.Terminal` and glob)
+
+`src/tests/btrc/test_parity_wave_2.py` holds each of these.
+
+- **Opaque C storage.** A member of a record a C header declares has no btrc
+  type. Both compilers index it (`found->gl_pathv[i]`; `btrcc` refused), store
+  through it, its key and its compound updates as written (`raw.c_cc[VMIN] =
+  1`, `values[raw.c_cc[i]] = 1`, `raw.c_lflag |= 8`; Python crashed or
+  refused, `btrcc` emitted `void` temporaries), and refuse a C macro that must
+  be ordered against it with the same `opaque C operand ... cast it
+  explicitly` diagnostic.
+- **Narrowing in loops.** Python no longer marks a fresh binding escaped
+  because a freed escaped one had the same `id()` (see the nullable flow
+  below).
+- **Null and direct handles.** A plain `CFunction`, `RealtimeFunction`,
+  `Thread` or `Mutex` takes neither `null` nor `void*`, and a pointer to a
+  function pointer is not one (`btrcc` took all of these). `CFunction<...>?`
+  takes functions as well as `null`, and a hosted C function-pointer
+  parameter takes `null` (Python refused both). See
+  `docs/language/callbacks.md`.
+
 ### Nullable flow and the warning channel
 
 Both compilers report the nullable-access warning (`Non-optional access '.f'
@@ -71,7 +92,11 @@ followed by field names) known to be non-null. A null comparison refines the
 branch it guards, `&&`, `||` and `?:` refine their right operands and arms, a
 store of a value known to be non-null refines its target, and a call, a store
 or an escaped address drops the facts it could change. A loop body is analysed
-once, from the facts that survive its back edge.
+once, from the facts that survive its back edge. An escape belongs to the one
+binding whose address was taken: the reference compiler once keyed escapes by
+the `id()` of a freed symbol, so a later binding allocated at the same address
+lost its facts at a loop's first unknown store, a warning `btrcc` never printed
+(`btrc/test_parity_wave_2.py`).
 
 A call can be known never to return: a hosted function listed in
 `hosted_abi.toml`'s `noreturn` set (`exit`, `abort`, `_Exit`, `quick_exit`,

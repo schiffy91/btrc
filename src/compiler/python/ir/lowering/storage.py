@@ -289,6 +289,11 @@ class StorageLowerer:
             or isinstance(plan.target, IndexExpr)
         )
 
+    @staticmethod
+    def _opaque_index_target(plan: StoragePlan) -> bool:
+        """Whether a physical indexed target's receiver has no btrc type (opaque C storage)."""
+        return isinstance(plan.target, IndexExpr) and plan.kind is StorageKind.DIRECT and plan.receiver_type is None
+
     def is_static_field_target(self, target) -> bool:
         """Whether a source target denotes one class-owned static field."""
         return self._static_field_symbol(target) is not None
@@ -313,7 +318,15 @@ class StorageLowerer:
                 raise ValueError("static field storage requires its lowered symbol")
             target = IRVar(name=plan.storage_field)
 
-        if self.target_requires_receiver(plan):
+        if self._opaque_index_target(plan):
+            # An opaque C receiver, such as an array member of a record a C
+            # header declares, has no type to hold in a temporary: its
+            # element is stored through as written, as a read of it lowers
+            # and as btrcc's materializePhysicalTarget does.
+            if lowered_receiver is None:
+                raise ValueError("indexed storage requires a lowered receiver")
+            receiver = lowered_receiver
+        elif self.target_requires_receiver(plan):
             if lowered_receiver is None or plan.receiver_type is None:
                 raise ValueError("receiver-backed storage requires a typed lowered receiver")
             direct_array_binding = bool(
@@ -337,12 +350,19 @@ class StorageLowerer:
                 setup.append(IRBinOp(left=receiver, op="=", right=lowered_receiver))
 
         if isinstance(plan.target, IndexExpr):
-            if lowered_index is None or plan.index_type is None:
-                raise ValueError("indexed storage requires a typed lowered index")
-            index_decl = self._temporary(plan.index_type, "__btrc_storage_index")
-            declarations.append(index_decl)
-            index = IRVar(name=index_decl.name)
-            setup.append(IRBinOp(left=index, op="=", right=lowered_index))
+            if lowered_index is None:
+                raise ValueError("indexed storage requires a lowered index")
+            if plan.index_type is None:
+                if plan.kind is not StorageKind.DIRECT:
+                    raise ValueError("indexed storage requires a typed lowered index")
+                # An opaque C key, such as a member of a C record, is used as
+                # written for the same reason.
+                index = lowered_index
+            else:
+                index_decl = self._temporary(plan.index_type, "__btrc_storage_index")
+                declarations.append(index_decl)
+                index = IRVar(name=index_decl.name)
+                setup.append(IRBinOp(left=index, op="=", right=lowered_index))
             if plan.kind is StorageKind.DIRECT:
                 assert receiver is not None
                 target = self.materialize_index_target(receiver, index, plan.receiver_type)

@@ -803,6 +803,12 @@ class TypeValidator {
 		if (!targetCallable || !sourceCallable || target.genericArgs().len == 0 || target.genericArgs().len != source.genericArgs().len) {
 			return false;
 		}
+		/* The outer shape counts, as the reference compiler's types_compatible
+		 * compares semantic depths: `CFunction<...>?` is the same one C word
+		 * as a plain `CFunction`, and a pointer to either is not one. */
+		if (target.isArray != source.isArray || operators.referenceDepth(target) != operators.referenceDepth(source)) {
+			return false;
+		}
 		Node targetReturn = target.genericArgs().get(0);
 		Node sourceReturn = source.genericArgs().get(0);
 		if (!self.callableComponentSameTypeShape(targetReturn, sourceReturn, operators)) {
@@ -861,7 +867,15 @@ class TypeValidator {
 		Node? resolvedSource = self.resolveAliases(valueSource);
 		if (resolvedTarget == null || resolvedSource == null) { return false; }
 		if (resolvedTarget.base == "null") { return self.operators.isNullType(resolvedSource); }
+		/* A direct handle -- a CFunction or RealtimeFunction word, a Thread or
+		 * a Mutex -- accepts neither null nor void*, as the reference
+		 * compiler's types_compatible decides: `CFunction<...>?` is the
+		 * nullable function pointer, C has no implicit conversion between
+		 * void* and a function pointer, and no Thread or Mutex owner is
+		 * nullable. */
+		bool directHandle = (resolvedTarget.base == "__fn_ptr" || resolvedTarget.base == "__realtime_fn_ptr" || resolvedTarget.base == "Thread" || resolvedTarget.base == "Mutex") && resolvedTarget.pointerDepth == 0 && !resolvedTarget.isArray;
 		if (self.operators.isNullType(resolvedSource)) {
+			if (directHandle) { return false; }
 			return self.operators.isReferenceType(resolvedTarget) || self.state.interfaces.has(resolvedTarget.base);
 		}
 		if (self.state.analyzed.isInterface(resolvedTarget.base) && !self.state.analyzed.isClass(resolvedSource.base) && !self.state.analyzed.isGenericClass(resolvedSource.base) && !self.state.analyzed.isInterface(resolvedSource.base)) { return false; }
@@ -892,7 +906,7 @@ class TypeValidator {
 		if (self.operators.isVoidPointer(resolvedTarget) && self.operators.isReferenceType(resolvedSource)) {
 			return true;
 		}
-		if (self.operators.isVoidPointer(resolvedSource) && self.operators.isReferenceType(resolvedTarget)) {
+		if (self.operators.isVoidPointer(resolvedSource) && self.operators.isReferenceType(resolvedTarget) && !directHandle) {
 			return true;
 		}
 		bool targetNominal = self.state.analyzed.isClass(resolvedTarget.base) || self.state.analyzed.isGenericClass(resolvedTarget.base);

@@ -1594,6 +1594,7 @@ class CallAnalyzer:
             if (
                 actual is not None
                 and (not self._hosted_argument_type_is_deferred(expected, actual))
+                and (not self._hosted_callback_accepts_null(expected, actual))
                 and (not self.types.types_compatible(expected, actual))
             ):
                 self.session.error(
@@ -1618,6 +1619,22 @@ class CallAnalyzer:
             expected.base == "void"
             and expected.pointer_depth == 1
             and (canonical.base == "string" or canonical.pointer_depth > 0 or canonical.is_array)
+        )
+
+    def _hosted_callback_accepts_null(self, expected, actual) -> bool:
+        """A hosted C function-pointer parameter is nullable, as C declares it.
+
+        The hosted ABI records no non-null contract, and C APIs take NULL for
+        an optional callback (glob's errfunc): the parameter is the nullable
+        function pointer a source declaration spells ``CFunction<...>?``.
+        """
+        canonical = self.types.canonical_type(expected)
+        return bool(
+            actual.base == "null"
+            and canonical is not None
+            and canonical.base == "__fn_ptr"
+            and canonical.pointer_depth == 0
+            and not canonical.is_array
         )
 
     def _validate_source_helper_consumer(self, call, index, argument) -> None:
