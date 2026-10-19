@@ -249,6 +249,12 @@ static int run(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+    /* An inherited SIG_IGN for SIGCHLD would reap the child before waitpid sees it. */
+    struct sigaction child_default;
+    memset(&child_default, 0, sizeof(child_default));
+    child_default.sa_handler = SIG_DFL;
+    (void)sigemptyset(&child_default.sa_mask);
+    (void)sigaction(SIGCHLD, &child_default, NULL);
     report("ready pid=%ld", (long)getpid());
     if (argc >= 2 && strcmp(argv[1], "run") == 0) { return run(argc, argv); }
     if (argc == 2 && strcmp(argv[1], "probe") == 0) { return probe(); }

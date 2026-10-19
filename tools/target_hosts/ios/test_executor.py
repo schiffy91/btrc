@@ -252,6 +252,19 @@ def test_descendants_die_with_the_program_group(bundle, tmp_path):
         pytest.fail(f"descendant {descendant} outlived its program")
 
 
+@needs_cc
+def test_an_inherited_ignored_sigchld_still_yields_the_wait_status(bundle):
+    # A launcher that ignores SIGCHLD passes that disposition through exec; the
+    # supervisor restores it, or the kernel would reap the child before waitpid.
+    executor = executor_for(host=LocalHost(("/bin/sh", "-c", 'trap \'\' CHLD; exec "$0" "$@"')))
+    executor.prepare(bundle, LABEL)
+    try:
+        for invocation in ("exit3", "abort", "stdout"):
+            SimulatorSpike.check(invocation, executor.run(SimulatorSpike.request(invocation)))
+    finally:
+        executor.close()
+
+
 # Admission ------------------------------------------------------------------
 
 
