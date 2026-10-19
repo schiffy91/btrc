@@ -30,7 +30,7 @@ from ..frontend.sources import (
 )
 from ..frontend.stage import FrontendParseResult, FrontendStage
 from ..ir.nodes import IRHelperDecl, IRInclude, IRMacroDef
-from ..ir.optimizer import IROptimizer
+from ..ir.optimizer import HostedAvailabilityError, IROptimizer
 from ..ir.verifier import IRVerifier
 from ..lexer.lexer import Lexer, LexerError
 from ..parser.parser import ParseError, Parser
@@ -557,6 +557,8 @@ class CompilationPipeline:
             return CompilerFailure(CompilerFailureKind.FRONTEND, message)
         if isinstance(error, StdlibArchiveError):
             return CompilerFailure(CompilerFailureKind.ARCHIVE, str(error))
+        if isinstance(error, HostedAvailabilityError):
+            return CompilerFailure(CompilerFailureKind.ANALYSIS, str(error))
         return CompilerFailure(CompilerFailureKind.CODEGEN, str(error))
 
     def resolve(
@@ -668,17 +670,27 @@ class CompilationPipeline:
                 if contract.adapter_symbol(declaration.name) != declaration.name:
                     module.realtime_safe_externals.add("__builtin_trap")
 
-    def optimize(self, module, options: CompilerOptions, profile: dict[str, float] | None = None):
+    def optimize(
+        self,
+        module,
+        options: CompilerOptions,
+        profile: dict[str, float] | None = None,
+        target: str | None = None,
+    ):
+        """Stage five; with ``target``, the surviving code must use only names its row declares."""
         start = time.perf_counter()
         run_dce = options.dce and options.stdlib_archive is None
         IRVerifier(module).validate_schema()
-        optimized = IROptimizer(
+        optimizer = IROptimizer(
             module,
             dce=run_dce,
             runtime_catalog=self.runtime_catalog,
             freestanding_runtime=self.freestanding_runtime,
-        ).optimize()
+        )
+        optimized = optimizer.optimize()
         self._finalize_optimized_ir(optimized)
+        if target is not None:
+            optimizer.refuse_unavailable_hosted(target)
         self._timed(profile, "optimize", start)
         return optimized
 
@@ -848,7 +860,10 @@ class CompilationPipeline:
             )
             if options.output is CompilerOutput.IR:
                 return self._result(source, options, profile, ir_module=module, **common)
-            module = self.optimize(module, options, profile)
+            # An archive build keeps every stdlib function until the archive
+            # takes its own, so its program is checked after the partition.
+            label = source.native_plan.target.label
+            module = self.optimize(module, options, profile, None if options.stdlib_archive is not None else label)
             if options.output is CompilerOutput.OPTIMIZED_IR:
                 return self._result(source, options, profile, ir_module=module, **common)
             if options.stdlib_archive is not None:
@@ -858,9 +873,10 @@ class CompilationPipeline:
                     program,
                     options.stdlib_archive,
                     self.frontend.stdlib.source("", ConditionalEnvironment(source.native_plan.target)),
-                    source.native_plan.target.label,
+                    label,
                 )
                 self._finalize_optimized_ir(module)
+                IROptimizer(module, dce=False).refuse_unavailable_hosted(label)
                 self._timed(profile, "stdlib_archive", start)
             if options.debug and options.generated_c_path:
                 module.debug_cfile = os.path.abspath(options.generated_c_path)

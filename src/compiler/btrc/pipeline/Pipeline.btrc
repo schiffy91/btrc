@@ -252,6 +252,14 @@ class CompilerPipeline {
 				unitProgram.knownSourceDigests = records.groupSourceDigests;
 			}
 			ModuleUnitBuild build = ModuleUnitCompiler(unitProgram, options, options.useCache ? self.moduleUnitStore : null, self.workerPools).compile();
+			if (!build.failure.isEmpty()) {
+				keep program;
+				keep resolved;
+				keep analyzer;
+				keep analyzed;
+				keep build;
+				return self.failure("error: " + build.failure);
+			}
 			IRModule? programModule = build.program;
 			if (programModule != null) {
 				for name in programModule.nativeUnits.keys() {
@@ -331,7 +339,20 @@ class CompilerPipeline {
 		SetjmpSafetyPlanner setjmpSafety = SetjmpSafetyPlanner(setjmpEffects);
 		IROptimizer optimizer = IROptimizer(setjmpSafety, runtimeHelpers);
 		optimizer.optimize(module, options.runDce);
+		/* The surviving code may name only hosted names its row declares. */
+		string target = packages.linkPlan.target.label();
+		string unavailable = IROptimizer.unavailableHostedDiagnostic(optimizer.unavailableHostedReferences(module, self.hostedAbi.platformUnavailableNames(target)), target);
 		BtrccPhaseTimer.mark("optimize");
+		if (!unavailable.isEmpty()) {
+			/* As below: the graphs stay alive until the process exits. */
+			keep program;
+			keep resolved;
+			keep analyzer;
+			keep analyzed;
+			keep lowerer;
+			keep module;
+			return self.failure("error: " + unavailable);
+		}
 		if (options.irDump == "optimized-ir") {
 			/* As below: the graphs stay alive until the process exits. */
 			keep program;

@@ -60,6 +60,7 @@ class HostedAbiRepository {
 	private Map<string, bool>? ownedNames = null;
 	private Map<string, bool>? adoptingHelpers = null;
 	private Map<string, bool>? noreturnFunctions = null;
+	private Map<string, Map<string, bool>> platformUnavailable = {};
 	private string stdlibMarker;
 	private string userMarker;
 	private FeSourcePathPolicy sourcePaths;
@@ -124,6 +125,25 @@ class HostedAbiRepository {
 
 	/* The generated tables, target spec included. */
 	public GeneratedHostedAbiData tables() { return self.data; }
+
+	/* Every [platform] name the row `label` does not declare, of any kind.
+	 * One identifier set serves all five kinds (platform-target-contract.md
+	 * §2.3), so a name is unavailable in every kind it has or in none; a label
+	 * without a table has none. Mirrors platform_unavailable_names. */
+	public Map<string, bool> platformUnavailableNames(string label) {
+		if (self.platformUnavailable.has(label)) { return self.platformUnavailable.get(label); }
+		Map<string, bool> names = {};
+		GeneratedPlatformTargetRow? row = self.data.platformUnavailable(label);
+		if (row != null) {
+			for name in row.functions.keys() { names.put(name, true); }
+			for name in row.macros.keys() { names.put(name, true); }
+			for name in row.objects.keys() { names.put(name, true); }
+			for name in row.types.keys() { names.put(name, true); }
+			for name in row.typedefs.keys() { names.put(name, true); }
+		}
+		self.platformUnavailable.put(label, names);
+		return names;
+	}
 
 	private bool adoptingHelper(string name) {
 		Map<string, bool>? existing = self.adoptingHelpers;

@@ -8,7 +8,9 @@ from collections.abc import Iterable
 from dataclasses import replace
 
 from ..abi.freestanding import FreestandingRuntime
+from ..abi.hosted import HOSTED_ABI
 from ..runtime.catalog import RuntimeHelperCatalog
+from .lowering.types import CodegenError
 from .nodes import (
     CType,
     IRBlock,
@@ -88,6 +90,10 @@ TypeDeclaration = IREnumDef | IRFunctionPointerTypedef | IRTypedefDef | IRTagged
 DeclarationKey = tuple[str, int]
 
 
+class HostedAvailabilityError(CodegenError):
+    """Surviving code names a hosted name the target row does not declare."""
+
+
 class IROptimizer:
     """Own the complete ordered optimization cascade for one mutable IR module."""
 
@@ -147,6 +153,85 @@ class IROptimizer:
             self._remove_generated_preprocessor()
             self._refresh_hosted_runtime_headers()
         return self._module
+
+    def refuse_unavailable_hosted(self, target: str) -> None:
+        """Refuse surviving code that names a hosted name ``target``'s row does not declare.
+
+        platform-target-contract.md §2.4. It runs once the reachability graph
+        is final, so a stdlib function DCE removed is never refused, and with
+        DCE off every function survives and every reference counts, as in C.
+        btrcc's IROptimizer applies the same rule with the same message.
+        """
+        references = self.unavailable_hosted_references(self._module, HOSTED_ABI.platform_unavailable_names(target))
+        self.refuse_unavailable_references(references, target)
+
+    @classmethod
+    def unavailable_hosted_references(cls, module: IRModule, unavailable: frozenset[str]) -> list[tuple[str, str]]:
+        """Each ``(owner, name)`` where ``module``'s code names a name in ``unavailable``, sorted.
+
+        The owner is the function, global or prototype that names it. A
+        function counts its calls and identifiers unless one of its parameters
+        or locals binds the name, as C scoping does, and always counts its
+        function references and the identifiers of every C type it spells. A
+        global counts the same in its type, initializer and array size; an
+        extern global or a prototype without a definition also counts its own
+        name. Under --module-units each worker reports its unit's references
+        and only the owner process refuses.
+        """
+        if not unavailable:
+            return []
+        references: set[tuple[str, str]] = set()
+        for function in module.function_defs:
+            named, referenced, declared = cls._hosted_names(function, unavailable)
+            declared.update(parameter.name for parameter in function.params)
+            references.update((function.name, name) for name in referenced | (named - declared))
+        for declaration in module.global_decls:
+            named, referenced, declared = cls._hosted_names(declaration, unavailable)
+            references.update((declaration.name, name) for name in referenced | (named - declared))
+            if declaration.is_extern and declaration.name in unavailable:
+                references.add((declaration.name, declaration.name))
+        defined = {function.name for function in module.function_defs}
+        for declaration in module.function_decls:
+            if declaration.name in unavailable and declaration.name not in defined:
+                references.add((declaration.name, declaration.name))
+        return sorted(references)
+
+    @classmethod
+    def refuse_unavailable_references(cls, references: Iterable[tuple[str, str]], target: str) -> None:
+        """Raise for the reference that sorts first by ``(owner, name)``, if any.
+
+        Emission order differs between whole-program and module-unit builds,
+        so the sort keeps one message for one program in both.
+        """
+        first = min(references, default=None)
+        if first is not None:
+            owner, name = first
+            raise HostedAvailabilityError(
+                f"'{name}' is not available on target {target} (hosted ABI); referenced from {owner}"
+            )
+
+    @classmethod
+    def _hosted_names(cls, root: object, unavailable: frozenset[str]) -> tuple[set[str], set[str], set[str]]:
+        """Names in ``unavailable`` that ``root`` spells: bindable, always counted, and declared locally."""
+        named: set[str] = set()
+        referenced: set[str] = set()
+        declared: set[str] = set()
+        for node in IRNode.walk_value(root):
+            if isinstance(node, IRVar):
+                if node.name in unavailable:
+                    named.add(node.name)
+            elif isinstance(node, IRCall):
+                if isinstance(node.callee, str) and node.callee in unavailable:
+                    named.add(node.callee)
+            elif isinstance(node, IRFunctionRef):
+                if node.name in unavailable:
+                    referenced.add(node.name)
+            elif isinstance(node, IRVarDecl):
+                if node.name in unavailable:
+                    declared.add(node.name)
+            elif isinstance(node, CType):
+                referenced.update(cls._code_identifiers(node.text) & unavailable)
+        return named, referenced, declared
 
     @staticmethod
     def _identifier_pattern(names: Iterable[str]) -> frozenset[str] | None:
@@ -1179,4 +1264,4 @@ class IROptimizer:
         ]
 
 
-__all__ = ("PUBLIC_COLLECTION_BASES", "IROptimizer")
+__all__ = ("PUBLIC_COLLECTION_BASES", "HostedAvailabilityError", "IROptimizer")

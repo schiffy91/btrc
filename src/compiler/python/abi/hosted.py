@@ -33,6 +33,7 @@ from .generated import (
     HOSTED_PLATFORM_OBJECT_NAMES,
     HOSTED_PLATFORM_TYPE_NAMES,
     HOSTED_PLATFORM_TYPEDEF_NAMES,
+    HOSTED_PLATFORM_UNAVAILABLE,
     HOSTED_RUNTIME_ADOPTING_HELPERS,
     HOSTED_STDLIB_SOURCE_MARKER,
     HOSTED_TYPE_NAMES,
@@ -68,6 +69,7 @@ class HostedAbiRepository:
         self._platform_objects = frozenset(HOSTED_PLATFORM_OBJECT_NAMES)
         self._platform_types = frozenset(HOSTED_PLATFORM_TYPE_NAMES)
         self._platform_typedefs = frozenset(HOSTED_PLATFORM_TYPEDEF_NAMES)
+        self._platform_unavailable: dict[str, frozenset[str]] = {}
 
     @property
     def functions(self) -> Mapping[str, HostedFunction]:
@@ -129,6 +131,20 @@ class HostedAbiRepository:
     @property
     def platform_typedef_names(self) -> frozenset[str]:
         return self._platform_typedefs
+
+    def platform_unavailable_names(self, label: str) -> frozenset[str]:
+        """Every ``[platform]`` name the row ``label`` does not declare, of any kind.
+
+        One identifier set serves all five kinds (platform-target-contract.md
+        §2.3), so a name is unavailable in every kind it has or in none; a
+        label without a table (no known target) has none.
+        """
+        names = self._platform_unavailable.get(label)
+        if names is None:
+            row = HOSTED_PLATFORM_UNAVAILABLE.get(label)
+            names = frozenset() if row is None else row.functions | row.macros | row.objects | row.types | row.typedefs
+            self._platform_unavailable[label] = names
+        return names
 
     @property
     def stdlib_source_marker(self) -> str:

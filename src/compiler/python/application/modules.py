@@ -20,6 +20,7 @@ from multiprocessing import Pipe
 from multiprocessing.connection import Connection, wait
 from typing import NoReturn, Protocol
 
+from ..abi.hosted import HOSTED_ABI
 from ..analyzer.ownership import OwnershipAnalyzer
 from ..backend.c_emitter import CEmitter
 from ..frontend.native_imports import NativeHeaderSource
@@ -778,6 +779,12 @@ class ModuleUnitCompiler:
         self._workers: InlineModuleUnitWorkers | ForkedModuleUnitWorkers | None = None
         self._solve_state: tuple[dict[str, int], dict[int, int]] = ({}, {})
         self._solve_generation = 0
+        # The compile's target row label, set before any worker forks.
+        self._target = ""
+
+    def unavailable_hosted(self) -> frozenset[str]:
+        """The hosted names the compile's target row does not declare."""
+        return HOSTED_ABI.platform_unavailable_names(self._target)
 
     @staticmethod
     def unit_name(group: str) -> str:
@@ -866,6 +873,7 @@ class ModuleUnitCompiler:
     ) -> ModuleUnitBuild:
         store = store or DisabledModuleUnitStore()
         timed = timed or (lambda _profile, _label, _start: None)
+        self._target = source.native_plan.target.label
         source_map = source.source_map(split_spaces=split_source_spaces)
         groups = source.graph.compilation_groups(source.root_source_path)
         facts = ProgramLoweringFacts()
@@ -1020,6 +1028,7 @@ class ModuleUnitCompiler:
                 self._exchange(self._pool(local, lowering, shared, options, len(stale)), requests) if requests else []
             )
             helpers: set[str] = set()
+            hosted: list[tuple[str, str]] = []
             for state, (_worker, reply) in zip(stale, finished, strict=True):
                 record = ModuleUnitRecord(
                     group=state.name,
@@ -1042,7 +1051,11 @@ class ModuleUnitCompiler:
                         if group != state.name and group in group_sources
                     },
                 )
-                store.store_module_unit(state.key, record.to_json(), input_path)
+                # A unit naming a hosted name its row lacks fails the compile
+                # and is never stored, so a reused unit never names one.
+                hosted.extend(reply["hosted"])
+                if not reply["hosted"]:
+                    store.store_module_unit(state.key, record.to_json(), input_path)
                 state.record = record
             worker_profiles: tuple[str, ...] = ()
             if self._workers is not None:
@@ -1066,6 +1079,9 @@ class ModuleUnitCompiler:
             program_unit, solved, call_effects=program_effects, setjmp_functions=program_setjmp
         )
         self.optimize_unit(program_unit, options, releases)
+        # Only this owner refuses, over every unit's surviving references.
+        hosted.extend(IROptimizer.unavailable_hosted_references(program_unit, self.unavailable_hosted()))
+        IROptimizer.refuse_unavailable_references(hosted, self._target)
         self.finalize_unit(program_unit)
         timed(profile, "optimize", start)
 
@@ -1690,6 +1706,8 @@ class ModuleUnitWorker:
         effects = self._effects.get(group, {}) if request["solve"] else {}
         ExceptionLowerer.apply_setjmp_volatility(unit, solved, call_effects=effects, setjmp_functions=setjmp_functions)
         self._compiler.optimize_unit(unit, options, request["releases"])
+        # The owner refuses these over the whole program; a worker only reports.
+        hosted = IROptimizer.unavailable_hosted_references(unit, self._compiler.unavailable_hosted())
         helpers = tuple(sorted(helper.name for helper in unit.helper_decls))
         self._compiler.finalize_unit(unit)
         kept = any(not function.is_static for function in unit.function_defs) or any(
@@ -1710,4 +1728,5 @@ class ModuleUnitWorker:
             "entry": any(function.name in {"main", "btrc_main"} for function in unit.function_defs),
             "helpers": helpers,
             "sources": tuple(sorted(consulted - {CompilationGroups.PROGRAM})),
+            "hosted": tuple(hosted),
         }

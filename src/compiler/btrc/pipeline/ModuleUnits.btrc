@@ -787,6 +787,8 @@ class ModuleUnitBuild {
 	public Vector<string> lowered = [];
 	public Vector<string> reused = [];
 	public IRModule? program = null;
+	/* The compile's refusal, without its "error: " prefix; empty on success. */
+	public string failure = "";
 
 	public ModuleUnitBuild() {}
 }
@@ -917,6 +919,9 @@ class ModuleUnitCompiler {
 	public Map<string, bool> lastConsultedSources() { return self.lastConsulted; }
 
 	public HostedAbiRepository hostedAbi() { return self.input.hostedAbi; }
+
+	/* The hosted names the compile's target row does not declare. */
+	public Map<string, bool> unavailableHosted() { return self.input.hostedAbi.platformUnavailableNames(self.input.target); }
 
 	public RuntimeHelperCatalog runtimeHelpers() { return self.input.runtimeHelpers; }
 
@@ -2047,6 +2052,7 @@ class ModuleUnitCompiler {
 			finished = self.exchange(self.pool(local, shared, stale.len), requests, affinity, assigned);
 		}
 		BtrccPhaseTimer.mark("u-optimize");
+		Vector<string> hostedReferences = [];
 		for (int index = 0; index < stale.len; index++) {
 			ModuleUnitGroupState state = stale.get(index);
 			string reply = finished.get(index);
@@ -2063,7 +2069,8 @@ class ModuleUnitCompiler {
 			ModuleUnitRecord record = ModuleUnitRecord();
 			record.group = state.name;
 			Vector<string> consultedFiles = [];
-			if (!header.get("kept").isBool() || !header.get("releases").isBool() || !header.get("entry").isBool() || !ModuleUnitRecord.stringsFrom(header.get("exports"), record.exports) || !ModuleUnitRecord.stringsFrom(header.get("helpers"), record.helpers) || !ModuleUnitRecord.stringsFrom(header.get("sources"), consultedFiles) || !header.get("dropped").isObject()) {
+			Vector<string> hosted = [];
+			if (!header.get("kept").isBool() || !header.get("releases").isBool() || !header.get("entry").isBool() || !ModuleUnitRecord.stringsFrom(header.get("exports"), record.exports) || !ModuleUnitRecord.stringsFrom(header.get("helpers"), record.helpers) || !ModuleUnitRecord.stringsFrom(header.get("sources"), consultedFiles) || !header.get("dropped").isObject() || !ModuleUnitRecord.stringsFrom(header.get("hosted"), hosted)) {
 				fprintf(stderr, "internal compiler error: malformed finish reply for group '%s'\n", state.name);
 				exit(1);
 			}
@@ -2096,8 +2103,11 @@ class ModuleUnitCompiler {
 			}
 			state.helpers = record.helpers;
 			for helper in record.helpers { helperNames.put(helper, true); }
+			/* A unit naming a hosted name its row lacks fails the compile and
+			 * is never stored, so a reused unit never names one. */
+			hostedReferences.extend(hosted);
 			IBtrccArtifactCache? store = self.store;
-			string recordText = record.toText();
+			string recordText = hosted.len == 0 ? record.toText() : "";
 			if (store != null && !recordText.isEmpty()) { store.storeModuleUnit(state.key, BtrccModuleUnitPayload(recordText, record.text)); }
 			state.stored = store != null && !recordText.isEmpty();
 			state.record = record;
@@ -2122,6 +2132,9 @@ class ModuleUnitCompiler {
 		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(input.hostedAbi)), input.runtimeHelpers);
 		Map<string, bool> programUnneeded = {};
 		optimizer.optimizeModuleUnit(programUnit, self.options.runDce, programEffects, releases, programUnneeded);
+		/* Only this owner refuses, over every unit's surviving references. */
+		hostedReferences.extend(optimizer.unavailableHostedReferences(programUnit, self.unavailableHosted()));
+		build.failure = IROptimizer.unavailableHostedDiagnostic(hostedReferences, input.target);
 		RuntimeReferenceCollector references = RuntimeReferenceCollector(input.runtimeHelpers);
 		for helper in references.requiredBy(programUnit).keys() { helperNames.put(helper, true); }
 		input.runtimeHelpers.materializeInto(programUnit, helperNames, references.requiredHeaders());
@@ -2365,6 +2378,8 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		if (self.effects.has(group)) { unitEffects = self.effects.get(group); }
 		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(self.compiler.hostedAbi())), self.compiler.runtimeHelpers());
 		optimizer.optimizeModuleUnit(unit, self.compiler.runsDce(), unitEffects, message.get("releases").asBool(), unneeded);
+		/* The owner refuses these over the whole program; a worker only reports. */
+		Vector<string> hosted = optimizer.unavailableHostedReferences(unit, self.compiler.unavailableHosted());
 		Map<string, string> dropped = optimizer.droppedInvalidExports();
 		keep optimizer;
 		Vector<string> helpers = RuntimeReferenceCollector(self.compiler.runtimeHelpers()).requiredBy(unit).keys();
@@ -2407,6 +2422,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		JSONValue invalid = JSONValue.makeObject();
 		for name in dropped.keys() { invalid.set(name, JSONValue.makeString(dropped.get(name))); }
 		header.set("dropped", invalid);
+		header.set("hosted", ModuleUnitRecord.stringsJson(hosted));
 		string rendered = header.stringify();
 		return Strings.fromInt(rendered.length()) + "\n" + rendered + text;
 	}
