@@ -902,7 +902,10 @@ def test_the_strict_flags_keep_every_assert_live_under_zig(tmp_path, label):
         encoding="utf-8",
     )
     toolchain = TargetToolchain(TargetRows.row(label))
-    for flags, compiles in ((STRICT_CFLAGS, True), (tuple(flag for flag in STRICT_CFLAGS if flag != "-UNDEBUG"), False)):
+    for flags, compiles in (
+        (STRICT_CFLAGS, True),
+        (tuple(flag for flag in STRICT_CFLAGS if flag != "-UNDEBUG"), False),
+    ):
         command = toolchain.compile_command(source, tmp_path / "probe.o", generated=True, flags=list(flags))
         completed = subprocess.run(command, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT, check=False)
         assert (completed.returncode == 0) == compiles, (flags, completed.stderr)
