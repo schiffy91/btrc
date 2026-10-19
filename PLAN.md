@@ -3956,6 +3956,30 @@ owner, the exact prerequisite and the next acceptance.
   is 104 bytes: shorten the paths or use `$TMPDIR`. (5) The dry-run `READER=`
   placeholder and the `BTRC_NATIVE_TARGET`/`SYSROOT` record. Acceptance: one
   small PR with tests, before `MAC-C-02` uses the script.
+- **`CL-P2-22` lifecycle shape check (2026-10-18).** Entry constraints for
+  Codex's lifecycle owners. No `CX-P2-36` or `CX-P2-41` draft exists yet, so
+  this is the shape to write them against (cited from
+  `docs/design/ui-contracts/ui2-approved.md`).
+  - **Both owners.**
+    - The OS owns the loop: the host entry calls `GUI.attachHost` on the main thread and never `GUI.run`, which is typed unsupported (:250).
+    - `requestTurn` is coalesced and never runs work inline. `scheduleTurn` arms one replaceable native timer, and each wake runs one bounded `serviceTurn` and returns. No polling.
+    - The host link stays provisional until `CL-UIA-22`, with no private hosted bridge in the meantime (:797).
+  - **`CX-P2-36` (iOS).**
+    - The wake is a common-mode main-run-loop source, and the clock is `CACurrentMediaTime`.
+    - Scene delegates use the landed `scope = "instance"` adapters with `terminal = sceneDidDisconnect:`. The receiver is released after that call, so a process-scoped owner holds close and drain.
+    - A system scene disconnect is host-forced and gives `OWNER_LOST`.
+    - Adapters accept only `executor = "caller"`, `failure = "abort"`, so each delegate method catches BTRC exceptions and routes them to an orderly quit.
+  - **`CX-P2-41` (Android).**
+    - The wake is a coalesced Handler message on the main Looper that drains one slice. Choreographer is separate. The clock is `uptimeMillis`.
+    - Lifecycle natives are registered once per process on main, with `executor = "main"` and `cancellation = "entry-barrier"`; a second live registration throws. Never call a `main` class from a worker, and hold the Activity as a `JavaWeak`.
+    - Destroying the Activity gives `OWNER_LOST`, and recreating it starts a fresh generation.
+    - Until both importers take reader v2's private natives and nested classes, natives must be public methods of top-level classes.
+  - **Routed to `CL-UIA-22`.**
+    1. Blocking: the host link (`attachHost`, `IApplicationHost`) is not in source, and the `CX-P2-36`/`41` rows do not depend on `CX-UIA-21` or `CL-UIA-14`.
+    2. The Android shell is said to enter the program "through RegisterNatives" (:256, :791), but in the landed seam natives exist only after BTRC calls the factory. Entry needs `JNI_OnLoad`-time registration or an exported symbol.
+    3. `transition()` is application-wide, while iPad scenes suspend individually.
+    4. `BACKGROUND` versus `SUSPENDED`, memory warnings and termination have no mobile vocabulary.
+    5. The hosted-application receiver interface is unfrozen.
 - **Hosted macOS shell-survivor flake** (found in batch 10, 2026-10-18). Owner:
   Codex (the UI1 shell harness). On hosted macOS run 39109668584,
   `test_macos_native_shell[plain-python]` failed because an AppKit-private

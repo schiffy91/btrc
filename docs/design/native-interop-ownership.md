@@ -294,8 +294,11 @@ implemented in both compilers today and documented there.
     holder still terminates if its last unpin runs on another thread, instead
     of posting the release to the main Looper. A main class's owners release
     on any thread, since `DeleteGlobalRef` is thread-safe.
-- Step 7 still owes: private natives (reader v2 reports public members only),
-  nested classes, and the 100-cycle activity lifecycle.
+- Step 7 still owes three things:
+  - Private natives. Reader v2 (CL-P2-23) reports them through `--native=`, but both importers still pass `natives` methods as `--symbol=`.
+  - Nested classes. The reader reports their binary names and visibility, but both importers still refuse `$` names.
+  - The 100-cycle activity lifecycle.
+- Reader v2 also reports `nonnull` from NonNull/Nullable annotations (androidx, `android.annotation`, JSR-305, JSpecify, JetBrains). The importers do not project it yet.
 
 ## 1. One model: three relations, three mechanisms, two rules
 
@@ -1196,8 +1199,9 @@ Java conventions:
   the Stage 29 reader reads annotations.
 - `static final` constants reuse `NativeConstant` and
   `NativeStringConstant`.
-- For a class-file document, `compiler_version` is `btrc-class-reader/1
-  sha256:<classpath digest>`, and declarations carry `source_file =
+- For a class-file document, `compiler_version` is `btrc-class-reader/2
+  sha256:<classpath digest>` (v2, CL-P2-23: nullability annotations,
+  `--native=` natives of any access, nested classes), and declarations carry `source_file =
   "<jar>!<path>.class"` with `line = 0` and `column = 0`.
 
 **Calling conventions.** `NativeFunctionType.calling_convention` keeps its
