@@ -1,35 +1,48 @@
 import Library.GUI.MacOS.MacOSViewState;
 import Library.Math;
+import Library.GUI.SliderInteraction;
+import Library.GUI.MacOS.AppKitEvents;
+import Library.GUI.MacOS.MacOSViewInput;
+import Library.UI.Element;
+import Library.GUI.ControlEvents;
 import Library.Callback;
 import Library.GUI.ISlider;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
 
-/* AppKit owns pointer/keyboard tracking. Read the value after dispatch; model
- * refreshes must not overwrite a pending edit before the binding consumes it. */
-class MacOSSlider implements ISlider, IMacOSView {
+class MacOSSliderFocus implements IAppKitNotificationObserver {
+	private MacOSSlider _slider;
+	public MacOSSliderFocus(MacOSSlider slider) { self._slider = slider; }
+
+	public void invoke(NSNotification notification) { self._slider.focusLost(notification); }
+}
+
+/* AppKit draws the native control; the shared model owns value and tracking.
+ * Consuming slider presses prevents NSSliderCell from entering a nested loop. */
+class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKitEventMonitor {
 	private NSSlider? _slider;
 	private MacOSView _view;
-	private double _minimum;
-	private double _maximum;
-	private int _intervals;
+	private SliderInteraction _interaction;
+	private CallbackScope _native = CallbackScope();
+	private bool _closing = false;
 
 	public MacOSSlider(double minimum, double maximum, int intervals = 0) {
 		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
-		if (!Math.isFinite(minimum) || !Math.isFinite(maximum) || maximum <= minimum || !Math.isFinite(maximum - minimum) || intervals < 0 || intervals > 1000) { throw "Invalid native slider range"; }
+		self._interaction = SliderInteraction(minimum, maximum, intervals);
 		var slider = NSSlider.new();
 		if (slider == null) { throw "Cannot create native slider"; }
 		self._slider = slider;
 		self._view = MacOSView(slider);
-		self._minimum = minimum;
-		self._maximum = maximum;
-		self._intervals = intervals;
-		slider.setMinValue(minimum);
-		slider.setMaxValue(maximum);
-		slider.setNumberOfTickMarks(intervals == 0 ? 0 : intervals + 1);
-		slider.setAllowsTickMarkValuesOnly(intervals > 0);
+		self._view.bindEligibility(self);
+		slider.setAllowsTickMarkValuesOnly(false);
 		slider.setContinuous(false);
-		self.setValue(minimum);
+		self.project();
+		try {
+			NSEvent.addLocalMonitorForEventsMatchingMask(NSEventMaskLeftMouseDown | NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp | NSEventMaskKeyDown, self, self._native);
+			var focus = MacOSSliderFocus(self);
+			NSNotificationCenter.defaultCenter().addObserverForName(NSWindowDidResignKeyNotification, null, null, focus, self._native);
+			NSNotificationCenter.defaultCenter().addObserverForName(NSApplicationDidResignActiveNotification, null, null, focus, self._native);
+		} catch (string error) { self._native.cancel(); self._view.close(); self._slider = null; throw error; }
 	}
 
 	private NSSlider control() {
@@ -68,15 +81,117 @@ class MacOSSlider implements ISlider, IMacOSView {
 
 	public void setVisible(bool visible) { self._view.setVisible(visible); }
 
-	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+	public CallbackCancellation pollClose() {
+		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var native = self._native.pollCompletion(); if (native != CALLBACK_CANCELLATION_COMPLETE) { return native; }
+		var state = self._view.pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._slider = null; } return state;
+	}
 
-	public double value() { return self.control().doubleValue(); }
+	public SliderRange range() { self.control(); return self._interaction.range(); }
+
+	public double value() { self.control(); return self._interaction.value(); }
+
+	private void project() {
+		var slider = self._slider; if (slider == null) { return; } var range = self._interaction.range();
+		slider.setMinValue(range.minimum); slider.setMaxValue(range.maximum);
+		double ticks = range.step > 0.0 ? (range.maximum - range.minimum) / range.step : 0.0;
+		slider.setNumberOfTickMarks(ticks >= 1.0 && ticks <= 64.0 ? (int)Math.floorDouble(ticks) + 1 : 0);
+		slider.setDoubleValue(self._interaction.value());
+	}
+
+	public void setRange(double minimum, double maximum, double step) {
+		self.stateNode().requireMutation(); self.control();
+		if (self._interaction.setRange(minimum, maximum, step)) { self.project(); }
+	}
+
+	public void setRangeValue(SliderRange range, double value) {
+		self.stateNode().requireMutation(); self.control();
+		if (range == null) { throw "Slider range is missing"; }
+		if (self._interaction.setRangeValue(range.minimum, range.maximum, range.step, value)) { self.project(); }
+	}
 
 	public void setValue(double value) {
-		var slider = self.control();
-		if (!Math.isFinite(value) || value < self._minimum || value > self._maximum) { throw "Native slider value is out of range"; }
-		if (self._intervals > 0) { value = slider.closestTickMarkValueToValue(value); }
-		slider.setDoubleValue(value);
+		self.stateNode().requireMutation(); self.control();
+		if (self._interaction.setValue(value)) { self.project(); }
+	}
+
+	public ICallbackRegistration onPreview(ISliderControlEventHandler receiver, CallbackScope owner) {
+		var state = self.stateNode(); state.requireMutation();
+		var channel = self._interaction.onPreview(state.events(), state, receiver, owner); state.ownChannel(channel); return channel;
+	}
+
+	public ICallbackRegistration onCommit(ISliderControlEventHandler receiver, CallbackScope owner) {
+		var state = self.stateNode(); state.requireMutation();
+		var channel = self._interaction.onCommit(state.events(), state, receiver, owner); state.ownChannel(channel); return channel;
+	}
+
+	public ICallbackRegistration onCancel(ISliderControlEventHandler receiver, CallbackScope owner) {
+		var state = self.stateNode(); state.requireMutation();
+		var channel = self._interaction.onCancel(state.events(), state, receiver, owner); state.ownChannel(channel); return channel;
+	}
+
+	public void eligibilityLost() {
+		self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); self.project();
+	}
+
+	private void cancelTracking(ControlOrigin origin, ControlCancelReason reason) {
+		self._interaction.cancel(origin, reason); self.project();
+	}
+
+	public void focusLost(NSNotification notification) {
+		var slider = self._slider;
+		if (self._closing || slider == null) { return; }
+		NSView view = slider; id? window = view.window();
+		if (notification.name() == NSApplicationDidResignActiveNotification || notification.object() == window) {
+			self.cancelTracking(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS);
+		}
+	}
+
+	private double valueAt(NSEvent event) {
+		var slider = self.control(); var cell = (NSSliderCell?)slider.cell();
+		if (cell == null) { throw "Native slider cell is unavailable"; }
+		NSView view = slider; var bar = cell.barRectFlipped(view.isFlipped());
+		double radius = cell.knobThickness() * 0.5;
+		double width = Math.maxDouble(1.0, bar.size.width - radius * 2.0);
+		double x = view.convertPoint(event.locationInWindow(), null).x;
+		double fraction = Math.maxDouble(0.0, Math.minDouble(1.0, (x - bar.origin.x - radius) / width));
+		var range = self._interaction.range();
+		double value = fraction == 0.0 ? range.minimum : fraction == 1.0 ? range.maximum : range.minimum + fraction * (range.maximum - range.minimum);
+		return value;
+	}
+
+	public NSEvent? invoke(NSEvent event) {
+		var slider = self._slider;
+		if (self._closing || slider == null || !self.stateNode().effectiveEligible()) { return event; }
+		NSView view = slider; var window = view.window();
+		if (window == null || event.window() != window) { return event; }
+		var type = event.type();
+		if (type == NSEventTypeKeyDown) {
+			NSResponder responder = slider;
+			if (window.firstResponder() != responder && !self._interaction.active()) { return event; }
+			var key = event.keyCode();
+			if (key == kVK_Escape && self._interaction.active()) { self.cancelTracking(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); return null; }
+			UIRangeAdjustment adjustment = UI_RANGE_ADJUST_NONE;
+			if (key == kVK_LeftArrow || key == kVK_DownArrow) { adjustment = UI_RANGE_ADJUST_SMALL_DECREMENT; }
+			else if (key == kVK_RightArrow || key == kVK_UpArrow) { adjustment = UI_RANGE_ADJUST_SMALL_INCREMENT; }
+			else if (key == kVK_PageUp) { adjustment = UI_RANGE_ADJUST_LARGE_INCREMENT; }
+			else if (key == kVK_PageDown) { adjustment = UI_RANGE_ADJUST_LARGE_DECREMENT; }
+			else if (key == kVK_Home) { adjustment = UI_RANGE_ADJUST_MINIMUM; }
+			else if (key == kVK_End) { adjustment = UI_RANGE_ADJUST_MAXIMUM; }
+			if (adjustment != UI_RANGE_ADJUST_NONE) { self._interaction.adjust(self.stateNode().generation(), adjustment, 1); self.project(); return null; }
+			return event;
+		}
+		if (type == NSEventTypeLeftMouseDown) {
+			var content = window.contentView(); if (content == null) { return event; }
+			var hit = content.hitTest(content.convertPoint(event.locationInWindow(), null));
+			if (hit != view && (hit == null || !hit.isDescendantOf(view))) { return event; }
+			if (self._interaction.begin(self.stateNode().generation())) { window.makeFirstResponder(slider); self._interaction.preview(self.valueAt(event)); self.project(); }
+			return null;
+		}
+		if (type == NSEventTypeLeftMouseDragged && self._interaction.active()) { self._interaction.preview(self.valueAt(event)); self.project(); return null; }
+		if (type == NSEventTypeLeftMouseUp && self._interaction.active()) { self._interaction.commitValue(self.valueAt(event)); self.project(); return null; }
+		return event;
 	}
 
 	public void setEnabled(bool enabled) {
@@ -94,5 +209,12 @@ class MacOSSlider implements ISlider, IMacOSView {
 		return text == null ? "" : AppKitText.ownedValue(text);
 	}
 
-	public CallbackCancellation close() { var state = self._view.close(); self._slider = null; return state; }
+	public CallbackCancellation close() {
+		self._view.requireDetached();
+		if (!self._closing) {
+			self._closing = true; self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING);
+			self._native.cancel(); self._view.close();
+		}
+		return self.pollClose();
+	}
 }
