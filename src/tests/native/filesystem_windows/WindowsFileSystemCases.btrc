@@ -2,7 +2,8 @@
  * paths past MAX_PATH, \\?\ and UNC forms, non-ASCII names, junctions and
  * directory links, a junction swapped in by a racing thread, a DACL that
  * denies the user, a lock held by a second process, an interrupted durable
- * replace, NTFS name rules, the known folders and the kernel handle count.
+ * replace, NTFS name rules, the known folders, the kernel handle count, and
+ * temporary directories and whole-file text kept byte for byte.
  * test_windows_filesystem_handles.py builds it with both compilers for x64 and
  * ARM64, and windows.yml runs each build on its own architecture. Every case
  * prints one `case=<name> ok` line (or `case=unc skipped <reason>` where the
@@ -420,6 +421,26 @@ void caseKnownFolders() {
 	print("case=known-folders ok");
 }
 
+/* FileSystem.tempDir reserves an owner-only directory in the user's
+ * temporary folder (never TMPDIR or /tmp), and the whole-file helpers keep a
+ * file's exact bytes: no line ending is rewritten in either direction. */
+void caseTextFiles(string root) {
+	string reserved = FileSystem.tempDir("btrc-cases-temp");
+	check(!reserved.isEmpty(), "reserve a temporary directory");
+	check(PathTools.dirname(reserved).equals(PathTools.dirname(root)), "the reserved directory is in the user's temporary folder");
+	check(FileSystem.isDir(reserved) && btrcTestOwnerOnly(reserved) == 1, "the reserved directory is owner-only");
+	check(FileSystem.removeRecursive(reserved) == 0 && !FileSystem.exists(reserved), "remove the reserved directory");
+	string text = "a\r\nb\nc\r";
+	string path = join(root, "lines.txt");
+	check(Path.writeAll(path, text), "write mixed line endings");
+	File raw = File(path, "rb");
+	Bytes bytes = raw.readBytes();
+	check(raw.close() && bytes.length() == 7 && bytes.toStringLossy().equals(text), "the bytes on disk are the string's");
+	check(Path.readAll(path).equals(text) && FileSystem.readText(path).equals(text), "the whole-file reads return them unchanged");
+	check(FileSystem.writeText(path, "\n\n") && FileSystem.readBytes(path).length() == 2, "a rewrite stays two bytes");
+	print("case=text-files ok");
+}
+
 /* Every owner closes its kernel handles: hundreds of cycles of each owner
  * leave the process's handle count where it started (within the noise of the
  * loader's own threads). */
@@ -465,7 +486,7 @@ int main(int argc, char** argv) {
 	}
 	/* Each case runs to its first failed check, which is reported as that
 	 * case's verdict; later cases still run, so one run reports them all. */
-	Vector<string> names = ["long-paths", "unc", "non-ascii", "reparse-points", "junction-swap", "dacl-denied", "lock-processes", "interrupted-replace", "name-rules", "known-folders", "handle-count"];
+	Vector<string> names = ["long-paths", "unc", "non-ascii", "reparse-points", "junction-swap", "dacl-denied", "lock-processes", "interrupted-replace", "name-rules", "known-folders", "handle-count", "text-files"];
 	int failures = 0;
 	for (int index = 0; index < names.len; index++) {
 		try {
@@ -499,4 +520,5 @@ void runCase(int index, string root) {
 	if (index == 8) { caseNameRules(root); }
 	if (index == 9) { caseKnownFolders(); }
 	if (index == 10) { caseHandleCount(root); }
+	if (index == 11) { caseTextFiles(root); }
 }

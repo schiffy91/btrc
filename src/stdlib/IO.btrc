@@ -487,8 +487,11 @@ class Path {
 		return stat(path, &st) == 0;
 	}
 
+	/* Both whole-file helpers open in binary mode, so the bytes read and
+	 * written are exactly the string's: Windows' text mode would rewrite line
+	 * endings, and POSIX makes no distinction. */
 	class string readAll(string path) {
-		var f = File(path, "r");
+		var f = File(path, "rb");
 		if (!f.ok()) { return ""; }
 		string content = f.read();
 		bool closed = f.close();
@@ -502,7 +505,7 @@ class Path {
      * working; new callers can branch on the bool. */
 	class bool writeAll(string path, string content) {
 		if (path == null || content == null) { return false; }
-		var f = File(path, "w");
+		var f = File(path, "wb");
 		if (!f.ok()) {
 			fprintf(stderr, "Path.writeAll: cannot open '%s' for writing\n", path);
 			return false;

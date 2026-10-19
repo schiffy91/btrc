@@ -426,6 +426,7 @@ jobs:
   # server and win32-native runs them on x64 and ARM64 Windows.
   # The Windows FileSystem provider rides the same pair of jobs: its own cases
   # (test_windows_filesystem_handles.py) and the FileSystem corpus programs,
+  # with the file I/O programs that reserve temporary directories through it,
   # bundled by src/tests/target_runner.py through both compilers for each
   # architecture and executed there by the windows-native executor.
   win32-native-build:
@@ -450,6 +451,10 @@ jobs:
             --program 'stdlib/AdvisoryFileLock*.btrc' --program 'stdlib/ApplicationDirectories.btrc'
             --program 'stdlib/FileSystem*.btrc' --program 'stdlib/FileTree*.btrc' --program 'stdlib/Fs*.btrc'
             --program 'stdlib/Path*.btrc' --program 'stdlib/PrivateDirectory*.btrc' --program 'stdlib/RegularFileSnapshot*.btrc'
+            --program 'stdlib/BoundedLineRead.btrc' --program 'stdlib/Bytes.btrc' --program 'stdlib/FileAppend.btrc'
+            --program 'stdlib/FileBytesLarge.btrc' --program 'stdlib/FileLines.btrc' --program 'stdlib/Hygiene.btrc'
+            --program 'stdlib/ImageBmp.btrc' --program 'stdlib/ImageIoFailures.btrc' --program 'stdlib/IoRead.btrc'
+            --program 'stdlib/JsonFileRoundtrip.btrc'
           )
           for pair in windows-x86_64:windows-x64 windows-aarch64:windows-arm64; do
             row="${pair%%:*}"
@@ -562,7 +567,11 @@ jobs:
             --executor windows-native --frontend both --output "build/windows-filesystem-run" \
             --program 'stdlib/AdvisoryFileLock*.btrc' --program 'stdlib/ApplicationDirectories.btrc' \
             --program 'stdlib/FileSystem*.btrc' --program 'stdlib/FileTree*.btrc' --program 'stdlib/Fs*.btrc' \
-            --program 'stdlib/Path*.btrc' --program 'stdlib/PrivateDirectory*.btrc' --program 'stdlib/RegularFileSnapshot*.btrc'
+            --program 'stdlib/Path*.btrc' --program 'stdlib/PrivateDirectory*.btrc' --program 'stdlib/RegularFileSnapshot*.btrc' \
+            --program 'stdlib/BoundedLineRead.btrc' --program 'stdlib/Bytes.btrc' --program 'stdlib/FileAppend.btrc' \
+            --program 'stdlib/FileBytesLarge.btrc' --program 'stdlib/FileLines.btrc' --program 'stdlib/Hygiene.btrc' \
+            --program 'stdlib/ImageBmp.btrc' --program 'stdlib/ImageIoFailures.btrc' --program 'stdlib/IoRead.btrc' \
+            --program 'stdlib/JsonFileRoundtrip.btrc'
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

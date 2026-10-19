@@ -51,6 +51,7 @@ CASE_NAMES = (
     "name-rules",
     "known-folders",
     "handle-count",
+    "text-files",
 )
 SKIPPABLE = frozenset({"unc", "dacl-denied"})
 PROBE = """import Library.FileSystem;
