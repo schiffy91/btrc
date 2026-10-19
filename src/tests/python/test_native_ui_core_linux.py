@@ -33,7 +33,7 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
         for name in (fixture, "WindowCloseProbe.btrc", "WindowCloseProbe.h", "WindowCloseProbe.c"):
             shutil.copyfile(source.parent / name, package / name)
         (package / "btrc.toml").write_text(
-            '[package]\nname = "ui2LinuxWindowClose"\n'
+            'manifest-version = 1\n[package]\nname = "ui2LinuxWindowClose"\n'
             '[[native.bindings]]\nmodule = "WindowCloseProbe"\nheader = "WindowCloseProbe.h"\n'
             'language = "c"\nstandard = "c11"\nsymbols = ["ui2PushWindowClose"]\n'
             '[[native.sources]]\npath = "WindowCloseProbe.c"\nlanguage = "c"\n'
