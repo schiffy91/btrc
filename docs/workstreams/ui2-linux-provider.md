@@ -29,6 +29,15 @@ LinuxPublisher owns only this provider's bounded plain-data worker ingress;
 LinuxContext carries its existing shared provider services. The approved
 interface and ui2-approved.md govern; no second portable ownership model.
 
+## Integration update, 2026-10-19
+
+The publisher now lives in the shared private
+`src/stdlib/GUI/ApplicationPublisher.btrc`. LinuxContext supplies SDL wakeups;
+MacOSRunLoopSignal supplies CoreFoundation wakeups. Receipt storage, replacement,
+cancellation and host notification use the same owner on both platforms. This
+replaces the LinuxPublisher source named in the historical checkpoint below.
+The full application scheduler and native acceptance work remain incomplete.
+
 ## Qualification state
 
 Claim precedes implementation. Existing Linux 96-row repair and four Grid04

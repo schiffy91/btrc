@@ -1,14 +1,14 @@
 import Library.Callback;
 import Library.Console;
 import Library.GUI.IApplication;
-import Library.GUI.Linux.SDL;
+import Library.GUI.IApplicationNativeWake;
 
 #include <errno.h>
 
 /* Only plain fields are touched by producers. Allocation, receiver ownership
  * and destruction remain on the UI thread. A producer is handed a publisher
  * already retained by its UI owner and never releases its final reference. */
-struct LinuxPublicationSlot {
+struct ApplicationPublicationSlot {
 	long long generation;
 	long long sequence;
 	long long key;
@@ -16,21 +16,21 @@ struct LinuxPublicationSlot {
 	int policy;
 };
 
-struct LinuxPublicationReceipt { long long generation; long long sequence; };
+struct ApplicationPublicationReceipt { long long generation; long long sequence; };
 
-enum LinuxPublicationDisposition {
-	LINUX_PUBLICATION_DELIVERED,
-	LINUX_PUBLICATION_CANCELLED,
-	LINUX_PUBLICATION_STALE,
-	LINUX_PUBLICATION_SUPERSEDED,
-	LINUX_PUBLICATION_CLOSED,
-	LINUX_PUBLICATION_FAILED
+enum ApplicationPublicationDisposition {
+	APPLICATION_PUBLICATION_DELIVERED,
+	APPLICATION_PUBLICATION_CANCELLED,
+	APPLICATION_PUBLICATION_STALE,
+	APPLICATION_PUBLICATION_SUPERSEDED,
+	APPLICATION_PUBLICATION_CLOSED,
+	APPLICATION_PUBLICATION_FAILED
 };
 
-class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
+class ApplicationPublisher implements IApplicationPublisher, ICallbackRegistration {
 	private pthread_mutex_t* _mutex = null;
-	private struct LinuxPublicationSlot* _slots = null;
-	private struct LinuxPublicationReceipt* _receipts = null;
+	private struct ApplicationPublicationSlot* _slots = null;
+	private struct ApplicationPublicationReceipt* _receipts = null;
 	private int _receiptHead = 0;
 	private int _receiptCount = 0;
 	private long long _enteredGeneration = 0LL;
@@ -56,17 +56,18 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 	private bool _initialized = false;
 	private long long _generation = 0LL;
 	private long long _sequence = 0LL;
-	private CallbackContext<IApplicationPublicationHandler, LinuxPublisher>? _handler;
+	private CallbackContext<IApplicationPublicationHandler, ApplicationPublisher>? _handler;
 	/* Installed and retired only on the UI executor. Producers use the field
 	 * directly; no managed local or producer-side reference transfer occurs. */
 	private IApplicationHost? _host;
+	private IApplicationNativeWake _wake;
 
-	public LinuxPublisher(int capacity, IApplicationHost? host) {
-		if (capacity <= 0 || capacity > 65536) { throw "Invalid publisher capacity"; }
-		self._capacity = capacity; self._host = host; self._sealed.init(false); self._notifying.init(0u); self._failed.init(false);
+	public ApplicationPublisher(int capacity, IApplicationNativeWake wake, IApplicationHost? host) {
+		if (capacity <= 0 || capacity > 65536 || wake == null) { throw "Invalid publisher capacity"; }
+		self._capacity = capacity; self._host = host; self._wake = wake; self._sealed.init(false); self._notifying.init(0u); self._failed.init(false);
 		self._mutex = (pthread_mutex_t*)calloc(1, sizeof(pthread_mutex_t));
-		self._slots = (struct LinuxPublicationSlot*)calloc((size_t)capacity, sizeof(struct LinuxPublicationSlot));
-		self._receipts = (struct LinuxPublicationReceipt*)calloc((size_t)capacity, sizeof(struct LinuxPublicationReceipt));
+		self._slots = (struct ApplicationPublicationSlot*)calloc((size_t)capacity, sizeof(struct ApplicationPublicationSlot));
+		self._receipts = (struct ApplicationPublicationReceipt*)calloc((size_t)capacity, sizeof(struct ApplicationPublicationReceipt));
 		if (self._mutex == null || self._slots == null || self._receipts == null) { return; }
 		if (pthread_mutex_init(self._mutex, null) != 0) { return; }
 		self._initialized = true; self._open = true;
@@ -78,9 +79,9 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 
 	public void activate(IApplicationPublicationHandler receiver, CallbackScope owner) {
 		if (!self._initialized || receiver == null) { throw "Publisher requires storage and a receiver"; }
-		var handler = new CallbackContext<IApplicationPublicationHandler, LinuxPublisher>(receiver, LinuxPublisher.unregister);
+		var handler = new CallbackContext<IApplicationPublicationHandler, ApplicationPublisher>(receiver, ApplicationPublisher.unregister);
 		handler.activate(self._scope); self._handler = handler;
-		try { owner.track(self); } catch (string error) { handler.abortActivation(); self._handler = null; throw error; }
+		try { owner.track(self); } catch (string error) { handler.abortActivation(); self._scope.cancel(); self._handler = null; throw error; }
 		handler.publish(self);
 	}
 
@@ -104,18 +105,18 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 
 	/* Fixed plain counters share the mailbox mutex. Every admitted receipt is
 	 * pending (including entered delivery) or has exactly one disposition. */
-	private void retire(LinuxPublicationDisposition disposition, int count) {
-		if (disposition == LINUX_PUBLICATION_DELIVERED) { self._delivered += (long long)count; }
-		else if (disposition == LINUX_PUBLICATION_CANCELLED) { self._cancelled += (long long)count; }
-		else if (disposition == LINUX_PUBLICATION_STALE) { self._stale += (long long)count; }
-		else if (disposition == LINUX_PUBLICATION_SUPERSEDED) { self._superseded += (long long)count; }
-		else if (disposition == LINUX_PUBLICATION_CLOSED) { self._closed += (long long)count; }
+	private void retire(ApplicationPublicationDisposition disposition, int count) {
+		if (disposition == APPLICATION_PUBLICATION_DELIVERED) { self._delivered += (long long)count; }
+		else if (disposition == APPLICATION_PUBLICATION_CANCELLED) { self._cancelled += (long long)count; }
+		else if (disposition == APPLICATION_PUBLICATION_STALE) { self._stale += (long long)count; }
+		else if (disposition == APPLICATION_PUBLICATION_SUPERSEDED) { self._superseded += (long long)count; }
+		else if (disposition == APPLICATION_PUBLICATION_CLOSED) { self._closed += (long long)count; }
 		else { self._failures += (long long)count; }
 	}
 
 	/* Recent terminal identities are plain, bounded storage. Sequence gaps and
 	 * evicted identities are stale, never evidence of a completed receipt. */
-	private void retireSlot(struct LinuxPublicationSlot slot, LinuxPublicationDisposition disposition) {
+	private void retireSlot(struct ApplicationPublicationSlot slot, ApplicationPublicationDisposition disposition) {
 		self.retire(disposition, 1);
 		int position = (self._receiptHead + self._receiptCount) % self._capacity;
 		if (self._receiptCount == self._capacity) { position = self._receiptHead; self._receiptHead = (self._receiptHead + 1) % self._capacity; }
@@ -123,7 +124,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		self._receipts[position].generation = slot.generation; self._receipts[position].sequence = slot.sequence;
 	}
 
-	private void retireQueued(LinuxPublicationDisposition disposition) {
+	private void retireQueued(ApplicationPublicationDisposition disposition) {
 		for (int index = 0; index < self._count; index++) { self.retireSlot(self._slots[index], disposition); }
 		self._count = 0;
 	}
@@ -138,9 +139,9 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		int result = self._count + self._executing; pthread_mutex_unlock(self._mutex); return result;
 	}
 
-	public long long retiredCount(LinuxPublicationDisposition disposition) {
+	public long long retiredCount(ApplicationPublicationDisposition disposition) {
 		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
-		long long result = disposition == LINUX_PUBLICATION_DELIVERED ? self._delivered : disposition == LINUX_PUBLICATION_CANCELLED ? self._cancelled : disposition == LINUX_PUBLICATION_STALE ? self._stale : disposition == LINUX_PUBLICATION_SUPERSEDED ? self._superseded : disposition == LINUX_PUBLICATION_CLOSED ? self._closed : self._failures;
+		long long result = disposition == APPLICATION_PUBLICATION_DELIVERED ? self._delivered : disposition == APPLICATION_PUBLICATION_CANCELLED ? self._cancelled : disposition == APPLICATION_PUBLICATION_STALE ? self._stale : disposition == APPLICATION_PUBLICATION_SUPERSEDED ? self._superseded : disposition == APPLICATION_PUBLICATION_CLOSED ? self._closed : self._failures;
 		pthread_mutex_unlock(self._mutex); return result;
 	}
 
@@ -161,15 +162,14 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		bool fresh = generation > self._generation;
 		if (replace < 0 && !fresh && self._count + self._executing >= self._capacity) { pthread_mutex_unlock(self._mutex); return PUBLISH_FULL; }
 		if (fresh && self._executing >= self._capacity) { pthread_mutex_unlock(self._mutex); return PUBLISH_FULL; }
-		/* SDL_PushEvent is bounded, thread-safe and never invokes a BTRC
-		 * receiver. The mutex keeps the receipt invisible until wake succeeds. */
-		if (!self._wakePending && !btrcSdlPushWake()) {
+		/* The mutex keeps the receipt invisible until the native wake succeeds. */
+		if (!self._wakePending && !self._wake.requestTurn()) {
 			self._failed.store(true, MemoryOrder.RELEASE); self._open = false; self._sealed.store(true, MemoryOrder.RELEASE);
 			pthread_mutex_unlock(self._mutex); return PUBLISH_WAKE_FAILED;
 		}
 		self._wakePending = true;
-		if (fresh) { self.retireQueued(LINUX_PUBLICATION_STALE); self._generation = generation; replace = -1; }
-		if (replace >= 0) { self.retireSlot(self._slots[replace], LINUX_PUBLICATION_SUPERSEDED); }
+		if (fresh) { self.retireQueued(APPLICATION_PUBLICATION_STALE); self._generation = generation; replace = -1; }
+		if (replace >= 0) { self.retireSlot(self._slots[replace], APPLICATION_PUBLICATION_SUPERSEDED); }
 		self._accepted++;
 		int slot = replace >= 0 ? replace : self._count++;
 		self._slots[slot].generation = generation; self._slots[slot].sequence = sequence;
@@ -196,7 +196,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		if (!self._open || self._sealed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_CLOSED; }
 		if (generation != self._generation || sequence <= 0LL || sequence > self._sequence) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_STALE; }
 		for (int index = 0; index < self._count; index++) {
-			if (self._slots[index].sequence == sequence) { self.retireSlot(self._slots[index], LINUX_PUBLICATION_CANCELLED); self.removeAt(index); pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_REQUESTED; }
+			if (self._slots[index].sequence == sequence) { self.retireSlot(self._slots[index], APPLICATION_PUBLICATION_CANCELLED); self.removeAt(index); pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_REQUESTED; }
 		}
 		if (self._executing > 0 && self._enteredGeneration == generation && self._enteredSequence == sequence) { pthread_mutex_unlock(self._mutex); return PUBLISH_CANCEL_REQUESTED; }
 		for (int offset = 0; offset < self._receiptCount; offset++) {
@@ -209,7 +209,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 	public void suspend(bool suspended) {
 		if (pthread_mutex_lock(self._mutex) != 0) { throw "Publisher synchronization failed"; }
 		self._suspended = suspended;
-		if (suspended) { for (int index = self._count - 1; index >= 0; index--) { if (self._slots[index].policy == (int)WORK_SUSPENSION_CANCEL) { self.retireSlot(self._slots[index], LINUX_PUBLICATION_CANCELLED); self.removeAt(index); } } }
+		if (suspended) { for (int index = self._count - 1; index >= 0; index--) { if (self._slots[index].policy == (int)WORK_SUSPENSION_CANCEL) { self.retireSlot(self._slots[index], APPLICATION_PUBLICATION_CANCELLED); self.removeAt(index); } } }
 		pthread_mutex_unlock(self._mutex);
 	}
 
@@ -225,7 +225,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		if (self._failed.load(MemoryOrder.ACQUIRE)) { pthread_mutex_unlock(self._mutex); throw "Application publisher native wake failed"; }
 		if (!self._open || self._sealed.load(MemoryOrder.ACQUIRE) || self._suspended || self._count == 0) { pthread_mutex_unlock(self._mutex); return false; }
 		if (self._executing != 0) { pthread_mutex_unlock(self._mutex); throw "Publisher delivery cannot re-enter"; }
-		struct LinuxPublicationSlot slot = self._slots[0]; self.removeAt(0); self._executing++;
+		struct ApplicationPublicationSlot slot = self._slots[0]; self.removeAt(0); self._executing++;
 		self._enteredGeneration = slot.generation; self._enteredSequence = slot.sequence;
 		var handler = self._handler;
 		IApplicationPublicationHandler? receiver = null;
@@ -233,16 +233,16 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		 * validation/dequeue. A newer producer generation can invalidate queued
 		 * work, but cannot interleave before this admitted callback's entry. */
 		try { if (handler != null) { receiver = handler.enter(); } }
-		catch (string error) { self._executing--; self.retireSlot(slot, LINUX_PUBLICATION_FAILED); pthread_mutex_unlock(self._mutex); throw error; }
+		catch (string error) { self._executing--; self.retireSlot(slot, APPLICATION_PUBLICATION_FAILED); pthread_mutex_unlock(self._mutex); throw error; }
 		pthread_mutex_unlock(self._mutex);
-		LinuxPublicationDisposition disposition = LINUX_PUBLICATION_CANCELLED;
+		ApplicationPublicationDisposition disposition = APPLICATION_PUBLICATION_CANCELLED;
 		try {
 			if (receiver != null) {
-				disposition = LINUX_PUBLICATION_FAILED;
+				disposition = APPLICATION_PUBLICATION_FAILED;
 				try {
 					var publication = ApplicationPublication(); publication.generation = slot.generation;
 					publication.sequence = slot.sequence; publication.replacementKey = slot.key; publication.payload = slot.payload;
-					receiver.deliver(publication); disposition = LINUX_PUBLICATION_DELIVERED;
+					receiver.deliver(publication); disposition = APPLICATION_PUBLICATION_DELIVERED;
 				} finally { handler.leave(); handler.pollCompletion(); }
 			}
 		} finally {
@@ -252,7 +252,7 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		return true;
 	}
 
-	class bool unregister(LinuxPublisher publisher) { return true; }
+	class bool unregister(ApplicationPublisher publisher) { return true; }
 
 	public bool isOpen() { return !self._sealed.load(MemoryOrder.ACQUIRE) && self._handler != null && self._handler.isOpen(); }
 
@@ -260,13 +260,15 @@ class LinuxPublisher implements IApplicationPublisher, ICallbackRegistration {
 		int locked = pthread_mutex_trylock(self._mutex);
 		if (locked == EBUSY) { return CALLBACK_CANCELLATION_PENDING; }
 		if (locked != 0) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
-		self._open = false; self.retireQueued(self._failed.load(MemoryOrder.ACQUIRE) ? LINUX_PUBLICATION_FAILED : LINUX_PUBLICATION_CANCELLED); self._wakePending = false;
+		self._open = false; self.retireQueued(self._failed.load(MemoryOrder.ACQUIRE) ? APPLICATION_PUBLICATION_FAILED : APPLICATION_PUBLICATION_CANCELLED); self._wakePending = false;
 		bool busy = self._notifying.load(MemoryOrder.ACQUIRE) != 0u;
 		pthread_mutex_unlock(self._mutex);
 		if (busy) { return CALLBACK_CANCELLATION_PENDING; }
 		self._host = null;
 		var handler = self._handler;
-		return handler == null ? CALLBACK_CANCELLATION_COMPLETE : handler.cancel();
+		var result = handler == null ? CALLBACK_CANCELLATION_COMPLETE : handler.cancel();
+		self._scope.cancel(); self._scope.pollCompletion();
+		return result;
 	}
 
 	public CallbackCancellation cancel() {

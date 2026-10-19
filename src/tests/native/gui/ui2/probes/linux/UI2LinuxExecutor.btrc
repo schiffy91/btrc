@@ -3,10 +3,12 @@ import Library.BackgroundJobs.NativeWorker;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.LinuxApplication;
-import Library.GUI.Linux.LinuxPublisher;
+import Library.GUI.ApplicationPublisher;
+import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.SDL;
 
 #include "../../Executor.btrc"
+#include "../../PublisherChecks.btrc"
 #include <assert.h>
 #include <stdio.h>
 
@@ -38,98 +40,11 @@ class UI2LinuxReceiver implements IApplicationPublicationHandler {
 	public void deliver(ApplicationPublication publication) { assert(SDL_IsMainThread()); self.calls++; self.value = publication.payload; }
 }
 
-class UI2ThrowingHost implements IApplicationHost {
-	public bool raises = false;
-	public int calls = 0;
-	public bool requestTurn() { self.calls++; if (self.raises) { throw "deliberate host wake failure"; } return true; }
-
-	public void scheduleTurn(unsigned long long deadline) {}
-}
-
-class UI2CancellingPublicationReceiver implements IApplicationPublicationHandler {
-	public LinuxPublisher? publisher;
-	public int calls = 0;
-	public void deliver(ApplicationPublication publication) {
-		var publisher = self.publisher; if (publisher == null) { throw "Missing active publisher"; }
-		self.calls++;
-		/* Entry has already happened, but this receipt is not terminal yet. */
-		assert(publisher.requestCancel(publication.generation, publication.sequence) == PUBLISH_CANCEL_REQUESTED);
-	}
-}
-
-class UI2PublisherFailureChecks {
-	class void cancellationIdentity() {
-		var publisher = LinuxPublisher(2, null); var receiver = UI2CancellingPublicationReceiver();
-		var scope = CallbackScope(); assert(publisher.initialized()); receiver.publisher = publisher;
-		publisher.activate(receiver, scope);
-		assert(publisher.tryPublish(1LL, 10LL, WORK_SUSPENSION_DEFER, 0LL, 1LL) == PUBLISH_ACCEPTED);
-		assert(publisher.requestCancel(1LL, 9LL) == PUBLISH_CANCEL_STALE);
-		assert(publisher.deliverOne() && receiver.calls == 1);
-		assert(publisher.requestCancel(1LL, 10LL) == PUBLISH_CANCEL_ALREADY_TERMINAL);
-		assert(publisher.tryPublish(1LL, 20LL, WORK_SUSPENSION_DEFER, 0LL, 2LL) == PUBLISH_ACCEPTED);
-		assert(publisher.deliverOne());
-		assert(publisher.tryPublish(1LL, 30LL, WORK_SUSPENSION_DEFER, 0LL, 3LL) == PUBLISH_ACCEPTED);
-		assert(publisher.deliverOne() && receiver.calls == 3);
-		/* Recent terminal identities are bounded by capacity; unknown or evicted
-		 * identities never masquerade as receipts that reached a terminal state. */
-		assert(publisher.requestCancel(1LL, 10LL) == PUBLISH_CANCEL_STALE);
-		assert(publisher.requestCancel(1LL, 20LL) == PUBLISH_CANCEL_ALREADY_TERMINAL);
-		assert(publisher.requestCancel(1LL, 21LL) == PUBLISH_CANCEL_STALE);
-		assert(publisher.tryPublish(1LL, 40LL, WORK_SUSPENSION_DEFER, 0LL, 4LL) == PUBLISH_ACCEPTED);
-		assert(publisher.requestCancel(1LL, 40LL) == PUBLISH_CANCEL_REQUESTED);
-		assert(publisher.requestCancel(1LL, 40LL) == PUBLISH_CANCEL_ALREADY_TERMINAL);
-		assert(publisher.acceptedCount() == 4LL && publisher.pendingCount() == 0);
-		assert(publisher.retiredCount(LINUX_PUBLICATION_DELIVERED) == 3LL && publisher.retiredCount(LINUX_PUBLICATION_CANCELLED) == 1LL);
-		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); receiver.publisher = null;
-	}
-
-	class void throwingHost(bool replacement) {
-		var host = UI2ThrowingHost(); var publisher = LinuxPublisher(2, host);
-		var receiver = UI2LinuxReceiver(); var scope = CallbackScope();
-		assert(publisher.initialized()); publisher.activate(receiver, scope);
-		if (replacement) { assert(publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 1LL, 60LL) == PUBLISH_ACCEPTED); }
-		host.raises = true;
-		assert(publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 1LL, 61LL) == (replacement ? PUBLISH_REPLACED : PUBLISH_ACCEPTED));
-		assert(publisher.tryPublish(1LL, 3LL, WORK_SUSPENSION_DEFER, 1LL, 62LL) == PUBLISH_CLOSED);
-		bool failed = false;
-		try { publisher.deliverOne(); } catch (string error) { failed = true; }
-		assert(failed && receiver.calls == 0 && host.calls == (replacement ? 2 : 1));
-		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
-		assert(publisher.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
-		assert(publisher.cancel() == CALLBACK_CANCELLATION_COMPLETE);
-		assert(publisher.tryPublish(1LL, 4LL, WORK_SUSPENSION_DEFER, 1LL, 63LL) == PUBLISH_CLOSED);
-		assert(receiver.calls == 0 && host.calls == (replacement ? 2 : 1));
-		assert(publisher.pendingCount() == 0 && publisher.acceptedCount() == (replacement ? 2LL : 1LL));
-		assert(publisher.retiredCount(LINUX_PUBLICATION_FAILED) == 1LL);
-		assert(publisher.retiredCount(LINUX_PUBLICATION_SUPERSEDED) == (replacement ? 1LL : 0LL));
-	}
-
-	class void receipts() {
-		var publisher = LinuxPublisher(2, null); var receiver = UI2LinuxReceiver(); var scope = CallbackScope();
-		assert(publisher.initialized()); publisher.activate(receiver, scope);
-		assert(publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 1LL, 1LL) == PUBLISH_ACCEPTED);
-		assert(publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 1LL, 2LL) == PUBLISH_REPLACED);
-		assert(publisher.tryPublish(2LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 3LL) == PUBLISH_ACCEPTED);
-		assert(publisher.tryPublish(1LL, 3LL, WORK_SUSPENSION_DEFER, 0LL, 90LL) == PUBLISH_STALE);
-		assert(publisher.deliverOne() && receiver.calls == 1 && receiver.value == 3LL);
-		assert(publisher.tryPublish(2LL, 2LL, WORK_SUSPENSION_CANCEL, 0LL, 4LL) == PUBLISH_ACCEPTED);
-		publisher.suspend(true); assert(!publisher.deliverOne());
-		assert(publisher.tryPublish(2LL, 3LL, WORK_SUSPENSION_DEFER, 0LL, 5LL) == PUBLISH_ACCEPTED);
-		assert(publisher.requestCancel(2LL, 3LL) == PUBLISH_CANCEL_REQUESTED);
-		assert(publisher.tryPublish(2LL, 4LL, WORK_SUSPENSION_DEFER, 0LL, 6LL) == PUBLISH_ACCEPTED);
-		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
-		assert(publisher.pendingCount() == 0 && publisher.acceptedCount() == 6LL);
-		assert(publisher.retiredCount(LINUX_PUBLICATION_DELIVERED) == 1LL);
-		assert(publisher.retiredCount(LINUX_PUBLICATION_SUPERSEDED) == 1LL);
-		assert(publisher.retiredCount(LINUX_PUBLICATION_STALE) == 1LL);
-		assert(publisher.retiredCount(LINUX_PUBLICATION_CANCELLED) == 3LL);
-		assert(publisher.retiredCount(LINUX_PUBLICATION_FAILED) == 0LL && receiver.calls == 1);
-	}
-}
 
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
-	UI2PublisherFailureChecks.cancellationIdentity(); UI2PublisherFailureChecks.receipts(); UI2PublisherFailureChecks.throwingHost(false); UI2PublisherFailureChecks.throwingHost(true);
+	var wake = LinuxContext(2);
+	UI2PublisherFailureChecks.cancellationIdentity(wake); UI2PublisherFailureChecks.callbackCancellation(wake); UI2PublisherFailureChecks.receipts(wake); UI2PublisherFailureChecks.throwingHost(wake, false); UI2PublisherFailureChecks.throwingHost(wake, true);
 	var application = LinuxApplication(4);
 	var receiver = UI2LinuxReceiver(); var scope = CallbackScope();
 	var created = application.createPublisher(2, receiver, scope);

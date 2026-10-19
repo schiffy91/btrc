@@ -42,7 +42,14 @@ class GUIProviderRoot:
             if path.stem != "GUIProvider" and f"{platform}.{path.stem}" not in exported
         ]
         # White-box fixtures inspect these private owners.
-        for name in ("ControlEvents", "ControlEventQueue", "SliderValue", "SliderInteraction"):
+        for name in (
+            "ControlEvents",
+            "ControlEventQueue",
+            "SliderValue",
+            "SliderInteraction",
+            "ApplicationPublisher",
+            "IApplicationNativeWake",
+        ):
             if name not in exported:
                 provider.append(name)
         assert text.count("exports = [") == 1, "the GUI manifest declares one export list"

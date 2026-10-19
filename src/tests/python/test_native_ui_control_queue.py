@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.python.asan_toolchain import asan_environment, find_asan_compiler
+from tools.native_plan import NativePlanBuilder
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
@@ -44,11 +45,25 @@ def test_ui2_slider_interaction(tmp_path, request, frontend, sanitized):
     )
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_ui2_publisher(tmp_path, request, frontend, sanitized):
+    _run_fixture(
+        tmp_path,
+        request,
+        frontend,
+        sanitized,
+        "Publisher",
+        "PASS: UI2 publisher receipts cancellation and wake failure",
+    )
+
+
 def _run_fixture(tmp_path, request, frontend, sanitized, fixture, marker):
     root = Path(__file__).resolve().parents[3]
     data = request.getfixturevalue("gui_provider_root")
     source = root / "src/tests/native/gui/ui2" / f"{fixture}.btrc"
     generated = tmp_path / "Queue.c"
+    plan = tmp_path / "Queue.link.json"
     environment = os.environ | {"BTRC_HOME": str(data)}
     if frontend == "python":
         command = [
@@ -60,9 +75,11 @@ def _run_fixture(tmp_path, request, frontend, sanitized, fixture, marker):
             str(source),
             "-o",
             str(generated),
+            "--emit-link-plan",
+            str(plan),
         ]
     else:
-        command = [str(request.getfixturevalue("immutable_btrcc")), str(source)]
+        command = [str(request.getfixturevalue("immutable_btrcc")), "--emit-link-plan", str(plan), str(source)]
     result = subprocess.run(command, cwd=root, env=environment, capture_output=True, text=True, timeout=180)
     assert result.returncode == 0, result.stderr
     if frontend == "selfhost":
@@ -73,29 +90,18 @@ def _run_fixture(tmp_path, request, frontend, sanitized, fixture, marker):
     executable = tmp_path / "Queue"
     cc = find_asan_compiler(tmp_path) if sanitized else os.environ.get("BTRC_NATIVE_PROVIDER_CC", "cc")
     native_environment = asan_environment(cc) or environment
-    compile_result = subprocess.run(
-        [
-            cc,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-O1",
-            "-pthread",
-            *flags,
-            str(generated),
-            "-lm",
-            "-o",
-            str(executable),
-        ],
-        cwd=root,
-        env=native_environment,
-        capture_output=True,
-        text=True,
-        timeout=180,
+
+    def runner(command, **kwargs):
+        is_compiler = Path(command[0]).name == Path(cc).name
+        return subprocess.run(
+            [command[0], *(flags if is_compiler else []), *command[1:]],
+            env=native_environment if is_compiler else environment,
+            **kwargs,
+        )
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc=cc, cxx=cc, optimization=1
     )
-    assert compile_result.returncode == 0, compile_result.stderr
     result = subprocess.run([str(executable)], env=native_environment, capture_output=True, text=True, timeout=30)
     (tmp_path / "stdout.txt").write_text(result.stdout)
     (tmp_path / "stderr.txt").write_text(result.stderr)

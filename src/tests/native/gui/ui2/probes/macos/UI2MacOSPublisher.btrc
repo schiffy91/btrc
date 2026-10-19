@@ -1,0 +1,89 @@
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.IApplication;
+import Library.GUI.ApplicationPublisher;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./Foundation.btrc;
+#include "PublisherChecks.btrc"
+#include <assert.h>
+#include <time.h>
+
+/* All managed owners stay on the UI thread through worker join. */
+class MacPublisherProducer implements INativeWorkerBody {
+	private IApplicationPublisher publisher;
+	public Atomic<bool> started;
+	public Atomic<bool> done;
+	public bool untilClosed;
+	public long long accepted = 0LL;
+	public MacPublisherProducer(IApplicationPublisher publisher, bool untilClosed) {
+		self.publisher = publisher; self.untilClosed = untilClosed; self.started.init(false); self.done.init(false);
+	}
+
+	public int workLoop() {
+		struct timespec delay; delay.tv_sec = (time_t)0; delay.tv_nsec = 40000000L;
+		if (!self.untilClosed) { nanosleep(&delay, null); }
+		self.started.store(true, MemoryOrder.RELEASE);
+		long long sequence = 1LL;
+		while (self.untilClosed || sequence <= 4097LL) {
+			var result = self.publisher.tryPublish(1LL, sequence, WORK_SUSPENSION_DEFER, 0LL, sequence);
+			if (result == PUBLISH_FULL) { usleep(100); continue; }
+			if (result == PUBLISH_CLOSED) { assert(self.untilClosed); break; }
+			assert(result == PUBLISH_ACCEPTED); self.accepted++; sequence++;
+		}
+		self.done.store(true, MemoryOrder.RELEASE); return 0;
+	}
+}
+
+class MacPublisherReceiver implements IApplicationPublicationHandler, IAppKitNotificationObserver {
+	public ApplicationPublisher? publisher;
+	public MacOSRunLoopSignal signal;
+	public long long calls = 0LL;
+	public int turns = 0;
+	public MacPublisherReceiver(MacOSRunLoopSignal signal) { self.signal = signal; }
+
+	public void deliver(ApplicationPublication publication) {
+		assert(NSThread.isMainThread()); self.calls++;
+		assert(publication.sequence == self.calls && publication.payload == self.calls);
+	}
+
+	public void invoke(NSNotification notification) {
+		assert(NSThread.isMainThread()); self.turns++;
+		for (int index = 0; index < 64; index++) { if (!self.publisher.deliverOne()) { break; } }
+		if (self.publisher.pending()) { self.signal.wake(); }
+	}
+}
+
+int main() {
+	var mode = CFStringCreateWithCString(null, "BTRC.UI2.PublisherCommonMode", kCFStringEncodingUTF8);
+	CFRunLoopAddCommonMode(CFRunLoopGetMain(), mode);
+	var signal = MacOSRunLoopSignal();
+	UI2PublisherFailureChecks.cancellationIdentity(signal); UI2PublisherFailureChecks.callbackCancellation(signal); UI2PublisherFailureChecks.receipts(signal);
+	UI2PublisherFailureChecks.throwingHost(signal, false); UI2PublisherFailureChecks.throwingHost(signal, true);
+	/* Consume prior signals before starting the idle-loop worker trial. */
+	CFRunLoopRunInMode(mode, 0.0, (Boolean)1);
+	var scope = CallbackScope(); var publisher = ApplicationPublisher(256, signal, null);
+	var receiver = MacPublisherReceiver(signal); receiver.publisher = publisher;
+	signal.subscribe(receiver, scope); publisher.activate(receiver, scope);
+	var producer = MacPublisherProducer(publisher, false); var worker = NativeWorker();
+	assert(worker.start(producer) == NATIVE_WORKER_STARTED);
+	while (receiver.calls < 4097LL) { CFRunLoopRunInMode(mode, 2.0, (Boolean)1); }
+	assert(worker.join() && !worker.workerFailed() && producer.accepted == 4097LL);
+	assert(receiver.turns >= 65 && publisher.acceptedCount() == 4097LL && publisher.pendingCount() == 0);
+	assert(publisher.retiredCount(APPLICATION_PUBLICATION_DELIVERED) == 4097LL);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && signal.close()); receiver.publisher = null;
+	for (int iteration = 0; iteration < 100; iteration++) {
+		var racedSignal = MacOSRunLoopSignal(); var owner = CallbackScope(); var target = UI2PublicationReceiver();
+		var raced = ApplicationPublisher(8, racedSignal, null); raced.activate(target, owner);
+		var body = MacPublisherProducer(raced, true); var racing = NativeWorker();
+		assert(racing.start(body) == NATIVE_WORKER_STARTED);
+		while (!body.started.load(MemoryOrder.ACQUIRE)) { usleep(100); }
+		var result = owner.cancel(); assert(result == CALLBACK_CANCELLATION_COMPLETE || result == CALLBACK_CANCELLATION_PENDING);
+		assert(racing.join() && !racing.workerFailed());
+		assert(owner.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && raced.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(raced.pendingCount() == 0 && target.calls == 0 && raced.acceptedCount() == body.accepted);
+		assert(raced.retiredCount(APPLICATION_PUBLICATION_CANCELLED) == body.accepted && racedSignal.close());
+	}
+	CFRelease(mode);
+	print("PASS: UI2 macOS worker publication and cancellation drain"); return 0;
+}

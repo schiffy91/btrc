@@ -8,6 +8,7 @@ ASan/UBSan; label injected native input and host suspension as stand-in evidence
 
 | Fixture | Assertions | Required driver additions |
 | --- | --- | --- |
+| `Publisher.btrc` | Receipt identities, ordered replacement, generation retirement, cancellation, host exceptions and injected native wake rejection | Shared-owner checks; real worker/wake composition is exercised separately by the macOS and Linux probes |
 | `SliderValue.btrc` | Double range validation, atomic model publication, endpoint snapping and ties, inert ranges, representable steps and owning snapshots | `test_native_ui_control_queue.py`, both frontends, plain and ASan/UBSan |
 | `SliderInteraction.btrc` | Queued previews and terminals, cancellation, model replacement, pressure rejection, and exact integer adjustment intents around 2^53 | Shared-owner checks; native drag, accessibility, pressure and coordinate-error qualification remain required |
 | `ControlEvents.btrc` | E01 draft/commit/model replacement; E02 keyed duplicate/reorder; E03 preview/terminal/snap; E39 eligibility | Real composition/undo, popup and drag interruption, assistive paths, ordered receipts including ineligible disposition |
@@ -36,3 +37,8 @@ source identities, cancellation, close during delivery, an idle-loop worker
 wake, and 100 worker/close races through both compilers, plain and ASan/UBSan.
 These checks cover the wake source. AppKit menu, slider, scroller and resize
 tracking trials, scheduler fairness, and host attachment remain required.
+
+The macOS publisher probe composes the shared mailbox with the common-mode
+source. It checks 4,097 ordered worker publications across bounded callback
+turns, shared receipt rules, and 100 producer/cancellation races. Its callback
+budget is a fixture limit; it does not qualify application scheduler fairness.

@@ -1,11 +1,12 @@
 import Library.Callback;
 import Library.Console;
+import Library.GUI.IApplicationNativeWake;
 import Library.GUI.MacOS.CoreFoundation;
 
 /* One common-mode source coalesces wakeups. Its context is an immutable native
  * name retained by CoreFoundation; managed receivers stay in the existing
  * scoped notification adapter. Workers touch only the raw source and gate. */
-class MacOSRunLoopSignal {
+class MacOSRunLoopSignal implements IApplicationNativeWake {
 	private CFRunLoopSourceRef _source = null;
 	private NSString? _name;
 	private Atomic<uint>* _gate = null;

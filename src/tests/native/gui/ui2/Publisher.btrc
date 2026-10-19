@@ -1,0 +1,24 @@
+import Library.GUI.IApplicationNativeWake;
+
+#include "PublisherChecks.btrc"
+
+class PublisherWake implements IApplicationNativeWake {
+	public bool succeeds = true;
+	public int calls = 0;
+	public bool requestTurn() { self.calls++; return self.succeeds; }
+}
+
+int main() {
+	var wake = PublisherWake();
+	UI2PublisherFailureChecks.cancellationIdentity(wake); UI2PublisherFailureChecks.callbackCancellation(wake); UI2PublisherFailureChecks.receipts(wake);
+	UI2PublisherFailureChecks.throwingHost(wake, false); UI2PublisherFailureChecks.throwingHost(wake, true);
+	var publisher = ApplicationPublisher(2, wake, null); var scope = CallbackScope(); var receiver = UI2PublicationReceiver();
+	publisher.activate(receiver, scope); wake.succeeds = false;
+	assert(publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 1LL) == PUBLISH_WAKE_FAILED);
+	assert(publisher.acceptedCount() == 0LL && publisher.pendingCount() == 0 && receiver.calls == 0);
+	assert(publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 2LL) == PUBLISH_CLOSED);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(publisher.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	print("PASS: UI2 publisher receipts cancellation and wake failure");
+	return 0;
+}

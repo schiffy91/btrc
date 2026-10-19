@@ -21,7 +21,7 @@ import Library.GUI.ISelect;
 import Library.GUI.IScrollView;
 import Library.GUI.IGrid;
 import Library.GUI.Linux.SDL;
-import Library.GUI.Linux.LinuxPublisher;
+import Library.GUI.ApplicationPublisher;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxWindow;
@@ -111,7 +111,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private Vector<IView> _views = [];
 	private Vector<IView> _closingRoots = [];
 	private Vector<LinuxDelayedWork> _delayed = [];
-	private Vector<LinuxPublisher> _publishers = [];
+	private Vector<ApplicationPublisher> _publishers = [];
 	private int _publisherCapacity = 65536;
 	private int _publisherUsed = 0;
 	private int _publisherCursor = 0;
@@ -227,7 +227,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		if (self._closing || self._closed || self._quitRequested) { result.kind = APPLICATION_PUBLISHER_CLOSED; return result; }
 		self.prunePublishers();
 		if (capacity > self._publisherCapacity - self._publisherUsed) { result.kind = APPLICATION_PUBLISHER_BUDGET_EXHAUSTED; return result; }
-		var publisher = LinuxPublisher(capacity, self._host);
+		var publisher = ApplicationPublisher(capacity, self._context, self._host);
 		if (!publisher.initialized()) { result.kind = APPLICATION_PUBLISHER_RESOURCE_FAILED; return result; }
 		publisher.activate(handler, owner); publisher.suspend(self._activity == APPLICATION_ACTIVITY_SUSPENDED);
 		self._publishers.push(publisher); self._publisherUsed += capacity;

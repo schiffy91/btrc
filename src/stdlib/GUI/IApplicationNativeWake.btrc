@@ -1,0 +1,4 @@
+/* Native-only wake: bounded, nonthrowing, thread-safe and never enters a
+ * managed receiver inline. The UI owner retains it until producers drain. */
+interface IApplicationNativeWake { bool requestTurn(); }
+

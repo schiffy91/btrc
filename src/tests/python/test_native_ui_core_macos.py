@@ -43,7 +43,14 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
 
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
-def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_provider_root, sanitized):
+@pytest.mark.parametrize(
+    ("fixture", "marker"),
+    [
+        ("UI2MacOSSignal", "PASS: UI2 macOS scoped common-mode wake and worker signal"),
+        ("UI2MacOSPublisher", "PASS: UI2 macOS worker publication and cancellation drain"),
+    ],
+)
+def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_provider_root, sanitized, fixture, marker):
     source, _sdk, _triple = native_project
     package = source.parent.parent
     manifest = package / "btrc.toml"
@@ -53,7 +60,10 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
     )
     (source.parent / "Foundation.btrc").write_text("")
     root = Path(__file__).resolve().parents[3]
-    source.write_text((root / "src/tests/native/gui/ui2/probes/macos/UI2MacOSSignal.btrc").read_text())
+    source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
+    (source.parent / "PublisherChecks.btrc").write_text(
+        (root / "src/tests/native/gui/ui2/PublisherChecks.btrc").read_text()
+    )
     plan = package / "Signal.link.json"
     result = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert result.successful, str(result.failure) + str(result.diagnostics)
@@ -72,4 +82,4 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
     )
     ran = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
     assert ran.returncode == 0, ran.stdout + ran.stderr
-    assert "PASS: UI2 macOS scoped common-mode wake and worker signal" in ran.stdout
+    assert marker in ran.stdout
