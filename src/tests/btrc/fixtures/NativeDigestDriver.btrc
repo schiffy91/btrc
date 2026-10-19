@@ -1,10 +1,10 @@
 import Library.Bytes;
 import Library.Digest.NativeSHA256;
 import Library.Digest.SHA256;
-import Library.FileSystem;
 import Library.Strings;
 
 #include <assert.h>
+#include <stdio.h>
 
 /* Keep a temporary provider past construction; interface returns retain their
  * source-owned string ABI through a stored field and a second method call. */
@@ -36,7 +36,18 @@ int main(int argc, char** argv) {
 	try { owner.bytes(invalid); } catch (string error) { rejected = error.equals("SHA256 message is too large"); }
 	invalid.len = 3;
 	assert(rejected);
-	var source = FileSystem.readBytes(Strings.copy(argv[1]));
+	/* Read the test vector through standard C so this portable SHA probe does
+	 * not pull another target's native filesystem provider into the host. */
+	FILE* input = fopen(argv[1], "rb");
+	assert(input != NULL);
+	var source = Bytes();
+	int byte = fgetc(input);
+	while (byte != EOF) {
+		source.append(byte);
+		byte = fgetc(input);
+	}
+	assert(ferror(input) == 0);
+	assert(fclose(input) == 0);
 	string digest = owner.bytes(source);
 	if (source.isNulFreeUtf8()) { assert(owner.text(source.toString()).equals(digest)); }
 	assert(SHA256.digestBytes(source).equals(digest));

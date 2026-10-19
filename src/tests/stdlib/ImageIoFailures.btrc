@@ -3,6 +3,7 @@ import Library.Bytes;
 import Library.IO;
 import Library.Image;
 import Library.FileSystem;
+import Library.Platform;
 
 #include <assert.h>
 
@@ -17,17 +18,18 @@ int main() {
 	assert(ImageIO.savePpm(source, ppmPath));
 	assert(ImageIO.saveBmp(source, bmpPath));
 
-	/* fopen accepts directories on POSIX, but fread reports an I/O error.
-     * The partial/empty buffer must never be handed to a decoder. */
+	/* POSIX refuses the directory at read time; Windows refuses it at open.
+	 * Neither path may hand a partial or empty buffer to the decoder. */
+	string directoryFailure = Platform.isWindows() ? "cannot open" : "cannot read";
 	ImageLoad autoReadFailure = ImageIO.load(dir);
 	assert(!autoReadFailure.ok());
-	assert(autoReadFailure.error.equals(f"cannot read image: {dir}"));
+	assert(autoReadFailure.error.equals(f"{directoryFailure} image: {dir}"));
 	ImageLoad ppmReadFailure = ImageIO.loadPpm(dir);
 	assert(!ppmReadFailure.ok());
-	assert(ppmReadFailure.error.equals(f"cannot read PPM: {dir}"));
+	assert(ppmReadFailure.error.equals(f"{directoryFailure} PPM: {dir}"));
 	ImageLoad bmpReadFailure = ImageIO.loadBmp(dir);
 	assert(!bmpReadFailure.ok());
-	assert(bmpReadFailure.error.equals(f"cannot read BMP: {dir}"));
+	assert(bmpReadFailure.error.equals(f"{directoryFailure} BMP: {dir}"));
 
 	Bytes ppm = ImageIO.encodePpm(source);
 	string truncatedPath = PathTools.join(dir, "truncated.ppm");

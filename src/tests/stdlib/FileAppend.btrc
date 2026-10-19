@@ -6,6 +6,7 @@
  * Hermetic: one temp dir, removed at the end. */
 import Library.FileSystem;
 import Library.IO;
+import Library.Platform;
 
 #include <assert.h>
 
@@ -25,7 +26,8 @@ int main() {
 
 	// line1 must still be there: append did not truncate it.
 	string back = Path.readAll(path);
-	assert(back.equals("line1\nline2\nline3\n"));
+	string newline = Platform.isWindows() ? "\r\n" : "\n";
+	assert(back.equals(f"line1\nline2{newline}line3{newline}"));
 
 	// --- Append to a NON-existent path creates it ---
 	string fresh = PathTools.join(dir, "fresh.txt");
@@ -37,12 +39,12 @@ int main() {
 	assert(FileSystem.exists(fresh));
 	assert(Path.readAll(fresh).equals("created"));
 
-	// --- A second append session continues to accumulate ---
-	File h = File(fresh, "a");
+	// Binary append preserves the supplied newline bytes on every platform.
+	File h = File(fresh, "ab");
 	assert(h.ok());
-	assert(h.write(" then more"));
+	assert(h.write(" then more\n"));
 	h.close();
-	assert(Path.readAll(fresh).equals("created then more"));
+	assert(Path.readAll(fresh).equals("created then more\n"));
 
 	FileSystem.removeRecursive(dir);
 	assert(!FileSystem.exists(dir));

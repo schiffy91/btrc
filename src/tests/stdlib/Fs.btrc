@@ -16,6 +16,9 @@ int main() {
 	assert(PathTools.join("/a", "b").equals("/a\\b"));
 	assert(PathTools.join("/a/", "b").equals("/a/b"));   /* no double slash */
 	assert(PathTools.isAbsolute(Platform.currentDirectory()));
+	if (!PathTools.absolute(".").equals(FileSystem.realPath(Platform.currentDirectory()))) {
+		fprintf(stderr, "current directory: [%s]; real path: [%s]; dot real path: [%s]; dot absolute: [%s]\n", Platform.currentDirectory(), FileSystem.realPath(Platform.currentDirectory()), FileSystem.realPath("."), PathTools.absolute("."));
+	}
 	assert(PathTools.absolute(".").equals(FileSystem.realPath(Platform.currentDirectory())));
 	assert(FileSystem.absolutePath(".").equals(FileSystem.realPath(Platform.currentDirectory())));
 #else

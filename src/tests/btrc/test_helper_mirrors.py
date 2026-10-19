@@ -169,7 +169,7 @@ def test_nested_function_pointer_typedefs_are_dependency_ordered(
         tmp_path,
         "#include <assert.h>\n"
         "int main() {\n"
-        "    __fn_ptr<int, __fn_ptr<int, int> > callback = null;\n"
+        "    __fn_ptr<int, __fn_ptr<int, int> >? callback = null;\n"
         "    assert(callback == null);\n"
         "    return 0;\n"
         "}\n",

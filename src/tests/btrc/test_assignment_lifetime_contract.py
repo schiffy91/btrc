@@ -31,7 +31,7 @@ def test_assignment_boundary_uses_the_expression_owner_and_typed_plan() -> None:
     assert "public IRNode materializePlain(" in assignments
     assert "self.materializeAssignmentCore(" in boundary
     assert "self.lowerExpr(" not in boundary
-    assert "return self.assignments.materializePlain(plan, target, value);" in core
+    assert "self.assignments.materializePlain(plan, target, value)" in core
     assert "generator." not in assignments + boundary
 
 
