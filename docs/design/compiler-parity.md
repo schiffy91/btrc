@@ -107,6 +107,11 @@ harness in `src/tests/btrc/parity_wave_harness.py`.
 - **Native bindings.** A function-pointer parameter of a function a native
   binding imports takes `null`, as a hosted one does since wave 2 (both
   refused it). A `_Nonnull` one keeps the binding's call-time null check.
+- **Read-only native globals.** `btrcc` checked a stored value's type before
+  the read-only refusal, so once wave 2 made a plain `CFunction` refuse
+  `null`, `fixedCallback = null` on a `static int (*const f)(void)` global
+  reported the type; both now report `Cannot modify read-only native global`
+  first (`python/test_native_c_values.py`).
 
 Still different: a refused comparison reads `cannot compare incompatible
 reference operands (...)` in Python and `Operator '==' is not defined for ...`

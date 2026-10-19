@@ -1482,6 +1482,11 @@ class StorageValidator {
 		if (!self.isLvalue(expression.target, vars)) {
 			TypeValidator.fail("Assignment target is not assignable", expression);
 		}
+		/* A read-only native global takes no store of any value, so it is
+		 * refused before the value's type, as the reference compiler's
+		 * validate_mutable_target orders it: a plain CFunction global would
+		 * otherwise report `null` as the wrong type first. */
+		if (self.readOnlyNativeGlobal(expression.target)) { TypeValidator.fail("Cannot modify read-only native global", expression); }
 		Node? storageTarget = self.types.inferType(expression.target, vars);
 		Node? canonicalStorageTarget = self.types.resolveAliases(storageTarget);
 		if (canonicalStorageTarget != null && canonicalStorageTarget.base == "Atomic" && canonicalStorageTarget.pointerDepth == 0 && !canonicalStorageTarget.isArray) {
