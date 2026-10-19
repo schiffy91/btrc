@@ -147,8 +147,13 @@ def build_shell(tmp_path, frontend, sanitized, request):
     return executable
 
 
-def write_evidence(name, platform_name, frontend, sanitized, observations, status="passed", reason=None):
-    path = ROOT / "build/ui-shell" / f"{name}-{platform_name}-{frontend}-{'sanitized' if sanitized else 'plain'}.jsonl"
+def write_evidence(
+    name, platform_name, frontend, sanitized, observations, status="passed", reason=None, build_mode=None
+):
+    # A row whose sanitizers are not ASan and UBSan (Windows has UBSan only) names its own mode.
+    mode = build_mode or ("asan-ubsan" if sanitized else "plain")
+    label = build_mode or ("sanitized" if sanitized else "plain")
+    path = ROOT / "build/ui-shell" / f"{name}-{platform_name}-{frontend}-{label}.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "schema": "btrc.qualification.ledger/1",
@@ -157,7 +162,7 @@ def write_evidence(name, platform_name, frontend, sanitized, observations, statu
             "id": name,
             "platform": platform_name.split("-")[0],
             "frontend": "reference" if frontend == "python" else frontend,
-            "variant": f"{platform_name}-{'sanitized' if sanitized else 'plain'}",
+            "variant": f"{platform_name}-{label}",
         },
         "evidence": {"status": status, "observed": json.dumps(observations, sort_keys=True), "artifact": str(path)},
         "provenance": {
@@ -169,7 +174,7 @@ def write_evidence(name, platform_name, frontend, sanitized, observations, statu
             "btrc_revision": subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=TOOL_TIMEOUT
             ).strip(),
-            "build_mode": "asan-ubsan" if sanitized else "plain",
+            "build_mode": mode,
             "os_build": platform.platform(),
         },
     }

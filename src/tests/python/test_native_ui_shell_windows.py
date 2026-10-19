@@ -49,6 +49,8 @@ TARGETS = {
     "windows-arm64": ("windows-aarch64", "aarch64-w64-windows-gnu", "aarch64", "windows-arm64"),
 }
 FRONTENDS = {"python": "reference", "selfhost": "selfhost"}
+# zig's MinGW rows have UBSan (its runtime links statically) but no ASan runtime.
+UBSAN = ["-fsanitize=undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
 
 # The UI Automation client's COM binding: IUIAutomation, its tree walker, the
 # elements and the Value pattern, each claim checked by Library.COM. Strings
@@ -244,7 +246,7 @@ def cross_environment(target, tmp_path, monkeypatch):
     return dll
 
 
-def compile_probe_units(target, directory, units, includes=()):
+def compile_probe_units(target, directory, units, includes=(), flags=()):
     """The probe's C units for the row, strict C11 through zig with the Windows overlay."""
     zig = shutil.which("zig")
     assert zig, "the dev shell provides zig"
@@ -261,6 +263,7 @@ def compile_probe_units(target, directory, units, includes=()):
             "-Wextra",
             "-Werror",
             "-O2",
+            *flags,
             # zig's -O2 is ReleaseFast, which defines NDEBUG; the probe and the
             # shared checkpoint units check every native result with assert.
             "-UNDEBUG",
@@ -282,11 +285,14 @@ def compile_probe_units(target, directory, units, includes=()):
     return objects
 
 
-def link(plan, generated, output, objects):
-    """Link through the emitted plan, adding the probe objects to its final link."""
+def link(plan, generated, output, objects, flags=()):
+    """Link through the emitted plan, adding the probe objects to its final link
+    and the sanitizer flags to every zig compile and link it runs."""
 
     def run(command, **kwargs):
         command = list(command)
+        if command[1:2] == ["cc"]:
+            command[2:2] = flags
         if "-o" in command and "-c" not in command:
             command.extend(objects)
         return subprocess.run(command, **kwargs)
@@ -296,7 +302,7 @@ def link(plan, generated, output, objects):
     return output
 
 
-def build_shell(tmp_path, frontend, target, request, monkeypatch):
+def build_shell(tmp_path, frontend, target, request, monkeypatch, sanitized):
     NativeBindingPackage.require_reader()
     dll = cross_environment(target, tmp_path, monkeypatch)
     source = NativeBindingPackage.write(
@@ -312,9 +318,15 @@ def build_shell(tmp_path, frontend, target, request, monkeypatch):
     assert {"user32", "gdi32", "comctl32"} <= set(libraries), libraries
     # The probe reports the adapter its own WebGPU instance finds.
     webgpu = dll.parent.parent / "include/webgpu"
-    objects = compile_probe_units(target, tmp_path, [PROBE / "ShellProbe.c", SHELL / "ShellState.c"], [webgpu])
-    executable = link(plan, generated, tmp_path / f"native-shell-{FRONTENDS[frontend]}-{target}.exe", objects)
+    flags = UBSAN if sanitized else []
+    units = [PROBE / "ShellProbe.c", SHELL / "ShellState.c"]
+    objects = compile_probe_units(target, tmp_path, units, [webgpu], flags)
+    executable = link(plan, generated, tmp_path / shell_name(frontend, target, sanitized), objects, flags)
     return executable, dll
+
+
+def shell_name(frontend, target, sanitized):
+    return f"native-shell-{FRONTENDS[frontend]}-{target}{'-ubsan' if sanitized else ''}.exe"
 
 
 def build_uia_client(tmp_path, frontend, target, request):
@@ -374,14 +386,18 @@ def publish(target, paths):
     return directory
 
 
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "ubsan"])
 @pytest.mark.parametrize("target", sorted(TARGETS))
 @pytest.mark.parametrize("frontend", sorted(FRONTENDS))
-def test_windows_native_shell_builds(tmp_path, request, monkeypatch, frontend, target):
+def test_windows_native_shell_builds(tmp_path, request, monkeypatch, frontend, target, sanitized):
     if sys.platform == "win32":
         pytest.skip("cross-builds on a Linux or macOS host with the dev shell; Windows runs the published executables")
-    executable, dll = build_shell(tmp_path, frontend, target, request, monkeypatch)
-    client = build_uia_client(tmp_path, frontend, target, request)
-    publish(target, [executable, client, dll])
+    executable, dll = build_shell(tmp_path, frontend, target, request, monkeypatch, sanitized)
+    # One UI Automation client per compiler serves both of its shell builds.
+    published = (
+        [executable, dll] if sanitized else [executable, build_uia_client(tmp_path, frontend, target, request), dll]
+    )
+    publish(target, published)
 
 
 def uia_summary(trees):
@@ -424,16 +440,17 @@ def run_shell(command, environment, timeout):
         return subprocess.CompletedProcess(command, 124, stdout, stderr + f"\nShell exceeded {timeout}-second timeout")
 
 
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "ubsan"])
 @pytest.mark.parametrize("target", sorted(TARGETS))
 @pytest.mark.parametrize("frontend", sorted(FRONTENDS))
-def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target):
+def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sanitized):
     if sys.platform != "win32":
         pytest.skip("requires Windows: windows.yml's win32-native job runs the executables the build tests publish")
     evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
     if not evidence:
         pytest.skip("BTRC_WIN32_EVIDENCE_DIR names no published Windows shell executables")
     directory = (Path(evidence) / f"native-shell-{target}").resolve()
-    executable = directory / f"native-shell-{FRONTENDS[frontend]}-{target}.exe"
+    executable = directory / shell_name(frontend, target, sanitized)
     assert executable.is_file(), sorted(path.name for path in directory.iterdir()) if directory.is_dir() else directory
     cycles = int(os.environ.get("BTRC_UI_SHELL_CYCLES", "100"))
     assert 1 <= cycles <= 100
@@ -446,7 +463,7 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target):
     if client.is_file():
         environment["BTRC_UI_SHELL_UIA_PROBE"] = str(client)
     result = run_shell([str(executable), str(cycles), str(state)], environment, 1200)
-    artifacts = REPO / "build/ui-shell" / f"windows-{FRONTENDS[frontend]}-{target}"
+    artifacts = REPO / "build/ui-shell" / shell_name(frontend, target, sanitized).removesuffix(".exe")
     artifacts.mkdir(parents=True, exist_ok=True)
     (artifacts / "shell.stdout").write_text(result.stdout, encoding="utf-8")
     (artifacts / "shell.stderr").write_text(result.stderr, encoding="utf-8")
@@ -499,7 +516,7 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target):
         "native-shell" if cycles == 100 else "native-shell-smoke",
         target,
         frontend,
-        False,
+        sanitized,
         {
             "cycles": cycles,
             "frames": frames,
@@ -516,4 +533,5 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target):
             "probe": {key: value for key, value in probes[0].items() if key != "accessibility"},
             "gate_cycles": cycles == 100,
         },
+        build_mode="ubsan" if sanitized else "plain",
     )
