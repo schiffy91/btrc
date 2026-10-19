@@ -158,16 +158,24 @@ int main() {
 	assert(controller.start(paused).ok());
 	DaemonControlRecord pausedRecord = DaemonControlProtocol.record(paused.controlFile);
 	assert(pausedRecord.valid);
-	assert(kill((pid_t)pausedRecord.supervisorPid, SIGSTOP) == 0);
-	ExecResult resumeScheduled = UnixShell().run(f"(sleep 1; kill -CONT {pausedRecord.supervisorPid}) " + "</dev/null >/dev/null 2>&1 &", logFailure=false);
-	if (!resumeScheduled.ok()) {
-		kill((pid_t)pausedRecord.supervisorPid, SIGCONT);
-	}
-	assert(resumeScheduled.ok());
+	int pausedPid = pausedRecord.supervisorPid;
+	string pausedRequest = DaemonControlPaths.stop(paused.controlFile, pausedRecord.token);
+	assert(kill((pid_t)pausedPid, SIGSTOP) == 0);
 	Timer pausedTimer = Timer();
 	pausedTimer.start();
-	assert(controller.stop(paused, timeoutMilliseconds=5000).ok());
+	// Observe the request before resuming, independently of shell job waiting.
+	var resumeThread = spawn(() => {
+			int attempts = 100;
+			while (attempts > 0 && !FileSystem.exists(pausedRequest)) { Timer.sleepMillis(20); attempts--; }
+			bool sawRequest = FileSystem.exists(pausedRequest);
+			Timer.sleepMillis(1000);
+			int resumed = kill((pid_t)pausedPid, SIGCONT);
+			return sawRequest && resumed == 0 ? 0 : 1;
+		});
+	ExecResult pausedStop = controller.stop(paused, timeoutMilliseconds=5000);
 	pausedTimer.stop();
+	assert(resumeThread.join() == 0);
+	assert(pausedStop.ok());
 	assert(pausedTimer.elapsedMillis() >= 700.0f);
 	assert(pausedTimer.elapsedMillis() < 5000.0f);
 	assert(!FileSystem.exists(paused.controlFile));
@@ -302,15 +310,18 @@ int main() {
 	assert(FileSystem.chmod(insecure, 448) == 0);
 	removeFlatDirectory(insecure);
 
-	// The old predictable /tmp file shape is rejected even when it is a
-	// symlink, and the target is left untouched.
-	string publicControl = f"/tmp/btrc-daemon-{Platform.pid()}.control";
-	unlink(publicControl);
+	// Predictable files in a public directory are rejected even when they
+	// are symlinks. Keep the adversarial setup inside this test's directory.
+	string publicDirectory = FileSystem.tempDir("btrc_daemon_public");
+	assert(FileSystem.chmod(publicDirectory, 511) == 0);
+	string publicControl = PathTools.join(publicDirectory, f"btrc-daemon-{Platform.pid()}.control");
 	assert(FileSystem.symlink(target, publicControl) == 0);
-	DaemonSpec publicState = DaemonSpec("public", Command("true")).control(publicControl).log(f"/tmp/btrc-daemon-{Platform.pid()}.log");
+	DaemonSpec publicState = DaemonSpec("public", Command("true")).control(publicControl).log(PathTools.join(publicDirectory, f"btrc-daemon-{Platform.pid()}.log"));
 	assert(!controller.start(publicState).ok());
 	assert(Path.readAll(target).equals("do-not-change"));
 	assert(unlink(publicControl) == 0);
+	assert(FileSystem.chmod(publicDirectory, 448) == 0);
+	assert(rmdir(publicDirectory) == 0);
 
 	removeFlatDirectory(dir);
 	assert(!FileSystem.exists(dir));

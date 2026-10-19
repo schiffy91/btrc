@@ -79,10 +79,19 @@ int main() {
 		assert(!AdvisoryFileLock.acquire(linked).ok());
 		assert(unlink(linked) == 0);
 	}
-	assert(mkfifo(nativeLinked, (mode_t)0600) == 0);
-	assert(!AdvisoryFileLock.acquire(linked).ok());
-	assert(AdvisoryFileLock.acquire(linked).error().kind() == FS_WRONG_TYPE);
-	assert(unlink(linked) == 0);
+	int fifoStatus = mkfifo(nativeLinked, (mode_t)0600);
+	int fifoError = errno;
+	if (fifoStatus == 0) {
+		assert(!AdvisoryFileLock.acquire(linked).ok());
+		assert(AdvisoryFileLock.acquire(linked).error().kind() == FS_WRONG_TYPE);
+		assert(unlink(linked) == 0);
+	} else {
+		// Android's shell policy can deny FIFO creation in shell_data_file.
+		// Directory rejection below still exercises the wrong-type contract.
+		if (!Platform.isAndroid() || fifoError != EACCES) { fprintf(stderr, "lock fixture FIFO creation failed: %d\n", fifoError); }
+		assert(Platform.isAndroid() && fifoError == EACCES);
+		assert(!FileSystem.exists(linked));
+	}
 #endif
 	assert(!AdvisoryFileLock.acquire(root.path()).ok());
 	assert(AdvisoryFileLock.acquire(root.path()).error().kind() == FS_WRONG_TYPE);
