@@ -270,7 +270,7 @@ class CallValidator {
 			if (self.state.analyzed.funcTable.has(name)) {
 				Node functionDecl = self.state.analyzed.funcTable.get(name);
 				self.borrows.validateOpaqueCallArguments(functionDecl, functionDecl.params(), call, name, noSubstitutions, functionDecl.bodyNode == null, vars);
-				self.validateSignature(name, functionDecl.params(), call, noSubstitutions, functionDecl.isGpu, vars);
+				self.validateSignature(name, functionDecl.params(), call, noSubstitutions, functionDecl.isGpu, vars, self.state.analyzed.isNativeDeclaration(functionDecl));
 				self.ownership.validateTransferredArguments(functionDecl, call, vars);
 				return;
 			}
@@ -406,7 +406,7 @@ class CallValidator {
          * move a `const` written on an aliased pointee onto the wrong
          * declarator layer, and the argument checks resolve aliases themselves. */
 		Node? rawCalleeType = self.types.inferType(callee, vars);
-		Node? calleeType = SemanticTypeSystem.directFunctionPointerSpecialization(rawCalleeType, self.state.analyzed);
+		Node? calleeType = SemanticTypeSystem.callableSpecialization(rawCalleeType, self.state.analyzed);
 		if (calleeType != null) {
 			Vector<Node> callableParams = [];
 			int callableIndex = 1;
@@ -534,7 +534,7 @@ class CallValidator {
 
 	public bool validateCallableValueCall(Node call, string name, Map<string, Node> vars) {
 		if (!vars.has(name)) { return false; }
-		Node? resolvedCallable = SemanticTypeSystem.directFunctionPointerSpecialization(vars.get(name), self.state.analyzed);
+		Node? resolvedCallable = SemanticTypeSystem.callableSpecialization(vars.get(name), self.state.analyzed);
 		if (resolvedCallable == null) {
 			TypeValidator.fail("Resolved value '" + name + "' of type '" + self.types.formatType(vars.get(name)) + "' is not callable", call.callee);
 		}
@@ -617,12 +617,14 @@ class CallValidator {
 		return expected.base == "void" && expected.pointerDepth == 1 && (actual.base == "string" || actual.pointerDepth > 0 || actual.isArray);
 	}
 
-	/* A hosted C function-pointer parameter is nullable, as C declares it:
-	 * the hosted ABI records no non-null contract, and C APIs take NULL for
+	/* A C function-pointer parameter is nullable, as C declares it, for a
+	 * hosted function and for one a native binding imports from a header.
+	 * Neither records a compile-time non-null contract (a native binding's
+	 * non-null parameter is checked when called), and C APIs take NULL for
 	 * an optional callback (glob's errfunc). It is the nullable function
 	 * pointer a source declaration spells `CFunction<...>?`, as the
-	 * reference compiler's _hosted_callback_accepts_null decides. */
-	public bool hostedCallbackAcceptsNull(Node expected, Node actual) {
+	 * reference compiler's _c_callback_accepts_null decides. */
+	public bool cCallbackAcceptsNull(Node expected, Node actual) {
 		Node? canonical = self.types.resolveAliases(expected);
 		return self.operators.isNullType(actual) && canonical != null && canonical.base == "__fn_ptr" && canonical.pointerDepth == 0 && !canonical.isArray;
 	}
@@ -667,8 +669,8 @@ class CallValidator {
 			Node argument = call.args().get(index);
 			self.storage.validateReferenceQualifiers(expected, argument, "Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()'", vars);
 			Node? actual = self.types.inferType(argument,  vars);
-			if (actual != null && !self.hostedArgumentTypeDeferred(expected, actual) && !self.hostedCallbackAcceptsNull(expected, actual) && (!self.types.assignmentCompatible(expected, actual) || !self.types.argumentConstLayersMatch(expected, argument, vars))) {
-				TypeValidator.fail("Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
+			if (actual != null && !self.hostedArgumentTypeDeferred(expected, actual) && !self.cCallbackAcceptsNull(expected, actual) && (!self.types.assignmentCompatible(expected, actual) || !self.types.argumentConstLayersMatch(expected, argument, vars))) {
+				TypeValidator.fail("Argument " + Strings.fromInt(index + 1) + " to hosted function '" + name + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'" + self.types.functionObjectPointerHint(expected, actual), argument);
 			}
 			self.validateSourceHelperConsumer(name, index, argument, vars);
 			index = index + 1;
@@ -759,7 +761,9 @@ class CallValidator {
 		}
 	}
 
-	public void validateSignature(string label, Vector<Node> params, Node call, Map<string, Node> substitutions, bool gpuDispatch, Map<string, Node> vars) {
+	/* `nativeC`: the callee is a function a native binding imports from a C
+	 * header, whose function-pointer parameters take null. */
+	public void validateSignature(string label, Vector<Node> params, Node call, Map<string, Node> substitutions, bool gpuDispatch, Map<string, Node> vars, bool nativeC = false) {
 		Map<string, bool> supplied = {};
 		int positional = 0;
 		bool sawNamed = false;
@@ -836,8 +840,8 @@ class CallValidator {
 				if (!self.storage.gpuInputHasCompatibleStorage(argument, expected, actual, vars)) {
 					TypeValidator.fail("Argument '" + parameter.name + "' to '" + label + "()' does not have an " + "ABI-compatible GPU buffer element type", argument);
 				}
-			} else if (actual != null && !self.types.contextualAggregateInitializer(argument) && (!self.types.assignmentCompatible(expected, actual) || !self.types.argumentConstLayersMatch(expected, argument, vars))) {
-				TypeValidator.fail("Argument '" + parameter.name + "' to '" + label + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'", argument);
+			} else if (actual != null && !self.types.contextualAggregateInitializer(argument) && !(nativeC && self.cCallbackAcceptsNull(expected, actual)) && (!self.types.assignmentCompatible(expected, actual) || !self.types.argumentConstLayersMatch(expected, argument, vars))) {
+				TypeValidator.fail("Argument '" + parameter.name + "' to '" + label + "()' expects '" + self.types.formatType(expected) + "' but got '" + self.types.formatType(actual) + "'" + self.types.functionObjectPointerHint(expected, actual), argument);
 			}
 			argumentIndex = argumentIndex + 1;
 		}

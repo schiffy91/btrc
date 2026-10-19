@@ -116,6 +116,43 @@ class TypeValidator {
 		return "";
 	}
 
+	/* One C function-pointer word: a CFunction or RealtimeFunction, or the
+	 * nullable `CFunction<...>?`, whose `?` collapses into the same word. A
+	 * pointer to one, or an array of them, is an object pointer. The
+	 * reference compiler's TypeSystem.is_function_pointer_word. */
+	public bool functionPointerWord(Node? typeExpr) {
+		Node? resolved = self.resolveAliases(typeExpr);
+		return resolved != null && (resolved.base == "__fn_ptr" || resolved.base == "__realtime_fn_ptr") && resolved.genericArgs().len > 0 && !resolved.isArray && self.operators.referenceDepth(resolved) == 1;
+	}
+
+	/* The nullable function pointer `CFunction<...>?`. */
+	public bool nullableFunctionPointer(Node? typeExpr) {
+		Node? resolved = self.resolveAliases(typeExpr);
+		return resolved != null && self.functionPointerWord(resolved) && resolved.pointerDepth == 1;
+	}
+
+	/* Explain a refused conversion between a function pointer and void*: C11
+	 * converts a function pointer to no object pointer and back, neither
+	 * implicitly nor, in strict C11, by a cast (6.3.2.3). */
+	public string functionObjectPointerHint(Node? target, Node? source) {
+		if ((self.functionPointerWord(target) && self.anyVoidPointer(source)) || (self.functionPointerWord(source) && self.anyVoidPointer(target))) {
+			return "; C11 has no conversion between a function pointer and an object pointer";
+		}
+		return "";
+	}
+
+	private bool anyVoidPointer(Node? typeExpr) {
+		Node? resolved = self.resolveAliases(typeExpr);
+		return resolved != null && resolved.base == "void" && resolved.pointerDepth > 0 && !resolved.isArray;
+	}
+
+	/* A decay target's C pointer depth: an intrinsic reference's `?` adds
+	 * none, so `string? s = names` would store a char** in a char*. */
+	private int decayedPointerDepth(Node target) {
+		bool intrinsic = target.base == "string" || target.base == "Thread" || target.base == "Mutex" || target.base == "__fn_ptr" || target.base == "__realtime_fn_ptr";
+		return target.pointerDepth - (TypeComposition.nullableCollapsesReferenceLayer(target, intrinsic) ? 1 : 0);
+	}
+
 	/* A declaration's name token, where the reference reports a duplicate. */
 	class void failAtName(string message, Node declaration) {
 		int line = declaration.nameLine != 0 ? declaration.nameLine : declaration.line;
@@ -204,11 +241,15 @@ class TypeValidator {
 			}
 			result = result + ">";
 		}
-		int pointer = 0;
+		/* `CFunction<...>?` is one function-pointer word, and
+		 * `CFunction<...>*` a pointer to one, so its `?` stays a `?`. */
+		bool collapsed = (typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr") && TypeComposition.nullableCollapsesReferenceLayer(typeExpr, true);
+		int pointer = collapsed ? 1 : 0;
 		while (pointer < typeExpr.pointerDepth) {
 			result = result + "*";
 			pointer = pointer + 1;
 		}
+		if (collapsed) { result = result + "?"; }
 		if (typeExpr.isArray) { result = result + "[]"; }
 		return result;
 	}
@@ -874,6 +915,12 @@ class TypeValidator {
 		 * void* and a function pointer, and no Thread or Mutex owner is
 		 * nullable. */
 		bool directHandle = (resolvedTarget.base == "__fn_ptr" || resolvedTarget.base == "__realtime_fn_ptr" || resolvedTarget.base == "Thread" || resolvedTarget.base == "Mutex") && resolvedTarget.pointerDepth == 0 && !resolvedTarget.isArray;
+		/* C11 converts no function pointer to an object pointer, void*
+		 * included, and none back (6.3.2.3); a pointer to one, or an array
+		 * of them, is an object pointer. */
+		if ((self.anyVoidPointer(resolvedSource) && self.functionPointerWord(resolvedTarget)) || (self.operators.isVoidPointer(resolvedTarget) && self.functionPointerWord(resolvedSource))) {
+			return false;
+		}
 		if (self.operators.isNullType(resolvedSource)) {
 			if (directHandle) { return false; }
 			return self.operators.isReferenceType(resolvedTarget) || self.state.interfaces.has(resolvedTarget.base);
@@ -891,7 +938,7 @@ class TypeValidator {
 		if (self.callableAssignmentCompatible(resolvedTarget, resolvedSource, self.operators)) { return true; }
 		/* C array-to-pointer decay is directional.  Do not collapse both shapes to
          * one effective depth: a pointer cannot initialize an array declaration. */
-		if (resolvedSource.isArray && !resolvedTarget.isArray && resolvedTarget.base == resolvedSource.base && resolvedTarget.pointerDepth == resolvedSource.pointerDepth + 1 && self.operators.genericArgsEqual(resolvedTarget.genericArgs(), resolvedSource.genericArgs())) {
+		if (resolvedSource.isArray && !resolvedTarget.isArray && resolvedTarget.base == resolvedSource.base && self.decayedPointerDepth(resolvedTarget) == resolvedSource.pointerDepth + 1 && self.operators.genericArgsEqual(resolvedTarget.genericArgs(), resolvedSource.genericArgs())) {
 			return true;
 		}
 		if (NumericSemantics.isType(resolvedTarget, self.state.analyzed) && NumericSemantics.isType(resolvedSource, self.state.analyzed) && resolvedTarget.base != "bool" && resolvedSource.base != "bool") {

@@ -1482,6 +1482,11 @@ class StorageValidator {
 		if (!self.isLvalue(expression.target, vars)) {
 			TypeValidator.fail("Assignment target is not assignable", expression);
 		}
+		/* A read-only native global takes no store of any value, so it is
+		 * refused before the value's type, as the reference compiler's
+		 * validate_mutable_target orders it: a plain CFunction global would
+		 * otherwise report `null` as the wrong type first. */
+		if (self.readOnlyNativeGlobal(expression.target)) { TypeValidator.fail("Cannot modify read-only native global", expression); }
 		Node? storageTarget = self.types.inferType(expression.target, vars);
 		Node? canonicalStorageTarget = self.types.resolveAliases(storageTarget);
 		if (canonicalStorageTarget != null && canonicalStorageTarget.base == "Atomic" && canonicalStorageTarget.pointerDepth == 0 && !canonicalStorageTarget.isArray) {
@@ -1529,7 +1534,7 @@ class StorageValidator {
 			/* A value of the wrong type is reported as such before any
 			 * representation or ownership rule for the stored value. */
 			if (target != null && source != null && !gpuTargetHasCapacity && !genericNull && !self.types.contextualAggregateInitializer(expression.valueNode) && !self.types.assignmentCompatible(target, source)) {
-				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target), expression);
+				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target) + self.types.functionObjectPointerHint(target, source), expression);
 			}
 			if (!gpuTargetHasCapacity && !genericNull) {
 				self.types.validateTypedInitializer(target, expression.valueNode, "Assignment", vars, expression);
@@ -1552,7 +1557,7 @@ class StorageValidator {
 				TypeValidator.fail("Array-returning @gpu output element type is not compatible " + "with the target storage", expression);
 			}
 			if (!gpuTargetHasCapacity && !genericNull && !self.types.contextualAggregateInitializer(expression.valueNode) && !self.types.assignmentCompatible(target, source)) {
-				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target), expression);
+				TypeValidator.fail("Cannot assign '" + self.types.formatType(source) + "' to '" + self.types.formatType(target) + "'" + TypeValidator.commaTupleHint(expression.valueNode, target) + self.types.functionObjectPointerHint(target, source), expression);
 			}
 			return;
 		}

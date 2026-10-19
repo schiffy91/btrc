@@ -707,7 +707,7 @@ class ControlFlowValidator {
 			self.storage.validateNonescapingVariable(declaration, declared, isGlobal);
 			self.storage.validateInferredStaticStorage(declaration, declared, isGlobal);
 		} else if (actual != null && !self.types.assignmentCompatible(declared, actual) && !self.expressions.contextualAggregateInitializer(declaration.initializer) && !self.storage.charArrayStringInitializer(declared, declaration.initializer, vars)) {
-			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'" + TypeValidator.commaTupleHint(declaration.initializer, declared), declaration);
+			TypeValidator.fail("Cannot assign '" + self.types.formatType(actual) + "' to variable '" + declaration.name + "' of type '" + self.types.formatType(declared) + "'" + TypeValidator.commaTupleHint(declaration.initializer, declared) + self.types.functionObjectPointerHint(declared, actual), declaration);
 		}
 		// After the initializer, where the reference compiler checks storage.
 		self.types.validateFlexibleArrayValue(preliminaryType, (self.state.owner == "" ? "Global '" : "Variable '") + declaration.name + "'", declaration);
@@ -759,7 +759,7 @@ class ControlFlowValidator {
 			compatible = self.types.assignmentCompatible(elementType, actual);
 		}
 		if (!compatible) {
-			TypeValidator.fail("Return type mismatch: expected '" + self.types.formatType(expectedReturn) + "' but got '" + self.types.formatType(actual) + "'", statement);
+			TypeValidator.fail("Return type mismatch: expected '" + self.types.formatType(expectedReturn) + "' but got '" + self.types.formatType(actual) + "'" + self.types.functionObjectPointerHint(expectedReturn, actual), statement);
 		}
 	}
 
@@ -1277,6 +1277,7 @@ class NullableFlow {
 			self.checkStoreWith(self.types.inferType(expression.target, vars), false, expression.valueNode, "assignment target", facts, vars);
 		} else if (expression.kind == NK_CALL_EXPR) {
 			self.checkArguments(expression, facts, vars);
+			self.checkNullableCallee(expression, facts, vars);
 		}
 		if (expression.kind == NK_BINARY_EXPR && (expression.op == "&&" || expression.op == "||")) {
 			self.check(expression.left, facts, vars);
@@ -1302,6 +1303,19 @@ class NullableFlow {
 		if (objectType == null || !objectType.isNullable) { return; }
 		self.warned.put(access, true);
 		self.state.analyzed.recordWarning("Non-optional access '." + access.field + "' on nullable type '" + objectType.base + "?' — use '?." + access.field + "' or check for null", access);
+	}
+
+	/* A call through a `CFunction<...>?` the facts have not proved non-null
+	 * is refused, as the reference's _check_nullable_calls decides. */
+	private void checkNullableCallee(Node call, Map<string, bool> facts, Map<string, Node> vars) {
+		if (self.unreachable || call.callee == null) { return; }
+		/* A function, constructor or builtin named directly is no nullable value. */
+		if (call.callee.kind == NK_IDENTIFIER && !vars.has(call.callee.name) && !self.state.analyzed.globalVarTypes.has(call.callee.name)) { return; }
+		Node? calleeType = self.types.inferType(call.callee, vars);
+		if (!self.types.nullableFunctionPointer(calleeType)) { return; }
+		string known = self.path(call.callee);
+		if (!known.isEmpty() && facts.has(known)) { return; }
+		TypeValidator.fail("Nullable function pointer of type '" + self.types.formatType(calleeType) + "' may be null; compare it with null before calling it", call);
 	}
 
 	private bool nullableType(Node? typeExpr) { return typeExpr != null && typeExpr.isNullable; }
