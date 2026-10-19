@@ -212,6 +212,28 @@ class NativeHeaderRead:
     def allowance(self):
         return (len(self.members) + 1) * self.STREAM_BYTES
 
+    @property
+    def timeout(self):
+        """Seconds the reader process may run: five minutes per selection it reads.
+
+        This bounds a hung reader, not a slow one. A read that takes seconds on
+        an idle hosted macOS runner took over two minutes there while the suite
+        loaded its three cores, and the old minute per selection failed it.
+        btrc's FeNativeHeaderRead uses the same budget.
+        """
+        return 300 * len(self.members)
+
+    @staticmethod
+    def failure(diagnostic, ending):
+        """The reader's own stderr, then how its process ended.
+
+        btrc's FeNativeHeaderProcess.failure reports the same text. A reader
+        that timed out or was killed often leaves only an unrelated warning on
+        stderr, which alone reads as the cause.
+        """
+        diagnostic = diagnostic.strip()
+        return NativeImportError(f"{diagnostic}\n{ending}" if diagnostic else ending)
+
     def read(self, environment):
         if self.cache_directory:
             cached = NativeHeaderSession.response(self)
@@ -243,12 +265,13 @@ class NativeHeaderRead:
                 start_new_session=os.name == "posix",
             ) as process,
         ):
+            timed_out = False
             try:
                 process.communicate(
                     None if self.payload is None else self.payload.encode("utf-8"),
-                    timeout=60 * len(self.members),
+                    timeout=self.timeout,
                 )
-            except BaseException:
+            except BaseException as interruption:
                 try:
                     if os.name == "posix":
                         os.killpg(process.pid, signal.SIGKILL)
@@ -257,13 +280,20 @@ class NativeHeaderRead:
                 except ProcessLookupError:
                     pass
                 process.wait()
-                raise
+                if not isinstance(interruption, subprocess.TimeoutExpired):
+                    raise
+                timed_out = True
             if output.tell() > len(self.members) * self.STREAM_BYTES or errors.tell() > self.STREAM_BYTES:
                 raise NativeImportError("native header reader output exceeds capture allowance")
             errors.seek(0)
-            diagnostic = errors.read().decode("utf-8")
+            # Only a failure reports stderr; a timeout can cut a character.
+            diagnostic = errors.read().decode("utf-8", errors="replace")
+            if timed_out:
+                raise self.failure(diagnostic, f"native header reader timed out after {self.timeout} s")
+            if process.returncode < 0:
+                raise self.failure(diagnostic, f"native header reader was terminated by signal {-process.returncode}")
             if process.returncode:
-                raise NativeImportError(diagnostic.strip() or "native header reader failed")
+                raise self.failure(diagnostic, f"native header reader exited with status {process.returncode}")
             output.seek(0)
             source = output.read().decode("utf-8")
             if "\0" in source:

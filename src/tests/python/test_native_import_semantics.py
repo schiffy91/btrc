@@ -76,13 +76,19 @@ def test_native_import_does_not_authorize_source_runtime_names(native_project, n
     assert diagnostic in str(compiled.failure) + str(compiled.diagnostics)
 
 
-@pytest.mark.parametrize("failure", ["missing-executable", "invalid-header"])
+@pytest.mark.parametrize("failure", ["missing-executable", "invalid-header", "terminated-reader"])
 def test_native_reader_failures_keep_the_binding_context_and_emit_no_c(
     native_project, native_compile, monkeypatch, failure
 ):
     source, _sdk, _triple = native_project
     if failure == "missing-executable":
         monkeypatch.setenv("BTRC_NATIVE_HEADER_READER", str(source.parent / "MissingHeaderReader"))
+    elif failure == "terminated-reader":
+        # A killed reader leaves only its warning; the ending names the cause.
+        reader = source.parent / "TerminatedHeaderReader"
+        reader.write_text("#!/bin/sh\ncat > /dev/null\necho 'warning: reader warning' >&2\nkill -KILL $$\n")
+        reader.chmod(0o755)
+        monkeypatch.setenv("BTRC_NATIVE_HEADER_READER", str(reader))
     else:
         (source.parent.parent / "Foundation.h").write_text("#error NativeHeaderFailureProbe\n", encoding="utf-8")
     result = native_compile(source)
@@ -91,6 +97,9 @@ def test_native_reader_failures_keep_the_binding_context_and_emit_no_c(
     assert "Foundation.btrc" in str(result.failure)
     if failure == "invalid-header":
         assert "NativeHeaderFailureProbe" in str(result.failure)
+    if failure == "terminated-reader":
+        message = getattr(result.failure, "message", result.failure)
+        assert "warning: reader warning\nnative header reader was terminated by signal 9" in message, message
 
 
 @pytest.mark.parametrize("active", [False, True])

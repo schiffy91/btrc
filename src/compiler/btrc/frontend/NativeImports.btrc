@@ -1747,6 +1747,8 @@ class FeNativeDeclarationImporter {
 		arguments.extend(["-x", "c++", "-std=" + standard, "--target=" + target, "-isysroot", sysroot, "-E", "-v", "/dev/null"]);
 		var request = FeNativeHeaderRead(compiler.get(0), arguments);
 		request.captureStderr = true;
+		/* A driver's search-list probe, not a reader: the reference's 60 s. */
+		request.timeoutMilliseconds = 60000;
 		var batch = FeNativeHeaderBatch();
 		batch.append(request);
 		self.headerReader(batch);
@@ -4281,7 +4283,7 @@ class FeNativeDeclarationImporter {
 		batchArguments.extend(self.readerGroup(arguments));
 		var request = FeNativeHeaderRead(reader, batchArguments, payload.stringify());
 		request.maxStdoutBytes = members.len * 8388608;
-		request.timeoutMilliseconds = members.len * 60000;
+		request.timeoutMilliseconds = members.len * 300000;
 		return request;
 	}
 

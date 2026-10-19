@@ -23,7 +23,10 @@ class FeNativeHeaderRead {
 	public string cachedResponse = "";
 	/* Preserve the existing per-selection capture allowance when requests share a process. */
 	public int maxStdoutBytes = 8388608;
-	public int timeoutMilliseconds = 60000;
+	/* Five minutes per selection bounds a hung reader, not a slow one: a read
+	 * of seconds on an idle hosted macOS runner took over two minutes there
+	 * under the suite's load. The reference NativeHeaderRead.timeout matches. */
+	public int timeoutMilliseconds = 300000;
 
 	public FeNativeHeaderRead(string executable, Vector<string> arguments, string inputData = "") {
 		self.executable = executable;
