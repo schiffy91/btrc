@@ -669,7 +669,7 @@ symbols = [
 	"NSEventTypeKeyDown", "NSEventTypeFlagsChanged", "NSEventModifierFlagOption",
 	"NSEventModifierFlagShift", "NSEventModifierFlagControl", "NSEventModifierFlagCommand", "kVK_Space", "kVK_Option", "kVK_RightOption",
 	"NX_DEVICELALTKEYMASK", "NX_DEVICERALTKEYMASK", "NX_DEVICELSHIFTKEYMASK", "NX_DEVICERSHIFTKEYMASK",
-	"kVK_Escape", "kVK_Return", "kVK_LeftArrow", "kVK_RightArrow", "kVK_UpArrow", "kVK_DownArrow", "kVK_Tab", "kVK_Delete", "kVK_ForwardDelete", "kVK_Home", "kVK_End",
+	"kVK_Escape", "kVK_Return", "kVK_LeftArrow", "kVK_RightArrow", "kVK_UpArrow", "kVK_DownArrow", "kVK_Tab", "kVK_Delete", "kVK_ForwardDelete", "kVK_Home", "kVK_End", "kVK_PageUp", "kVK_PageDown",
 	"kVK_ANSI_A", "kVK_ANSI_D", "kVK_ANSI_S", "kVK_ANSI_W", "kVK_ANSI_C", "kVK_ANSI_V", "kVK_ANSI_X", "kVK_ANSI_Z", "kVK_ANSI_Q", "kVK_ANSI_LeftBracket", "kVK_ANSI_RightBracket", "kVK_Shift", "kVK_RightShift",
 	"+[NSEvent addLocalMonitorForEventsMatchingMask:handler:]", "+[NSEvent removeMonitor:]", "NSEventMaskKeyDown", "NSEventMaskKeyUp", "NSEventMaskFlagsChanged"
 ]
@@ -710,7 +710,8 @@ standard = "c11"
 symbols = [
 	"+[NSSlider new]", "-[NSSlider setMinValue:]", "-[NSSlider setMaxValue:]", "-[NSSlider setNumberOfTickMarks:]",
 	"-[NSSlider setAllowsTickMarkValuesOnly:]", "-[NSSlider closestTickMarkValueToValue:]", "-[NSSlider setContinuous:]",
-	"-[NSSlider doubleValue]", "-[NSSlider setDoubleValue:]", "-[NSSlider setEnabled:]", "-[NSSlider isEnabled]", "-[NSView setToolTip:]", "-[NSView toolTip]"
+	"-[NSSlider doubleValue]", "-[NSSlider setDoubleValue:]", "-[NSSlider setEnabled:]", "-[NSSlider isEnabled]", "-[NSView setToolTip:]", "-[NSView toolTip]",
+	"-[NSWindow firstResponder]", "-[NSWindow makeFirstResponder:]", "-[NSSlider cell]", "-[NSSliderCell knobThickness]", "-[NSSliderCell barRectFlipped:]"
 ]
 os = ["macos"]
 
