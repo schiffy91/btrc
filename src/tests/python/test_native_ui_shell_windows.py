@@ -400,6 +400,31 @@ def test_windows_native_shell_builds(tmp_path, request, monkeypatch, frontend, t
     publish(target, published)
 
 
+def tree_nodes(node):
+    yield node
+    for child in node.get("children", []):
+        yield from tree_nodes(child)
+
+
+def assert_shell_tree(tree):
+    """The window's control view holds the fixture's controls, read with no live COM claim.
+
+    UI Automation's control types: Window 50032, Edit 50004, Button 50000, Text 50020.
+    The dump runs before the draft is typed, so the edit's Value is still empty.
+    """
+    assert isinstance(tree, dict), f"UI Automation tree unavailable: {tree}"
+    assert tree["client"] == "uia-com" and tree["claims"] == 0, tree.get("claims")
+    root = tree["root"]
+    assert root["control_type"] == 50032 and root["name"] == "BTRC native shell", root["name"]
+    nodes = list(tree_nodes(root))
+    edits = [node for node in nodes if node["control_type"] == 50004]
+    buttons = [node for node in nodes if node["control_type"] == 50000 and node["name"] == "Commit"]
+    labels = {node["name"] for node in nodes if node["control_type"] == 50020 and node["class"] == "Static"}
+    assert len(edits) == 1 and edits[0]["class"] == "Edit" and edits[0].get("value") == "", edits
+    assert len(buttons) == 1 and buttons[0]["class"] == "Button" and buttons[0]["enabled"], buttons
+    assert labels == {f"Row {row}" for row in range(50)}, sorted(labels)
+
+
 def uia_summary(trees):
     """How many cycles read a UI Automation tree, why the others did not, and what the first tree held."""
     available = [tree for tree in trees if isinstance(tree, dict)]
@@ -488,13 +513,20 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     ]
     assert [row[0] for row in resources] == list(range(1, cycles + 1)), message
     assert all(row[3] == 0 for row in resources), resources
+    # 0 leaked: every teardown returns the process to the GDI and USER object
+    # counts of the first, which already holds process-global caches.
+    assert {row[1:3] for row in resources} == {resources[0][1:3]}, resources
     probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
     trees = [probe["accessibility"] for probe in probes]
     (artifacts / "uia-trees.json").write_text(json.dumps(trees, indent=1), encoding="utf-8")
     assert len(probes) == cycles, message
     assert all(probe["probe"] == "windows-win32" for probe in probes)
     assert all(probe["dpi_awareness_v2"] and probe["comctl32_v6_cue_banner"] for probe in probes), probes[0]
+    for tree in trees:
+        assert_shell_tree(tree)
     frames = int(summary[2])
+    # Hosted Windows has WARP (Microsoft Basic Render Driver): a correctness adapter, not hardware.
+    assert frames == cycles, f"GPU frames {frames}/{cycles}: {probes[0].get('gpu_adapter')}"
     journal = (state / "journal").read_bytes()
     assert journal.decode().splitlines() == [f"commit {index}" for index in range(1, cycles + 1)]
     checkpoint = (state / "checkpoint").read_text().splitlines()
