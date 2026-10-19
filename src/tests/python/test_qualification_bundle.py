@@ -258,7 +258,11 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
     assert list(_rows(macos, "tests")) == ["unit"]
 
     windows = manifest.plan("windows.yml", "pr", ["src/stdlib/FileSystem/Windows/FileSystemProvider.btrc"])
-    assert windows["jobs"] == ["windows"], "the two-hour bootstrap waits for the main tier"
+    # The Windows FileSystem provider also runs its native cases and corpus.
+    assert windows["jobs"] == ["windows", "win32-native-build", "win32-native"], (
+        "the two-hour bootstrap waits for the main tier"
+    )
+    assert list(_rows(windows, "win32-native")) == ["windows-x64", "windows-arm64"]
     assert manifest.plan("windows.yml", "lane", ["src/devex/vscode/package.json"])["jobs"] == ["windows"]
     # A platform's expected-skip manifest is read only by that platform's skip gate.
     skips = ["src/tests/fixtures/expected-skips/macos-hosted.json"]
