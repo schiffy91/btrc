@@ -1,0 +1,66 @@
+import Library.Callback;
+import Library.Timer;
+import Library.GUI.IApplication;
+import Library.GUI.ApplicationScheduler;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+import ./Foundation.btrc;
+#include <assert.h>
+
+/* The real source/timer drives the shared queue. This probe does not stand in
+ * for the application's remaining input, presentation or host integration. */
+class SchedulerTurn implements IAppKitNotificationObserver {
+	public ApplicationScheduler queue = ApplicationScheduler(4);
+	public MacOSRunLoopSignal signal;
+	public int turns = 0;
+	private bool active = false;
+	public SchedulerTurn(MacOSRunLoopSignal signal) { self.signal = signal; }
+
+	public void invoke(NSNotification notification) {
+		assert(NSThread.isMainThread()); if (self.active) { return; }
+		self.active = true; self.turns++; self.queue.beginRound();
+		try {
+			for (int count = 0; count < 64; count++) {
+				long long now = MonotonicClock.nanoseconds(); assert(now >= 0LL);
+				if (!self.queue.runOne((unsigned long long)now)) { break; }
+			}
+		} finally { self.active = false; }
+		self.signal.scheduleDeadline(self.queue.nextDeadline());
+		if (self.queue.runnable((unsigned long long)MonotonicClock.nanoseconds())) { self.signal.wake(); }
+	}
+}
+class ScheduledNativeWork implements IApplicationWork {
+	public SchedulerTurn owner;
+	public ICallbackRegistration? registration;
+	public unsigned long long expected;
+	public int calls = 0;
+	public int previousTurn = 0;
+	public ScheduledNativeWork(SchedulerTurn owner) { self.owner = owner; }
+
+	public void submit(double delay) {
+		long long now = MonotonicClock.nanoseconds(); assert(now >= 0LL);
+		self.expected = ApplicationScheduler.deadlineAfter((unsigned long long)now, delay);
+		var result = self.owner.queue.schedule(self, (unsigned long long)now, delay, WORK_SUSPENSION_DEFER, 0LL);
+		assert(result.kind == SCHEDULE_ACCEPTED && result.registration != null); self.registration = result.registration;
+		self.owner.signal.scheduleDeadline(self.owner.queue.nextDeadline());
+		self.owner.signal.wake();
+	}
+
+	public void run() {
+		assert(NSThread.isMainThread() && (unsigned long long)MonotonicClock.nanoseconds() >= self.expected);
+		assert(self.owner.turns > self.previousTurn); self.previousTurn = self.owner.turns; self.calls++;
+		assert(self.registration.cancel() == CALLBACK_CANCELLATION_PENDING);
+		if (self.calls < 3) { self.submit(self.calls == 1 ? 0.0 : 0.02); }
+	}
+}
+int main() {
+	var mode = CFStringCreateWithCString(null, "BTRC.UI2.SchedulerCommonMode", kCFStringEncodingUTF8);
+	CFRunLoopAddCommonMode(CFRunLoopGetMain(), mode);
+	var signal = MacOSRunLoopSignal(); var owner = SchedulerTurn(signal); var scope = CallbackScope();
+	signal.subscribe(owner, scope); var work = ScheduledNativeWork(owner); work.submit(0.04);
+	while (work.calls < 3) { CFRunLoopRunInMode(mode, 2.0, (Boolean)1); }
+	assert(work.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && owner.queue.pendingCount() == 0);
+	assert(owner.queue.close() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && signal.close());
+	CFRelease(mode);
+	print("PASS: UI2 macOS scheduled work uses common-mode deadlines and later turns"); return 0;
+}

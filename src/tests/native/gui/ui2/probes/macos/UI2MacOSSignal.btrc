@@ -1,4 +1,5 @@
 import Library.Callback;
+import Library.Timer;
 import Library.BackgroundJobs.NativeWorker;
 import Library.GUI.MacOS.MacOSRunLoop;
 
@@ -74,6 +75,24 @@ int main() {
 		assert(racing.join() && !racing.workerFailed() && body.wrongThreadRejected);
 		assert(raced.close() && !raced.requestTurn());
 	}
+	var timed = MacOSRunLoopSignal(); var timedScope = CallbackScope(); var timedReceiver = SignalReceiver();
+	timed.subscribe(timedReceiver, timedScope);
+	long long began = MonotonicClock.nanoseconds(); assert(began >= 0LL);
+	timed.scheduleDeadline((unsigned long long)began + 3000000000ULL);
+	timed.scheduleDeadline((unsigned long long)began + 40000000ULL);
+	while (timedReceiver.calls == 0) { CFRunLoopRunInMode(mode, 1.0, (Boolean)1); }
+	assert(timedReceiver.calls == 1 && MonotonicClock.nanoseconds() - began >= 30000000LL);
+	CFRunLoopRunInMode(mode, 0.01, (Boolean)0); assert(timedReceiver.calls == 1);
+	timed.scheduleDeadline((unsigned long long)MonotonicClock.nanoseconds() + 10000000ULL);
+	timed.scheduleDeadline(0ULL);
+	CFRunLoopRunInMode(mode, 0.03, (Boolean)0); assert(timedReceiver.calls == 1);
+	timed.scheduleDeadline((unsigned long long)MonotonicClock.nanoseconds() + 10000000ULL);
+	assert(timed.close() && timedScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	CFRunLoopRunInMode(mode, 0.03, (Boolean)0); assert(timedReceiver.calls == 1);
+	bool closedTimerRejected = false;
+	try { timed.scheduleDeadline(0ULL); } catch (string error) { closedTimerRejected = true; }
+	assert(closedTimerRejected);
+
 	CFRelease(mode);
 	print("PASS: UI2 macOS scoped common-mode wake and worker signal");
 	return 0;

@@ -1,0 +1,148 @@
+import Library.Callback;
+import Library.Math;
+import Library.Vector;
+import Library.GUI.IApplication;
+
+#include <limits.h>
+
+/* Registration aliases never retain their scheduler. An entered callback owns
+ * its work until finish(), including when it cancels itself or the application. */
+class ScheduledApplicationWork implements ICallbackRegistration {
+	private IApplicationWork? _work;
+	private bool _queued = true;
+	private bool _entered = false;
+	public unsigned long long deadline;
+	public WorkSuspensionPolicy policy;
+	public long long replacementKey;
+	public long long round;
+
+	public ScheduledApplicationWork(IApplicationWork work, unsigned long long deadline, WorkSuspensionPolicy policy, long long replacementKey, long long round) {
+		self._work = work; self.deadline = deadline; self.policy = policy; self.replacementKey = replacementKey; self.round = round;
+	}
+
+	public bool isOpen() { return self._queued; }
+
+	public IApplicationWork? enter() {
+		if (!self._queued) { return null; }
+		self._queued = false; self._entered = true;
+		var work = self._work; self._work = null; return work;
+	}
+
+	public void finish() { self._entered = false; }
+
+	public CallbackCancellation cancel() { self._queued = false; self._work = null; return self.pollCompletion(); }
+
+	public CallbackCancellation pollCompletion() { return self._entered ? CALLBACK_CANCELLATION_PENDING : self._queued ? CALLBACK_CANCELLATION_NOT_REQUESTED : CALLBACK_CANCELLATION_COMPLETE; }
+}
+
+/* UI-thread scheduling shared by desktop providers. The provider supplies its
+ * declared monotonic nanosecond clock and bounds the number/time of service
+ * calls. Every accepted entry stays charged through its callback's return. */
+class ApplicationScheduler {
+	private Vector<ScheduledApplicationWork> _entries = [];
+	private ScheduledApplicationWork? _active;
+	private int _capacity;
+	private int _cursor = 0;
+	private long long _round = 0LL;
+	private bool _suspended = false;
+	private bool _closed = false;
+
+	public ApplicationScheduler(int capacity) {
+		if (capacity <= 0 || capacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
+		self._capacity = capacity;
+	}
+
+	private void prune() {
+		for (int index = self._entries.len - 1; index >= 0; index--) {
+			if (!self._entries.get(index).isOpen()) {
+				self._entries.remove(index); if (index < self._cursor) { self._cursor--; }
+			}
+		}
+	}
+
+	class unsigned long long deadlineAfter(unsigned long long now, double delaySeconds) {
+		if (!Math.isFinite(delaySeconds) || delaySeconds < 0.0) { throw "Scheduled work requires a finite nonnegative delay"; }
+		double nanoseconds = Math.ceilDouble(delaySeconds * 1000000000.0);
+		if (!Math.isFinite(nanoseconds) || nanoseconds >= 18446744073709551616.0) { throw "Scheduled work deadline exceeds the clock range"; }
+		unsigned long long duration = (unsigned long long)nanoseconds;
+		if (duration > (unsigned long long)ULLONG_MAX - now) { throw "Scheduled work deadline exceeds the clock range"; }
+		return now + duration;
+	}
+
+	public ScheduleOutcome schedule(IApplicationWork work, unsigned long long now, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) {
+		if (work == null || replacementKey < 0LL || policy < WORK_SUSPENSION_CANCEL || policy > WORK_SUSPENSION_REPLACE || (policy == WORK_SUSPENSION_REPLACE && replacementKey == 0LL)) { throw "Invalid scheduled work"; }
+		unsigned long long deadline = ApplicationScheduler.deadlineAfter(now, delaySeconds);
+		var result = ScheduleOutcome(); result.registration = null;
+		if (self._closed) { result.kind = SCHEDULE_CLOSED; return result; }
+		if (self._suspended && policy == WORK_SUSPENSION_CANCEL) { result.kind = SCHEDULE_CANCELLED; return result; }
+		self.prune(); int replaced = -1;
+		if (replacementKey > 0LL) {
+			for (int index = self._entries.len - 1; index >= 0; index--) {
+				var previous = self._entries.get(index);
+				if (previous.replacementKey == 0LL) { break; }
+				if (previous.replacementKey == replacementKey) { replaced = index; break; }
+			}
+		}
+		if (replaced < 0 && self._entries.len + (self._active == null ? 0 : 1) >= self._capacity) { result.kind = SCHEDULE_FULL; return result; }
+		var entry = ScheduledApplicationWork(work, deadline, policy, replacementKey, self._round);
+		if (replaced >= 0) { self._entries.get(replaced).cancel(); self._entries.set(replaced, entry); }
+		else { self._entries.push(entry); }
+		result.kind = replaced < 0 ? SCHEDULE_ACCEPTED : SCHEDULE_REPLACED; result.registration = entry; return result;
+	}
+
+	public void beginRound() {
+		if (self._active != null) { throw "Application work dispatch cannot re-enter"; }
+		if (self._round == LLONG_MAX) { throw "Application scheduling rounds exhausted"; }
+		self._round++;
+	}
+
+	public bool runOne(unsigned long long now) {
+		if (self._active != null) { throw "Application work dispatch cannot re-enter"; }
+		if (self._closed || self._suspended) { return false; }
+		int available = self._entries.len; int examined = 0;
+		for (; examined < available && examined < 256 && self._entries.len > 0; examined++) {
+			if (self._cursor >= self._entries.len) { self._cursor = 0; }
+			var entry = self._entries.get(self._cursor);
+			if (!entry.isOpen()) { self._entries.remove(self._cursor); continue; }
+			if (entry.round >= self._round || entry.deadline > now) { self._cursor++; continue; }
+			self._entries.remove(self._cursor); self._active = entry;
+			var work = entry.enter();
+			try { if (work != null) { work.run(); } }
+			finally { entry.finish(); self._active = null; }
+			return true;
+		}
+		if (examined >= available || self._entries.isEmpty()) { self._cursor = 0; }
+		return false;
+	}
+
+	public void suspend(bool suspended) {
+		self._suspended = suspended;
+		if (suspended) { for entry in self._entries { if (entry.policy == WORK_SUSPENSION_CANCEL) { entry.cancel(); } } self.prune(); }
+	}
+
+	public unsigned long long nextDeadline() {
+		if (self._suspended || self._closed) { return 0ULL; }
+		bool found = false; unsigned long long deadline = 0ULL;
+		for entry in self._entries { if (entry.isOpen() && (!found || entry.deadline < deadline)) { deadline = entry.deadline; found = true; } }
+		return deadline;
+	}
+
+	public bool runnable(unsigned long long now) {
+		if (self._suspended || self._closed) { return false; }
+		for entry in self._entries { if (entry.isOpen() && entry.deadline <= now) { return true; } }
+		return false;
+	}
+
+	public int pendingCount() { self.prune(); return self._entries.len + (self._active == null ? 0 : 1); }
+
+	public CallbackCancellation close() {
+		self._closed = true;
+		for entry in self._entries { entry.cancel(); } self._entries.clear(); self._cursor = 0;
+		if (self._active != null) { self._active.cancel(); }
+		return self.pollClose();
+	}
+
+	public CallbackCancellation pollClose() { return !self._closed ? CALLBACK_CANCELLATION_NOT_REQUESTED : self._active == null ? CALLBACK_CANCELLATION_COMPLETE : CALLBACK_CANCELLATION_PENDING; }
+
+	public void __del__() { self.close(); }
+}

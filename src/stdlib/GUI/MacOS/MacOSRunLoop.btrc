@@ -1,5 +1,6 @@
 import Library.Callback;
 import Library.Console;
+import Library.Timer;
 import Library.GUI.IApplicationNativeWake;
 import Library.GUI.MacOS.CoreFoundation;
 
@@ -8,6 +9,8 @@ import Library.GUI.MacOS.CoreFoundation;
  * scoped notification adapter. Workers touch only the raw source and gate. */
 class MacOSRunLoopSignal implements IApplicationNativeWake {
 	private CFRunLoopSourceRef _source = null;
+	private CFRunLoopTimerRef _timer = null;
+	private unsigned long long _deadline = 0ULL;
 	private NSString? _name;
 	private Atomic<uint>* _gate = null;
 	private bool _subscribed = false;
@@ -69,6 +72,38 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 		callbackGateLeave(self._gate); return true;
 	}
 
+	/* A single common-mode timer signals the same source. The timer owns a
+  * native reference to the source; no managed receiver crosses its context. */
+	class CFRunLoopTimerRef createTimer(CFRunLoopSourceRef source, double delay) {
+		CFRunLoopTimerContext context = {0};
+		context.info = (void*)source; context.retain = CFRetain; context.release = CFRelease;
+		return CFRunLoopTimerCreate(null, CFAbsoluteTimeGetCurrent() + delay, 0.0, 0UL, 0L, MacOSRunLoopSignal.timerFired, &context);
+	}
+
+	class void timerFired(CFRunLoopTimerRef timer, void* raw) {
+		CFRunLoopSourceSignal((CFRunLoopSourceRef)raw); CFRunLoopWakeUp(CFRunLoopGetMain());
+	}
+
+	/* Deadlines use CLOCK_MONOTONIC nanoseconds, matching Library.Timer. A
+  * callback consumer rechecks that clock before executing delayed work. */
+	public void scheduleDeadline(unsigned long long deadline) {
+		self.requireMainThread();
+		if (self._source == null || (self._gate->load(MemoryOrder.ACQUIRE) & 1u) != 0u) { throw "Native run-loop signal is closed"; }
+		if (deadline == self._deadline && (deadline == 0ULL || (self._timer != null && CFRunLoopTimerIsValid(self._timer) != (Boolean)0))) { return; }
+		CFRunLoopTimerRef replacement = null;
+		if (deadline != 0ULL) {
+			long long reading = MonotonicClock.nanoseconds();
+			if (reading < 0LL) { throw "Cannot read native run-loop deadline clock"; }
+			unsigned long long now = (unsigned long long)reading;
+			double delay = deadline > now ? (double)(deadline - now) / 1000000000.0 : 0.0;
+			replacement = MacOSRunLoopSignal.createTimer(self._source, delay);
+			if (replacement == null) { throw "Cannot create native run-loop deadline timer"; }
+			CFRunLoopAddTimer(CFRunLoopGetMain(), replacement, kCFRunLoopCommonModes);
+		}
+		if (self._timer != null) { CFRunLoopTimerInvalidate(self._timer); CFRelease(self._timer); }
+		self._timer = replacement; self._deadline = deadline;
+	}
+
 	public void wake() { if (!self.requestTurn()) { throw "Native run-loop source is closing"; } }
 
 	/* Stop a running AppKit loop. stop: is observed only after an NSEvent, not
@@ -90,6 +125,7 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 	public bool close() {
 		self.requireMainThread(); if (self._gate == null) { return true; } callbackGateCloseAdmission(self._gate);
 		if (self._gate->load(MemoryOrder.ACQUIRE) != 1u) { return false; }
+		if (self._timer != null) { CFRunLoopTimerInvalidate(self._timer); CFRelease(self._timer); self._timer = null; self._deadline = 0ULL; }
 		if (self._source != null) { CFRunLoopSourceInvalidate(self._source); CFRelease(self._source); self._source = null; }
 		self._name = null; return true;
 	}

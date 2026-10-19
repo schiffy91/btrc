@@ -1,0 +1,90 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IApplication;
+import Library.GUI.ApplicationScheduler;
+
+#include <assert.h>
+#include <limits.h>
+
+class ScheduledTrace implements IApplicationWork {
+	public Vector<int> trace;
+	public int value;
+	public ScheduledTrace(Vector<int> trace, int value) { self.trace = trace; self.value = value; }
+
+	public void run() { self.trace.push(self.value); }
+}
+class ScheduledReentry implements IApplicationWork {
+	public ApplicationScheduler scheduler;
+	public ICallbackRegistration? registration;
+	public bool entered = false;
+	public bool closeInside = false;
+	public bool throwsInside = false;
+	public ScheduledReentry(ApplicationScheduler scheduler) { self.scheduler = scheduler; }
+
+	public void run() {
+		self.entered = true;
+		assert(self.registration.cancel() == CALLBACK_CANCELLATION_PENDING);
+		assert(self.registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
+		assert(self.scheduler.pendingCount() == 1);
+		assert(self.scheduler.schedule(self, 100ULL, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_FULL);
+		bool reentered = false;
+		try { self.scheduler.beginRound(); } catch (string error) { reentered = true; }
+		assert(reentered);
+		if (self.closeInside) { assert(self.scheduler.close() == CALLBACK_CANCELLATION_PENDING); }
+		if (self.throwsInside) { throw "scheduled failure"; }
+	}
+}
+class RepostedWork implements IApplicationWork {
+	public ApplicationScheduler scheduler;
+	public int calls = 0;
+	public RepostedWork(ApplicationScheduler scheduler) { self.scheduler = scheduler; }
+
+	public void run() {
+		self.calls++;
+		if (self.calls < 3) { assert(self.scheduler.schedule(self, 100ULL, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_ACCEPTED); }
+	}
+}
+int main() {
+	Vector<int> trace = []; var queue = ApplicationScheduler(4);
+	var first = queue.schedule(ScheduledTrace(trace, 1), 100ULL, 0.0, WORK_SUSPENSION_DEFER, 7LL);
+	assert(first.kind == SCHEDULE_ACCEPTED && !queue.runOne(100ULL));
+	var second = queue.schedule(ScheduledTrace(trace, 2), 100ULL, 0.0, WORK_SUSPENSION_REPLACE, 7LL);
+	assert(second.kind == SCHEDULE_REPLACED && first.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	queue.schedule(ScheduledTrace(trace, 3), 100ULL, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+	assert(queue.schedule(ScheduledTrace(trace, 4), 100ULL, 0.0, WORK_SUSPENSION_REPLACE, 7LL).kind == SCHEDULE_ACCEPTED);
+	queue.beginRound(); assert(queue.runOne(100ULL) && queue.runOne(100ULL) && queue.runOne(100ULL) && !queue.runOne(100ULL));
+	assert(trace.len == 3 && trace.get(0) == 2 && trace.get(1) == 3 && trace.get(2) == 4);
+	var cancelled = queue.schedule(ScheduledTrace(trace, 90), 100ULL, 1.0, WORK_SUSPENSION_CANCEL, 0LL);
+	queue.schedule(ScheduledTrace(trace, 5), 100ULL, 1.0, WORK_SUSPENSION_DEFER, 0LL);
+	queue.suspend(true);
+	assert(cancelled.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(queue.schedule(ScheduledTrace(trace, 91), 100ULL, 0.0, WORK_SUSPENSION_CANCEL, 0LL).kind == SCHEDULE_CANCELLED);
+	queue.schedule(ScheduledTrace(trace, 92), 100ULL, 0.0, WORK_SUSPENSION_REPLACE, 9LL);
+	queue.schedule(ScheduledTrace(trace, 6), 100ULL, 0.0, WORK_SUSPENSION_REPLACE, 9LL);
+	queue.beginRound(); assert(queue.nextDeadline() == 0ULL && !queue.runnable(2000000000ULL) && !queue.runOne(2000000000ULL));
+	queue.suspend(false); assert(queue.nextDeadline() == 100ULL);
+	assert(queue.runOne(2000000000ULL) && queue.runOne(2000000000ULL) && !queue.runOne(2000000000ULL));
+	assert(trace.len == 5 && trace.get(3) == 5 && trace.get(4) == 6);
+	for (int mode = 0; mode < 3; mode++) {
+		var single = ApplicationScheduler(1); var work = ScheduledReentry(single); work.closeInside = mode == 1; work.throwsInside = mode == 2;
+		var outcome = single.schedule(work, 100ULL, 0.0, WORK_SUSPENSION_DEFER, 0LL); work.registration = outcome.registration;
+		single.beginRound(); bool threw = false;
+		try { single.runOne(100ULL); } catch (string error) { threw = true; }
+		assert(work.entered && threw == work.throwsInside && single.pendingCount() == 0);
+		assert(outcome.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && single.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(single.schedule(work, 100ULL, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_CLOSED);
+	}
+	var rounds = ApplicationScheduler(2); var repost = RepostedWork(rounds);
+	rounds.schedule(repost, 100ULL, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+	for (int round = 1; round <= 3; round++) { rounds.beginRound(); assert(rounds.runOne(100ULL)); assert(!rounds.runOne(100ULL) && repost.calls == round); }
+	assert(rounds.close() == CALLBACK_CANCELLATION_COMPLETE);
+	var longQueue = ApplicationScheduler(300);
+	for (int index = 0; index < 257; index++) { longQueue.schedule(ScheduledTrace(trace, 99), 100ULL, 2.0, WORK_SUSPENSION_DEFER, 0LL); }
+	longQueue.schedule(ScheduledTrace(trace, 7), 100ULL, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+	longQueue.beginRound(); assert(!longQueue.runOne(100ULL)); assert(longQueue.runOne(100ULL));
+	assert(trace.get(5) == 7 && longQueue.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(ApplicationScheduler.deadlineAfter((unsigned long long)ULLONG_MAX - 1ULL, 0.000000001) == (unsigned long long)ULLONG_MAX);
+	bool exhausted = false; try { ApplicationScheduler.deadlineAfter((unsigned long long)ULLONG_MAX, 0.000000001); } catch (string error) { exhausted = true; } assert(exhausted);
+	assert(queue.close() == CALLBACK_CANCELLATION_COMPLETE);
+	print("PASS: UI2 scheduler accounting rounds suspension and cancellation"); return 0;
+}

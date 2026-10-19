@@ -48,6 +48,7 @@ class GUIProviderRoot:
             "SliderValue",
             "SliderInteraction",
             "ApplicationPublisher",
+            "ApplicationScheduler",
             "IApplicationNativeWake",
         ):
             if name not in exported:

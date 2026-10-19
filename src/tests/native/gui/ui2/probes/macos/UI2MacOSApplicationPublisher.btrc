@@ -1,0 +1,48 @@
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.IApplication;
+import Library.GUI.MacOS.MacOSApplication;
+
+#include <assert.h>
+#include <time.h>
+
+class ApplicationPublisherWorker implements INativeWorkerBody {
+	private IApplicationPublisher publisher;
+	public PublishOutcome outcome = PUBLISH_INVALID;
+	public ApplicationPublisherWorker(IApplicationPublisher publisher) { self.publisher = publisher; }
+
+	public int workLoop() {
+		struct timespec delay; delay.tv_sec = (time_t)0; delay.tv_nsec = 40000000L;
+		nanosleep(&delay, null);
+		self.outcome = self.publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 73LL);
+		return 0;
+	}
+}
+
+class ApplicationPublisherReceiver implements IApplicationPublicationHandler {
+	public MacOSApplication application;
+	public int calls = 0;
+	public ApplicationPublisherReceiver(MacOSApplication application) { self.application = application; }
+
+	public void deliver(ApplicationPublication publication) {
+		assert(NSThread.isMainThread()); self.calls++;
+		assert(publication.generation == 1LL && publication.sequence == 1LL && publication.payload == 73LL);
+		self.application.requestQuit();
+	}
+}
+
+int main() {
+	var application = MacOSApplication(4); var scope = CallbackScope();
+	var receiver = ApplicationPublisherReceiver(application);
+	var created = application.createPublisher(2, receiver, scope);
+	assert(created.kind == APPLICATION_PUBLISHER_CREATED && created.publisher != null && created.registration != null);
+	var body = ApplicationPublisherWorker(created.publisher); var worker = NativeWorker();
+	assert(worker.start(body) == NATIVE_WORKER_STARTED);
+	application.run();
+	assert(worker.join() && !worker.workerFailed() && body.outcome == PUBLISH_ACCEPTED && receiver.calls == 1);
+	assert(created.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(created.publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 74LL) == PUBLISH_CLOSED);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	var closed = application.createPublisher(2, receiver, scope); assert(closed.kind == APPLICATION_PUBLISHER_CLOSED);
+	print("PASS: UI2 macOS application worker publication and shutdown"); return 0;
+}

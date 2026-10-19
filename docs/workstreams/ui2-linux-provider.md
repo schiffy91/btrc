@@ -36,7 +36,18 @@ The publisher now lives in the shared private
 MacOSRunLoopSignal supplies CoreFoundation wakeups. Receipt storage, replacement,
 cancellation and host notification use the same owner on both platforms. This
 replaces the LinuxPublisher source named in the historical checkpoint below.
-The full application scheduler and native acceptance work remain incomplete.
+The shared private `ApplicationScheduler.btrc` now owns delayed work, replacement,
+suspension and cancellation. LinuxApplication uses it; macOS has a real
+common-mode source/timer composition probe, but application wiring is still
+pending. Entered callbacks remain charged against capacity and cancellation
+stays pending until they return. Reposted work waits for the next service turn.
+
+Focused tests passed through both compilers, plain and ASan/UBSan: 34 queue,
+slider, publisher, scheduler and macOS wake/deadline checks, plus four native
+scheduler composition checks. The input notification projection also compiles
+through both compilers. The whole MacOSApplication probe still fails to compile
+because its UI2 control, lifecycle and application methods are unfinished.
+The current Linux scheduler composition still needs native qualification.
 
 ## Qualification state
 

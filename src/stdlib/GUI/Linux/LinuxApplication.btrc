@@ -22,6 +22,7 @@ import Library.GUI.IScrollView;
 import Library.GUI.IGrid;
 import Library.GUI.Linux.SDL;
 import Library.GUI.ApplicationPublisher;
+import Library.GUI.ApplicationScheduler;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxWindow;
@@ -39,29 +40,6 @@ import Library.GUI.Linux.LinuxImageView;
 import Library.GUI.Linux.LinuxIndicators;
 import Library.GUI.Linux.LinuxGPUView;
 import Library.GUI.Linux.LinuxDirectoryPicker;
-
-/* Delayed UI-thread work: a deadline in the application's timer list. The
- * registration only records cancellation; the loop owns delivery. */
-class LinuxDelayedWork implements ICallbackRegistration {
-	private IApplicationWork? _work;
-	private unsigned long long _deadline;
-	private bool _open = true;
-	public WorkSuspensionPolicy policy;
-	public long long replacementKey;
-	public long long round;
-
-	public LinuxDelayedWork(IApplicationWork work, unsigned long long deadlineNanoseconds, WorkSuspensionPolicy policy, long long replacementKey, long long round) { self._work = work; self._deadline = deadlineNanoseconds; self.policy = policy; self.replacementKey = replacementKey; self.round = round; }
-
-	public unsigned long long deadline() { return self._deadline; }
-
-	public IApplicationWork? take() { var work = self._work; self._work = null; self._open = false; return work; }
-
-	public bool isOpen() { return self._open; }
-
-	public CallbackCancellation cancel() { self._open = false; self._work = null; return CALLBACK_CANCELLATION_COMPLETE; }
-
-	public CallbackCancellation pollCompletion() { return self._open ? CALLBACK_CANCELLATION_NOT_REQUESTED : CALLBACK_CANCELLATION_COMPLETE; }
-}
 
 /* The scoped host link delegates to the same scheduler as desktop run(). */
 class LinuxHostAttachment implements IApplicationHostAttachment {
@@ -110,7 +88,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private Vector<LinuxWindow> _windows = [];
 	private Vector<IView> _views = [];
 	private Vector<IView> _closingRoots = [];
-	private Vector<LinuxDelayedWork> _delayed = [];
+	private ApplicationScheduler _scheduler;
 	private Vector<ApplicationPublisher> _publishers = [];
 	private int _publisherCapacity = 65536;
 	private int _publisherUsed = 0;
@@ -121,11 +99,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private ApplicationActivity _activity = APPLICATION_ACTIVITY_UNKNOWN;
 	private bool _turnActive = false;
 	private int _rotation = 0;
-	private int _timerCursor = 0;
 	private int _windowCursor = 0;
-	private long long _round = 0LL;
-	private int _workCapacity;
-	private int _pendingWork = 0;
 	private bool _quitRequested = false;
 	private bool _running = false;
 	private bool _dispatching = false;
@@ -138,7 +112,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 
 	public LinuxApplication(int workCapacity) {
 		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
-		self._workCapacity = workCapacity;
+		self._scheduler = ApplicationScheduler(workCapacity);
 		self._context = LinuxContext(workCapacity);
 	}
 
@@ -171,6 +145,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		self.requireUIThread();
 		if (self._closed || self._quitRequested) { return; }
 		self._quitRequested = true;
+		self._scheduler.close();
 		btrcSdlPushWake();
 	}
 
@@ -189,29 +164,11 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		if (result.kind != SCHEDULE_ACCEPTED) { throw "Application work admission failed"; }
 	}
 
-	private void pruneDelayed() { for (int index = self._delayed.len - 1; index >= 0; index--) { if (!self._delayed.get(index).isOpen()) { self._delayed.remove(index); } } }
-
 	public ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) {
 		self.requireUIThread();
-		if (work == null || !Math.isFinite(delaySeconds) || delaySeconds < 0.0 || replacementKey < 0LL || policy < WORK_SUSPENSION_CANCEL || policy > WORK_SUSPENSION_REPLACE || (policy == WORK_SUSPENSION_REPLACE && replacementKey == 0LL)) { throw "Invalid scheduled work"; }
-		var result = ScheduleOutcome(); result.registration = null;
-		if (self._closing || self._closed || self._quitRequested) { result.kind = SCHEDULE_CLOSED; return result; }
-		if (self._activity == APPLICATION_ACTIVITY_SUSPENDED && policy == WORK_SUSPENSION_CANCEL) { result.kind = SCHEDULE_CANCELLED; return result; }
-		self.pruneDelayed();
-		LinuxDelayedWork? replaced = null;
-		if (replacementKey > 0LL) {
-			for (int index = self._delayed.len - 1; index >= 0; index--) {
-				var previous = self._delayed.get(index);
-				if (previous.replacementKey == 0LL) { break; }
-				if (previous.replacementKey == replacementKey) { replaced = previous; break; }
-			}
-		}
-		if (replaced == null && self._pendingWork + self._delayed.len >= self._workCapacity) { result.kind = SCHEDULE_FULL; return result; }
-		var registration = LinuxDelayedWork(work, LinuxClock.after(delaySeconds), policy, replacementKey, self._round);
-		if (replaced != null) { replaced.cancel(); self.pruneDelayed(); }
-		self._delayed.push(registration); result.registration = registration;
-		result.kind = replaced == null ? SCHEDULE_ACCEPTED : SCHEDULE_REPLACED;
-		self.signalTurn(); self.updateHostDeadline(); return result;
+		var result = self._scheduler.schedule(work, SDL_GetTicksNS(), delaySeconds, policy, replacementKey);
+		if (result.kind == SCHEDULE_ACCEPTED || result.kind == SCHEDULE_REPLACED) { self.signalTurn(); self.updateHostDeadline(); }
+		return result;
 	}
 
 	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
@@ -271,7 +228,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		if (activity < APPLICATION_ACTIVITY_ACTIVE || activity > APPLICATION_ACTIVITY_UNKNOWN) { throw "Invalid application activity"; }
 		self._activity = activity;
 		bool suspended = activity == APPLICATION_ACTIVITY_SUSPENDED;
-		if (suspended) { for delayed in self._delayed { if (delayed.policy == WORK_SUSPENSION_CANCEL) { delayed.cancel(); } } self.pruneDelayed(); }
+		self._scheduler.suspend(suspended);
 		for publisher in self._publishers { publisher.suspend(suspended); }
 		for window in self._windows { window.applicationActivity(activity); }
 		self.signalTurn(); self.updateHostDeadline();
@@ -369,20 +326,10 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	}
 
 	private void runDelayed() {
-		if (self._activity == APPLICATION_ACTIVITY_SUSPENDED) { return; }
 		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
-		int available = self._delayed.len; int examined = 0; int delivered = 0;
-		while (!self._delayed.isEmpty() && examined < available && examined < 256 && delivered < 64 && SDL_GetTicksNS() < deadline) {
-			if (self._timerCursor >= self._delayed.len) { self._timerCursor = 0; }
-			var delayed = self._delayed.get(self._timerCursor); examined++;
-			if (!delayed.isOpen()) { self._delayed.remove(self._timerCursor); continue; }
-			if (delayed.round >= self._round || delayed.deadline() > SDL_GetTicksNS()) { self._timerCursor++; continue; }
-			self._delayed.remove(self._timerCursor);
-			var work = delayed.take(); delivered++;
-			if (work == null || self._quitRequested) { continue; }
-			self._pendingWork++;
-			try { work.run(); } catch (string error) { self.failWork(error); }
-			finally { self._pendingWork--; }
+		for (int delivered = 0; delivered < 64 && !self._quitRequested && SDL_GetTicksNS() < deadline; delivered++) {
+			try { if (!self._scheduler.runOne(SDL_GetTicksNS())) { break; } }
+			catch (string error) { self.failWork(error); }
 		}
 	}
 
@@ -418,8 +365,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	}
 
 	private unsigned long long nextDeadline() {
-		unsigned long long deadline = 0ULL;
-		if (self._activity != APPLICATION_ACTIVITY_SUSPENDED) { for delayed in self._delayed { if (delayed.isOpen() && (deadline == 0ULL || delayed.deadline() < deadline)) { deadline = delayed.deadline(); } } }
+		unsigned long long deadline = self._scheduler.nextDeadline();
 		for window in self._windows {
 			if (!window.isOpen()) { continue; }
 			unsigned long long wake = window.wakeAt();
@@ -429,7 +375,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	}
 
 	private bool runnable() {
-		if (self._quitRequested || self._context.actions.pendingCount() > 0 || self._context.detachedEvents.pendingCount() > 0) { return true; }
+		if (self._quitRequested || self._scheduler.runnable(SDL_GetTicksNS()) || self._context.actions.pendingCount() > 0 || self._context.detachedEvents.pendingCount() > 0) { return true; }
 		for publisher in self._publishers { if (publisher.pending()) { return true; } }
 		for window in self._windows { if (window.semanticPending() > 0 || (window.isOpen() && window.needsFrame())) { return true; } }
 		return false;
@@ -473,10 +419,9 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		self.requireUIThread();
 		if (self._turnActive || self._context.mutationDepth > 0) { throw "Native event dispatch is already active"; }
 		if (self._closed) { return; }
-		if (self._round == 9223372036854775807LL) { throw "Application scheduling rounds exhausted"; }
 		int readyTimeout = self.waitMilliseconds();
 		if (readyTimeout == 0 || (readyTimeout > 0 && (timeoutMilliseconds < 0 || readyTimeout < timeoutMilliseconds))) { timeoutMilliseconds = readyTimeout; }
-		self._round++; self._turnActive = true;
+		self._scheduler.beginRound(); self._turnActive = true;
 		try {
 			/* Only the initial input phase may wait. Other classes rotate; each
 			 * gets its own count/time slice and cleanup always gets a turn. */
@@ -502,7 +447,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		self._running = true;
 		try {
 			while (true) {
-				if (self._quitRequested && self._pendingWork == 0) { break; }
+				if (self._quitRequested && self._scheduler.pendingCount() == 0) { break; }
 				self.pumpOnce(self.waitMilliseconds());
 			}
 		} catch (string error) { self._running = false; self.close(); throw error; }
@@ -568,6 +513,8 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		if (self._turnActive) { return CALLBACK_CANCELLATION_PENDING; }
 		self._quitRequested = true;
 		self._closing = true;
+		var scheduled = self._scheduler.close();
+		if (scheduled != CALLBACK_CANCELLATION_COMPLETE) { return scheduled; }
 		CallbackCancellation publishers = CALLBACK_CANCELLATION_COMPLETE;
 		for publisher in self._publishers { publishers = self.combine(publishers, publisher.cancel()); }
 		if (publishers != CALLBACK_CANCELLATION_COMPLETE) { return publishers; }
@@ -575,9 +522,6 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		var views = self.closeViews();
 		if (views != CALLBACK_CANCELLATION_COMPLETE) { return views; }
 		try {
-			self._pendingWork = 0;
-			for delayed in self._delayed { delayed.cancel(); }
-			self._delayed.clear();
 			self._context.actions.close(); self._context.detachedEvents.close(); self._context.semanticWake.host = null;
 		} catch (string error) { self._closeFailure = error; throw error; }
 		self._closed = true;

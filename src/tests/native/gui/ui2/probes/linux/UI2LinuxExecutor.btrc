@@ -41,6 +41,18 @@ class UI2LinuxReceiver implements IApplicationPublicationHandler {
 }
 
 
+class UI2LinuxScheduledCancel implements IApplicationWork {
+	public LinuxApplication application;
+	public ICallbackRegistration? registration;
+	public int calls = 0;
+	public UI2LinuxScheduledCancel(LinuxApplication application) { self.application = application; }
+
+	public void run() {
+		self.calls++; assert(self.registration.cancel() == CALLBACK_CANCELLATION_PENDING);
+		self.application.requestQuit(); assert(self.registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
+	}
+}
+
 int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
 	var wake = LinuxContext(2);
@@ -65,6 +77,10 @@ int main() {
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	var hosted = LinuxApplication(4); UI2ExecutorChecks.hosted(hosted);
 	assert(hosted.close() == CALLBACK_CANCELLATION_COMPLETE);
+	var scheduled = LinuxApplication(2); var callback = UI2LinuxScheduledCancel(scheduled);
+	callback.registration = scheduled.postAfter(0.0, callback); scheduled.run();
+	assert(callback.calls == 1 && callback.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scheduled.close() == CALLBACK_CANCELLATION_COMPLETE);
 	printf("PASS: UI2 Linux worker native wake and hosted suspension\n");
 	SDL_Quit(); return 0;
 }

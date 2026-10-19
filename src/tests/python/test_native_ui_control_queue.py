@@ -58,6 +58,19 @@ def test_ui2_publisher(tmp_path, request, frontend, sanitized):
     )
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_ui2_scheduler(tmp_path, request, frontend, sanitized):
+    _run_fixture(
+        tmp_path,
+        request,
+        frontend,
+        sanitized,
+        "Scheduler",
+        "PASS: UI2 scheduler accounting rounds suspension and cancellation",
+    )
+
+
 def _run_fixture(tmp_path, request, frontend, sanitized, fixture, marker):
     root = Path(__file__).resolve().parents[3]
     data = request.getfixturevalue("gui_provider_root")

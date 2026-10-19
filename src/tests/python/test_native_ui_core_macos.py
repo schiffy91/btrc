@@ -48,6 +48,12 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
     [
         ("UI2MacOSSignal", "PASS: UI2 macOS scoped common-mode wake and worker signal"),
         ("UI2MacOSPublisher", "PASS: UI2 macOS worker publication and cancellation drain"),
+        ("UI2MacOSScheduler", "PASS: UI2 macOS scheduled work uses common-mode deadlines and later turns"),
+        pytest.param(
+            "UI2MacOSApplicationPublisher",
+            "PASS: UI2 macOS application worker publication and shutdown",
+            marks=pytest.mark.macos_gui,
+        ),
     ],
 )
 def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_provider_root, sanitized, fixture, marker):
@@ -80,6 +86,19 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
     NativePlanBuilder(runner=runner).build(
         plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
     )
-    ran = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    ran = subprocess.run(
+        [str(executable)],
+        env=apple_environment() | {"BTRC_GUI_BACKGROUND": "1"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert ran.returncode == 0, ran.stdout + ran.stderr
     assert marker in ran.stdout
+
+
+def test_macos_ui2_input_notification_bindings(native_project, native_compile, gui_provider_root):
+    source, _sdk, _triple = native_project
+    source.write_text("import Library.GUI.MacOS.MacOSViewInput;\nint main() { return 0; }\n")
+    result = native_compile(source, data_root=gui_provider_root)
+    assert result.successful, str(result.failure) + str(result.diagnostics)
