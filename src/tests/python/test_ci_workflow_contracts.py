@@ -1364,6 +1364,76 @@ def test_android_license_acceptance_preserves_sdkmanager_status(sdk_exit: int) -
     assert result.returncode == sdk_exit, result.stderr.decode(errors="replace")
 
 
+def test_the_windows_corpus_lane_builds_on_linux_and_runs_each_row_natively() -> None:
+    """CX-P1-07: the whole corpus, through both compilers, on hosted x64 and ARM64 Windows."""
+
+    jobs = _parsed("windows.yml")["jobs"]
+    build, run = jobs["target-corpus-build"], jobs["target-corpus"]
+    assert build["runs-on"] == "ubuntu-latest"
+    commands = _code("\n".join(step.get("run", "") for step in build["steps"]))
+    assert "nix develop --command make NIX= btrcc" in commands
+    assert "for label in windows-x86_64 windows-aarch64; do" in commands
+    assert (
+        'python3 -m src.tests.target_runner --target "$label" --frontend both '
+        '\\\n    --compile-only --btrcc bin/btrcc --jobs 4 --output "build/target-corpus/$label"'
+    ) in commands
+    # A program that fails to build is a result; only a runner error fails the build job.
+    assert 'if [ "$status" -gt 1 ]; then' in commands
+    uploads = {step["with"]["name"]: step["with"] for step in build["steps"] if step.get("uses") == UPLOAD_ARTIFACT}
+    for label in ("windows-x86_64", "windows-aarch64"):
+        bundle = uploads[f"target-corpus-bundle-{label}"]
+        # bundle.json and the executables, never the linker's PDBs.
+        assert bundle["path"].split() == [
+            f"build/target-corpus/{label}/bundle/bundle.json",
+            f"build/target-corpus/{label}/bundle/*.exe",
+        ]
+        assert bundle["if-no-files-found"] == "error"
+    # Each row runs on a hosted runner of its own architecture with a native interpreter.
+    rows = [shard.row for shard in TIERS.shards if shard.job == "windows.yml/target-corpus"]
+    assert rows == [
+        {
+            "target": "windows-x64",
+            "label": "windows-x86_64",
+            "runner": "windows-latest",
+            "python": "x64",
+            "report_only": "true",
+        },
+        {
+            "target": "windows-arm64",
+            "label": "windows-aarch64",
+            "runner": "windows-11-arm",
+            "python": "arm64",
+            "report_only": "true",
+        },
+    ]
+    assert run["needs"] == ["scope", "target-corpus-build"]
+    assert run["runs-on"] == "${{ matrix.runner }}"
+    assert run["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
+    # The bundle pins each program's deadline; admission refuses another value.
+    assert build["env"]["BTRC_TEST_RUN_TIMEOUT"] == run["env"]["BTRC_TEST_RUN_TIMEOUT"]
+    setup = next(step for step in run["steps"] if str(step.get("uses", "")).startswith("actions/setup-python@"))
+    assert setup["with"]["architecture"] == "${{ matrix.python }}"
+    download = next(step for step in run["steps"] if str(step.get("uses", "")).startswith("actions/download-artifact@"))
+    assert download["with"] == {
+        "name": "target-corpus-bundle-${{ matrix.label }}",
+        "path": "build/target-corpus/bundle",
+    }
+    executed = _code("\n".join(step.get("run", "") for step in run["steps"]))
+    assert (
+        "python -m src.tests.target_runner --execute-bundle build/target-corpus/bundle "
+        "--executor windows-native --output build/target-corpus/run"
+    ) in executed
+    assert '>> "$GITHUB_STEP_SUMMARY"' in executed
+    final = run["steps"][-1]
+    assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT
+    assert final["with"]["name"] == "target-corpus-run-${{ matrix.target }}"
+    assert final["with"]["path"] == "build/target-corpus/run/"
+    # The executor the lane names is the one the runner's registry resolves.
+    from src.tests.target_runner import ExecutorRegistry
+
+    assert ExecutorRegistry().spec("windows-native") == "tools.target_hosts.windows.executor:WindowsNativeExecutor"
+
+
 def test_windows_arm64_lane_keeps_cross_and_native_qualification_separate() -> None:
     workflow = _parsed("windows-arm64.yml")
     cross, native = workflow["jobs"]["cross"], workflow["jobs"]["native"]

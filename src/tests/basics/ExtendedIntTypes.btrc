@@ -12,23 +12,24 @@ int main() {
 	unsigned int ui = 4000000000u;
 	assert(ui > 3000000000u);
 
-	unsigned long ul = 5000000000;
-	assert(ul > 4000000000UL);
+	// `long` is 32 bits on Windows (LLP64), so its values stay in that range.
+	unsigned long ul = 4000000000UL;
+	assert(ul > 3000000000UL);
 
 	// Full standard-C integer spellings with the optional trailing `int`.
 	unsigned short int usi = 60000;
 	signed short int ssi = -123;
-	unsigned long int uli = 5000000000UL;
-	signed long int sli = -5000000000L;
+	unsigned long int uli = 4000000000UL;
+	signed long int sli = -2000000000L;
 	unsigned long long int ulli = 18000000000000000000ULL;
 	signed long long int slli = -9000000000000000000LL;
 	assert(usi == 60000 && ssi == -123);
-	assert(uli == 5000000000UL && sli == -5000000000L);
+	assert(uli == 4000000000UL && sli == -2000000000L);
 	assert(ulli == 18000000000000000000ULL);
 	assert(slli == -9000000000000000000LL);
 
-	// long retaining a value beyond 32-bit int range
-	long big = 9000000000;
+	// long long retaining a value beyond 32-bit int range on every data model
+	long long big = 9000000000;
 	assert(big > 8000000000);
 
 	// arithmetic stays in 64-bit range

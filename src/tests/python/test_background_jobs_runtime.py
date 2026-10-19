@@ -11,7 +11,7 @@ import pytest
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.native_bindings import NativeBindingPackage
 from tools.native_plan import NativePlanBuilder
-from tools.target_hosts.windows.bundle import TARGETS, pe_machine
+from tools.target_hosts.windows.bundle import TARGETS
 from tools.target_hosts.windows.executor import ExecutionRequest, WindowsNativeExecutor
 from tools.windows_toolchain.process_runner import Result
 from tools.windows_toolchain.process_runner import run as run_process
@@ -622,24 +622,34 @@ class WindowsProcessThreadsFixture:
         cls.command(
             [*cc, str(generated_object), str(probe_object), "-o", str(executable)], output, "link", COMPILE_TIMEOUT
         )
-        manifest = {
-            "schema": "btrc.windows-host-bundle/1",
-            "target": target,
-            "pe_machine": TARGETS[target][1],
+        # The executor admits a btrc.target-bundle/1 index for its own targets.toml row,
+        # and checks the program's digest and PE machine on its private staged copy.
+        bundle = {
+            "schema": "btrc.target-bundle/1",
+            "protocol": 1,
+            "target": {
+                "label": target,
+                "triple": TARGETS[target][0],
+                "operating_system": "windows",
+                "architecture": target.split("-", 1)[1],
+            },
+            "runner": label,
             "toolchain": {"command": list(cc), "facts": toolchain},
             "projection_sha256": projection_sha256,
             "programs": {
                 "WindowsProcessThreads": {
-                    "executable": executable.name,
+                    "source": "src/tests/native/background_jobs/WindowsProcessThreads",
+                    "frontend": proof.get("frontend", "selfhost"),
+                    "status": "built",
+                    "artifact": executable.name,
                     "sha256": cls.digest(executable),
-                    "pe_machine": pe_machine(executable),
                 }
             },
         }
-        (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        (output / "bundle.json").write_text(json.dumps(bundle, indent=2) + "\n")
         executor = WindowsNativeExecutor()
         try:
-            executor.prepare(output, label)
+            executor.prepare(output, target)
             ran = executor.run(ExecutionRequest("WindowsProcessThreads", timeout_s=RUN_TIMEOUT))
             (output / "native.stdout").write_bytes(ran.stdout)
             (output / "native.stderr").write_bytes(ran.stderr)

@@ -50,7 +50,9 @@ cross-build is not bootstrap or Windows execution evidence.
 Windows commands use the integrated `tools.target_hosts.windows.executor.WindowsJob`
 owner and its gated launch: assignment precedes target execution, cleanup kills
 and drains the whole job, and file-backed captures survive inherited output
-handles. Missing target executables retain the gate's structured launch error.
+handles. The status is the gate's exit code, and the Job's accounting says
+whether a target ever started: a missing target executable is exit 127 with
+the gate's own `CreateProcessW` diagnostic from stderr, never a marker file.
 Linux commands reuse `bundle.run_build_command` and its process-group cleanup.
 There is one Windows containment owner and no external-containment opt-in.
 The target table, PE parsing and strict C flags also come from the shared host.

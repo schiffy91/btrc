@@ -504,6 +504,68 @@ changed_paths = [
   "src/stdlib/COM/**",
 ]
 
+# The whole language and stdlib corpus on real Windows through both compilers
+# (CX-P1-07): a Linux runner cross-builds every applicable program for both
+# Windows rows (target-corpus-build, src/tests/target_runner.py
+# --compile-only), then each Windows runner executes its own row's bundle
+# through the windows-native executor (target-corpus) and publishes the
+# per-frontend passed/failed/restricted/missing counts, its JUnit file and
+# its ledger records. Both rows report only (their job may fail without
+# failing the windows.yml run) until the CL-P1-18 fix waves leave no failure;
+# flip report_only to "false" then. The producer and its consumer run on
+# exactly the same events.
+[[jobs]]
+workflow = "windows.yml"
+job = "target-corpus-build"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "**/Windows/**",
+  "tools/target_hosts/windows/**",
+  "src/tests/target_runner.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "docs/design/platform-inventory.toml",
+]
+
+[[jobs]]
+workflow = "windows.yml"
+job = "target-corpus"
+key = "target"
+
+[[shards]]
+job = "windows.yml/target-corpus"
+target = "windows-x64"
+label = "windows-x86_64"
+runner = "windows-latest"
+python = "x64"
+report_only = "true"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "**/Windows/**",
+  "tools/target_hosts/windows/**",
+  "src/tests/target_runner.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "docs/design/platform-inventory.toml",
+]
+
+[[shards]]
+job = "windows.yml/target-corpus"
+target = "windows-arm64"
+label = "windows-aarch64"
+runner = "windows-11-arm"
+python = "arm64"
+report_only = "true"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = [
+  "**/Windows/**",
+  "tools/target_hosts/windows/**",
+  "src/tests/target_runner.py",
+  "src/tests/fixtures/target-applicability.toml",
+  "docs/design/platform-inventory.toml",
+]
+
 [[jobs]]
 workflow = "windows.yml"
 job = "bootstrap"

@@ -597,18 +597,18 @@ class Arm64EvidenceTests(unittest.TestCase):
     def test_windows_launch_diagnostic_keeps_executable_when_os_message_omits_it(self):
         process, job = Mock(), Mock()
         job.name = "fixture-event"
+        # Only the gate ever ran in the job: the target never started.
+        job.processes_started.return_value = 1
         process.poll.return_value = 1
+        process.returncode = 1
 
-        def gate(command, **_options):
+        def gate(command, **options):
             request = json.loads(Path(command[-1]).read_text())
-            Path(request["launch_error"]).write_text(
-                json.dumps(
-                    {
-                        "stage": "CreateProcessW",
-                        "message": "The system cannot find the file specified",
-                        "winerror": 2,
-                    }
-                )
+            # The gate's request names no marker file; its stderr carries the launch failure.
+            self.assertEqual(set(request), {"command", "cwd", "env"})
+            options["stderr"].write(
+                b"btrc Windows gate: CreateProcessW failed: winerror=2 errno=2: "
+                b"The system cannot find the file specified\n"
             )
             return process
 
@@ -622,6 +622,21 @@ class Arm64EvidenceTests(unittest.TestCase):
         self.assertIn(b"CreateProcessW", result.stderr)
         self.assertIn(b"The system cannot find the file specified", result.stderr)
         job.terminate.assert_called_once()
+        job.close.assert_called_once()
+
+    def test_windows_status_is_the_gate_exit_once_a_target_started(self):
+        process, job = Mock(), Mock()
+        job.name = "fixture-event"
+        job.processes_started.return_value = 2
+        process.poll.return_value = 0xC0000005
+        process.returncode = 0xC0000005
+        with (
+            patch("tools.windows_toolchain.process_runner.WindowsJob", return_value=job),
+            patch("tools.windows_toolchain.process_runner.subprocess.Popen", return_value=process),
+        ):
+            result = run_windows(["fixture"], cwd=self.root, env=None, timeout=10)
+        self.assertEqual(result.returncode, 0xC0000005)
+        self.assertIsNone(result.error)
         job.close.assert_called_once()
 
     def test_overall_deadline_caps_each_command_and_refuses_new_work(self):

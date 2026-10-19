@@ -11,8 +11,9 @@ int main() {
 	long n = "123".toLong();
 	assert(n == 123);
 
-	long big = "4000000000".toLong();
-	assert(big == 4000000000);
+	// Beyond 16 bits but inside every data model's long (long is 32 bits on Windows).
+	long big = "2000000000".toLong();
+	assert(big == 2000000000);
 
 	long negl = "-77".toLong();
 	assert(negl == -77);

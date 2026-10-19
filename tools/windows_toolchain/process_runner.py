@@ -87,23 +87,15 @@ def _run_windows_captured(
     command: list[str], *, cwd: Path, env: dict[str, str] | None, timeout: float, directory: Path
 ) -> Result:
     # The assigned launch gate cannot create a target before Job membership.
+    # It exits with the target's status and writes no marker: the Job's
+    # accounting says whether a target ever started (the gate is its first
+    # process), and a gate that started none reported why on stderr.
     deadline = time.monotonic() + timeout
     output, diagnostic = directory / "stdout", directory / "stderr"
-    status, launch_error = directory / "status", directory / "launch-error.json"
     request = directory / "request.json"
-    request.write_text(
-        json.dumps(
-            {
-                "command": command,
-                "cwd": str(cwd),
-                "env": {},
-                "status": str(status),
-                "launch_error": str(launch_error),
-            }
-        ),
-        encoding="utf-8",
-    )
+    request.write_text(json.dumps({"command": command, "cwd": str(cwd), "env": {}}), encoding="utf-8")
     job, process, timed_out = WindowsJob(), None, False
+    started: list[int] = []
     primary = None
     try:
         with output.open("wb") as stdout, diagnostic.open("wb") as stderr:
@@ -143,10 +135,13 @@ def _run_windows_captured(
                     process.kill()  # Includes a gate whose assignment failed.
                 process.wait(timeout=10)
 
+        def count_started():
+            started.append(job.processes_started())
+
         # Attempt every cleanup even when termination fails. In particular,
         # an unassigned gate still needs explicit kill/reap; closing the Job
         # cannot own it. Also reap descendants after ordinary parent exit.
-        for cleanup in (job.terminate, reap_gate, job.wait_empty, job.close):
+        for cleanup in (job.terminate, reap_gate, job.wait_empty, count_started, job.close):
             try:
                 cleanup()
             except BaseException as cleanup_error:
@@ -163,13 +158,12 @@ def _run_windows_captured(
         return Result(None, stdout, stderr + message.encode(), timed_out, message)
     if timed_out:
         return Result(None, stdout, stderr, True)
-    if launch_error.exists():
-        failure = json.loads(launch_error.read_text(encoding="utf-8"))
-        message = f"could not launch {command[0]}: {json.dumps(failure)}"
+    if started[0] < 2:
+        message = (
+            f"could not launch {command[0]}: the launch gate exited with {process.returncode} and started no target"
+        )
         return Result(127, stdout, stderr + message.encode(), False)
-    if not status.exists():
-        return Result(None, stdout, stderr, False, "Windows launch gate exited without target status")
-    return Result(int(status.read_text(encoding="ascii")), stdout, stderr, False)
+    return Result(process.returncode & 0xFFFFFFFF, stdout, stderr, False)
 
 
 def main() -> int:
