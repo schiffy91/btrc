@@ -8,8 +8,10 @@
    Implemented adapters have the documented Windows semantics below; some
    compatibility probes intentionally return sentinels or fail closed. Features
    that need a real Win32 backend to behave correctly (Process spawn/wait,
-   raw-mode Terminal, sockets, Regex, glob/fnmatch) are deliberately left out:
-   stubbing those operations would link but misbehave. */
+   sockets) are deliberately left out: stubbing those operations would link
+   but misbehave. regex.h, fnmatch.h and glob.h beside this header are real
+   (the vendored musl engine, see README.md), and Library.Terminal has its own
+   Win32 console provider. */
 #pragma once
 #include <dirent.h>
 #include <errno.h>
