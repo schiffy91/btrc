@@ -149,6 +149,47 @@ static Census census(void) {
 int shellProbeNativeCount(void) { return census().provider; }
 int shellProbePrivateCount(void) { return census().other; }
 
+/* A process USER count can change on a system worker thread even when the
+ * UI thread owns no windows. Record all process windows, including message-only
+ * windows, when the census changes so a retained object cannot be dismissed as
+ * a cache without its native owner appearing in the evidence. */
+static BOOL CALLBACK resourceWindow(HWND target, LPARAM messageOnly) {
+    DWORD process = 0;
+    DWORD thread = GetWindowThreadProcessId(target, &process);
+    if (process != GetCurrentProcessId()) return TRUE;
+    WCHAR name[128] = L"";
+    GetClassNameW(target, name, 128);
+    char utf8[512] = {0};
+    WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof utf8, NULL, NULL);
+    fprintf(stderr, "SHELL resource-window cycle=%d thread=%lu handle=%p message-only=%d class=%s\n",
+        drains, (unsigned long)thread, (void *)target, messageOnly != 0, utf8);
+    return TRUE;
+}
+static BOOL CALLBACK resourceTop(HWND target, LPARAM ignored) {
+    (void)ignored;
+    DWORD process = 0;
+    GetWindowThreadProcessId(target, &process);
+    if (process == GetCurrentProcessId()) {
+        resourceWindow(target, 0);
+        EnumChildWindows(target, resourceWindow, 0);
+    }
+    return TRUE;
+}
+static void resourceWindows(DWORD gdi, DWORD user) {
+    static DWORD previousGdi = 0, previousUser = 0;
+    if (drains != 1 && gdi == previousGdi && user == previousUser) return;
+    fprintf(stderr, "SHELL resource-change cycle=%d gdi=%lu user=%lu previous-gdi=%lu previous-user=%lu\n",
+        drains, (unsigned long)gdi, (unsigned long)user, (unsigned long)previousGdi, (unsigned long)previousUser);
+    previousGdi = gdi;
+    previousUser = user;
+    EnumWindows(resourceTop, 0);
+    HWND message = NULL;
+    while ((message = FindWindowExW(HWND_MESSAGE, message, NULL, NULL)) != NULL) {
+        resourceWindow(message, 1);
+        EnumChildWindows(message, resourceWindow, 1);
+    }
+}
+
 /* A bounded turn of the thread's queue after teardown, then the process's
  * GDI and USER object counts for the harness's leak check. */
 void shellProbeDrain(void) {
@@ -163,9 +204,11 @@ void shellProbeDrain(void) {
     }
     Census counted = census();
     drains++;
+    DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
     fprintf(stderr, "SHELL resources cycle=%d gdi=%lu user=%lu provider=%d private=%d\n", drains,
-        (unsigned long)GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS),
-        (unsigned long)GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS), counted.provider, counted.other);
+        (unsigned long)gdi, (unsigned long)user, counted.provider, counted.other);
+    resourceWindows(gdi, user);
     fflush(stderr);
 }
 

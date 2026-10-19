@@ -243,7 +243,28 @@ def cross_environment(target, tmp_path, monkeypatch):
     monkeypatch.setenv(
         "PKG_CONFIG_PATH", os.pathsep.join(filter(None, [str(pkgconfig), os.environ.get("PKG_CONFIG_PATH")]))
     )
+    # The inherited dev shell is already complete. Re-sourcing the container's
+    # BASH_ENV inside Nix's wrappers would replace this row's package path.
+    monkeypatch.delenv("BASH_ENV", raising=False)
     return dll
+
+
+@pytest.mark.parametrize("target", sorted(TARGETS))
+def test_windows_shell_packages_survive_container_startup(tmp_path, monkeypatch, target):
+    if sys.platform == "win32":
+        pytest.skip("requires the Linux or macOS cross-build dev shell")
+    startup = tmp_path / "container-startup.sh"
+    startup.write_text("export PKG_CONFIG_PATH=/missing-container-default\n", encoding="utf-8")
+    monkeypatch.setenv("BASH_ENV", str(startup))
+    cross_environment(target, tmp_path, monkeypatch)
+    result = subprocess.run(
+        ["pkg-config", "--cflags", f"wgpu-native-{TARGETS[target][0]}"],
+        capture_output=True,
+        text=True,
+        timeout=TOOL_TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert str(tmp_path / f"wgpu/wgpu-native-{TARGETS[target][0]}/include/webgpu") in result.stdout
 
 
 def compile_probe_units(target, directory, units, includes=(), flags=()):
