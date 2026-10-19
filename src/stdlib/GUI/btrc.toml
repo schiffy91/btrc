@@ -432,6 +432,7 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
+	"-[NSWindow isMiniaturized]",
 	"+[NSThread isMainThread]", "+[NSWindow new]", "-[NSWindow setReleasedWhenClosed:]",
 	"-[NSWindow setDelegate:]", "-[NSWindow delegate]", "-[NSWindowDelegate windowShouldClose:]", "-[NSWindowDelegate windowWillClose:]", "-[NSWindow endEditingFor:]",
 	"-[NSWindow setStyleMask:]", "NSWindowStyleMaskTitled", "NSWindowStyleMaskClosable", "NSWindowStyleMaskMiniaturizable", "NSWindowStyleMaskResizable",
