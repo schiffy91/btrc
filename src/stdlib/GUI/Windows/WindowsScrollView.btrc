@@ -1,0 +1,180 @@
+import Library.Callback;
+import Library.Console;
+import Library.Math;
+import Library.GUI.IView;
+import Library.GUI.IScrollView;
+import Library.GUI.Windows.Win32;
+import Library.GUI.Windows.WindowsContext;
+import Library.GUI.Windows.WindowsView;
+import Library.GUI.Windows.WindowsContainer;
+
+#include <string.h>
+
+/* The vertical viewport's scroll position, shared by the scroll view owner and
+ * its viewport subclass. Offsets are logical points down from the document's
+ * top. The document window moves inside the viewport's client area, which
+ * clips it; the native scroll bar mirrors the offset in device pixels. */
+class WindowsScrollState {
+	public HWND viewport;
+	public HWND document;
+	public double contentWidth = 0.0;
+	public double contentHeight = 0.0;
+	public double offset = 0.0;
+
+	public WindowsScrollState(HWND viewport, HWND document) { self.viewport = viewport; self.document = document; }
+
+	class double lineHeight() { return 20.0; }
+
+	public double viewportHeight() {
+		RECT client;
+		if (GetClientRect(self.viewport, &client) == 0) { return 0.0; }
+		return (double)(client.bottom - client.top) / WindowsMetrics.scale(self.viewport);
+	}
+
+	public double maximum() {
+		double maximum = self.contentHeight - self.viewportHeight();
+		return maximum > 0.0 ? maximum : 0.0;
+	}
+
+	public void scrollTo(double offset) {
+		double maximum = self.maximum();
+		self.offset = offset < 0.0 ? 0.0 : (offset > maximum ? maximum : offset);
+		self.apply();
+	}
+
+	/* Place the document and publish the range; the scroll bar's visibility
+	 * may change the client area, whose WM_SIZE clamps the offset again. */
+	public void apply() {
+		double scale = WindowsMetrics.scale(self.viewport);
+		SetWindowPos(self.document, null, 0, -WindowsMetrics.pixels(self.offset, scale), WindowsMetrics.pixels(self.contentWidth, scale), WindowsMetrics.pixels(self.contentHeight, scale), (UINT)(SWP_NOZORDER | SWP_NOACTIVATE));
+		RECT client;
+		GetClientRect(self.viewport, &client);
+		SCROLLINFO info;
+		memset(&info, 0, sizeof(SCROLLINFO));
+		info.cbSize = (UINT)sizeof(SCROLLINFO);
+		info.fMask = (UINT)(SIF_RANGE | SIF_PAGE | SIF_POS);
+		info.nMin = 0;
+		int extent = WindowsMetrics.pixels(self.contentHeight, scale);
+		info.nMax = extent > 0 ? extent - 1 : 0;
+		info.nPage = (UINT)(client.bottom - client.top);
+		info.nPos = WindowsMetrics.pixels(self.offset, scale);
+		SetScrollInfo(self.viewport, SB_VERT, &info, 1);
+	}
+
+	/* The scroll bar's drag position, in logical points. */
+	public double trackPosition() {
+		SCROLLINFO info;
+		memset(&info, 0, sizeof(SCROLLINFO));
+		info.cbSize = (UINT)sizeof(SCROLLINFO);
+		info.fMask = (UINT)SIF_TRACKPOS;
+		if (GetScrollInfo(self.viewport, SB_VERT, &info) == 0) { return self.offset; }
+		return (double)info.nTrackPos / WindowsMetrics.scale(self.viewport);
+	}
+}
+
+/* The viewport's subclass: Win32 owns wheel and scroll-bar tracking, and this
+ * synchronous decision moves the document. It holds the shared position only. */
+class WindowsScrollEvents implements IWindowSubclass {
+	private WindowsScrollState _state;
+
+	public WindowsScrollEvents(WindowsScrollState state) { self._state = state; }
+
+	public LRESULT invoke(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+		if (message == (UINT)WM_MOUSEWHEEL) {
+			int delta = (int)(short)((wParam >> 16) & (WPARAM)65535);
+			UINT lines = (UINT)3;
+			SystemParametersInfoW((UINT)SPI_GETWHEELSCROLLLINES, (UINT)0, &lines, (UINT)0);
+			self._state.scrollTo(self._state.offset - (double)delta / 120.0 * (double)lines * WindowsScrollState.lineHeight());
+			return (LRESULT)0;
+		}
+		if (message == (UINT)WM_VSCROLL) {
+			int code = (int)(wParam & (WPARAM)65535);
+			double offset = self._state.offset;
+			if (code == SB_LINEUP) { offset = offset - WindowsScrollState.lineHeight(); }
+			else if (code == SB_LINEDOWN) { offset = offset + WindowsScrollState.lineHeight(); }
+			else if (code == SB_PAGEUP) { offset = offset - self._state.viewportHeight(); }
+			else if (code == SB_PAGEDOWN) { offset = offset + self._state.viewportHeight(); }
+			else if (code == SB_THUMBTRACK || code == SB_THUMBPOSITION) { offset = self._state.trackPosition(); }
+			else if (code == SB_TOP) { offset = 0.0; }
+			else if (code == SB_BOTTOM) { offset = self._state.maximum(); }
+			self._state.scrollTo(offset);
+			return (LRESULT)0;
+		}
+		LRESULT result = DefSubclassProc(window, message, wParam, lParam);
+		if (message == (UINT)WM_SIZE) { self._state.scrollTo(self._state.offset); }
+		return result;
+	}
+}
+
+/* A native vertical scroll view: a viewport window with a scroll bar that
+ * clips one document window, which holds the attached children. */
+class WindowsScrollView implements IScrollView, IWindowsView {
+	private WindowsContainer _viewport;
+	private WindowsContainer _document;
+	private WindowsScrollState _state;
+
+	public WindowsScrollView(WindowsContext context) {
+		self._viewport = WindowsContainer(context, (DWORD)WS_VSCROLL);
+		self._document = WindowsContainer(context);
+		self._viewport.attach(self._document);
+		self._state = WindowsScrollState(self._viewport.nativeHandle(), self._document.nativeHandle());
+		SetWindowSubclass(self._viewport.nativeHandle(), WindowsScrollEvents(self._state), self._viewport.nativeView().nativeCallbacks());
+		self._state.apply();
+	}
+
+	public HWND nativeHandle() { return self._viewport.nativeHandle(); }
+
+	public void attachTo(HWND parent) { self._viewport.attachTo(parent); }
+
+	public void detachFrom(HWND parent) { self._viewport.detachFrom(parent); }
+
+	public bool isOpen() { return self._viewport.isOpen(); }
+
+	public void attach(IView child) { self._viewport.nativeHandle(); self._document.attach(child); }
+
+	public IView detach(IView child) { self._viewport.nativeHandle(); return self._document.detach(child); }
+
+	public int childCount() { self._viewport.nativeHandle(); return self._document.childCount(); }
+
+	public IView childAt(int index) { self._viewport.nativeHandle(); return self._document.childAt(index); }
+
+	public double fittingWidth() { return self._viewport.fittingWidth(); }
+
+	public double fittingHeight() { return self._viewport.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) {
+		self._viewport.arrange(x, y, width, height);
+		self._state.scrollTo(self._state.offset);
+	}
+
+	public bool isVisible() { return self._viewport.isVisible(); }
+
+	public void setVisible(bool visible) { self._viewport.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._viewport.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._viewport.onScroll(handler, owner); }
+
+	/* Resizing preserves the offset, clamped to the new extent. */
+	public void setContentSize(double width, double height) {
+		self._viewport.nativeHandle();
+		if (!Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid scroll content size"; }
+		self._state.contentWidth = width;
+		self._state.contentHeight = height;
+		self._state.scrollTo(self._state.offset);
+	}
+
+	public double scrollOffset() { self._viewport.nativeHandle(); return self._state.offset; }
+
+	public void scrollTo(double offset) {
+		self._viewport.nativeHandle();
+		if (!Math.isFinite(offset)) { throw "Invalid scroll offset"; }
+		self._state.scrollTo(offset);
+	}
+
+	public CallbackCancellation close() { return self._viewport.close(); }
+
+	public CallbackCancellation pollClose() { return self._viewport.pollClose(); }
+
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native scroll view destroyed before subtree cleanup completed"); } }
+}

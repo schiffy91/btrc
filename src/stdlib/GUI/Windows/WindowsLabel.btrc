@@ -1,0 +1,61 @@
+import Library.Callback;
+import Library.GUI.ILabel;
+import Library.GUI.Windows.Win32;
+import Library.GUI.Windows.WindowsText;
+import Library.GUI.Windows.WindowsContext;
+import Library.GUI.Windows.WindowsView;
+
+/* A STATIC control. Fitting sizes are the text's extent in the message font. */
+class WindowsLabel implements ILabel, IWindowsView {
+	private WindowsView _view;
+	private WindowsContext _context;
+
+	public WindowsLabel(WindowsContext context, string text) {
+		self._context = context;
+		self._view = WindowsView(context, WindowsClasses.labelName(), (DWORD)(SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS), (DWORD)0, text);
+	}
+
+	public HWND nativeHandle() { return self._view.nativeHandle(); }
+
+	public void attachTo(HWND parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(HWND parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() {
+		var window = self._view.nativeHandle();
+		return (double)WindowsMetrics.textExtent(window, self._context.font, self.text()).cx / WindowsMetrics.scale(window);
+	}
+
+	public double fittingHeight() {
+		var window = self._view.nativeHandle();
+		return (double)WindowsMetrics.textExtent(window, self._context.font, self.text()).cy / WindowsMetrics.scale(window);
+	}
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public void setText(string text) { WindowsWideText.setWindowText(self._view.nativeHandle(), text); }
+
+	public string text() { return WindowsWideText.windowText(self._view.nativeHandle()); }
+
+	public void setFont(double size, bool bold = false) { self._view.nativeHandle(); throw WindowsUnsupported.error("ILabel.setFont"); }
+
+	public void setSecondary(bool secondary) { self._view.nativeHandle(); throw WindowsUnsupported.error("ILabel.setSecondary"); }
+
+	public void setCentered(bool centered) { self._view.nativeHandle(); throw WindowsUnsupported.error("ILabel.setCentered"); }
+
+	public void setWrapping(bool wrapping) { self._view.nativeHandle(); throw WindowsUnsupported.error("ILabel.setWrapping"); }
+
+	public CallbackCancellation close() { return self._view.close(); }
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+}

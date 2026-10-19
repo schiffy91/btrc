@@ -1,0 +1,277 @@
+import Library.Callback;
+import Library.Console;
+import Library.Math;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.Windows.Win32;
+import Library.GUI.Windows.WindowsText;
+import Library.GUI.Windows.WindowsContext;
+import Library.GUI.Windows.WindowsActionQueue;
+import Library.GUI.Windows.WindowsView;
+
+#include <stdint.h>
+#include <string.h>
+
+/* What native dispatch records for one top-level window. The window procedure
+ * makes the synchronous OS decision and records it; the application acts on
+ * it after dispatch, so no message tears down the view tree it is inside. */
+class WindowsWindowState {
+	public HWND root = null;
+	public bool closeRequested = false;
+	public double minimumWidth = 0.0;
+	public double minimumHeight = 0.0;
+	public DWORD style;
+	public DWORD extendedStyle;
+
+	public WindowsWindowState(DWORD style, DWORD extendedStyle) { self.style = style; self.extendedStyle = extendedStyle; }
+
+	/* The frame size whose client area is `width` by `height` logical points. */
+	public RECT frame(double width, double height, UINT dpi) {
+		double scale = (double)dpi / 96.0;
+		RECT frame;
+		frame.left = 0;
+		frame.top = 0;
+		frame.right = WindowsMetrics.pixels(width, scale);
+		frame.bottom = WindowsMetrics.pixels(height, scale);
+		AdjustWindowRectExForDpi(&frame, self.style, 0, self.extendedStyle, dpi);
+		return frame;
+	}
+}
+
+/* The top-level window's subclass. WM_CLOSE becomes a close request, never an
+ * immediate DestroyWindow; WM_SIZE keeps the root filling the client area;
+ * WM_DPICHANGED takes the suggested frame; WM_GETMINMAXINFO applies the
+ * minimum content size at the window's own DPI. */
+class WindowsWindowEvents implements IWindowSubclass {
+	private WindowsWindowState _state;
+	private WindowsCommands _commands;
+
+	public WindowsWindowEvents(WindowsWindowState state, WindowsCommands commands) { self._state = state; self._commands = commands; }
+
+	public LRESULT invoke(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+		if (message == (UINT)WM_CLOSE) {
+			self._state.closeRequested = true;
+			return (LRESULT)0;
+		}
+		if (message == (UINT)WM_COMMAND && self._commands.command(wParam, lParam)) { return (LRESULT)0; }
+		if (message == (UINT)WM_DPICHANGED) {
+			RECT* suggested = (RECT*)(intptr_t)lParam;
+			SetWindowPos(window, null, suggested->left, suggested->top, suggested->right - suggested->left, suggested->bottom - suggested->top, (UINT)(SWP_NOZORDER | SWP_NOACTIVATE));
+			return (LRESULT)0;
+		}
+		LRESULT result = DefSubclassProc(window, message, wParam, lParam);
+		if (message == (UINT)WM_SIZE && self._state.root != null) {
+			RECT client;
+			if (GetClientRect(window, &client) != 0) {
+				SetWindowPos(self._state.root, null, 0, 0, client.right - client.left, client.bottom - client.top, (UINT)(SWP_NOZORDER | SWP_NOACTIVATE));
+			}
+		} else if (message == (UINT)WM_GETMINMAXINFO && (self._state.minimumWidth > 0.0 || self._state.minimumHeight > 0.0)) {
+			MINMAXINFO* limits = (MINMAXINFO*)(intptr_t)lParam;
+			RECT frame = self._state.frame(self._state.minimumWidth, self._state.minimumHeight, GetDpiForWindow(window));
+			limits->ptMinTrackSize.x = frame.right - frame.left;
+			limits->ptMinTrackSize.y = frame.bottom - frame.top;
+		}
+		return result;
+	}
+}
+
+/* UI-thread owner of one top-level window. attachRoot is the only mounting
+ * path: the attached root transfers its subtree's lifecycle to the window.
+ * Dimensions are client-area logical points at the window's own DPI. */
+class WindowsWindow implements IWindow {
+	private HWND _window;
+	private WindowsContext _context;
+	private WindowsWindowState _state;
+	private CallbackScope _native = CallbackScope();
+	private IView? _root;
+	private bool _closing = false;
+	private bool _rootClosing = false;
+	private bool _mutating = false;
+	private string _closeFailure = "";
+
+	public WindowsWindow(WindowsContext context, string title, double width, double height) {
+		self._window = null;
+		self._context = context;
+		self.requireSize(width, height);
+		self._state = WindowsWindowState((DWORD)(WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN), (DWORD)0);
+		RECT frame = self._state.frame(width, height, GetDpiForSystem());
+		var nativeTitle = WindowsWideText(title);
+		HWND window = CreateWindowExW(self._state.extendedStyle, WindowsClasses.frameName(), nativeTitle.units(), self._state.style, CW_USEDEFAULT, CW_USEDEFAULT, frame.right - frame.left, frame.bottom - frame.top, null, null, context.instance, null);
+		if (window == null) { throw "Cannot create native window"; }
+		self._window = window;
+		try {
+			SetWindowSubclass(window, WindowsWindowEvents(self._state, context.commands), self._native);
+			// The window's own monitor may differ from the system DPI it was sized for.
+			self.setContentSize(width, height);
+		} catch (string error) {
+			self.close();
+			throw error;
+		}
+	}
+
+	private void requireSize(double width, double height) {
+		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0) { throw "Invalid window content size"; }
+	}
+
+	public HWND nativeHandle() {
+		if (self._window == null) { throw "Window is closed"; }
+		if (self._closing) { throw "Window shutdown has started"; }
+		return self._window;
+	}
+
+	private HWND mutationWindow() {
+		var window = self.nativeHandle();
+		if (self._mutating) { throw "Window root mutation is already active"; }
+		return window;
+	}
+
+	private IWindowsView projection(IView view) {
+		if (view == null) { throw "Cannot attach a missing root"; }
+		IWindowsView? native = (IWindowsView?)view;
+		if (native == null) { throw "Root has no Windows implementation"; }
+		return native;
+	}
+
+	public bool isOpen() { return self._window != null && !self._closing; }
+
+	/* A WM_CLOSE recorded during dispatch, for the application to act on. */
+	public bool closeRequested() { return self.isOpen() && self._state.closeRequested; }
+
+	public string title() { return WindowsWideText.windowText(self.nativeHandle()); }
+
+	public void setTitle(string title) { WindowsWideText.setWindowText(self.nativeHandle(), title); }
+
+	public double contentWidth() {
+		var window = self.nativeHandle();
+		RECT client;
+		if (GetClientRect(window, &client) == 0) { throw "Cannot read native window size"; }
+		return (double)(client.right - client.left) / WindowsMetrics.scale(window);
+	}
+
+	public double contentHeight() {
+		var window = self.nativeHandle();
+		RECT client;
+		if (GetClientRect(window, &client) == 0) { throw "Cannot read native window size"; }
+		return (double)(client.bottom - client.top) / WindowsMetrics.scale(window);
+	}
+
+	public void setContentSize(double width, double height) {
+		self.requireSize(width, height);
+		var window = self.mutationWindow();
+		RECT frame = self._state.frame(width, height, GetDpiForWindow(window));
+		if (SetWindowPos(window, null, 0, 0, frame.right - frame.left, frame.bottom - frame.top, (UINT)(SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE)) == 0) { throw "Cannot resize native window"; }
+	}
+
+	public void setMinimumContentSize(double width, double height) {
+		self.requireSize(width, height);
+		self.nativeHandle();
+		self._state.minimumWidth = width;
+		self._state.minimumHeight = height;
+	}
+
+	public IView? root() { return self._root; }
+
+	public void attachRoot(IView view) {
+		var window = self.mutationWindow();
+		if (self._root != null) { throw "Detach the existing window root before replacing it"; }
+		var native = self.projection(view);
+		self._mutating = true;
+		try {
+			native.attachTo(window);
+			self._root = view;
+			self._state.root = native.nativeHandle();
+			view.arrange(0.0, 0.0, self.contentWidth(), self.contentHeight());
+		} catch (string error) {
+			self._mutating = false;
+			if (self._root != null) {
+				self._state.root = null;
+				self._root = null;
+				native.detachFrom(window);
+			}
+			throw error;
+		}
+		self._mutating = false;
+	}
+
+	public IView? detachRoot() {
+		var window = self.mutationWindow();
+		var root = self._root;
+		if (root == null) { return null; }
+		self._mutating = true;
+		try {
+			self._state.root = null;
+			self.projection(root).detachFrom(window);
+			self._root = null;
+		} catch (string error) {
+			self._closing = true;
+			self._closeFailure = error;
+			self._mutating = false;
+			throw error;
+		}
+		self._mutating = false;
+		return root;
+	}
+
+	public void show() { ShowWindow(self.nativeHandle(), SW_SHOWNORMAL); }
+
+	public void hide() { ShowWindow(self.nativeHandle(), SW_HIDE); }
+
+	public bool isVisible() { return self.isOpen() && IsWindowVisible(self.nativeHandle()) != 0; }
+
+	public bool isFocused() { return self.isOpen() && GetActiveWindow() == self.nativeHandle(); }
+
+	public void showAlert(string title, string message) {
+		var window = self.nativeHandle();
+		var nativeTitle = WindowsWideText(title);
+		var nativeMessage = WindowsWideText(message);
+		MessageBoxW(window, nativeMessage.units(), nativeTitle.units(), (UINT)(MB_OK | MB_ICONINFORMATION));
+	}
+
+	public ICallbackRegistration onKey(IWindowKeyHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("IWindow.onKey"); }
+
+	public CallbackCancellation close() {
+		if (self._window == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closeFailure.isEmpty()) { throw self._closeFailure; }
+		if (self._mutating) { throw "Window root mutation is already active"; }
+		self._closing = true;
+		return self.pollClose();
+	}
+
+	/* The root subtree closes while its windows are still children of this one,
+	 * detached first so each owner destroys its own HWND; the window's subclass
+	 * is removed before DestroyWindow ends the native lifetime. */
+	public CallbackCancellation pollClose() {
+		var window = self._window;
+		if (window == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (!self._closeFailure.isEmpty()) { throw self._closeFailure; }
+		if (self._mutating) { throw "Window root mutation is already active"; }
+		self._mutating = true;
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
+		try {
+			var root = self._root;
+			if (root != null) {
+				if (!self._rootClosing) {
+					self._state.root = null;
+					self.projection(root).detachFrom(window);
+					self._rootClosing = true;
+					result = root.close();
+				} else { result = root.pollClose(); }
+				if (result == CALLBACK_CANCELLATION_COMPLETE) { self._root = null; }
+			}
+			if (result == CALLBACK_CANCELLATION_COMPLETE) {
+				result = self._native.cancel();
+				if (result == CALLBACK_CANCELLATION_COMPLETE) {
+					if (DestroyWindow(window) == 0) { throw "Cannot destroy native window"; }
+					self._window = null;
+				}
+			}
+		} catch (string error) {
+			self._closeFailure = error;
+		} finally { self._mutating = false; }
+		if (!self._closeFailure.isEmpty()) { throw self._closeFailure; }
+		return result;
+	}
+
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native window destroyed before subtree cleanup completed"); } }
+}

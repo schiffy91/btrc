@@ -1,0 +1,65 @@
+import Library.Vector;
+import Library.Image;
+import Library.GUI.IView;
+import Library.GUI.IApplication;
+import Library.GUI.IImageHandle;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.TextRun;
+import Library.GUI.GUICaptureLayer;
+import Library.GUI.Windows.Win32;
+import Library.GUI.Windows.WindowsView;
+import Library.GUI.Windows.WindowsApplication;
+
+/* Private package implementation for Windows: the native services behind the
+ * GUI facade, over Win32 and Common Controls 6. The facade validates requests
+ * and owns the application. The thread that first initializes the GUI becomes
+ * its UI thread for the process, and the process becomes per-monitor DPI
+ * aware (v2) before its first window; neither is undone, as SDL's
+ * initialization is not on Linux. Services this provider does not implement
+ * yet throw the typed unsupported error. */
+class GUIProvider {
+	class DWORD uiThread = (DWORD)0;
+	class bool dpiReady = false;
+
+	class void requireUIThread() {
+		if (GUIProvider.uiThread != (DWORD)0 && GUIProvider.uiThread != GetCurrentThreadId()) { throw "GUI requires the thread that first initialized it"; }
+	}
+
+	class IApplication createApplication(int workCapacity) {
+		GUIProvider.enableDpiAwareness();
+		var application = WindowsApplication(workCapacity);
+		GUIProvider.uiThread = GetCurrentThreadId();
+		return application;
+	}
+
+	/* Per-monitor DPI awareness v2 is process-wide and set once. A process that
+	 * already chose another awareness (in its manifest, say) keeps it, and the
+	 * provider refuses to run with coordinates it would scale wrongly. */
+	class void enableDpiAwareness() {
+		if (GUIProvider.dpiReady) { return; }
+		if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) == 0 && AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(), DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) == 0) {
+			throw "Windows GUI requires per-monitor DPI awareness v2, but the process already chose another awareness";
+		}
+		GUIProvider.dpiReady = true;
+	}
+
+	class IWindowsApplication windowsApplication(IApplication? application) {
+		var windows = (IWindowsApplication?)application;
+		if (windows == null) { throw "GUI application belongs to another provider"; }
+		return windows;
+	}
+
+	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { throw WindowsUnsupported.error("GUI.createImageHandle"); }
+
+	class DirectoryPickerOutcome chooseDirectory(IApplication application, DirectoryPickerRequest request) {
+		GUIProvider.windowsApplication(application);
+		throw WindowsUnsupported.error("GUI.chooseDirectory");
+	}
+
+	class void rasterizeText(IApplication? application, TextRasterization request) { throw WindowsUnsupported.error("GUI.rasterizeText"); }
+
+	class Image capture(IApplication application, IView root, Vector<GUICaptureLayer> layers) {
+		GUIProvider.windowsApplication(application);
+		throw WindowsUnsupported.error("GUI.capture");
+	}
+}

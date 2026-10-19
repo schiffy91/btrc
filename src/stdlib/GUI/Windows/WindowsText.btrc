@@ -1,0 +1,74 @@
+import Library.Bytes;
+import Library.Strings;
+import Library.GUI.Windows.Win32;
+
+#include <stdlib.h>
+
+/* The NUL-terminated UTF-16 copy of a UTF-8 string that Win32's W functions
+ * take. The owner keeps the units alive across the native call that borrows
+ * them and frees them when it is released. Invalid UTF-8 is rejected rather
+ * than replaced, so a title or field never shows text the caller did not give. */
+class WindowsWideText {
+	private WCHAR* _units;
+
+	public WindowsWideText(string text) {
+		self._units = null;
+		if (text == null) { throw "Native text is missing"; }
+		// The conversion reads a byte copy, never the managed string itself.
+		var bytes = Bytes.fromString(text);
+		int count = 0;
+		if (bytes.len > 0) {
+			count = MultiByteToWideChar((UINT)CP_UTF8, (DWORD)MB_ERR_INVALID_CHARS, bytes.data, bytes.len, null, 0);
+			if (count <= 0) { throw "Native text is not valid UTF-8"; }
+		}
+		WCHAR* units = (WCHAR*)malloc(((size_t)count + (size_t)1) * sizeof(WCHAR));
+		if (units == null) { throw "Cannot allocate native text"; }
+		if (count > 0 && MultiByteToWideChar((UINT)CP_UTF8, (DWORD)MB_ERR_INVALID_CHARS, bytes.data, bytes.len, units, count) != count) {
+			free(units);
+			throw "Cannot convert native text to UTF-16";
+		}
+		units[count] = (WCHAR)0;
+		self._units = units;
+	}
+
+	public WCHAR* units() { return self._units; }
+
+	/* `count` UTF-16 units as an owned UTF-8 string; unpaired surrogates become U+FFFD. */
+	class string utf8(WCHAR* units, int count) {
+		if (units == null || count <= 0) { return ""; }
+		int size = WideCharToMultiByte((UINT)CP_UTF8, (DWORD)0, units, count, null, 0, null, null);
+		if (size <= 0) { throw "Cannot convert native text to UTF-8"; }
+		char* bytes = (char*)malloc((size_t)size + (size_t)1);
+		if (bytes == null) { throw "Cannot allocate native text"; }
+		int written = WideCharToMultiByte((UINT)CP_UTF8, (DWORD)0, units, count, bytes, size, null, null);
+		if (written != size) { free(bytes); throw "Cannot convert native text to UTF-8"; }
+		bytes[size] = (char)0;
+		string text = Strings.copy(bytes);
+		free(bytes);
+		return text;
+	}
+
+	/* A window's text, read through GetWindowTextW. */
+	class string windowText(HWND window) {
+		int length = GetWindowTextLengthW(window);
+		if (length <= 0) { return ""; }
+		WCHAR* units = (WCHAR*)malloc(((size_t)length + (size_t)1) * sizeof(WCHAR));
+		if (units == null) { throw "Cannot allocate native text"; }
+		int copied = GetWindowTextW(window, units, length + 1);
+		string text = "";
+		try { text = WindowsWideText.utf8(units, copied); } finally { free(units); }
+		return text;
+	}
+
+	class void setWindowText(HWND window, string text) {
+		var wide = WindowsWideText(text);
+		if (SetWindowTextW(window, wide.units()) == 0) { throw "Cannot set native window text"; }
+	}
+
+	public void __del__() {
+		if (self._units != null) {
+			free(self._units);
+			self._units = null;
+		}
+	}
+}

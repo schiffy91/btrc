@@ -1,0 +1,192 @@
+import Library.Callback;
+import Library.Console;
+import Library.Vector;
+import Library.GUI.IView;
+import Library.GUI.IContainer;
+import Library.GUI.Windows.Win32;
+import Library.GUI.Windows.WindowsContext;
+import Library.GUI.Windows.WindowsActionQueue;
+import Library.GUI.Windows.WindowsView;
+
+/* A parent window's subclass: a child control's WM_COMMAND notification is a
+ * synchronous native decision, recorded here as a queued action and delivered
+ * after dispatch. It holds the application's routes, never a view owner. */
+class WindowsCommandHost implements IWindowSubclass {
+	private WindowsCommands _commands;
+
+	public WindowsCommandHost(WindowsCommands commands) { self._commands = commands; }
+
+	public LRESULT invoke(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+		if (message == (UINT)WM_COMMAND && self._commands.command(wParam, lParam)) { return (LRESULT)0; }
+		return DefSubclassProc(window, message, wParam, lParam);
+	}
+}
+
+class WindowsContainerChild {
+	public IView view;
+	public bool closing = false;
+	public bool failed = false;
+
+	public WindowsContainerChild(IView view) { self.view = view; }
+}
+
+/* A native grouping window with BTRC-owned children. Children are reparented
+ * into its HWND (or a layout's child parent, such as a scroll document) and
+ * keep their own logical frames; children never retain their parent owner. */
+class WindowsContainer implements IContainer, IWindowsView {
+	private WindowsView _view;
+	private HWND _childParent;
+	private Vector<WindowsContainerChild> _children = [];
+	private bool _mutating = false;
+	private bool _closing = false;
+	private string _closeFailure = "";
+
+	public WindowsContainer(WindowsContext context, DWORD style = (DWORD)0) {
+		self._view = WindowsView(context, WindowsClasses.viewName(), style | (DWORD)WS_CLIPCHILDREN, (DWORD)WS_EX_CONTROLPARENT, "");
+		self._childParent = self._view.nativeHandle();
+		SetWindowSubclass(self._view.nativeHandle(), WindowsCommandHost(context.commands), self._view.nativeCallbacks());
+	}
+
+	public WindowsView nativeView() { return self._view; }
+
+	public HWND nativeHandle() {
+		if (self._closing) { throw "Native container shutdown has started"; }
+		return self._view.nativeHandle();
+	}
+
+	/* Where children are reparented: this window, or a document inside it. */
+	public HWND childParent() { self.nativeHandle(); return self._childParent; }
+
+	/* A layout (the scroll view) moves children into a document window it owns. */
+	public void setChildParent(HWND parent) {
+		self.nativeHandle();
+		if (self._children.len != 0) { throw "Choose the child parent before attaching children"; }
+		self._childParent = parent;
+	}
+
+	private IWindowsView projection(IView child) {
+		if (child == null) { throw "Cannot attach a missing view"; }
+		IWindowsView? native = (IWindowsView?)child;
+		if (native == null) { throw "View has no Windows implementation"; }
+		return native;
+	}
+
+	private void requireMutation() {
+		self.nativeHandle();
+		if (self._mutating) { throw "Native container mutation is already active"; }
+	}
+
+	private int childIndex(IView child) {
+		for (int index = 0; index < self._children.len; index++) {
+			if (self._children.get(index).view == child) { return index; }
+		}
+		throw "View does not belong to this container";
+	}
+
+	public bool isOpen() { return self._view.isOpen() && !self._closing; }
+
+	public int childCount() { return self._children.len; }
+
+	public IView childAt(int index) {
+		if (index < 0 || index >= self._children.len) { throw "Container child index is out of bounds"; }
+		return self._children.get(index).view;
+	}
+
+	public void attach(IView child) {
+		self.requireMutation();
+		var native = self.projection(child);
+		self._mutating = true;
+		// Retain before publishing to Win32, so allocation cannot fail after the
+		// native attachment has transferred the child's lifecycle to this tree.
+		self._children.push(WindowsContainerChild(child));
+		try { native.attachTo(self._childParent); }
+		catch (string error) { self._children.pop(); self._mutating = false; throw error; }
+		self._mutating = false;
+	}
+
+	public IView detach(IView child) {
+		self.requireMutation();
+		int index = self.childIndex(child);
+		self._mutating = true;
+		try {
+			self.projection(child).detachFrom(self._childParent);
+			self._children.remove(index);
+		} catch (string error) {
+			self._children.get(index).failed = true;
+			self._closeFailure = error;
+			self._mutating = false;
+			throw error;
+		}
+		self._mutating = false;
+		return child;
+	}
+
+	public void attachTo(HWND parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(HWND parent) { self._view.detachFrom(parent); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public CallbackCancellation close() {
+		if (!self._view.isOpen()) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (self._mutating) { throw "Native container mutation is already active"; }
+		if (!self._closing) {
+			self._view.requireDetached();
+			self._closing = true;
+		}
+		return self.pollClose();
+	}
+
+	/* Children close first (detached into the parking window, then closed), so
+	 * each owner destroys its own HWND; this window is destroyed last. */
+	public CallbackCancellation pollClose() {
+		if (!self._closing) { return self._view.isOpen() ? CALLBACK_CANCELLATION_NOT_REQUESTED : CALLBACK_CANCELLATION_COMPLETE; }
+		if (self._mutating) { throw "Native container mutation is already active"; }
+		if (!self._closeFailure.isEmpty()) { throw self._closeFailure; }
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
+		self._mutating = true;
+		try {
+			for (int index = self._children.len - 1; index >= 0; index--) {
+				var child = self._children.get(index);
+				if (child.failed) { continue; }
+				try {
+					CallbackCancellation state = CALLBACK_CANCELLATION_PENDING;
+					if (!child.closing) {
+						self.projection(child.view).detachFrom(self._childParent);
+						child.closing = true;
+						state = child.view.close();
+					} else { state = child.view.pollClose(); }
+					if (state == CALLBACK_CANCELLATION_COMPLETE) { self._children.remove(index); }
+					else if (state == CALLBACK_CANCELLATION_FAILED) { result = state; }
+					else if (result != CALLBACK_CANCELLATION_FAILED) {
+						if (state == CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = state; }
+						else if (result != CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = CALLBACK_CANCELLATION_PENDING; }
+					}
+				} catch (string error) {
+					child.failed = true;
+					if (self._closeFailure.isEmpty()) { self._closeFailure = error; }
+				}
+			}
+			if (self._closeFailure.isEmpty() && self._children.len == 0) {
+				var state = self._view.isOpen() ? self._view.close() : self._view.pollClose();
+				if (state != CALLBACK_CANCELLATION_COMPLETE) { result = state; }
+			}
+		} finally { self._mutating = false; }
+		if (!self._closeFailure.isEmpty()) { throw self._closeFailure; }
+		return result;
+	}
+
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native container destroyed before subtree cleanup completed"); } }
+}

@@ -1,0 +1,153 @@
+import Library.Callback;
+import Library.Math;
+import Library.GUI.IView;
+import Library.GUI.Windows.Win32;
+import Library.GUI.Windows.WindowsText;
+import Library.GUI.Windows.WindowsContext;
+
+#include <stdint.h>
+
+/* The Windows provider's typed unsupported error: one spelling for every
+ * portable operation this provider does not implement yet, so callers and the
+ * catalog see the operation as missing rather than a silent no-op. */
+class WindowsUnsupported {
+	class string error(string operation) { return "unsupported: " + operation + " is not implemented by the Windows GUI provider"; }
+}
+
+/* Logical points to device pixels and text measurement. Every provider window
+ * is per-monitor DPI aware (v2), so a window's own DPI is its scale. */
+class WindowsMetrics {
+	class double scale(HWND window) {
+		UINT dpi = GetDpiForWindow(window);
+		return dpi == (UINT)0 ? 1.0 : (double)dpi / 96.0;
+	}
+
+	class int pixels(double points, double scale) { return (int)Math.round(points * scale); }
+
+	/* The text's extent in the window's device pixels, in the given font. */
+	class SIZE textExtent(HWND window, HFONT font, string text) {
+		SIZE size;
+		size.cx = 0;
+		size.cy = 0;
+		HDC dc = GetDC(window);
+		if (dc == null) { throw "Cannot measure native text"; }
+		HGDIOBJ previous = SelectObject(dc, (HGDIOBJ)font);
+		TEXTMETRICW metrics;
+		bool measured = GetTextMetricsW(dc, &metrics) != 0;
+		if (measured && !text.isEmpty()) {
+			var wide = WindowsWideText(text);
+			measured = GetTextExtentPoint32W(dc, wide.units(), lstrlenW(wide.units()), &size) != 0;
+		}
+		if (measured && size.cy < metrics.tmHeight) { size.cy = metrics.tmHeight; }
+		SelectObject(dc, previous);
+		ReleaseDC(window, dc);
+		if (!measured) { throw "Cannot measure native text"; }
+		return size;
+	}
+}
+
+/* Provider-only projection for composition. Querying it aliases the existing
+ * receiver, without exposing native handles on the portable IView contract. */
+interface IWindowsView extends IView {
+	HWND nativeHandle();
+	void attachTo(HWND parent);
+	void detachFrom(HWND parent);
+}
+
+/* UI-thread owner of one child HWND. A view starts parked under the
+ * application's hidden parking window; attachment reparents it into a
+ * container and detachment parks it again. Close cancels the view's own
+ * subclass registrations (RemoveWindowSubclass) before DestroyWindow ends the
+ * native lifetime, so no delivery reaches a closed receiver. */
+class WindowsView implements IWindowsView {
+	private HWND _window;
+	private WindowsContext _context;
+	private bool _attached = false;
+	private bool _closing = false;
+	private bool _visible = true;
+	private CallbackScope _native = CallbackScope();
+
+	public WindowsView(WindowsContext context, WCHAR* className, DWORD style, DWORD extendedStyle, string text) {
+		self._window = null;
+		self._context = context;
+		if (context.isClosed()) { throw "Native application is closed"; }
+		var title = WindowsWideText(text);
+		HWND window = CreateWindowExW(extendedStyle, className, title.units(), style | (DWORD)(WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS), 0, 0, 0, 0, context.parking, null, context.instance, null);
+		if (window == null) { throw "Cannot create native view"; }
+		self._window = window;
+		SendMessageW(window, (UINT)WM_SETFONT, (WPARAM)(uintptr_t)context.font, (LPARAM)0);
+	}
+
+	public CallbackScope nativeCallbacks() { return self._native; }
+
+	public WindowsContext context() { return self._context; }
+
+	public HWND nativeHandle() {
+		if (self._window == null || self._closing) { throw "Native view is closed"; }
+		return self._window;
+	}
+
+	public bool isOpen() { return self._window != null && !self._closing; }
+
+	public bool isAttached() { return self._attached; }
+
+	public void requireDetached() { if (self._attached) { throw "Detach the view from its container before closing it"; } }
+
+	public void attachTo(HWND parent) {
+		self.requireDetached();
+		var window = self.nativeHandle();
+		if (parent == null || parent == window || IsChild(window, parent) != 0) { throw "Native child is already attached or creates a cycle"; }
+		if (SetParent(window, parent) == null) { throw "Cannot attach native view"; }
+		self._attached = true;
+	}
+
+	public void detachFrom(HWND parent) {
+		var window = self.nativeHandle();
+		if (!self._attached) { throw "View has no container attachment"; }
+		if (GetParent(window) != parent) { throw "View does not belong to this native parent"; }
+		if (SetParent(window, self._context.parking) == null) { throw "Cannot detach native view"; }
+		self._attached = false;
+	}
+
+	public double fittingWidth() { self.nativeHandle(); return 0.0; }
+
+	public double fittingHeight() { self.nativeHandle(); return 0.0; }
+
+	public void arrange(double x, double y, double width, double height) {
+		var window = self.nativeHandle();
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native view frame"; }
+		if (!self._attached) { throw "Attach a native view before arranging it"; }
+		double scale = WindowsMetrics.scale(window);
+		if (SetWindowPos(window, null, WindowsMetrics.pixels(x, scale), WindowsMetrics.pixels(y, scale), WindowsMetrics.pixels(width, scale), WindowsMetrics.pixels(height, scale), (UINT)(SWP_NOZORDER | SWP_NOACTIVATE)) == 0) { throw "Cannot arrange native view"; }
+	}
+
+	public bool isVisible() { self.nativeHandle(); return self._visible; }
+
+	public void setVisible(bool visible) {
+		var window = self.nativeHandle();
+		ShowWindow(window, visible ? SW_SHOWNA : SW_HIDE);
+		self._visible = visible;
+	}
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("IView.onPointer"); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { self.nativeHandle(); throw WindowsUnsupported.error("IView.onScroll"); }
+
+	public CallbackCancellation pollClose() {
+		var window = self._window;
+		if (window == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var state = self._native.pollCompletion();
+		if (state != CALLBACK_CANCELLATION_COMPLETE) { return state; }
+		if (DestroyWindow(window) == 0) { throw "Cannot destroy native view"; }
+		self._window = null;
+		return CALLBACK_CANCELLATION_COMPLETE;
+	}
+
+	public CallbackCancellation close() {
+		self.requireDetached();
+		if (self._window == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self._closing) { self._closing = true; self._native.cancel(); }
+		return self.pollClose();
+	}
+}
