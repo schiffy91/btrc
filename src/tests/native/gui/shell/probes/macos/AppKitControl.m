@@ -1,7 +1,14 @@
 #import <AppKit/AppKit.h>
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 #import "ShellProbe.h"
+
+typedef NS_ENUM(NSInteger, BaselineReadiness) {
+    BaselineReady,
+    BaselineWaiting,
+    BaselineExpired
+};
 
 @interface BaselineJourney : NSObject {
     NSWindow *_window;
@@ -9,6 +16,7 @@
     NSScrollView *_scroll;
     NSTimer *_timer;
     int _step;
+    int _caretPhase;
     NSTimeInterval _began;
     NSTimeInterval _stepBegan;
     int _actions;
@@ -16,9 +24,14 @@
 @property(nonatomic) BOOL passed;
 - (void)begin:(NSWindow *)window field:(NSTextField *)field scroll:(NSScrollView *)scroll;
 - (void)action:(id)sender;
++ (BaselineReadiness)readiness:(BOOL)ready elapsed:(NSTimeInterval)elapsed;
 @end
 
 @implementation BaselineJourney
++ (BaselineReadiness)readiness:(BOOL)ready elapsed:(NSTimeInterval)elapsed {
+    if (ready) return BaselineReady;
+    return elapsed < 15 ? BaselineWaiting : BaselineExpired;
+}
 - (void)begin:(NSWindow *)window field:(NSTextField *)field scroll:(NSScrollView *)scroll {
     /* The caller owns these until run returns. The scheduled timer is
      * invalidated before stop and the controller is released after run. */
@@ -47,13 +60,14 @@
         location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil
         subtype:0 data1:0 data2:0] atStart:YES];
 }
-- (void)tick:(NSTimer *)timer {
-    (void)timer;
-    /* Like NativeShell.btrc's journey, each step has its own 15 s budget from
-     * its first tick, so slow activation in an earlier step on a loaded runner
-     * never shortens a later step's wait. */
+- (BOOL)ready:(BOOL)ready {
+    /* Inspect readiness before applying the wait deadline: a delayed timer
+     * must not reject focus that has already arrived. An unsettled condition
+     * still fails at the same 15 s boundary. */
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
-    if (now - _stepBegan >= 15) {
+    BaselineReadiness status = [BaselineJourney readiness:ready elapsed:now - _stepBegan];
+    if (status == BaselineReady) return YES;
+    if (status == BaselineExpired) {
         NSResponder *responder = _window.firstResponder;
         NSString *editor = [responder isKindOfClass:NSTextView.class] ? [(NSTextView *)responder string] : @"";
         fprintf(stderr, "BASELINE event deadline at step=%d step-seconds=%.3f journey-seconds=%.3f actions=%d "
@@ -61,31 +75,42 @@
             _step, now - _stepBegan, now - _began, _actions, NSApp.isActive, _window.isKeyWindow,
             (long)NSApp.activationPolicy, _field.stringValue.UTF8String,
             responder ? NSStringFromClass(responder.class).UTF8String : "nil", editor.UTF8String);
-        [self stop]; return;
+        [self stop];
     }
+    return NO;
+}
+- (void)tick:(NSTimer *)timer {
+    (void)timer;
     switch (_step) {
         case 0:
-            if (![self ensureActiveWindow]) { return; }
+            if (![self ready:[self ensureActiveWindow]]) { return; }
             shellProbeObserve(); shellProbeClick(70, 30); break;
         case 1:
-            if (shellProbeFocus() != 1) { return; }
+            if (![self ready:shellProbeFocus() == 1]) { return; }
+            if (_caretPhase == 0) {
+                if (![self ready:shellProbeCaretBegin() == 1]) { return; }
+                _caretPhase = 1;
+                _stepBegan = NSProcessInfo.processInfo.systemUptime;
+                return; /* Complete on a later native timer turn. */
+            }
+            if (![self ready:shellProbeCaretFinish() == 1]) { return; }
             shellProbeTab(); break;
         case 2:
-            if (![self ensureActiveWindow]) { return; }
+            if (![self ready:[self ensureActiveWindow]]) { return; }
             shellProbeDump(); shellProbeClick(70, 30); break;
         case 3:
-            if (shellProbeFocus() != 1) { return; }
+            if (![self ready:shellProbeFocus() == 1]) { return; }
             shellProbeText(); shellProbeEnter(); break;
         case 4:
             [_field validateEditing];
-            if (![_field.stringValue isEqualToString:@"draft"]) { return; }
+            if (![self ready:[_field.stringValue isEqualToString:@"draft"]]) { return; }
             shellProbeClick(320, 30); break;
         case 5:
-            if (_actions < 1) { return; }
+            if (![self ready:_actions >= 1]) { return; }
             if (_actions != 1) { [self stop]; return; }
             shellProbeScroll(); break;
         case 6:
-            if (_scroll.contentView.bounds.origin.y >= 960) { return; }
+            if (![self ready:_scroll.contentView.bounds.origin.y < 960]) { return; }
             [_field validateEditing]; break;
         case 7: break; /* BTRC's separate GPU proof occupies this turn. */
         case 8:
@@ -102,6 +127,18 @@
  * NSView in the GPU slot provides no rendering or GPU-lifetime evidence.
  * Weak probe sets survive all 100 cycles; no survivor whitelist is encoded. */
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--test-readiness") == 0) {
+        /* No NSApplication, windows, activation or timer sleep in this mode. */
+        assert(NSApp == nil);
+        assert([BaselineJourney readiness:YES elapsed:18.676] == BaselineReady);
+        assert([BaselineJourney readiness:NO elapsed:18.676] == BaselineExpired);
+        assert([BaselineJourney readiness:NO elapsed:15.0] == BaselineExpired);
+        assert([BaselineJourney readiness:NO elapsed:14.999] == BaselineWaiting);
+        assert([BaselineJourney readiness:YES elapsed:0.0] == BaselineReady);
+        assert(NSApp == nil);
+        puts("PASS: AppKit journey checks readiness before bounded wait deadline");
+        return 0;
+    }
     BOOL retainedProvider = argc == 2 && strcmp(argv[1], "--retain-provider") == 0;
     if (argc != 1 && !retainedProvider) { return 6; }
     NSTextField *heldField = nil;
