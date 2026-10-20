@@ -19,14 +19,15 @@ interface ILinuxImageHandle extends IImageHandle {
 }
 
 class LinuxImageHandle implements ILinuxImageHandle {
-	private Image? _pixels;
+	private Mutex<Image?> _pixels;
 	private int _identity;
 	private int _width;
 	private int _height;
 
 	private LinuxImageHandle(int identity, Image pixels) {
 		self._identity = identity;
-		self._pixels = pixels;
+		Image? snapshot = pixels;
+		self._pixels = Mutex(snapshot);
 		self._width = pixels.width;
 		self._height = pixels.height;
 	}
@@ -47,17 +48,15 @@ class LinuxImageHandle implements ILinuxImageHandle {
 
 	public int identity() { return self._identity; }
 
-	public Image pixels() { var pixels = self._pixels; if (pixels == null) { throw "Native image handle is closed"; } return pixels; }
+	public Image pixels() { var pixels = self._pixels.get(); if (pixels == null) { throw "Native image handle is closed"; } return pixels; }
 
 	public int width() { return self._width; }
 
 	public int height() { return self._height; }
 
-	public bool isOpen() { return self._pixels != null; }
+	public bool isOpen() { return self._pixels.get() != null; }
 
-	public void close() { self._pixels = null; }
-
-	public void __del__() { self.close(); }
+	public void close() { self._pixels.set(null); }
 }
 
 /* Aspect-preserving presentation of one image handle. */
@@ -90,11 +89,10 @@ class LinuxImageView extends LinuxNodeView implements IImageView {
 		if (handle == null) { self._handle = null; self._pixels = null; self._identity = 0; self.node().invalidate(); return; }
 		ILinuxImageHandle? native = (ILinuxImageHandle?)handle;
 		if (native == null) { throw "Native image view requires a Linux image handle"; }
-		if (!native.isOpen()) { throw "Native image handle is closed"; }
-		if (self._handle == native) { return; }
 		/* Presentation owns its pixels independently of the publication handle.
-		 * Capture both before replacing any previous presentation. */
+		 * Capture before the alias check, so a closed alias still rejects. */
 		var pixels = native.pixels(); int identity = native.identity();
+		if (self._handle == native) { return; }
 		self._handle = native; self._pixels = pixels; self._identity = identity;
 		self.node().invalidate();
 	}

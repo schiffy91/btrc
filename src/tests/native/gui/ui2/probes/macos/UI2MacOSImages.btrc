@@ -1,0 +1,55 @@
+import Library.Image;
+import Library.Callback;
+import Library.GUI.MacOS.MacOSImageHandle;
+import Library.GUI.MacOS.MacOSImageView;
+
+#include "../../ImageCloseWorker.btrc"
+#include <stdio.h>
+
+class MacImageChecks {
+	class Image pixels(int red) {
+		var pixels = Image(2, 2);
+		for (int index = 0; index < 4; index++) { pixels.data[index * 4] = (unsigned char)red; pixels.data[index * 4 + 1] = 17; pixels.data[index * 4 + 2] = 39; pixels.data[index * 4 + 3] = 255; }
+		return pixels;
+	}
+
+	class void retained() {
+		var first = MacOSImageView(); var second = MacOSImageView();
+		var handle = MacOSImageHandle.create(MacImageChecks.pixels(205), 4);
+		var captured = handle.nativeImage();
+		first.setImageHandle(handle); second.setImageHandle(handle);
+		assert(BTRCUI2ImageProbe.image(captured, 205L));
+		assert(BTRCUI2ImageProbe.view(first.nativeView(), 205L) && BTRCUI2ImageProbe.view(second.nativeView(), 205L));
+		var body = ImageCloseWorker(handle); var worker = NativeWorker(); assert(worker.start(body) == NATIVE_WORKER_STARTED);
+		body.waitReady(); body.proceed.store(true, MemoryOrder.RELEASE); assert(worker.join() && !worker.workerFailed());
+		assert(!handle.isOpen() && handle.width() == 2 && handle.height() == 2);
+		assert(BTRCUI2ImageProbe.image(captured, 205L));
+		assert(BTRCUI2ImageProbe.view(first.nativeView(), 205L) && BTRCUI2ImageProbe.view(second.nativeView(), 205L));
+		bool rejected = false; try { first.setImageHandle(handle); } catch (string error) { rejected = true; }
+		assert(rejected && BTRCUI2ImageProbe.view(first.nativeView(), 205L));
+		rejected = false; try { var closed = handle.nativeImage(); assert(closed != null); } catch (string error) { rejected = true; } assert(rejected);
+		first.setImageHandle(null); assert(BTRCUI2ImageProbe.view(second.nativeView(), 205L));
+		assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void race() {
+		var view = MacOSImageView(); var previous = MacOSImageHandle.create(MacImageChecks.pixels(31), 4);
+		int accepted = 0; int rejected = 0;
+		for (int iteration = 0; iteration < 200; iteration++) {
+			view.setImageHandle(previous); var handle = MacOSImageHandle.create(MacImageChecks.pixels(205), 4);
+			var body = ImageCloseWorker(handle); var worker = NativeWorker(); assert(worker.start(body) == NATIVE_WORKER_STARTED);
+			body.waitReady(); body.proceed.store(true, MemoryOrder.RELEASE);
+			bool published = false;
+			try { view.setImageHandle(handle); published = true; } catch (string error) { rejected++; }
+			assert(worker.join() && !worker.workerFailed() && !handle.isOpen());
+			if (published) { accepted++; assert(BTRCUI2ImageProbe.view(view.nativeView(), 205L)); }
+			else { assert(BTRCUI2ImageProbe.view(view.nativeView(), 31L)); }
+		}
+		assert(accepted + rejected == 200); previous.close(); assert(view.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+int main() {
+	NSApplication.sharedApplication(); MacImageChecks.retained(); MacImageChecks.race();
+	printf("PASS: UI2 macOS image capture close and independent presentation\n"); return 0;
+}
