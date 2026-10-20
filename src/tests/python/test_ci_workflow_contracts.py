@@ -1260,11 +1260,29 @@ def test_linux_bench_job_guards_every_performance_indicator() -> None:
     assert "name: bench-results" in job and "build/bench/results.json" in job
 
 
+def test_windows_native_gui_dispatch_selects_builder_and_both_runtime_architectures() -> None:
+    # The dispatch input previously classified correctly but selected no jobs,
+    # producing a successful workflow with every native job skipped.
+    plan = TIERS.plan("windows.yml", "native-gui")
+    assert plan["jobs"] == ["win32-native-build", "win32-native"]
+    assert plan["matrix"] == {
+        "win32-native": {
+            "include": [
+                {"target": "windows-x64", "runner": "windows-latest"},
+                {"target": "windows-arm64", "runner": "windows-11-arm"},
+            ]
+        }
+    }
+    assert plan["reports"]["win32-native"] == [
+        "skip-report-windows-win32-native-windows-x64",
+        "skip-report-windows-win32-native-windows-arm64",
+    ]
+    assert plan["reports"]["win32-native-build"] == ["skip-report-windows-win32-native-build"]
+
+
 def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
-    # `gh workflow run ci.yml -f focus=native-gui` (likewise macos.yml) skips
-    # every other job: the native-gui tier lists only the native-GUI job and,
-    # on Linux, the GUI shard's two sessions, and the scope step passes the
-    # input through.
+    # Each focused dispatch selects its native-GUI jobs and prerequisites;
+    # Linux and macOS also include their serial E40 qualification jobs.
     for workflow in CORE_WORKFLOWS:
         document = _parsed(workflow)
         assert document["on"]["workflow_dispatch"] == {
@@ -1278,9 +1296,11 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
             }
         }, workflow
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
-        expected = {"ci.yml": ["native-gui", "linux-gui", "linux-e40"], "macos.yml": ["native-gui", "macos-e40"]}.get(
-            workflow, []
-        )
+        expected = {
+            "ci.yml": ["native-gui", "linux-gui", "linux-e40"],
+            "macos.yml": ["native-gui", "macos-e40"],
+            "windows.yml": ["win32-native-build", "win32-native"],
+        }[workflow]
         assert TIERS.plan(workflow, "native-gui")["jobs"] == expected, workflow
 
     linux = _job(_workflow("ci.yml"), "native-gui")
