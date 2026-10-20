@@ -4,6 +4,11 @@
 #include "Load.h"
 #include <assert.h>
 #include <pthread.h>
+#include <stdatomic.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 #define TRACK_START_STAMP 52776558133248ULL
 #define TRACK_INPUT_STAMP 70368744177664ULL
@@ -43,10 +48,84 @@ static NSInteger targetNumber, independentNumber, expectedHighlight = -1;
 static bool menuReturnPending;
 static NSSize previousSize;
 
+/* Opt-in diagnostic only. The writer never enters AppKit or the tracking
+ * mutex, so a stalled main-thread callback cannot suppress its observations.
+ * Each row is an independently sampled set of atomic counters, not a coherent
+ * event transaction. No trace result changes native dispatch or trial rules. */
+enum LoopTraceCounter {
+    TRACE_NEXT_ENTER, TRACE_NEXT_RETURN, TRACE_NEXT_EVENT, TRACE_NEXT_NIL,
+    TRACE_SEND_ENTER, TRACE_SEND_RETURN, TRACE_TRIGGER_POST_ENTER, TRACE_TRIGGER_POST_RETURN,
+    TRACE_TRIGGER_PEEK, TRACE_TRIGGER_DEQUEUE, TRACE_TRIGGER_SEND, TRACE_TRIGGER_MONITOR,
+    TRACE_BEFORE_SOURCES, TRACE_BEFORE_WAITING, TRACE_AFTER_WAITING, TRACE_EXIT,
+    TRACE_TRACKING_ENTER, TRACE_TRACKING_EXIT, TRACE_COUNTERS
+};
+static const char *const traceNames[TRACE_COUNTERS] = {
+    "next_enter", "next_return", "next_event", "next_nil", "send_enter", "send_return",
+    "trigger_post_enter", "trigger_post_return", "trigger_peek", "trigger_dequeue", "trigger_send", "trigger_monitor",
+    "before_sources", "before_waiting", "after_waiting", "run_loop_exit", "tracking_enter", "tracking_exit"
+};
+static bool traceEnabled;
+static _Atomic uint64_t traceCounts[TRACE_COUNTERS], traceLast[TRACE_COUNTERS];
+static _Atomic bool traceStop;
+static pthread_t traceThread;
+static CFRunLoopObserverRef traceObserver;
+static FILE *traceStream;
+static void traceRecord(enum LoopTraceCounter counter) {
+    if (!traceEnabled) { return; }
+    atomic_fetch_add_explicit(&traceCounts[counter], 1, memory_order_relaxed);
+    atomic_store_explicit(&traceLast[counter], e40LoadNow(), memory_order_relaxed);
+}
+static void traceObserve(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *context) {
+    (void)observer; (void)context;
+    if (activity == kCFRunLoopBeforeSources) { traceRecord(TRACE_BEFORE_SOURCES); }
+    else if (activity == kCFRunLoopBeforeWaiting) { traceRecord(TRACE_BEFORE_WAITING); }
+    else if (activity == kCFRunLoopAfterWaiting) { traceRecord(TRACE_AFTER_WAITING); }
+    else if (activity == kCFRunLoopExit) { traceRecord(TRACE_EXIT); }
+}
+static void *traceWrite(void *context) {
+    (void)context;
+    for (unsigned row = 0; row < 128; row++) {
+        bool stopped = atomic_load_explicit(&traceStop, memory_order_acquire);
+        assert(fprintf(traceStream, "{\"schema\":\"btrc.ui2.e40-loop-trace/1\",\"row\":%u,\"timestamp_ns\":%llu,\"stopped\":%s,\"limit_reached\":%s,\"counters\":{",
+            row, (unsigned long long)e40LoadNow(), stopped ? "true" : "false", row == 127 ? "true" : "false") > 0);
+        for (int index = 0; index < TRACE_COUNTERS; index++) {
+            uint64_t count = atomic_load_explicit(&traceCounts[index], memory_order_relaxed);
+            uint64_t last = atomic_load_explicit(&traceLast[index], memory_order_relaxed);
+            assert(fprintf(traceStream, "%s\"%s\":{\"count\":%llu,\"last_ns\":%llu}", index ? "," : "", traceNames[index],
+                (unsigned long long)count, (unsigned long long)last) > 0);
+        }
+        assert(fputs("}}\n", traceStream) >= 0); assert(fflush(traceStream) == 0);
+        if (stopped) { break; }
+        struct timespec delay = {0, 500000000}; nanosleep(&delay, NULL);
+    }
+    return NULL;
+}
+static void traceSetup(NSString *output) {
+    const char *enabled = getenv("BTRC_UI2_E40_TRACE");
+    if (!enabled || strcmp(enabled, "1") != 0) { return; }
+    assert(!traceEnabled); traceEnabled = true;
+    NSString *path = [output stringByAppendingString:@".loop-trace.jsonl"];
+    traceStream = fopen(path.fileSystemRepresentation, "w"); assert(traceStream);
+    CFRunLoopObserverContext context = {0};
+    traceObserver = CFRunLoopObserverCreate(NULL, kCFRunLoopBeforeSources | kCFRunLoopBeforeWaiting | kCFRunLoopAfterWaiting | kCFRunLoopExit,
+        true, 0, traceObserve, &context); assert(traceObserver);
+    CFRunLoopAddObserver(CFRunLoopGetMain(), traceObserver, kCFRunLoopCommonModes);
+    assert(pthread_create(&traceThread, NULL, traceWrite, NULL) == 0);
+}
+static void traceCleanup(void) {
+    if (!traceEnabled) { return; }
+    CFRunLoopObserverInvalidate(traceObserver); CFRelease(traceObserver); traceObserver = NULL;
+    atomic_store_explicit(&traceStop, true, memory_order_release);
+    assert(pthread_join(traceThread, NULL) == 0); assert(fclose(traceStream) == 0); traceStream = NULL;
+    traceEnabled = false;
+}
+
 static void entry(void) {
+    traceRecord(TRACE_TRACKING_ENTER);
     pthread_mutex_lock(&trackingMutex); assert(entered == 0); entered = e40LoadNow(); injectionStarted = entered; pthread_mutex_unlock(&trackingMutex);
 }
 static void exitTracking(void) {
+    traceRecord(TRACE_TRACKING_EXIT);
     pthread_mutex_lock(&trackingMutex); assert(entered > 0 && exited == 0); exited = e40LoadNow(); pthread_mutex_unlock(&trackingMutex);
 }
 static NSView *findControl(NSView *view, Class type) {
@@ -61,7 +140,12 @@ static int identity(NSEvent *event) {
     return stamp > TRACK_INPUT_STAMP && stamp <= TRACK_INPUT_STAMP + TRACE_LIMIT ? (int)(stamp - TRACK_INPUT_STAMP) : 0;
 }
 static NSEvent *observeNextEvent(id receiver, SEL selector, NSEventMask mask, NSDate *until, NSRunLoopMode mode, BOOL dequeue) {
+    traceRecord(TRACE_NEXT_ENTER);
     NSEvent *event = ((NSEvent *(*)(id, SEL, NSEventMask, NSDate *, NSRunLoopMode, BOOL))originalNextEvent)(receiver, selector, mask, until, mode, dequeue);
+    traceRecord(TRACE_NEXT_RETURN); traceRecord(event ? TRACE_NEXT_EVENT : TRACE_NEXT_NIL);
+    if (traceEnabled && event && event.timestamp == (double)TRACK_START_STAMP && event.windowNumber == targetNumber) {
+        traceRecord(dequeue ? TRACE_TRIGGER_DEQUEUE : TRACE_TRIGGER_PEEK);
+    }
     int sequence = dequeue ? identity(event) : 0;
     if (sequence) {
         uint64_t now = e40LoadNow();
@@ -79,10 +163,13 @@ static NSEvent *observeNextEvent(id receiver, SEL selector, NSEventMask mask, NS
     return event;
 }
 static void observeSendEvent(id receiver, SEL selector, NSEvent *event) {
+    traceRecord(TRACE_SEND_ENTER);
+    if (traceEnabled && event && event.timestamp == (double)TRACK_START_STAMP && event.windowNumber == targetNumber) { traceRecord(TRACE_TRIGGER_SEND); }
     int sequence = identity(event);
     bool down = trialKind == 2 && sequence && event.type == NSEventTypeLeftMouseDown;
     bool up = trialKind == 2 && sequence && event.type == NSEventTypeLeftMouseUp;
     ((void (*)(id, SEL, NSEvent *))originalSendEvent)(receiver, selector, event);
+    traceRecord(TRACE_SEND_RETURN);
     if (down) { entry(); pthread_mutex_lock(&trackingMutex); pointerDown++; pthread_mutex_unlock(&trackingMutex); }
     if (trialKind == 2 && sequence) {
         pthread_mutex_lock(&trackingMutex);
@@ -216,6 +303,7 @@ static void beginNativeTracking(void) {
 void e40TrackingSetup(int trial, NSWindow *window, NSWindow *other, NSString *output) {
     assert(NSThread.isMainThread && trial >= 0 && trial <= 4); trialKind = trial;
     if (trial == 0) { return; }
+    traceSetup(output);
     target = [window retain]; independent = [other retain]; targetNumber = window.windowNumber; independentNumber = other.windowNumber;
     independentPoint = NSMakePoint(NSMidX(other.contentView.bounds), NSMidY(other.contentView.bounds));
     failurePath = [[output stringByAppendingString:@".tracking-progress.json"] copy];
@@ -244,13 +332,13 @@ void e40TrackingSetup(int trial, NSWindow *window, NSWindow *other, NSString *ou
         resizeBegin = CGPointMake(NSMaxX(window.frame) - 2, top - NSMinY(window.frame) - 2); resizeEnd = CGPointMake(resizeBegin.x + 70, resizeBegin.y + 40);
     }
     triggerMonitor = [[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined handler:^NSEvent *(NSEvent *event) {
-        if (event.timestamp == (double)TRACK_START_STAMP && event.windowNumber == targetNumber) { beginNativeTracking(); return nil; } return event;
+        if (event.timestamp == (double)TRACK_START_STAMP && event.windowNumber == targetNumber) { traceRecord(TRACE_TRIGGER_MONITOR); beginNativeTracking(); return nil; } return event;
     }] retain];
 }
 void e40TrackingStart(void) {
     if (trialKind == 0) { return; }
     NSEvent *event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0 timestamp:(double)TRACK_START_STAMP windowNumber:targetNumber context:nil subtype:0 data1:0 data2:0];
-    assert(event); [NSApp postEvent:event atStart:NO];
+    assert(event); traceRecord(TRACE_TRIGGER_POST_ENTER); [NSApp postEvent:event atStart:NO]; traceRecord(TRACE_TRIGGER_POST_RETURN);
 }
 void e40TrackingTick(void) {
     /* Input continues through the actual interaction. Only one identified event
@@ -359,7 +447,7 @@ NSDictionary *e40TrackingReport(void) {
 }
 void e40TrackingCleanup(void) {
     if (trialKind == 0) { return; }
-    assert(e40TrackingDone()); [progressTimer invalidate]; [progressTimer release]; [watchdog invalidate]; [watchdog release];
+    assert(e40TrackingDone()); traceCleanup(); [progressTimer invalidate]; [progressTimer release]; [watchdog invalidate]; [watchdog release];
     if (triggerMonitor) { [NSEvent removeMonitor:triggerMonitor]; [triggerMonitor release]; }
     for (id observer in observers) { [NSNotificationCenter.defaultCenter removeObserver:observer]; }
     if (originalSendEvent) { Method method = class_getInstanceMethod(applicationClass, @selector(sendEvent:)); method_setImplementation(method, originalSendEvent); }
