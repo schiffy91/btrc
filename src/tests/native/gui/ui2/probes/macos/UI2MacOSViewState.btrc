@@ -41,17 +41,18 @@ class ClosingViewObservation implements IViewInteractionStateHandler {
 }
 class FailedViewSettlement implements IMacOSViewEligibility {
 	public bool raises = false;
-	public void eligibilityLost() { if (self.raises) { throw "failed-source terminal settlement"; } }
+	public int calls = 0;
+	public void eligibilityLost() { self.calls++; if (self.raises) { throw "failed-source terminal settlement"; } }
 }
 
 void verifyFailedSourceCleanup(IControlEventWake wake) {
-	for (int mode = 0; mode < 2; mode++) {
-		var failedContext = MacOSViewContext(wake, 2); var queue = failedContext.createQueue();
+	for (int mode = 0; mode < 4; mode++) {
+		var failedContext = MacOSViewContext(wake, 2, null, mode < 2 ? 0 : 32); var queue = failedContext.createQueue();
 		var settlement = FailedViewSettlement(); var state = MacOSViewState(settlement); state.configure(failedContext);
 		state.attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED); var scope = CallbackScope(); var observer = ViewObservation();
 		var registration = state.observe(observer, scope); state.setLayoutParticipating(false); assert(queue.pendingCount() == 1);
 		failedContext.recordNativeFailure("native input failure"); assert(!state.effectiveEligible());
-		if (mode == 0) { state.detachWindow(); assert(state.close() == CALLBACK_CANCELLATION_COMPLETE); }
+		if (mode % 2 == 0) { state.detachWindow(); assert(state.close() == CALLBACK_CANCELLATION_COMPLETE); }
 		else {
 			settlement.raises = true; bool raised = false;
 			try { state.close(); } catch (string error) { raised = error == "failed-source terminal settlement"; }
@@ -59,6 +60,31 @@ void verifyFailedSourceCleanup(IControlEventWake wake) {
 		}
 		assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(queue.pendingCount() == 0 && queue.retired(CONTROL_EVENT_CANCELLED) == 1LL && observer.states.isEmpty()); failedContext.close();
+	}
+}
+
+void verifyFailedForestCleanup(IControlEventWake wake) {
+	for (int mode = 0; mode < 4; mode++) {
+		var context = MacOSViewContext(wake, 8, null, 32); var queue = context.createQueue();
+		var rootSettlement = FailedViewSettlement(); var childSettlement = FailedViewSettlement(); var leafSettlement = FailedViewSettlement();
+		var root = MacOSViewState(rootSettlement); var child = MacOSViewState(childSettlement); var leaf = MacOSViewState(leafSettlement);
+		root.configure(context); root.addChild(child); child.addChild(leaf); root.attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+		var owner = CallbackScope(); var receiver = ViewObservation();
+		var rootRegistration = root.observe(receiver, owner); var childRegistration = child.observe(receiver, owner); var leafRegistration = leaf.observe(receiver, owner);
+		root.setLayoutParticipating(false); child.setLayoutParticipating(false); leaf.setLayoutParticipating(false); assert(queue.pendingCount() == 3);
+		context.recordNativeFailure("first native forest failure"); childSettlement.raises = mode >= 2;
+		bool raised = false;
+		try { if (mode % 2 == 0) { root.detachWindow(); } else { root.removeChild(child); } }
+		catch (string error) { raised = error == "failed-source terminal settlement"; }
+		assert(raised == (mode >= 2));
+		assert(!child.effectiveEligible() && !leaf.effectiveEligible() && childSettlement.calls == 1 && leafSettlement.calls == 1);
+		assert(childRegistration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && leafRegistration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		if (mode % 2 == 0) { assert(rootRegistration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && queue.pendingCount() == 0); }
+		else { assert(!root.hasChild(child) && rootRegistration.isOpen() && queue.pendingCount() == 1); }
+		assert(context.nativeFailure() == "first native forest failure" && receiver.states.isEmpty());
+		assert(leaf.close() == CALLBACK_CANCELLATION_COMPLETE && child.close() == CALLBACK_CANCELLATION_COMPLETE && root.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && queue.pendingCount() == 0 && queue.retired(CONTROL_EVENT_CANCELLED) == 3LL);
+		assert(queue.captureOwner().used() == 0 && context.detachedEvents.captureOwner().used() == 0); context.close();
 	}
 }
 
@@ -138,7 +164,7 @@ int main() {
 	context.endTreeMutation(); assert(context.dispatchOne() && heldObserver.states.len == 2 && !context.pending());
 	assert(heldObserver.states.get(1).stateRevision == beforeTreeRevision + 1LL);
 	assert(heldRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE && heldOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && held.close() == CALLBACK_CANCELLATION_COMPLETE);
-	verifyFailedSourceCleanup(MacOSSemanticWake(signal));
+	verifyFailedSourceCleanup(MacOSSemanticWake(signal)); verifyFailedForestCleanup(MacOSSemanticWake(signal));
 	context.close(); assert(signal.close());
 	print("PASS: UI2 macOS native view state subtree eligibility and deferred observations"); return 0;
 }
