@@ -1,5 +1,7 @@
 import Library.GUI.MacOS.MacOSViewState;
 import Library.Callback;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSRunLoop;
 import Library.Math;
 import Library.GUI.ITextField;
 import Library.GUI.MacOS.AppKitText;
@@ -9,21 +11,50 @@ import Library.GUI.MacOS.MacOSView;
  * MacOSView owns attachment, input and teardown; this owner adds editing and
  * ends any active field-editor session before the view closes. AppKit owns
  * selection, IME and field editing. */
-class MacOSTextField implements ITextField, IMacOSView {
+class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, IAppKitTextEvents, IAppKitNotificationObserver {
 	private NSTextField? _control;
 	private MacOSView _view;
+	private CallbackScope _native = CallbackScope();
+	private CallbackScope _editorCallbacks = CallbackScope();
+	private NSTextView? _editor;
+	private bool _editing = false;
+	private bool _closing = false;
+	private bool _changingNative = false;
+	private bool _interacting = false;
+	private bool _composing = false;
+	private string _accepted;
+	private string _plainDraft;
+	private string _compositionOriginal = "";
+	private unsigned long _selectionStart = 0UL;
+	private unsigned long _selectionLength = 0UL;
+	private long long _modelRevision = 1LL;
+	private long long _interaction = 0LL;
+	private long long _interactionGeneration = 0LL;
+	private long long _sequence = 0LL;
+	private string? _lastDraft;
+	private bool _lastComposing = false;
+	private long long _lastDraftRevision = 0LL;
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _draft;
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _commit;
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _cancel;
+	private ControlEventTicket? _commitTicket;
+	private ControlEventTicket? _cancelTicket;
 
 	public MacOSTextField(string text = "", string placeholder = "") {
 		self._control = null;
 		self.requireMainThread();
+		if (text == null || placeholder == null) { throw "Native text field text is missing"; }
+		self._accepted = text; self._plainDraft = text;
 		var control = NSTextField.textFieldWithString(AppKitText.nativeValue(text));
 		if (control == null) { throw "Cannot create native text field"; }
 		self._control = control;
-		self._view = MacOSView(control);
+		self._view = MacOSView(control); self._view.bindEligibility(self);
 		/* Rounded bezels center their text vertically and share the native
 		 * control heights buttons use, so mixed toolbars align without padding hacks. */
 		control.setBezelStyle(NSTextFieldRoundedBezel);
 		self.setPlaceholder(placeholder);
+		try { control.setDelegate(self, self._native); }
+		catch (string error) { self._native.cancel(); self._view.close(); self._control = null; throw error; }
 	}
 
 	private void requireMainThread() {
@@ -67,18 +98,262 @@ class MacOSTextField implements ITextField, IMacOSView {
 
 	public void arrange(double x, double y, double width, double height) { self.nativeControl(); self._view.arrange(x, y, width, height); }
 
-	public string text() {
-		var control = self.nativeControl();
-		control.validateEditing();
+	private string draftText() {
+		var editor = self._editor;
+		if (self._editing && editor != null) { return AppKitText.ownedValue(editor.string()); }
+		var control = self._control; if (control == null) { throw "Text field is closed"; }
 		return AppKitText.ownedValue(control.stringValue());
 	}
 
-	/* Re-publishing unchanged application state must not reset selection or
-	 * the active input-method composition. */
+	public string text() { self.nativeControl(); return self.draftText(); }
+
+	/* Publishing the accepted baseline preserves the active draft, selection,
+	 * marked text and native undo. A replacement ends the field-editor session,
+	 * which is the native undo boundary for authoritative model publication. */
 	public void setText(string text) {
-		var control = self.nativeControl();
-		if (self.text().equals(text)) { return; }
-		control.setStringValue(AppKitText.nativeValue(text));
+		self.stateNode().requireMutation(); var control = self.nativeControl();
+		if (text == null) { throw "Native text field text is missing"; }
+		if (self._accepted.equals(text)) { return; }
+		var native = AppKitText.nativeValue(text);
+		if (self._modelRevision == 9223372036854775807LL) { throw "Text model revisions exhausted"; }
+		self.cancelInteraction(CONTROL_ORIGIN_MODEL, CONTROL_CANCEL_MODEL_REPLACEMENT, false);
+		self._changingNative = true;
+		try { control.abortEditing(); control.setStringValue(native); }
+		finally { self._changingNative = false; self.finishEditing(); }
+		self._accepted = text; self._plainDraft = text; self._modelRevision++;
+	}
+
+	class void deliverText(ITextControlEventHandler receiver, TextControlEvent event) { receiver.textEvent(event); }
+
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent> subscribe(ITextControlEventHandler receiver, CallbackScope owner) {
+		self.stateNode().requireMutation(); self.nativeControl();
+		var channel = new ControlEventChannel<ITextControlEventHandler, TextControlEvent>(self.stateNode().events(), self.stateNode(), receiver, MacOSTextField.deliverText, owner);
+		try { self.stateNode().ownChannel(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public ICallbackRegistration onDraftChanged(ITextControlEventHandler receiver, CallbackScope owner) {
+		if (self._draft != null && self._draft.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing text draft handler first"; }
+		self._draft = self.subscribe(receiver, owner); return self._draft;
+	}
+
+	public ICallbackRegistration onCommit(ITextControlEventHandler receiver, CallbackScope owner) {
+		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing text commit handler first"; }
+		var channel = self.subscribe(receiver, owner);
+		try { if (self._editing) { self._commitTicket = channel.beginInteraction(); if (self._commitTicket == null) { throw "Text commit reservation unavailable"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._commit = channel; return channel;
+	}
+
+	public ICallbackRegistration onCancel(ITextControlEventHandler receiver, CallbackScope owner) {
+		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing text cancel handler first"; }
+		var channel = self.subscribe(receiver, owner);
+		try { if (self._editing) { self._cancelTicket = channel.beginInteraction(); if (self._cancelTicket == null) { throw "Text cancel reservation unavailable"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._cancel = channel; return channel;
+	}
+
+	private void releaseTickets() {
+		var commit = self._commitTicket; var cancel = self._cancelTicket;
+		if (commit != null && !commit.queued()) { commit.retire(); }
+		if (cancel != null && !cancel.queued()) { cancel.retire(); }
+		self._commitTicket = null; self._cancelTicket = null;
+	}
+
+	private bool reserveTickets() {
+		bool admitted = true; var commit = self._commit; var cancel = self._cancel;
+		try {
+			if (self._commitTicket == null && commit != null && commit.isOpen()) { self._commitTicket = commit.beginInteraction(); admitted = self._commitTicket != null; }
+			if (admitted && self._cancelTicket == null && cancel != null && cancel.isOpen()) { self._cancelTicket = cancel.beginInteraction(); admitted = self._cancelTicket != null; }
+		} catch (string error) { self.releaseTickets(); throw error; }
+		if (!admitted) { self.releaseTickets(); } return admitted;
+	}
+
+	private void beginInteraction() {
+		if (self._interacting) { return; }
+		if (self._interaction == 9223372036854775807LL) { throw "Text interaction identities exhausted"; }
+		if (!self.reserveTickets()) { throw "Text interaction reservation unavailable"; }
+		self._interaction++; self._interactionGeneration = self.stateNode().generation(); self._interacting = true;
+		self._lastDraft = null;
+	}
+
+	private TextControlEvent snapshot(ControlPhase phase, ControlOrigin origin, ControlCancelReason reason) {
+		if (self._sequence == 9223372036854775807LL) { throw "Text event sequences exhausted"; }
+		var context = ControlEventContext(); context.generation = self._interactionGeneration; context.interaction = self._interaction;
+		context.sequence = ++self._sequence; context.modelRevision = self._modelRevision; context.origin = origin;
+		var event = TextControlEvent(); event.context = context; event.phase = phase; event.cancelReason = reason;
+		event.text = self.draftText(); event.composing = self._composing; return event;
+	}
+
+	private void publishDraft() {
+		string text = self.draftText();
+		if (self._lastDraft != null && self._lastDraft.equals(text) && self._lastComposing == self._composing && self._lastDraftRevision == self._modelRevision) { return; }
+		var channel = self._draft;
+		if (channel != null && channel.isOpen()) {
+			var event = self.snapshot(CONTROL_PHASE_DRAFT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
+			if (!channel.publish(event, self._interactionGeneration, self._interaction, self._modelRevision)) { throw "Text draft queue cannot admit native input"; }
+		}
+		self._lastDraft = text; self._lastComposing = self._composing; self._lastDraftRevision = self._modelRevision;
+	}
+
+	private void rememberSelection() {
+		var editor = self._editor;
+		if (!self._editing || editor == null || editor.hasMarkedText() || self._changingNative) { return; }
+		var selection = editor.selectedRange(); self._selectionStart = selection.location; self._selectionLength = selection.length;
+	}
+
+	private void captureDraft(bool publish = true) {
+		var editor = self._editor; if (!self._editing || editor == null || self._changingNative) { return; }
+		bool composing = editor.hasMarkedText();
+		if (composing && !self._composing) {
+			// The storage notification precedes the field editor updating markedRange.
+			var storage = editor.textStorage(); if (storage == null) { throw "Native text storage is unavailable"; }
+			var marked = storage.editedRange(); var current = editor.string(); var plain = AppKitText.nativeValue(self._plainDraft);
+			if (marked.location > current.length() || marked.length > current.length() - marked.location) { throw "Invalid native marked text range"; }
+			unsigned long suffix = current.length() - marked.location - marked.length;
+			if (marked.location > plain.length() || suffix > plain.length() - marked.location) { throw "Native marked text changed outside its replacement"; }
+			marked.length = plain.length() - marked.location - suffix;
+			self._compositionOriginal = AppKitText.ownedValue(plain.substringWithRange(marked));
+		}
+		self._composing = composing;
+		if (!composing) { self._plainDraft = self.draftText(); }
+		if (!self._interacting && !composing && self.draftText().equals(self._accepted)) { return; }
+		if (publish) { self.beginInteraction(); self.publishDraft(); }
+	}
+
+	/* Native insertion keeps the field editor's composition and undo bookkeeping
+	 * coherent. Direct string assignment followed by unmarkText corrupts undo. */
+	private void cancelComposition() {
+		var editor = self._editor; if (editor == null || !editor.hasMarkedText()) { self._composing = false; return; }
+		self.captureDraft(false); var marked = editor.markedRange(); var selection = editor.selectedRange();
+		selection.location = self._selectionStart; selection.length = self._selectionLength;
+		self._changingNative = true;
+		try {
+			var input = editor.inputContext(); if (input != null) { input.discardMarkedText(); }
+			editor.insertText(AppKitText.nativeValue(self._compositionOriginal), marked); editor.setSelectedRange(selection);
+		} finally { self._changingNative = false; }
+		if (editor.hasMarkedText()) { throw "Native editor did not cancel marked text"; }
+		self._composing = false; self._plainDraft = self.draftText(); self._compositionOriginal = "";
+	}
+
+	private void finishEditing() {
+		self._editing = false; self._interacting = false; self._composing = false; self.releaseTickets();
+		if (self._editorCallbacks.cancel() == CALLBACK_CANCELLATION_COMPLETE) { self._editor = null; }
+	}
+
+	private void endEditing(bool preserveFocus) {
+		var control = self._control;
+		try {
+			if (control != null) {
+				var editor = self._editor;
+				string draft = editor != null && editor.hasMarkedText() ? self._plainDraft : self.draftText();
+				var value = AppKitText.nativeValue(draft); self._changingNative = true;
+				// abortEditing restores the cell's stored value; publish the settled draft afterward.
+				control.abortEditing(); control.setStringValue(value);
+			}
+		} finally { self._changingNative = false; self.finishEditing(); }
+		if (preserveFocus && control != null && self.stateNode().effectiveEligible()) {
+			var window = control.window(); if (window != null) { window.makeFirstResponder(control); }
+		}
+	}
+
+	private void commitInteraction() {
+		if (self._composing || !self._interacting) { return; }
+		try {
+			string draft = self.draftText();
+			if (!draft.equals(self._accepted)) {
+				var event = self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
+				self._accepted = draft; var channel = self._commit; var ticket = self._commitTicket;
+				if (channel != null && channel.isOpen() && ticket != null) { channel.publishTerminal(event, self._interactionGeneration, self._interaction, ticket); }
+			}
+		} finally { self._interacting = false; self.releaseTickets(); }
+	}
+
+	private void cancelInteraction(ControlOrigin origin, ControlCancelReason reason, bool restore) {
+		var control = self._control;
+		if (!self._editing && control != null && !self.draftText().equals(self._accepted)) {
+			var focused = (NSTextView?)control.currentEditor();
+			if (focused != null) { self._editor = focused; self._editing = true; self._plainDraft = self.draftText(); self.rememberSelection(); self.beginInteraction(); }
+		}
+		self.cancelComposition(); if (!self._interacting) { return; }
+		if (restore) {
+			var editor = self._editor; self._changingNative = true;
+			try {
+				if (editor != null && self._editing) {
+					var range = editor.selectedRange(); range.location = 0UL; range.length = editor.string().length();
+					editor.insertText(AppKitText.nativeValue(self._accepted), range);
+				} else { var control = self._control; if (control != null) { control.setStringValue(AppKitText.nativeValue(self._accepted)); } }
+			} finally { self._changingNative = false; }
+			self._plainDraft = self._accepted;
+		}
+		try {
+			var channel = self._cancel; var ticket = self._cancelTicket;
+			if (channel != null && channel.isOpen() && ticket != null) { var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason); channel.publishTerminal(event, self._interactionGeneration, self._interaction, ticket); }
+		} finally { self._interacting = false; self.releaseTickets(); }
+	}
+
+	private void nativeFailure(string error) { var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); } }
+
+	public bool shouldBeginEditing(NSControl control, NSText fieldEditor) {
+		bool admitted = false;
+		try {
+			var context = self.stateNode().context(); var editor = (NSTextView?)fieldEditor;
+			if (!self._closing && editor != null && self.stateNode().effectiveEligible() && (context == null || !context.treeMutationActive())) {
+				if (self._editing && self._editor == editor) { admitted = true; }
+				else if (self._editorCallbacks.cancel() == CALLBACK_CANCELLATION_COMPLETE && self.reserveTickets()) {
+					var storage = editor.textStorage(); if (storage == null) { throw "Native text storage is unavailable"; }
+					var callbacks = CallbackScope(); self._editor = editor; self._editing = true; self._plainDraft = AppKitText.ownedValue(control.stringValue());
+					self._editorCallbacks = callbacks;
+					var center = NSNotificationCenter.defaultCenter();
+					center.addObserverForName(NSTextStorageDidProcessEditingNotification, storage, null, self, callbacks);
+					center.addObserverForName(NSTextViewDidChangeSelectionNotification, editor, null, self, callbacks);
+					self.rememberSelection(); if (!self._plainDraft.equals(self._accepted)) { self.beginInteraction(); } admitted = true;
+				}
+				if (!admitted) { throw "Native text editing admission unavailable"; }
+			}
+		} catch (string error) { self.finishEditing(); self.nativeFailure(error); }
+		return admitted;
+	}
+
+	public void invoke(NSNotification notification) {
+		try {
+			if (notification.name() == NSTextViewDidChangeSelectionNotification) { self.rememberSelection(); }
+			else { self.captureDraft(); }
+		} catch (string error) { self.nativeFailure(error); }
+	}
+
+	public void controlTextDidChange(NSNotification notification) { try { self.captureDraft(); } catch (string error) { self.nativeFailure(error); } }
+
+	public void controlTextDidEndEditing(NSNotification notification) {
+		if (self._changingNative) { return; }
+		try {
+			// AppKit also ends focus-only sessions without asking to begin editing.
+			if (!self._editing && !self.draftText().equals(self._accepted)) { self.beginInteraction(); }
+			self.captureDraft(); self.commitInteraction();
+		} catch (string error) { self.nativeFailure(error); }
+		finally { self.finishEditing(); }
+	}
+
+	public bool performTextCommand(NSControl control, NSTextView editor, SEL selector) {
+		bool handled = false;
+		try {
+			bool accepts = selector == sel_registerName("insertNewline:"); bool escapes = selector == sel_registerName("cancelOperation:");
+			if ((accepts || escapes) && !self._editing && !self.shouldBeginEditing(control, editor)) { return true; }
+			if (accepts) {
+				if (editor.hasMarkedText()) { editor.unmarkText(); }
+				self.captureDraft(); self.commitInteraction(); self.endEditing(true); handled = true;
+			} else if (escapes) {
+				if (editor.hasMarkedText()) { self.cancelComposition(); self.publishDraft(); }
+				else { self.cancelInteraction(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE, true); self.endEditing(true); }
+				handled = true;
+			}
+		} catch (string error) { self.nativeFailure(error); handled = true; }
+		return handled;
+	}
+
+	public void eligibilityLost() {
+		try { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS, false); }
+		catch (string error) { self.nativeFailure(error); }
+		finally { try { self.endEditing(false); } catch (string error) { self.nativeFailure(error); } }
 	}
 
 	public void setPlaceholder(string text) { self.nativeControl().setPlaceholderString(AppKitText.nativeValue(text)); }
@@ -98,23 +373,24 @@ class MacOSTextField implements ITextField, IMacOSView {
 	public bool isEnabled() { return self.nativeControl().isEnabled(); }
 
 	public CallbackCancellation pollClose() {
-		self.requireMainThread();
-		var state = self._view.pollClose();
-		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._control = null; }
-		return state;
+		self.requireMainThread(); if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var editor = self._editorCallbacks.pollCompletion(); if (editor != CALLBACK_CANCELLATION_COMPLETE) { return editor; }
+		var native = self._native.pollCompletion(); if (native != CALLBACK_CANCELLATION_COMPLETE) { return native; }
+		var state = self._view.pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._control = null; self._editor = null; } return state;
 	}
 
 	public CallbackCancellation close() {
-		self.requireMainThread();
-		var control = self._control;
-		if (control == null) { return CALLBACK_CANCELLATION_COMPLETE; }
-		if (self._view.isOpen()) {
-			self._view.requireDetached();
-			// End any field-editor session while the control is still in its window.
-			control.abortEditing();
+		self.requireMainThread(); self._view.requireDetached();
+		if (!self._closing) {
+			self._closing = true;
+			try { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING, false); }
+			catch (string error) { self.nativeFailure(error); }
+			self._changingNative = true;
+			try { var control = self._control; if (control != null) { control.abortEditing(); } }
+			catch (string error) { self.nativeFailure(error); }
+			finally { self._changingNative = false; self.finishEditing(); }
+			self._native.cancel(); self._view.close();
 		}
-		var state = self._view.close();
-		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._control = null; }
-		return state;
+		return self.pollClose();
 	}
 }
