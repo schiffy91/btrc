@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -115,15 +116,25 @@ class Peak:
     source: str  # "footprint" or "maxrss"
 
     @classmethod
-    def measure(cls, command: list[str], env: dict[str, str], cwd: Path) -> Peak:
+    def measure(
+        cls,
+        command: list[str],
+        env: dict[str, str],
+        cwd: Path,
+        *,
+        observation: Callable[[int, int], None] | None = None,
+    ) -> Peak:
         """The peak memory of one run of `command`, which must succeed.
 
         On macOS it is the peak footprint `/usr/bin/time -l` reports, the number the
         M11 budget is written in. Elsewhere it is the child's own maximum resident
         set from wait4 (KiB on Linux), which a reaped sibling cannot inflate the way
-        RUSAGE_CHILDREN's running maximum would. The child is spawned by a small
-        reporter process rather than by this one: Linux folds the address space a
-        process execs from into its maximum resident set, and a forked or vforked
+        RUSAGE_CHILDREN's running maximum would.
+        An optional observer receives raw wait4 usage and child status before
+        failure checking, so diagnostics retain failed samples too.
+        The child is spawned by a reporter process rather than by this one:
+        Linux folds the address space a process execs from into its maximum
+        resident set, and a forked or vforked
         child execs from its parent's, so a child of a 180 MiB pytest worker would
         report at least 180 MiB. Standard output is discarded.
         """
@@ -156,6 +167,8 @@ class Peak:
                 timeout=COMMAND_TIMEOUT,
             )
             fields = reporter.stdout.split()
+            if observation is not None and reporter.returncode == 0 and len(fields) == 2:
+                observation(int(fields[0]), int(fields[1]))
             returncode = int(fields[1]) if reporter.returncode == 0 and len(fields) == 2 else reporter.returncode
             if returncode != 0:
                 errors.seek(0)
