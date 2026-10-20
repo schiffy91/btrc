@@ -2,6 +2,49 @@
   "schema": "btrc.expected-skips/1",
   "runner": "linux-hosted",
   "enforce": true,
-  "description": "Direct pytest sessions on GitHub's hosted Ubuntu runners, currently the provisioned Android JNI harness. This identifies the test host; native Android reports separately record the emulator and API. It does not claim podman execution or physical Linux desktop qualification. These sessions require every selected case to run, so no skips are admitted.",
-  "rules": []
+  "description": "Direct pytest sessions on GitHub's hosted Ubuntu runners, including Android JNI and Windows cross-builds. Native reports separately identify their execution target. Only the exact Windows runtime-only cases below may skip; Android JNI admits no skips. This does not claim podman execution or physical Linux desktop qualification.",
+  "rules": [
+    {
+      "id": "windows-native-shell-runtime",
+      "files": [
+        "src/tests/python/test_native_ui_shell_windows.py"
+      ],
+      "nodes": [
+        "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]python-windows-arm64-plain]",
+        "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]python-windows-arm64-ubsan]",
+        "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]python-windows-x64-plain]",
+        "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]python-windows-x64-ubsan]",
+        "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]selfhost-windows-arm64-plain]",
+        "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]selfhost-windows-arm64-ubsan]",
+        "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]selfhost-windows-x64-plain]",
+        "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]selfhost-windows-x64-ubsan]"
+      ],
+      "reason": "^requires Windows: windows\\.yml's win32-native job runs the executables the build tests publish$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml win32-native-build publishes the executables; win32-native executes these same nodes on windows-x64 and windows-arm64 and enforces each native skip report. Missing build prerequisites and other nodes remain unexpected."
+    },
+    {
+      "id": "windows-http-runtime",
+      "files": [
+        "src/tests/python/test_windows_http.py"
+      ],
+      "nodes": [
+        "src/tests/python/test_windows_http.py::test_preserved_native_executables_run[[]failures-windows-arm64]",
+        "src/tests/python/test_windows_http.py::test_preserved_native_executables_run[[]failures-windows-x64]",
+        "src/tests/python/test_windows_http.py::test_preserved_native_executables_run[[]reference-windows-arm64]",
+        "src/tests/python/test_windows_http.py::test_preserved_native_executables_run[[]reference-windows-x64]",
+        "src/tests/python/test_windows_http.py::test_preserved_native_executables_run[[]selfhost-windows-arm64]",
+        "src/tests/python/test_windows_http.py::test_preserved_native_executables_run[[]selfhost-windows-x64]"
+      ],
+      "reason": "^requires the real Windows native runner$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "windows.yml win32-native-build publishes the executables; win32-native executes these same nodes on windows-x64 and windows-arm64 and enforces each native skip report. Missing build prerequisites and other nodes remain unexpected."
+    }
+  ]
 }

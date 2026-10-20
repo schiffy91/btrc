@@ -1380,6 +1380,27 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     assert 'echo "BTRC_ANDROID_JNI_REQUIRED=1"' in android
 
 
+def test_windows_cross_build_reports_use_hosted_linux_and_enforce_runtime_only_skips() -> None:
+    jobs = _parsed("windows.yml")["jobs"]
+    build = jobs["win32-native-build"]
+    assert build["runs-on"] == "ubuntu-latest"
+    assert build["env"]["BTRC_TEST_RUNNER"] == "linux-hosted"
+    steps = build["steps"]
+    report = "build/skip-report-windows-win32-native-build.json"
+    collected = next(index for index, step in enumerate(steps) if f"--skip-report={report}" in step.get("run", ""))
+    gated = next(index for index, step in enumerate(steps) if f"skip-gate {report}" in step.get("run", ""))
+    assert gated == collected + 1
+    assert steps[gated]["run"] == f"nix develop --command python3 -m tools.qualification skip-gate {report}"
+    assert "continue-on-error" not in steps[gated]
+    native = jobs["win32-native"]
+    assert native["needs"] == ["scope", "win32-native-build"]
+    sessions = [step["run"] for step in native["steps"] if "--skip-report=" in step.get("run", "")]
+    for filename, selector in (("test_native_ui_shell_windows.py", "runs"), ("test_windows_http.py", "preserved")):
+        session = next(run for run in sessions if filename in run)
+        assert f'-k "{selector} and ${{{{ matrix.target }}}}"' in session
+        assert "python -m tools.qualification skip-gate" in session
+
+
 def test_android_jni_reports_use_hosted_linux_and_gate_each_compiler() -> None:
     job = _parsed("host-android.yml")["jobs"]["emulator"]
     assert job["runs-on"] == "ubuntu-latest"
@@ -1395,6 +1416,17 @@ def test_android_jni_reports_use_hosted_linux_and_gate_each_compiler() -> None:
         gate = f"python3 -m tools.qualification skip-gate {report}"
         assert session.splitlines()[-1] == gate
         assert session.index(f"--skip-report={report}") < session.index(gate)
+
+
+def test_windows_host_bundle_uses_direct_hosted_linux_provenance_and_skip_gate() -> None:
+    job = _parsed("host-windows.yml")["jobs"]["bundle"]
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["env"]["BTRC_TEST_RUNNER"] == "linux-hosted"
+    session = next(step["run"] for step in job["steps"] if step.get("name") == "Portable host tests")
+    assert "tools/target_hosts/windows/test_executor.py" in session
+    report = "build/skip-report-host-windows.json"
+    assert f"--skip-report={report}" in session
+    assert session.splitlines()[-1] == f"nix develop --command python3 -m tools.qualification skip-gate {report}"
 
 
 def test_the_ios_corpus_runs_in_the_simulator_job_through_both_compilers() -> None:
