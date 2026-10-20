@@ -629,17 +629,21 @@ restore mode after drain.
 last-registered, first-called, and stops at the first that returns TRUE. At
 **every prompt start**, under the prompt lock and while no session is active,
 the owner moves the trampoline to the head of the list:
-`SetConsoleCtrlHandler(trampoline, FALSE)`, ignoring the not-registered failure
-of the first prompt, then `SetConsoleCtrlHandler(trampoline, TRUE)`. The list
-therefore holds exactly one trampoline entry, ahead of every handler the
-application registered before this prompt, including the C runtime's lazily
-installed `signal(SIGINT|SIGBREAK, …)` handler. Removal never waits: a dispatch
-from an earlier event that is still running the inactive trampoline only reads
-the inactive state and returns FALSE, and the code and storage live for the
-process. Because the list is per process, console detach and reattach need no
-further step and cannot add a duplicate entry. A handler registered **during** a
-prompt, or a console replaced during one, stays outside the supported embedding
-contract and must be prevented by the caller.
+`SetConsoleCtrlHandler(trampoline, FALSE)`, treating an absent trampoline as
+expected before the first prompt and after a console reset, then
+`SetConsoleCtrlHandler(trampoline, TRUE)`. Registration must succeed before the
+session starts; other failures remain errors. The list holds exactly one
+trampoline entry, ahead of every handler the application registered before this
+prompt, including the C runtime's lazily installed `signal(SIGINT|SIGBREAK, …)`
+handler. Removal never waits: an earlier dispatch still running the inactive
+trampoline only reads inactive state and returns FALSE; its code and storage
+live for the process.
+
+[AttachConsole, AllocConsole and FreeConsole reset the handler table](https://learn.microsoft.com/en-us/windows/console/setconsolectrlhandler).
+After a console change between prompts, the next prompt must register the
+trampoline again through this same remove/add sequence. A handler registered
+**during** a prompt, or a console replaced during one, stays outside the supported
+embedding contract and must be prevented by the caller.
 
 **Session protocol.** For `CTRL_C_EVENT` and `CTRL_BREAK_EVENT` with an active
 session, the trampoline atomically pins the session, sets its cancelled flag,
@@ -1489,8 +1493,12 @@ Round-4 regression cases are required members of those rows:
   (the head-of-list trampoline ran first), the prompt returns `""` after the
   handler finished (TRUE) or after the next handler in the chain returned (FALSE,
   with a TRUE-returning earlier handler installed so the process survives), and
-  a third prompt works. An abort the reader sees **before the trampoline is
-  entered**: the fixture registers, inside the prompt, a test handler that holds
+  a third prompt works. Repeat after detaching and attaching to a console between
+  prompts, reinstalling the application's handler after the table reset: the
+  next prompt tolerates the missing trampoline, installs it once,
+  restores mode before the application handler, and drains without a duplicate
+  invocation. An abort the reader sees **before the trampoline is entered**:
+  the fixture registers, inside the prompt, a test handler that holds
   the control thread until the runtime session's in-read flag has cleared on the
   console's aborted read, then returns FALSE (a registration the embedding
   contract excludes, used only to order the race without a timing sleep). The
@@ -1577,9 +1585,19 @@ every row:
 **Frozen supervisor (round-5 D(a)).** The Windows native daemon fixture freezes
 the whole supervisor process instead of compiling a barrier into any image.
 After `start` returns 0, one controller thread of the `daemon_windows` C harness
-calls `DebugActiveProcess(supervisorPid)` and `DebugSetProcessKillOnExit(FALSE)`
-and never continues the pending debug events, so every supervisor thread stays
-suspended by the system with its process and managed tree alive. Then:
+calls `DebugActiveProcess(supervisorPid)` and `DebugSetProcessKillOnExit(FALSE)`.
+The same thread must receive the supervisor's `CREATE_PROCESS_DEBUG_EVENT`
+through a bounded `WaitForDebugEvent` call and acknowledge the freeze to the
+harness before it issues `stop`. Check the event's process ID and retain that
+event without `ContinueDebugEvent` throughout the timeout assertions. An attach
+failure, unexpected event or acknowledgement timeout fails fixture setup and
+runs debugger cleanup; it cannot count as a stop-timeout pass. Cleanup closes
+the event's image-file handle (`u.CreateProcessInfo.hFile`) as required by
+[WaitForDebugEvent](https://learn.microsoft.com/en-us/windows/win32/api/debugapi/nf-debugapi-waitfordebugevent).
+
+[Successful attachment precedes suspension and debug-event delivery](https://learn.microsoft.com/en-us/windows/win32/api/debugapi/nf-debugapi-debugactiveprocess),
+so the return from `DebugActiveProcess` alone is insufficient. With the freeze
+acknowledged and the process and managed tree still alive:
 
 1. `stop` returns 124 with `daemon did not confirm termination before the deadline`
    within a bounded caller return, and the token-bound stop request file still
@@ -1590,8 +1608,8 @@ suspended by the system with its process and managed tree alive. Then:
    itself then honours the original request and removes both the record and the
    request file within the stop deadline, before any controller cleanup.
 
-The paused-then-resumed case mirrors `Daemon.btrc:154-172`: after freezing, the
-caller issues `stop` with its ordinary deadline; the controller thread waits for
+The paused-then-resumed case mirrors `Daemon.btrc:154-172`: after the same
+acknowledged freeze, the caller issues `stop` with its ordinary deadline; the controller thread waits for
 the stop request file to appear (an event, not a timing sleep), then calls
 `DebugActiveProcessStop`, and `stop` returns 0 within its deadline. This
 whole-process freeze is the documented debugger attach, distinct from the
