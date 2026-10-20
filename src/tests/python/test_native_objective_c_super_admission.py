@@ -417,6 +417,24 @@ def test_scoped_super_admission(admission_project, native_compile, sanitize, mod
 
 
 @pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
+@pytest.mark.parametrize("mode", [0, 1, 3, 21], ids=["accepted", "refused", "cancelled", "void"])
+def test_scoped_super_admission_outbound_dispatch(admission_project, native_compile, sanitize, mode):
+    program = PROGRAM.replace("MODE", str(mode))
+    program = program.replace(
+        "bool result = AdmissionHost.fire(mode);",
+        "((AdmissionBase)object).pulse(); bool result = true;"
+        if mode == 21
+        else "bool result = ((AdmissionBase)object).press(mode);",
+    )
+    program = program.replace("!AdmissionHost.fire(mode)", "!((AdmissionBase)object).press(mode)")
+    admission_project.write_text(program)
+    completed = _build_and_run(admission_project, native_compile, sanitize)
+    assert completed.returncode == 0, (completed.returncode, completed.stdout, completed.stderr)
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
 @pytest.mark.parametrize("nested", [True, "selectors"])
 def test_scoped_super_admission_nested_metadata(admission_project, native_compile, sanitize, nested):
     source = admission_project
