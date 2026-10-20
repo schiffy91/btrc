@@ -439,7 +439,7 @@ jobs:
           retention-days: 14
 
   # The Linux GUI and audio shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
-  # `make test-shard-gui` once per display protocol, each inside its own
+  # `make test-shard-gui` in four disjoint partitions per protocol, each in its own
   # tools/ui/headless-session.sh session (Xvfb, or weston's headless backend)
   # with lavapipe as the GPU adapter and the null ALSA PCM as the sound card.
   # Unlike the native-gui job it runs on every push, and under Wayland too.
@@ -453,7 +453,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['linux-gui'] }}
-    name: linux-gui (${{ matrix.session }})
+    name: linux-gui (${{ matrix.cell }})
     # ci/tiers.toml marks a row report-only while its session is not yet stable.
     continue-on-error: ${{ matrix.report_only == 'true' }}
     steps:
@@ -464,42 +464,90 @@ jobs:
           use-flakehub: false
       - run: make devcontainer
       - run: chmod -R a+w .
-      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} test-shard-gui
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui
       # pytest makes its working directories private (0700) as the container's
       # user, which the runner cannot read back to upload.
       - name: Open the session evidence to the runner
         if: always()
         run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest chmod -R a+rX build/linux-gui build/ui-shell
         continue-on-error: true
+      - name: Retain the exact partition proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gui-partition-ci-linux-gui-${{ matrix.cell }}
+          path: |
+            build/linux-gui/${{ matrix.cell }}/partition.json
+            build/linux-gui/${{ matrix.cell }}/collection.json
+            build/linux-gui/${{ matrix.cell }}/junit.xml
+            build/linux-gui/${{ matrix.cell }}/skip-report.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Retain the session evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gui-evidence-ci-linux-gui-${{ matrix.session }}
+          name: gui-evidence-ci-linux-gui-${{ matrix.cell }}
           path: |
-            build/linux-gui/${{ matrix.session }}/atspi.json
+            build/linux-gui/${{ matrix.cell }}/*.json
+            build/linux-gui/${{ matrix.cell }}/*.txt
             build/ui-shell/
-            build/linux-gui/${{ matrix.session }}/pytest/**/*.stdout
-            build/linux-gui/${{ matrix.session }}/pytest/**/*.stderr
-            build/linux-gui/${{ matrix.session }}/pytest/**/*.json
-            build/linux-gui/${{ matrix.session }}/pytest/**/*.ppm
-            build/linux-gui/${{ matrix.session }}/pytest/**/*.png
+            build/linux-gui/${{ matrix.cell }}/pytest/**/*.stdout
+            build/linux-gui/${{ matrix.cell }}/pytest/**/*.stderr
+            build/linux-gui/${{ matrix.cell }}/pytest/**/*.txt
+            build/linux-gui/${{ matrix.cell }}/pytest/**/*.csv
+            build/linux-gui/${{ matrix.cell }}/pytest/**/*.json
+            build/linux-gui/${{ matrix.cell }}/pytest/**/*.ppm
+            build/linux-gui/${{ matrix.cell }}/pytest/**/*.png
           if-no-files-found: warn
           retention-days: 14
       - name: Retain the JUnit results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-ci-linux-gui-${{ matrix.session }}
-          path: build/linux-gui/${{ matrix.session }}/junit.xml
+          name: junit-ci-linux-gui-${{ matrix.cell }}
+          path: build/linux-gui/${{ matrix.cell }}/junit.xml
           if-no-files-found: warn
           retention-days: 14
       - name: Retain the skip report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: skip-report-ci-linux-gui-${{ matrix.session }}
-          path: build/skip-report*.json
+          name: skip-report-ci-linux-gui-${{ matrix.cell }}
+          path: build/skip-report-gui-${{ matrix.cell }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # A green subset cannot qualify the session. Missing/failed/overlapping cells
+  # fail this check; Wayland keeps its existing report-only policy.
+  linux-gui-coverage:
+    needs: [scope, linux-gui]
+    if: ${{ always() && contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui-coverage') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['linux-gui-coverage'] }}
+    name: linux-gui-coverage (${{ matrix.session }})
+    continue-on-error: ${{ matrix.report_only == 'true' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: gui-partition-ci-linux-gui-${{ matrix.session }}-*
+          path: build/gui-partitions/${{ matrix.session }}
+      - name: Prove the complete disjoint session coverage
+        if: always()
+        run: python3 -m tools.ui.gui_shards aggregate --session ${{ matrix.session }} --count 4 --revision "$GITHUB_SHA" --input build/gui-partitions/${{ matrix.session }} --output build/gui-union-${{ matrix.session }}.json
+      - name: Retain the session coverage proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gui-union-ci-linux-gui-${{ matrix.session }}
+          path: build/gui-union-${{ matrix.session }}.json
           if-no-files-found: warn
           retention-days: 14
 

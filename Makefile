@@ -383,7 +383,10 @@ test-native-gui: generated-check ## Focused gate: the native GUI, tray and provi
 # build/linux-gui/<session>/atspi.json, and pytest's working directories stay
 # under build/linux-gui for CI to keep.
 GUI_SESSION ?= x11
-GUI_SHARD_DIR := build/linux-gui/$(GUI_SESSION)
+GUI_PARTITION ?= 0
+GUI_PARTITIONS ?= 1
+GUI_CELL := $(GUI_SESSION)-$(GUI_PARTITION)
+GUI_SHARD_DIR := build/linux-gui/$(GUI_CELL)
 # The SDL clipboard-requestor case drives the X11 selection protocol itself, so
 # only the X11 row runs it; under Wayland it would skip for want of a DISPLAY.
 GUI_SHARD_X11_ONLY := src/tests/python/test_native_ui_sdl_clipboard_requestor.py
@@ -391,11 +394,12 @@ GUI_SHARD_TESTS := $(if $(filter wayland,$(GUI_SESSION)),$(filter-out $(GUI_SHAR
 	src/tests/python/test_build_safety.py::test_devcontainer_installs_the_null_alsa_pcm
 
 test-shard-gui: generated-check gpu-required btrcc ## CI shard: native GUI and Linux audio under one headless session (GUI_SESSION=x11|wayland)
-	$(NIX) $(SHARD_BTRCC) ALSA_CONFIG_PATH="$(abspath nix/asound.conf)" tools/ui/headless-session.sh --$(GUI_SESSION) -- \
+	$(NIX) $(SHARD_BTRCC) BTRC_TEST_RUNNER=linux-devcontainer ALSA_CONFIG_PATH="$(abspath nix/asound.conf)" tools/ui/headless-session.sh --$(GUI_SESSION) -- \
 		python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py --output $(GUI_SHARD_DIR) -- \
-		$(PYTEST) $(GUI_SHARD_TESTS) --basetemp=$(GUI_SHARD_DIR)/pytest --junitxml=$(GUI_SHARD_DIR)/junit.xml \
-		--skip-report=build/skip-report-gui-$(GUI_SESSION).json $(PYTEST_ARGS) -m "not e40_qualification"
-	$(NIX) $(SKIP_GATE) build/skip-report-gui-$(GUI_SESSION).json
+		python3 -m tools.ui.gui_shards run --session $(GUI_SESSION) --index $(GUI_PARTITION) --count $(GUI_PARTITIONS) \
+		--output $(GUI_SHARD_DIR) --skip-report build/skip-report-gui-$(GUI_CELL).json \
+		--selectors $(GUI_SHARD_TESTS) -- $(PYTEST_ARGS) -m "not e40_qualification"
+	$(NIX) $(SKIP_GATE) build/skip-report-gui-$(GUI_CELL).json
 
 test-shard-btrc: generated-check gpu-required btrcc ## CI shard: self-host contract tests
 	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/btrc/ \
