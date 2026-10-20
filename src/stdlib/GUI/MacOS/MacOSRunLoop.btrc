@@ -1,16 +1,19 @@
 import Library.Callback;
 import Library.Console;
+import Library.OwnedBuffer;
+import Library.GUI.MacOS.AppKitText;
 import Library.GUI.IApplicationNativeWake;
 import Library.GUI.MacOS.CoreFoundation;
 
-/* One common-mode source coalesces wakeups. Its context is an immutable native
- * name retained by CoreFoundation; managed receivers stay in the existing
+/* One common-mode source coalesces wakeups. This owner keeps its immutable
+ * UTF-8 context alive until source invalidation; managed receivers stay in the
  * scoped notification adapter. Workers touch only the raw source and gate. */
 class MacOSRunLoopSignal implements IApplicationNativeWake {
 	private CFRunLoopSourceRef _source = null;
 	private CFRunLoopTimerRef _timer = null;
 	private unsigned long long _deadline = 0ULL;
 	private NSString? _name;
+	private OwnedBuffer<char>? _context;
 	private Atomic<uint>* _gate = null;
 	private bool _subscribed = false;
 
@@ -19,39 +22,37 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 		self._gate = (Atomic<uint>*)malloc(sizeof(Atomic<uint>));
 		if (self._gate == null) { throw "Cannot allocate native run-loop admission gate"; }
 		self._gate->init(1u);
-		var identity = CFUUIDCreate(null);
-		if (identity == null) { throw "Cannot create native run-loop wake identity"; }
-		var name = CFUUIDCreateString(null, identity); CFRelease(identity);
-		if (name == null) { throw "Cannot create native run-loop wake name"; }
-		try {
-			self._name = MacOSRunLoopSignal.notificationName(name);
-			self._source = MacOSRunLoopSignal.createSource(name);
-			if (self._source == null) { throw "Cannot create native run-loop source"; }
-			CFRunLoopAddSource(CFRunLoopGetMain(), self._source, kCFRunLoopCommonModes);
-			self._gate->store(0u, MemoryOrder.RELEASE);
-		} finally { CFRelease(name); }
+		var identity = NSUUID.UUID();
+		var name = identity.UUIDString();
+		string text = AppKitText.ownedValue(name);
+		var context = new OwnedBuffer<char>((size_t)text.len() + (size_t)1);
+		if (!context.opened()) { throw "Cannot allocate native run-loop wake name"; }
+		strcpy(context.borrow(), text);
+		self._name = name;
+		self._context = context;
+		self._source = MacOSRunLoopSignal.createSource(context.borrow());
+		if (self._source == null) { throw "Cannot create native run-loop source"; }
+		CFRunLoopAddSource(CFRunLoopGetMain(), self._source, kCFRunLoopCommonModes);
+		self._gate->store(0u, MemoryOrder.RELEASE);
 	}
 
-	class CFRunLoopSourceRef createSource(CFStringRef name) {
-		CFRunLoopSourceContext context = {0};
-		context.info = (void*)name; context.retain = CFRetain; context.release = CFRelease;
+	class CFRunLoopSourceRef createSource(char* name) {
+		CFRunLoopSourceContext context = {};
+		context.info = (void*)name;
 		context.perform = MacOSRunLoopSignal.perform;
 		return CFRunLoopSourceCreate(null, 0, &context);
 	}
 
 	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native run-loop ownership requires the main thread"; } }
 
-	class NSString notificationName(CFStringRef name) {
-		char text[64];
-		if (!CFStringGetCString(name, text, (CFIndex)64, kCFStringEncodingUTF8)) { throw "Cannot read native run-loop wake name"; }
-		var result = NSString.stringWithUTF8String(text);
-		if (result == null) { throw "Cannot create native run-loop notification name"; }
-		return result;
-	}
-
 	class void perform(void* raw) {
-		try { NSNotificationCenter.defaultCenter().postNotificationName(MacOSRunLoopSignal.notificationName((CFStringRef)raw), null); }
-		catch (string error) { Console.fatal(error); }
+		try {
+			/* Copy before dispatch: a notification receiver may close this source
+			 * and free its context while postNotificationName is still entered. */
+			var name = NSString.stringWithUTF8String((char*)raw);
+			if (name == null) { throw "Cannot read native run-loop wake name"; }
+			NSNotificationCenter.defaultCenter().postNotificationName(name, null);
+		} catch (string error) { Console.fatal(error); }
 	}
 
 	public void subscribe(IAppKitNotificationObserver receiver, CallbackScope scope) {
@@ -77,11 +78,11 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 		return (unsigned long long)nanoseconds;
 	}
 
-	/* A single common-mode timer signals the same source. The timer owns a
-  * native reference to the source; no managed receiver crosses its context. */
+	/* The timer borrows the source. Both callbacks run on the main thread, and
+	 * every timer is invalidated and released before the source is released. */
 	class CFRunLoopTimerRef createTimer(CFRunLoopSourceRef source, double delay) {
-		CFRunLoopTimerContext context = {0};
-		context.info = (void*)source; context.retain = CFRetain; context.release = CFRelease;
+		CFRunLoopTimerContext context = {};
+		context.info = (void*)source;
 		return CFRunLoopTimerCreate(null, CFAbsoluteTimeGetCurrent() + delay, 0.0, 0UL, 0L, MacOSRunLoopSignal.timerFired, &context);
 	}
 
@@ -130,6 +131,7 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 		if (self._gate->load(MemoryOrder.ACQUIRE) != 1u) { return false; }
 		if (self._timer != null) { CFRunLoopTimerInvalidate(self._timer); CFRelease(self._timer); self._timer = null; self._deadline = 0ULL; }
 		if (self._source != null) { CFRunLoopSourceInvalidate(self._source); CFRelease(self._source); self._source = null; }
+		if (self._context != null) { self._context.close(); self._context = null; }
 		self._name = null; return true;
 	}
 

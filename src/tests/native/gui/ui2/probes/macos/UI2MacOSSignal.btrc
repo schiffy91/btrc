@@ -92,7 +92,6 @@ int main() {
 	try { timed.scheduleDeadline(0ULL); } catch (string error) { closedTimerRejected = true; }
 	assert(closedTimerRejected);
 
-	CFRelease(mode);
 	print("PASS: UI2 macOS scoped common-mode wake and worker signal");
 	return 0;
 }

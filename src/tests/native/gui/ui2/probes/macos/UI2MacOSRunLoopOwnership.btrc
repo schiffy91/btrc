@@ -1,0 +1,55 @@
+import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSSystemText;
+import Library.GUI.TextRun;
+import Library.Callback;
+import Library.OwnedBuffer;
+
+import ./Foundation.btrc;
+#include <assert.h>
+
+class ClosingSignalReceiver implements IAppKitNotificationObserver {
+	public MacOSRunLoopSignal? signal;
+	public int calls = 0;
+	public void invoke(NSNotification notification) {
+		self.calls++;
+		var signal = self.signal;
+		assert(signal != null && signal.close() && !signal.requestTurn());
+		self.signal = null;
+		/* Reuse freed context storage before notification delivery returns. The
+		 * source callback must already own its NSString and never read raw again. */
+		for (int i = 0; i < 64; i++) {
+			var bytes = new OwnedBuffer<char>((size_t)37);
+			assert(bytes.opened());
+			memset(bytes.borrow(), 'x', (size_t)36);
+		}
+	}
+}
+
+int main() {
+	/* CoreText creates managed CF strings beside manually owned run-loop
+	 * sources and timers in this same program. */
+	var image = MacOSSystemText.raster(TextRun("run-loop ownership", 14, 20));
+	assert(image.width > 0 && image.height > 0);
+	for (int cycle = 0; cycle < 20; cycle++) {
+		var signal = MacOSRunLoopSignal();
+		var scope = CallbackScope();
+		var receiver = ClosingSignalReceiver();
+		receiver.signal = signal;
+		signal.subscribe(receiver, scope);
+		unsigned long long deadline = MacOSRunLoopSignal.now() + 2000000000ULL;
+		signal.scheduleDeadline(deadline);
+		/* Both timers borrow the live source while replacement is installed.
+		 * The old timer is then retired; close inside delivery retires the
+		 * retained replacement before releasing that source. */
+		signal.scheduleDeadline(MacOSRunLoopSignal.now() + 1000000ULL);
+		while (receiver.calls == 0 && MacOSRunLoopSignal.now() < deadline) {
+			CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, (Boolean)1);
+		}
+		assert(receiver.calls == 1 && signal.close());
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, (Boolean)0);
+		assert(receiver.calls == 1);
+	}
+	print("PASS: UI2 run-loop contexts compose with managed CoreText and close during delivery");
+	return 0;
+}

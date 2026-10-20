@@ -150,6 +150,5 @@ int main() {
 	assert(publishExecutor.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(publishFirst.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && publishSecond.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	publishContext.close(); assert(publishOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && publishSignal.close());
-	CFRelease(mode);
 	print("PASS: UI2 macOS executor worker delivery timers suspension and callback drain"); return 0;
 }

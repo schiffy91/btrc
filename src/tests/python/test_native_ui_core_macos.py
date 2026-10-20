@@ -81,9 +81,21 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
     source, _sdk, _triple = native_project
     package = source.parent.parent
     manifest = package / "btrc.toml"
-    symbols = ["CFRunLoopGetMain", "CFRunLoopAddCommonMode", "CFRunLoopRunInMode", "kCFRunLoopDefaultMode"]
     manifest.write_text(
-        manifest.read_text().replace("symbols = [", "symbols = [" + "".join(f'"{symbol}", ' for symbol in symbols), 1)
+        'manifest-version = 1\n[package]\nname = "ui2Worker"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["CFStringRef", "CFTypeRef", "CFStringCreateWithCString", "kCFStringEncodingUTF8", '
+        '"CFRetain", "CFRelease", "CFGetTypeID", "CFStringGetTypeID", "CFRunLoopGetMain", '
+        '"CFRunLoopAddCommonMode", "CFRunLoopRunInMode", "kCFRunLoopDefaultMode"]\n'
+        'owned-results = ["CFStringCreateWithCString"]\n'
+        'borrowed-parameters = ["CFGetTypeID.cf", "CFRunLoopAddCommonMode.mode", "CFRunLoopRunInMode.mode"]\n'
+        'static-globals = ["kCFRunLoopDefaultMode"]\n'
+        '[native.bindings.resources.CFTypeRef]\nownership = "reference-counted"\n'
+        'retain = "CFRetain"\nrelease = "CFRelease"\n'
+        '[native.bindings.resources.CFStringRef]\nownership = "reference-counted"\n'
+        'retain = "CFRetain"\nrelease = "CFRelease"\n'
+        'type-query = "CFGetTypeID"\ntype-tag = "CFStringGetTypeID"\n'
     )
     (source.parent / "Foundation.btrc").write_text("")
     root = Path(__file__).resolve().parents[3]

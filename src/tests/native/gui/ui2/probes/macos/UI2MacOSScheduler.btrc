@@ -60,6 +60,5 @@ int main() {
 	while (work.calls < 3) { CFRunLoopRunInMode(mode, 2.0, (Boolean)1); }
 	assert(work.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && owner.queue.pendingCount() == 0);
 	assert(owner.queue.close() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && signal.close());
-	CFRelease(mode);
 	print("PASS: UI2 macOS scheduled work uses common-mode deadlines and later turns"); return 0;
 }

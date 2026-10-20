@@ -84,6 +84,5 @@ int main() {
 		assert(raced.pendingCount() == 0 && target.calls == 0 && raced.acceptedCount() == body.accepted);
 		assert(raced.retiredCount(APPLICATION_PUBLICATION_CANCELLED) == body.accepted && racedSignal.close());
 	}
-	CFRelease(mode);
 	print("PASS: UI2 macOS worker publication and cancellation drain"); return 0;
 }
