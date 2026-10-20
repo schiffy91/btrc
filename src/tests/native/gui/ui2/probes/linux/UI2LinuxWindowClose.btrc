@@ -89,13 +89,13 @@ void verifyWindowCloseCycle() {
 	var retry = original.decide(WINDOW_CLOSE_DECISION_SAVE, 5LL); assert(retry.attempt > saving.attempt);
 	assert(original.completeSave(retry.attempt, 5LL, false, "save failed").state == WINDOW_CLOSE_AWAITING_DECISION);
 	assert(original.decide(WINDOW_CLOSE_DECISION_CANCEL, 5LL).state == WINDOW_CLOSE_CANCELLED);
-	document.verify();
-	document.queueEditAfterCancel(); LinuxCloseChecks.events(first, second); document.verify("p!eserved draft");
+	assert(first.semanticPending() == 0); document.verify();
+	document.queueEditAfterCancel(); LinuxCloseChecks.events(first, second); assert(first.semanticPending() == 0); document.verify("p!eserved draft");
 	document.queueDraft(); LinuxCloseChecks.events(first, second); document.verify();
 	var program = LinuxCloseChecks.pending(first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
 	assert(program != original && first.dispatchSemantic());
 	assert(program.decide(WINDOW_CLOSE_DECISION_CANCEL, 5LL).state == WINDOW_CLOSE_CANCELLED);
-	document.verify(); document.queueEditAfterCancel(); LinuxCloseChecks.events(first, second); document.verify("p!eserved draft");
+	assert(first.semanticPending() == 0); document.verify(); document.queueEditAfterCancel(); LinuxCloseChecks.events(first, second); assert(first.semanticPending() == 0); document.verify("p!eserved draft");
 	assert(original.completeSave(retry.attempt, 5LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
 	document.finish();
 	assert(br.cancel() == CALLBACK_CANCELLATION_COMPLETE && other.state() == WINDOW_CLOSE_CANCELLED && second.isOpen());
