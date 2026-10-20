@@ -70,6 +70,8 @@ def load_program(tmp_path_factory, request, frontend, sanitized):
         "src/tests/native/gui/ui2/probes/linux/Fairness",
         (
             "e40Start",
+            "e40LoadBegin",
+            "e40ProducerTick",
             "e40Begin",
             "e40Reject",
             "e40Deliver",
@@ -217,6 +219,7 @@ def exercise_load(program, frontend, sanitized, seconds, tmp_path):
             "timer_delay_ms": 5,
             "self_posted_delayed_ms": 1,
             "shown_windows": 2,
+            "activity_requirement": "worker source iterations and runnable receipts in every one-second load bucket",
             "handlers": "bounded, nonblocking; no overload or intentional blocking trial",
         },
         "timestamp_meaning": {
@@ -233,11 +236,33 @@ def exercise_load(program, frontend, sanitized, seconds, tmp_path):
     native = rows[0]
     assert native["qualifying"] == (seconds == 600) and native["sanitized"] == sanitized
     assert native["duration_ns"] >= seconds * 1_000_000_000
+    assert native["activity_bucket_ns"] == 1_000_000_000
+    assert native["load_ends_ns"] - native["load_started_ns"] == seconds * 1_000_000_000
+    producer_buckets = native["producer_by_second"]
+    assert len(producer_buckets) == seconds and all(value > 0 for value in producer_buckets), producer_buckets
+    assert sum(producer_buckets) == native["producer_iterations"]
+    native["producer_iterations_per_second"] = native["producer_iterations"] / seconds
+    assert 0 < native["producer_max_gap_ns"] <= native["duration_ns"]
     assert [row["kind"] for row in native["classes"]] == list(range(8))
     for row, name in zip(native["classes"], CLASS_NAMES, strict=True):
         row["name"] = name
         assert row["accepted"] == row["delivered"] > 0 and row["pending"] == 0, row
         assert 0 < row["peak_depth_including_admission"] <= 128 and row["peak_payload_bytes"] > 0, row
+        accepted_buckets = row["accepted_by_second"]
+        delivered_buckets = row["delivered_by_second"]
+        runnable_buckets = row["runnable_by_second"]
+        assert len(accepted_buckets) == len(delivered_buckets) == len(runnable_buckets) == seconds, row
+        assert sum(accepted_buckets) <= row["accepted"] and sum(delivered_buckets) <= row["delivered"], row
+        if row["kind"] < 7:
+            # Admission and service counts are reported separately. A receipt
+            # that remains runnable spans buckets even when sanitizers delay its
+            # service; source continuity adds no sanitizer latency threshold.
+            assert all(runnable_buckets), row
+        else:
+            # The close is deliberately requested after the declared interval,
+            # while every producer remains live until its decision starts.
+            assert sum(accepted_buckets) == sum(delivered_buckets) == 0, row
+            assert not any(runnable_buckets), row
         row["accepted_per_second"] = row["accepted"] / (native["measurement_ns"] / 1_000_000_000)
         row["attempted_per_second"] = (row["accepted"] + row["rejected"]) / (native["measurement_ns"] / 1_000_000_000)
         row["coalesced"] = 0
