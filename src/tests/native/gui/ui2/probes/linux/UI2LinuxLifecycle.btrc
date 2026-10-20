@@ -214,9 +214,10 @@ void verifyLifecycleCycle() {
 	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
 	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
 	UI2LinuxButtonChecks.retirement(application); UI2LinuxWindowStateChecks.state(application); UI2LinuxImageChecks.retainedPixels(application); UI2LinuxMutationChecks.mutation(application);
+	assert(application.context().actions.pendingCount() == 0);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(application.context().terminalPool.available() == credits);
-	assert(application.context().detachedEvents.pendingCount() == 0 && application.context().actions.pendingCount() == 0);
+	assert(application.context().detachedEvents.pendingCount() == 0);
 	assert(scope.pendingCount() == 0 && ui2NativeWindowCount() == 0);
 }
 

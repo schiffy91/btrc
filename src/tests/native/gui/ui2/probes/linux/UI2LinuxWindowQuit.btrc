@@ -114,9 +114,10 @@ void verifyNativeApplicationQuit() {
 	b.current().decide(WINDOW_CLOSE_DECISION_DISCARD, 4LL); pump(application);
 	assert(application.quitRequested() && !application.context().nativeQuitPending());
 	assert(a.current().state() == WINDOW_CLOSE_CLOSING && b.current().state() == WINDOW_CLOSE_CLOSING);
+	assert(application.context().actions.pendingCount() == 0);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE && !field.isOpen()); assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && scope.pendingCount() == 0);
 	assert(application.context().terminalPool.available() == creditsBefore);
-	assert(application.context().detachedEvents.pendingCount() == 0 && application.context().actions.pendingCount() == 0);
+	assert(application.context().detachedEvents.pendingCount() == 0);
 	assert(ui2NativeWindowCount() == 0);
 }
 
@@ -124,10 +125,11 @@ void verifyForcedApplicationClose() {
 	var application = LinuxApplication(8); int creditsBefore = application.context().terminalPool.available(); var scope = CallbackScope(); var window = application.createWindow("forced group", 140.0, 100.0);
 	var decision = WindowDecision(); window.onCloseRequested(decision, scope);
 	assert(ui2PushQuit() == 1); pump(application); assert(decision.calls == 1 && application.context().nativeQuitPending());
+	assert(application.context().actions.pendingCount() == 0);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE && decision.current().state() == WINDOW_CLOSE_OWNER_LOST);
 	assert(!application.context().nativeQuitPending()); assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && scope.pendingCount() == 0);
 	assert(application.context().terminalPool.available() == creditsBefore);
-	assert(application.context().detachedEvents.pendingCount() == 0 && application.context().actions.pendingCount() == 0);
+	assert(application.context().detachedEvents.pendingCount() == 0);
 	assert(ui2NativeWindowCount() == 0);
 }
 
@@ -156,9 +158,10 @@ void verifyQuitBeforePointerDecision(bool cancel) {
 	assert(first.isOpen() && second.isOpen() && !application.quitRequested() && field.text() == "kept");
 	if (cancel) { assert(original.state() == WINDOW_CLOSE_CANCELLED && b.current().state() == WINDOW_CLOSE_CANCELLED && !application.context().nativeQuitPending()); }
 	else { assert(original.state() == WINDOW_CLOSE_AUTHORIZED && application.context().nativeQuitPending()); b.current().decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL); pump(application); }
+	assert(application.context().actions.pendingCount() == 0);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE); assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && scope.pendingCount() == 0);
 	assert(application.context().terminalPool.available() == creditsBefore);
-	assert(application.context().detachedEvents.pendingCount() == 0 && application.context().actions.pendingCount() == 0);
+	assert(application.context().detachedEvents.pendingCount() == 0);
 	assert(ui2NativeWindowCount() == 0);
 }
 
