@@ -109,6 +109,11 @@ int main() {
 	bool nested = false; try { context.beginTreeMutation(); } catch (string error) { nested = true; } assert(nested);
 	assert(context.pending() && !context.dispatchOne() && heldObserver.states.isEmpty());
 	context.endTreeMutation(); assert(!context.treeMutationActive() && context.dispatchOne() && heldObserver.states.len == 1);
+	long long beforeTreeRevision = held.interactionState().stateRevision;
+	context.beginTreeMutation(); held.stateNode().treeChanged();
+	assert(held.interactionState().stateRevision == beforeTreeRevision + 1LL && heldObserver.states.len == 1 && !context.dispatchOne());
+	context.endTreeMutation(); assert(context.dispatchOne() && heldObserver.states.len == 2 && !context.pending());
+	assert(heldObserver.states.get(1).stateRevision == beforeTreeRevision + 1LL);
 	assert(heldRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE && heldOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && held.close() == CALLBACK_CANCELLATION_COMPLETE);
 	context.close(); assert(signal.close());
 	print("PASS: UI2 macOS native view state subtree eligibility and deferred observations"); return 0;

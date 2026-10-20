@@ -289,6 +289,8 @@ class MacOSViewState implements IControlEventTarget {
 
 	public void setLayoutParticipating(bool participating) { self.requireOpen(); if (self._state.layoutParticipating == participating) { return; } self.revision(); self._state.layoutParticipating = participating; self.publish(); }
 
+	public void treeChanged() { self.requireOpen(); self.revision(); self.publish(); }
+
 	public void quarantine() { self.requireOpen(); self.revision(); self._state.faulted = true; self.refresh(); }
 
 	private bool contains(MacOSViewState node) { if (self == node) { return true; } for child in self._children { if (child.contains(node)) { return true; } } return false; }
