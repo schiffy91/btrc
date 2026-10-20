@@ -417,6 +417,8 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
+	"-[NSMenu setDelegate:]", "-[NSMenu delegate]", "-[NSMenu cancelTracking]",
+	"-[NSMenuDelegate menuWillOpen:]", "-[NSMenuDelegate menuDidClose:]", "-[NSMenuDelegate menu:willHighlightItem:]",
 	"+[NSThread isMainThread]", "+[NSPopUpButton new]", "-[NSPopUpButton setPullsDown:]", "-[NSPopUpButton setAutoenablesItems:]",
 	"-[NSPopUpButton setMenu:]", "-[NSPopUpButton selectItemAtIndex:]", "-[NSPopUpButton indexOfSelectedItem]", "-[NSPopUpButton titleOfSelectedItem]",
 	"-[NSPopUpButton numberOfItems]", "-[NSPopUpButton setEnabled:]", "-[NSPopUpButton isEnabled]",
@@ -425,6 +427,17 @@ symbols = [
 	"-[NSPopUpButton itemAtIndex:]", "-[NSMenuItem setEnabled:]", "-[NSMenuItem isEnabled]"
 ]
 os = ["macos"]
+
+[native.bindings.callbacks."-[NSMenu setDelegate:].delegate"]
+interface = "IAppKitMenuEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSMenu setDelegate:]"
+slot-getter = "-[NSMenu delegate]"
+methods = ["-[NSMenuDelegate menuWillOpen:]", "-[NSMenuDelegate menuDidClose:]", "-[NSMenuDelegate menu:willHighlightItem:]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
 
 [[native.bindings]]
 module = "MacOS.MacOSWindow"
