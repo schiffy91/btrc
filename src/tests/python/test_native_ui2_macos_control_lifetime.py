@@ -55,7 +55,10 @@ def test_macos_ui2_control_lifetime(native_project, native_compile, gui_provider
             flags += ["-fobjc-arc", "-fobjc-exceptions", "-fobjc-arc-exceptions"]
         if sanitized and Path(command[0]).name in {"clang", "clang++"}:
             flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
-        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+        actual = [command[0], *flags, *command[1:]]
+        with (package / "control-lifetime-build-commands.jsonl").open("a") as log:
+            log.write(json.dumps([str(argument) for argument in actual]) + "\n")
+        return subprocess.run(actual, env=apple_environment(), **kwargs)
 
     NativePlanBuilder(runner=runner).build(
         plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
