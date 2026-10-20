@@ -107,7 +107,7 @@ def test_generated_checker_is_non_mutating() -> None:
         cwd=REPO,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=TRANSPILE_TIMEOUT,
     )
 
     assert result.returncode == 0, result.stderr
