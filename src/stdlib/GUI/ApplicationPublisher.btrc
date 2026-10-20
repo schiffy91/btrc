@@ -238,6 +238,7 @@ class ApplicationPublisher implements IApplicationPublisher, ICallbackRegistrati
 		ApplicationPublicationDisposition disposition = APPLICATION_PUBLICATION_CANCELLED;
 		try {
 			if (receiver != null) {
+				if (handler == null) { throw "Publisher delivery has no entered callback"; }
 				disposition = APPLICATION_PUBLICATION_FAILED;
 				try {
 					var publication = ApplicationPublication(); publication.generation = slot.generation;

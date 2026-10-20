@@ -332,6 +332,7 @@ class LinuxViewNode implements IControlEventTarget, ILinuxActionTarget {
 
 	private ViewInteractionState snapshot() {
 		var state = ViewInteractionState(); var current = self._state;
+		if (current == null) { throw "Native interaction state is not initialized"; }
 		state.localVisible = current.localVisible; state.localEnabled = current.localEnabled;
 		state.inheritedEligible = current.inheritedEligible; state.effectiveEligible = current.effectiveEligible;
 		state.layoutParticipating = current.layoutParticipating; state.exposure = current.exposure;
@@ -452,7 +453,7 @@ class LinuxViewNode implements IControlEventTarget, ILinuxActionTarget {
 		if (prepared == null && !transition.prepare(childNode, self.host)) { throw "Native attachment capture capacity unavailable"; }
 		self.children.push(child); childNode.attached = true;
 		child.attachTo(self.host);
-		childNode.markInteraction(self._state.effectiveEligible); childNode.settleInteraction();
+		childNode.markInteraction(self.effectiveEligible()); childNode.settleInteraction();
 		if (prepared == null) { transition.commit(); childNode.publishInteraction(); transition.finish(); }
 		self.invalidate();
 	}
