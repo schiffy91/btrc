@@ -141,7 +141,7 @@ static void observeCaret(NSWindow *target, NSTextView *editor, BOOL restart) {
     [caretContexts addObject:@{
         @"application_active": @(NSApp.isActive), @"window_key": @(target.isKeyWindow),
         @"field_editor": @(editor.isFieldEditor),
-        @"collapsed_selection": @(editor.selectedRange.length == 0),
+        @"collapsed_selection": @((BOOL)(editor.selectedRange.length == 0)),
         @"restart_timer": @(restart)
     }];
 }
