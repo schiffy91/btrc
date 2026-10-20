@@ -26,6 +26,7 @@ class FairnessProducer implements INativeWorkerBody {
 	public int workLoop() {
 		long long sequence = 0LL;
 		while (!self.stop.load(MemoryOrder.ACQUIRE)) {
+			e40ProducerTick();
 			for (int index = 0; index < 4; index++) { e40PushInput(index % 2); }
 			if (self.ready.load(MemoryOrder.ACQUIRE)) {
 				self.ready.store(false, MemoryOrder.RELEASE);
@@ -132,8 +133,8 @@ int main(int argc, char** argv) {
 	assert(created.kind == APPLICATION_PUBLISHER_CREATED && publisher != null);
 	var producer = FairnessProducer(publisher); receiver.producer = producer; var worker = NativeWorker();
 	var timer = FairnessWork(application, 2); var immediate = FairnessWork(application, 3); var delayed = FairnessWork(application, 4);
+	unsigned long long began = e40LoadBegin(seconds); unsigned long long until = began + (unsigned long long)seconds * 1000000000ULL;
 	timer.arm(); immediate.arm(); delayed.arm();
-	unsigned long long began = SDL_GetTicksNS(); unsigned long long until = began + (unsigned long long)seconds * 1000000000ULL;
 	assert(worker.start(producer) == NATIVE_WORKER_STARTED);
 	var presentation = FairnessPresentation(firstLabel, secondLabel);
 	while (SDL_GetTicksNS() < until) { presentation.invalidate(); application.pumpOnce(0); }

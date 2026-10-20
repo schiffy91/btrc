@@ -2,6 +2,8 @@
 #define BTRC_TEST_LINUX_FAIRNESS_H
 /* Native fixture instrumentation only. All times are SDL monotonic nanoseconds. */
 void e40Start(unsigned int first, unsigned int second, const char *presentations);
+unsigned long long e40LoadBegin(int seconds);
+void e40ProducerTick(void);
 void e40Begin(int kind, long long sequence, unsigned long long due, int payloadBytes);
 void e40Reject(int kind, long long sequence);
 void e40Deliver(int kind, long long sequence);

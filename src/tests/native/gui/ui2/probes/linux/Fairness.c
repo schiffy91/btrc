@@ -15,6 +15,7 @@
 #define CLASSES 8
 #define SLOTS 128
 #define BINS 10002
+#define ACTIVITY_SECONDS 600
 #define KEY_BASE 0x20000000u
 struct Receipt { long long sequence; uint64_t admitted, due; int bytes; };
 struct Metrics {
@@ -22,6 +23,8 @@ struct Metrics {
     long long accepted, rejected, delivered, lastSequence;
     int pending, peakDepth, bytes, peakBytes;
     uint64_t latency[BINS], maximumLatency, maximumWait, maximumGap, lastService, handlerMaximum;
+    long long acceptedBySecond[ACTIVITY_SECONDS], deliveredBySecond[ACTIVITY_SECONDS];
+    bool runnableBySecond[ACTIVITY_SECONDS];
 };
 static struct Metrics metrics[CLASSES];
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -32,10 +35,20 @@ static long long frameSequence[2], inputSequence, latestInput;
 static int nativePeakDepth;
 static unsigned long long inputPauses;
 static uint64_t measurementStarted;
+static uint64_t loadStarted, loadEnds, producerLastTick, producerMaximumGap;
+static unsigned long long producerIterations, producerBySecond[ACTIVITY_SECONDS];
+static int loadSeconds;
 static FILE *presentationFile;
 static bool measuring;
 
 static void requireKind(int kind) { assert(kind >= 0 && kind < CLASSES); }
+/* Buckets cover the exact declared load interval. Setup, close and final drain
+ * cannot fill a missing load bucket. This helper is called under the mutex. */
+static int activitySecond(uint64_t now) {
+    if (loadStarted == 0 || now < loadStarted || now >= loadEnds) { return -1; }
+    int second = (int)((now - loadStarted) / 1000000000ULL);
+    assert(second >= 0 && second < loadSeconds); return second;
+}
 static void delivered(int kind, long long sequence, uint64_t now) {
     struct Metrics *m = &metrics[kind];
     struct Receipt *r = &m->receipts[(uint64_t)sequence % SLOTS];
@@ -59,6 +72,18 @@ static void delivered(int kind, long long sequence, uint64_t now) {
     if (serviceGap > m->maximumGap) { m->maximumGap = serviceGap; }
     m->lastService = now;
     m->delivered++; m->lastSequence = sequence; m->pending--; m->bytes -= r->bytes;
+    int second = activitySecond(now);
+    if (second >= 0) { m->deliveredBySecond[second]++; }
+    /* A delayed sanitizer delivery still proves the class remained runnable.
+     * Requiring delivery in every bucket would introduce a new latency limit.
+     * Record the accepted receipt's entire due-to-delivery interval instead. */
+    uint64_t activeFrom = r->due > loadStarted ? r->due : loadStarted;
+    uint64_t activeUntil = now < loadEnds ? now : loadEnds - 1;
+    if (loadStarted != 0 && activeFrom <= activeUntil && activeFrom < loadEnds) {
+        int first = (int)((activeFrom - loadStarted) / 1000000000ULL);
+        int last = (int)((activeUntil - loadStarted) / 1000000000ULL);
+        for (int bucket = first; bucket <= last; bucket++) { m->runnableBySecond[bucket] = true; }
+    }
     assert(m->pending >= 0 && m->bytes >= 0);
     memset(r, 0, sizeof(*r));
 }
@@ -71,6 +96,8 @@ void e40Begin(int kind, long long sequence, unsigned long long due, int payloadB
     r->sequence = sequence; r->admitted = SDL_GetTicksNS();
     r->due = due > r->admitted ? due : r->admitted; r->bytes = payloadBytes;
     m->accepted++; m->pending++; m->bytes += payloadBytes;
+    int second = activitySecond(r->admitted);
+    if (second >= 0) { m->acceptedBySecond[second]++; }
     if (m->pending > m->peakDepth) { m->peakDepth = m->pending; }
     if (m->bytes > m->peakBytes) { m->peakBytes = m->bytes; }
     pthread_mutex_unlock(&mutex);
@@ -81,6 +108,8 @@ void e40Reject(int kind, long long sequence) {
     struct Receipt *r = &m->receipts[(uint64_t)sequence % SLOTS];
     assert(r->sequence == sequence); /* A rejected input cannot have delivered. */
     m->accepted--; m->rejected++; m->pending--; m->bytes -= r->bytes;
+    int second = activitySecond(r->admitted);
+    if (second >= 0) { assert(m->acceptedBySecond[second] > 0); m->acceptedBySecond[second]--; }
     memset(r, 0, sizeof(*r)); pthread_mutex_unlock(&mutex);
 }
 void e40Deliver(int kind, long long sequence) {
@@ -163,12 +192,39 @@ void e40Start(unsigned int first, unsigned int second, const char *presentations
     assert(fputs("window,monotonic_ns\n", presentationFile) >= 0);
     measurementStarted = SDL_GetTicksNS(); measuring = true;
 }
+unsigned long long e40LoadBegin(int seconds) {
+    assert(seconds == 10 || seconds == ACTIVITY_SECONDS);
+    assert(loadStarted == 0 && measuring);
+    loadSeconds = seconds; loadStarted = SDL_GetTicksNS();
+    loadEnds = loadStarted + (uint64_t)seconds * 1000000000ULL;
+    return loadStarted;
+}
+void e40ProducerTick(void) {
+    pthread_mutex_lock(&mutex);
+    uint64_t now = SDL_GetTicksNS();
+    int second = activitySecond(now);
+    if (second >= 0) {
+        uint64_t previous = producerLastTick == 0 ? loadStarted : producerLastTick;
+        uint64_t gap = now - previous;
+        if (gap > producerMaximumGap) { producerMaximumGap = gap; }
+        producerLastTick = now; producerIterations++; producerBySecond[second]++;
+    }
+    pthread_mutex_unlock(&mutex);
+}
 void e40Report(unsigned long long duration, int qualifying, int sanitized) {
     measuring = false; assert(fclose(presentationFile) == 0); presentationFile = NULL;
-    printf("E40_LOAD {\"duration_ns\":%llu,\"measurement_ns\":%llu,\"qualifying\":%s,\"sanitized\":%s,\"source_backpressure_pauses\":%llu,\"native_sampled_peak_depth\":%d,\"native_sampled_peak_event_bytes\":%llu,\"classes\":[",
+    uint64_t tail = loadEnds - (producerLastTick == 0 ? loadStarted : producerLastTick);
+    if (tail > producerMaximumGap) { producerMaximumGap = tail; }
+    printf("E40_LOAD {\"duration_ns\":%llu,\"measurement_ns\":%llu,\"qualifying\":%s,\"sanitized\":%s,\"source_backpressure_pauses\":%llu,\"native_sampled_peak_depth\":%d,\"native_sampled_peak_event_bytes\":%llu,\"activity_bucket_ns\":1000000000,\"load_started_ns\":%llu,\"load_ends_ns\":%llu,\"producer_iterations\":%llu,\"producer_max_gap_ns\":%llu,\"producer_by_second\":[",
            duration, (unsigned long long)(SDL_GetTicksNS() - measurementStarted),
            qualifying ? "true" : "false", sanitized ? "true" : "false", inputPauses, nativePeakDepth,
-           (unsigned long long)nativePeakDepth * sizeof(SDL_Event));
+           (unsigned long long)nativePeakDepth * sizeof(SDL_Event),
+           (unsigned long long)loadStarted, (unsigned long long)loadEnds,
+           producerIterations, (unsigned long long)producerMaximumGap);
+    for (int second = 0; second < loadSeconds; second++) {
+        printf("%s%llu", second == 0 ? "" : ",", producerBySecond[second]);
+    }
+    printf("],\"classes\":[");
     for (int kind = 0; kind < CLASSES; kind++) {
         struct Metrics *m = &metrics[kind];
         assert(m->accepted == m->delivered && m->pending == 0 && m->bytes == 0 && m->delivered > 0);
@@ -180,9 +236,21 @@ void e40Report(unsigned long long duration, int qualifying, int sanitized) {
                 break;
             }
         }
-        printf("%s{\"kind\":%d,\"accepted\":%lld,\"rejected\":%lld,\"delivered\":%lld,\"pending\":%d,\"peak_depth_including_admission\":%d,\"peak_payload_bytes\":%d,\"p95_upper_ns\":%llu,\"max_runnable_wait_ns\":%llu,\"max_service_gap_ns\":%llu,\"max_handler_ns\":%llu}",
+        printf("%s{\"kind\":%d,\"accepted\":%lld,\"rejected\":%lld,\"delivered\":%lld,\"pending\":%d,\"peak_depth_including_admission\":%d,\"peak_payload_bytes\":%d,\"p95_upper_ns\":%llu,\"max_runnable_wait_ns\":%llu,\"max_service_gap_ns\":%llu,\"max_handler_ns\":%llu,\"accepted_by_second\":[",
                kind == 0 ? "" : ",", kind, m->accepted, m->rejected, m->delivered, m->pending, m->peakDepth, m->peakBytes,
                (unsigned long long)percentile, (unsigned long long)m->maximumWait, (unsigned long long)m->maximumGap, (unsigned long long)m->handlerMaximum);
+        for (int second = 0; second < loadSeconds; second++) {
+            printf("%s%lld", second == 0 ? "" : ",", m->acceptedBySecond[second]);
+        }
+        printf("],\"delivered_by_second\":[");
+        for (int second = 0; second < loadSeconds; second++) {
+            printf("%s%lld", second == 0 ? "" : ",", m->deliveredBySecond[second]);
+        }
+        printf("],\"runnable_by_second\":[");
+        for (int second = 0; second < loadSeconds; second++) {
+            printf("%s%s", second == 0 ? "" : ",", m->runnableBySecond[second] ? "true" : "false");
+        }
+        printf("]}");
     }
     puts("]}"); fflush(stdout);
 }
