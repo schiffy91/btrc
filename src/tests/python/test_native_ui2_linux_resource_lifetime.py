@@ -79,13 +79,14 @@ WRAPPERS = (
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 def test_linux_ui2_native_resource_lifetime(tmp_path_factory, request, frontend, sanitized):
-    probe = "src/tests/native/gui/ui2/probes/linux/UI2LinuxResourceLifetime"
+    program = "src/tests/native/gui/ui2/probes/linux/UI2LinuxResourceLifetime.btrc"
+    probe = program.removesuffix(".btrc")
     executable = build_observed_provider_program(
         tmp_path_factory,
         request,
         frontend,
         sanitized,
-        probe + ".btrc",
+        program,
         probe,
         ("ui2ResourceBegin", "ui2ResourceEnd", "ui2ResourcePointer", "ui2ResourceCursorCount"),
         WRAPPERS,
