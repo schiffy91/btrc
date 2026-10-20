@@ -66,6 +66,11 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
             marks=pytest.mark.macos_gui,
         ),
         pytest.param(
+            "UI2MacOSApplicationQuit",
+            "PASS: UI2 macOS native application quit cancels and retries before shutdown",
+            marks=pytest.mark.macos_gui,
+        ),
+        pytest.param(
             "UI2MacOSApplicationPublisher",
             "PASS: UI2 macOS application worker publication and shutdown",
             marks=pytest.mark.macos_gui,
@@ -131,15 +136,16 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
             + "]\n"
             + f'[[native.sources]]\npath = "{fixture}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
-    if fixture == "UI2MacOSApplicationHost":
+    if fixture in {"UI2MacOSApplicationHost", "UI2MacOSApplicationQuit"}:
         for suffix in ("h", "m"):
             name = f"{fixture}.{suffix}"
             (package / name).write_text((root / "src/tests/native/gui/ui2/probes/macos" / name).read_text())
+        symbol = "btrcUI2ApplicationDelegate" if fixture == "UI2MacOSApplicationHost" else "btrcUI2RequestNativeQuit"
         manifest.write_text(
-            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "UI2MacOSApplicationHost.h"\n'
+            manifest.read_text() + f'\n[[native.bindings]]\nmodule = "Main"\nheader = "{fixture}.h"\n'
             'language = "c"\nstandard = "c11"\nos = ["macos"]\n'
-            'symbols = ["btrcUI2ApplicationDelegate"]\n'
-            '[[native.sources]]\npath = "UI2MacOSApplicationHost.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+            f'symbols = ["{symbol}"]\n'
+            f'[[native.sources]]\npath = "{fixture}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     (source.parent / "PublisherChecks.btrc").write_text(
         (root / "src/tests/native/gui/ui2/PublisherChecks.btrc").read_text()

@@ -109,6 +109,12 @@ new decision must cancel the held permission. The owner publishes the revision
 change on the UI executor before treating that edit as committed. Worker save
 results still return through that executor. Lower revisions change nothing.
 
+On macOS, the native quit callback captures window identities and handler
+generations and holds existing transactions before returning. It admits no new
+decision callbacks. The next ordinary turn validates that snapshot before
+requesting missing decisions. A cancellation between capture and that turn
+cancels the group, including a transaction created during the interval.
+
 A change to window membership or close-handler generation cancels the group;
 a new native quit request obtains fresh decisions. Windows without handlers
 remain open while the group waits, including repeated native window-close

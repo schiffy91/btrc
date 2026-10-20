@@ -1,0 +1,105 @@
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.MacOS.MacOSApplication;
+
+#include <assert.h>
+
+class NativeQuitStep implements IApplicationWork {
+	private NativeQuitScenario _scenario;
+	private int _step;
+	public NativeQuitStep(NativeQuitScenario scenario, int step) { self._scenario = scenario; self._step = step; }
+
+	public void run() { self._scenario.runStep(self._step); }
+}
+
+class NativeQuitDecision implements IWindowCloseRequestHandler {
+	private NativeQuitScenario _scenario;
+	private bool _first;
+	public NativeQuitDecision(NativeQuitScenario scenario, bool first) { self._scenario = scenario; self._first = first; }
+
+	public void closeRequested(IWindowCloseTransaction transaction) { self._scenario.decide(self._first, transaction); }
+}
+
+class NativeQuitScenario {
+	public MacOSApplication application = MacOSApplication(4);
+	public IWindow first;
+	public IWindow second;
+	public IWindow clean;
+	public CallbackScope owner = CallbackScope();
+	public int firstCalls = 0;
+	public int secondCalls = 0;
+	private IWindowCloseTransaction? _firstTransaction;
+	private IWindowCloseTransaction? _secondTransaction;
+	private long long _firstSaveAttempt = 0LL;
+	private long long _saveAttempt = 0LL;
+	public NativeQuitScenario() {
+		self.first = self.application.createWindow("native quit first", 100.0, 100.0);
+		self.second = self.application.createWindow("native quit second", 100.0, 100.0);
+		self.clean = self.application.createWindow("native quit clean", 100.0, 100.0);
+		self.first.onCloseRequested(NativeQuitDecision(self, true), self.owner);
+		self.second.onCloseRequested(NativeQuitDecision(self, false), self.owner);
+	}
+
+	private IWindowCloseTransaction firstTransaction() { var transaction = self._firstTransaction; if (transaction == null) { throw "Missing first native quit transaction"; } return transaction; }
+
+	private IWindowCloseTransaction secondTransaction() { var transaction = self._secondTransaction; if (transaction == null) { throw "Missing second native quit transaction"; } return transaction; }
+
+	private void requireWindowsOpen() { assert(self.first.isOpen() && self.second.isOpen() && self.clean.isOpen() && !self.application.quitRequested()); }
+
+	public void runStep(int step) {
+		self.requireWindowsOpen();
+		assert(self.firstCalls == 1 && self.secondCalls == 1);
+		if (step == 0) {
+			assert(self.firstTransaction().state() == WINDOW_CLOSE_SAVING && self.secondTransaction().state() == WINDOW_CLOSE_SAVING);
+			btrcUI2RequestNativeQuit(); btrcUI2RequestNativeQuit();
+			// A save can finish synchronously after the native delegate returns,
+			// before the ordinary turn starts collecting group decisions.
+			assert(self.firstTransaction().completeSave(self._firstSaveAttempt, 1LL, true, "").state == WINDOW_CLOSE_AUTHORIZED);
+			self.requireWindowsOpen();
+			assert(self.secondTransaction().decide(WINDOW_CLOSE_DECISION_CANCEL, 2LL).state == WINDOW_CLOSE_CANCELLED);
+			btrcUI2RequestNativeQuit();
+			assert(self.firstCalls == 1 && self.secondCalls == 1);
+			self.requireWindowsOpen(); self.application.post(NativeQuitStep(self, 1));
+		} else {
+			assert(step == 1 && self.firstTransaction().state() == WINDOW_CLOSE_CANCELLED);
+			assert(self.secondTransaction().completeSave(self._saveAttempt, 2LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+			btrcUI2RequestNativeQuit(); btrcUI2RequestNativeQuit();
+			assert(self.firstCalls == 1 && self.secondCalls == 1);
+			self.requireWindowsOpen();
+		}
+	}
+
+	public void decide(bool first, IWindowCloseTransaction transaction) {
+		self.requireWindowsOpen();
+		if (first) {
+			self.firstCalls++;
+			assert(self.firstCalls <= 2 && transaction != self._firstTransaction);
+			self._firstTransaction = transaction;
+			if (self.firstCalls == 1) {
+				var saving = transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 1LL);
+				assert(saving.state == WINDOW_CLOSE_SAVING && saving.attempt > 0LL); self._firstSaveAttempt = saving.attempt;
+			} else { assert(transaction.decide(WINDOW_CLOSE_DECISION_DISCARD, 1LL).state == WINDOW_CLOSE_AUTHORIZED); }
+		} else {
+			self.secondCalls++;
+			assert(self.secondCalls <= 2 && transaction != self._secondTransaction);
+			self._secondTransaction = transaction;
+			if (self.secondCalls == 1) {
+				var saving = transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 2LL);
+				assert(saving.state == WINDOW_CLOSE_SAVING && saving.attempt > 0LL); self._saveAttempt = saving.attempt;
+			} else { assert(transaction.decide(WINDOW_CLOSE_DECISION_DISCARD, 2LL).state == WINDOW_CLOSE_AUTHORIZED); }
+		}
+		self.requireWindowsOpen();
+		if (self.firstCalls == 1 && self.secondCalls == 1) { self.application.post(NativeQuitStep(self, 0)); }
+	}
+}
+
+int main() {
+	var scenario = NativeQuitScenario();
+	scenario.first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); scenario.second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST);
+	scenario.application.run();
+	assert(scenario.firstCalls == 2 && scenario.secondCalls == 2);
+	assert(!scenario.first.isOpen() && !scenario.second.isOpen() && !scenario.clean.isOpen());
+	assert(scenario.owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && scenario.application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	print("PASS: UI2 macOS native application quit cancels and retries before shutdown"); return 0;
+}

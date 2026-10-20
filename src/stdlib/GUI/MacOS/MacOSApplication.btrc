@@ -42,8 +42,8 @@ import Library.GUI.IGrid;
 import Library.GUI.MacOS.MacOSGrid;
 import Library.Image;
 
-/* Query callbacks only request loop exit. Returning Cancel prevents AppKit
- * from exiting the process before ordinary BTRC shutdown has run. */
+/* Native quit captures a reversible group. Returning Cancel keeps AppKit
+ * from exiting before the ordinary UI turn resolves it and runs shutdown. */
 class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotificationObserver {
 	public bool quitRequested = false;
 	private MacOSApplicationExecutor _executor;
@@ -59,6 +59,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 	private CallbackScope _shutdown;
 	private ICallbackRegistration? _shutdownTick;
 	private bool _dispatchingEvents = false;
+	private MacOSWindowQuitCoordinator? _quitCoordinator;
 	private Timer _shutdownClock = Timer();
 	private bool _shutdownTimed = false;
 
@@ -77,6 +78,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 		self._dispatchingEvents = true;
 		try {
 			self._viewContext.checkNativeFailure();
+			self.serviceNativeQuit();
 			self.dispatchWindowEvents();
 			self._executor.serviceTurn();
 			unsigned long long semanticStart = MacOSApplicationExecutor.now();
@@ -85,12 +87,21 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 			int count = self._actions.pendingCount();
 			for (int index = 0; index < count && index < 64 && !self.quitRequested && MacOSApplicationExecutor.now() - started < 2000000ULL; index++) { self._viewContext.checkNativeFailure(); self._actions.dispatchOne(); self._viewContext.checkNativeFailure(); }
 			self.dispatchWindowEvents();
+			self.serviceNativeQuit();
 		} catch (string error) { self.failWork(error); }
 		finally {
 			self._dispatchingEvents = false;
 			if (self.quitRequested && self._executor.pendingWork() == 0) { self.stop(NSApplication.sharedApplication()); }
 			else if (!self.quitRequested) { self._actions.wake(); if (self._viewContext.pending() && !self._viewContext.wake.requestTurn()) { self.failWork("Application semantic wake failed"); } }
 		}
+	}
+
+	private void serviceNativeQuit() {
+		if (self.quitRequested || !self._viewContext.nativeQuitPending()) { return; }
+		var coordinator = self._quitCoordinator;
+		if (coordinator == null) { throw "Native quit capture is unavailable"; }
+		if (coordinator.advance()) { coordinator.commit(); self._quitCoordinator = null; self.requestQuit(NSApplication.sharedApplication()); }
+		else if (coordinator.cancelled()) { self._quitCoordinator = null; }
 	}
 
 	public bool eventsActive() { return self._dispatchingEvents; }
@@ -225,7 +236,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 		if (!self._viewCloseFailure.isEmpty()) { throw self._viewCloseFailure; }
 		if (result == CALLBACK_CANCELLATION_COMPLETE) {
 			for view in self._views { if (view.isOpen()) { throw "GUI view remains attached outside application ownership"; } }
-			self._views.clear();
+			self._views.clear(); self._quitCoordinator = null; self._viewContext.setNativeQuitPending(false);
 		}
 		return result;
 	}
@@ -235,7 +246,14 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 	}
 
 	public unsigned long applicationShouldTerminate(NSApplication sender) {
-		self.requestQuit(sender);
+		// Capture identities and hold existing transactions before returning to
+		// native dispatch. Decision callbacks remain on the ordinary UI turn.
+		if (!self.quitRequested) {
+			try {
+				if (self._quitCoordinator == null) { self._quitCoordinator = MacOSWindowQuitCoordinator(self._windows, self._viewContext); }
+				if (!self._viewContext.wake.requestTurn()) { throw "Native quit wake failed"; }
+			} catch (string error) { self._viewContext.recordNativeFailure(error); }
+		}
 		return NSTerminateCancel;
 	}
 }

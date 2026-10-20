@@ -146,6 +146,7 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 	private long long _nextSaveAttempt = 1LL;
 	private long long _closeHandlerGeneration = 0LL;
 	private bool _quitHeld = false;
+	private bool _quitHoldCancelled = false;
 
 	public MacOSWindow(string title, double width, double height, MacOSRunLoopSignal? signal = null, MacOSViewContext? context = null) {
 		self._window = null;
@@ -304,7 +305,7 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 		if (registration == null || !registration.isOpen() || channel == null || !channel.isOpen()) { result.kind = WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER; if (!self._quitHeld && (self._viewContext == null || !self._viewContext.nativeQuitPending())) { self.close(); } return result; }
 		if (self._nextCloseInteraction == 9223372036854775807LL) { throw "Window close interaction identities exhausted"; }
 		var ticket = channel.beginInteraction(); if (ticket == null) { throw "Window close handler is no longer live"; }
-		var transaction = MacOSWindowCloseTransaction(self, self.semanticContext(), coordinated); long long interaction = self._nextCloseInteraction++;
+		var transaction = MacOSWindowCloseTransaction(self, self.semanticContext(), coordinated || self._quitHeld); long long interaction = self._nextCloseInteraction++;
 		try { channel.publishTerminal(transaction, 1LL, interaction, ticket); }
 		catch (string error) { ticket.retire(); transaction.resolve(WINDOW_CLOSE_CANCELLED); throw error; }
 		self._transaction = transaction; result.kind = WINDOW_CLOSE_REQUEST_PENDING; result.transaction = transaction; return result;
@@ -319,7 +320,9 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 
 	public long long nextCloseSaveAttempt() { self.requireMainThread(); if (self._nextSaveAttempt == 9223372036854775807LL) { throw "Window save attempts exhausted"; } return self._nextSaveAttempt++; }
 
-	public void retireCloseTransaction(MacOSWindowCloseTransaction transaction) { self.requireMainThread(); if (self._transaction == transaction) { self._transaction = null; } self.wakeCloseCoordinator(); }
+	public void retireCloseTransaction(MacOSWindowCloseTransaction transaction) {
+		self.requireMainThread(); if (self._transaction == transaction) { if (self._quitHeld) { self._quitHoldCancelled = true; } self._transaction = null; } self.wakeCloseCoordinator();
+	}
 
 	public void wakeCloseCoordinator() { self.requireMainThread(); self._events.wake(); }
 
@@ -330,6 +333,7 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 
 	public void closeHandlerCancelled(MacOSWindowCloseRegistration registration) {
 		self.requireMainThread(); if (self._closeRegistration != registration) { return; }
+		if (self._quitHeld) { self._quitHoldCancelled = true; }
 		self._events.interceptClose = self._quitHeld; self._events.closeRequested = false;
 		var pending = self._transaction;
 		if (pending != null) { pending.resolve(self._closing || self._events.closed ? WINDOW_CLOSE_OWNER_LOST : WINDOW_CLOSE_CANCELLED); self._transaction = null; }
@@ -342,7 +346,16 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 
 	public bool hasCloseHandler() { self.requireMainThread(); return self._closeRegistration != null && self._closeRegistration.isOpen() && self._closeChannel != null && self._closeChannel.isOpen(); }
 
-	public void releaseQuitHold() { self.requireMainThread(); self._quitHeld = false; self._events.interceptClose = self.hasCloseHandler(); self._events.closeRequested = false; }
+	/* Native quit capture only marks ownership; decision admission is deferred. */
+	public void captureQuitHold() {
+		self.requireMainThread(); if (!self.isOpen()) { throw "Cannot hold a closing window for native quit"; }
+		self._quitHeld = true; self._events.interceptClose = true;
+		var transaction = self._transaction; if (transaction != null && transaction.pending()) { transaction.holdForQuit(); }
+	}
+
+	public bool quitHoldCancelled() { self.requireMainThread(); return self._quitHoldCancelled; }
+
+	public void releaseQuitHold() { self.requireMainThread(); self._quitHeld = false; self._quitHoldCancelled = false; self._events.interceptClose = self.hasCloseHandler(); self._events.closeRequested = false; }
 
 	public bool validatesCloseAuthorization(MacOSWindowCloseTransaction transaction, long long generation, long long revision) {
 		self.requireMainThread(); return self._quitHeld && self.isPendingClose(transaction) && self.hasCloseHandler() && self._closeHandlerGeneration == generation && transaction.coordinatedAuthorization() && transaction.acknowledgedRevision() == revision;
@@ -690,11 +703,11 @@ class MacOSWindowQuitMember {
 	public MacOSWindow window;
 	public MacOSWindowCloseTransaction? transaction;
 	public long long handlerGeneration;
+	public bool hasHandler;
 	public long long revision = 0LL;
-	public MacOSWindowQuitMember(MacOSWindow window, WindowCloseRequestOutcome request) {
-		self.window = window; self.handlerGeneration = window.closeHandlerGeneration(); self.transaction = window.coordinatedTransaction();
-		if (request.kind != WINDOW_CLOSE_REQUEST_PENDING && request.kind != WINDOW_CLOSE_REQUEST_ALREADY_PENDING && request.kind != WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER) { throw "Cannot include a closing window in native quit"; }
-		if ((request.kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER) != (self.transaction == null)) { throw "Native quit transaction identity is inconsistent"; }
+	public MacOSWindowQuitMember(MacOSWindow window) {
+		self.window = window; self.handlerGeneration = window.closeHandlerGeneration();
+		self.hasHandler = window.hasCloseHandler(); self.transaction = window.coordinatedTransaction();
 	}
 }
 
@@ -702,41 +715,58 @@ class MacOSWindowQuitCoordinator {
 	private Vector<MacOSWindow> _windows;
 	private Vector<MacOSWindowQuitMember> _members = [];
 	private MacOSViewContext _context;
-	private bool _started = false;
 	private bool _cancelled = false;
 	private bool _committed = false;
-	public MacOSWindowQuitCoordinator(Vector<MacOSWindow> windows, MacOSViewContext context) { context.requireUI(); self._windows = windows; self._context = context; context.setNativeQuitPending(true); }
+	public MacOSWindowQuitCoordinator(Vector<MacOSWindow> windows, MacOSViewContext context) {
+		context.requireUI(); self._windows = windows; self._context = context; context.setNativeQuitPending(true);
+		try {
+			for window in windows {
+				if (window.isOpen()) {
+					// Retain the captured identity before changing its private hold.
+					self._members.push(MacOSWindowQuitMember(window)); window.captureQuitHold();
+				}
+			}
+		} catch (string error) { self.cancel(); throw error; }
+	}
 
 	public bool cancelled() { self._context.requireUI(); return self._cancelled; }
 
 	public void cancel() {
 		self._context.requireUI(); if (self._cancelled || self._committed) { return; }
 		self._cancelled = true;
-		for member in self._members { member.window.cancelCoordinatedClose(member.transaction); }
+		for member in self._members { member.window.cancelCoordinatedClose(member.window.coordinatedTransaction()); }
 		self._context.setNativeQuitPending(false);
 	}
 
 	public bool advance() {
 		self._context.requireUI(); if (self._cancelled || self._committed) { return false; }
-		if (!self._started) {
-			self._started = true;
-			try { for window in self._windows { if (window.isOpen()) { self._members.push(MacOSWindowQuitMember(window, window.requestCoordinatedClose())); } } }
-			catch (string error) { self.cancel(); throw error; }
-		}
 		int open = 0;
 		for window in self._windows {
 			if (window.isOpen()) { open++; bool found = false; for member in self._members { if (member.window == window) { found = true; } } if (!found) { self.cancel(); return false; } }
 		}
 		if (open != self._members.len) { self.cancel(); return false; }
+		// Validate every captured member before publishing any new decision.
+		for member in self._members {
+			if (!member.window.isOpen() || member.window.closeHandlerGeneration() != member.handlerGeneration || member.window.hasCloseHandler() != member.hasHandler || member.window.quitHoldCancelled()) { self.cancel(); return false; }
+			var current = member.window.coordinatedTransaction();
+			if ((member.transaction != null && member.transaction != current) || (current != null && !current.pending())) { self.cancel(); return false; }
+			if (member.transaction == null) { member.transaction = current; }
+		}
+		try {
+			for member in self._members {
+				if (member.hasHandler && member.transaction == null) {
+					var request = member.window.requestCoordinatedClose();
+					if (request.kind != WINDOW_CLOSE_REQUEST_PENDING && request.kind != WINDOW_CLOSE_REQUEST_ALREADY_PENDING) { throw "Native quit decision admission changed after capture"; }
+					member.transaction = member.window.coordinatedTransaction();
+					if (member.transaction == null) { throw "Native quit transaction is unavailable"; }
+				}
+			}
+		} catch (string error) { self.cancel(); throw error; }
 		bool ready = true;
 		for member in self._members {
-			if (!member.window.isOpen() || member.window.closeHandlerGeneration() != member.handlerGeneration) { self.cancel(); return false; }
 			var transaction = member.transaction;
-			if (transaction == null) { if (member.window.hasCloseHandler()) { self.cancel(); return false; } }
-			else {
-				var state = transaction.state();
-				if (state == WINDOW_CLOSE_CANCELLED || state == WINDOW_CLOSE_OWNER_LOST || state == WINDOW_CLOSE_CLOSING || !member.window.hasCloseHandler()) { self.cancel(); return false; }
-				if (state != WINDOW_CLOSE_AUTHORIZED) { ready = false; }
+			if (transaction != null) {
+				if (transaction.state() != WINDOW_CLOSE_AUTHORIZED) { ready = false; }
 				member.revision = transaction.acknowledgedRevision();
 			}
 		}

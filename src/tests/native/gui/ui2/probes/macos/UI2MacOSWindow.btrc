@@ -147,8 +147,23 @@ void verifyQuitUndeliveredCancellation() {
 	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE && added.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel(); context.close();
 }
 
+void verifyQuitCapturedCancellation() {
+	var context = MacOSViewContext(WindowWake()); var first = MacOSWindow("captured first", 100.0, 100.0, null, context); var second = MacOSWindow("captured second", 100.0, 100.0, null, context);
+	Vector<MacOSWindow> windows = [first, second]; var scope = CallbackScope(); var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	var request = first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); drain(context); var pending = requiredTransaction(request); var saving = pending.decide(WINDOW_CLOSE_DECISION_SAVE, 1LL);
+	var group = MacOSWindowQuitCoordinator(windows, context);
+	assert(pending.completeSave(saving.attempt, 1LL, true, "").state == WINDOW_CLOSE_AUTHORIZED && first.isOpen());
+	// This transaction did not exist when the group captured its members.
+	var newer = requiredTransaction(second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST)); newer.decide(WINDOW_CLOSE_DECISION_CANCEL, 2LL);
+	assert(!group.advance() && group.cancelled() && pending.state() == WINDOW_CLOSE_CANCELLED); drain(context);
+	assert(a.calls == 1 && b.calls == 0 && first.isOpen() && second.isOpen());
+	var fresh = MacOSWindowQuitCoordinator(windows, context); assert(!fresh.advance()); drain(context);
+	assert(a.calls == 2 && b.calls == 1 && a.current() != pending && b.current() != newer); fresh.cancel();
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel(); context.close();
+}
+
 int main() {
 	NSApplication.sharedApplication();
-	verifyState(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose(); verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation();
+	verifyState(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose(); verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation(); verifyQuitCapturedCancellation();
 	print("PASS: UI2 macOS window state and reversible close transactions"); return 0;
 }
