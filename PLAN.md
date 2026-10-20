@@ -65,11 +65,34 @@ Historical heads remain useful provenance after their branches are deleted.
 | `codex/cx-p1-04`, [#34](https://github.com/schiffy91/btrc/pull/34), `f49c5fe1` | Adds standalone iPhone and iPad simulator test-host tooling. | Later host work supersedes this head's launch-identity failure; qualify the combined tooling under G07 rather than claiming the historical head passed. |
 | `codex/ui2-completion-20261019`, published `a7611638`, local `7bcf11cf` before these merges | Accumulates integration repairs, Android process snapshots and isolated nested GUI reports. | G01–G07; nested report isolation passed 26 portable tests, but the full unit run remains incomplete. |
 | `codex/e40-loop-diagnostic-20261020`, `3a5aba9f` | Captures bounded loop counters and stacks for two failing macOS tracking routes. | G03; static checks and compile/link passed, but diagnostic runtime and a demonstrated production repair remain pending. |
-| `codex/bench-memory-diagnostic-20261020`, `5e7e5fea` | Compares pinned baseline/candidate compiler memory on one hosted Linux environment. | G06; image metadata collection failed before any measurements. |
+| `codex/bench-memory-diagnostic-20261020`, `5e7e5fea` | Compares pinned baseline/candidate compiler memory on one hosted Linux environment. | G06; image metadata collection failed before any measurements; the command is now repaired and hosted attribution remains pending. |
 | `codex/windows-user-observer-20261020`, `16b3cc2f` | Compares count-only and instrumented Windows USER-resource observations. | G04; initial observer intrusion is demonstrated, while a later count increase remains unexplained. The merged repair removes the foreign WNDPROC query from the current observer. |
 | Local `codex/linux-unit-diagnostic-20261020`, `02b22eaa` | Retains the first failure from the complete Linux unit selection. | G01; 108 workflow contracts passed, but this diagnostic was not dispatched before consolidation and cannot establish a full passing unit gate. |
 | Local `codex/linux-gui-sharding-20261020`, `1ebaefa7` | Splits each Linux GUI session into four deterministic partitions and checks exact combined coverage. | G02; portable/workflow tests and hosted execution were not run before landing. Existing qualification-bundle expectations may still omit E40 rows; the synthetic skip test covers call-time, not setup-time skips. |
 | Local `codex/windows-observer-repair-20261020`, `970ce901` | Removes the intrusive foreign WNDPROC query and adds a hidden ANSI-window observer regression. | G04; all new cross-build/link and native execution variants remain unqualified at landing. |
+
+### Repairs landed after consolidation
+
+All 16 PRs were recorded as merged when `b0317191` reached main. There are
+zero open PRs. Eighteen more inactive branches were retired, bringing the
+retirement total to 270; `main` and two branches serving live macOS runs remain.
+
+The first repair batch passed 246 portable tests on `c8c4feb4`, with no skips,
+and passed targeted Ruff lint/format checks. It fixes the benchmark image
+metadata command, updates the Linux qualification inventory for all E40 and
+GUI partition rows, exercises setup-time skip identities with and without xdist,
+and composes Windows diagnostic mocks with the observer regression. The first
+attempt exposed an undeclared PyYAML test dependency; the regression now uses
+the existing workflow parser. The declared development dependencies also require
+Pluggy 1.2 or newer, matching the hook wrapper API already used by the skip ledger
+and GUI collection plugin. Native execution and the full gate matrix remain open.
+
+Android run `39446987361` on `a7611638` completed successfully: both API levels
+passed all 28 host fixtures and both compilers' CheckJNI-enabled round trips and
+expected refusal cases. Each API corpus recorded 2,044 passes and six classified
+GPU dependency skips, with no failures or errors. The earlier transport loss has
+no demonstrated cause; this successful run is retained evidence, with final-main
+qualification still pending.
 
 ### Repair queue after landing
 
@@ -85,8 +108,8 @@ Historical heads remain useful provenance after their branches are deleted.
 - **G02: finish Linux GUI execution and prove complete coverage.** The same
   run's X11 job `118624440733` and Wayland job `118624440379` hit 90 minutes
   at about 66% and 58%. The merged partition implementation retains the original
-  selection, case budgets and dedicated E40 exclusions. Run its portable tests,
-  fix any stale inventory expectations, cover setup-time skips, then prove that
+  selection, case budgets and dedicated E40 exclusions. Portable tests, corrected inventory expectations and setup-time skips now pass.
+  Prove that
   the four cells per session are disjoint, complete and actually executed.
   X11 remains required; Wayland retains its existing report-only classification.
 - **G03: repair macOS tracking and presentation.** All four E40
@@ -118,17 +141,18 @@ Historical heads remain useful provenance after their branches are deleted.
   API 36 went offline during the ninth of 28 host fixture cases; ADB exited 255.
   API 29 and target corpus results do not explain the disconnect. Snapshot
   commits `fecba284`/`a7611638` retain owned process state before shutdown;
-  their 110 portable checks passed. Complete
+  their 110 portable checks passed. The successful
   [run 39446987361](https://github.com/schiffy91/btrc/actions/runs/39446987361),
-  inspect that evidence, repair a demonstrated cause if it recurs, and retain
+  now supplies the fixture and corpus evidence recorded above. Repair a
+  demonstrated transport cause if it recurs, and retain
   complete final-revision host/corpus evidence. No transport fix is claimed.
 - **G06: fix benchmark metadata collection and the memory regression.**
   `BenchArc` and `RunStrings` exceeded their original peak-memory allowances
   by 32,768 and 61,440 bytes. The attribution
   [run 39446272710](https://github.com/schiffy91/btrc/actions/runs/39446272710)
   failed on the Podman image-inspect `.Id` template before measuring anything.
-  Replace the unsupported template with structured metadata capture and test it,
-  then run the pinned baseline/candidate comparison on the hosted Linux runner.
+  Raw structured metadata capture and its success/failure workflow regressions
+  now pass. Run the pinned baseline/candidate comparison on the hosted Linux runner.
   Attribute and repair the regression with the original guards. The 136 portable
   diagnostic checks do not constitute measurements; two real-measurement tests
   were intentionally excluded on the Mac. Do not rebaseline or relax limits.

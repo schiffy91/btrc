@@ -16,6 +16,7 @@ dependencies = ["lsprotocol>=2023.0.0", "pygls>=2.0.0"]
 dev = [
     "build>=1.2.2",
     "pytest>=7.0",
+    "pluggy>=1.2",
     "pytest-xdist>=3.0",
     "ruff>=0.1.0",
     "setuptools>=77.0",
