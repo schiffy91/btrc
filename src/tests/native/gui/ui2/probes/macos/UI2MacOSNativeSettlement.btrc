@@ -51,6 +51,11 @@ int main() {
 	wake.accept = false; failingContext.recordNativeFailure("later error");
 	failed = false; try { failingContext.dispatchOne(); } catch (string error) { failed = error == "native settlement failure"; }
 	assert(failed && failingContext.pending() && failing.calls == 1);
+	assert(failingContext.nativeFailed() && !failingContext.detachedEvents.canCapture(0));
+	failed = false; try { failingContext.createQueue(); } catch (string error) { failed = error == "native settlement failure"; } assert(failed);
+	failed = false; try { failingContext.registerNativeSettlement(failing, failingOwner); } catch (string error) { failed = error == "native settlement failure"; } assert(failed);
+	failed = false; try { failingSlot.request(); } catch (string error) { failed = error == "native settlement failure"; } assert(failed);
+	failed = false; try { failingContext.beginTreeMutation(); } catch (string error) { failed = error == "native settlement failure"; } assert(failed);
 	failingContext.close(); assert(failingOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	print("PASS: UI2 macOS native settlements defer coalesce and drain with contained errors"); return 0;
 }

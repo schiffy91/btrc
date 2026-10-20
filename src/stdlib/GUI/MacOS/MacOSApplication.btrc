@@ -76,6 +76,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 		if (self.quitRequested || self._dispatchingEvents || self._viewContext.treeMutationActive()) { return; }
 		self._dispatchingEvents = true;
 		try {
+			self._viewContext.checkNativeFailure();
 			self.dispatchWindowEvents();
 			self._executor.serviceTurn();
 			unsigned long long semanticStart = MacOSApplicationExecutor.now();
