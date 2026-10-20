@@ -13,6 +13,49 @@ class MacOSSemanticWake implements IControlEventWake {
 	public bool requestTurn() { return self._signal.requestTurn(); }
 }
 
+interface IMacOSNativeSettlement { void settleNative(); }
+
+/* One reserved native completion, owned by the context and the control's
+ * scope. Repeated requests coalesce without allocating inside AppKit. */
+class MacOSNativeSettlementRegistration implements ICallbackRegistration {
+	private IMacOSNativeSettlement? _receiver;
+	private IControlEventWake _wake;
+	private bool _open = true;
+	private bool _pending = false;
+	private bool _entered = false;
+	public MacOSNativeSettlementRegistration(IMacOSNativeSettlement receiver, IControlEventWake wake) { self._receiver = receiver; self._wake = wake; }
+
+	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native settlement requires the main thread"; } }
+
+	public void request() {
+		self.requireMainThread(); if (!self._open) { throw "Native settlement is closed"; }
+		if (self._pending) { return; }
+		self._pending = true;
+		try { if (!self._wake.requestTurn()) { throw "Native settlement wake failed"; } }
+		catch (string error) { self._pending = false; throw error; }
+	}
+
+	public bool pending() { self.requireMainThread(); return self._open && self._pending; }
+
+	public bool dispatch() {
+		self.requireMainThread(); if (!self._open || !self._pending || self._entered) { return false; }
+		self._pending = false; self._entered = true;
+		try { var receiver = self._receiver; if (receiver != null) { receiver.settleNative(); } }
+		finally { self._entered = false; if (!self._open) { self._receiver = null; } }
+		return true;
+	}
+
+	public bool isOpen() { self.requireMainThread(); return self._open; }
+
+	public CallbackCancellation cancel() { self.requireMainThread(); self._open = false; self._pending = false; return self.pollCompletion(); }
+
+	public CallbackCancellation pollCompletion() {
+		self.requireMainThread(); if (self._open) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (self._entered) { return CALLBACK_CANCELLATION_PENDING; }
+		self._receiver = null; return CALLBACK_CANCELLATION_COMPLETE;
+	}
+}
+
 /* Application-owned terminal credits and one semantic stream per window.
  * Detached controls use the same pool, so attachment never changes credits. */
 class MacOSViewContext {
@@ -25,6 +68,11 @@ class MacOSViewContext {
 	private bool _closed = false;
 	private bool _dispatching = false;
 	private bool _treeMutation = false;
+	private Vector<MacOSNativeSettlementRegistration> _settlements = [];
+	private int _settlementCursor = 0;
+	private bool _nativeTurn = true;
+	private bool _nativeFailed = false;
+	private string _nativeFailure = "";
 	public MacOSViewContext(IControlEventWake wake, int capacity = 256) {
 		self.requireMainThread(); self._capacity = capacity; self._pool = ControlEventTerminalPool(65536);
 		self.wake = wake; self.detachedEvents = self.createQueue();
@@ -44,20 +92,51 @@ class MacOSViewContext {
 		}
 	}
 
+	public MacOSNativeSettlementRegistration registerNativeSettlement(IMacOSNativeSettlement receiver, CallbackScope owner) {
+		self.requireMainThread(); if (self._closed || receiver == null || owner == null) { throw "Native settlement owner is closed or missing"; }
+		for (int index = self._settlements.len - 1; index >= 0; index--) {
+			if (self._settlements.get(index).pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) { self._settlements.remove(index); if (index < self._settlementCursor) { self._settlementCursor--; } }
+		}
+		var registration = MacOSNativeSettlementRegistration(receiver, self.wake);
+		try { owner.track(registration); self._settlements.push(registration); }
+		catch (string error) { registration.cancel(); throw error; }
+		return registration;
+	}
+
+	/* Native callbacks catch their exception before calling this method. Wake
+	 * failure cannot replace the first error or escape back through the ABI. */
+	public void recordNativeFailure(string error) {
+		self.requireMainThread(); if (!self._nativeFailed) { self._nativeFailed = true; self._nativeFailure = error; }
+		if (!self._closed) { try { self.wake.requestTurn(); } catch (string ignored) {} }
+	}
+
+	private bool dispatchSettlement() {
+		for (int examined = 0; examined < self._settlements.len; examined++) {
+			if (self._settlementCursor >= self._settlements.len) { self._settlementCursor = 0; }
+			var registration = self._settlements.get(self._settlementCursor++);
+			try { if (registration.dispatch()) { return true; } }
+			catch (string error) { self.recordNativeFailure(error); throw error; }
+		}
+		return false;
+	}
+
 	public bool dispatchOne() {
 		self.requireMainThread(); if (self._dispatching) { throw "Semantic delivery cannot re-enter"; } if (self._closed || self._treeMutation) { return false; }
+		if (self._nativeFailed) { throw self._nativeFailure; }
 		self._dispatching = true;
 		bool delivered = false;
 		try {
+			if (self._nativeTurn) { delivered = self.dispatchSettlement(); if (delivered) { self._nativeTurn = false; } }
 			for (int examined = 0; examined < self._queues.len && !delivered; examined++) {
 				if (self._cursor >= self._queues.len) { self._cursor = 0; }
-				delivered = self._queues.get(self._cursor++).dispatchOne();
+				delivered = self._queues.get(self._cursor++).dispatchOne(); if (delivered) { self._nativeTurn = true; }
 			}
+			if (!delivered) { delivered = self.dispatchSettlement(); if (delivered) { self._nativeTurn = false; } }
 		} finally { self._dispatching = false; }
 		return delivered;
 	}
 
-	public bool pending() { self.requireMainThread(); for queue in self._queues { if (queue.pendingCount() > 0) { return true; } } return false; }
+	public bool pending() { self.requireMainThread(); if (self._closed) { return false; } if (self._nativeFailed) { return true; } for registration in self._settlements { if (registration.pending()) { return true; } } for queue in self._queues { if (queue.pendingCount() > 0) { return true; } } return false; }
 
 	public bool treeMutationActive() { self.requireMainThread(); return self._treeMutation; }
 
@@ -73,10 +152,10 @@ class MacOSViewContext {
 	public void endTreeMutation() {
 		self.requireMainThread(); if (!self._treeMutation) { throw "Native tree mutation is not active"; }
 		self._treeMutation = false;
-		if (self.pending() && !self.wake.requestTurn()) { throw "Native tree mutation cannot resume semantic delivery"; }
+		if (!self.wake.requestTurn()) { throw "Native tree mutation cannot resume delivery"; }
 	}
 
-	public void close() { self.requireMainThread(); if (self._treeMutation) { throw "Native tree mutation is already active"; } if (self._closed) { return; } self._closed = true; for queue in self._queues { queue.close(); } self._queues.clear(); }
+	public void close() { self.requireMainThread(); if (self._treeMutation) { throw "Native tree mutation is already active"; } if (self._closed) { return; } self._closed = true; for registration in self._settlements { registration.cancel(); } self._settlements.clear(); for queue in self._queues { queue.close(); } self._queues.clear(); }
 }
 
 interface IMacOSViewEligibility { void eligibilityLost(); }

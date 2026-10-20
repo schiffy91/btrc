@@ -1,0 +1,56 @@
+import Library.Callback;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSViewState;
+
+#include <assert.h>
+
+class SettlementWake implements IControlEventWake {
+	public int calls = 0;
+	public bool accept = true;
+	public bool requestTurn() { self.calls++; return self.accept; }
+}
+class NativeSettlementProbe implements IMacOSNativeSettlement {
+	public MacOSViewContext context;
+	public MacOSNativeSettlementRegistration? registration;
+	public int calls = 0;
+	public bool repeat = false;
+	public bool cancelInside = false;
+	public bool fail = false;
+	public NativeSettlementProbe(MacOSViewContext context) { self.context = context; }
+
+	public void settleNative() {
+		self.calls++; bool rejected = false; try { self.context.dispatchOne(); } catch (string error) { rejected = true; } assert(rejected);
+		if (self.repeat && self.calls == 1) { self.registration.request(); }
+		if (self.cancelInside) { assert(self.registration.cancel() == CALLBACK_CANCELLATION_PENDING); }
+		if (self.fail) { throw "native settlement failure"; }
+	}
+}
+int main() {
+	var wake = SettlementWake(); var context = MacOSViewContext(wake, 2); var owner = CallbackScope();
+	var receiver = NativeSettlementProbe(context); var slot = context.registerNativeSettlement(receiver, owner); receiver.registration = slot;
+	assert(!context.pending() && !context.dispatchOne()); slot.request(); slot.request();
+	assert(wake.calls == 1 && context.pending() && receiver.calls == 0);
+	context.beginTreeMutation(); assert(!context.dispatchOne() && receiver.calls == 0); context.endTreeMutation();
+	assert(context.dispatchOne() && receiver.calls == 1 && !context.pending());
+	slot.request(); assert(slot.cancel() == CALLBACK_CANCELLATION_COMPLETE && !context.pending() && !context.dispatchOne());
+	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	var repeatedOwner = CallbackScope(); var repeated = NativeSettlementProbe(context); repeated.repeat = true;
+	var repeatedSlot = context.registerNativeSettlement(repeated, repeatedOwner); repeated.registration = repeatedSlot;
+	repeatedSlot.request(); assert(context.dispatchOne() && repeated.calls == 1 && context.pending());
+	assert(context.dispatchOne() && repeated.calls == 2 && !context.pending());
+	repeated.cancelInside = true; repeatedSlot.request(); assert(context.dispatchOne());
+	assert(repeatedSlot.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && repeatedOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	var rejectedOwner = CallbackScope(); var rejected = NativeSettlementProbe(context); var rejectedSlot = context.registerNativeSettlement(rejected, rejectedOwner); rejected.registration = rejectedSlot;
+	wake.accept = false; bool refused = false; try { rejectedSlot.request(); } catch (string error) { refused = true; }
+	assert(refused && !context.pending() && rejected.calls == 0); wake.accept = true;
+	rejectedSlot.request(); context.close(); assert(rejectedSlot.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && rejectedOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(!context.pending() && !context.dispatchOne() && rejected.calls == 0);
+	var failingContext = MacOSViewContext(wake, 2); var failingOwner = CallbackScope(); var failing = NativeSettlementProbe(failingContext); failing.fail = true;
+	var failingSlot = failingContext.registerNativeSettlement(failing, failingOwner); failing.registration = failingSlot;
+	failingSlot.request(); bool failed = false; try { failingContext.dispatchOne(); } catch (string error) { failed = error == "native settlement failure"; } assert(failed);
+	wake.accept = false; failingContext.recordNativeFailure("later error");
+	failed = false; try { failingContext.dispatchOne(); } catch (string error) { failed = error == "native settlement failure"; }
+	assert(failed && failingContext.pending() && failing.calls == 1);
+	failingContext.close(); assert(failingOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	print("PASS: UI2 macOS native settlements defer coalesce and drain with contained errors"); return 0;
+}

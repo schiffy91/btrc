@@ -50,6 +50,10 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
         ("UI2MacOSViewInput", "PASS: UI2 macOS pointer admission follows effective eligibility"),
         ("UI2MacOSButtonState", "PASS: UI2 macOS eligibility loss retires pending native button actions"),
         ("UI2MacOSViewState", "PASS: UI2 macOS native view state subtree eligibility and deferred observations"),
+        (
+            "UI2MacOSNativeSettlement",
+            "PASS: UI2 macOS native settlements defer coalesce and drain with contained errors",
+        ),
         ("UI2MacOSDetachFault", "PASS: UI2 macOS detach failures retain actual attachment ownership"),
         ("UI2MacOSViewOrder", "PASS: UI2 macOS native reorder preserves the active editor and marked text"),
         ("UI2MacOSPublisher", "PASS: UI2 macOS worker publication and cancellation drain"),
