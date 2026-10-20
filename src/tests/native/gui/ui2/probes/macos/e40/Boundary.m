@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <mach/mach_time.h>
+#include <math.h>
+
+#define BOUNDARY_CLOSE_SUBTYPE ((short)0x4542)
 
 /* Test stimulus and accounting only. NSApplication owns dequeue/dispatch; the
  * provider owns key decisions, text editing, close and semantic service. */
@@ -18,11 +21,25 @@ static int burstSize, finalKind, repetition, terminalPosition, nativeCount, orde
 static int nativeDuplicates, nativeReordered, orderedDuplicates, orderedReordered, terminalCount, enqueueErrors;
 static int previousNative, previousOrdered;
 static bool active, nativeSeen[8194], orderedSeen[8194];
-static uint64_t serial;
+struct BoundaryKey { NSEventType type; unsigned short keyCode; NSInteger window; };
+static struct BoundaryKey keyMetadata[8194];
+static uint64_t serial, closeIdentity;
 static NSString *failure;
 
 static void fail(NSString *reason) { if (!failure) { failure = [reason copy]; } }
-static int identity(NSEvent *event) { return event ? [identities[@(event.timestamp)] intValue] : 0; }
+static int identity(NSEvent *event) {
+    if (!event) { return 0; }
+    if (event.type == NSEventTypeApplicationDefined) {
+        return event.subtype == BOUNDARY_CLOSE_SUBTYPE && (uint64_t)event.data1 == closeIdentity && event.data2 == terminalPosition && event.windowNumber == firstWindow.windowNumber ? terminalPosition : 0;
+    }
+    if (event.type != NSEventTypeKeyDown && event.type != NSEventTypeKeyUp) { return 0; }
+    int index = [identities[@(event.timestamp)] intValue];
+    if (index) {
+        struct BoundaryKey *key = &keyMetadata[index];
+        assert(key->type == event.type && key->keyCode == event.keyCode && key->window == event.windowNumber);
+    }
+    return index;
+}
 static void observeNative(int index) {
     if (index < 1 || index > burstSize) { fail(@"Native identity out of range"); return; }
     if (nativeSeen[index]) { nativeDuplicates++; }
@@ -93,16 +110,15 @@ void e40BoundaryBegin(int size, int final, int repeat, int ordinal) {
         expectedText = [[NSString alloc] initWithFormat:@"E40 committed %d", ordinal];
         [editor insertText:expectedText replacementRange:NSMakeRange(0, editor.string.length)];
     }
-    active = true;
+    active = true; closeIdentity = ++serial;
     for (int index = 1; index <= size; index++) {
-        /* A controlled exact-integer timestamp identifies this fixture event;
-         * it is not used as the admission/delivery clock. AppKit copies events. */
-        NSTimeInterval stamp = (NSTimeInterval)++serial;
-        identities[@(stamp)] = @(index);
+        /* Use actual occurrence time. Record the SDK's readback, since AppKit
+         * may copy the event; never encode an identity as a fabricated time. */
+        NSTimeInterval stamp = NSProcessInfo.processInfo.systemUptime;
         NSEvent *event;
         if (final == 2 && index == terminalPosition) {
             event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0
-                timestamp:stamp windowNumber:firstWindow.windowNumber context:nil subtype:0 data1:index data2:0];
+                timestamp:stamp windowNumber:firstWindow.windowNumber context:nil subtype:BOUNDARY_CLOSE_SUBTYPE data1:(NSInteger)closeIdentity data2:index];
         } else {
             bool terminal = index == terminalPosition;
             NSEventType type = final == 0 && terminal ? NSEventTypeKeyUp : NSEventTypeKeyDown;
@@ -111,7 +127,19 @@ void e40BoundaryBegin(int size, int final, int repeat, int ordinal) {
                 windowNumber:firstWindow.windowNumber context:nil characters:characters charactersIgnoringModifiers:characters
                 isARepeat:NO keyCode:final == 1 && terminal ? 36 : 124];
         }
-        @try { if (!event) { enqueueErrors++; } else { [NSApp postEvent:event atStart:NO]; } }
+        @try {
+            if (!event) { enqueueErrors++; }
+            else {
+                assert(isfinite(event.timestamp) && event.timestamp >= 0.0 && event.timestamp <= NSProcessInfo.processInfo.systemUptime);
+                if (event.type == NSEventTypeKeyDown || event.type == NSEventTypeKeyUp) {
+                    assert(identities[@(event.timestamp)] == nil);
+                    identities[@(event.timestamp)] = @(index);
+                    keyMetadata[index] = (struct BoundaryKey){event.type, event.keyCode, event.windowNumber};
+                }
+                assert(identity(event) == index && event.windowNumber == firstWindow.windowNumber);
+                [NSApp postEvent:event atStart:NO];
+            }
+        }
         @catch (NSException *error) { enqueueErrors++; fail(error.reason); }
     }
 }
