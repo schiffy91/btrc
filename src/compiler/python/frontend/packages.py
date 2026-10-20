@@ -515,6 +515,7 @@ class NativeCallbackBinding:
     # generated class extends, and the superclass methods it answers.
     superclass: str = ""
     overrides: tuple[str, ...] = ()
+    method_names: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1700,6 +1701,7 @@ class PackageManifestValidator:
                         "activation-failure",
                         "cancellation",
                         "methods",
+                        "method-names",
                         "slot-getter",
                         "action-setter",
                         "action-getter",
@@ -1950,6 +1952,16 @@ class PackageManifestValidator:
                 )
             if interface in symbols:
                 raise ValueError(f"{location}.interface conflicts with another imported name")
+            method_names = value.get("method-names", {})
+            if not isinstance(method_names, dict):
+                raise ValueError(f"{location}.method-names must be a table")
+            if "method-names" in value:
+                if language != "objective-c" or not (methods or overrides):
+                    raise ValueError(f"{location}.method-names requires Objective-C methods or overrides")
+                for symbol, name in method_names.items():
+                    if symbol not in methods and symbol not in overrides:
+                        raise ValueError(f"{location}.method-names must name selected callback methods or overrides")
+                    self._identifier(name, f"{location}.method-names")
             callbacks.append(
                 NativeCallbackBinding(
                     parameter,
@@ -1976,6 +1988,7 @@ class PackageManifestValidator:
                     terminal,
                     superclass,
                     tuple(sorted(overrides)) if isinstance(overrides, list) else (),
+                    tuple(sorted(method_names.items())),
                 )
             )
         return tuple(callbacks)
