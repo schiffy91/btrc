@@ -13,7 +13,7 @@ on:
       focus:
         description: Which jobs to run
         type: choice
-        options: [full, native-gui, extended]
+        options: [full, native-gui, extended, bench-diagnostic]
         default: full
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
@@ -63,6 +63,7 @@ jobs:
   # so "Re-run all jobs" sees a label added after the push ("Re-run failed
   # jobs" keeps this job's earlier result).
   scope:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.focus != 'bench-diagnostic' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -321,6 +322,36 @@ jobs:
             fi
           done
           echo "$missing expected report(s) missing"
+
+  # Attribution only: no baseline update, tier change or qualifying result.
+  bench-diagnostic:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'bench-diagnostic' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - run: make devcontainer
+      - name: Retain image identity and measure the two pinned trees
+        env:
+          CANDIDATE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/bench-diagnostic
+          podman image inspect btrc-devcontainer:latest --format '{"id":{{json .Id}},"repoDigests":{{json .RepoDigests}}}' > build/bench-diagnostic/image.json
+          chmod -R a+w .
+          podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest python3 -m tools.bench.diagnostic --candidate "$CANDIDATE"
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-diagnostic-${{ github.sha }}
+          path: build/bench-diagnostic/
+          if-no-files-found: error
 
   bench:
     needs: scope
