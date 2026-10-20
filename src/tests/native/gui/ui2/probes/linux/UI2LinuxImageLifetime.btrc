@@ -1,0 +1,92 @@
+import Library.Image;
+import Library.Callback;
+import Library.GUI.IImageView;
+import Library.GUI.IContainer;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxImageView;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+
+class LinuxImageLifetime {
+	class Image pixels(int red) {
+		var pixels = Image(2, 2);
+		for (int index = 0; index < 4; index++) { pixels.data[index * 4] = (unsigned char)red; pixels.data[index * 4 + 1] = 17; pixels.data[index * 4 + 2] = 39; pixels.data[index * 4 + 3] = 255; }
+		return pixels;
+	}
+
+	class void publish(IImageView first, IImageView second, int cycle) {
+		Thread<LinuxImageHandle> worker = spawn(() => { ui2ImageWorker(); return LinuxImageHandle.create(LinuxImageLifetime.pixels(205), 4); });
+		var handle = worker.join(); assert(SDL_IsMainThread());
+		first.setImageHandle(handle); second.setImageHandle(handle);
+		if ((cycle - 1) / 4 % 2 == 1) {
+			handle.close(); assert(!handle.isOpen());
+			bool refused = false; try { first.setImageHandle(handle); } catch (string error) { refused = true; } assert(refused);
+		}
+		// Leaving this scope retires the worker result and caller reference.
+	}
+
+	class void replace(IImageView first) {
+		Thread<LinuxImageHandle> worker = spawn(() => { ui2ImageWorker(); return LinuxImageHandle.create(LinuxImageLifetime.pixels(31), 4); });
+		var replacement = worker.join(); assert(SDL_IsMainThread()); first.setImageHandle(replacement); replacement.close();
+		bool refused = false; try { first.setImageHandle(replacement); } catch (string error) { refused = true; } assert(refused);
+	}
+
+	class void sample(LinuxWindow window, IImageView first, IImageView second, int cycle, int stage, int firstRed, int secondRed) {
+		var image = window.render(true); if (image == null) { throw "Image lifetime capture failed"; }
+		for (int slot = 0; slot < 2; slot++) {
+			int red = slot == 0 ? firstRed : secondRed;
+			var pixel = image.pixel(image.width * (slot * 2 + 1) / 4, image.height / 2);
+			bool present = pixel.green == 17 && pixel.blue == 39 && (pixel.red == 205 || pixel.red == 31);
+			if (red != 0) { assert(present && pixel.red == red); } else { assert(!present); }
+			bool open = first.isOpen(); if (slot == 1) { open = second.isOpen(); }
+			printf("UI2_IMAGE_PIXEL {\"cycle\":%d,\"stage\":%d,\"slot\":%d,\"expected_red\":%d,\"open\":%s,\"image_present\":%s,\"rgba\":[%d,%d,%d,%d]}\n", cycle, stage, slot, red, open ? "true" : "false", present ? "true" : "false", (int)pixel.red, (int)pixel.green, (int)pixel.blue, (int)pixel.alpha);
+		}
+	}
+
+	class void remove(IContainer root, IImageView view) { assert(root.detach(view) == view); assert(view.close() == CALLBACK_CANCELLATION_COMPLETE); }
+
+	class void cycle(int cycle) {
+		ui2ImageBegin(cycle);
+		var application = LinuxApplication(8); var window = application.createWindow("UI2 image lifetime", 80.0, 40.0);
+		var native = application.firstWindow(); if (native == null) { throw "Image lifetime window missing"; }
+		var root = application.createContainer(); var first = application.createImageView(); var second = application.createImageView();
+		root.attach(first); root.attach(second); window.attachRoot(root); window.show();
+		first.arrange(0.0, 0.0, 40.0, 40.0); second.arrange(40.0, 0.0, 40.0, 40.0);
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (!native.pollDevice() && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); } assert(native.pollDevice());
+		LinuxImageLifetime.publish(first, second, cycle);
+		LinuxImageLifetime.sample(native, first, second, cycle, 0, 205, 205);
+		LinuxImageLifetime.replace(first);
+		LinuxImageLifetime.sample(native, first, second, cycle, 1, 31, 205);
+		int order = (cycle - 1) % 4;
+		if (order == 0) { first.setImageHandle(null); }
+		else if (order == 1) { LinuxImageLifetime.remove(root, second); }
+		else if (order == 2) { LinuxImageLifetime.remove(root, first); }
+		else { second.setImageHandle(null); }
+		LinuxImageLifetime.sample(native, first, second, cycle, 2, order == 0 || order == 2 ? 0 : 31, order == 1 || order == 3 ? 0 : 205);
+		if (order == 0) { LinuxImageLifetime.remove(root, second); }
+		else if (order == 1) { first.setImageHandle(null); }
+		else if (order == 2) { second.setImageHandle(null); }
+		else { LinuxImageLifetime.remove(root, first); }
+		LinuxImageLifetime.sample(native, first, second, cycle, 3, 0, 0);
+		if (first.isOpen()) { LinuxImageLifetime.remove(root, first); }
+		if (second.isOpen()) { LinuxImageLifetime.remove(root, second); }
+		LinuxImageLifetime.sample(native, first, second, cycle, 4, 0, 0);
+		var closing = window.close(); deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (closing == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); closing = window.pollClose(); }
+		assert(closing == CALLBACK_CANCELLATION_COMPLETE && !root.isOpen());
+		// Native GPU/image claims must retire while closed aliases remain alive,
+		// before application close or SDL_Quit can hide deferred ownership.
+		ui2ImageEnd(cycle); assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	for (int cycle = 1; cycle <= 100; cycle++) { LinuxImageLifetime.cycle(cycle); }
+	printf("PASS: UI2 Linux image lifetime cycles=100\n"); SDL_Quit(); return 0;
+}

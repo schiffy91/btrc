@@ -49,7 +49,66 @@ class MacImageChecks {
 	}
 }
 
+class ImageLifetimeCycle implements IImageLifetimeCycle {
+	private int _cycle;
+	public ImageLifetimeCycle(int cycle) { self._cycle = cycle; }
+
+	private void publish(MacOSImageView first, MacOSImageView second) {
+		Thread<MacOSImageHandle> worker = spawn(() => {
+				BTRCUI2ImageProbe.requireWorker();
+				return MacOSImageHandle.create(MacImageChecks.pixels(205), 4);
+			});
+		var handle = worker.join();
+		first.setImageHandle(handle); second.setImageHandle(handle);
+		BTRCUI2ImageProbe.observe(first.nativeView()); BTRCUI2ImageProbe.observe(second.nativeView());
+		if ((self._cycle - 1) / 4 % 2 == 1) {
+			handle.close(); assert(!handle.isOpen());
+			bool refused = false; try { first.setImageHandle(handle); } catch (string error) { refused = true; } assert(refused);
+		}
+		// The worker, result and caller alias all leave scope. Caller-release-only cycles do
+		// not close the original handle before its last caller reference goes.
+	}
+
+	private void replace(MacOSImageView first) {
+		Thread<MacOSImageHandle> worker = spawn(() => {
+				BTRCUI2ImageProbe.requireWorker();
+				return MacOSImageHandle.create(MacImageChecks.pixels(31), 4);
+			});
+		var replacement = worker.join(); first.setImageHandle(replacement);
+		BTRCUI2ImageProbe.observe(first.nativeView()); replacement.close();
+		bool refused = false; try { first.setImageHandle(replacement); } catch (string error) { refused = true; } assert(refused);
+	}
+
+	private void sample(MacOSImageView view, int stage, int slot, int red) {
+		if (view.isOpen()) { BTRCUI2ImageProbe.sample(view.nativeView(), (long)self._cycle, (long)stage, (long)slot, (long)red); }
+		else { assert(red == 0); BTRCUI2ImageProbe.sample(null, (long)self._cycle, (long)stage, (long)slot, 0L); }
+	}
+
+	public void invoke() {
+		var first = MacOSImageView(); var second = MacOSImageView();
+		self.publish(first, second);
+		self.sample(first, 0, 0, 205); self.sample(second, 0, 1, 205);
+		self.replace(first);
+		self.sample(first, 1, 0, 31); self.sample(second, 1, 1, 205);
+		int order = (self._cycle - 1) % 4;
+		if (order == 0) { first.setImageHandle(null); }
+		else if (order == 1) { assert(second.close() == CALLBACK_CANCELLATION_COMPLETE); }
+		else if (order == 2) { assert(first.close() == CALLBACK_CANCELLATION_COMPLETE); }
+		else { second.setImageHandle(null); }
+		self.sample(first, 2, 0, order == 0 || order == 2 ? 0 : 31);
+		self.sample(second, 2, 1, order == 1 || order == 3 ? 0 : 205);
+		if (order == 0) { assert(second.close() == CALLBACK_CANCELLATION_COMPLETE); }
+		else if (order == 1) { first.setImageHandle(null); }
+		else if (order == 2) { second.setImageHandle(null); }
+		else { assert(first.close() == CALLBACK_CANCELLATION_COMPLETE); }
+		self.sample(first, 3, 0, 0); self.sample(second, 3, 1, 0);
+		assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE);
+		self.sample(first, 4, 0, 0); self.sample(second, 4, 1, 0);
+	}
+}
+
 int main() {
 	NSApplication.sharedApplication(); MacImageChecks.retained(); MacImageChecks.race();
+	for (int cycle = 1; cycle <= 100; cycle++) { BTRCUI2ImageProbe.runCycle((long)cycle, ImageLifetimeCycle(cycle)); }
 	printf("PASS: UI2 macOS image capture close and independent presentation\n"); return 0;
 }
