@@ -2,6 +2,8 @@ import Library.GUI.MacOS.MacOSViewState;
 import Library.Math;
 import Library.Console;
 import Library.Callback;
+import Library.Vector;
+import Library.GUI.IContainer;
 import Library.GUI.IStack;
 import Library.GUI.IView;
 import Library.GUI.MacOS.MacOSContainer;
@@ -37,7 +39,14 @@ class MacOSStackLayout implements IMacOSContainerLayout {
 
 	public NSView childParent() { return self.control(); }
 
-	public void arrangeChild(NSView child) { self.control().addArrangedSubview(child); }
+	public MacOSContainerPlacement captureChild(NSView child) {
+		var placement = MacOSContainerPlacement(); var children = self.control().arrangedSubviews();
+		unsigned long index = children.indexOfObjectIdenticalTo(child); placement.present = index < children.count(); placement.index = placement.present ? (int)index : -1; return placement;
+	}
+
+	public MacOSContainerPlacement insertionPlacement(int index) { var placement = MacOSContainerPlacement(); placement.index = index; return placement; }
+
+	public void placeChild(NSView child, int index, MacOSContainerPlacement placement) { self.control().insertArrangedSubview(child, index); }
 
 	public void forgetChild(NSView child) { self.control().removeArrangedSubview(child); }
 
@@ -95,6 +104,14 @@ class MacOSStack implements IStack, IMacOSView {
 
 	public bool isOpen() { return self._container.isOpen(); }
 
+	public long long treeRevision() { return self._container.treeRevision(); }
+
+	public ContainerBatchResult applyBatch(long long revision, Vector<ContainerEdit> edits) { return self._container.applyBatch(revision, edits); }
+
+	public void insert(IView child, int index) { self._container.insert(child, index); }
+
+	public void move(IView child, int destinationIndex) { self._container.move(child, destinationIndex); }
+
 	public void attach(IView child) { self._container.attach(child); }
 
 	public IView detach(IView child) { return self._container.detach(child); }
@@ -121,15 +138,15 @@ class MacOSStack implements IStack, IMacOSView {
 
 	public double spacing() { self.nativeView(); return self._layout.spacing(); }
 
-	public void setSpacing(double spacing) { self.nativeView(); self._layout.setSpacing(spacing); }
+	public void setSpacing(double spacing) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setSpacing(spacing); }
 
 	public StackAlignment alignment() { self.nativeView(); return self._layout.alignment(); }
 
-	public void setAlignment(StackAlignment alignment) { self.nativeView(); self._layout.setAlignment(alignment); }
+	public void setAlignment(StackAlignment alignment) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setAlignment(alignment); }
 
-	public void setPadding(double top, double right, double bottom, double left) { self.nativeView(); self._layout.setPadding(top, right, bottom, left); }
+	public void setPadding(double top, double right, double bottom, double left) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setPadding(top, right, bottom, left); }
 
-	public void layout() { self.nativeView(); self._layout.layout(); }
+	public void layout() { self.stateNode().requireMutation(); self.nativeView(); self._layout.layout(); }
 
 	public CallbackCancellation close() {
 		// A constructor can fail before either managed field is initialized.

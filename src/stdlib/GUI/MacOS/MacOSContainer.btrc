@@ -6,13 +6,22 @@ import Library.GUI.IContainer;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSViewInput;
 
+class MacOSContainerPlacement {
+	public int index = -1;
+	public int column = -1;
+	public int row = -1;
+	public bool present = true;
+}
+
 /* Layout metadata is separate from physical parentage and subtree ownership.
  * forgetChild is idempotent; it removes layout participation, not the view.
  * Neither policy nor child may retain this container owner. */
 interface IMacOSContainerLayout {
 	NSView nativeView();
 	NSView childParent();
-	void arrangeChild(NSView child);
+	MacOSContainerPlacement captureChild(NSView child);
+	MacOSContainerPlacement insertionPlacement(int index);
+	void placeChild(NSView child, int index, MacOSContainerPlacement placement);
 	void forgetChild(NSView child);
 }
 
@@ -25,6 +34,37 @@ class MacOSContainerChild {
 	public unsigned long autoresizingMask = 0UL;
 
 	public MacOSContainerChild(IView view, bool translatesAutoresizing) { self.view = view; self.translatesAutoresizing = translatesAutoresizing; }
+}
+
+/* A journal keeps native facts separate from the committed logical tree. */
+class MacOSContainerJournal {
+	public MacOSContainerChild entry;
+	public NSView native;
+	public NSView? parent;
+	public MacOSContainerPlacement placement;
+	public bool attempted = false;
+	public bool translatesAutoresizing;
+	public unsigned long autoresizingMask;
+	public bool pinned;
+	public unsigned long restoreMask;
+	public double x;
+	public double y;
+	public double width;
+	public double height;
+	public MacOSContainerJournal(MacOSContainerChild entry, NSView native, MacOSContainerPlacement placement) {
+		self.entry = entry; self.native = native; self.parent = native.superview(); self.placement = placement;
+		self.translatesAutoresizing = native.translatesAutoresizingMaskIntoConstraints(); self.autoresizingMask = native.autoresizingMask();
+		self.pinned = entry.pinned; self.restoreMask = entry.autoresizingMask;
+		var frame = native.frame(); self.x = frame.origin.x; self.y = frame.origin.y; self.width = frame.size.width; self.height = frame.size.height;
+	}
+}
+
+class MacOSContainerStep {
+	public ContainerEditKind kind;
+	public MacOSContainerJournal saved;
+	public int index;
+	public MacOSContainerPlacement placement;
+	public MacOSContainerStep(ContainerEditKind kind, MacOSContainerJournal saved, int index, MacOSContainerPlacement placement) { self.kind = kind; self.saved = saved; self.index = index; self.placement = placement; }
 }
 
 /* A native grouping view with BTRC-owned children, not an OS-handle registry.
@@ -40,6 +80,8 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 	private Vector<MacOSViewInput> _inputs = [];
 	private bool _mutating = false;
 	private string _closeFailure = "";
+	private long long _treeRevision = 1LL;
+	private Vector<MacOSContainerChild> _uncertain = [];
 
 	public MacOSContainer(IMacOSContainerLayout? layout = null) {
 		self.requireMainThread();
@@ -82,13 +124,6 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 		return view;
 	}
 
-	private int childIndex(IView child) {
-		for (int index = 0; index < self._children.len; index++) {
-			if (self._children.get(index).view == child) { return index; }
-		}
-		throw "View does not belong to this container";
-	}
-
 	public bool isOpen() { self.requireMainThread(); return self._view != null && !self._closing; }
 
 	public int childCount() { self.requireMainThread(); return self._children.len; }
@@ -99,45 +134,249 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 		return self._children.get(index).view;
 	}
 
-	public void attach(IView child) {
-		var parent = self.mutationView();
-		self._mutating = true;
-		try { self.attachChild(child, parent); } catch (string error) { self._mutating = false; throw error; }
-		self._mutating = false;
+	public long long treeRevision() { self.requireMainThread(); return self._treeRevision; }
+
+	private int entryIndex(Vector<MacOSContainerChild> entries, IView child) { for (int index = 0; index < entries.len; index++) { if (entries.get(index).view == child) { return index; } } return -1; }
+
+	private MacOSContainerJournal journal(Vector<MacOSContainerJournal> saved, MacOSContainerChild entry, NSView native) {
+		for value in saved { if (value.entry.view == entry.view) { return value; } }
+		var placement = self._layout == null ? MacOSContainerPlacement() : self._layout.captureChild(native);
+		var value = MacOSContainerJournal(entry, native, placement); saved.push(value); return value;
 	}
 
-	private void attachChild(IView child, NSView parent) {
-		var childParent = self._layout == null ? parent : self._layout.childParent();
-		var native = self.projection(child);
-		var childView = native.nativeView();
-		self._state.validateChild(native.stateNode());
-		MacOSView.validateAttachment(childView, childParent);
-		// Retain before publishing to AppKit, so allocation cannot fail after
-		// native attachment has transferred the child's lifecycle to this tree.
-		var entry = MacOSContainerChild(child, childView.translatesAutoresizingMaskIntoConstraints());
-		self._children.push(entry);
-		bool attached = false;
-		try {
-			native.attachTo(childParent);
-			attached = true;
-			if (self._layout != null) { self._layout.arrangeChild(childView); }
-			MacOSContainer.pinTop(entry, childView, childParent);
-			self._state.addChild(native.stateNode());
-		} catch (string error) {
-			if (attached) {
-				try { self.detachChild(entry, parent); }
-				catch (string rollback) { entry.failed = true; self._closing = true; self._closeFailure = rollback; throw rollback; }
-			}
-			if (childView.superview() == childParent) {
-				entry.failed = true;
-				self._closeFailure = error;
-				self._closing = true;
-			} else {
-				self._children.pop();
-			}
-			throw error;
+	private ContainerBatchResult batchResult(ContainerBatchResultKind kind, int step, string error, Vector<MacOSContainerJournal> saved) {
+		var result = ContainerBatchResult(); result.kind = kind; result.failedStep = step; result.error = error; result.treeRevision = self._treeRevision; result.retained = []; result.detached = [];
+		for entry in self._children { result.retained.push(entry.view); }
+		for entry in self._uncertain { if (self.entryIndex(self._children, entry.view) < 0) { result.retained.push(entry.view); } }
+		for value in saved {
+			if (self.entryIndex(self._children, value.entry.view) >= 0 || self.entryIndex(self._uncertain, value.entry.view) >= 0) { continue; }
+			result.detached.push(value.entry.view);
 		}
+		return result;
 	}
+
+	/* The public guard includes preflight, whose provider projections may
+	 * themselves detect an attempted reentrant mutation. */
+	public ContainerBatchResult applyBatch(long long expectedTreeRevision, Vector<ContainerEdit> edits) {
+		var parent = self.mutationView(); self._mutating = true;
+		ContainerBatchResult result;
+		try { result = self.applyEdits(parent, expectedTreeRevision, edits); }
+		finally { self._mutating = false; }
+		return result;
+	}
+
+	private ContainerBatchResult applyEdits(NSView parent, long long expectedRevision, Vector<ContainerEdit> edits) {
+		Vector<MacOSContainerJournal> saved = []; Vector<MacOSContainerStep> steps = [];
+		if (expectedRevision != self._treeRevision) { return self.batchResult(CONTAINER_BATCH_REJECTED, -1, "Container tree revision is stale", saved); }
+		if (edits == null) { return self.batchResult(CONTAINER_BATCH_REJECTED, -1, "Container edit sequence is missing", saved); }
+		if (self._treeRevision == 9223372036854775807LL) { return self.batchResult(CONTAINER_BATCH_REJECTED, -1, "Container tree revisions exhausted", saved); }
+		var original = self._children.copy(); var proposed = original.copy();
+		var childParent = self._layout == null ? parent : self._layout.childParent(); int step = -1;
+		try {
+			for entry in original { self.journal(saved, entry, self.projection(entry.view).nativeView()); }
+			step = 0;
+			for edit in edits {
+				if (edit == null) { throw "Container edit is missing"; }
+				var native = self.projection(edit.child); native.stateNode().requireMutation(); var view = native.nativeView();
+				int index = self.entryIndex(proposed, edit.child); int prior = self.entryIndex(original, edit.child);
+				MacOSContainerChild entry;
+				if (prior >= 0) { entry = original.get(prior); }
+				else {
+					self._state.validateChild(native.stateNode()); MacOSView.validateAttachment(view, childParent);
+					entry = MacOSContainerChild(edit.child, view.translatesAutoresizingMaskIntoConstraints());
+				}
+				if (edit.kind == CONTAINER_EDIT_INSERT) {
+					if (index >= 0 || edit.index < 0 || edit.index > proposed.len) { throw "Container insert does not name a detached child and valid position"; }
+					proposed.insert(edit.index, entry);
+				} else if (edit.kind == CONTAINER_EDIT_MOVE) {
+					if (index < 0 || edit.index < 0 || edit.index >= proposed.len) { throw "Container move does not name a direct child and valid final position"; }
+					entry = proposed.get(index); proposed.remove(index); proposed.insert(edit.index, entry);
+				} else if (edit.kind == CONTAINER_EDIT_DETACH) {
+					if (index < 0) { throw "Container detach does not name a direct child"; } entry = proposed.get(index); proposed.remove(index);
+				} else { throw "Unknown container edit kind"; }
+				var value = self.journal(saved, entry, view);
+				var placement = self._layout == null ? MacOSContainerPlacement() : self._layout.insertionPlacement(edit.index);
+				steps.push(MacOSContainerStep(edit.kind, value, edit.index, placement)); step++;
+			}
+		} catch (string error) { return self.batchResult(CONTAINER_BATCH_REJECTED, step, error, saved); }
+		var context = self._state.context();
+		if (context != null) { context.beginTreeMutation(); }
+		ContainerBatchResult result;
+		try { result = self.executeBatch(childParent, original, saved, steps); }
+		finally {
+			if (context != null) {
+				try { context.endTreeMutation(); }
+				catch (string error) {
+					context.recordNativeFailure(error);
+					// Ownership already has a coherent result. A failed wake must
+					// never hide those retained/detached lists from the caller.
+					if (result != null) {
+						if (result.kind == CONTAINER_BATCH_ROLLED_BACK) { self._treeRevision++; }
+						if (result.kind != CONTAINER_BATCH_FAILED_QUARANTINED) { result.kind = CONTAINER_BATCH_FAILED_CONSISTENT; }
+						result.treeRevision = self._treeRevision; result.failedStep = result.failedStep < 0 ? steps.len : result.failedStep;
+						result.error = self.quarantineState(result.error.isEmpty() ? error : result.error + "; resume: " + error);
+					}
+				}
+			}
+		}
+		return result;
+	}
+
+	private void positionChild(MacOSContainerChild entry, NSView parent, Vector<MacOSContainerChild> order, int index, MacOSContainerPlacement placement) {
+		var native = self.projection(entry.view).nativeView(); NSView? sibling = null;
+		if (index > 0) { sibling = self.projection(order.get(index - 1).view).nativeView(); }
+		else if (order.len > 1) { sibling = self.projection(order.get(1).view).nativeView(); }
+		MacOSView.moveNative(native, parent, sibling, index > 0);
+		if (self._layout != null) { self._layout.placeChild(native, index, placement); }
+	}
+
+	private void detachPhysical(MacOSContainerChild entry, NSView parent) {
+		var native = self.projection(entry.view); var child = native.nativeView();
+		if (self._layout != null) { self._layout.forgetChild(child); }
+		native.detachFrom(parent);
+		if (entry.pinned) { child.setAutoresizingMask(entry.autoresizingMask); entry.pinned = false; }
+		child.setTranslatesAutoresizingMaskIntoConstraints(entry.translatesAutoresizing);
+	}
+
+	private void restoreNative(NSView parent, Vector<MacOSContainerChild> original, Vector<MacOSContainerJournal> saved) {
+		string failure = "";
+		for (int index = saved.len - 1; index >= 0; index--) {
+			var value = saved.get(index); if (!value.attempted && value.parent != parent) { continue; }
+			try {
+				var actual = value.native.superview();
+				if (actual != null && actual != parent) { throw "Rollback child moved to an unknown native parent"; }
+				if (value.parent == null && actual == parent) { self.detachPhysical(value.entry, parent); }
+				else if (value.parent == parent && actual == null) { self.projection(value.entry.view).attachTo(parent); }
+			} catch (string error) { if (failure.isEmpty()) { failure = error; } }
+		}
+		for (int index = 0; index < original.len; index++) {
+			var entry = original.get(index);
+			try { var value = self.journal(saved, entry, self.projection(entry.view).nativeView()); self.positionChild(entry, parent, original, index, value.placement); }
+			catch (string error) { if (failure.isEmpty()) { failure = error; } }
+		}
+		for value in saved {
+			if (!value.attempted && value.parent != parent) { continue; }
+			try {
+				value.native.setTranslatesAutoresizingMaskIntoConstraints(value.translatesAutoresizing); value.native.setAutoresizingMask(value.autoresizingMask);
+				var frame = value.native.frame(); frame.origin.x = value.x; frame.origin.y = value.y; frame.size.width = value.width; frame.size.height = value.height; value.native.setFrame(frame);
+				value.entry.pinned = value.pinned; value.entry.autoresizingMask = value.restoreMask;
+			} catch (string error) { if (failure.isEmpty()) { failure = error; } }
+		}
+		if (!failure.isEmpty()) { throw failure; }
+	}
+
+	private bool samePlacement(MacOSContainerPlacement left, MacOSContainerPlacement right) { return left.present == right.present && left.index == right.index && left.column == right.column && left.row == right.row; }
+
+	private bool restoredNative(NSView parent, Vector<MacOSContainerChild> original, Vector<MacOSContainerJournal> saved) {
+		var order = parent.subviews(); if (order.count() != (unsigned long)original.len) { return false; }
+		for (int index = 0; index < original.len; index++) { if (order.indexOfObjectIdenticalTo(self.projection(original.get(index).view).nativeView()) != (unsigned long)index) { return false; } }
+		for value in saved {
+			if (value.native.superview() != value.parent || value.native.translatesAutoresizingMaskIntoConstraints() != value.translatesAutoresizing || value.native.autoresizingMask() != value.autoresizingMask) { return false; }
+			var frame = value.native.frame(); if (frame.origin.x != value.x || frame.origin.y != value.y || frame.size.width != value.width || frame.size.height != value.height) { return false; }
+			if (self._layout != null && !self.samePlacement(self._layout.captureChild(value.native), value.placement)) { return false; }
+		}
+		return true;
+	}
+
+	private Vector<MacOSContainerChild> actualChildren(NSView parent, Vector<MacOSContainerJournal> saved) {
+		Vector<MacOSContainerChild> actual = []; var order = parent.subviews();
+		for (unsigned long position = 0UL; position < order.count(); position++) {
+			MacOSContainerChild? found = null;
+			for value in saved {
+				if (value.native.superview() == parent && order.indexOfObjectIdenticalTo(value.native) == position) {
+					if (self._layout != null) { var placement = self._layout.captureChild(value.native); if (!placement.present || (placement.index >= 0 && placement.index != (int)position)) { throw "Native layout membership or order cannot be reconciled"; } }
+					found = value.entry; break;
+				}
+			}
+			if (found == null) { throw "Native container has unknown child membership"; } actual.push(found);
+		}
+		for value in saved { var actualParent = value.native.superview(); if (actualParent != null && actualParent != parent) { throw "Native child belongs to an unknown parent"; } }
+		return actual;
+	}
+
+	private Vector<MacOSViewState> childStates(Vector<MacOSContainerChild> entries) {
+		Vector<MacOSViewState> states = []; for entry in entries { states.push(self.projection(entry.view).stateNode()); } return states;
+	}
+
+	private ContainerBatchResult executeBatch(NSView parent, Vector<MacOSContainerChild> original, Vector<MacOSContainerJournal> saved, Vector<MacOSContainerStep> steps) {
+		var actual = original.copy(); int step = 0; int failedStep = -1; string failure = ""; ContainerBatchResultKind kind = CONTAINER_BATCH_COMMITTED; bool detachedFromWindow = false;
+		try {
+			for edit in steps {
+				var entry = edit.saved.entry; int index = self.entryIndex(actual, entry.view);
+				if (edit.kind == CONTAINER_EDIT_INSERT) {
+					actual.insert(edit.index, entry); edit.saved.attempted = true; self.projection(entry.view).attachTo(parent);
+					self.positionChild(entry, parent, actual, edit.index, edit.placement); MacOSContainer.pinTop(entry, edit.saved.native, parent);
+				} else if (edit.kind == CONTAINER_EDIT_DETACH) { edit.saved.attempted = true; if (edit.saved.native.window() != null) { detachedFromWindow = true; } self.detachPhysical(entry, parent); actual.remove(index); }
+				else if (index != edit.index) { edit.saved.attempted = true; actual.remove(index); actual.insert(edit.index, entry); self.positionChild(entry, parent, actual, edit.index, edit.placement); }
+				step++;
+			}
+			var verified = self.actualChildren(parent, saved);
+			if (verified.len != actual.len) { throw "Native container membership differs from the requested batch"; }
+			for (int index = 0; index < actual.len; index++) { if (verified.get(index).view != actual.get(index).view) { throw "Native container order differs from the requested batch"; } }
+		} catch (string error) {
+			failure = error; failedStep = step; bool restored = false;
+			try { self.restoreNative(parent, original, saved); } catch (string inverse) { failure = failure + "; inverse: " + inverse; }
+			try { restored = self.restoredNative(parent, original, saved); } catch (string proof) { failure = failure + "; verification: " + proof; }
+			// Reattaching a windowed subtree cannot restore an ended editor or
+			// pointer interaction. A restored hierarchy alone is not a rollback.
+			if (restored && !detachedFromWindow) { kind = CONTAINER_BATCH_ROLLED_BACK; }
+			else {
+				try { actual = self.actualChildren(parent, saved); kind = CONTAINER_BATCH_FAILED_CONSISTENT; }
+				catch (string reconciliation) { failure = failure + "; reconciliation: " + reconciliation; kind = CONTAINER_BATCH_FAILED_QUARANTINED; }
+			}
+		}
+		if (kind == CONTAINER_BATCH_ROLLED_BACK) { return self.batchResult(kind, failedStep, failure, saved); }
+		if (kind != CONTAINER_BATCH_FAILED_QUARANTINED) {
+			var states = self.childStates(actual);
+			try { self._state.replaceChildren(states); self._children = actual; }
+			catch (string error) {
+				failure = failure.isEmpty() ? error : failure + "; settlement: " + error; failedStep = failedStep < 0 ? steps.len : failedStep;
+				if (self._state.hasChildrenInOrder(states)) { self._children = actual; kind = CONTAINER_BATCH_FAILED_CONSISTENT; }
+				else { kind = CONTAINER_BATCH_FAILED_QUARANTINED; }
+			}
+		}
+		self._treeRevision++;
+		if (kind == CONTAINER_BATCH_FAILED_QUARANTINED) {
+			/* Untouched future insertions never transferred ownership. */
+			for value in saved { if (value.parent == parent || value.attempted) { self._uncertain.push(value.entry); } }
+		}
+		if (kind == CONTAINER_BATCH_COMMITTED) {
+			try { self._state.treeChanged(); }
+			catch (string error) {
+				var context = self._state.context(); if (context != null) { context.recordNativeFailure(error); }
+				failure = failure.isEmpty() ? error : failure + "; notification: " + error; failedStep = steps.len; kind = CONTAINER_BATCH_FAILED_CONSISTENT;
+			}
+		}
+		if (kind != CONTAINER_BATCH_COMMITTED) { failure = self.quarantineState(failure); }
+		return self.batchResult(kind, failedStep, failure, saved);
+	}
+
+	private string quarantineState(string originalFailure) {
+		string failure = originalFailure;
+		if (!self._state.snapshot().faulted) {
+			try { self._state.quarantine(); }
+			catch (string error) {
+				var context = self._state.context(); if (context != null) { context.recordNativeFailure(error); }
+				failure = failure.isEmpty() ? error : failure + "; quarantine: " + error;
+			}
+		}
+		return failure;
+	}
+
+	private ContainerBatchResult singleEdit(ContainerEditKind kind, IView child, int index) {
+		var edit = ContainerEdit(); edit.kind = kind; edit.child = child; edit.index = index; Vector<ContainerEdit> edits = [edit]; return self.applyBatch(self._treeRevision, edits);
+	}
+
+	private string resultName(ContainerBatchResultKind kind) {
+		if (kind == CONTAINER_BATCH_REJECTED) { return "REJECTED"; } if (kind == CONTAINER_BATCH_ROLLED_BACK) { return "ROLLED_BACK"; }
+		return kind == CONTAINER_BATCH_FAILED_CONSISTENT ? "FAILED_CONSISTENT" : "FAILED_QUARANTINED";
+	}
+
+	public void insert(IView child, int index) { var result = self.singleEdit(CONTAINER_EDIT_INSERT, child, index); if (result.kind != CONTAINER_BATCH_COMMITTED) { throw "Container insert " + self.resultName(result.kind) + ": " + result.error; } }
+
+	public void move(IView child, int destinationIndex) { var result = self.singleEdit(CONTAINER_EDIT_MOVE, child, destinationIndex); if (result.kind != CONTAINER_BATCH_COMMITTED) { throw "Container move " + self.resultName(result.kind) + ": " + result.error; } }
+
+	public void attach(IView child) { var result = self.singleEdit(CONTAINER_EDIT_INSERT, child, self._children.len); if (result.kind != CONTAINER_BATCH_COMMITTED) { throw result.error; } }
 
 	/* arrange() converts the top-left contract to an origin once. A child the
 	 * layout left frame-positioned keeps that top distance when its parent
@@ -161,23 +400,7 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 		child.setTranslatesAutoresizingMaskIntoConstraints(entry.translatesAutoresizing);
 	}
 
-	public IView detach(IView child) {
-		var parent = self.mutationView();
-		int index = self.childIndex(child);
-		self._mutating = true;
-		try {
-			self.detachChild(self._children.get(index), parent);
-			self._children.remove(index);
-		} catch (string error) {
-			self._mutating = false;
-			self._children.get(index).failed = true;
-			self._closeFailure = error;
-			self._closing = true;
-			throw error;
-		}
-		self._mutating = false;
-		return child;
-	}
+	public IView detach(IView child) { var result = self.singleEdit(CONTAINER_EDIT_DETACH, child, -1); if (result.kind != CONTAINER_BATCH_COMMITTED) { throw result.error; } return child; }
 
 	public void attachTo(NSView parent) {
 		var view = self.mutationView();
@@ -194,7 +417,8 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 	}
 
 	public void detachFrom(NSView parent) {
-		var view = self.mutationView();
+		// A faulted subtree still permits its owner to detach it for cleanup.
+		var view = self.nativeView(); if (self._mutating) { throw "Native container mutation is already active"; }
 		if (!self._attached) { throw "View has no container attachment"; }
 		self.cancelPointerCapture();
 		self._mutating = true;
@@ -211,7 +435,7 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 
 	public double fittingHeight() { return self.nativeView().fittingSize().height; }
 
-	public void arrange(double x, double y, double width, double height) { MacOSView.arrangeNative(self.nativeView(), x, y, width, height); }
+	public void arrange(double x, double y, double width, double height) { self._state.requireMutation(); MacOSView.arrangeNative(self.nativeView(), x, y, width, height); }
 
 	public bool isVisible() { return !self.nativeView().isHidden(); }
 
@@ -231,7 +455,12 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 		if (self._view == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._mutating) { throw "Native container mutation is already active"; }
 		if (self._attached) { throw "Detach the view from its container before closing it"; }
-		if (!self._closing) { self._closing = true; } self._state.close(); self._input.cancel();
+		if (!self._closing) {
+			self._closing = true;
+			for entry in self._uncertain { if (self.entryIndex(self._children, entry.view) < 0) { self._children.push(entry); } }
+			self._uncertain.clear();
+		}
+		try { self._state.close(); } finally { self._input.cancel(); }
 		return self.pollClose();
 	}
 
@@ -246,7 +475,7 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 		var input = self._input.pollCompletion();
 		if (input != CALLBACK_CANCELLATION_COMPLETE) { return input; }
 		self._mutating = true;
-		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE; string cleanupFailure = "";
 		try {
 			for (int index = self._children.len - 1; index >= 0; index--) {
 				var child = self._children.get(index);
@@ -254,7 +483,11 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 				try {
 					CallbackCancellation state = CALLBACK_CANCELLATION_PENDING;
 					if (!child.closing) {
-						self.detachChild(child, view);
+						var native = self.projection(child.view); var actualParent = native.nativeView().superview();
+						var childParent = self._layout == null ? view : self._layout.childParent();
+						if (actualParent != null && actualParent != childParent) { throw "Cannot close a child with unresolved native ownership"; }
+						if (actualParent == childParent) { self.detachChild(child, view); }
+						else if (self._state.hasChild(native.stateNode())) { self._state.removeChild(native.stateNode()); }
 						child.closing = true;
 						state = child.view.close();
 					} else { state = child.view.pollClose(); }
@@ -265,8 +498,8 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 						else if (result != CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = CALLBACK_CANCELLATION_PENDING; }
 					}
 				} catch (string error) {
-					child.failed = true;
-					if (self._closeFailure.isEmpty()) { self._closeFailure = error; }
+					if (child.closing) { child.failed = true; if (self._closeFailure.isEmpty()) { self._closeFailure = error; } }
+					else if (cleanupFailure.isEmpty()) { cleanupFailure = error; }
 				}
 			}
 			if (self._closeFailure.isEmpty() && self._children.len == 0) {
@@ -275,6 +508,7 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 			}
 		} finally { self._mutating = false; }
 		if (!self._closeFailure.isEmpty()) { throw self._closeFailure; }
+		if (!cleanupFailure.isEmpty()) { throw cleanupFailure; }
 		return result;
 	}
 

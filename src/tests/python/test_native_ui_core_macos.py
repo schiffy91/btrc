@@ -55,6 +55,7 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
             "PASS: UI2 macOS native settlements defer coalesce and drain with contained errors",
         ),
         ("UI2MacOSDetachFault", "PASS: UI2 macOS detach failures retain actual attachment ownership"),
+        ("UI2MacOSContainer", "PASS: UI2 macOS container batches preserve order ownership and marked editing"),
         ("UI2MacOSViewOrder", "PASS: UI2 macOS native reorder preserves the active editor and marked text"),
         ("UI2MacOSPublisher", "PASS: UI2 macOS worker publication and cancellation drain"),
         ("UI2MacOSExecutor", "PASS: UI2 macOS executor worker delivery timers suspension and callback drain"),
@@ -77,7 +78,7 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
     manifest = package / "btrc.toml"
     symbols = ["CFRunLoopGetMain", "CFRunLoopAddCommonMode", "CFRunLoopRunInMode", "kCFRunLoopDefaultMode"]
     manifest.write_text(
-        manifest.read_text().replace("symbols = [", "symbols = [" + "".join(f'"{symbol}", ' for symbol in symbols))
+        manifest.read_text().replace("symbols = [", "symbols = [" + "".join(f'"{symbol}", ' for symbol in symbols), 1)
     )
     (source.parent / "Foundation.btrc").write_text("")
     root = Path(__file__).resolve().parents[3]
@@ -97,7 +98,7 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
             )
             + "]\n"
         )
-    if fixture in {"UI2MacOSDetachFault", "UI2MacOSViewOrder"}:
+    if fixture in {"UI2MacOSDetachFault", "UI2MacOSViewOrder", "UI2MacOSContainer"}:
         for suffix in ("h", "m"):
             name = f"{fixture}.{suffix}"
             (package / name).write_text((root / "src/tests/native/gui/ui2/probes/macos" / name).read_text())
@@ -113,6 +114,15 @@ def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_prov
                 "-[BTRCUI2ViewOrder finish]",
             ]
         )
+        if fixture == "UI2MacOSContainer":
+            methods = [
+                "+[BTRCUI2ContainerProbe prepare]",
+                "+[BTRCUI2ContainerProbe new]",
+                "-[BTRCUI2ContainerProbe field]",
+                "-[BTRCUI2ContainerProbe begin:]",
+                "-[BTRCUI2ContainerProbe verifyFieldFirst:]",
+                "-[BTRCUI2ContainerProbe finish]",
+            ]
         manifest.write_text(
             manifest.read_text() + f'\n[[native.bindings]]\nmodule = "Main"\nheader = "{fixture}.h"\n'
             'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'

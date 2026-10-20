@@ -28,7 +28,11 @@ class FailingLayout implements IMacOSContainerLayout {
 
 	public NSView childParent() { return self._view; }
 
-	public void arrangeChild(NSView child) { child.setTranslatesAutoresizingMaskIntoConstraints(false); throw "Injected native layout failure"; }
+	public MacOSContainerPlacement captureChild(NSView child) { return MacOSContainerPlacement(); }
+
+	public MacOSContainerPlacement insertionPlacement(int index) { return MacOSContainerPlacement(); }
+
+	public void placeChild(NSView child, int index, MacOSContainerPlacement placement) { child.setTranslatesAutoresizingMaskIntoConstraints(false); throw "Injected native layout failure"; }
 
 	public void forgetChild(NSView child) { self.forgets++; }
 }

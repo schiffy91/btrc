@@ -2,6 +2,8 @@ import Library.GUI.MacOS.MacOSViewState;
 import Library.Image;
 import Library.Math;
 import Library.Callback;
+import Library.Vector;
+import Library.GUI.IContainer;
 import Library.Console;
 import Library.GUI.IPanel;
 import Library.GUI.IView;
@@ -44,7 +46,11 @@ class MacOSPanelLayout implements IMacOSContainerLayout {
 		return content;
 	}
 
-	public void arrangeChild(NSView child) {}
+	public MacOSContainerPlacement captureChild(NSView child) { return MacOSContainerPlacement(); }
+
+	public MacOSContainerPlacement insertionPlacement(int index) { return MacOSContainerPlacement(); }
+
+	public void placeChild(NSView child, int index, MacOSContainerPlacement placement) {}
 
 	public void forgetChild(NSView child) {}
 
@@ -86,6 +92,14 @@ class MacOSPanel implements IPanel, IMacOSView {
 
 	public bool isOpen() { return self._container.isOpen(); }
 
+	public long long treeRevision() { return self._container.treeRevision(); }
+
+	public ContainerBatchResult applyBatch(long long revision, Vector<ContainerEdit> edits) { return self._container.applyBatch(revision, edits); }
+
+	public void insert(IView child, int index) { self._container.insert(child, index); }
+
+	public void move(IView child, int destinationIndex) { self._container.move(child, destinationIndex); }
+
 	public void attach(IView child) { self._container.attach(child); }
 
 	public IView detach(IView child) { return self._container.detach(child); }
@@ -110,18 +124,18 @@ class MacOSPanel implements IPanel, IMacOSView {
 
 	public void setVisible(bool visible) { self._container.setVisible(visible); }
 
-	public void setFill(RGBA fill) { self.nativeView(); self._layout.setFill(fill); }
+	public void setFill(RGBA fill) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setFill(fill); }
 
-	public void setCornerRadius(double radius) { self.nativeView(); self._layout.setCornerRadius(radius); }
+	public void setCornerRadius(double radius) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setCornerRadius(radius); }
 
 	public void setDarkAppearance(bool dark) {
-		var view = self.nativeView();
+		self.stateNode().requireMutation(); var view = self.nativeView();
 		var appearance = NSAppearance.appearanceNamed(dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua);
 		if (appearance == null) { throw "Native view appearance is unavailable"; }
 		view.setAppearance(appearance);
 	}
 
-	public void inheritAppearance() { self.nativeView().setAppearance(null); }
+	public void inheritAppearance() { self.stateNode().requireMutation(); self.nativeView().setAppearance(null); }
 
 	public CallbackCancellation close() {
 		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.close();

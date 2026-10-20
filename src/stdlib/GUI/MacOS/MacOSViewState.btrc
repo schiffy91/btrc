@@ -314,6 +314,11 @@ class MacOSViewState implements IControlEventTarget {
 
 	public bool hasChild(MacOSViewState child) { for entry in self._children { if (entry == child) { return true; } } return false; }
 
+	public bool hasChildrenInOrder(Vector<MacOSViewState> children) {
+		self.requireMainThread(); if (self._children.len != children.len) { return false; }
+		for (int index = 0; index < children.len; index++) { if (self._children.get(index) != children.get(index)) { return false; } } return true;
+	}
+
 	public void validateChild(MacOSViewState child) {
 		self.requireOpen(); child.requireOpen();
 		if (child._parented || child.contains(self)) { throw "Native view already has a parent or creates a cycle"; }

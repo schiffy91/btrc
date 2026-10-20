@@ -1,0 +1,225 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.IContainer;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.IView;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSStack;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSGrid;
+import Library.Image;
+
+#include <assert.h>
+
+class ContainerWake implements IControlEventWake { public bool accept = true; public bool requestTurn() { return self.accept; } }
+class ContainerObservation implements IViewInteractionStateHandler {
+	public int calls = 0;
+	public ViewInteractionState? latest;
+	public void interactionChanged(ViewInteractionState state) { self.calls++; self.latest = state; }
+}
+
+/* Throw before/after real native operations, including a failed inverse. */
+class ContainerFaultView implements IMacOSView {
+	private MacOSView _view = MacOSView();
+	public bool failAttach = false;
+	public bool attachAfter = false;
+	public bool failDetach = false;
+	public NSView? foreign;
+	public IContainer? observer;
+	public MacOSViewState stateNode() { return self._view.stateNode(); }
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler receiver, CallbackScope owner) { return self._view.onInteractionStateChanged(receiver, owner); }
+
+	public void attachTo(NSView parent) {
+		if (self.observer != null) { bool rejected = false; try { self.observer.attach(self); } catch (string error) { rejected = true; } assert(rejected); }
+		if (self.failAttach && !self.attachAfter) { throw "forward-before"; }
+		self._view.attachTo(parent);
+		var foreign = self.foreign; if (foreign != null) { self._view.detachFrom(parent); self._view.attachTo(foreign); }
+		if (self.failAttach) { throw "forward-after"; }
+	}
+
+	public void detachFrom(NSView parent) { if (self.failDetach) { throw "inverse-before"; } self._view.detachFrom(parent); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler receiver, CallbackScope owner) { return self._view.onPointer(receiver, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler receiver, CallbackScope owner) { return self._view.onScroll(receiver, owner); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public CallbackCancellation close() { return self._view.close(); }
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+}
+
+ContainerEdit edit(ContainerEditKind kind, IView child, int index) { var result = ContainerEdit(); result.kind = kind; result.child = child; result.index = index; return result; }
+
+void verifyOrder() {
+	var context = MacOSViewContext(ContainerWake(), 8); var root = MacOSContainer(); root.stateNode().configure(context);
+	var first = MacOSView(); var second = MacOSView(); var third = MacOSView(); root.attach(first); root.attach(second);
+	var owner = CallbackScope(); var observer = ContainerObservation(); root.onInteractionStateChanged(observer, owner);
+	long long stateRevision = root.interactionState().stateRevision; long long revision = root.treeRevision(); long long generation = first.stateNode().generation();
+	Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_INSERT, third, 1), edit(CONTAINER_EDIT_MOVE, first, 2), edit(CONTAINER_EDIT_DETACH, second, -1)];
+	var result = root.applyBatch(revision, edits);
+	assert(result.kind == CONTAINER_BATCH_COMMITTED && result.treeRevision == revision + 1LL && result.detached.len == 1 && result.detached.get(0) == second);
+	assert(root.childCount() == 2 && root.childAt(0) == third && root.childAt(1) == first && result.retained.len == 2);
+	assert(first.stateNode().generation() == generation && observer.calls == 0 && root.interactionState().stateRevision == stateRevision + 1LL);
+	assert(context.dispatchOne() && observer.calls == 1 && !context.dispatchOne());
+	var stale = root.applyBatch(revision, edits); assert(stale.kind == CONTAINER_BATCH_REJECTED && root.childCount() == 2);
+	Vector<ContainerEdit> invalid = [edit(CONTAINER_EDIT_INSERT, second, 0), edit(CONTAINER_EDIT_MOVE, third, 3)];
+	var rejected = root.applyBatch(root.treeRevision(), invalid); assert(rejected.kind == CONTAINER_BATCH_REJECTED && second.nativeView().superview() == null && root.childAt(0) == third);
+	root.move(first, 1); assert(root.childAt(1) == first && first.stateNode().generation() == generation);
+	Vector<ContainerEdit> empty = []; assert(root.applyBatch(root.treeRevision(), empty).kind == CONTAINER_BATCH_COMMITTED);
+	Vector<ContainerEdit> reinsert = [edit(CONTAINER_EDIT_DETACH, third, -1), edit(CONTAINER_EDIT_INSERT, third, 1)];
+	assert(root.applyBatch(root.treeRevision(), reinsert).kind == CONTAINER_BATCH_COMMITTED && root.childAt(1) == third);
+	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && root.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+void verifyRollback(bool after) {
+	var root = MacOSContainer(); var first = MacOSView(); root.attach(first);
+	var child = ContainerFaultView(); child.failAttach = true; child.attachAfter = after; child.observer = root;
+	long long revision = root.treeRevision(); Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_INSERT, child, 0)];
+	var result = root.applyBatch(revision, edits);
+	assert(result.kind == CONTAINER_BATCH_ROLLED_BACK && result.treeRevision == revision && result.failedStep == 0);
+	assert(root.childCount() == 1 && root.childAt(0) == first && child.nativeView().superview() == null && child.isOpen());
+	assert(result.retained.len == 1 && result.detached.len == 1 && result.detached.get(0) == child);
+	assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && child.close() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+void verifyFailedConsistent() {
+	var root = MacOSContainer(); var first = MacOSView(); root.attach(first);
+	var child = ContainerFaultView(); child.failAttach = true; child.attachAfter = true; child.failDetach = true;
+	Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_INSERT, child, 0)]; long long revision = root.treeRevision();
+	var result = root.applyBatch(revision, edits);
+	assert(result.kind == CONTAINER_BATCH_FAILED_CONSISTENT && result.treeRevision == revision + 1LL && root.interactionState().faulted);
+	assert(root.childCount() == 2 && result.retained.len == 2 && result.detached.isEmpty());
+	bool refused = false; try { root.move(first, 0); } catch (string error) { refused = true; } assert(refused);
+	bool retry = false; try { root.close(); } catch (string error) { retry = true; } assert(retry && child.isOpen());
+	child.failDetach = false; assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && !child.isOpen());
+}
+
+void verifyQuarantine() {
+	var root = MacOSContainer(); var original = MacOSView(); root.attach(original); var foreign = MacOSView();
+	var child = ContainerFaultView(); child.failAttach = true; child.attachAfter = true; child.foreign = foreign.nativeView(); var untouched = MacOSView();
+	Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_INSERT, child, 0), edit(CONTAINER_EDIT_INSERT, untouched, 0)];
+	var result = root.applyBatch(root.treeRevision(), edits);
+	assert(result.kind == CONTAINER_BATCH_FAILED_QUARANTINED && root.interactionState().faulted && root.childCount() == 1 && root.childAt(0) == original);
+	assert(result.retained.len == 2 && result.detached.len == 1 && result.detached.get(0) == untouched && untouched.isOpen());
+	bool unresolved = false; try { root.close(); } catch (string error) { unresolved = true; } assert(unresolved && child.isOpen());
+	child.detachFrom(foreign.nativeView()); assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && !child.isOpen());
+	assert(foreign.close() == CALLBACK_CANCELLATION_COMPLETE && untouched.close() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+void verifyWakeFailure() {
+	var wake = ContainerWake(); var context = MacOSViewContext(wake, 8); var root = MacOSContainer(); root.stateNode().configure(context);
+	var child = MacOSView(); wake.accept = false; Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_INSERT, child, 0)];
+	var result = root.applyBatch(root.treeRevision(), edits);
+	assert(result.kind == CONTAINER_BATCH_FAILED_CONSISTENT && result.retained.len == 1 && result.retained.get(0) == child && result.detached.isEmpty());
+	assert(root.interactionState().faulted && context.nativeFailed() && root.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+class ContainerFailingPlacement implements IMacOSContainerLayout {
+	private IMacOSContainerLayout _layout;
+	public bool armed = false;
+	public ContainerFailingPlacement(IMacOSContainerLayout layout) { self._layout = layout; }
+
+	public NSView nativeView() { return self._layout.nativeView(); }
+
+	public NSView childParent() { return self._layout.childParent(); }
+
+	public MacOSContainerPlacement captureChild(NSView child) { return self._layout.captureChild(child); }
+
+	public MacOSContainerPlacement insertionPlacement(int index) { return self._layout.insertionPlacement(index); }
+
+	public void forgetChild(NSView child) { self._layout.forgetChild(child); }
+
+	public void placeChild(NSView child, int index, MacOSContainerPlacement placement) {
+		self._layout.placeChild(child, index, placement);
+		if (self.armed) { self.armed = false; var frame = child.frame(); frame.size.width = 71.0; child.setFrame(frame); child.setTranslatesAutoresizingMaskIntoConstraints(false); throw "layout-after-placement"; }
+	}
+}
+
+void verifyLayoutRollback(bool grid) {
+	var stack = MacOSStackLayout(false, 0.0); var cells = MacOSGridLayout(2, 1, 0.0, 0.0); IMacOSContainerLayout native = grid ? (IMacOSContainerLayout)cells : (IMacOSContainerLayout)stack;
+	var layout = ContainerFailingPlacement(native); var root = MacOSContainer(layout); var first = MacOSView(); var second = MacOSView(); var incoming = MacOSView();
+	if (grid) { cells.prepareCell(0, 0); } root.attach(first); if (grid) { cells.prepareCell(1, 0); } root.attach(second);
+	var original = first.nativeView().frame(); bool translates = first.nativeView().translatesAutoresizingMaskIntoConstraints(); unsigned long mask = first.nativeView().autoresizingMask();
+	if (grid) { cells.prepareCell(0, 0); }
+	layout.armed = true; Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_DETACH, first, -1), edit(CONTAINER_EDIT_INSERT, incoming, 0)];
+	var result = root.applyBatch(root.treeRevision(), edits);
+	assert(result.kind == CONTAINER_BATCH_ROLLED_BACK && root.childAt(0) == first && root.childAt(1) == second && incoming.nativeView().superview() == null);
+	var restored = first.nativeView().frame(); assert(restored.origin.x == original.origin.x && restored.origin.y == original.origin.y && restored.size.width == original.size.width && restored.size.height == original.size.height);
+	assert(first.nativeView().translatesAutoresizingMaskIntoConstraints() == translates && first.nativeView().autoresizingMask() == mask);
+	var firstPlacement = native.captureChild(first.nativeView()); var secondPlacement = native.captureChild(second.nativeView());
+	assert(firstPlacement.present && secondPlacement.present);
+	if (grid) { assert(firstPlacement.column == 0 && secondPlacement.column == 1 && firstPlacement.row == 0 && secondPlacement.row == 0); }
+	else { assert(firstPlacement.index == 0 && secondPlacement.index == 1); }
+	assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && incoming.close() == CALLBACK_CANCELLATION_COMPLETE); stack.close(); cells.close();
+}
+
+class ContainerFailingEligibility implements IMacOSViewEligibility {
+	public int calls = 0;
+	public void eligibilityLost() { self.calls++; throw "settlement-and-quarantine-failure"; }
+}
+
+void verifySettlementFailure() {
+	var context = MacOSViewContext(ContainerWake(), 8); var queue = context.createQueue(); var root = MacOSContainer(); root.stateNode().configure(context);
+	var first = MacOSView(); var second = MacOSView(); var failure = ContainerFailingEligibility(); first.bindEligibility(failure); second.bindEligibility(failure);
+	root.attach(first); root.attach(second);
+	// Inject window eligibility for the throwing provider-hook case.
+	root.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+	Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_DETACH, first, -1)]; var result = root.applyBatch(root.treeRevision(), edits);
+	assert(result.kind == CONTAINER_BATCH_FAILED_CONSISTENT && root.childCount() == 1 && root.childAt(0) == second);
+	assert(result.retained.len == 1 && result.retained.get(0) == second && result.detached.len == 1 && result.detached.get(0) == first);
+	assert(failure.calls == 2 && root.interactionState().faulted && context.nativeFailed()); root.stateNode().detachWindow();
+	assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && first.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+void verifyLayouts() {
+	var stack = MacOSStack(false, 0.0); var first = MacOSView(); var second = MacOSView(); stack.attach(first); stack.insert(second, 0); stack.move(first, 0);
+	assert(stack.childAt(0) == first && stack.nativeView().subviews().count() == 2UL); assert(stack.close() == CALLBACK_CANCELLATION_COMPLETE);
+	var fill = RGBA(0, 0, 0);
+	var panel = MacOSPanel(fill); panel.attach(MacOSView());
+	assert(panel.treeRevision() == 2LL && panel.close() == CALLBACK_CANCELLATION_COMPLETE);
+	var grid = MacOSGrid(2, 1); grid.setChild(0, 0, MacOSView()); grid.setChild(1, 0, MacOSView());
+	assert(grid.childAt(0, 0) != null && grid.childAt(1, 0) != null && grid.close() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+void verifyMarkedMove(bool stack) {
+	var probe = BTRCUI2ContainerProbe.new(); if (probe == null) { throw "Cannot allocate native container probe"; } var layout = MacOSStackLayout(false, 0.0); var root = MacOSContainer(stack ? (IMacOSContainerLayout)layout : null); var field = MacOSView(probe.field()); var sibling = MacOSView();
+	root.attach(field); root.attach(sibling); probe.begin(root.nativeView());
+	root.move(field, 1); assert(probe.verifyFieldFirst(false)); root.move(field, 0); assert(probe.verifyFieldFirst(true));
+	probe.finish(); assert(root.close() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+void verifyMarkedDetachFailure() {
+	var probe = BTRCUI2ContainerProbe.new(); if (probe == null) { throw "Cannot allocate native container probe"; } var root = MacOSContainer(); var field = MacOSView(probe.field()); var sibling = MacOSView();
+	root.attach(field); root.attach(sibling); probe.begin(root.nativeView()); var failing = ContainerFaultView(); failing.failAttach = true;
+	Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_DETACH, field, -1), edit(CONTAINER_EDIT_INSERT, failing, 0)];
+	var result = root.applyBatch(root.treeRevision(), edits);
+	assert(result.kind == CONTAINER_BATCH_FAILED_CONSISTENT && root.interactionState().faulted && root.childAt(0) == field);
+	assert(result.retained.len == 2 && result.detached.len == 1 && result.detached.get(0) == failing);
+	assert(!probe.verifyFieldFirst(true)); probe.finish(); assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && failing.close() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+int main() {
+	BTRCUI2ContainerProbe.prepare(); verifyOrder(); verifyRollback(false); verifyRollback(true); verifyFailedConsistent(); verifyQuarantine(); verifyWakeFailure(); verifyLayoutRollback(false); verifyLayoutRollback(true); verifySettlementFailure(); verifyLayouts(); verifyMarkedMove(false); verifyMarkedMove(true); verifyMarkedDetachFailure();
+	print("PASS: UI2 macOS container batches preserve order ownership and marked editing"); return 0;
+}

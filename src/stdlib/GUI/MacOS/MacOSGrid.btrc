@@ -45,7 +45,17 @@ class MacOSGridLayout implements IMacOSContainerLayout {
 
 	public void prepareCell(int column, int row) { self.nativeChild(column, row); self._column = column; self._row = row; }
 
-	public void arrangeChild(NSView child) { self.control().cellAtColumnIndex(self._column, self._row).setContentView(child); }
+	public MacOSContainerPlacement captureChild(NSView child) {
+		var placement = MacOSContainerPlacement(); placement.present = false; var grid = self.control();
+		for (int row = 0; row < grid.numberOfRows(); row++) { for (int column = 0; column < grid.numberOfColumns(); column++) {
+				if (grid.cellAtColumnIndex(column, row).contentView() == child) { placement.present = true; placement.column = column; placement.row = row; }
+			} }
+		return placement;
+	}
+
+	public MacOSContainerPlacement insertionPlacement(int index) { var placement = MacOSContainerPlacement(); placement.column = self._column; placement.row = self._row; return placement; }
+
+	public void placeChild(NSView child, int index, MacOSContainerPlacement placement) { self.control().cellAtColumnIndex(placement.column, placement.row).setContentView(child); }
 
 	public void forgetChild(NSView child) {
 		var grid = self.control();
@@ -173,7 +183,7 @@ class MacOSGrid implements IGrid, IMacOSView {
 	}
 
 	public void setChild(int column, int row, IView? child) {
-		var parent = self.nativeView();
+		self.stateNode().requireMutation(); var parent = self.nativeView();
 		var previous = self.childAt(column, row);
 		if (previous == child) { return; }
 		if (child != null) {
@@ -193,21 +203,21 @@ class MacOSGrid implements IGrid, IMacOSView {
 		}
 	}
 
-	public void setSpacing(double columnSpacing, double rowSpacing) { self.nativeView(); self._layout.setSpacing(columnSpacing, rowSpacing); }
+	public void setSpacing(double columnSpacing, double rowSpacing) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setSpacing(columnSpacing, rowSpacing); }
 
-	public void setColumnWidth(int column, double width) { self.nativeView(); self._layout.setColumnWidth(column, width); }
+	public void setColumnWidth(int column, double width) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setColumnWidth(column, width); }
 
-	public void fitColumn(int column) { self.nativeView(); self._layout.fitColumn(column); }
+	public void fitColumn(int column) { self.stateNode().requireMutation(); self.nativeView(); self._layout.fitColumn(column); }
 
-	public void setRowHeight(int row, double height) { self.nativeView(); self._layout.setRowHeight(row, height); }
+	public void setRowHeight(int row, double height) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setRowHeight(row, height); }
 
-	public void fitRow(int row) { self.nativeView(); self._layout.fitRow(row); }
+	public void fitRow(int row) { self.stateNode().requireMutation(); self.nativeView(); self._layout.fitRow(row); }
 
-	public void setRowHidden(int row, bool hidden) { self.nativeView(); self._layout.setRowHidden(row, hidden); }
+	public void setRowHidden(int row, bool hidden) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setRowHidden(row, hidden); }
 
-	public void setColumnHidden(int column, bool hidden) { self.nativeView(); self._layout.setColumnHidden(column, hidden); }
+	public void setColumnHidden(int column, bool hidden) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setColumnHidden(column, hidden); }
 
-	public void layout() { self.nativeView(); self._layout.layout(); }
+	public void layout() { self.stateNode().requireMutation(); self.nativeView(); self._layout.layout(); }
 
 	public CallbackCancellation close() {
 		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.close();
