@@ -1,7 +1,73 @@
 #import "UI2MacOSImages.h"
 #include <stdio.h>
+#include <assert.h>
+#include <stdatomic.h>
 
+// Weak identity sets observe actual provider objects. They neither retain
+// images nor count unobserved AppKit-private allocations.
+static NSMutableDictionary<NSString *, NSHashTable *> *lifetimeObjects;
+static NSMutableDictionary<NSString *, NSNumber *> *lifetimeCounts;
+static long lifetimeCycle;
+static atomic_int workers;
+static void observeObject(NSString *role, id value) {
+    assert(value != nil);
+    if (!lifetimeObjects[role]) lifetimeObjects[role] = [[NSHashTable alloc]
+        initWithOptions:NSPointerFunctionsWeakMemory | NSPointerFunctionsObjectPointerPersonality capacity:0];
+    if ([lifetimeObjects[role] containsObject:value]) return;
+    [lifetimeObjects[role] addObject:value];
+    lifetimeCounts[role] = @([lifetimeCounts[role] integerValue] + 1);
+}
+static NSUInteger liveObjects(void) {
+    NSUInteger total = 0;
+    for (NSString *role in lifetimeObjects) total += lifetimeObjects[role].allObjects.count;
+    return total;
+}
 @implementation BTRCUI2ImageProbe
++ (void)requireWorker { assert(!NSThread.isMainThread); atomic_fetch_add(&workers, 1); }
++ (void)runCycle:(long)cycle callback:(void (^)(void))callback {
+    assert(NSThread.isMainThread && cycle == lifetimeCycle + 1 && cycle <= 100);
+    assert(liveObjects() == 0);
+    lifetimeCycle = cycle; atomic_store(&workers, 0);
+    lifetimeObjects = [NSMutableDictionary dictionary]; lifetimeCounts = [NSMutableDictionary dictionary];
+    @autoreleasepool { callback(); }
+    assert(atomic_load(&workers) == 2);
+    NSDictionary *expected = @{ @"view": @2, @"cell": @2, @"image": @2, @"bitmap": @2 };
+    assert([lifetimeCounts isEqualToDictionary:expected]);
+    NSTimeInterval start = NSProcessInfo.processInfo.systemUptime;
+    NSUInteger survivors = liveObjects();
+    while (survivors && NSProcessInfo.processInfo.systemUptime - start < 2.0) {
+        @autoreleasepool {
+            [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+            survivors = liveObjects();
+        }
+    }
+    NSDictionary *record = @{ @"cycle": @(cycle), @"order": @((cycle - 1) % 4),
+        @"explicit_original_close": @((cycle - 1) / 4 % 2 == 1), @"workers": @(atomic_load(&workers)),
+        @"counts": lifetimeCounts, @"survivors": @(survivors), @"drain_deadline_seconds": @2 };
+    NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingSortedKeys error:&error];
+    assert(data && !error);
+    fprintf(stdout, "UI2_IMAGE_LIFETIME %s\n", [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String); fflush(stdout);
+    assert(survivors == 0);
+}
++ (void)observe:(NSView *)view {
+    assert(NSThread.isMainThread && [view isKindOfClass:NSImageView.class]);
+    NSImageView *native = (NSImageView *)view;
+    observeObject(@"view", native); observeObject(@"cell", native.cell);
+    observeObject(@"image", native.image);
+    assert(native.image.representations.count == 1);
+    for (NSImageRep *representation in native.image.representations) {
+        assert([representation isKindOfClass:NSBitmapImageRep.class]); observeObject(@"bitmap", representation);
+    }
+}
++ (void)sample:(NSView *)view cycle:(long)cycle stage:(long)stage slot:(long)slot red:(long)red {
+    assert(NSThread.isMainThread && cycle == lifetimeCycle);
+    assert(!view || [view isKindOfClass:NSImageView.class]);
+    NSImage *image = [(NSImageView *)view image];
+    if (red) assert([self image:image red:red]); else assert(image == nil);
+    fprintf(stdout, "UI2_IMAGE_PIXEL {\"cycle\":%ld,\"stage\":%ld,\"slot\":%ld,\"expected_red\":%ld,\"open\":%s,\"image_present\":%s}\n",
+        cycle, stage, slot, red, view ? "true" : "false", image ? "true" : "false");
+}
+
 + (BOOL)image:(NSImage *)image red:(NSInteger)red {
     if (!image) return NO;
     for (NSImageRep *representation in image.representations) {

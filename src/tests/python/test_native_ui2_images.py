@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.python.linux_provider_fixtures import build_provider_program, provider_environment, require_linux_reader
+from src.tests.python.linux_provider_fixtures import (
+    build_observed_provider_program,
+    build_provider_program,
+    provider_environment,
+    require_linux_reader,
+)
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
@@ -87,11 +92,17 @@ def _macos_image_publication(native_project, native_compile, gui_provider_root, 
         "+[NSApplication sharedApplication]",
         "+[BTRCUI2ImageProbe image:red:]",
         "+[BTRCUI2ImageProbe view:red:]",
+        "+[BTRCUI2ImageProbe requireWorker]",
+        "+[BTRCUI2ImageProbe runCycle:callback:]",
+        "+[BTRCUI2ImageProbe observe:]",
+        "+[BTRCUI2ImageProbe sample:cycle:stage:slot:red:]",
     ]
     manifest.write_text(
         manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "UI2MacOSImages.h"\n'
         'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
         f"symbols = {json.dumps(symbols)}\n"
+        '[native.bindings.callbacks."+[BTRCUI2ImageProbe runCycle:callback:].callback"]\n'
+        'interface = "IImageLifetimeCycle"\nlifetime = "call"\nfailure = "abort"\nexecutor = "caller"\n'
         '[[native.sources]]\npath = "UI2MacOSImages.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
     plan = package / "Images.link.json"
@@ -102,8 +113,10 @@ def _macos_image_publication(native_project, native_compile, gui_provider_root, 
     executable = package / "Images"
 
     def runner(command, **kwargs):
-        flags = ["-O1"] if Path(command[0]).name in {"clang", "clang++"} else []
-        if flags and sanitizer:
+        flags = []
+        if str(package / "UI2MacOSImages.m") in command:
+            flags += ["-fobjc-arc", "-fobjc-exceptions", "-fobjc-arc-exceptions"]
+        if Path(command[0]).name in {"clang", "clang++"} and sanitizer:
             flags += [f"-fsanitize={sanitizer}", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
             if sanitizer == "thread":
                 flags += ["-g"]
@@ -117,12 +130,13 @@ def _macos_image_publication(native_project, native_compile, gui_provider_root, 
         env=apple_environment() | {"BTRC_GUI_BACKGROUND": "1", "TSAN_OPTIONS": "halt_on_error=1:symbolize=0"},
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=300,
     )
     (package / "stdout.txt").write_text(ran.stdout)
     (package / "stderr.txt").write_text(ran.stderr)
     assert ran.returncode == 0, ran.stdout + ran.stderr
     assert "PASS: UI2 macOS image capture close and independent presentation" in ran.stdout
+    _image_lifetime_evidence(ran.stdout, package, "macos")
 
 
 @pytest.mark.linux_gui
@@ -151,3 +165,104 @@ def test_linux_image_publication(tmp_path, request, gui_provider_root, frontend,
     (tmp_path / "stderr.txt").write_text(ran.stderr)
     assert ran.returncode == 0, ran.stdout + ran.stderr
     assert "PASS: UI2 Linux image capture close and independent presentation" in ran.stdout
+
+
+@pytest.mark.linux_gui
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_linux_image_lifetime(tmp_path_factory, request, frontend, sanitized):
+    fixture = "src/tests/native/gui/ui2/probes/linux/UI2LinuxImageLifetime"
+    wrappers = (
+        "SDL_CreateWindow",
+        "SDL_DestroyWindow",
+        "wgpuDeviceCreateTexture",
+        "wgpuTextureCreateView",
+        "wgpuDeviceCreateBindGroup",
+        "wgpuSurfaceGetCurrentTexture",
+        *(
+            f"wgpu{kind}{operation}"
+            for kind in ("Texture", "TextureView", "BindGroup")
+            for operation in ("AddRef", "Release")
+        ),
+    )
+    executable = build_observed_provider_program(
+        tmp_path_factory,
+        request,
+        frontend,
+        sanitized,
+        fixture + ".btrc",
+        fixture,
+        ("ui2ImageBegin", "ui2ImageWorker", "ui2ImageEnd"),
+        wrappers,
+    )
+    ran = subprocess.run(
+        [str(executable)],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env=provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1"),
+    )
+    (executable.parent / "stdout.txt").write_text(ran.stdout)
+    (executable.parent / "stderr.txt").write_text(ran.stderr)
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    assert "PASS: UI2 Linux image lifetime cycles=100" in ran.stdout
+    _image_lifetime_evidence(ran.stdout, executable.parent, "linux")
+
+
+def _image_lifetime_evidence(output, directory, provider):
+    pixels = [
+        json.loads(line.removeprefix("UI2_IMAGE_PIXEL "))
+        for line in output.splitlines()
+        if line.startswith("UI2_IMAGE_PIXEL ")
+    ]
+    cycles = [
+        json.loads(line.removeprefix("UI2_IMAGE_LIFETIME "))
+        for line in output.splitlines()
+        if line.startswith("UI2_IMAGE_LIFETIME ")
+    ]
+    assert [row["cycle"] for row in cycles] == list(range(1, 101))
+    assert [(row["cycle"], row["stage"], row["slot"]) for row in pixels] == [
+        (cycle, stage, slot) for cycle in range(1, 101) for stage in range(5) for slot in range(2)
+    ]
+    for row in pixels:
+        order, stage, slot = (row["cycle"] - 1) % 4, row["stage"], row["slot"]
+        expected_red = (205 if stage == 0 else (31 if slot == 0 else 205)) if stage < 2 else 0
+        expected_open = stage < 4
+        if stage == 2:
+            expected_red = ((0, 205), (31, 0), (0, 205), (31, 0))[order][slot]
+            expected_open = not ((order == 1 and slot == 1) or (order == 2 and slot == 0))
+        elif stage == 3:
+            expected_open = slot == (0 if order < 2 else 1)
+        assert row["expected_red"] == expected_red and row["open"] is expected_open, row
+        assert row["image_present"] is (expected_red != 0), row
+        if provider == "linux" and expected_red:
+            assert row["rgba"] == [expected_red, 17, 39, 255], row
+    for row in cycles:
+        assert row["order"] == (row["cycle"] - 1) % 4 and row["workers"] == 2, row
+        assert row["explicit_original_close"] is ((row["cycle"] - 1) // 4 % 2 == 1), row
+        if provider == "macos":
+            assert row["counts"] == {"view": 2, "cell": 2, "image": 2, "bitmap": 2}, row
+            assert row["survivors"] == 0 and row["drain_deadline_seconds"] == 2, row
+        else:
+            assert row["image_textures"] == 2, row
+            assert [resource["class"] for resource in row["resources"]] == [
+                "window",
+                "texture",
+                "texture_view",
+                "bind_group",
+            ]
+            for resource in row["resources"]:
+                assert resource["created"] > 0 and resource["live"] == 0, resource
+                assert resource["created"] + resource["retained"] == resource["released"], resource
+    (directory / "image-lifetime-evidence.json").write_text(
+        json.dumps(
+            {
+                "provider": provider,
+                "cycles": cycles,
+                "pixel_observations": pixels,
+                "scope": "actual provider image objects/claims; excludes backend-private allocation census",
+            },
+            indent=2,
+        )
+        + "\n"
+    )
