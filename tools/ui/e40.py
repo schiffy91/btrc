@@ -338,7 +338,7 @@ class E40Run:
             raise
         finally:
             self.record["evidence"] = [
-                {"path": str(path.relative_to(self.output)), "bytes": path.stat().st_size()}
+                {"path": str(path.relative_to(self.output)), "bytes": path.stat().st_size}
                 for path in sorted(self.output.rglob("*"))
                 if path.is_file()
                 and path.suffix in {".json", ".csv", ".txt", ".xml"}

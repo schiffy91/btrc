@@ -1,7 +1,9 @@
 """A qualification cell cannot pass with a partial denominator or evidence set."""
 
+import io
 import json
 import xml.etree.ElementTree as ET
+from types import SimpleNamespace
 
 import pytest
 
@@ -73,6 +75,59 @@ def test_complete_cell_evidence(tmp_path):
     E40Run.validate_junit(path, NODES)
     evidence(tmp_path)
     LinuxE40Cases.validate_evidence(tmp_path, METADATA)
+
+
+@pytest.mark.parametrize("outcome", ["passed", "test-failure", "evidence-failure"])
+def test_run_finalizes_real_evidence_files_and_preserves_outcome(tmp_path, monkeypatch, outcome):
+    calls = []
+    monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)
+    monkeypatch.delenv("BTRC_TEST_BTRCC", raising=False)
+    monkeypatch.setattr("tools.ui.e40.platform.platform", lambda: "fixture-platform")
+    monkeypatch.setattr("tools.ui.e40.platform.machine", lambda: "fixture-machine")
+
+    def command_output(command, **kwargs):
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            return METADATA["revision"] + "\n"
+        if command[-2:] == ["status", "--porcelain"]:
+            return ""
+        assert command == ["cc", "--version"]
+        return "fixture compiler\n"
+
+    def process(command, **kwargs):
+        calls.append(command)
+        if "--collect-only" in command:
+            return SimpleNamespace(stdout=io.StringIO("\n".join(NODES) + "\n"), wait=lambda: 0)
+        evidence(tmp_path)
+        junit(tmp_path / "junit.xml", NODES, "failure" if outcome == "test-failure" else None)
+        if outcome == "evidence-failure":
+            (tmp_path / "pytest/load/e40-load.json").unlink()
+        return SimpleNamespace(
+            stdout=io.StringIO("qualification output\n"), wait=lambda: 1 if outcome == "test-failure" else 0
+        )
+
+    monkeypatch.setattr("tools.ui.e40.subprocess.check_output", command_output)
+    monkeypatch.setattr("tools.ui.e40.subprocess.Popen", process)
+    run = E40Run(NODES, tmp_path, {**METADATA, "cell": "fixture-cell"}, LinuxE40Cases.validate_evidence)
+    if outcome == "passed":
+        run.run()
+    else:
+        expected = "qualification exited 1" if outcome == "test-failure" else "16 burst reports and one load"
+        with pytest.raises(RuntimeError, match=expected) as error:
+            run.run()
+    saved = json.loads((tmp_path / "provenance.json").read_text())
+    assert saved["status"] == ("passed" if outcome == "passed" else "failed")
+    if outcome != "passed":
+        assert saved["error"] == str(error.value)
+    assert len(calls) == 2
+    assert [phase["returncode"] for phase in saved["phases"]] == [0, 1 if outcome == "test-failure" else 0]
+    expected_files = {
+        str(path.relative_to(tmp_path)): path.stat().st_size
+        for path in tmp_path.rglob("*")
+        if path.is_file() and path != tmp_path / "provenance.json"
+    }
+    assert expected_files
+    assert {item["path"]: item["bytes"] for item in saved["evidence"]} == expected_files
+    assert saved["expected_nodes"] == NODES
 
 
 @pytest.mark.parametrize("nodes", [NODES[:-1], [*NODES, NODES[0]], [*NODES[:-1], NODES[0]]])
