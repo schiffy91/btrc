@@ -6,8 +6,10 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -2211,3 +2213,37 @@ def test_linux_gui_union_is_required_and_keeps_wayland_report_only() -> None:
     assert '--count 4 --revision "$GITHUB_SHA"' in verify["run"]
     assert "continue-on-error" not in verify
     assert job["steps"][-1]["if"] == "always()"
+
+
+@pytest.mark.parametrize("inspect_status", [0, 17])
+def test_workflow_retains_raw_image_inspect_and_stops_on_failure(tmp_path: Path, inspect_status: int) -> None:
+    job = _parsed("ci.yml")["jobs"]["bench-diagnostic"]
+    script = next(step["run"] for step in job["steps"] if "CANDIDATE" in step.get("env", {}))
+    image = [{"Id": "sha256:example", "RepoDigests": ["localhost/btrc@sha256:example"], "Architecture": "amd64"}]
+    podman = tmp_path / "podman"
+    podman.write_text(
+        f"#!{sys.executable}\n"
+        "import json, pathlib, sys\n"
+        "with pathlib.Path('calls.jsonl').open('a') as stream:\n"
+        "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "if sys.argv[1:3] == ['image', 'inspect']:\n"
+        "    assert sys.argv[3:] == ['btrc-devcontainer:latest'], sys.argv\n"
+        f"    print({json.dumps(json.dumps(image))})\n"
+        f"    sys.exit({inspect_status})\n"
+        "assert sys.argv[1] == 'run', sys.argv\n"
+    )
+    podman.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}", "CANDIDATE": "a" * 40},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == inspect_status, result.stderr
+    calls = [json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()]
+    assert calls[0] == ["image", "inspect", "btrc-devcontainer:latest"]
+    assert len(calls) == (1 if inspect_status else 2)
+    assert json.loads((tmp_path / "build/bench-diagnostic/image.json").read_text()) == image
+    if not inspect_status:
+        assert "python3 -m tools.bench.diagnostic" in shlex.join(calls[1])
