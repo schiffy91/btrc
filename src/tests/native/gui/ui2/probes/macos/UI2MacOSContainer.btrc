@@ -28,7 +28,18 @@ class ContainerFaultView implements IMacOSView {
 	public bool failDetach = false;
 	public NSView? foreign;
 	public IContainer? observer;
-	public MacOSViewState stateNode() { return self._view.stateNode(); }
+	public ControlEventQueue? preparedQueue;
+	public MacOSViewState? lateTarget;
+	public CallbackScope lateOwner = CallbackScope();
+	public bool lateAttempted = false;
+	public bool lateRejected = false;
+	public MacOSViewState stateNode() {
+		if (!self.lateAttempted && self.preparedQueue != null && self.preparedQueue.captureOwner().used() > 0 && self.lateTarget != null) {
+			self.lateAttempted = true;
+			try { self.lateTarget.observe(ContainerObservation(), self.lateOwner); } catch (string error) { self.lateRejected = true; }
+		}
+		return self._view.stateNode();
+	}
 
 	public NSView nativeView() { return self._view.nativeView(); }
 
@@ -219,7 +230,71 @@ void verifyMarkedDetachFailure() {
 	assert(!probe.verifyFieldFirst(true)); probe.finish(); assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && failing.close() == CALLBACK_CANCELLATION_COMPLETE);
 }
 
+void verifyCaptureRoutes() {
+	var context = MacOSViewContext(ContainerWake(), 1, null, 4); var queue = context.createQueue(); var root = MacOSContainer(); root.stateNode().configure(context); root.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+	var first = MacOSView(); var second = MacOSView(); first.stateNode().configure(context); second.stateNode().configure(context);
+	var owner = CallbackScope(); var observer = ContainerObservation(); first.onInteractionStateChanged(observer, owner); second.onInteractionStateChanged(observer, owner);
+	long long generation = first.stateNode().generation(); first.stateNode().setLayoutParticipating(false); assert(context.detachedEvents.pendingCount() == 1);
+	var blocker1 = queue.captureOwner().reserveRegistration(true, false); var blocker2 = queue.captureOwner().reserveRegistration(true, false); var blocker3 = queue.captureOwner().reserveRegistration(true, false);
+	assert(blocker1 != null && blocker2 != null && blocker3 != null);
+	Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_INSERT, first, 0), edit(CONTAINER_EDIT_INSERT, second, 1)];
+	var result = root.applyBatch(root.treeRevision(), edits);
+	assert(result.kind == CONTAINER_BATCH_REJECTED && root.childCount() == 0 && first.nativeView().superview() == null && second.nativeView().superview() == null);
+	assert(first.stateNode().generation() == generation && queue.captureOwner().used() == 3 && context.detachedEvents.pendingCount() == 1);
+	blocker1.cancel(); blocker2.cancel(); blocker3.cancel();
+	result = root.applyBatch(root.treeRevision(), edits); assert(result.kind == CONTAINER_BATCH_COMMITTED && root.childCount() == 2);
+	assert(first.stateNode().generation() == generation + 1LL && context.detachedEvents.pendingCount() == 0 && queue.pendingCount() == 2);
+	while (context.dispatchOne()) {} assert(observer.calls == 2);
+	generation = first.stateNode().generation(); root.move(first, 1); assert(first.stateNode().generation() == generation);
+	root.stateNode().detachWindow(); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE); assert(root.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+void verifyCapturedFailedConsistent() {
+	var context = MacOSViewContext(ContainerWake(), 1, null, 8); var queue = context.createQueue(); var root = MacOSContainer(); root.stateNode().configure(context); root.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+	var child = ContainerFaultView(); child.stateNode().configure(context); var scope = CallbackScope(); child.onInteractionStateChanged(ContainerObservation(), scope);
+	long long generation = child.stateNode().generation(); child.failAttach = true; child.attachAfter = true; child.failDetach = true;
+	Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_INSERT, child, 0)]; var result = root.applyBatch(root.treeRevision(), edits);
+	assert(result.kind == CONTAINER_BATCH_FAILED_CONSISTENT && root.childCount() == 1 && root.childAt(0) == child);
+	assert(child.stateNode().generation() == generation + 1LL && child.stateNode().events() == queue);
+	child.failDetach = false; assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); root.stateNode().detachWindow(); assert(root.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+void verifyCapturedCloseWithoutDestination() {
+	var context = MacOSViewContext(ContainerWake(), 1, null, 1); var queue = context.createQueue(); var root = MacOSContainer(); root.stateNode().configure(context); root.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+	var child = MacOSView(); root.attach(child); var scope = CallbackScope(); child.onInteractionStateChanged(ContainerObservation(), scope);
+	var blocker = context.detachedEvents.captureOwner().reserveRegistration(true, false); assert(blocker != null);
+	assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && !child.isOpen());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && queue.captureOwner().used() == 0 && context.detachedEvents.captureOwner().used() == 1);
+	blocker.cancel(); context.close();
+}
+
+class ContainerLateObserver implements IMacOSViewEligibility {
+	public MacOSViewState? state;
+	public bool rejected = false;
+	public CallbackScope owner = CallbackScope();
+	public void eligibilityLost() { try { self.state.observe(ContainerObservation(), self.owner); } catch (string error) { self.rejected = true; } }
+}
+
+void verifyLateSubscriptionRefusal() {
+	var context = MacOSViewContext(ContainerWake(), 1, null, 4); var queue = context.createQueue(); var root = MacOSContainer(); root.stateNode().configure(context); root.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+	var child = MacOSView(); var late = ContainerLateObserver(); late.state = child.stateNode(); child.bindEligibility(late); root.attach(child);
+	assert(root.detach(child) == child && late.rejected && queue.captureOwner().used() == 0 && context.detachedEvents.captureOwner().used() == 0);
+	late.state = null; late.owner.cancel(); root.stateNode().detachWindow(); assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && child.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+void verifyPreflightSubscriptionRefusal() {
+	var context = MacOSViewContext(ContainerWake(), 1, null, 4); var queue = context.createQueue(); var root = MacOSContainer(); root.stateNode().configure(context); root.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+	var first = MacOSContainer(); first.stateNode().configure(context); var nested = MacOSView(); first.attach(nested); var owner = CallbackScope(); nested.onInteractionStateChanged(ContainerObservation(), owner);
+	var second = ContainerFaultView(); second.preparedQueue = queue; second.lateTarget = first.stateNode();
+	Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_INSERT, first, 0), edit(CONTAINER_EDIT_INSERT, second, 1)];
+	var result = root.applyBatch(root.treeRevision(), edits); assert(result.kind == CONTAINER_BATCH_COMMITTED && second.lateAttempted && second.lateRejected);
+	// The scoped barrier retires on return; the same registration is now legal.
+	first.onInteractionStateChanged(ContainerObservation(), second.lateOwner);
+	second.preparedQueue = null; second.lateTarget = null; owner.cancel(); second.lateOwner.cancel(); root.stateNode().detachWindow();
+	assert(root.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
 int main() {
-	BTRCUI2ContainerProbe.prepare(); verifyOrder(); verifyRollback(false); verifyRollback(true); verifyFailedConsistent(); verifyQuarantine(); verifyWakeFailure(); verifyLayoutRollback(false); verifyLayoutRollback(true); verifySettlementFailure(); verifyLayouts(); verifyMarkedMove(false); verifyMarkedMove(true); verifyMarkedDetachFailure();
+	BTRCUI2ContainerProbe.prepare(); verifyCaptureRoutes(); verifyCapturedFailedConsistent(); verifyCapturedCloseWithoutDestination(); verifyLateSubscriptionRefusal(); verifyPreflightSubscriptionRefusal(); verifyOrder(); verifyRollback(false); verifyRollback(true); verifyFailedConsistent(); verifyQuarantine(); verifyWakeFailure(); verifyLayoutRollback(false); verifyLayoutRollback(true); verifySettlementFailure(); verifyLayouts(); verifyMarkedMove(false); verifyMarkedMove(true); verifyMarkedDetachFailure();
 	print("PASS: UI2 macOS container batches preserve order ownership and marked editing"); return 0;
 }

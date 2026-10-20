@@ -1,8 +1,10 @@
 import Library.GUI.MacOS.MacOSViewState;
 import Library.Math;
 import Library.Callback;
+import Library.Vector;
 import Library.Console;
 import Library.GUI.IGrid;
+import Library.GUI.IContainer;
 import Library.GUI.IView;
 import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSView;
@@ -191,16 +193,12 @@ class MacOSGrid implements IGrid, IMacOSView {
 			if (native == null) { throw "View has no macOS implementation"; }
 			MacOSView.validateAttachment(native.nativeView(), parent);
 		}
-		if (previous != null) { self._container.detach(previous); }
-		if (child == null) { return; }
+		Vector<ContainerEdit> edits = [];
+		if (previous != null) { var detach = ContainerEdit(); detach.kind = CONTAINER_EDIT_DETACH; detach.child = previous; detach.index = -1; edits.push(detach); }
+		if (child != null) { var insert = ContainerEdit(); insert.kind = CONTAINER_EDIT_INSERT; insert.child = child; insert.index = self._container.childCount() - (previous == null ? 0 : 1); edits.push(insert); }
 		self._layout.prepareCell(column, row);
-		try { self._container.attach(child); } catch (string error) {
-			if (previous != null && self._container.isOpen()) {
-				self._layout.prepareCell(column, row);
-				self._container.attach(previous);
-			}
-			throw error;
-		}
+		var result = self._container.applyBatch(self._container.treeRevision(), edits);
+		if (result.kind != CONTAINER_BATCH_COMMITTED) { throw result.error; }
 	}
 
 	public void setSpacing(double columnSpacing, double rowSpacing) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setSpacing(columnSpacing, rowSpacing); }

@@ -272,11 +272,11 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 	public WindowState state() { self.refreshWindowState(); var state = self._state; if (state == null) { throw "Window state unavailable"; } return MacOSWindow.copyState(state); }
 
 	public ICallbackRegistration onStateChanged(IWindowStateHandler receiver, CallbackScope owner) {
-		self.nativeWindow(); var context = self.semanticContext(); context.requireMutationAllowed();
+		self.nativeWindow(); var context = self.semanticContext(); context.requireSemanticRegistration();
 		if (self._stateChannel != null && self._stateChannel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing window state handler first"; }
 		self.refreshWindowState(); self._pendingState = null;
 		if (self._stateSettlement == null) { self._stateSettlement = context.registerNativeSettlement(self, self._callbacks); }
-		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._semantic, self, receiver, MacOSWindow.deliverState, owner);
+		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._semantic, self, receiver, MacOSWindow.deliverState, owner, self._semantic.captureEnabled() ? CONTROL_CAPTURE_OBSERVER : CONTROL_CAPTURE_LEGACY);
 		try {
 			self._callbacks.track(channel); self._stateChannel = channel;
 		} catch (string error) { channel.cancel(); throw error; }
@@ -285,12 +285,12 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 
 	public ICallbackRegistration onCloseRequested(IWindowCloseRequestHandler handler, CallbackScope owner) {
 		if (handler == null || owner == null) { throw "Window close handler and owner are required"; }
-		self.nativeWindow(); var context = self.semanticContext(); context.requireMutationAllowed();
+		self.nativeWindow(); var context = self.semanticContext(); context.requireSemanticRegistration();
 		var previous = self._closeRegistration;
 		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing close handler first"; }
 		if (self._closeHandlerGeneration == 9223372036854775807LL) { throw "Window close handler generations exhausted"; }
 		var receiver = MacOSWindowCloseReceiver(self, handler);
-		var channel = new ControlEventChannel<MacOSWindowCloseReceiver, IWindowCloseTransaction>(self._semantic, self, receiver, MacOSWindowCloseReceiver.deliver, self._callbacks);
+		var channel = new ControlEventChannel<MacOSWindowCloseReceiver, IWindowCloseTransaction>(self._semantic, self, receiver, MacOSWindowCloseReceiver.deliver, self._callbacks, self._semantic.captureEnabled() ? CONTROL_CAPTURE_TERMINAL : CONTROL_CAPTURE_LEGACY);
 		var registration = MacOSWindowCloseRegistration(self, channel);
 		try { owner.track(registration); self._callbacks.track(registration); }
 		catch (string error) { registration.cancel(); throw error; }
@@ -408,9 +408,14 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 		self.mutationWindow();
 		if (self._root != null) { throw "Detach the existing window root before replacing it"; }
 		var parent = self.contentView();
+		var context = self._viewContext; if (context != null) { context.beginTreeMutation(); }
 		self._mutating = true;
-		try { self.mountRoot(view, parent); } catch (string error) { self._mutating = false; throw error; }
-		self._mutating = false;
+		try { self.mountRoot(view, parent); }
+		finally {
+			self._mutating = false;
+			// A failed resume cannot undo ownership or hide a detached root.
+			if (context != null) { try { context.endTreeMutation(); } catch (string error) { context.recordNativeFailure(error); } }
+		}
 	}
 
 	private void mountRoot(IView view, NSView parent) {
@@ -419,6 +424,7 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 		MacOSView.validateAttachment(child, parent);
 		var context = self._viewContext; var semantic = self._semantic;
 		if (context != null && semantic != null) { native.stateNode().configure(context); native.stateNode().validateWindow(semantic); }
+		var routes = MacOSViewRoutes(self._viewContext); if (semantic != null) { routes.prepare(native.stateNode(), semantic); }
 		var previousFrame = child.frame();
 		self._rootMask = child.autoresizingMask();
 		self._root = view;
@@ -427,7 +433,7 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 			child.setAutoresizingMask(NSViewWidthSizable | NSViewHeightSizable);
 			var bounds = parent.bounds();
 			view.arrange(0.0, 0.0, bounds.size.width, bounds.size.height);
-			if (semantic != null) { self._rootStateAttached = true; native.stateNode().attachWindow(semantic, self.inputEligible(), self.viewExposure()); }
+			if (semantic != null) { self._rootStateAttached = true; native.stateNode().attachWindow(semantic, self.inputEligible(), self.viewExposure(), routes); }
 		} catch (string error) {
 			try {
 				if (self._rootStateAttached) { native.stateNode().detachWindow(); self._rootStateAttached = false; }
@@ -441,7 +447,7 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 				throw rollbackError;
 			}
 			throw error;
-		}
+		} finally { try { routes.finish(); } catch (string error) { if (context != null) { context.recordNativeFailure(error); } else { throw error; } } }
 	}
 
 	public IView? detachRoot() {
@@ -449,22 +455,28 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 		var root = self._root;
 		if (root == null) { return null; }
 		var parent = self.contentView();
+		var routes = MacOSViewRoutes(self._viewContext);
+		if (self._rootStateAttached && self._viewContext != null) { routes.prepare(self.projection(root).stateNode(), self._viewContext.detachedEvents); }
+		var context = self._viewContext; if (context != null) { context.beginTreeMutation(); }
 		self._mutating = true;
 		try {
 			var native = self.projection(root);
 			var child = native.nativeView();
 			// Keep alias-close admission reserved until native state is restored.
 			child.setAutoresizingMask(self._rootMask);
-			if (self._rootStateAttached) { native.stateNode().detachWindow(); self._rootStateAttached = false; }
+			if (self._rootStateAttached) { native.stateNode().detachWindow(routes); self._rootStateAttached = false; }
 			native.detachFrom(parent);
 			self._root = null;
 		} catch (string error) {
 			self._closing = true;
 			self._closeFailure = error;
-			self._mutating = false;
 			throw error;
+		} finally {
+			try { routes.finish(); } catch (string error) { if (context != null) { context.recordNativeFailure(error); } }
+			self._mutating = false;
+			// A failed resume cannot undo ownership or hide a detached root.
+			if (context != null) { try { context.endTreeMutation(); } catch (string error) { context.recordNativeFailure(error); } }
 		}
-		self._mutating = false;
 		return root;
 	}
 

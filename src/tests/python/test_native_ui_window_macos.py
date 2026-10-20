@@ -5,6 +5,7 @@ import pytest
 from src.tests.python import test_native_ui_core_macos as core
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
+from src.tests.python.test_native_ui_core_macos import ui2_native_project as ui2_native_project
 
 
 @pytest.mark.parametrize(
@@ -15,8 +16,8 @@ from src.tests.python.native_import_fixtures import native_project as native_pro
     ],
 )
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
-def test_macos_ui2_window(native_project, native_compile, gui_provider_root, sanitized, fixture, expected):
-    source, _sdk, _triple = native_project
+def test_macos_ui2_window(ui2_native_project, native_compile, gui_provider_root, sanitized, fixture, expected):
+    source, _sdk, _triple = ui2_native_project
     package = source.parent.parent
     (package / "WindowProbe.h").write_text("#import <AppKit/AppKit.h>\n")
     manifest = package / "btrc.toml"
@@ -26,7 +27,7 @@ def test_macos_ui2_window(native_project, native_compile, gui_provider_root, san
         'symbols = ["+[NSApplication sharedApplication]", "-[NSWindow performClose:]", "-[NSWindow windowNumber]", "-[NSWindow frame]", "-[NSApplication sendEvent:]", "+[NSString stringWithUTF8String:]", "NSEventTypeKeyDown", "+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]"]\n'
     )
     core.test_macos_ui2_scoped_worker_signal(
-        native_project,
+        ui2_native_project,
         native_compile,
         gui_provider_root,
         sanitized,
