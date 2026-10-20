@@ -27,7 +27,11 @@ class AstCanonicalRenderer:
         if isinstance(value, int):
             return str(value)
         if isinstance(value, float):
-            narrowed = struct.unpack("f", struct.pack("f", value))[0]
+            # A double past binary32's overflow midpoint prints as infinity.
+            try:
+                narrowed = struct.unpack("f", struct.pack("f", value))[0]
+            except OverflowError:
+                return "inf" if value > 0 else "-inf"
             return f"{narrowed:f}"
         if isinstance(value, str):
             return self._quoted(value)

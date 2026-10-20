@@ -163,7 +163,7 @@ class GpuWgslEmitter {
 
 	private string gpuWgslFloatLiteral(Node expression) {
 		string raw = expression.raw;
-		if (raw == "") { raw = Strings.fromFloat(expression.valueFloat); }
+		if (raw == "") { raw = Strings.fromFloat((float)expression.valueDouble); }
 		if (raw.endsWith("f") || raw.endsWith("F")) {
 			raw = raw.substring(0, raw.length() - 1);
 		}
