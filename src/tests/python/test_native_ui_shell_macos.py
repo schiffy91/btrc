@@ -3,13 +3,24 @@
 import copy
 import json
 import math
+import subprocess
 import sys
 
 import pytest
 
-from src.tests.python.native_ui_shell_fixtures import ROOT, exercise_shell, macos_private_survivors
+from src.tests.python.native_ui_shell_fixtures import ROOT, build_macos_control, exercise_shell, macos_private_survivors
 
 CONTROL_IDS = ("field", "button", "scroll", "gpu")
+
+
+def _caret_lifecycle(phases):
+    assert isinstance(phases, list) and len(phases) == 2
+    for phase, restart in zip(phases, (True, False), strict=True):
+        assert isinstance(phase, dict)
+        assert phase["restart_timer"] is restart
+        assert all(
+            phase[key] is True for key in ("application_active", "window_key", "field_editor", "collapsed_selection")
+        )
 
 
 def _frame(value):
@@ -67,6 +78,10 @@ def summarize_macos_shell(observations):
     for cycle_context in control_context:
         assert isinstance(cycle_context, list) and len(cycle_context) == 3
         assert all(context["application_active"] is True and context["window_key"] is True for context in cycle_context)
+    control_carets = baseline.get("caret_lifecycle")
+    assert isinstance(control_carets, list) and len(control_carets) == 100
+    for phases in control_carets:
+        _caret_lifecycle(phases)
     private_classes = observations.get("private_classes")
     assert isinstance(private_classes, list) and len(private_classes) == 100
     allowance = {}
@@ -93,6 +108,7 @@ def summarize_macos_shell(observations):
     assert len(probes) == 100
     key_views, gpu_status, subviews = [], [], []
     for probe in probes:
+        _caret_lifecycle(probe.get("caret_lifecycle"))
         assert probe["probe"] == "macos-appkit"
         assert probe["ax_frame_space"] == "AppKit screen points; origin bottom-left"
         assert probe["native_frame_space"] == "window content points; origin bottom-left"
@@ -158,6 +174,7 @@ def summarize_macos_shell(observations):
         "private_classes": private_classes,
         "appkit_control": baseline,
         "subview_totals": subviews,
+        "caret_lifecycle": [probe["caret_lifecycle"] for probe in probes],
         "ax_frame_space": probes[0]["ax_frame_space"],
         "native_frame_space": probes[0]["native_frame_space"],
         "accessibility": probes[0]["accessibility"],
@@ -251,6 +268,16 @@ def _observation_fixture():
             for name in CONTROL_IDS
         ],
     }
+    carets = [
+        {
+            "application_active": True,
+            "window_key": True,
+            "field_editor": True,
+            "collapsed_selection": True,
+            "restart_timer": restart,
+        }
+        for restart in (True, False)
+    ]
     probe = {
         "probe": "macos-appkit",
         "ax_frame_space": "AppKit screen points; origin bottom-left",
@@ -260,6 +287,7 @@ def _observation_fixture():
         "accessibility": tree,
         "native_controls": controls,
         "key_views": keys,
+        "caret_lifecycle": carets,
     }
     return {
         "cycles": 100,
@@ -277,6 +305,7 @@ def _observation_fixture():
             "teardown": [[cycle + 1, 0, 1] for cycle in range(100)],
             "private_classes": [{"AppKitHelper": 1} for _ in range(100)],
             "tab_context": [copy.deepcopy(keys["tab_context"]) for _ in range(100)],
+            "caret_lifecycle": [copy.deepcopy(carets) for _ in range(100)],
         },
     }
 
@@ -475,3 +504,43 @@ def test_macos_shell_private_control_requires_active_key_journey(defect):
         control["tab_context"][37][1]["window_key"] = 1
     with pytest.raises(AssertionError):
         summarize_macos_shell(observed)
+
+
+@pytest.mark.parametrize("side", ["provider", "control"])
+@pytest.mark.parametrize("defect", ["missing", "one_phase", "wrong_order", "inactive", "selection", "nonboolean"])
+def test_macos_shell_requires_equivalent_caret_lifecycle(side, defect):
+    observed = _observation_fixture()
+    phases = (
+        observed["probes"][37]["caret_lifecycle"]
+        if side == "provider"
+        else observed["appkit_control"]["caret_lifecycle"][37]
+    )
+    if defect == "missing":
+        if side == "provider":
+            del observed["probes"][37]["caret_lifecycle"]
+        else:
+            del observed["appkit_control"]["caret_lifecycle"]
+    elif defect == "one_phase":
+        phases.pop()
+    elif defect == "wrong_order":
+        phases.reverse()
+    elif defect == "inactive":
+        phases[1]["window_key"] = False
+    elif defect == "selection":
+        phases[0]["collapsed_selection"] = False
+    elif defect == "nonboolean":
+        phases[1]["field_editor"] = 1
+    with pytest.raises(AssertionError):
+        summarize_macos_shell(observed)
+
+
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_macos_control_readiness_without_application(tmp_path, sanitized):
+    if sys.platform != "darwin":
+        pytest.skip("requires the AppKit native control compiler")
+    executable, environment, _, _ = build_macos_control(tmp_path, sanitized)
+    result = subprocess.run(
+        [str(executable), "--test-readiness"], capture_output=True, text=True, env=environment, timeout=30
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "PASS: AppKit journey checks readiness before bounded wait deadline" in result.stdout
