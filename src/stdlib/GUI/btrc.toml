@@ -547,7 +547,7 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
-	"-[NSClipView setPostsBoundsChangedNotifications:]", "NSViewBoundsDidChangeNotification",
+	"-[NSClipView setPostsBoundsChangedNotifications:]", "-[NSClipView setPostsFrameChangedNotifications:]", "NSViewBoundsDidChangeNotification", "NSViewFrameDidChangeNotification",
 	"+[NSThread isMainThread]", "+[NSScrollView new]", "+[NSView new]",
 	"-[NSView frame]", "-[NSView setFrame:]",
 	"-[NSScrollView setBorderType:]", "NSNoBorder", "-[NSScrollView setDrawsBackground:]",
@@ -559,7 +559,7 @@ symbols = [
 	"-[NSClipView bounds]", "-[NSClipView scrollToPoint:]"
 ]
 os = ["macos"]
-main-thread-globals = ["NSViewBoundsDidChangeNotification"]
+main-thread-globals = ["NSViewBoundsDidChangeNotification", "NSViewFrameDidChangeNotification"]
 
 [[native.bindings]]
 module = "MacOS.MetalLayer"
@@ -756,7 +756,7 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
-	"-[NSSlider initWithFrame:]", "-[NSSlider accessibilityPerformIncrement]", "-[NSSlider accessibilityPerformDecrement]",
+	"-[NSSlider initWithFrame:]", "-[NSSlider accessibilityPerformIncrement]", "-[NSSlider accessibilityPerformDecrement]", "-[NSSlider setAccessibilityValue:]", "-[NSNumber doubleValue]",
 	"-[NSSlider setTarget:]", "-[NSSlider target]", "-[NSSlider setAction:]", "-[NSSlider action]",
 	"+[NSSlider new]", "-[NSSlider setMinValue:]", "-[NSSlider setMaxValue:]", "-[NSSlider setNumberOfTickMarks:]",
 	"-[NSSlider setAllowsTickMarkValuesOnly:]", "-[NSSlider closestTickMarkValueToValue:]", "-[NSSlider setContinuous:]",
@@ -784,7 +784,7 @@ scope = "instance"
 failure = "abort"
 executor = "caller"
 superclass = "NSSlider"
-overrides = ["-[NSSlider accessibilityPerformIncrement]", "-[NSSlider accessibilityPerformDecrement]"]
+overrides = ["-[NSSlider accessibilityPerformIncrement]", "-[NSSlider accessibilityPerformDecrement]", "-[NSSlider setAccessibilityValue:]"]
 
 # The Windows provider: Win32 windows and Common Controls 6 EDIT, BUTTON and
 # STATIC controls (user32, gdi32, comctl32). Every provider window's messages
