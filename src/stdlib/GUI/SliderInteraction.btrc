@@ -56,17 +56,19 @@ class SliderInteraction {
 	}
 
 	private void releaseTickets() {
-		if (self._commitTicket != null && !self._commitTicket.queued()) { self._commitTicket.retire(); }
-		if (self._cancelTicket != null && !self._cancelTicket.queued()) { self._cancelTicket.retire(); }
+		var commit = self._commitTicket; var cancel = self._cancelTicket;
+		if (commit != null && !commit.queued()) { commit.retire(); }
+		if (cancel != null && !cancel.queued()) { cancel.retire(); }
 		self._commitTicket = null; self._cancelTicket = null;
 	}
 
 	public bool begin(long long generation) {
 		if (self._active || self._model.inert()) { return false; }
 		if (generation <= 0LL || self._interaction == 9223372036854775807LL) { throw "Invalid slider interaction identity"; }
+		var commit = self._commit; var cancel = self._cancel;
 		try {
-			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); if (self._commitTicket == null) { self.releaseTickets(); return false; } }
-			if (self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); if (self._cancelTicket == null) { self.releaseTickets(); return false; } }
+			if (commit != null && commit.isOpen()) { self._commitTicket = commit.beginInteraction(); if (self._commitTicket == null) { self.releaseTickets(); return false; } }
+			if (cancel != null && cancel.isOpen()) { self._cancelTicket = cancel.beginInteraction(); if (self._cancelTicket == null) { self.releaseTickets(); return false; } }
 		} catch (string error) { self.releaseTickets(); throw error; }
 		self._generation = generation; self._interaction++; self._start = self._model.value(); self._startRevision = self._model.modelRevision(); self._active = true; return true;
 	}
