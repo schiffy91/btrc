@@ -1,0 +1,72 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.ISelect;
+import Library.GUI.ISlider;
+import Library.GUI.MacOS.MacOSSelect;
+import Library.GUI.MacOS.MacOSSlider;
+import Library.GUI.MacOS.MacOSViewState;
+
+#include <assert.h>
+#include <stdio.h>
+
+class ControlLifetimeWake implements IControlEventWake {
+	public bool requestTurn() { return true; }
+}
+class ControlLifetimeSelection implements ISelectionControlEventHandler {
+	public int commits = 0;
+	public void selectionEvent(SelectionControlEvent event) { assert(event.phase == CONTROL_PHASE_COMMIT); self.commits++; }
+}
+class ControlLifetimeSlider implements ISliderControlEventHandler {
+	public int commits = 0;
+	public void sliderEvent(SliderControlEvent event) { assert(event.phase == CONTROL_PHASE_COMMIT); self.commits++; }
+}
+class ControlLifetimeCycle implements IControlLifetimeCycle {
+	private SelectModel model(string title) {
+		var first = SelectOption(); first.key = "first"; first.title = title; first.enabled = true;
+		var second = SelectOption(); second.key = "second"; second.title = "Second"; second.enabled = true;
+		var model = SelectModel(); model.options = [first, second]; model.selectedKey = "first";
+		model.availability = SELECT_AVAILABILITY_READY; model.statusText = ""; return model;
+	}
+
+	public void invoke() {
+		var context = MacOSViewContext(ControlLifetimeWake(), 16, null, 64);
+		var queue = context.createQueue(); var capture = queue.captureOwner();
+		var select = MacOSSelect(); var slider = MacOSSlider(0.0, 10.0, 10);
+		select.stateNode().configure(context); slider.stateNode().configure(context);
+		var window = BTRCUI2ControlLifetimeProbe.host(select.nativeView(), slider.nativeView());
+		select.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+		slider.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+		var owner = CallbackScope(); var selection = ControlLifetimeSelection(); var adjustment = ControlLifetimeSlider();
+		Vector<ICallbackRegistration> registrations = [select.onChanged(selection, owner), select.onCommit(selection, owner), select.onCancel(selection, owner), slider.onPreview(adjustment, owner), slider.onCommit(adjustment, owner), slider.onCancel(adjustment, owner)];
+		assert(capture.used() == 6);
+		// Observe both populated generations, including their retired menu adapters.
+		for (int generation = 1; generation <= 2; generation++) {
+			select.setOptions(self.model(generation == 1 ? "First" : "Replacement"));
+			BTRCUI2ControlLifetimeProbe.observe(select.nativeView(), slider.nativeView(), (long)generation);
+			BTRCUI2ControlLifetimeProbe.choose(select.nativeView());
+			assert(select.selectedKey() == "second" && !context.nativeFailed());
+			while (context.dispatchOne()) {}
+			assert(selection.commits == generation);
+		}
+		assert(BTRCUI2ControlLifetimeProbe.increment(slider.nativeView()));
+		while (context.dispatchOne()) {}
+		assert(adjustment.commits == 1 && slider.value() == 1.0 && !context.nativeFailed());
+		select.stateNode().detachWindow(); slider.stateNode().detachWindow();
+		assert(select.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+		for registration in registrations { assert(!registration.isOpen() && registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE); }
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(queue.pendingCount() == 0 && capture.used() == 0);
+		assert(context.detachedEvents.captureOwner().used() == 0 && queue.terminalPool().available() == 65536);
+		context.close(); assert(capture.available() == 64);
+		BTRCUI2ControlLifetimeProbe.finish(window);
+		// All handles leave this callback before its native autorelease pool drains.
+	}
+}
+
+int main() {
+	for (int cycle = 1; cycle <= 100; cycle++) { BTRCUI2ControlLifetimeProbe.runCycle((long)cycle, ControlLifetimeCycle()); }
+	printf("PASS: macOS Select and Slider native lifetime cycles=100\n"); return 0;
+}
