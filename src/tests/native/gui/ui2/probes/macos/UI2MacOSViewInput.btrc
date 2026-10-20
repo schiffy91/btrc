@@ -11,13 +11,17 @@ class InputObservation implements IViewPointerHandler {
 	public MacOSViewState state;
 	public int presses = 0;
 	public int cancels = 0;
+	public int exits = 0;
+	public bool throwTerminal = false;
 	public bool hideOnEntry = false;
 	public InputObservation(MacOSViewState state) { self.state = state; }
 
 	public bool pointer(AppPointerEvent event) {
+		assert(!self.state.context().treeMutationActive());
 		if (event.action == APP_POINTER_ENTERED && self.hideOnEntry) { self.state.setVisible(false); }
 		if (event.action == APP_POINTER_PRESSED) { self.presses++; return true; }
-		if (event.action == APP_POINTER_CANCELLED) { self.cancels++; }
+		if (event.action == APP_POINTER_CANCELLED) { self.cancels++; if (self.throwTerminal) { throw "pointer cancel failure"; } }
+		if (event.action == APP_POINTER_EXITED) { self.exits++; if (self.throwTerminal) { throw "pointer exit failure"; } }
 		return false;
 	}
 }
@@ -42,6 +46,26 @@ int main() {
 	view.stateNode().setEnabled(true); receiver.hideOnEntry = true;
 	assert(input.invoke(down) == down && receiver.presses == 1 && !view.interactionState().effectiveEligible);
 	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && input.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	view.stateNode().setVisible(true); receiver.hideOnEntry = false;
+	var deferred = MacOSViewInput(view.nativeView(), receiver, null, view.stateNode());
+	assert(deferred.invoke(down) == null);
+	int cancelled = receiver.cancels; int exited = receiver.exits;
+	context.beginTreeMutation(); deferred.detach();
+	assert(receiver.cancels == cancelled && receiver.exits == exited && !context.dispatchOne());
+	assert(deferred.cancel() == CALLBACK_CANCELLATION_PENDING);
+	context.endTreeMutation(); assert(context.dispatchOne());
+	assert(receiver.cancels == cancelled + 1 && receiver.exits == exited + 1);
+	assert(deferred.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	var failedInput = MacOSViewInput(view.nativeView(), receiver, null, view.stateNode());
+	assert(failedInput.invoke(down) == null); cancelled = receiver.cancels; exited = receiver.exits;
+	context.beginTreeMutation(); assert(failedInput.cancel() == CALLBACK_CANCELLATION_PENDING);
+	context.recordNativeFailure("first input failure"); context.endTreeMutation();
+	receiver.throwTerminal = true;
+	bool terminalFailed = false; try { failedInput.pollCompletion(); } catch (string error) { terminalFailed = error == "pointer cancel failure"; }
+	assert(terminalFailed && receiver.cancels == cancelled + 1 && receiver.exits == exited + 1);
+	assert(failedInput.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	bool firstFailure = false; try { context.checkNativeFailure(); } catch (string error) { firstFailure = error == "first input failure"; }
+	assert(firstFailure && failedInput.invoke(down) == null);
 	view.stateNode().detachWindow(); window.setContentView(null); assert(view.close() == CALLBACK_CANCELLATION_COMPLETE);
 	window.close(); context.close(); assert(signal.close());
 	print("PASS: UI2 macOS pointer admission follows effective eligibility"); return 0;

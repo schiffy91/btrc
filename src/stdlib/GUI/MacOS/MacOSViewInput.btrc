@@ -15,9 +15,20 @@ class MacOSViewFocus implements IAppKitNotificationObserver {
 /* One native subscription, not another view owner. The view and caller scopes
  * share its cancellation identity; native callbacks retain the receiver until
  * admission closes and in-flight dispatch drains. */
-class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
+class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMacOSNativeSettlement {
 	private NSView? _view;
 	private MacOSViewState _state;
+	private MacOSViewContext _context;
+	private CallbackScope _settlementOwner = CallbackScope();
+	private MacOSNativeSettlementRegistration _settlement;
+	private int _entered = 0;
+	private bool _terminalPending = false;
+	private AppPointerButton _terminalButton = APP_POINTER_BUTTON_NONE;
+	private bool _terminalInside = false;
+	private double _terminalX = 0.0;
+	private double _terminalY = 0.0;
+	private AppKeyModifiers _terminalModifiers = AppKeyModifiers(false, false, false, false);
+	private NSWindow? _interactionWindow;
 	private IViewPointerHandler? _pointer;
 	private IViewScrollHandler? _scroll;
 	private CallbackScope _native = CallbackScope();
@@ -34,6 +45,10 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 		self._view = view; self._state = state;
 		self._pointer = pointer;
 		self._scroll = scroll;
+		var context = state.context();
+		if (context == null) { throw "View input requires an application context"; }
+		self._context = context;
+		self._settlement = context.registerNativeSettlement(self, self._settlementOwner);
 	}
 
 	public void start() {
@@ -77,26 +92,75 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 
 	private bool pointer(AppPointerAction action, AppPointerButton button = APP_POINTER_BUTTON_NONE, int clicks = 0) {
 		var handler = self._pointer;
-		return handler != null && handler.pointer(AppPointerEvent(action, button, self._x, self._y, self._modifiers, clicks));
+		if (handler == null) { return false; }
+		bool consumed = false; self._entered++;
+		try { consumed = handler.pointer(AppPointerEvent(action, button, self._x, self._y, self._modifiers, clicks)); }
+		finally { self._entered--; }
+		self._context.checkNativeFailure();
+		return consumed;
+	}
+
+	private bool scroll(IViewScrollHandler handler, AppScrollEvent event) {
+		bool consumed = false; self._entered++;
+		try { consumed = handler.scroll(event); } finally { self._entered--; }
+		self._context.checkNativeFailure();
+		return consumed;
 	}
 
 	private void cancelCapture() {
-		var button = self._captured;
-		self._captured = APP_POINTER_BUTTON_NONE;
-		if (button != APP_POINTER_BUTTON_NONE) { self.pointer(APP_POINTER_CANCELLED, button); }
-		if (self._inside) { self._inside = false; self.pointer(APP_POINTER_EXITED); }
+		if (self._captured == APP_POINTER_BUTTON_NONE && !self._inside) { return; }
+		self._terminalButton = self._captured; self._terminalInside = self._inside;
+		self._terminalX = self._x; self._terminalY = self._y; self._terminalModifiers = self._modifiers;
+		self._terminalPending = true;
+		self._captured = APP_POINTER_BUTTON_NONE; self._inside = false; self._interactionWindow = null;
+		if (self._context.treeMutationActive() || self._entered != 0) {
+			// Failure seals new wake admission; close/poll still drains this retained terminal.
+			if (!self._context.nativeFailed()) { self._settlement.request(); }
+		} else { self.settleNative(); }
+	}
+
+	public void settleNative() {
+		if (!self._terminalPending || self._entered != 0 || self._context.treeMutationActive()) { return; }
+		var handler = self._pointer;
+		var button = self._terminalButton; bool inside = self._terminalInside;
+		self._terminalPending = false; self._terminalButton = APP_POINTER_BUTTON_NONE; self._terminalInside = false;
+		bool failed = false; string failure = "";
+		self._entered++;
+		try {
+			if (handler != null && button != APP_POINTER_BUTTON_NONE) {
+				try { handler.pointer(AppPointerEvent(APP_POINTER_CANCELLED, button, self._terminalX, self._terminalY, self._terminalModifiers, 0)); }
+				catch (string error) { failed = true; failure = error; self._context.recordNativeFailure(error); }
+			}
+			if (handler != null && inside) {
+				try { handler.pointer(AppPointerEvent(APP_POINTER_EXITED, APP_POINTER_BUTTON_NONE, self._terminalX, self._terminalY, self._terminalModifiers, 0)); }
+				catch (string error) { if (!failed) { failed = true; failure = error; } self._context.recordNativeFailure(error); }
+			}
+		} finally { self._entered--; }
+		if (failed) { throw failure; }
 	}
 
 	public void focusLost(NSNotification notification) {
-		var view = self._view;
-		if (!self._open || view == null) { return; }
-		id? window = view.window();
-		if (notification.name() == NSApplicationDidResignActiveNotification || notification.object() == window) { self.cancelCapture(); }
+		try {
+			if (self._open) {
+				id? window = self._interactionWindow;
+				if (notification.name() == NSApplicationDidResignActiveNotification || (window != null && notification.object() == window)) { self.cancelCapture(); }
+			}
+		} catch (string error) { self._context.recordNativeFailure(error); }
 	}
 
 	public void detach() { if (self._open) { self.cancelCapture(); } }
 
 	public NSEvent? invoke(NSEvent native) {
+		NSEvent? result = native;
+		try { self._context.checkNativeFailure(); result = self.dispatchNative(native); }
+		catch (string error) { self._context.recordNativeFailure(error); result = null; }
+		finally {
+			try { self.settleNative(); } catch (string error) { self._context.recordNativeFailure(error); result = null; }
+		}
+		return result;
+	}
+
+	private NSEvent? dispatchNative(NSEvent native) {
 		var view = self._view;
 		if (!self._open || view == null) { return native; }
 		var window = view.window();
@@ -124,12 +188,13 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 		if (type == NSEventTypeScrollWheel) {
 			var handler = self._scroll;
 			if (!inside || handler == null) { return native; }
-			return handler.scroll(AppScrollEvent(native.scrollingDeltaX(), native.scrollingDeltaY(), self._x, self._y, native.hasPreciseScrollingDeltas(), self.phase(native.phase()), self.phase(native.momentumPhase()), self._modifiers)) ? null : native;
+			return self.scroll(handler, AppScrollEvent(native.scrollingDeltaX(), native.scrollingDeltaY(), self._x, self._y, native.hasPreciseScrollingDeltas(), self.phase(native.phase()), self.phase(native.momentumPhase()), self._modifiers)) ? null : native;
 		}
 		if (type == NSEventTypeMouseExited && native.trackingArea() == self._tracking) { inside = false; }
 		bool consumed = false;
 		if (inside != self._inside) {
 			self._inside = inside;
+			if (inside) { self._interactionWindow = window; } else if (self._captured == APP_POINTER_BUTTON_NONE) { self._interactionWindow = null; }
 			consumed = self.pointer(inside ? APP_POINTER_ENTERED : APP_POINTER_EXITED);
 		}
 		if (!self._open || !self._state.effectiveEligible()) { return consumed ? null : native; }
@@ -144,7 +209,7 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 		} else if (type == NSEventTypeLeftMouseUp || type == NSEventTypeRightMouseUp || type == NSEventTypeOtherMouseUp) {
 			var button = self.button(native.buttonNumber());
 			bool captured = self._captured == button;
-			if (captured) { self._captured = APP_POINTER_BUTTON_NONE; }
+			if (captured) { self._captured = APP_POINTER_BUTTON_NONE; if (!self._inside) { self._interactionWindow = null; } }
 			if (inside || captured) { consumed = self.pointer(APP_POINTER_RELEASED, button, (int)native.clickCount()) || captured || consumed; }
 		} else if (type == NSEventTypeLeftMouseDragged || type == NSEventTypeRightMouseDragged || type == NSEventTypeOtherMouseDragged) {
 			var button = self.button(native.buttonNumber());
@@ -174,8 +239,13 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration {
 	public CallbackCancellation pollCompletion() {
 		if (!NSThread.isMainThread()) { throw "View input requires the main thread"; }
 		if (self._open) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		self.settleNative();
+		if (self._terminalPending || self._entered != 0) { return CALLBACK_CANCELLATION_PENDING; }
 		var state = self._native.pollCompletion();
-		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._view = null; self._pointer = null; self._scroll = null; }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) {
+			if (self._settlementOwner.cancel() != CALLBACK_CANCELLATION_COMPLETE) { return CALLBACK_CANCELLATION_PENDING; }
+			self._view = null; self._pointer = null; self._scroll = null; self._interactionWindow = null;
+		}
 		return state;
 	}
 
