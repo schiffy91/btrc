@@ -1,0 +1,92 @@
+import Library.App;
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.ControlEvents;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.AppKitText;
+
+#include <assert.h>
+#include <string.h>
+
+class E40BoundaryReceiver implements IWindowKeyHandler, ITextControlEventHandler, IWindowCloseRequestHandler {
+	public bool key(AppKeyboardEvent event) { return BTRCE40Boundary.key(); }
+
+	public void textEvent(TextControlEvent event) {
+		assert(event.phase == CONTROL_PHASE_COMMIT); BTRCE40Boundary.text(AppKitText.nativeValue(event.text));
+	}
+
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		BTRCE40Boundary.close(); assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL).state == WINDOW_CLOSE_CANCELLED);
+	}
+}
+
+/* A separate host-owned source services the public attachment. Native event
+ * dispatch still belongs to NSApplication.run; no fixture pump is installed. */
+class E40BoundaryHost implements IApplicationHost, IAppKitNotificationObserver {
+	public IApplicationHostAttachment? attachment;
+	private MacOSRunLoopSignal _signal = MacOSRunLoopSignal();
+	private CallbackScope _callbacks = CallbackScope();
+	public E40BoundaryHost() { self._signal.subscribe(self, self._callbacks); }
+
+	public bool requestTurn() { return self._signal.requestTurn(); }
+
+	public void scheduleTurn(unsigned long long deadline) { self._signal.scheduleDeadline(deadline); }
+
+	public void invoke(NSNotification notification) { var attached = self.attachment; if (attached != null) { attached.serviceTurn(); } }
+
+	public void close() { assert(self._callbacks.cancel() == CALLBACK_CANCELLATION_COMPLETE); assert(self._signal.close()); self.attachment = null; }
+}
+
+class E40BoundaryRun implements IApplicationWork {
+	private IApplication _application;
+	private ITextField _field;
+	private int _ordinal = 0;
+	private bool _ready = false;
+	private bool _active = false;
+	private unsigned long long _deadline;
+	public E40BoundaryRun(IApplication application, ITextField field) {
+		self._application = application; self._field = field; self._deadline = MacOSRunLoopSignal.now() + 15000000000ULL;
+	}
+
+	public void run() {
+		assert(MacOSRunLoopSignal.now() < self._deadline);
+		if (!self._ready) { self._ready = BTRCE40Boundary.ready(); }
+		if (self._ready) {
+			if (self._active && BTRCE40Boundary.complete()) { BTRCE40Boundary.finish(); self._active = false; self._ordinal++; }
+			if (self._ordinal == 1200) { BTRCE40Boundary.report(); self._application.requestQuit(); return; }
+			if (!self._active) {
+				int sizes[4] = {4095, 4096, 4097, 8193};
+				int final = (self._ordinal / 100) % 3;
+				if (final == 1) { self._field.setText(f"baseline{self._ordinal}"); }
+				BTRCE40Boundary.begin(sizes[self._ordinal / 300], final, self._ordinal % 100, self._ordinal);
+				self._active = true; self._deadline = MacOSRunLoopSignal.now() + 20000000000ULL;
+			}
+		}
+		assert(self._application.schedule(self, 0.001, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_ACCEPTED);
+	}
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 3); BTRCE40Boundary.requireHosted();
+	bool hosted = strcmp(argv[1], "host") == 0; assert(hosted || strcmp(argv[1], "desktop") == 0);
+	var application = MacOSApplication(256);
+	var first = application.createWindow("E40 native boundaries", 420.0, 130.0);
+	var second = application.createWindow("E40 independent window", 420.0, 130.0);
+	var field = application.createTextField("baseline", ""); var label = application.createLabel("E40 native queue accounting");
+	first.attachRoot(field); second.attachRoot(label); first.show(); second.show();
+	BTRCE40Boundary.setup(argv[1], argv[2]);
+	var owner = CallbackScope(); var receiver = E40BoundaryReceiver();
+	first.onKey(receiver, owner); first.onCloseRequested(receiver, owner); field.onCommit(receiver, owner);
+	var run = E40BoundaryRun(application, field); application.post(run);
+	if (hosted) {
+		var host = E40BoundaryHost(); var hostOwner = CallbackScope(); var attached = application.attachHost(host, hostOwner);
+		assert(attached.kind == APPLICATION_HOST_ATTACHED && attached.attachment != null); host.attachment = attached.attachment;
+		BTRCE40Boundary.runHost(); assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(hostOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE); host.close();
+	} else { application.run(); }
+	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	BTRCE40Boundary.cleanup(); print("PASS: E40 macOS native boundary bursts"); return 0;
+}
