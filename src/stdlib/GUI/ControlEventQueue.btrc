@@ -67,10 +67,332 @@ class ControlEventTicket {
 	public void complete() { if (!self._open) { return; } self._open = false; if (self._extra) { self._pool.retire(); } }
 }
 
+/* admitted must leave accounting unchanged when it throws. A successful
+ * admission is balanced exactly once, even if later validation rejects it. */
 interface IControlEventInvocation {
 	void admitted();
 	ControlEventDisposition invoke();
 	void retired();
+}
+
+/* Optional capture ownership is independent of ordinary/held scheduling.
+ * Entry transfers an owning snapshot to the queue's single entered slot;
+ * retirement always follows callback return, including exceptional return. */
+interface IControlEventStorage { void requireOwner(ControlEventCaptureOwner owner, long long registration); void validateAdmission(bool terminal, long long key); void claim(); bool ownsEpoch(ControlEventCaptureOwner owner, ControlEventCaptureSlot slot); bool replaces(IControlEventStorage previous); void entered(); void retired(); }
+
+class ControlEventCaptureSlot {
+	public bool occupied = false;
+	public bool released = false;
+	public long long registration;
+	public ControlEventCaptureSlot(long long registration) { self.registration = registration; }
+}
+
+class ControlEventCaptureRegistrationState {
+	public long long identity;
+	public bool open = true;
+	public ControlEventCaptureSlot? current = null;
+	public long long base = 0LL;
+	public ControlEventCaptureRegistrationState(long long identity) { self.identity = identity; }
+}
+
+class ControlEventCaptureParticipant {
+	public long long registration;
+	public ControlEventCaptureSlot slot;
+	public bool removed = false;
+	public ControlEventCaptureParticipant(long long registration, ControlEventCaptureSlot slot) { self.registration = registration; self.slot = slot; }
+}
+
+class ControlEventCaptureLeaseState {
+	public long long identity;
+	public long long registration;
+	public long long serial = 0LL;
+	public bool reusable;
+	public bool acquired = false;
+	public bool consumed = false;
+	public bool finished = false;
+	public bool local;
+	public Vector<ControlEventCaptureParticipant> participants = [];
+	public ControlEventCaptureSlot? ordered = null;
+	public ControlEventCaptureLeaseState(long long identity, long long registration, bool reusable, bool local) { self.identity = identity; self.registration = registration; self.reusable = reusable; self.local = local; }
+}
+
+/* Handles never own receivers. The owner retains only registration/lease
+ * state, not these handles, so outstanding receipts do not create a cycle. */
+class ControlEventCaptureRegistration {
+	private ControlEventCaptureOwner _owner;
+	private long long _identity;
+	public ControlEventCaptureRegistration(ControlEventCaptureOwner owner, long long identity) { self._owner = owner; self._identity = identity; }
+
+	public void __del__() { self.cancel(); }
+
+	public long long identity() { return self._identity; }
+
+	public void requireOwner(ControlEventCaptureOwner owner) { if (owner != self._owner) { throw "Capture registration belongs to another owner"; } }
+
+	public void cancel() { self._owner.cancelRegistration(self); }
+}
+
+class ControlEventCaptureReceipt implements IControlEventStorage {
+	private ControlEventCaptureOwner _owner;
+	private ControlEventCaptureSlot? _slot;
+	private bool _entered = false;
+	private bool _retired = false;
+	private bool _owns;
+	private bool _admitted = false;
+	public ControlEventCaptureReceipt(ControlEventCaptureOwner owner, ControlEventCaptureSlot slot, bool owns) { self._owner = owner; self._slot = slot; self._owns = owns; }
+
+	public void __del__() { if (!self._admitted && !self._retired) { self.retired(); } }
+
+	public void requireOwner(ControlEventCaptureOwner owner, long long registration) { if (self._owner != owner || self._slot == null || self._slot.registration != registration) { throw "Capture receipt belongs to another queue or registration"; } }
+
+	public void validateAdmission(bool terminal, long long key) { if (self._retired || self._admitted || !self._owns || self._slot == null || terminal || key <= 0LL) { throw "Capture append requires a new replaceable epoch slot"; } self._owner.validateRecord(self._slot); }
+
+	public void claim() { self._admitted = true; }
+
+	public bool ownsEpoch(ControlEventCaptureOwner owner, ControlEventCaptureSlot slot) { return !self._retired && self._owns && self._owner == owner && self._slot == slot; }
+
+	public bool replaces(IControlEventStorage previous) { var slot = self._slot; if (self._retired || self._owns || slot == null) { return false; } self._owner.validateRecord(slot); return previous.ownsEpoch(self._owner, slot); }
+
+	public void entered() {
+		if (self._retired || !self._admitted || !self._owns || self._slot == null || self._entered) { throw "Capture receipt cannot enter twice"; }
+		self._owner.enter(); self._entered = true;
+		var slot = self._slot; self._slot = null; self._owner.releaseRecord(slot);
+	}
+
+	public void retired() {
+		if (self._retired) { throw "Capture receipt retired twice"; }
+		self._retired = true;
+		if (self._entered) { self._owner.leave(); self._entered = false; }
+		var slot = self._slot; self._slot = null; if (slot != null && self._owns) { self._owner.releaseRecord(slot); }
+	}
+}
+
+class ControlEventCaptureBarrier implements IControlEventStorage {
+	private ControlEventCaptureOwner _owner;
+	private long long _identity;
+	private long long _serial;
+	private bool _retired = false;
+	private bool _admitted = false;
+	private bool _ordinary;
+	private bool _local;
+	public ControlEventCaptureBarrier(ControlEventCaptureOwner owner, long long identity, long long serial, bool ordinary, bool local) { self._owner = owner; self._identity = identity; self._serial = serial; self._ordinary = ordinary; self._local = local; }
+
+	public void __del__() { if (!self._admitted && !self._retired) { self.retired(); } }
+
+	public void requireOwner(ControlEventCaptureOwner owner, long long registration) { if (self._owner != owner) { throw "Capture barrier belongs to another queue"; } self._owner.requireBarrierOwner(self._identity, self._serial, registration); }
+
+	public void validateAdmission(bool terminal, long long key) { if (self._retired || self._admitted || self._local || terminal == self._ordinary || key != 0LL) { throw "Capture barrier does not reserve this record kind"; } self._owner.validateBarrier(self._identity, self._serial); }
+
+	public void claim() { self._admitted = true; }
+
+	public bool ownsEpoch(ControlEventCaptureOwner owner, ControlEventCaptureSlot slot) { return false; }
+
+	public bool replaces(IControlEventStorage previous) { return false; }
+
+	public void entered() {}
+
+	public void retired() { if (self._retired) { throw "Capture barrier retired twice"; } self._retired = true; self._owner.finishLease(self._identity, self._serial); }
+}
+
+class ControlEventCaptureLease {
+	private ControlEventCaptureOwner _owner;
+	private long long _identity;
+	private long long _serial;
+	private bool _consumed = false;
+	private bool _cancelled = false;
+	public ControlEventCaptureLease(ControlEventCaptureOwner owner, long long identity, long long serial) { self._owner = owner; self._identity = identity; self._serial = serial; }
+
+	public void __del__() { if (!self._consumed && !self._cancelled) { self.cancel(); } }
+
+	public ControlEventCaptureBarrier commit() {
+		if (self._consumed || self._cancelled) { throw "Capture lease is already consumed or cancelled"; }
+		var receipt = self._owner.commitLease(self._identity, self._serial); self._consumed = true; return receipt;
+	}
+
+	public void cancel() { if (self._consumed) { throw "Consumed capture lease belongs to its record"; } if (!self._cancelled) { self._owner.abandonLease(self._identity, self._serial); self._cancelled = true; } }
+}
+
+/* Opt-in credit atom. Providers must reserve before exposing registrations,
+ * changing keys or starting native operations. This owner does not enable a
+ * provider, choose its capacity, admit native input or retain snapshots.
+ *
+ * used = charged current slots + lease participant slots + ordered slots.
+ * Local leases account for K; ordered slots account for U. All unused promises
+ * remain charged. Closing registrations retain occupied credits until drain.
+ * An entered snapshot uses one separate slot, never another queue invocation. */
+class ControlEventCaptureOwner {
+	private int _capacity;
+	private int _used = 0;
+	private bool _sealed = false;
+	private bool _entered = false;
+	private long long _next = 1LL;
+	private ControlEventTerminalPool _pool;
+	private bool _bound = false;
+	private Vector<ControlEventCaptureRegistrationState> _registrations = [];
+	private Vector<ControlEventCaptureLeaseState> _leases = [];
+	public ControlEventCaptureOwner(int capacity, ControlEventTerminalPool pool) { if (capacity < 0 || capacity > 65536 || pool == null) { throw "Invalid capture credit capacity"; } self._capacity = capacity; self._pool = pool; }
+
+	public void bind(ControlEventTerminalPool pool) { if (pool != self._pool || self._bound || self._sealed) { throw "Capture owner requires one queue with its registration pool"; } self._bound = true; }
+
+	public void validateRecord(ControlEventCaptureSlot slot) { var registration = self.findRegistration(slot.registration); if (self._sealed || slot.released || !slot.occupied || registration == null || !registration.open) { throw "Capture registration is closed"; } }
+
+	public void requireBarrierOwner(long long identity, long long serial, long long registration) { var lease = self.requireLease(identity, serial); if (lease.registration != registration) { throw "Capture barrier belongs to another registration"; } }
+
+	public void validateBarrier(long long identity, long long serial) { var lease = self.requireLease(identity, serial); var registration = self.findRegistration(lease.registration); if (self._sealed || !lease.consumed || lease.finished || registration == null || !registration.open) { throw "Capture barrier registration is closed"; } }
+
+	public int used() { return self._used; }
+
+	public int available() { return self._capacity - self._used; }
+
+	public bool entered() { return self._entered; }
+
+	private void requireIdentities(int count) { if (count > 9223372036854775807LL - self._next) { throw "Capture identities exhausted"; } }
+
+	private long long identity() { if (self._next == 9223372036854775807LL) { throw "Capture identities exhausted"; } return self._next++; }
+
+	private ControlEventCaptureSlot allocate(long long registration) { if (self._used == self._capacity) { throw "Capture credit allocation exceeded reservation"; } self._used++; return ControlEventCaptureSlot(registration); }
+
+	private void releaseSlot(ControlEventCaptureSlot slot) { if (slot.occupied || slot.released || self._used <= 0) { throw "Capture credit is not releasable"; } slot.released = true; self._used--; }
+
+	private ControlEventCaptureRegistrationState? findRegistration(long long identity) { for registration in self._registrations { if (registration.identity == identity) { return registration; } } return null; }
+
+	private ControlEventCaptureRegistrationState requireRegistration(ControlEventCaptureRegistration handle) {
+		handle.requireOwner(self); var registration = self.findRegistration(handle.identity());
+		if (self._sealed || registration == null || !registration.open) { throw "Capture registration is closed"; } return registration;
+	}
+
+	private ControlEventCaptureLeaseState? findLease(long long identity) { for lease in self._leases { if (lease.identity == identity) { return lease; } } return null; }
+
+	private ControlEventCaptureLeaseState requireLease(long long identity, long long serial) {
+		var lease = self.findLease(identity);
+		if (lease == null || !lease.acquired || lease.serial != serial) { throw "Capture lease is stale"; } return lease;
+	}
+
+	private int participantCount() { int count = 0; for registration in self._registrations { if (registration.open && registration.current != null) { count++; } } return count; }
+
+	private bool acceptsParticipant(ControlEventCaptureLeaseState lease) { return !lease.local && (lease.reusable || !lease.consumed); }
+
+	private void addParticipants(ControlEventCaptureLeaseState lease) {
+		for registration in self._registrations { if (registration.open && registration.current != null) { lease.participants.push(ControlEventCaptureParticipant(registration.identity, self.allocate(registration.identity))); } }
+	}
+
+	public ControlEventCaptureRegistration? reserveRegistration(bool captures, bool firstBarrier) {
+		if (self._sealed || self._registrations.len == self._capacity || (firstBarrier && self._leases.len == self._capacity)) { return null; }
+		int cost = captures ? 1 : 0;
+		if (captures) { for lease in self._leases { if (self.acceptsParticipant(lease)) { cost++; } } }
+		if (firstBarrier) { cost += self.participantCount() + (captures ? 1 : 0); }
+		if (cost > self.available()) { return null; }
+		self.requireIdentities(firstBarrier ? 1 : 0);
+		var registration = ControlEventCaptureRegistrationState(self._pool.registrationIdentity());
+		if (captures) {
+			registration.current = self.allocate(registration.identity);
+			for lease in self._leases { if (self.acceptsParticipant(lease)) { lease.participants.push(ControlEventCaptureParticipant(registration.identity, self.allocate(registration.identity))); } }
+		}
+		self._registrations.push(registration);
+		if (firstBarrier) { var base = ControlEventCaptureLeaseState(self.identity(), registration.identity, true, false); self.addParticipants(base); self._leases.push(base); registration.base = base.identity; }
+		return ControlEventCaptureRegistration(self, registration.identity);
+	}
+
+	private ControlEventCaptureLease acquire(ControlEventCaptureLeaseState lease) {
+		if (lease.acquired || lease.serial == 9223372036854775807LL) { throw "Capture lease cannot be acquired"; }
+		lease.acquired = true; lease.serial++; return ControlEventCaptureLease(self, lease.identity, lease.serial);
+	}
+
+	private ControlEventCaptureLease? reserve(ControlEventCaptureRegistration handle, bool ordered, bool local) {
+		if (self._sealed) { return null; }
+		var registration = self.requireRegistration(handle);
+		if (local && registration.current == null) { throw "Key transition requires a capture registration"; }
+		if (!ordered && !local && registration.base != 0LL) { var base = self.findLease(registration.base); if (base != null && !base.acquired) { return self.acquire(base); } }
+		if (self._leases.len == self._capacity) { return null; }
+		int cost = local ? 1 : self.participantCount() + (ordered ? 1 : 0);
+		if (cost > self.available()) { return null; }
+		self.requireIdentities(1);
+		var lease = ControlEventCaptureLeaseState(self.identity(), registration.identity, false, local);
+		if (local) { lease.participants.push(ControlEventCaptureParticipant(registration.identity, self.allocate(registration.identity))); }
+		else { self.addParticipants(lease); }
+		if (ordered) { lease.ordered = self.allocate(registration.identity); }
+		self._leases.push(lease); return self.acquire(lease);
+	}
+
+	public ControlEventCaptureLease? reserveBarrier(ControlEventCaptureRegistration registration) { return self.reserve(registration, false, false); }
+
+	public ControlEventCaptureLease? reserveOrdered(ControlEventCaptureRegistration registration) { return self.reserve(registration, true, false); }
+
+	public ControlEventCaptureLease? reserveKeyChange(ControlEventCaptureRegistration registration) { return self.reserve(registration, false, true); }
+
+	public ControlEventCaptureReceipt capture(ControlEventCaptureRegistration handle) {
+		var registration = self.requireRegistration(handle); var slot = registration.current;
+		if (slot == null) { throw "Registration has no capture slot"; }
+		bool owns = !slot.occupied; slot.occupied = true; return ControlEventCaptureReceipt(self, slot, owns);
+	}
+
+	public ControlEventCaptureBarrier commitLease(long long identity, long long serial) {
+		var lease = self.requireLease(identity, serial);
+		if (self._sealed || lease.consumed || lease.finished) { throw "Capture lease cannot be committed"; }
+		for participant in lease.participants {
+			var registration = self.findRegistration(participant.registration);
+			if (participant.removed || registration == null || !registration.open || registration.current == null || participant.slot.occupied) { throw "Capture lease has an invalid participant"; }
+		}
+		for participant in lease.participants {
+			var registration = self.findRegistration(participant.registration); var previous = registration.current;
+			registration.current = participant.slot; participant.slot = previous;
+		}
+		lease.consumed = true; var ordered = lease.ordered; if (ordered != null) { ordered.occupied = true; }
+		return ControlEventCaptureBarrier(self, identity, serial, ordered != null, lease.local);
+	}
+
+	private void collect() {
+		for (int index = self._leases.len - 1; index >= 0; index--) {
+			var lease = self._leases.get(index); bool recovered = true;
+			for (int position = lease.participants.len - 1; position >= 0; position--) {
+				var participant = lease.participants.get(position);
+				if (participant.removed && !participant.slot.occupied) { self.releaseSlot(participant.slot); lease.participants.remove(position); }
+				else if (participant.slot.occupied) { recovered = false; }
+			}
+			if (!lease.finished || !recovered) { continue; }
+			var ordered = lease.ordered; if (ordered != null) { if (ordered.occupied) { continue; } self.releaseSlot(ordered); lease.ordered = null; }
+			if (lease.reusable) { lease.acquired = false; lease.consumed = false; lease.finished = false; }
+			else { for participant in lease.participants { self.releaseSlot(participant.slot); } lease.participants.clear(); self._leases.remove(index); }
+		}
+		for (int index = self._registrations.len - 1; index >= 0; index--) {
+			var registration = self._registrations.get(index); var current = registration.current;
+			if (!registration.open && (current == null || !current.occupied)) { if (current != null) { self.releaseSlot(current); registration.current = null; } self._registrations.remove(index); }
+		}
+	}
+
+	public void finishLease(long long identity, long long serial) {
+		var lease = self.requireLease(identity, serial); if (!lease.consumed || lease.finished) { throw "Capture barrier is not live"; }
+		lease.finished = true; var ordered = lease.ordered; if (ordered != null) { ordered.occupied = false; } self.collect();
+	}
+
+	public void abandonLease(long long identity, long long serial) {
+		var lease = self.findLease(identity); if (lease == null) { return; }
+		lease = self.requireLease(identity, serial); if (lease.consumed) { throw "Consumed capture lease belongs to its record"; }
+		lease.finished = true; self.collect();
+	}
+
+	public void releaseRecord(ControlEventCaptureSlot slot) { if (!slot.occupied || slot.released) { throw "Capture record does not own its slot"; } slot.occupied = false; self.collect(); }
+
+	public void enter() { if (self._entered) { throw "Capture delivery cannot re-enter"; } self._entered = true; }
+
+	public void leave() { if (!self._entered) { throw "Capture delivery has not entered"; } self._entered = false; }
+
+	public void cancelRegistration(ControlEventCaptureRegistration handle) {
+		handle.requireOwner(self); var registration = self.findRegistration(handle.identity()); if (registration == null || !registration.open) { return; }
+		registration.open = false;
+		for lease in self._leases {
+			for participant in lease.participants { if (participant.registration == registration.identity) { participant.removed = true; } }
+			if (lease.registration == registration.identity) { lease.reusable = false; if (!lease.consumed) { lease.finished = true; } }
+		}
+		self.collect();
+	}
+
+	public void seal() {
+		if (self._sealed) { return; } self._sealed = true;
+		for registration in self._registrations { registration.open = false; }
+		for lease in self._leases { lease.reusable = false; for participant in lease.participants { participant.removed = true; } if (!lease.consumed) { lease.finished = true; } }
+		self.collect();
+	}
 }
 
 /* Opt-in storage for observations waiting for ordinary capacity. Unpublished
@@ -140,34 +462,80 @@ class ControlEventRecord {
 	private ControlEventHeldReceipt? _held = null;
 	private bool _admitted = false;
 	private bool _retired = false;
-	public ControlEventRecord(long long registration, long long generation, long long interaction, long long key, IControlEventInvocation invocation, ControlEventTicket? terminal) {
+	private IControlEventStorage? _storage;
+	public ControlEventRecord(long long registration, long long generation, long long interaction, long long key, IControlEventInvocation invocation, ControlEventTicket? terminal, IControlEventStorage? storage = null) {
 		self.registration = registration; self.generation = generation; self.interaction = interaction; self.key = key; self._invocation = invocation; self._terminal = terminal;
+		self._storage = storage;
 	}
 
 	public bool terminal() { return self._terminal != null; }
 
 	public bool held() { return self._held != null; }
 
+	public bool captured() { return self._storage != null; }
+
 	public void hold(ControlEventPreparation preparation) { if (self._admitted || self._held != null || self.terminal()) { throw "Semantic record cannot acquire held credit"; } self._held = preparation.consume(); }
+
+	public void abandonHold() { if (self._admitted) { throw "Admitted held storage belongs to its record"; } var held = self._held; self._held = null; if (held != null) { held.retire(); } }
 
 	public void promote() { var held = self._held; if (held == null) { throw "Semantic record has no held credit"; } self._held = null; held.retire(); }
 
-	public bool replaces(ControlEventRecord previous) { return !self.terminal() && self.key > 0LL && self.registration == previous.registration && self.generation == previous.generation && self.interaction == previous.interaction && self.key == previous.key; }
+	public bool replaces(ControlEventRecord previous) { return !self.terminal() && self.key > 0LL && self.registration == previous.registration && self.generation == previous.generation && self.interaction == previous.interaction && self.key == previous.key && ((self._storage == null && previous._storage == null) || (self._storage != null && previous._storage != null && self._storage.replaces(previous._storage))); }
 
 	public bool replaceable() { return !self.terminal() && self.key > 0LL; }
 
-	public void admit() { if (self._admitted) { throw "Semantic record admitted twice"; } self._admitted = true; if (self._terminal != null) { self._terminal.commit(); } self._invocation.admitted(); }
+	public bool transferred() { return self._admitted && self._retired; }
 
-	public ControlEventDisposition invoke() { return self._invocation.invoke(); }
+	public void requireOwner(ControlEventTerminalPool pool, ControlEventCaptureOwner? owner) {
+		if (self._terminal != null) { self._terminal.requireOwner(pool, self.registration); }
+		if (self._storage != null) { if (owner == null) { throw "Queue has no capture owner"; } self._storage.requireOwner(owner, self.registration); }
+	}
+
+	private void validateAdmission(ControlEventQueue queue) {
+		queue.requireAdmission(self);
+		if (self._admitted || self._retired) { throw "Semantic record admitted twice"; }
+		if (self._terminal != null) { self._terminal.validate(self.registration); }
+		if (self._storage != null) { self._storage.validateAdmission(self.terminal(), self.key); }
+	}
+
+	public void admit(ControlEventQueue queue) {
+		self.validateAdmission(queue);
+		self._invocation.admitted();
+		try { self.validateAdmission(queue); }
+		catch (string error) { try { self._invocation.retired(); } catch (string cleanup) {} throw error; }
+		/* Claims have no callbacks or allocations after the final validation. */
+		if (self._terminal != null) { self._terminal.commit(); }
+		if (self._storage != null) { self._storage.claim(); }
+		self._admitted = true;
+	}
+
+	public ControlEventDisposition invoke() { if (self._storage != null) { self._storage.entered(); } return self._invocation.invoke(); }
 
 	/* Preserve the original queue position and storage charge. The fresh
 	 * invocation owns its snapshot; the superseded invocation drains now. */
-	public void replaceWith(ControlEventRecord next) {
-		if (!self._admitted || self._retired || next._admitted || !next.replaces(self)) { throw "Invalid semantic replacement"; }
-		self._invocation.retired(); self._invocation = next._invocation; self._invocation.admitted();
+	private void validateReplacement(ControlEventRecord next, ControlEventQueue queue) {
+		queue.requireReplacement(next);
+		if (!self._admitted || self._retired || next._admitted || next._retired || !next.replaces(self)) { throw "Invalid semantic replacement"; }
+		if (self._storage != null && self._storage == next._storage) { throw "Semantic records cannot share capture ownership"; }
 	}
 
-	public void retire() { if (!self._admitted || self._retired) { throw "Semantic record retired without unique admission"; } self._retired = true; if (self._terminal != null) { self._terminal.complete(); } if (self._held != null) { self._held.retire(); self._held = null; } self._invocation.retired(); }
+	public void replaceWith(ControlEventRecord next, ControlEventQueue queue) {
+		self.validateReplacement(next, queue);
+		next._invocation.admitted();
+		try { self.validateReplacement(next, queue); }
+		catch (string error) { try { next._invocation.retired(); } catch (string cleanup) {} throw error; }
+		var previous = self._invocation; self._invocation = next._invocation;
+		next._admitted = true; next._retired = true;
+		/* Once transferred, failure seals the queue instead of rejecting the
+		 * producer. The queued record keeps the new invocation and old charge. */
+		string failure = "";
+		try { previous.retired(); } catch (string error) { failure = error; }
+		var candidate = next._storage; next._storage = null;
+		try { if (candidate != null) { candidate.retired(); } } catch (string error) { if (failure == "") { failure = error; } }
+		if (failure != "") { throw failure; }
+	}
+
+	public void retire() { if (!self._admitted || self._retired) { throw "Semantic record retired without unique admission"; } self._retired = true; if (self._terminal != null) { self._terminal.complete(); } if (self._held != null) { self._held.retire(); self._held = null; } if (self._storage != null) { self._storage.retired(); self._storage = null; } self._invocation.retired(); }
 }
 
 /* One ordered semantic stream per window/scene. Replacement never crosses an
@@ -179,6 +547,8 @@ class ControlEventQueue {
 	private bool _closed = false;
 	private bool _dispatching = false;
 	private bool _wakeFailed = false;
+	private string _failure = "";
+	private ControlEventCaptureOwner? _capture;
 	private ControlEventTerminalPool _pool;
 	private ControlEventHeldBudget _held;
 	private Vector<ControlEventPreparation> _preparations = [];
@@ -186,9 +556,10 @@ class ControlEventQueue {
 	private Vector<ControlEventRecord> _records = [];
 	private Vector<long long> _retired = [];
 
-	public ControlEventQueue(int normalCapacity, ControlEventTerminalPool pool, int heldCapacity = 0) {
+	public ControlEventQueue(int normalCapacity, ControlEventTerminalPool pool, int heldCapacity = 0, ControlEventCaptureOwner? capture = null) {
 		if (normalCapacity <= 0 || normalCapacity > 65536 || pool == null) { throw "Invalid semantic queue capacity"; }
 		self._capacity = normalCapacity; self._pool = pool; self._held = ControlEventHeldBudget(heldCapacity);
+		if (capture != null) { capture.bind(pool); } self._capture = capture;
 		for (int index = 0; index < 7; index++) { self._retired.push(0LL); }
 	}
 
@@ -207,7 +578,17 @@ class ControlEventQueue {
 	public int preparedCount() { return self._held.preparedCount(); }
 
 	/* Seal admission without discarding receipts owned by cancellation/close. */
-	public void sealNativeSource() { self._wakeFailed = true; }
+	public void sealNativeSource() { self._wakeFailed = true; if (self._capture != null) { self._capture.seal(); } }
+
+	private void fail(string error) { if (self._failure == "") { self._failure = error; } self.sealNativeSource(); }
+
+	public void requireAdmission(ControlEventRecord record) {
+		record.requireOwner(self._pool, self._capture);
+		if (self._closed || self._wakeFailed) { throw "Semantic queue is closed"; }
+		if (!record.terminal() && !record.held() && !record.captured() && (self._normal == self._capacity || self.heldCount() != 0)) { throw "Semantic admission capacity changed"; }
+	}
+
+	public void requireReplacement(ControlEventRecord record) { record.requireOwner(self._pool, self._capture); if (self._closed || self._wakeFailed) { throw "Semantic queue is closed"; } }
 
 	public bool canCapture(int maximumRecords) { return !self._closed && !self._wakeFailed && maximumRecords >= 0 && (maximumRecords == 0 || (self.heldCount() == 0 && maximumRecords <= self._capacity - self._normal)); }
 
@@ -217,8 +598,8 @@ class ControlEventQueue {
 		/* The receipt is already committed. Neither a false native result nor
 		 * a throwing adapter may turn it into an ambiguous producer rejection.
 		 * The next service turn reports failure; cancellation still drains. */
-		try { if (self._wake != null && !self._wake.requestTurn()) { self._wakeFailed = true; } }
-		catch (string error) { self._wakeFailed = true; }
+		try { if (self._wake != null && !self._wake.requestTurn()) { self.fail("Semantic queue native wake failed"); } }
+		catch (string error) { self.fail(error); }
 	}
 
 	private void countRetirement(ControlEventDisposition disposition) {
@@ -229,7 +610,7 @@ class ControlEventQueue {
 
 	private void retireRecord(ControlEventRecord record, ControlEventDisposition disposition) {
 		self.countRetirement(disposition);
-		if (!record.terminal() && !record.held()) { self._normal--; }
+		if (!record.terminal() && !record.held() && !record.captured()) { self._normal--; }
 		record.retire();
 	}
 
@@ -263,23 +644,26 @@ class ControlEventQueue {
 	 * Captured admission remains fallible: providers must separately stop
 	 * native dequeue before exhausting their configured held budget. */
 	public bool enqueue(ControlEventRecord record, bool captured = false, ControlEventPreparation? prepared = null) {
+		record.requireOwner(self._pool, self._capture);
 		var preparation = prepared;
 		if (preparation != null) { self.requirePreparation(preparation, record.registration); preparation.validate(); }
 		if (self._closed || self._wakeFailed) { if (preparation != null) { preparation.retire(); self.prunePreparations(); } return false; }
 		int replacement = self.replacementIndex(record);
 		if (replacement >= 0) {
-			self._records.get(replacement).replaceWith(record); self.countRetirement(CONTROL_EVENT_SUPERSEDED);
+			try { self._records.get(replacement).replaceWith(record, self); }
+			catch (string error) { if (!record.transferred()) { throw error; } self.fail(error); }
+			try { self.countRetirement(CONTROL_EVENT_SUPERSEDED); } catch (string error) { self.fail(error); }
 			if (preparation != null) { preparation.retire(); self.prunePreparations(); }
 		} else {
-			if (!record.terminal() && (self._normal == self._capacity || self.heldCount() != 0)) {
+			if (!record.terminal() && !record.captured() && (self._normal == self._capacity || self.heldCount() != 0)) {
 				if (preparation == null && captured) { preparation = self.prepare(record.registration); }
 				if (preparation == null) { return false; }
 				record.hold(preparation);
 			} else if (preparation != null) { preparation.retire(); }
-			record.admit(); if (!record.terminal() && !record.held()) { self._normal++; }
+			try { record.admit(self); } catch (string error) { try { record.abandonHold(); } catch (string cleanup) {} throw error; } if (!record.terminal() && !record.held() && !record.captured()) { self._normal++; }
 			self._records.push(record); self.prunePreparations();
 		}
-		self.wake(); return true;
+		if (!self._wakeFailed) { self.wake(); } return true;
 	}
 
 	public void cancelRegistration(long long registration, ControlEventDisposition disposition = CONTROL_EVENT_CANCELLED) {
@@ -292,7 +676,7 @@ class ControlEventQueue {
 	}
 
 	public bool dispatchOne() {
-		if (self._wakeFailed) { throw "Semantic queue native wake failed"; }
+		if (self._wakeFailed) { throw self._failure != "" ? self._failure : "Semantic queue native wake failed"; }
 		if (self._dispatching) { throw "Semantic delivery cannot re-enter"; }
 		if (self._records.isEmpty()) { return false; }
 		var record = self._records.get(0);
@@ -306,7 +690,7 @@ class ControlEventQueue {
 	}
 
 	public void close() {
-		self._closed = true; self._wake = null;
+		self._closed = true; self._wake = null; if (self._capture != null) { self._capture.seal(); }
 		for preparation in self._preparations { preparation.retire(); } self._preparations.clear();
 		while (!self._records.isEmpty()) { var record = self._records.get(0); self._records.remove(0); self.retireRecord(record, CONTROL_EVENT_CLOSED); }
 	}
