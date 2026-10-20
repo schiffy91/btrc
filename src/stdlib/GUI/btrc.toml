@@ -188,6 +188,7 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
+	"-[NSControl currentEditor]",
 	"-[NSTextField setDelegate:]", "-[NSTextField delegate]", "-[NSControl stringValue]", "-[NSControl abortEditing]",
 	"-[NSTextFieldDelegate control:textShouldBeginEditing:]", "-[NSTextFieldDelegate control:textView:doCommandBySelector:]",
 	"-[NSTextFieldDelegate controlTextDidChange:]", "-[NSTextFieldDelegate controlTextDidEndEditing:]",
