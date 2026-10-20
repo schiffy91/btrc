@@ -1,6 +1,7 @@
 import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IView;
+import Library.GUI.IWindow;
 import Library.GUI.IButton;
 import Library.GUI.IImageHandle;
 import Library.GUI.GUICaptureLayer;
@@ -93,7 +94,7 @@ class ActionLog {
 	public int limit = 3;
 	public bool fail = false;
 	public ICallbackRegistration? cancellation;
-	public IButton? closing;
+	public IWindow? closing;
 	public int destroyed = 0;
 }
 
@@ -107,7 +108,7 @@ class ButtonAction implements IButtonAction {
 		assert(!self._log.activating);
 		self._log.values.push(self._value);
 		if (self._log.cancellation != null) { assert(self._log.cancellation.cancel() == CALLBACK_CANCELLATION_PENDING); }
-		if (self._log.closing != null) { self._log.closing.close(); }
+		if (self._log.closing != null) { assert(self._log.closing.close() == CALLBACK_CANCELLATION_PENDING); }
 		if (self._log.fail) { throw "button work failed"; }
 		if (self._log.values.len == self._log.limit) { GUI.requestQuit(); }
 	}
@@ -134,7 +135,10 @@ void verifyActions() {
 	var log = ActionLog();
 	var first = GUI.createButton("First");
 	var second = GUI.createButton("Second");
-	log.closing = first;
+	var window = GUI.createWindow("Ordered actions", 240.0, 120.0);
+	var root = GUI.createContainer();
+	root.attach(first); root.attach(second); window.attachRoot(root); window.show();
+	log.closing = window;
 	abandonAction(first, log);
 	assert(log.destroyed == 1);
 	log.closing = null;
@@ -163,9 +167,11 @@ void verifyActions() {
 		state.limit = 1;
 		state.fail = mode == 2;
 		var button = GUI.createButton("Cancel during queued delivery");
+		var actionWindow = GUI.createWindow("Action cancellation", 240.0, 120.0);
+		actionWindow.attachRoot(button); actionWindow.show();
 		var registration = button.onAction(ButtonAction(state, mode), actionScope);
 		if (mode == 0) { state.cancellation = registration; }
-		if (mode == 1) { state.closing = button; }
+		if (mode == 1) { state.closing = actionWindow; }
 		activateButton(button, state);
 		activateButton(button, state);
 		bool failed = false;
@@ -180,6 +186,8 @@ void verifyActions() {
 		var overflowScope = CallbackScope();
 		var state = ActionLog();
 		var button = GUI.createButton("Bounded ordered actions");
+		var overflowWindow = GUI.createWindow("Action overflow", 240.0, 120.0);
+		overflowWindow.attachRoot(button); overflowWindow.show();
 		var registration = button.onAction(ButtonAction(state, 1), overflowScope);
 		for (int index = 0; index < 3; index++) { activateButton(button, state); }
 		// Pruning cancelled commands must not erase an observed overflow.
