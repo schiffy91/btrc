@@ -6994,8 +6994,8 @@ class NativeDeclarationImporter:
         """The checked instance and class overrides of an adapter that extends `binding.superclass`.
 
         The superclass needs a complete interface. Each override is a
-        selected, non-protocol method of the superclass (named on it,
-        inherited methods included) outside the init, alloc, new, copy and
+        method selected on the superclass (including inherited methods and
+        adopted protocol requirements) outside the init, alloc, new, copy and
         dealloc families, non-variadic and non-consuming. A class override
         returns Class and takes no parameters; an override the SDK marks
         NS_REQUIRES_SUPER returns void.
@@ -7008,7 +7008,9 @@ class NativeDeclarationImporter:
         class_overrides = []
         for symbol in binding.overrides:
             method = self._callback_exports.get(symbol)
-            if not isinstance(method, NativeObjectiveCMethod) or method.protocol_owner or method.receiver != superclass:
+            # Clang resolves the selected class receiver through its superclass,
+            # categories and adopted protocols; the declaration keeps its owner.
+            if not isinstance(method, NativeObjectiveCMethod) or method.receiver != superclass:
                 raise NativeImportError(f"overrides require a method of the superclass {superclass}: {symbol}")
             if method.method_family != "none":
                 raise NativeImportError(
