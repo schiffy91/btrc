@@ -303,7 +303,7 @@ jobs:
       # retaining the row's selection flags and parallel execution elsewhere.
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
-          PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
+          PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
 
       - name: Recheck native reader prerequisites
         if: always()
@@ -318,6 +318,16 @@ jobs:
           name: native-reader-macos-tests-${{ matrix.shard }}
           path: build/native-reader/
           if-no-files-found: warn
+          retention-days: 14
+
+      # Keep failures even when pytest never reaches its final summary.
+      - name: Retain partial unit failures
+        if: always() && matrix.shard == 'unit'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: failure-report-macos-tests-unit
+          path: build/failure-report-unit.jsonl
+          if-no-files-found: ignore
           retention-days: 14
 
       # The bootstrap shard's boundary-check writes build/boundary-report.json;

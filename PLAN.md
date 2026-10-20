@@ -70,6 +70,7 @@ Historical heads remain useful provenance after their branches are deleted.
 | Local `codex/linux-unit-diagnostic-20261020`, `02b22eaa` | Retains the first failure from the complete Linux unit selection. | G01; the post-merge diagnostic identified three failures, now repaired with 100 focused checks passing. The complete unit gate remains open. |
 | Local `codex/linux-gui-sharding-20261020`, `1ebaefa7` | Splits each Linux GUI session into four deterministic partitions and checks exact combined coverage. | G02; inventory and setup-time skip checks now pass. Hosted partition execution and complete coverage remain open. |
 | Local `codex/windows-observer-repair-20261020`, `970ce901` | Removes the intrusive foreign WNDPROC query and adds a hidden ANSI-window observer regression. | G04; all eight cross-build/link variants and all four native x64 variants pass. ARM64 execution and final-revision qualification remain open. |
+| Local `codex/pytest-failure-journal-20261020`, `8572952c`, integrated as `34cdb461` | Preserves failed test names, errors and captured output before a test session ends. | G07; 187 reporting/workflow checks pass, including interrupted serial and parallel sessions. Full hosted unit qualification remains open. |
 
 ### Repairs landed after consolidation
 
@@ -299,6 +300,19 @@ qualification still pending.
   suites with the same provider environment, worker count and case budgets as
   the focused GUI job; a second dispatch would duplicate that selection.
   Before claiming coverage, reconcile its terminal per-node skip report.
+  The earlier macOS unit job `118783223416` in
+  [39464780421](https://github.com/schiffy91/btrc/actions/runs/39464780421)
+  exceeded its three-hour limit at 99%. Its log contains 73 failure markers,
+  but no failing node identities, final JUnit or skip report survived. The
+  retained native-reader prerequisite checks were unchanged and usable;
+  those checks do not identify the test failures. Repair `34cdb461` adds an
+  optional controller-only failure journal with immediate console output.
+  The macOS unit job enables it and retains partial JSONL separately from
+  qualification reports. The 187 passing reporting/workflow checks include
+  interrupted serial and parallel sessions, collection deduplication and
+  appending evidence across sessions. Selection, workers and time limits
+  remain unchanged. Partial failure diagnostics cannot establish coverage
+  or replace the final classified skip report.
   The Android/iOS/Windows host workflows and their executor, JNI, corpus,
   compiler and toolchain inputs are unchanged by the GUI repair batch.
   Their successful e2e5f432 receipts retain that revision and do not claim

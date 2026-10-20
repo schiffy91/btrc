@@ -709,7 +709,8 @@ def test_a_pr_tier_corpus_row_reaches_pytest_through_pytest_addopts() -> None:
         options = "${{ matrix.pytest_addopts }}"
         if workflow == "macos.yml":
             options = (
-                "${{ matrix.shard == 'unit' && format('--dist=loadgroup {0}', matrix.pytest_addopts) "
+                "${{ matrix.shard == 'unit' && format('--dist=loadgroup "
+                "--failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) "
                 "|| matrix.pytest_addopts }}"
             )
         assert suite["env"] == {"PYTEST_ADDOPTS": options}, workflow
@@ -1237,8 +1238,20 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}\n"
         "        env:\n"
         "          PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && "
-        "format('--dist=loadgroup {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}"
+        "format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', "
+        "matrix.pytest_addopts) || matrix.pytest_addopts }}"
     )
+    steps = _parsed("macos.yml")["jobs"]["tests"]["steps"]
+    upload = next(step for step in steps if step.get("name") == "Retain partial unit failures")
+    assert upload["if"] == "always() && matrix.shard == 'unit'"
+    assert upload["uses"] == UPLOAD_ARTIFACT
+    assert upload["with"] == {
+        "name": "failure-report-macos-tests-unit",
+        "path": "build/failure-report-unit.jsonl",
+        "if-no-files-found": "ignore",
+        "retention-days": "14",
+    }
+    assert steps.index(upload) > next(i for i, step in enumerate(steps) if "matrix.target" in step.get("run", ""))
     assert "podman" not in job
 
 
