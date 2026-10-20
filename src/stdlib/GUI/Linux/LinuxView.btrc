@@ -5,6 +5,7 @@ import Library.App;
 import Library.GUI.IView;
 import Library.GUI.ControlEventQueue;
 import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxActionQueue;
 import Library.GUI.Linux.LinuxPainter;
 import Library.GUI.Linux.SDL;
 import Library.GPU.GPUDevice;
@@ -213,7 +214,7 @@ class LinuxViewObservationTarget implements IControlEventTarget {
 	public ControlEventDisposition admission(long long generation) { return self._node.observationAdmission(generation); }
 }
 
-class LinuxViewNode implements IControlEventTarget {
+class LinuxViewNode implements IControlEventTarget, ILinuxActionTarget {
 	public int id;
 	public LinuxContext context;
 	public double x = 0.0;
@@ -260,10 +261,13 @@ class LinuxViewNode implements IControlEventTarget {
 		for (int index = self._channels.len - 1; index >= 0; index--) { if (self._channels.get(index).pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) { self._channels.remove(index); } }
 	}
 
+	public void ownCallback(ICallbackRegistration registration) {
+		self.requireOpen(); self._input.pollCompletion();
+		try { self._input.track(registration); } catch (string error) { registration.cancel(); throw error; }
+	}
+
 	public void ownSemantic(IControlEventChannel channel) {
-		self.requireOpen(); self.pruneSemantic();
-		try { self._input.track(channel); } catch (string error) { channel.cancel(); throw error; }
-		self._channels.push(channel);
+		self.pruneSemantic(); self.ownCallback(channel); self._channels.push(channel);
 	}
 
 	public long long generation() { return self._generation; }

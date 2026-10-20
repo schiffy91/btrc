@@ -1,4 +1,6 @@
 import Library.Callback;
+import Library.App;
+import Library.GUI.IButton;
 import Library.Vector;
 import Library.Image;
 import Library.GUI.Linux.LinuxImageView;
@@ -13,6 +15,50 @@ import Library.GUI.Linux.SDL;
 
 #include <assert.h>
 #include <stdio.h>
+
+class UI2LinuxButtonReceiver implements IButtonAction {
+	public int calls = 0;
+	public void invoke() { self.calls++; }
+}
+
+class UI2LinuxClosingButtonReceiver implements IButtonAction {
+	public IWindow window;
+	public IButton button;
+	public CallbackCancellation enteredState = CALLBACK_CANCELLATION_NOT_REQUESTED;
+	public void invoke() { self.window.close(); self.enteredState = self.button.pollClose(); }
+}
+
+class UI2LinuxButtonChecks {
+	class void click(ILinuxView view) {
+		var event = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, 5.0, 5.0, AppKeyModifiers(false, false, false, false));
+		assert(view.pointer(event)); event.action = APP_POINTER_RELEASED; assert(view.pointer(event));
+	}
+
+	class void retirement(LinuxApplication application) {
+		var window = application.createWindow("UI2 button eligibility", 140.0, 90.0);
+		var root = application.createContainer(); var button = application.createButton("queued");
+		root.attach(button); window.attachRoot(root); window.show(); button.arrange(0.0, 0.0, 100.0, 30.0);
+		var view = (ILinuxView?)button; assert(view != null);
+		var receiver = UI2LinuxButtonReceiver(); var scope = CallbackScope(); button.onAction(receiver, scope);
+		var actions = view.node().context.actions;
+		var observed = actions.bind(view.node()); observed.onAction(receiver, scope); observed.invoke();
+		UI2LinuxButtonChecks.click(view); assert(actions.pendingCount() == 2);
+		root.setVisible(false); root.setVisible(true);
+		actions.dispatchOne(); assert(receiver.calls == 0 && actions.pendingCount() == 0 && observed.ineligibleCount() == 1LL);
+		UI2LinuxButtonChecks.click(view); button.setEnabled(false); button.setEnabled(true);
+		actions.dispatchOne(); assert(receiver.calls == 0);
+		UI2LinuxButtonChecks.click(view); var detached = root.detach(button); root.attach(detached);
+		actions.dispatchOne(); assert(receiver.calls == 0);
+		UI2LinuxButtonChecks.click(view); actions.dispatchOne(); assert(receiver.calls == 1);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); actions.unbind(observed);
+		var closing = UI2LinuxClosingButtonReceiver(); closing.window = window; closing.button = button;
+		var closingScope = CallbackScope(); button.onAction(closing, closingScope);
+		UI2LinuxButtonChecks.click(view); actions.dispatchOne();
+		assert(closing.enteredState == CALLBACK_CANCELLATION_PENDING);
+		for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
+		assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && closingScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
 
 class UI2LinuxStateReceiver implements IViewInteractionStateHandler {
 	public Vector<ViewInteractionState> states = [];
@@ -36,7 +82,10 @@ class UI2LinuxWindowStateChecks {
 		var initial = window.state(); assert(!initial.requestedVisible && !initial.nativeVisible && !initial.presentable);
 		assert(receiver.states.len == 0 && initial.width == 140.0 && initial.height == 90.0 && initial.backingScale > 0.0);
 		window.show(); var shown = window.state(); assert(shown.requestedVisible && shown.nativeVisible && shown.presentable && shown.stateRevision > initial.stateRevision);
-		window.setContentSize(180.0, 120.0); var resized = window.state(); assert(resized.width == 180.0 && resized.height == 120.0 && resized.stateRevision > shown.stateRevision);
+		window.setContentSize(180.0, 120.0); var resized = window.state();
+		unsigned long long resizeDeadline = SDL_GetTicksNS() + 5000000000ULL;
+		while ((resized.width != 180.0 || resized.height != 120.0) && SDL_GetTicksNS() < resizeDeadline) { application.pumpOnce(1); resized = window.state(); }
+		assert(resized.width == 180.0 && resized.height == 120.0 && resized.stateRevision > shown.stateRevision);
 		for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
 		assert(receiver.states.len > 0 && receiver.states.get(receiver.states.len - 1).width == 180.0);
 		long long revision = window.state().stateRevision; window.setContentSize(180.0, 120.0); assert(window.state().stateRevision == revision);
@@ -52,7 +101,7 @@ class UI2LinuxWindowStateChecks {
 class UI2LinuxImageChecks {
 	class void retainedPixels(LinuxApplication application) {
 		var window = application.createWindow("UI2 retained pixels", 80.0, 80.0);
-		LinuxWindow? native = (LinuxWindow?)window; assert(native != null);
+		var native = application.firstWindow(); assert(native != null && (IWindow)native == window);
 		var view = application.createImageView(); window.attachRoot(view); window.show();
 		var pixels = Image(2, 2);
 		for (int index = 0; index < 4; index++) { pixels.data[index * 4] = 12; pixels.data[index * 4 + 1] = 210; pixels.data[index * 4 + 2] = 34; pixels.data[index * 4 + 3] = 255; }
@@ -97,7 +146,7 @@ class UI2LinuxMutationChecks {
 		Vector<ContainerEdit> empty = []; var emptyResult = root.applyBatch(root.treeRevision(), empty);
 		assert(emptyResult.kind == CONTAINER_BATCH_COMMITTED); application.pumpOnce(0);
 		window.attachRoot(root); window.show();
-		var nativeWindow = (LinuxWindow?)window; var nativeRoot = (ILinuxView?)root; var nativeRed = (ILinuxView?)red;
+		var nativeWindow = application.firstWindow(); assert(nativeWindow != null && (IWindow)nativeWindow == window); var nativeRoot = (ILinuxView?)root; var nativeRed = (ILinuxView?)red;
 		assert(nativeWindow != null && nativeRoot != null && nativeRed != null);
 		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
 		while (!nativeWindow.pollDevice() && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); }
@@ -158,7 +207,7 @@ int main() {
 	window.close();
 	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
 	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
-	UI2LinuxWindowStateChecks.state(application); UI2LinuxImageChecks.retainedPixels(application); UI2LinuxMutationChecks.mutation(application);
+	UI2LinuxButtonChecks.retirement(application); UI2LinuxWindowStateChecks.state(application); UI2LinuxImageChecks.retainedPixels(application); UI2LinuxMutationChecks.mutation(application);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	printf("PASS: UI2 Linux inherited eligibility and scoped observations\n"); SDL_Quit(); return 0;
 }
