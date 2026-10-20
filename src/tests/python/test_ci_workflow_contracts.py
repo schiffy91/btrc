@@ -607,12 +607,20 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
     scope = _parsed("ci.yml")["jobs"]["scope"]
     for workflow in CORE_WORKFLOWS:
         document = _parsed(workflow)
-        assert document["jobs"]["scope"] == scope, workflow
+        actual_scope = dict(document["jobs"]["scope"])
+        if workflow == "windows.yml":
+            assert actual_scope.pop("if") == (
+                "github.event_name != 'workflow_dispatch' || inputs.focus != 'user-census-diagnostic'"
+            )
+        assert actual_scope == scope, workflow
         assert document["env"]["CI_WORKFLOW"] == workflow, workflow
         assert _job_names(document)[0] == "scope", workflow
         listed = {entry.job for entry in TIERS.jobs if entry.workflow == workflow}
         jobs = document["jobs"]
-        assert set(jobs) - {"scope", "skip-reports"} == listed, workflow
+        # This diagnostic is manual-only and has its own exact-node/no-skip
+        # contract below; it contributes no qualification-tier coverage.
+        diagnostic = {"user-census-build", "user-census-diagnostic"} if workflow == "windows.yml" else set()
+        assert set(jobs) - {"scope", "skip-reports"} - diagnostic == listed, workflow
         for name in listed:
             job = jobs[name]
             assert job["if"] == f"contains({PLAN}.jobs, '{name}')", (workflow, name)
@@ -1290,7 +1298,8 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                 "focus": {
                     "description": "Which jobs to run",
                     "type": "choice",
-                    "options": ["full", "native-gui", "extended"],
+                    "options": ["full", "native-gui", "extended"]
+                    + (["user-census-diagnostic"] if workflow == "windows.yml" else []),
                     "default": "full",
                 }
             }
@@ -1987,3 +1996,19 @@ def test_e40_hosted_admission_is_confined_to_its_dedicated_workflow_step() -> No
     assert "BTRC_UI2_HOSTED_E40" not in recipe and "CI=true" not in recipe
     assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in recipe
     assert "env $(E40_BTRCC) python3 -m tools.ui.e40 --provider macos" in recipe
+
+
+def test_windows_user_census_diagnostic_is_manual_and_separate():
+    jobs = _parsed("windows.yml")["jobs"]
+    guard = "github.event_name == 'workflow_dispatch' && inputs.focus == 'user-census-diagnostic'"
+    assert jobs["user-census-build"]["if"] == guard
+    assert jobs["user-census-diagnostic"]["if"] == guard
+    assert jobs["user-census-diagnostic"]["needs"] == "user-census-build"
+    assert jobs["user-census-diagnostic"]["runs-on"] == "windows-latest"
+    assert "inputs.focus != 'user-census-diagnostic'" in jobs["scope"]["if"]
+    for name, stage in (("user-census-build", "build"), ("user-census-diagnostic", "run")):
+        commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
+        assert f"tools.ui.windows_user_diagnostic {stage}" in commands
+        assert "--repeat" not in commands
+        uploads = [step for step in jobs[name]["steps"] if "actions/upload-artifact@" in step.get("uses", "")]
+        assert uploads and all(step.get("if") == "always()" for step in uploads)
