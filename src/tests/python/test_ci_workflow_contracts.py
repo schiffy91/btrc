@@ -1429,6 +1429,19 @@ def test_windows_host_bundle_uses_direct_hosted_linux_provenance_and_skip_gate()
     assert session.splitlines()[-1] == f"nix develop --command python3 -m tools.qualification skip-gate {report}"
 
 
+def test_ios_portable_uses_direct_hosted_linux_provenance_and_skip_gate() -> None:
+    job = _parsed("host-ios.yml")["jobs"]["portable"]
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["env"]["BTRC_TEST_RUNNER"] == "linux-hosted"
+    step = next(step for step in job["steps"] if step.get("name") == "Portable host tests")
+    session = step["run"]
+    assert "tools/target_hosts/ios/test_executor.py" in session
+    report = "build/skip-report-host-ios-portable.json"
+    assert f"--skip-report={report}" in session
+    assert session.splitlines()[-1] == f"nix develop --command python3 -m tools.qualification skip-gate {report}"
+    assert "continue-on-error" not in step
+
+
 def test_the_ios_corpus_runs_in_the_simulator_job_through_both_compilers() -> None:
     """CX-P1-08: the whole corpus on the hosted iOS simulator, on the fixtures' one macOS runner."""
 
