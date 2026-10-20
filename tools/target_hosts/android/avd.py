@@ -134,6 +134,18 @@ class AvdManager:
         if self.process is None:
             return
         self.state.mkdir(parents=True, exist_ok=True)
+        # Preserve process state before guest queries or shutdown can change it.
+        snapshot = {
+            "schema": "btrc.android-emulator-process/1",
+            "stage": "before_guest_diagnostics",
+            "wall_time_ns": time.time_ns(),
+            "monotonic_ns": time.monotonic_ns(),
+            "serial": self.serial,
+            "pid": self.process.pid,
+            "returncode": self.process.poll(),
+            "emulator_log_bytes": os.fstat(self.log.fileno()).st_size if self.log is not None else None,
+        }
+        (self.state / f"{self.name}-process.json").write_text(json.dumps(snapshot, indent=2) + "\n")
         for name, arguments in (
             ("logcat", ("logcat", "-d", "-b", "all", "-t", "10000")),
             ("properties", ("shell", "getprop")),

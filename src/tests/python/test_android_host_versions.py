@@ -800,12 +800,24 @@ def test_failed_fixture_retains_completed_rows_and_cleanup_errors(tmp_path, monk
     assert actions == ["diagnostics", "executor-close", "manager-close"]
 
 
-def test_owned_emulator_diagnostics_continue_after_a_transport_timeout(tmp_path, monkeypatch):
+@pytest.mark.parametrize("emulator_status", [None, 17], ids=["running", "exited"])
+def test_owned_emulator_diagnostics_continue_after_a_transport_timeout(tmp_path, monkeypatch, emulator_status):
+    from types import SimpleNamespace
+
     manager = AvdManager(tmp_path, tmp_path / "state")
-    manager.process = object()
+    manager.process = SimpleNamespace(pid=12345, poll=lambda: emulator_status)
     calls = []
+    process_evidence = manager.state / f"{manager.name}-process.json"
 
     def adb(*args, **kwargs):
+        # The original process observation must already be durable when even
+        # the first guest query starts; an offline guest can stall that query.
+        snapshot = json.loads(process_evidence.read_text())
+        assert snapshot["pid"] == 12345 and snapshot["returncode"] == emulator_status
+        assert snapshot["stage"] == "before_guest_diagnostics"
+        assert snapshot["serial"] == manager.serial
+        assert snapshot["wall_time_ns"] > 0 and snapshot["monotonic_ns"] > 0
+        assert snapshot["emulator_log_bytes"] is None
         calls.append(args)
         assert kwargs["timeout"] == 15
         if args[0] == "logcat":
