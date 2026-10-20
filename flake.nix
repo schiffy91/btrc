@@ -12,12 +12,17 @@
           if lib.hasPrefix "-Ddbus_daemon=" flag then "-Ddbus_daemon=${pkgs.dbus}/bin/dbus-daemon" else flag
         ) old.mesonFlags;
       });
+      # GTK decorations must clear seat references before freeing a frame.
+      # Match libdecor's existing Cairo cleanup and its upstream leave ordering.
+      libdecorPatched = pkgs: pkgs.libdecor.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [ ./nix/libdecor-gtk-pointer-focus.patch ];
+      });
       # SDL 3.4.10 exits on BadWindow when a clipboard requestor destroys its
       # window before SDL answers (X_ChangeProperty); the patch absorbs only
       # that requestor's errors. Reproducer and regression test:
       # src/tests/native/gui/shell/probes/linux/ClipboardRequestor.c and
       # test_native_ui_sdl_clipboard_requestor.py.
-      sdl3Patched = pkgs: pkgs.sdl3.overrideAttrs (old: {
+      sdl3Patched = pkgs: (pkgs.sdl3.override { libdecor = libdecorPatched pkgs; }).overrideAttrs (old: {
         patches = (old.patches or [ ]) ++ [ ./nix/sdl3-x11-selection-requestor.patch ];
       });
       # Weston 15.0.1 aborts when an unmapped subsurface has no views to
@@ -85,7 +90,7 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
-            libdecor.dev   # libdecor-0.pc: the Wayland decoration probe (src/tests/native/gui/shell/probes/linux/LibdecorPending.c)
+            (libdecorPatched pkgs).dev   # libdecor-0.pc: the Wayland decoration probe (src/tests/native/gui/shell/probes/linux/LibdecorPending.c)
             (sdl3Patched pkgs).dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
             (curlHttpTransport pkgs).dev   # libcurl.pc: the Linux HTTP transport (OpenSSL 3, c-ares)
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
