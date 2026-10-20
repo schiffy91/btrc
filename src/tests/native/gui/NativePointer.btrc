@@ -2,6 +2,7 @@ import Library.GUI;
 import Library.GUI.IView;
 import Library.GUI.MacOS.MacOSWindow;
 import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSViewState;
 import Library.GUI.MacOS.AppKitEvents;
 import Library.Callback;
 import Library.App;
@@ -62,8 +63,10 @@ void sendPointer(MacOSWindow window, unsigned long type, double x, double y) {
 
 int main() {
 	GUI.initialize();
-	var native = MacOSWindow("Pointer routing", 360.0, 220.0);
 	var root = GUI.createContainer();
+	IMacOSView? rootNative = (IMacOSView?)root; assert(rootNative != null);
+	var context = rootNative.stateNode().context(); assert(context != null);
+	var native = MacOSWindow("Pointer routing", 360.0, 220.0, null, context);
 	native.attachRoot(root);
 	IView view = MacOSView(NativePointerEvents.view());
 	root.attach(view);
@@ -93,6 +96,7 @@ int main() {
 	NativePointerEvents.scroll(native.nativeWindow(), 245.0, 60.0);
 	assert(scroll.calls == 2);
 	root.detach(panel);
+	while (context.dispatchOne()) {}
 	assert(hover.exited == 1);
 	assert(panel.close() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
 	assert(hoverScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
@@ -125,18 +129,21 @@ int main() {
 	view.onPointer(receiver, next);
 	sendPointer(native, NSEventTypeLeftMouseDown, 50.0, 60.0);
 	root.detach(view);
+	while (context.dispatchOne()) {}
 	assert(receiver.cancelled == 3 && next.isOpen());
-	var other = MacOSWindow("Moved pointer view", 360.0, 220.0);
+	var other = MacOSWindow("Moved pointer view", 360.0, 220.0, null, context);
 	var otherRoot = GUI.createContainer();
 	other.attachRoot(otherRoot);
 	otherRoot.attach(view);
 	view.arrange(30.0, 40.0, 100.0, 80.0);
+	other.show();
 	sendPointer(other, NSEventTypeLeftMouseDown, 50.0, 60.0);
 	NativePointerEvents.loseFocus(native.nativeWindow());
 	assert(receiver.cancelled == 3);
 	NativePointerEvents.loseFocus(other.nativeWindow());
 	assert(receiver.cancelled == 4);
 	otherRoot.detach(view);
+	while (context.dispatchOne()) {}
 	root.attach(view);
 	view.arrange(30.0, 40.0, 100.0, 80.0);
 	assert(other.close() == CALLBACK_CANCELLATION_COMPLETE);
