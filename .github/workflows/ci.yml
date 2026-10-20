@@ -343,7 +343,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/bench-diagnostic
-          podman image inspect btrc-devcontainer:latest --format '{"id":{{json .Id}},"repoDigests":{{json .RepoDigests}}}' > build/bench-diagnostic/image.json
+          podman image inspect btrc-devcontainer:latest > build/bench-diagnostic/image.json
           chmod -R a+w .
           podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest python3 -m tools.bench.diagnostic --candidate "$CANDIDATE"
       - if: always()
