@@ -114,9 +114,12 @@ def _rule(**overrides) -> dict:
 def test_every_tracked_manifest_is_valid_and_named_for_a_known_runner():
     manifests = {path.stem: ExpectedSkipManifest.load(path) for path in sorted(MANIFEST_ROOT.glob("*.json"))}
 
-    assert {"macos", "macos-hosted", "linux-devcontainer", "windows"} <= set(manifests)
+    assert {"macos", "macos-hosted", "linux-hosted", "linux-devcontainer", "windows"} <= set(manifests)
     assert set(manifests) <= set(RUNNERS)
-    assert all(manifests[runner].enforce for runner in ("macos", "macos-hosted", "linux-devcontainer", "windows"))
+    assert all(
+        manifests[runner].enforce
+        for runner in ("macos", "macos-hosted", "linux-hosted", "linux-devcontainer", "windows")
+    )
     for manifest in manifests.values():
         for rule in manifest.rules:
             for pattern in rule.files:
@@ -314,16 +317,19 @@ HOSTED_SKIPS = {
 EXPECTED_BY_RUNNER = {
     "macos": dict(zip(("dap-session-developer-mode", "linux-freetype-macro-constants"), MACOS_SKIPS[:2], strict=True)),
     "macos-hosted": HOSTED_SKIPS,
+    "linux-hosted": {},
     "linux-devcontainer": LINUX_SKIPS,
     "windows": WINDOWS_SKIPS,
 }
 
 
-@pytest.mark.parametrize("runner", ["macos-hosted", "linux-devcontainer", "windows"])
+@pytest.mark.parametrize("runner", ["macos-hosted", "linux-hosted", "linux-devcontainer", "windows"])
 def test_the_ci_runner_manifests_explain_their_recorded_skips(runner):
     manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
 
     assert manifest.enforce
+    if runner == "linux-hosted":
+        assert manifest.rules == ()
     assert {rule_id: manifest.classify(*skip).id for rule_id, skip in EXPECTED_BY_RUNNER[runner].items()} == {
         rule_id: rule_id for rule_id in EXPECTED_BY_RUNNER[runner]
     }
@@ -337,7 +343,7 @@ def test_the_hosted_macos_manifest_expects_only_platform_and_hardware_skips():
     manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "macos-hosted.json")
     rules = {rule.id: rule for rule in manifest.rules}
 
-    assert HOSTED_RUNNERS == {"macos-hosted": "macos"}
+    assert HOSTED_RUNNERS == {"macos-hosted": "macos", "linux-hosted": "linux"}
     assert {rule.category for rule in manifest.rules} == set(HOSTED_CATEGORIES)
     hardware = {rule_id: rule for rule_id, rule in rules.items() if rule.category == "hardware"}
     assert set(hardware) == {"coreaudio-output-device", "gpu-compute-adapter"}
@@ -694,12 +700,12 @@ def test_injected():
 """
 
 
-def _run_inner(tmp_path: Path, *extra: str) -> tuple[subprocess.CompletedProcess, dict]:
+def _run_inner(tmp_path: Path, *extra: str, runner: str = "macos") -> tuple[subprocess.CompletedProcess, dict]:
     report = tmp_path / "out" / "skip-report.json"
     environment = {
         **os.environ,
         "PYTHONPATH": os.pathsep.join(filter(None, (str(REPO), os.environ.get("PYTHONPATH")))),
-        "BTRC_TEST_RUNNER": "macos",
+        "BTRC_TEST_RUNNER": runner,
         "BTRC_PRIVATE_PATH": "/Users/someone/private",
         "PYTHONDONTWRITEBYTECODE": "1",
     }
@@ -719,6 +725,35 @@ def _run_inner(tmp_path: Path, *extra: str) -> tuple[subprocess.CompletedProcess
     )
     assert report.is_file(), completed.stdout + completed.stderr
     return completed, json.loads(report.read_text())
+
+
+def test_hosted_linux_collector_and_gate_require_every_selected_case(tmp_path):
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / "conftest.py").write_text(_INNER_CONFTEST)
+    (suite / "test_cases.py").write_text("def test_round_trip():\n    pass\n")
+    report_path = tmp_path / "out" / "skip-report.json"
+
+    baseline, report = _run_inner(tmp_path, "-p", "no:xdist", runner="linux")
+    assert baseline.returncode == 0, baseline.stdout + baseline.stderr
+    assert report["classification_error"] == "no expected-skip manifest for runner 'linux'"
+    assert not SkipGate().check([report_path]).passed
+
+    completed, report = _run_inner(tmp_path, "-p", "no:xdist", runner="linux-hosted")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert report["runner"] == report["manifest"]["runner"] == "linux-hosted"
+    assert report["manifest"]["enforce"] is True
+    assert "classification_error" not in report
+    assert report["counts"]["passed"] == 1 and report["counts"]["skipped"] == 0
+    assert SkipGate().check([report_path]).passed
+
+    (suite / "test_injected.py").write_text(_INJECTED)
+    completed, report = _run_inner(tmp_path, "-p", "no:xdist", runner="linux-hosted")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert report["counts"]["passed"] == 1 and report["counts"]["skipped"] == 1
+    outcome = SkipGate().check([report_path])
+    assert not outcome.passed
+    assert any("an injected unexpected skip" in line for line in outcome.lines)
 
 
 @pytest.mark.parametrize("workers", [None, "2"])
@@ -800,6 +835,7 @@ def test_an_injected_unexpected_skip_fails_the_gate(tmp_path, monkeypatch):
     ("environ", "host", "containerized", "runner"),
     [
         ({"BTRC_TEST_RUNNER": "ios"}, "darwin", False, "ios"),
+        ({"BTRC_TEST_RUNNER": "linux-hosted"}, "linux", False, "linux-hosted"),
         ({}, "darwin", False, "macos"),
         ({}, "win32", False, "windows"),
         ({}, "linux", True, "linux-devcontainer"),

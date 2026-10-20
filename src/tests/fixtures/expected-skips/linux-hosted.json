@@ -1,0 +1,7 @@
+{
+  "schema": "btrc.expected-skips/1",
+  "runner": "linux-hosted",
+  "enforce": true,
+  "description": "Direct pytest sessions on GitHub's hosted Ubuntu runners, currently the provisioned Android JNI harness. This identifies the test host; native Android reports separately record the emulator and API. It does not claim podman execution or physical Linux desktop qualification. These sessions require every selected case to run, so no skips are admitted.",
+  "rules": []
+}

@@ -1360,6 +1360,23 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     assert 'echo "BTRC_ANDROID_JNI_REQUIRED=1"' in android
 
 
+def test_android_jni_reports_use_hosted_linux_and_gate_each_compiler() -> None:
+    job = _parsed("host-android.yml")["jobs"]["emulator"]
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["env"]["BTRC_TEST_RUNNER"] == "linux-hosted"
+    sessions = [
+        step["run"] for step in job["steps"] if "src/tests/python/test_native_jni_android.py" in step.get("run", "")
+    ]
+    assert len(sessions) == 2
+    for compiler in ("python", "btrc"):
+        session = next(run for run in sessions if f"--compilers {compiler}" in run)
+        report = f"build/skip-report-android-jni-{compiler}.json"
+        assert f"--skip-report={report}" in session
+        gate = f"python3 -m tools.qualification skip-gate {report}"
+        assert session.splitlines()[-1] == gate
+        assert session.index(f"--skip-report={report}") < session.index(gate)
+
+
 def test_the_ios_corpus_runs_in_the_simulator_job_through_both_compilers() -> None:
     """CX-P1-08: the whole corpus on the hosted iOS simulator, on the fixtures' one macOS runner."""
 

@@ -10,7 +10,9 @@ does not explain.
 Runners
 -------
 ``macos`` (the acceptance Mac), ``macos-hosted`` (GitHub's hosted macOS
-runners, which ``macos.yml`` names), ``linux-devcontainer`` (the CI and
+runners, which ``macos.yml`` names), ``linux-hosted`` (direct hosted Ubuntu
+test sessions, including the provisioned Android JNI harness),
+``linux-devcontainer`` (the CI and
 ``make linux-ci`` container), ``linux`` (a physical Linux desktop outside any
 container, PLAN D7's acceptance host; it has no manifest until that host
 runs), ``windows``, and later the ``ios`` and
@@ -71,7 +73,7 @@ REPO = Path(__file__).resolve().parents[2]
 MANIFEST_SCHEMA = "btrc.expected-skips/1"
 SKIP_REPORT_SCHEMA = "btrc.skip-report/1"
 MANIFEST_ROOT = REPO / "src" / "tests" / "fixtures" / "expected-skips"
-RUNNERS = ("macos", "macos-hosted", "linux-devcontainer", "linux", "windows", "ios", "android")
+RUNNERS = ("macos", "macos-hosted", "linux-hosted", "linux-devcontainer", "linux", "windows", "ios", "android")
 CATEGORIES = (
     "platform",
     "missing-tool",
@@ -87,7 +89,7 @@ CATEGORIES = (
 # a target capability in src/tests/runner_capabilities.py.
 HARDWARE_CAPABILITIES = ("coreaudio-device", "gpu-adapter", "physical-display", "physical-device")
 # Each hosted runner, and the acceptance host that runs its hardware tier.
-HOSTED_RUNNERS = {"macos-hosted": "macos"}
+HOSTED_RUNNERS = {"macos-hosted": "macos", "linux-hosted": "linux"}
 HOSTED_CATEGORIES = ("platform", "hardware")
 _RULE_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _ENVIRONMENT_NAME = re.compile(r"\b[A-Z][A-Z0-9]*_[A-Z0-9_]*[A-Z0-9]\b|\b(?:DISPLAY|CC|CXX|SDKROOT)\b")

@@ -58,6 +58,7 @@ RUNNER_PLATFORMS = {
     "macos": Platform.MACOS,
     "macos-hosted": Platform.MACOS,
     "linux": Platform.LINUX,
+    "linux-hosted": Platform.LINUX,
     "linux-devcontainer": Platform.LINUX,
     "windows": Platform.WINDOWS,
     "ios": Platform.IOS,
