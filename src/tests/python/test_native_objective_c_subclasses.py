@@ -872,3 +872,120 @@ def test_subclass_alias_cannot_replace_factory_create(subclass_project, native_c
     compiled = native_compile(source)
     assert not compiled.successful
     assert "ambiguous delegate method projection: create" in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.fixture
+def slider_accessibility_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "AppKitBinding.h").write_text("""#import <AppKit/AppKit.h>
+@interface SliderProbe : NSObject
++ (NSRect)frame;
++ (void)exercise:(NSSlider * _Nonnull)slider;
+@end
+""")
+    (root / "Probe.m").write_text("""#import "AppKitBinding.h"
+#include <assert.h>
+@implementation SliderProbe
++ (NSRect)frame {
+    [[NSApplication sharedApplication] setActivationPolicy:NSApplicationActivationPolicyProhibited];
+    return NSMakeRect(0, 0, 64, 24);
+}
++ (void)exercise:(NSSlider *)slider {
+    assert([slider accessibilityPerformIncrement]);
+    assert(![slider accessibilityPerformDecrement]);
+    assert(![slider accessibilityPerformIncrement]);
+    assert([slider accessibilityPerformDecrement]);
+}
+@end
+""")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "sliderAccessibility"
+[[native.bindings]]
+module = "AppKit"
+header = "AppKitBinding.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[SliderProbe frame]", "+[SliderProbe exercise:]", "-[NSSlider initWithFrame:]", "-[NSSlider accessibilityPerformIncrement]", "-[NSSlider accessibilityPerformDecrement]"]
+[native.bindings.callbacks."-[NSSlider initWithFrame:].self"]
+interface = "ISliderAccessibility"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+superclass = "NSSlider"
+overrides = ["-[NSSlider accessibilityPerformIncrement]", "-[NSSlider accessibilityPerformDecrement]"]
+[[native.sources]]
+path = "Probe.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+[[native.frameworks]]
+name = "AppKit"
+os = ["macos"]
+""")
+    (source.parent / "AppKit.btrc").write_text("")
+    source.write_text("""import Library.Callback;
+import ./AppKit.btrc;
+#include <assert.h>
+int increments = 0;
+int decrements = 0;
+int destroyed = 0;
+class SliderAccessibility implements ISliderAccessibility {
+	public bool accessibilityPerformIncrement() {
+		increments++;
+		return increments == 1;
+	}
+	public bool accessibilityPerformDecrement() {
+		decrements++;
+		return decrements == 2;
+	}
+	public void __del__() { destroyed++; }
+}
+class Sliders implements ISliderAccessibilityFactory {
+	public ISliderAccessibility create() { return SliderAccessibility(); }
+}
+void scenario() {
+	CGRect frame = SliderProbe.frame();
+	NSSlider slider = NSSlider.initWithFrame(Sliders(), frame);
+	SliderProbe.exercise(slider);
+	assert(increments == 2 && decrements == 2);
+}
+int main() {
+	scenario();
+	assert(destroyed == 1);
+	return 0;
+}
+""")
+    return source
+
+
+@pytest.mark.macos_gui
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_sdk_slider_overrides_adopted_protocol_methods(slider_accessibility_project, native_compile, sanitize):
+    # NSSlider adopts NSAccessibilitySlider; both declarations remain owned by
+    # that SDK protocol when Clang resolves them through the selected class.
+    completed = _build_and_run(slider_accessibility_project, native_compile, sanitize)
+    assert completed.returncode == 0, (completed.returncode, completed.stdout, completed.stderr)
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.parametrize("symbol", ["-[NSAccessibilitySlider accessibilityPerformIncrement]", "-[NSView layout]"])
+def test_sdk_slider_overrides_require_the_selected_class(slider_accessibility_project, native_compile, symbol):
+    source = slider_accessibility_project
+    manifest = source.parent.parent / "btrc.toml"
+    contents = manifest.read_text().replace("-[NSSlider accessibilityPerformIncrement]", symbol)
+    manifest.write_text(
+        contents.replace(
+            f'overrides = ["{symbol}", "-[NSSlider accessibilityPerformDecrement]"]', f'overrides = ["{symbol}"]'
+        )
+    )
+    source.write_text("import Library.Callback;\nimport ./AppKit.btrc;\nint main() { return 0; }\n")
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert f"overrides require a method of the superclass NSSlider: {symbol}" in str(compiled.failure) + str(
+        compiled.diagnostics
+    )
