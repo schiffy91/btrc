@@ -1,0 +1,1 @@
+{"manifest-hash":"4b6b249e0769b53d150672bd483f147cec3cd3db22b0aaf6c252f0ab9efdc64c","packages":[{"dependencies":{},"manifest-hash":"2edcb69284ba68193e32e367f1f19b818f4748deb80eb9a69e6e455834c2e9ee","name":"windowsHttpCases","source":{"path":"."}}],"root":"windowsHttpCases","schema":3}
