@@ -123,7 +123,17 @@ qualification still pending.
   fixture's missing direct imports. Those defects are repaired in `0320e738`
   and covered by the 100 passing local checks above. Rerun the full hosted unit
   selection to expose any later failures. Do not count synthetic nested-test
-  artifacts as the parent unit suite.
+  artifacts as the parent unit suite. The next diagnostic,
+  [39459104276](https://github.com/schiffy91/btrc/actions/runs/39459104276),
+  stopped at the Game example's warning-free assertion: 4,235 passed,
+  2,929 skipped and one failed before fail-fast. The same 39 nullable-access
+  warnings also fail NativeShell transpilation. Repair `6a2f1925` adds guarded
+  local snapshots in the seven GUI owners. All 24 paired portable queue,
+  capture, slider and publisher cases passed, including sanitizer variants,
+  with no skips. The compiler's regenerated C is byte-identical to the pinned
+  compiler used for those checks.
+  This partial diagnostic is not a completed unit suite. The e2e5f432 unit job
+  was canceled, so complete unit qualification remains open.
 - **G02: finish Linux GUI execution and prove complete coverage.** The same
   run's X11 job `118624440733` and Wayland job `118624440379` hit 90 minutes
   at about 66% and 58%. The merged partition implementation retains the original
@@ -131,6 +141,25 @@ qualification still pending.
   Prove that
   the four cells per session are disjoint, complete and actually executed.
   X11 remains required; Wayland retains its existing report-only classification.
+  All eight partitions on `e2e5f432` completed with failures. Canonical reports
+  account for all 876 X11 and 874 Wayland nodes without missing or duplicate
+  entries; setup errors and skips remain distinct from executed passes. Retained JUnit
+  identifies hidden-window input setup, the shared nullable warnings, duplicated
+  sanitized fixture builds exceeding the unchanged 120-second compile limit,
+  unequal shell-probe headers, and 1,800-second waits for the GUI execution lock.
+  Validate these repairs with the original case, sanitizer and lock budgets.
+  Repairs `d3a6f765`/`04ac5a15` group each expensive fixture/frontend/sanitizer
+  combination on one of four workers and preserve canonical IDs when xdist
+  decorates its scheduling IDs. The new real-xdist regression exposed the
+  mutable Item-hash lookup defect on its first run; 226 other portable checks
+  passed. Repairs `457afcda` and `41d1c4c7` establish one visible window before
+  input, require attached controls to be eligible, and retain Mac caret
+  declarations only in their dedicated platform header. Repair `e088340e`
+  gives GUI lease waiters FIFO tickets with kernel-backed crash cleanup.
+  Each last-recorded holder in the four timeout reports eventually passed
+  within the wait limit; the evidence supports cumulative unfair waiting.
+  The new portable gate passed 327 scheduling, coordination, evidence and
+  contract tests with no skips. Hosted execution remains outstanding.
 - **G03: repair macOS tracking and presentation.** All four E40
   frontend/sanitizer cells in
   [run 39421612565](https://github.com/schiffy91/btrc/actions/runs/39421612565)
@@ -150,6 +179,22 @@ qualification still pending.
   E40 Boundary and E40 Load builds compiled and linked; none executed locally.
   Prove tracking, presentation, lifetime and the original timing budgets in
   hosted native runs. The full E40 and lifecycle matrix remains open.
+  Focused [39460816421](https://github.com/schiffy91/btrc/actions/runs/39460816421)
+  confirms the old busy loop is gone: both routes now wait and return native
+  events after the trigger is posted. Tracking still does not enter or complete.
+  That fixture used timestamps between 2^45 and 2^46 seconds as event IDs
+  without verifying their native readback; the API requires elapsed uptime.
+  Existing traces cannot distinguish identity normalization, mask exclusion or
+  event discard. Further production scheduling changes require bounded
+  post/readback/dequeue evidence that separates these possibilities.
+  All four e2e5f432 E40 cells still fail. Fixture repair `565309c4` uses actual
+  uptime, application-defined payload fields and mouse event numbers; a
+  compact full-trial keyboard ledger preserves late-duplicate detection.
+  Diagnostics serialize bounded identity rows from main and producer threads.
+  All eight reference/selfhost × plain/sanitized Boundary and Load compile/link
+  checks passed. None launched a native GUI executable. The original receipts,
+  assertions and deadlines remain unchanged. Native execution must still prove
+  that AppKit preserves these identities.
 - **G04: finish Windows observer repair and strict resource qualification.**
   Reference UBSan in
   [run 39421612635](https://github.com/schiffy91/btrc/actions/runs/39421612635)
@@ -168,7 +213,13 @@ qualification still pending.
   The hidden ANSI observer held USER 3 and GDI 0 before and after observation,
   then destroyed its window and unregistered its class. These successful runs
   do not attribute the earlier intermittent late increase. ARM64 execution
-  and final-revision qualification remain open. Keep the original assertions.
+  subsequently passed too: all eight c9db9e1e variants completed 102 cycles and
+  100 restores with the original resource and cleanup assertions. The complete
+  Windows workflow on `e2e5f432`,
+  [39464780407](https://github.com/schiffy91/btrc/actions/runs/39464780407),
+  also completed successfully. Retain exact results and validate any subsequent
+  changes to shared GUI ownership code; do not attribute the earlier intermittent
+  increase solely from a passing run.
 - **G05: resolve Android API 36 transport loss.** In
   [run 39421612552](https://github.com/schiffy91/btrc/actions/runs/39421612552),
   API 36 went offline during the ninth of 28 host fixture cases; ADB exited 255.
@@ -207,9 +258,13 @@ qualification still pending.
   C before and after the repair with the same current data root and strict imports.
   The first build exposed five nullable-access warnings; direct local guards
   repaired those warnings before the successful fresh build. Actual memory
-  savings remain unmeasured. Run the unchanged hosted guard on this repair.
+  savings remain unmeasured. Keep the unchanged hosted guard for later repairs.
   Do not rebaseline, subtract a reporter floor or relax limits. No local compiler
-  performance measurements are authorized.
+  performance measurements are authorized. The unchanged ordinary strict
+  benchmark passed all 235 metrics on `e2e5f432` in
+  [39464780404](https://github.com/schiffy91/btrc/actions/runs/39464780404).
+  BenchArc peaked at 15,237,120 bytes. This is acceptance evidence for that
+  revision, not a controlled estimate of memory saved by the allocation change.
 - **G07: qualify the final combined revision.** Run and reconcile `make test`,
   `make bootstrap`, all eight `make test-c11` configurations, lint, formatting,
   generated-source, extension and repository-hygiene gates, plus the affected
@@ -232,7 +287,22 @@ qualification still pending.
   four missing-provider and 11 restricted cases. These results precede the
   compiler allocation repair; retain renewed compiler provenance and final
   qualification. Preserve missing provider/device evidence as open coverage
-  in the existing roadmap.
+  in the existing roadmap. On `e2e5f432`, Linux CI completed both compiler
+  corpora (1,025 passes each), all eight C11 configurations (2,050 passes each),
+  bootstrap, the selfhost tests, all eight E40 cells, release and the strict
+  benchmark successfully. GUI partitions failed
+  and unit was canceled; the workflow therefore does not establish a full pass.
+  Windows, ARM64 Toolchain, Host Android, Host Windows and Host iOS workflows
+  all completed successfully on that revision. These receipts precede the
+  current GUI repairs. macOS unit and native/E40 qualification remain separate.
+  The automatic main unit selection already contains the native GUI/lifecycle
+  suites with the same provider environment, worker count and case budgets as
+  the focused GUI job; a second dispatch would duplicate that selection.
+  Before claiming coverage, reconcile its terminal per-node skip report.
+  The Android/iOS/Windows host workflows and their executor, JNI, corpus,
+  compiler and toolchain inputs are unchanged by the GUI repair batch.
+  Their successful e2e5f432 receipts retain that revision and do not claim
+  native executions on a later revision.
 - **G08: implement the separately scoped Windows service design.** PR #52
   lands its specification only. The existing service-supervision/containment
   roadmap items still need implementation and native acceptance; merging that
