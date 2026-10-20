@@ -560,6 +560,7 @@ class NativeCallbackProjection:
     main_executor: bool = False
     super_after: str = ""
     super_refused_result: bool = False
+    super_before_arguments: bool = True
 
     def is_context(self, index):
         return index == self.callback_context_index or index in self.callback_context_indices
@@ -7012,7 +7013,10 @@ class NativeDeclarationImporter:
         """Checked before/after hooks for one scoped native superclass extent."""
         if class_methods:
             raise NativeImportError("super-admission requires instance overrides")
-        hooks = {symbol: (before, after, refused) for symbol, before, after, refused in binding.super_admission}
+        hooks = {
+            symbol: (before, after, refused, arguments)
+            for symbol, before, after, refused, arguments in binding.super_admission
+        }
         signatures, projections, identities = [], [], []
         for method in methods:
             if method.selector == "btrcUnregister" or method.selector.startswith("btrcConfigure:"):
@@ -7029,7 +7033,8 @@ class NativeDeclarationImporter:
                 result = replace(result, base="bool")
             if method.requires_super or result.base not in {"void", "bool"} or result.pointer_depth:
                 raise NativeImportError(f"super-admission requires void or BOOL without requires-super: {method.name}")
-            before, after, refused = hooks[method.name]
+            before, after, refused, arguments = hooks[method.name]
+            before_arguments = arguments == "all"
             if refused is not None and not sdk_bool:
                 raise NativeImportError(f"super-admission refused-result requires BOOL: {method.name}")
             refused_result = refused is True
@@ -7047,7 +7052,9 @@ class NativeDeclarationImporter:
                         name=before,
                         return_type=ast.TypeExpr(base="bool"),
                         params=[
-                            ast.Param(type=value, name=f"argument{index}") for index, value in enumerate(parameters)
+                            ast.Param(type=value, name=f"argument{index}")
+                            for index, value in enumerate(parameters)
+                            if before_arguments
                         ],
                     ),
                     ast.MethodSig(
@@ -7074,9 +7081,12 @@ class NativeDeclarationImporter:
                     native_method=method,
                     super_after=after,
                     super_refused_result=refused_result,
+                    super_before_arguments=before_arguments,
                 )
             )
-            identities.append((method.name, before, after, refused_result, self._type_identity(method.signature)))
+            identities.append(
+                (method.name, before, after, refused_result, before_arguments, self._type_identity(method.signature))
+            )
         self._add(
             binding.interface,
             ast.InterfaceDecl(name=binding.interface, methods=signatures),

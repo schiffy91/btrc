@@ -63,6 +63,7 @@ from src.compiler.python.ir.nodes import (
 )
 from src.compiler.python.syntax.ast.generated import (
     Block,
+    ClassDecl,
     FunctionDecl,
     LambdaBlock,
     LambdaExpr,
@@ -1586,7 +1587,33 @@ class FunctionLowerer:
         return thunk, IRAddressOf(expr=IRVar(name=context_name))
 
     def _native_callback_types(self, callback):
-        parameters = iter(self._analyzed.interface_table[callback.interface].methods[callback.method_name].params)
+        if not callback.super_before_arguments:
+            # Scoped overrides remain ordinary callable native methods. Their
+            # analyzed signatures preserve object references and record values
+            # even when the managed hook has no payload parameters.
+            method = None
+            for declaration in self._analyzed.program.declarations:
+                if (
+                    not isinstance(declaration, ClassDecl)
+                    or not isinstance(declaration.source_file, NativeHeaderSource)
+                    or declaration.source_file.language != "objective-c"
+                ):
+                    continue
+                for candidate in declaration.members:
+                    contract = declaration.source_file.methods.get(candidate.name)
+                    if contract is None:
+                        continue
+                    native = contract.objective_c_method
+                    if native is not None and native.name == callback.native_method.name:
+                        method = candidate
+                        break
+                if method is not None:
+                    break
+            if method is None or len(method.params) != len(callback.native_parameters):
+                raise CodegenError("Missing analyzed native signature for payload-free admission")
+        else:
+            method = self._analyzed.interface_table[callback.interface].methods[callback.method_name]
+        parameters = iter(method.params)
         return tuple(
             value if callback.is_context(index) else next(parameters).type
             for index, value in enumerate(callback.parameters)
@@ -7013,6 +7040,8 @@ class FunctionLowerer:
             cleanup = self._native_cleanup_scope(parameters, invocation_body)
             arguments, releases = [], []
             for position, value in enumerate(values):
+                if not projection.super_before_arguments:
+                    continue
                 argument = IRVar(f"argument{position}")
                 info = self._analyzed.class_table.get(value.base)
                 if info is not None and info.native_language:

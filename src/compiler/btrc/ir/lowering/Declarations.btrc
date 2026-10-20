@@ -427,7 +427,25 @@ class DeclarationLowerer {
 
 	private Vector<Node> nativeCallbackTypes(FeNativeCallbackProjection callback) {
 		Vector<Node> parameters = [];
-		for method in self.analyzed.interfaceTable.get(callback.interfaceName).methods() { if (method.name == callback.methodName) { parameters = method.params(); break; } }
+		if (!callback.superBeforeArguments) {
+			/* Scoped overrides also have an analyzed native method signature:
+			 * object references and SDK record values retain their own shapes. */
+			var native = callback.nativeMethod;
+			if (native == null) { throw "Missing native method for payload-free admission"; }
+			bool found = false;
+			for imported in self.analyzed.nativeDeclarations {
+				if (imported.declaration.kind != NK_CLASS_DECL || imported.language != "objective-c") { continue; }
+				for method in imported.declaration.members() {
+					if (!imported.methods.has(method.name)) { continue; }
+					var selected = imported.methods.get(method.name).objectiveCMethod;
+					if (selected != null && selected.name == native.name) { parameters = method.params(); found = true; break; }
+				}
+				if (found) { break; }
+			}
+			if (!found || parameters.len != callback.nativeParameters.len) { throw "Missing analyzed native signature for payload-free admission"; }
+		} else {
+			for method in self.analyzed.interfaceTable.get(callback.interfaceName).methods() { if (method.name == callback.methodName) { parameters = method.params(); break; } }
+		}
 		Vector<Node> types = [];
 		int position = 0;
 		for index in range(callback.parameters.len) {
@@ -3172,7 +3190,7 @@ class DeclarationLowerer {
 			if (!classFactory) { statements.push(self.objectiveCNullGuard(IRNode.variable("self"), "Objective-C call " + descriptor.name + ": null argument self")); }
 			for index in range(method.params().len) {
 				Node parameter = method.params().get(index);
-				if (callbacks.has(index) || (parameter.type.pointerDepth > 0 && !parameter.type.isNullable)) { statements.push(self.objectiveCNullGuard(IRNode.variable(parameter.name), "Objective-C call " + descriptor.name + ": null argument " + parameter.name)); }
+				if (callbacks.has(index) || ((parameter.type.pointerDepth > 0 || self.managedValues.isNative(parameter.type)) && !parameter.type.isNullable)) { statements.push(self.objectiveCNullGuard(IRNode.variable(parameter.name), "Objective-C call " + descriptor.name + ": null argument " + parameter.name)); }
 			}
 			Vector<Node> argumentTypes = [];
 			if (!classFactory) {
@@ -4400,6 +4418,7 @@ class DeclarationLowerer {
 			Vector<IRNode> arguments = [receiver];
 			Vector<Vector<IRNode>> releases = [];
 			for position in range(values.len - 1) {
+				if (!projection.superBeforeArguments) { continue; }
 				Node value = values.get(position);
 				IRNode argument = IRNode.variable(f"argument{position}");
 				if (self.managedValues.isNative(value)) {
@@ -4880,7 +4899,7 @@ class DeclarationLowerer {
 		int factoryPosition = callback.parameterIndex + (subclass ? 0 : 1);
 		for index in range(wrapper.params.len) {
 			Node valueType = argumentTypes.get(index);
-			if (!subclass || index == factoryPosition || (valueType.pointerDepth > 0 && !valueType.isNullable)) { statements.push(self.objectiveCNullGuard(IRNode.variable(wrapper.params.get(index).name), "Objective-C call " + descriptor.name + ": null argument " + wrapper.params.get(index).name)); }
+			if (!subclass || index == factoryPosition || ((valueType.pointerDepth > 0 || self.managedValues.isNative(valueType)) && !valueType.isNullable)) { statements.push(self.objectiveCNullGuard(IRNode.variable(wrapper.params.get(index).name), "Objective-C call " + descriptor.name + ": null argument " + wrapper.params.get(index).name)); }
 		}
 		Map<string, bool> parameterNames = {};
 		for parameter in wrapper.params { parameterNames.put(parameter.name, true); }
