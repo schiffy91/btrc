@@ -492,7 +492,11 @@ public final class JniEntry {
         int status = (Integer) result;
         System.out.print("java-entry-status=");
         System.out.println(status);
-        System.exit(status);
+        // Returning lets app_process destroy its VM and stop ART's JIT workers
+        // before native static teardown. System.exit bypasses that host cleanup.
+        if (status != 0) {
+            System.exit(status);
+        }
     }
 }
 """
