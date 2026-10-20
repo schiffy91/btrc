@@ -490,3 +490,119 @@ def test_presentation_attempt_evidence_rejects_lost_or_false_completion(load, de
         row["acquired"] -= 1
     with pytest.raises(AssertionError):
         E40Evidence(load, True).load()
+
+
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_loop_diagnostic_preserves_process_outcome_and_bounds_samples(tmp_path, monkeypatch, exit_code):
+    import json
+    import os
+    import sys
+
+    from src.tests.python.test_native_ui2_macos_e40 import E40LoopDiagnostic
+
+    diagnostic = E40LoopDiagnostic(tmp_path)
+    monkeypatch.setattr(diagnostic, "SAMPLE_TIMES", (0.01, 0.03))
+    observed = []
+    released = tmp_path / "sampled-twice"
+
+    def sample(process, scheduled):
+        assert process.poll() is None
+        observed.append(process.pid)
+        if len(observed) == 2:
+            released.touch()
+        return {"scheduled_seconds": scheduled, "pid": process.pid, "status": "test-observation"}
+
+    monkeypatch.setattr(diagnostic, "_sample", sample)
+    command = [
+        sys.executable,
+        "-c",
+        f"import time\nfrom pathlib import Path\nprint('native output', flush=True)\n"
+        f"while not Path({str(released)!r}).exists(): time.sleep(0.005)\nraise SystemExit({exit_code})",
+    ]
+    result = diagnostic.run(command, env=os.environ.copy(), timeout=5)
+    assert result.returncode == exit_code and result.stdout == "native output\n" and result.stderr == ""
+    receipt = json.loads((tmp_path / "loop-diagnostic.json").read_text())
+    assert observed == [receipt["pid"], receipt["pid"]]
+    assert receipt["native_returncode"] == exit_code and receipt["native_timeout_seconds"] == 5
+    assert receipt["observer_error"] is None and len(receipt["samples"]) == 2
+
+
+def test_loop_diagnostic_timeout_reaps_child_and_retains_observer_failure(tmp_path, monkeypatch):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    from src.tests.python import test_native_ui2_macos_e40 as driver
+
+    processes = []
+    original = subprocess.Popen
+
+    def spawn(*args, **kwargs):
+        process = original(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(driver.subprocess, "Popen", spawn)
+    diagnostic = driver.E40LoopDiagnostic(tmp_path)
+    monkeypatch.setattr(diagnostic, "SAMPLE_TIMES", (0.0,))
+
+    def failed_sample(process, scheduled):
+        raise RuntimeError("sample observer failed")
+
+    monkeypatch.setattr(diagnostic, "_sample", failed_sample)
+    with pytest.raises(subprocess.TimeoutExpired):
+        diagnostic.run([sys.executable, "-c", "import time; time.sleep(30)"], env=os.environ.copy(), timeout=0.1)
+    assert len(processes) == 1 and processes[0].poll() is not None
+    receipt = json.loads((tmp_path / "loop-diagnostic.json").read_text())
+    assert "sample observer failed" in receipt["observer_error"]
+    assert receipt["native_timeout_seconds"] == 0.1 and receipt["samples"] == []
+
+
+def test_loop_diagnostic_records_sample_tool_failure_without_inventing_stack(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from src.tests.python import test_native_ui2_macos_e40 as driver
+
+    def unavailable(*args, **kwargs):
+        assert args[0] == ["/usr/bin/sample", "123", "1", "1", "-file", str(tmp_path / "sample-3s.txt")]
+        assert kwargs["timeout"] == 4
+        raise OSError("sample unavailable")
+
+    monkeypatch.setattr(driver.subprocess, "run", unavailable)
+    row = driver.E40LoopDiagnostic(tmp_path)._sample(SimpleNamespace(pid=123), 3.0)
+    assert row["status"] == "failed" and "sample unavailable" in row["error"]
+    assert not (tmp_path / "sample-3s.txt").exists()
+
+
+def test_loop_diagnostic_thread_start_failure_reaps_child_and_preserves_error(tmp_path, monkeypatch):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    from src.tests.python import test_native_ui2_macos_e40 as driver
+
+    processes = []
+    original = subprocess.Popen
+    failure = RuntimeError("thread start failed")
+
+    def spawn(*args, **kwargs):
+        process = original(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    def fail_start(self):
+        assert processes and processes[0].poll() is None
+        raise failure
+
+    monkeypatch.setattr(driver.subprocess, "Popen", spawn)
+    monkeypatch.setattr(driver.threading.Thread, "start", fail_start)
+    diagnostic = driver.E40LoopDiagnostic(tmp_path)
+    with pytest.raises(RuntimeError) as caught:
+        diagnostic.run([sys.executable, "-c", "import time; time.sleep(30)"], env=os.environ.copy(), timeout=0.1)
+    assert caught.value is failure
+    assert len(processes) == 1 and processes[0].poll() is not None
+    receipt = json.loads((tmp_path / "loop-diagnostic.json").read_text())
+    assert receipt["native_returncode"] == processes[0].returncode
+    assert receipt["samples"] == []

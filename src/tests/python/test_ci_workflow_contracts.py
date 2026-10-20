@@ -569,6 +569,10 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
             # reports; only host-android.yml's corpus lane is tiered.
             assert not any(entry.reference == f"{workflow}/{name}" for entry in TIERS.jobs), (workflow, name)
             continue
+        if (workflow, name) == ("macos.yml", "macos-e40-diagnostic"):
+            assert job["if"] == "github.event_name == 'workflow_dispatch' && inputs.focus == 'e40-diagnostic'"
+            assert not any(entry.reference == f"{workflow}/{name}" for entry in TIERS.jobs)
+            continue
         # The tier manifest names the same reports, so the bundle expects them.
         tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{name}")
         assert "skip-report" in tiered.reports, (workflow, name)
@@ -611,13 +615,21 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         actual_scope = dict(document["jobs"]["scope"])
         if workflow == "ci.yml":
             actual_scope.pop("if")
+        if workflow == "macos.yml":
+            assert (
+                actual_scope.pop("if") == "github.event_name != 'workflow_dispatch' || inputs.focus != 'e40-diagnostic'"
+            )
         assert actual_scope == scope, workflow
         assert document["env"]["CI_WORKFLOW"] == workflow, workflow
         assert _job_names(document)[0] == "scope", workflow
         listed = {entry.job for entry in TIERS.jobs if entry.workflow == workflow}
         jobs = document["jobs"]
-        exceptions = {"bench-diagnostic"} if workflow == "ci.yml" else set()
-        assert set(jobs) - {"scope", "skip-reports"} - exceptions == listed, workflow
+        untiered = {"scope", "skip-reports"}
+        if workflow == "ci.yml":
+            untiered.add("bench-diagnostic")
+        if workflow == "macos.yml":
+            untiered.add("macos-e40-diagnostic")
+        assert set(jobs) - untiered == listed, workflow
         for name in listed:
             job = jobs[name]
             assert job["if"] == f"contains({PLAN}.jobs, '{name}')", (workflow, name)
@@ -1296,7 +1308,8 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                     "description": "Which jobs to run",
                     "type": "choice",
                     "options": ["full", "native-gui", "extended"]
-                    + (["bench-diagnostic"] if workflow == "ci.yml" else []),
+                    + (["bench-diagnostic"] if workflow == "ci.yml" else [])
+                    + (["e40-diagnostic"] if workflow == "macos.yml" else []),
                     "default": "full",
                 }
             }
@@ -1996,8 +2009,14 @@ def test_e40_hosted_admission_is_confined_to_its_dedicated_workflow_step() -> No
         for step in job.get("steps", []):
             if "BTRC_UI2_HOSTED_E40" in step.get("env", {}):
                 admitted.append((name, step))
-    assert len(admitted) == 1 and admitted[0][0] == "macos-e40"
-    assert "test-e40-macos" in admitted[0][1]["run"]
+    assert len(admitted) == 2 and {name for name, _ in admitted} == {"macos-e40", "macos-e40-diagnostic"}
+    steps = dict(admitted)
+    assert "test-e40-macos" in steps["macos-e40"]["run"]
+    assert steps["macos-e40"]["env"] == {"CI": "true", "BTRC_UI2_HOSTED_E40": "1"}
+    assert document["jobs"]["macos-e40-diagnostic"]["if"] == (
+        "github.event_name == 'workflow_dispatch' && inputs.focus == 'e40-diagnostic'"
+    )
+    assert steps["macos-e40-diagnostic"]["name"] == "Observe exactly two existing native tracking cases"
     recipe = _makefile_recipe((REPO / "Makefile").read_text(), "test-e40-macos")
     assert "BTRC_UI2_HOSTED_E40" not in recipe and "CI=true" not in recipe
     assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in recipe
@@ -2024,3 +2043,49 @@ def test_bench_diagnostic_is_manual_only_and_preserves_the_ordinary_guard() -> N
     assert upload["with"]["if-no-files-found"] == "error"
     assert document["jobs"]["bench"]["if"] == f"contains({PLAN}.jobs, 'bench')"
     assert 'BENCH_ARGS="--repeat 3 --strict --timings report"' in _job(_workflow("ci.yml"), "bench")
+
+
+def test_mac_loop_diagnostic_is_opt_in_and_preserves_exact_native_trials() -> None:
+    document = _parsed("macos.yml")
+    job = document["jobs"]["macos-e40-diagnostic"]
+    assert job["if"] == "github.event_name == 'workflow_dispatch' && inputs.focus == 'e40-diagnostic'"
+    assert "needs" not in job and "strategy" not in job
+    assert job["runs-on"] == "macos-15"
+    assert job["timeout-minutes"] == "30"
+    run = next(
+        step for step in job["steps"] if step.get("name") == "Observe exactly two existing native tracking cases"
+    )
+    assert run["env"] == {
+        "CI": "true",
+        "BTRC_UI2_HOSTED_E40": "1",
+        "BTRC_UI2_E40_TRACE": "1",
+        "BTRC_UI2_E40_ARTIFACTS": "build/e40-diagnostic/native",
+        "BTRC_TEST_TRANSPILE_TIMEOUT": "600",
+    }
+    script = run["run"]
+    nodes = re.findall(r"'([^'\n]+::test_macos_ui2_e40\[[^'\n]+\])'", script)
+    assert nodes == [
+        "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-desktop-slider]",
+        "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-host-slider]",
+    ]
+    assert "test-e40-macos" not in script and "tools.ui.e40" not in script
+    assert "generated-check gpu-required btrcc" in script
+    assert 'export BTRC_TEST_BTRCC="$PWD/bin/btrcc"' in script
+    assert '"binary_sha256": hashlib.sha256(compiler.read_bytes()).hexdigest()' in script
+    assert "--collect-only -q -n 0 -m e40_qualification" in script
+    assert "pytest -vv -rs -n 0 -m e40_qualification" in script
+    assert "assert actual == expected" in script
+    assert 'assert [case.attrib["name"] for case in cases] == expected' in script
+    assert 'assert not any(case.find("skipped") is not None for case in cases)' in script
+    assert '"full_e40_qualification": False' in script
+    assert 'exit "$native_status"' in script
+    assert "skip-gate build/skip-report-e40-diagnostic.json" in script
+    reader = next(
+        step for step in document["jobs"]["macos-e40"]["steps"] if step.get("name") == "Build the native header reader"
+    )
+    assert reader in job["steps"]
+    upload = next(
+        step for step in job["steps"] if step.get("name") == "Retain diagnostic observations and generated symbols"
+    )
+    assert upload["if"] == "always()"
+    assert "build/e40-diagnostic/native/" in upload["with"]["path"]

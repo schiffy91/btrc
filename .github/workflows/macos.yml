@@ -13,7 +13,7 @@ on:
       focus:
         description: Which jobs to run
         type: choice
-        options: [full, native-gui, extended]
+        options: [full, native-gui, extended, e40-diagnostic]
         default: full
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
@@ -69,6 +69,7 @@ jobs:
   # so "Re-run all jobs" sees a label added after the push ("Re-run failed
   # jobs" keeps this job's earlier result).
   scope:
+    if: github.event_name != 'workflow_dispatch' || inputs.focus != 'e40-diagnostic'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -534,6 +535,130 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: skip-report-macos-macos-e40-${{ matrix.cell }}
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # An explicit diagnostic dispatch observes two existing ten-second trials.
+  # It cannot qualify the 48-case matrix or replace its required jobs.
+  macos-e40-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.focus == 'e40-diagnostic'
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+
+      # As in the tests shards: without its reader the dev shell would quietly
+      # skip every native import case.
+      - name: Build the native header reader
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          reader="$(nix build .#btrc-native-header --out-link "$RUNNER_TEMP/btrc-native-header-root" --print-out-paths --print-build-logs)/bin/btrc-native-header"
+          test -x "$reader"
+          exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
+          test "$exported" = "$reader"
+          # Root the whole dev shell as well. Determinate Nix collects unrooted
+          # store paths when the runner's disk fills; one push run lost
+          # wgpu-native's pkg-config file two hours in, after earlier cases had used it.
+          nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true
+
+      - name: Record native reader prerequisites
+        timeout-minutes: 2
+        run: |
+          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
+
+      - name: Observe exactly two existing native tracking cases
+        env:
+          CI: 'true'
+          BTRC_UI2_HOSTED_E40: '1'
+          BTRC_UI2_E40_TRACE: '1'
+          BTRC_UI2_E40_ARTIFACTS: build/e40-diagnostic/native
+          BTRC_TEST_TRANSPILE_TIMEOUT: '600'
+        run: |
+          nix develop --command make NIX= generated-check gpu-required btrcc
+          mkdir -p build/e40-diagnostic
+          export BTRC_TEST_BTRCC="$PWD/bin/btrcc"
+          python3 - <<'PYCODE'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          compiler = Path(os.environ["BTRC_TEST_BTRCC"]).resolve(strict=True)
+          source = Path("dist/btrcc-macos-native.c")
+          receipt = {"revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+                     "binary": str(compiler), "binary_sha256": hashlib.sha256(compiler.read_bytes()).hexdigest(),
+                     "generated_compiler_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                     "build": "nix develop --command make NIX= generated-check gpu-required btrcc"}
+          Path("build/e40-diagnostic/compiler.json").write_text(json.dumps(receipt, indent=2))
+          PYCODE
+          nodes=(
+            'src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-desktop-slider]'
+            'src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-host-slider]'
+          )
+          printf '%s\n' "${nodes[@]}" > build/e40-diagnostic/expected-nodes.txt
+          nix develop --command python3 -m pytest --collect-only -q -n 0 -m e40_qualification \
+            --skip-report=build/skip-report-e40-diagnostic-collection.json "${nodes[@]}" \
+            | tee build/e40-diagnostic/collection.txt
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          root = Path("build/e40-diagnostic")
+          expected = (root / "expected-nodes.txt").read_text().splitlines()
+          actual = [line for line in (root / "collection.txt").read_text().splitlines() if "::test_macos_ui2_e40[" in line]
+          assert actual == expected, (actual, expected)
+          PYCODE
+          set +e
+          nix develop --command python3 -m pytest -vv -rs -n 0 -m e40_qualification \
+            --junitxml=build/e40-diagnostic/junit.xml --basetemp=build/e40-diagnostic/pytest \
+            --skip-report=build/skip-report-e40-diagnostic.json "${nodes[@]}"
+          native_status=$?
+          set -e
+          python3 - <<'PYCODE'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          root = Path("build/e40-diagnostic")
+          expected = [node.split("::", 1)[1] for node in (root / "expected-nodes.txt").read_text().splitlines()]
+          cases = list(ET.parse(root / "junit.xml").iter("testcase"))
+          assert [case.attrib["name"] for case in cases] == expected
+          assert not any(case.find("skipped") is not None for case in cases)
+          receipt = {"scope": "two instrumented tracking trials only", "full_e40_qualification": False,
+                     "nodes": expected, "failures": sum(case.find("failure") is not None or case.find("error") is not None for case in cases)}
+          (root / "diagnostic-summary.json").write_text(json.dumps(receipt, indent=2))
+          PYCODE
+          nix develop --command python3 -m tools.qualification skip-gate build/skip-report-e40-diagnostic.json
+          exit "$native_status"
+
+      - name: Recheck native reader prerequisites
+        if: always()
+        timeout-minutes: 2
+        run: |
+          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
+
+      - name: Retain diagnostic observations and generated symbols
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e40-loop-diagnostic-macos
+          path: |
+            build/e40-diagnostic/compiler.json
+            build/e40-diagnostic/expected-nodes.txt
+            build/e40-diagnostic/collection.txt
+            build/e40-diagnostic/junit.xml
+            build/e40-diagnostic/diagnostic-summary.json
+            build/e40-diagnostic/native/
+            build/native-reader/
+            build/skip-report-e40-diagnostic*.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-macos-macos-e40-diagnostic
           path: build/skip-report*.json
           if-no-files-found: warn
           retention-days: 14
