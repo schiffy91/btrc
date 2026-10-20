@@ -46,6 +46,8 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
         package.mkdir()
         for name in (fixture, "WindowCloseProbe.btrc", "WindowCloseProbe.h", "WindowCloseProbe.c"):
             shutil.copyfile(source.parent / name, package / name)
+        if fixture in ("UI2LinuxWindowClose.btrc", "UI2LinuxWindowQuit.btrc"):
+            shutil.copyfile(source.parent / "LinuxCancelState.btrc", package / "LinuxCancelState.btrc")
         (package / "btrc.toml").write_text(
             'manifest-version = 1\n[package]\nname = "ui2LinuxWindowClose"\n'
             '[[native.bindings]]\nmodule = "WindowCloseProbe"\nheader = "WindowCloseProbe.h"\n'
@@ -84,6 +86,15 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
             )
             == 1
         )
+    if fixture in {"UI2LinuxWindowClose.btrc", "UI2LinuxWindowQuit.btrc"}:
+        name = CYCLE_SUITES[fixture][0]
+        entries = "native,program" if name == "window-close" else "native-quit"
+        states = [line for line in result.stdout.splitlines() if line.startswith("UI2_CANCEL_STATE ")]
+        assert states == [
+            f"UI2_CANCEL_STATE {name} {cycle} entries={entries} "
+            "draft=kept focus=kept selection=kept anchor=kept destination=kept"
+            for cycle in range(1, 101)
+        ], result.stdout
     if fixture in CYCLE_SUITES:
         name, resource = CYCLE_SUITES[fixture]
         actual = [line for line in result.stdout.splitlines() if line.startswith("UI2_CYCLE ")]

@@ -7,6 +7,7 @@ import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxTextField;
 
 import ./WindowCloseProbe.btrc;
+import ./LinuxCancelState.btrc;
 #include <assert.h>
 #include <stdio.h>
 
@@ -63,15 +64,16 @@ void verifyWindowCloseCycle() {
 	var context = LinuxContext(4); int creditsBefore = context.terminalPool.available(); var scope = CallbackScope();
 	var first = LinuxWindow(context, "UI2 first", 320.0, 200.0);
 	var second = LinuxWindow(context, "UI2 second", 320.0, 200.0);
-	var field = LinuxTextField(context, "preserved draft", ""); first.attachRoot(field);
+	var document = LinuxCancelState(context, first); var field = document.field;
 	var a = LinuxCloseRequests(); var b = LinuxCloseRequests(); a.modalTarget = second;
 	var ar = first.onCloseRequested(a, scope); var br = second.onCloseRequested(b, scope);
 	bool duplicateRejected = false;
 	try { first.onCloseRequested(LinuxCloseRequests(), scope); } catch (string error) { duplicateRejected = !error.isEmpty(); }
 	assert(duplicateRejected && ar.isOpen());
 	first.show(); second.show(); LinuxCloseChecks.events(first, second);
+	document.queueFocus(); document.queueDraft(); LinuxCloseChecks.events(first, second); document.verify();
 	assert(ui2PushWindowClose(first.nativeId()) == 1); LinuxCloseChecks.events(first, second);
-	assert(a.requests.len == 0 && first.isOpen() && first.root() == field);
+	assert(a.requests.len == 0 && first.isOpen() && first.root() == document.scroll);
 	assert(first.dispatchSemantic()); assert(a.requests.len == 1 && a.modalRejected); a.modalTarget = null;
 	var original = a.requests.get(0);
 	assert(LinuxCloseChecks.pending(first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_ALREADY_PENDING) == original);
@@ -87,8 +89,15 @@ void verifyWindowCloseCycle() {
 	var retry = original.decide(WINDOW_CLOSE_DECISION_SAVE, 5LL); assert(retry.attempt > saving.attempt);
 	assert(original.completeSave(retry.attempt, 5LL, false, "save failed").state == WINDOW_CLOSE_AWAITING_DECISION);
 	assert(original.decide(WINDOW_CLOSE_DECISION_CANCEL, 5LL).state == WINDOW_CLOSE_CANCELLED);
-	assert(first.isOpen() && first.root() == field && field.text() == "preserved draft");
+	document.verify();
+	document.queueEditAfterCancel(); LinuxCloseChecks.events(first, second); document.verify("p!eserved draft");
+	document.queueDraft(); LinuxCloseChecks.events(first, second); document.verify();
+	var program = LinuxCloseChecks.pending(first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
+	assert(program != original && first.dispatchSemantic());
+	assert(program.decide(WINDOW_CLOSE_DECISION_CANCEL, 5LL).state == WINDOW_CLOSE_CANCELLED);
+	document.verify(); document.queueEditAfterCancel(); LinuxCloseChecks.events(first, second); document.verify("p!eserved draft");
 	assert(original.completeSave(retry.attempt, 5LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	document.finish();
 	assert(br.cancel() == CALLBACK_CANCELLATION_COMPLETE && other.state() == WINDOW_CLOSE_CANCELLED && second.isOpen());
 	assert(second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER); LinuxCloseChecks.drain(second);
 	var final = LinuxCloseChecks.pending(first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);
@@ -148,6 +157,7 @@ int main() {
 	assert(ui2NativeWindowCount() == 0);
 	for (int cycle = 0; cycle < 100; cycle++) {
 		verifyWindowCloseCycle(); assert(ui2NativeWindowCount() == 0);
+		printf("UI2_CANCEL_STATE window-close %d entries=native,program draft=kept focus=kept selection=kept anchor=kept destination=kept\n", cycle + 1);
 		printf("UI2_CYCLE window-close %d windows=0\n", cycle + 1); fflush(stdout);
 	}
 	print("UI2_POLICY window-close work_capacity=4 pressure_capacity=1 entries=native,program,callback-close");

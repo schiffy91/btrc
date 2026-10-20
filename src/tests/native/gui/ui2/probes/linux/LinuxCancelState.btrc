@@ -1,0 +1,79 @@
+import Library.Callback;
+import Library.GUI.ControlEvents;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.LinuxScrollView;
+import Library.GUI.Linux.LinuxTextField;
+
+#include <assert.h>
+
+class LinuxCancelTerminals implements ITextControlEventHandler {
+	public int calls = 0;
+	public void textEvent(TextControlEvent event) { self.calls++; }
+}
+
+/* The attached document and its visible field are the stable destination and
+ * scroll anchor for desktop close/quit. Focus and selection are established
+ * through SDL input; no test writes the provider's focus bookkeeping. */
+class LinuxCancelState {
+	public IWindow window;
+	public LinuxScrollView scroll;
+	public LinuxTextField field;
+	private unsigned int _windowId;
+	private long long _generation;
+	private CallbackScope _scope = CallbackScope();
+	private LinuxCancelTerminals _terminals = LinuxCancelTerminals();
+	public LinuxCancelState(LinuxContext context, IWindow window) {
+		self.window = window;
+		var native = (ILinuxWindow?)window;
+		if (native == null) { throw "Cancel state requires a Linux window"; }
+		self._windowId = native.nativeId();
+		self.scroll = LinuxScrollView(context);
+		self.field = LinuxTextField(context, "saved document", "");
+		self.scroll.attach(self.field); window.attachRoot(self.scroll);
+		self.scroll.setContentSize(320.0, 600.0);
+		self.field.arrange(8.0, 80.0, 120.0, 30.0);
+		self.scroll.scrollTo(72.0);
+		self._generation = self.field.node().generation();
+		self.field.onCommit(self._terminals, self._scope);
+		self.field.onCancel(self._terminals, self._scope);
+	}
+
+	public void queueFocus() {
+		btrcSdlPushPointerButton(self._windowId, 12.0f, 12.0f, 1u, 1, 1u);
+		btrcSdlPushPointerButton(self._windowId, 12.0f, 12.0f, 1u, 0, 1u);
+	}
+
+	private void key(unsigned int key, unsigned int modifiers = 0u) {
+		btrcSdlPushKey(self._windowId, key == (unsigned int)SDLK_A ? (unsigned int)SDL_SCANCODE_A : 0u, key, modifiers, 1, 0);
+		btrcSdlPushKey(self._windowId, key == (unsigned int)SDLK_A ? (unsigned int)SDL_SCANCODE_A : 0u, key, modifiers, 0, 0);
+	}
+
+	public void queueDraft() {
+		self.key((unsigned int)SDLK_A, (unsigned int)SDL_KMOD_CTRL);
+		assert(btrcSdlPushText(self._windowId, "preserved draft") == 1);
+		self.key((unsigned int)SDLK_HOME);
+		self.key((unsigned int)SDLK_RIGHT);
+		self.key((unsigned int)SDLK_RIGHT, (unsigned int)SDL_KMOD_SHIFT);
+	}
+
+	public void verify(string draft = "preserved draft") {
+		assert(self.window.isOpen() && self.window.root() == self.scroll && self._terminals.calls == 0);
+		assert(self.scroll.childCount() == 1 && self.scroll.childAt(0) == self.field);
+		assert(self.field.text() == draft && self.field.node().generation() == self._generation);
+		var host = self.field.node().host;
+		assert(host != null && host.focusedId == self.field.node().id);
+		assert(self.scroll.offset().x == 0.0 && self.scroll.scrollOffset() == 72.0);
+		assert(self.scroll.visibleRect().y == 72.0 && self.field.node().y == 80.0);
+	}
+
+	public void finish() { assert(self._scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && self._scope.pendingCount() == 0); }
+
+	public void queueEditAfterCancel() {
+		/* Replacing the selected second character proves both selection and
+		 * actual input routing survived cancellation without refocusing. */
+		assert(btrcSdlPushText(self._windowId, "!") == 1);
+	}
+}
