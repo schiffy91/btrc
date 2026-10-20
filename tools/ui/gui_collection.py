@@ -22,11 +22,11 @@ class GUICollection:
     def pytest_collection_modifyitems(self, items):
         # xdist may decorate scheduling IDs. The original identity belongs in
         # JUnit, including skipped/setup-error cases that never enter the test.
-        originals = {item: item.nodeid for item in items}
+        originals = {id(item): item.nodeid for item in items}
         result = yield
-        self.nodes = [originals[item] for item in items]
+        self.nodes = [originals[id(item)] for item in items]
         for item in items:
-            item.user_properties.append((NODE_PROPERTY, originals[item]))
+            item.user_properties.append((NODE_PROPERTY, originals[id(item)]))
         return result
 
     def pytest_collectreport(self, report):
