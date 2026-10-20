@@ -84,7 +84,7 @@ class ExecutorNativeFailure implements IApplicationWork, IApplicationPublication
 
 	public void deliver(ApplicationPublication publication) { self.run(); }
 }
-int main() {
+void verifyAcceptanceCycle() {
 	var mode = CFStringCreateWithCString(null, "BTRC.UI2.ExecutorCommonMode", kCFStringEncodingUTF8);
 	CFRunLoopAddCommonMode(CFRunLoopGetMain(), mode);
 	var signal = MacOSRunLoopSignal(); var executor = MacOSApplicationExecutor(2, signal);
@@ -152,5 +152,13 @@ int main() {
 	assert(publishExecutor.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(publishFirst.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && publishSecond.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	publishContext.close(); assert(publishOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && publishSignal.close());
+}
+
+int main() {
+
+	int completed = 0;
+	for (int cycle = 0; cycle < 100; cycle++) { verifyAcceptanceCycle(); completed++; }
+	assert(completed == 100);
+	print("UI2 acceptance UI2MacOSExecutor cycles=100");
 	print("PASS: UI2 macOS executor worker delivery timers suspension and callback drain"); return 0;
 }

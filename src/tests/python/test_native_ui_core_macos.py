@@ -75,6 +75,7 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
     ("fixture", "marker"),
     [
         ("UI2MacOSSignal", "PASS: UI2 macOS scoped common-mode wake and worker signal"),
+        ("UI2MacOSFinalRelease", "UI2 final release worker entered"),
         ("UI2MacOSViewInput", "PASS: UI2 macOS pointer admission follows effective eligibility"),
         ("UI2MacOSButtonState", "PASS: UI2 macOS eligibility loss retires pending native button actions"),
         ("UI2MacOSButtonCloseFailure", "PASS: native button cleanup completed around button receiver cleanup failed"),
@@ -119,7 +120,7 @@ def test_macos_ui2_scoped_worker_signal(
     manifest = package / "btrc.toml"
     root = Path(__file__).resolve().parents[3]
     source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
-    if fixture in {"UI2MacOSButtonState", "UI2MacOSButtonCloseFailure", "UI2MacOSViewInput"}:
+    if fixture in {"UI2MacOSButtonState", "UI2MacOSButtonCloseFailure", "UI2MacOSViewInput", "UI2MacOSFinalRelease"}:
         (package / "Application.h").write_text("#import <AppKit/AppKit.h>\n")
         manifest.write_text(
             manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "Application.h"\n'
@@ -207,19 +208,25 @@ def test_macos_ui2_scoped_worker_signal(
     NativePlanBuilder(runner=runner).build(
         plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
     )
+    repeated = fixture in {"UI2MacOSContainer", "UI2MacOSWindow", "UI2MacOSApplicationQuit", "UI2MacOSExecutor"}
     ran = subprocess.run(
         [str(executable)],
         env=apple_environment() | {"BTRC_GUI_BACKGROUND": "1"},
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=180 if repeated else 30,
     )
-    if fixture == "UI2MacOSButtonCloseFailure":
+    if fixture == "UI2MacOSFinalRelease":
+        assert ran.returncode == -6, ran.stdout + ran.stderr
+        assert "Native stack destroyed before subtree cleanup completed" in ran.stderr
+    elif fixture == "UI2MacOSButtonCloseFailure":
         assert ran.returncode == -6, ran.stdout + ran.stderr
         assert "Callback scope released before cancellation completed" in ran.stderr
     else:
         assert ran.returncode == 0, ran.stdout + ran.stderr
     assert marker in ran.stdout
+    if repeated:
+        assert ran.stdout.splitlines().count(f"UI2 acceptance {fixture} cycles=100") == 1
 
 
 @pytest.mark.parametrize("module", ["MacOSViewInput", "MacOSComposedCapture"])

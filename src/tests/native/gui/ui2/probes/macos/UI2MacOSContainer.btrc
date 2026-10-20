@@ -294,7 +294,15 @@ void verifyPreflightSubscriptionRefusal() {
 	assert(root.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
 }
 
+void verifyAcceptanceCycle() {
+	verifyCaptureRoutes(); verifyCapturedFailedConsistent(); verifyCapturedCloseWithoutDestination(); verifyLateSubscriptionRefusal(); verifyPreflightSubscriptionRefusal(); verifyOrder(); verifyRollback(false); verifyRollback(true); verifyFailedConsistent(); verifyQuarantine(); verifyWakeFailure(); verifyLayoutRollback(false); verifyLayoutRollback(true); verifySettlementFailure(); verifyLayouts(); verifyMarkedMove(false); verifyMarkedMove(true); verifyMarkedDetachFailure();
+}
+
 int main() {
-	BTRCUI2ContainerProbe.prepare(); verifyCaptureRoutes(); verifyCapturedFailedConsistent(); verifyCapturedCloseWithoutDestination(); verifyLateSubscriptionRefusal(); verifyPreflightSubscriptionRefusal(); verifyOrder(); verifyRollback(false); verifyRollback(true); verifyFailedConsistent(); verifyQuarantine(); verifyWakeFailure(); verifyLayoutRollback(false); verifyLayoutRollback(true); verifySettlementFailure(); verifyLayouts(); verifyMarkedMove(false); verifyMarkedMove(true); verifyMarkedDetachFailure();
+	BTRCUI2ContainerProbe.prepare();
+	int completed = 0;
+	for (int cycle = 0; cycle < 100; cycle++) { verifyAcceptanceCycle(); completed++; }
+	assert(completed == 100);
+	print("UI2 acceptance UI2MacOSContainer cycles=100");
 	print("PASS: UI2 macOS container batches preserve order ownership and marked editing"); return 0;
 }

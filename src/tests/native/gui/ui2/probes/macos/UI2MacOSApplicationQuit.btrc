@@ -94,12 +94,20 @@ class NativeQuitScenario {
 	}
 }
 
-int main() {
+void verifyAcceptanceCycle() {
 	var scenario = NativeQuitScenario();
 	scenario.first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); scenario.second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST);
 	scenario.application.run();
 	assert(scenario.firstCalls == 2 && scenario.secondCalls == 2);
 	assert(!scenario.first.isOpen() && !scenario.second.isOpen() && !scenario.clean.isOpen());
 	assert(scenario.owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && scenario.application.close() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+int main() {
+
+	int completed = 0;
+	for (int cycle = 0; cycle < 100; cycle++) { verifyAcceptanceCycle(); completed++; }
+	assert(completed == 100);
+	print("UI2 acceptance UI2MacOSApplicationQuit cycles=100");
 	print("PASS: UI2 macOS native application quit cancels and retries before shutdown"); return 0;
 }
