@@ -267,6 +267,14 @@ class Receiver implements IAdmission {
         return true;
     }
     public void afterUse(bool invokedSuper, bool nativeFailed) {
+        if (mode == 26) {
+            assert(!invokedSuper && !nativeFailed && beforeCount == 0 && depth == 0);
+            assert(AdmissionArgument.live() == 0 && AdmissionBase.live() == 1 && destroyed == 0);
+            afterCount++;
+            puts("after null argument"); fflush(stdout);
+            object = null; receiver = null;
+            return;
+        }
         assert(invokedSuper == (mode == 22) && !nativeFailed);
         assert(AdmissionArgument.live() == 1 && depth == 1);
         afterCount++; depth--;
@@ -287,10 +295,15 @@ int main() {
     receiver = Receiver();
     if (mode == 15) { assert(scope().cancel() == CALLBACK_CANCELLATION_COMPLETE); }
     bool setupFailed = false;
+    string setupError = "";
     try { object = AdmissionBase.initWithMode((Receiver)receiver, scope(), mode); }
-    catch (string error) { setupFailed = true; }
-    if (mode == 13 || mode == 14 || mode == 15 || mode == 16) {
+    catch (string error) { setupFailed = true; setupError = error; }
+    if (mode == 13 || mode == 14 || mode == 15 || mode == 16 || mode == 27 || mode == 28) {
         assert(setupFailed && AdmissionBase.live() == 0 && beforeCount == 0);
+        if (mode == 16) { assert(setupError.equals("super-admission: null initializer argument")); }
+        if (mode == 27) { assert(setupError.equals("super-admission requires a receiver")); }
+        if (mode == 28) { assert(setupError.equals("super-admission requires a scope")); }
+        if (mode == 16 || mode == 27 || mode == 28) { assert(scope().isOpen() && scope().pendingCount() == 0); }
         assert(scope().cancel() == CALLBACK_CANCELLATION_COMPLETE);
         receiver = null;
         assert(destroyed == 1);
@@ -298,6 +311,7 @@ int main() {
     }
     assert(!setupFailed && object != null && beforeCount == 0 && AdmissionBase.pulses() == 0);
     AdmissionHost.borrow((AdmissionBase)object);
+    if (mode == 26) { AdmissionHost.fireArgument(); return 1; }
     if (mode == 11) { AdmissionHost.wrongThread(); return 1; }
     if (mode == 12) {
         object = null; receiver = null;
@@ -352,7 +366,9 @@ def admission_project(native_project):
 
 
 @pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
-@pytest.mark.parametrize("mode", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25])
+@pytest.mark.parametrize(
+    "mode", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+)
 def test_scoped_super_admission(admission_project, native_compile, sanitize, mode):
     source = admission_project
     program = PROGRAM.replace("MODE", str(mode))
@@ -362,11 +378,24 @@ def test_scoped_super_admission(admission_project, native_compile, sanitize, mod
             "AdmissionBase.initWithMode((Receiver)receiver, scope(), mode)",
             "AdmissionBase.initWithObject((Receiver)receiver, scope(), (AdmissionArgument)null)",
         )
+    elif mode == 27:
+        program = program.replace(
+            "AdmissionBase.initWithMode((Receiver)receiver, scope(), mode)",
+            "AdmissionBase.initWithMode((Receiver)null, scope(), mode)",
+        )
+    elif mode == 28:
+        program = program.replace(
+            "AdmissionBase.initWithMode((Receiver)receiver, scope(), mode)",
+            "AdmissionBase.initWithMode((Receiver)receiver, (CallbackScope)null, mode)",
+        )
     source.write_text(program)
     completed = _build_and_run(source, native_compile, sanitize)
-    if mode in (8, 9, 10, 11, 23, 24, 25):
+    if mode in (8, 9, 10, 11, 23, 24, 25, 26):
         assert completed.returncode == -6, (completed.returncode, completed.stderr)
-        if mode == 23:
+        if mode == 26:
+            assert "after null argument\nreceiver released\nnative released\n" in completed.stdout
+            assert "super-admission: null argument" in completed.stderr
+        elif mode == 23:
             assert "receiver released\nargument released\nnative released\n" in completed.stdout
             assert "argument hook failure" in completed.stderr
         elif mode == 25:

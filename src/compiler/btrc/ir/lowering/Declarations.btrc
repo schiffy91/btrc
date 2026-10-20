@@ -4403,7 +4403,7 @@ class DeclarationLowerer {
 				Node value = values.get(position);
 				IRNode argument = IRNode.variable(f"argument{position}");
 				if (self.managedValues.isNative(value)) {
-					if (!value.isNullable) { invokeBody.push(self.nativeNullGuard(argument, "super-admission: null argument")); }
+					if (!value.isNullable) { invokeBody.push(self.objectiveCNullGuard(argument, "super-admission: null argument")); }
 					argument = self.emitNativeLease(position, value, argument, names, invokeBody, releases);
 				}
 				arguments.push(argument);
@@ -4610,8 +4610,8 @@ class DeclarationLowerer {
 		IRNode resultSlot = IRNode.variableDeclaration(resultC, "nativeResult", IRNode.literal("NULL"));
 		Vector<IRNode> body = [resultSlot]; Map<string, bool> names = {}; for parameter in sourceParameters { names.put(parameter.name, true); }
 		IRNode cleanup = self.nativeCleanupScope(names, body);
-		body.push(self.nativeNullGuard(IRNode.variable("receiver"), "super-admission requires a receiver"));
-		body.push(self.nativeNullGuard(IRNode.variable("scope"), "super-admission requires a scope"));
+		body.push(self.objectiveCNullGuard(IRNode.variable("receiver"), "super-admission requires a receiver"));
+		body.push(self.objectiveCNullGuard(IRNode.variable("scope"), "super-admission requires a scope"));
 		IRNode context = IRNode.variable("context");
 		IRNode contextSlot = IRNode.variableDeclaration(contextC, "context", IRNode.call(contextSymbol + "_new", [IRNode.variable("receiver"), IRNode.functionReference(unregister.name)]));
 		body.extend([contextSlot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(contextSlot, self.managedValues.runtimeType(contextType)))]);
@@ -4622,7 +4622,7 @@ class DeclarationLowerer {
 		for index in range(2, sourceParameters.len) {
 			Node valueType = method.params().get(index).type; IRNode argument = IRNode.variable(sourceParameters.get(index).name);
 			if (self.managedValues.isNative(valueType)) {
-				if (!valueType.isNullable) { body.push(self.nativeNullGuard(argument, "super-admission: null initializer argument")); }
+				if (!valueType.isNullable) { body.push(self.objectiveCNullGuard(argument, "super-admission: null initializer argument")); }
 				argument = self.emitNativeLease(index, valueType, argument, names, body, releases);
 			}
 			arguments.push(argument);
