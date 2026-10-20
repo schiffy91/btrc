@@ -1,19 +1,140 @@
 import Library.Callback;
 import Library.Console;
-import Library.OwnedBuffer;
-import Library.GUI.MacOS.AppKitText;
 import Library.GUI.IApplicationNativeWake;
 import Library.GUI.MacOS.CoreFoundation;
 
-/* One common-mode source coalesces wakeups. This owner keeps its immutable
- * UTF-8 context alive until source invalidation; managed receivers stay in the
- * scoped notification adapter. Workers touch only the raw source and gate. */
-class MacOSRunLoopSignal implements IApplicationNativeWake {
+/* The native registrations own one retained state. Each entered callback
+ * snapshots that state before dispatch, so close may invalidate and release
+ * its context while the entered callback finishes. */
+struct MacOSRunLoopContext {
+	MacOSRunLoopState state;
+};
+
+class MacOSRunLoopState {
 	private CFRunLoopSourceRef _source = null;
-	private CFRunLoopTimerRef _timer = null;
+	private CFRunLoopTimerRef _deadlineTimer = null;
+	private CFRunLoopTimerRef _continuation = null;
 	private unsigned long long _deadline = 0ULL;
+	private NSString _name;
+	private struct MacOSRunLoopContext* _context = null;
+	private bool _closed = false;
+	/* Low two bits: idle, signaled, delivering, cooling. Bit 2 remembers
+	 * a request made during delivery or cooling. Workers only touch this
+	 * atomic and signal the source under the public owner's admission gate. */
+	private Atomic<uint> _wake;
+
+	public MacOSRunLoopState(NSString name) {
+		self._name = name; self._wake.init(0u);
+		var context = (struct MacOSRunLoopContext*)calloc(1, sizeof(struct MacOSRunLoopContext));
+		if (context == null) { throw "Cannot allocate native run-loop callback context"; }
+		CFRunLoopSourceContext nativeContext = {};
+		nativeContext.info = (void*)context; nativeContext.perform = MacOSRunLoopState.perform;
+		self._source = CFRunLoopSourceCreate(null, 0, &nativeContext);
+		if (self._source == null) { free(context); throw "Cannot create native run-loop source"; }
+		MacOSRunLoopState retained = self; keep retained; context->state = retained;
+		self._context = context;
+		CFRunLoopAddSource(CFRunLoopGetMain(), self._source, kCFRunLoopCommonModes);
+	}
+
+	public bool requestTurn() {
+		uint observed = self._wake.load(MemoryOrder.ACQUIRE);
+		for (uint attempt = 0u; attempt < 64u; attempt++) {
+			if (observed == 1u || (observed & 4u) != 0u) { return true; }
+			uint desired = observed == 0u ? 1u : observed | 4u;
+			if (self._wake.compareExchangeStrong(&observed, desired, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
+				if (desired == 1u) { CFRunLoopSourceSignal(self._source); CFRunLoopWakeUp(CFRunLoopGetMain()); }
+				return true;
+			}
+		}
+		return false;
+	}
+
+	class void perform(void* raw) {
+		MacOSRunLoopState state = ((struct MacOSRunLoopContext*)raw)->state;
+		try { state.deliver(); } catch (string error) { Console.fatal(error); }
+	}
+
+	private void deliver() {
+		if (self._closed) { return; }
+		self._wake.store(2u, MemoryOrder.RELEASE);
+		string failure = "";
+		try { NSNotificationCenter.defaultCenter().postNotificationName(self._name, null); }
+		catch (string error) { failure = error; }
+		if (!self._closed) {
+			try { self.armContinuation(); }
+			catch (string error) { if (failure.isEmpty()) { failure = error; } }
+		}
+		if (!failure.isEmpty()) { throw failure; }
+	}
+
+	private void armContinuation() {
+		/* A perpetually signaled source0 can keep AppKit inside nextEvent.
+		 * Defer rearming until a future timer, including worker requests.
+		 * Native dequeue fairness is verified by the hosted E40 journey. */
+		uint observed = self._wake.load(MemoryOrder.ACQUIRE);
+		while (!self._wake.compareExchangeStrong(&observed, 3u | (observed & 4u), MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {}
+		if (self._continuation != null) { CFRunLoopTimerInvalidate(self._continuation); CFRelease(self._continuation); self._continuation = null; }
+		CFRunLoopTimerContext context = {}; context.info = (void*)self._context;
+		self._continuation = CFRunLoopTimerCreate(null, CFAbsoluteTimeGetCurrent() + 0.001, 0.0, 0UL, 0L, MacOSRunLoopState.continueTurn, &context);
+		if (self._continuation == null) { throw "Cannot create native run-loop continuation timer"; }
+		CFRunLoopAddTimer(CFRunLoopGetMain(), self._continuation, kCFRunLoopCommonModes);
+	}
+
+	class void continueTurn(CFRunLoopTimerRef timer, void* raw) {
+		MacOSRunLoopState state = ((struct MacOSRunLoopContext*)raw)->state;
+		state.finishCooling();
+	}
+
+	private void finishCooling() {
+		if (self._closed) { return; }
+		uint observed = self._wake.load(MemoryOrder.ACQUIRE);
+		while (true) {
+			uint desired = (observed & 4u) != 0u ? 1u : 0u;
+			if (self._wake.compareExchangeStrong(&observed, desired, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
+				if (desired == 1u) { CFRunLoopSourceSignal(self._source); CFRunLoopWakeUp(CFRunLoopGetMain()); }
+				return;
+			}
+		}
+	}
+
+	class void deadlineFired(CFRunLoopTimerRef timer, void* raw) {
+		MacOSRunLoopState state = ((struct MacOSRunLoopContext*)raw)->state;
+		if (!state._closed && !state.requestTurn()) { Console.fatal("Native run-loop deadline wake failed"); }
+	}
+
+	public void scheduleDeadline(unsigned long long deadline) {
+		if (self._closed) { throw "Native run-loop signal is closed"; }
+		if (deadline == self._deadline && (deadline == 0ULL || (self._deadlineTimer != null && CFRunLoopTimerIsValid(self._deadlineTimer) != (Boolean)0))) { return; }
+		CFRunLoopTimerRef replacement = null;
+		if (deadline != 0ULL) {
+			unsigned long long now = MacOSRunLoopSignal.now();
+			double delay = deadline > now ? (double)(deadline - now) / 1000000000.0 : 0.0;
+			CFRunLoopTimerContext context = {}; context.info = (void*)self._context;
+			replacement = CFRunLoopTimerCreate(null, CFAbsoluteTimeGetCurrent() + delay, 0.0, 0UL, 0L, MacOSRunLoopState.deadlineFired, &context);
+			if (replacement == null) { throw "Cannot create native run-loop deadline timer"; }
+			CFRunLoopAddTimer(CFRunLoopGetMain(), replacement, kCFRunLoopCommonModes);
+		}
+		if (self._deadlineTimer != null) { CFRunLoopTimerInvalidate(self._deadlineTimer); CFRelease(self._deadlineTimer); }
+		self._deadlineTimer = replacement; self._deadline = deadline;
+	}
+
+	public void close() {
+		if (self._closed) { return; } self._closed = true;
+		if (self._deadlineTimer != null) { CFRunLoopTimerInvalidate(self._deadlineTimer); CFRelease(self._deadlineTimer); self._deadlineTimer = null; }
+		if (self._continuation != null) { CFRunLoopTimerInvalidate(self._continuation); CFRelease(self._continuation); self._continuation = null; }
+		if (self._source != null) { CFRunLoopSourceInvalidate(self._source); CFRelease(self._source); self._source = null; }
+		var context = self._context; self._context = null;
+		if (context != null) { release context->state; free(context); }
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* One common-mode source coalesces wakeups. The worker admission gate keeps
+ * native state alive through a concurrent request and main-thread close. */
+class MacOSRunLoopSignal implements IApplicationNativeWake {
+	private MacOSRunLoopState? _state;
 	private NSString? _name;
-	private OwnedBuffer<char>? _context;
 	private Atomic<uint>* _gate = null;
 	private bool _subscribed = false;
 
@@ -22,54 +143,24 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 		self._gate = (Atomic<uint>*)malloc(sizeof(Atomic<uint>));
 		if (self._gate == null) { throw "Cannot allocate native run-loop admission gate"; }
 		self._gate->init(1u);
-		var identity = NSUUID.UUID();
-		var name = identity.UUIDString();
-		string text = AppKitText.ownedValue(name);
-		var context = new OwnedBuffer<char>((size_t)text.len() + (size_t)1);
-		if (!context.opened()) { throw "Cannot allocate native run-loop wake name"; }
-		strcpy(context.borrow(), text);
-		self._name = name;
-		self._context = context;
-		self._source = MacOSRunLoopSignal.createSource(context.borrow());
-		if (self._source == null) { throw "Cannot create native run-loop source"; }
-		CFRunLoopAddSource(CFRunLoopGetMain(), self._source, kCFRunLoopCommonModes);
+		var identity = NSUUID.UUID(); var name = identity.UUIDString();
+		self._name = name; self._state = MacOSRunLoopState(name);
 		self._gate->store(0u, MemoryOrder.RELEASE);
-	}
-
-	class CFRunLoopSourceRef createSource(char* name) {
-		CFRunLoopSourceContext context = {};
-		context.info = (void*)name;
-		context.perform = MacOSRunLoopSignal.perform;
-		return CFRunLoopSourceCreate(null, 0, &context);
 	}
 
 	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native run-loop ownership requires the main thread"; } }
 
-	class void perform(void* raw) {
-		try {
-			/* Copy before dispatch: a notification receiver may close this source
-			 * and free its context while postNotificationName is still entered. */
-			var name = NSString.stringWithUTF8String((char*)raw);
-			if (name == null) { throw "Cannot read native run-loop wake name"; }
-			NSNotificationCenter.defaultCenter().postNotificationName(name, null);
-		} catch (string error) { Console.fatal(error); }
-	}
-
 	public void subscribe(IAppKitNotificationObserver receiver, CallbackScope scope) {
-		self.requireMainThread();
-		var name = self._name;
-		if (self._source == null || name == null || (self._gate->load(MemoryOrder.ACQUIRE) & 1u) != 0u) { throw "Native run-loop signal is closed"; }
+		self.requireMainThread(); var name = self._name;
+		if (self._state == null || name == null || (self._gate->load(MemoryOrder.ACQUIRE) & 1u) != 0u) { throw "Native run-loop signal is closed"; }
 		if (self._subscribed) { throw "Native run-loop signal already has a subscriber"; }
-		NSNotificationCenter.defaultCenter().addObserverForName(name, null, null, receiver, scope);
-		self._subscribed = true;
+		NSNotificationCenter.defaultCenter().addObserverForName(name, null, null, receiver, scope); self._subscribed = true;
 	}
 
-	/* The application retains this owner until every publisher has drained.
-	 * The shared gate prevents invalidation while an admitted worker signals. */
 	public bool requestTurn() {
 		if (!callbackGateTryEnter(self._gate)) { return false; }
-		CFRunLoopSourceSignal(self._source); CFRunLoopWakeUp(CFRunLoopGetMain());
-		callbackGateLeave(self._gate); return true;
+		bool accepted = self._state != null && self._state.requestTurn();
+		callbackGateLeave(self._gate); return accepted;
 	}
 
 	class unsigned long long now() {
@@ -78,34 +169,10 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 		return (unsigned long long)nanoseconds;
 	}
 
-	/* The timer borrows the source. Both callbacks run on the main thread, and
-	 * every timer is invalidated and released before the source is released. */
-	class CFRunLoopTimerRef createTimer(CFRunLoopSourceRef source, double delay) {
-		CFRunLoopTimerContext context = {};
-		context.info = (void*)source;
-		return CFRunLoopTimerCreate(null, CFAbsoluteTimeGetCurrent() + delay, 0.0, 0UL, 0L, MacOSRunLoopSignal.timerFired, &context);
-	}
-
-	class void timerFired(CFRunLoopTimerRef timer, void* raw) {
-		CFRunLoopSourceSignal((CFRunLoopSourceRef)raw); CFRunLoopWakeUp(CFRunLoopGetMain());
-	}
-
-	/* Deadlines use CACurrentMediaTime in nanoseconds, excluding sleep. A
-  * callback consumer rechecks that clock before executing delayed work. */
 	public void scheduleDeadline(unsigned long long deadline) {
-		self.requireMainThread();
-		if (self._source == null || (self._gate->load(MemoryOrder.ACQUIRE) & 1u) != 0u) { throw "Native run-loop signal is closed"; }
-		if (deadline == self._deadline && (deadline == 0ULL || (self._timer != null && CFRunLoopTimerIsValid(self._timer) != (Boolean)0))) { return; }
-		CFRunLoopTimerRef replacement = null;
-		if (deadline != 0ULL) {
-			unsigned long long now = MacOSRunLoopSignal.now();
-			double delay = deadline > now ? (double)(deadline - now) / 1000000000.0 : 0.0;
-			replacement = MacOSRunLoopSignal.createTimer(self._source, delay);
-			if (replacement == null) { throw "Cannot create native run-loop deadline timer"; }
-			CFRunLoopAddTimer(CFRunLoopGetMain(), replacement, kCFRunLoopCommonModes);
-		}
-		if (self._timer != null) { CFRunLoopTimerInvalidate(self._timer); CFRelease(self._timer); }
-		self._timer = replacement; self._deadline = deadline;
+		self.requireMainThread(); var state = self._state;
+		if (state == null || (self._gate->load(MemoryOrder.ACQUIRE) & 1u) != 0u) { throw "Native run-loop signal is closed"; }
+		state.scheduleDeadline(deadline);
 	}
 
 	public void wake() { if (!self.requestTurn()) { throw "Native run-loop source is closing"; } }
@@ -129,9 +196,8 @@ class MacOSRunLoopSignal implements IApplicationNativeWake {
 	public bool close() {
 		self.requireMainThread(); if (self._gate == null) { return true; } callbackGateCloseAdmission(self._gate);
 		if (self._gate->load(MemoryOrder.ACQUIRE) != 1u) { return false; }
-		if (self._timer != null) { CFRunLoopTimerInvalidate(self._timer); CFRelease(self._timer); self._timer = null; self._deadline = 0ULL; }
-		if (self._source != null) { CFRunLoopSourceInvalidate(self._source); CFRelease(self._source); self._source = null; }
-		if (self._context != null) { self._context.close(); self._context = null; }
+		var state = self._state; self._state = null;
+		if (state != null) { state.close(); }
 		self._name = null; return true;
 	}
 

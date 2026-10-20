@@ -40,9 +40,83 @@ class SignalRace implements INativeWorkerBody {
 	}
 }
 
+class SignalRearm implements IAppKitNotificationObserver {
+	public MacOSRunLoopSignal signal;
+	public int calls = 0;
+	public SignalRearm(MacOSRunLoopSignal signal) { self.signal = signal; }
+
+	public void invoke(NSNotification notification) {
+		self.calls++;
+		for (int index = 0; index < 100; index++) { assert(self.signal.requestTurn()); }
+		if (self.calls == 3) { assert(self.signal.close()); }
+	}
+}
+class SignalCoolingWorker implements INativeWorkerBody {
+	private MacOSRunLoopSignal _signal;
+	public int accepted = 0;
+	public SignalCoolingWorker(MacOSRunLoopSignal signal) { self._signal = signal; }
+
+	public int workLoop() {
+		for (int index = 0; index < 100; index++) { if (self._signal.requestTurn()) { self.accepted++; } }
+		return 0;
+	}
+}
+
+class SignalCloseRace implements IAppKitNotificationObserver {
+	private MacOSRunLoopSignal _signal;
+	public int calls = 0;
+	public SignalCloseRace(MacOSRunLoopSignal signal) { self._signal = signal; }
+
+	public void invoke(NSNotification notification) {
+		self.calls++; self._signal.close();
+		/* A worker already inside requestTurn may defer native retirement,
+		 * but callback-close must seal every subsequent request immediately. */
+		assert(!self._signal.requestTurn());
+	}
+}
+
+void verifyContinuation(CFStringRef mode) {
+	var signal = MacOSRunLoopSignal(); var scope = CallbackScope(); var receiver = SignalRearm(signal);
+	signal.subscribe(receiver, scope); signal.wake();
+	for (int expected = 1; expected <= 3; expected++) {
+		CFRunLoopRunInMode(mode, 1.0, (Boolean)1);
+		assert(receiver.calls == expected);
+	}
+	assert(!signal.requestTurn() && signal.close());
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	CFRunLoopRunInMode(mode, 0.01, (Boolean)0); assert(receiver.calls == 3);
+
+	for (int iteration = 0; iteration < 100; iteration++) {
+		var raced = MacOSRunLoopSignal(); var racedScope = CallbackScope(); var closing = SignalCloseRace(raced);
+		raced.subscribe(closing, racedScope); var body = SignalRace(raced); var worker = NativeWorker();
+		assert(worker.start(body) == NATIVE_WORKER_STARTED);
+		while (!body.started.load(MemoryOrder.ACQUIRE)) { usleep(100); }
+		CFRunLoopRunInMode(mode, 1.0, (Boolean)1);
+		assert(closing.calls == 1 && worker.join() && !worker.workerFailed());
+		assert(raced.close() && !raced.requestTurn() && racedScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	var cooled = MacOSRunLoopSignal(); var cooledScope = CallbackScope(); var cooledReceiver = SignalReceiver();
+	cooled.subscribe(cooledReceiver, cooledScope); cooled.wake();
+	CFRunLoopRunInMode(mode, 1.0, (Boolean)1); assert(cooledReceiver.calls == 1);
+	/* The main loop is stopped while this worker joins, so the first
+	 * delivery's continuation cannot fire until all worker requests arrive. */
+	var body = SignalCoolingWorker(cooled); var worker = NativeWorker();
+	assert(worker.start(body) == NATIVE_WORKER_STARTED);
+	assert(worker.join() && !worker.workerFailed() && body.accepted == 100);
+	assert(cooledReceiver.calls == 1);
+	CFRunLoopRunInMode(mode, 1.0, (Boolean)1); assert(cooledReceiver.calls == 2);
+	CFRunLoopRunInMode(mode, 0.01, (Boolean)0); assert(cooledReceiver.calls == 2);
+	cooled.wake(); CFRunLoopRunInMode(mode, 1.0, (Boolean)1); assert(cooledReceiver.calls == 3);
+	assert(cooled.requestTurn());
+	assert(cooledScope.cancel() == CALLBACK_CANCELLATION_COMPLETE && cooled.close());
+	CFRunLoopRunInMode(mode, 0.01, (Boolean)0); assert(cooledReceiver.calls == 3);
+}
+
 int main() {
 	var mode = CFStringCreateWithCString(null, "BTRC.UI2.SignalCommonMode", kCFStringEncodingUTF8);
 	CFRunLoopAddCommonMode(CFRunLoopGetMain(), mode);
+	verifyContinuation(mode);
 	for (int iteration = 0; iteration < 100; iteration++) {
 		var signal = MacOSRunLoopSignal(); var other = MacOSRunLoopSignal();
 		var scope = CallbackScope(); var receiver = SignalReceiver(); var unrelated = SignalReceiver();
