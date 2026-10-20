@@ -9,8 +9,11 @@ import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSStack;
 import Library.GUI.MacOS.MacOSPanel;
 import Library.GUI.MacOS.MacOSGrid;
+import Library.GUI.MacOS.MacOSImageView;
+import Library.GUI.MacOS.MacOSImageHandle;
 import Library.Image;
 
+#include "../../PendingImageGate.btrc"
 #include <assert.h>
 
 class ContainerWake implements IControlEventWake { public bool accept = true; public bool requestTurn() { return self.accept; } }
@@ -294,15 +297,64 @@ void verifyPreflightSubscriptionRefusal() {
 	assert(root.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
 }
 
-void verifyAcceptanceCycle() {
+void verifyPendingImageMutation(int cycle) {
+	var probe = BTRCUI2ContainerProbe.new(); assert(probe != null);
+	var root = MacOSContainer(); var field = MacOSView(probe.field()); var image = MacOSImageView();
+	root.attach(field); root.attach(image); probe.begin(root.nativeView());
+	var previous = MacOSImageHandle.create(PendingImageGate.pixels(31), 4); image.setImageHandle(previous); previous.close();
+	var retained = image; var gate = PendingImageGate(); int red = 100 + cycle;
+	Thread<MacOSImageHandle> worker = spawn(() => { var handle = MacOSImageHandle.create(PendingImageGate.pixels(red), 4); gate.hold(); return handle; });
+	MacOSImageHandle? completed = null;
+	try {
+		gate.waitReady(); assert(!gate.proceed.load(MemoryOrder.ACQUIRE) && probe.verifyFieldFirst(true));
+		long long revision = root.treeRevision();
+		var incoming = ContainerFaultView();
+		incoming.failAttach = cycle % 3 != 0; incoming.attachAfter = cycle % 3 == 2;
+		Vector<ContainerEdit> edits = [edit(CONTAINER_EDIT_MOVE, image, 0), edit(CONTAINER_EDIT_INSERT, incoming, 1), edit(CONTAINER_EDIT_DETACH, incoming, -1)];
+		var result = root.applyBatch(revision, edits);
+		if (incoming.failAttach) {
+			assert(result.kind == CONTAINER_BATCH_ROLLED_BACK && result.failedStep == 1 && root.treeRevision() == revision);
+			assert(root.childAt(0) == field && root.childAt(1) == retained && probe.verifyFieldFirst(true));
+			incoming.failAttach = false;
+			result = root.applyBatch(revision, edits);
+			assert(result.kind == CONTAINER_BATCH_COMMITTED && root.childCount() == 2 && root.childAt(0) == retained && probe.verifyFieldFirst(false));
+		} else {
+			assert(result.kind == CONTAINER_BATCH_COMMITTED && root.treeRevision() == revision + 1LL);
+			assert(root.childAt(0) == retained && root.childAt(1) == field && probe.verifyFieldFirst(false));
+		}
+		assert(result.retained.contains(retained) && incoming.nativeView().superview() == null && incoming.isOpen());
+		assert(BTRCUI2ContainerProbe.imageView(retained.nativeView(), 31L));
+		assert(incoming.close() == CALLBACK_CANCELLATION_COMPLETE);
+	} finally {
+		gate.proceed.store(true, MemoryOrder.RELEASE); completed = worker.join();
+	}
+	assert(!gate.expired.load(MemoryOrder.ACQUIRE) && completed != null && completed.isOpen());
+	retained.setImageHandle(completed); completed.close();
+	assert(BTRCUI2ContainerProbe.imageView(retained.nativeView(), (long)red));
+	assert(root.childCount() == 2 && probe.verifyFieldFirst(false));
+	// A later completion still owns its original target alias; it cannot publish
+	// through that closed target or change a replacement view.
+	var lateGate = PendingImageGate();
+	Thread<MacOSImageHandle> late = spawn(() => { var handle = MacOSImageHandle.create(PendingImageGate.pixels(240), 4); lateGate.hold(); return handle; });
+	MacOSImageHandle? lateImage = null;
+	try { lateGate.waitReady(); probe.finish(); assert(root.close() == CALLBACK_CANCELLATION_COMPLETE && !retained.isOpen()); }
+	finally { lateGate.proceed.store(true, MemoryOrder.RELEASE); lateImage = late.join(); }
+	assert(lateImage != null);
+	bool rejected = false; try { retained.setImageHandle(lateImage); } catch (string error) { rejected = true; }
+	lateImage.close(); assert(rejected && !lateImage.isOpen() && !lateGate.expired.load(MemoryOrder.ACQUIRE));
+}
+
+void verifyAcceptanceCycle(int cycle) {
+	verifyPendingImageMutation(cycle);
 	verifyCaptureRoutes(); verifyCapturedFailedConsistent(); verifyCapturedCloseWithoutDestination(); verifyLateSubscriptionRefusal(); verifyPreflightSubscriptionRefusal(); verifyOrder(); verifyRollback(false); verifyRollback(true); verifyFailedConsistent(); verifyQuarantine(); verifyWakeFailure(); verifyLayoutRollback(false); verifyLayoutRollback(true); verifySettlementFailure(); verifyLayouts(); verifyMarkedMove(false); verifyMarkedMove(true); verifyMarkedDetachFailure();
 }
 
 int main() {
 	BTRCUI2ContainerProbe.prepare();
 	int completed = 0;
-	for (int cycle = 0; cycle < 100; cycle++) { verifyAcceptanceCycle(); completed++; }
+	for (int cycle = 0; cycle < 100; cycle++) { verifyAcceptanceCycle(cycle); completed++; }
 	assert(completed == 100);
 	print("UI2 acceptance UI2MacOSContainer cycles=100");
+	print("UI2_E29 pending_image cycles=100 commit=34 rollback_before=33 rollback_after=33 late_closed=100");
 	print("PASS: UI2 macOS container batches preserve order ownership and marked editing"); return 0;
 }

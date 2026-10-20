@@ -55,6 +55,9 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
             '[[native.pkg-config]]\nname = "sdl3"\nmodules = ["WindowCloseProbe"]\n'
         )
         source = package / fixture
+        if fixture == "UI2LinuxLifecycle.btrc":
+            source.write_text(source.read_text().replace("../../PendingImageGate.btrc", "PendingImageGate.btrc"))
+            shutil.copyfile(root / "src/tests/native/gui/ui2/PendingImageGate.btrc", package / "PendingImageGate.btrc")
     executable = build_provider_program(
         source,
         tmp_path,
@@ -74,6 +77,13 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
     (tmp_path / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
     assert marker in result.stdout
+    if fixture == "UI2LinuxLifecycle.btrc":
+        assert (
+            result.stdout.splitlines().count(
+                "UI2_E29 pending_image cycles=100 commit=34 rollback_step0=33 rollback_step1=33 late_closed=100"
+            )
+            == 1
+        )
     if fixture in CYCLE_SUITES:
         name, resource = CYCLE_SUITES[fixture]
         actual = [line for line in result.stdout.splitlines() if line.startswith("UI2_CYCLE ")]

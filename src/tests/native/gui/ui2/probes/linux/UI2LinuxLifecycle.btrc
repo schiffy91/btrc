@@ -11,9 +11,12 @@ import Library.GUI.IContainer;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxTextField;
+import Library.GUI.ControlEvents;
 import Library.GUI.Linux.SDL;
 
 import ./WindowCloseProbe.btrc;
+#include "../../PendingImageGate.btrc"
 #include <assert.h>
 #include <stdio.h>
 
@@ -144,6 +147,66 @@ class UI2LinuxAttachFault extends LinuxNodeView {
 }
 
 class UI2LinuxMutationChecks {
+	class void pendingImage(LinuxApplication application, int cycle) {
+		var window = application.createWindow("UI2 focused pending image mutation", 160.0, 80.0);
+		var root = application.createContainer(); var text = LinuxTextField(application.context(), "draft", "");
+		var image = application.createImageView(); var retained = image;
+		root.attach(text); root.attach(image); window.attachRoot(root); window.show();
+		text.arrange(0.0, 0.0, 80.0, 30.0); image.arrange(80.0, 0.0, 80.0, 80.0);
+		var native = application.firstWindow(); assert(native != null && (IWindow)native == window);
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (!native.pollDevice() && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); }
+		assert(native.pollDevice()); text.node().requestFocus();
+		for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+		var host = text.node().host; assert(host != null && host.focusedId == text.node().id);
+		var events = UI2LinuxMutationTextEvents(); var scope = CallbackScope();
+		text.onCommit(events, scope); text.onCancel(events, scope);
+		text.textEditing("pending", 3, 0); string draft = text.text();
+		var previous = LinuxImageHandle.create(PendingImageGate.pixels(31), 4); image.setImageHandle(previous); previous.close();
+		var gate = PendingImageGate(); int red = 100 + cycle;
+		Thread<LinuxImageHandle> worker = spawn(() => { var handle = LinuxImageHandle.create(PendingImageGate.pixels(red), 4); gate.hold(); return handle; });
+		LinuxImageHandle? completed = null;
+		try {
+			gate.waitReady(); assert(!gate.proceed.load(MemoryOrder.ACQUIRE));
+			long long revision = root.treeRevision();
+			var fault = UI2LinuxAttachFault(application.context()); fault.failures = cycle % 3 == 0 ? 0 : 1;
+			var move = ContainerEdit(); move.kind = CONTAINER_EDIT_MOVE; move.child = image; move.index = 0;
+			var insert = ContainerEdit(); insert.kind = CONTAINER_EDIT_INSERT; insert.child = fault; insert.index = 1;
+			Vector<ContainerEdit> edits = [move, insert];
+			if (cycle % 3 == 1) { edits = [insert, move]; }
+			var result = root.applyBatch(revision, edits);
+			if (cycle % 3 != 0) {
+				assert(result.kind == CONTAINER_BATCH_ROLLED_BACK && result.failedStep == (cycle % 3 == 1 ? 0 : 1));
+				assert(root.treeRevision() == revision && root.childCount() == 2 && root.childAt(0) == text && root.childAt(1) == retained && !fault.node().attached);
+				assert(text.node().host == host && host.focusedId == text.node().id && text.text().equals(draft));
+				result = root.applyBatch(revision, edits);
+			}
+			assert(result.kind == CONTAINER_BATCH_COMMITTED && root.childCount() == 3 && root.childAt(0) == retained);
+			assert(result.retained.contains(retained) && fault.isOpen());
+			assert(root.detach(fault) == fault && root.childCount() == 2 && fault.close() == CALLBACK_CANCELLATION_COMPLETE);
+			assert(text.node().host == host && host.focusedId == text.node().id && text.text().equals(draft) && events.calls == 0);
+			var before = native.render(true); assert(before != null);
+			var pixel = before.pixel(before.width * 3 / 4, before.height / 2); assert(pixel.red == 31 && pixel.green == 17 && pixel.blue == 39);
+		} finally { gate.proceed.store(true, MemoryOrder.RELEASE); completed = worker.join(); }
+		assert(completed != null && completed.isOpen() && !gate.expired.load(MemoryOrder.ACQUIRE));
+		retained.setImageHandle(completed); completed.close();
+		var after = native.render(true); assert(after != null);
+		var pixel = after.pixel(after.width * 3 / 4, after.height / 2); assert(pixel.red == red && pixel.green == 17 && pixel.blue == 39);
+		assert(text.node().host == host && host.focusedId == text.node().id && text.text().equals(draft) && events.calls == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		var lateGate = PendingImageGate();
+		Thread<LinuxImageHandle> late = spawn(() => { var handle = LinuxImageHandle.create(PendingImageGate.pixels(240), 4); lateGate.hold(); return handle; });
+		LinuxImageHandle? lateImage = null;
+		try {
+			lateGate.waitReady(); window.close();
+			for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
+			assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !retained.isOpen());
+		} finally { lateGate.proceed.store(true, MemoryOrder.RELEASE); lateImage = late.join(); }
+		assert(lateImage != null);
+		bool rejected = false; try { retained.setImageHandle(lateImage); } catch (string error) { rejected = true; }
+		lateImage.close(); assert(rejected && !lateImage.isOpen() && !lateGate.expired.load(MemoryOrder.ACQUIRE));
+	}
+
 	class void mutation(LinuxApplication application) {
 		var window = application.createWindow("UI2 mutation", 80.0, 80.0);
 		var root = application.createContainer(); var red = application.createPanel(RGBA(220, 10, 10, 255), 0.0); var blue = application.createPanel(RGBA(10, 10, 220, 255), 0.0);
@@ -181,7 +244,12 @@ class UI2LinuxMutationChecks {
 	}
 }
 
-void verifyLifecycleCycle() {
+class UI2LinuxMutationTextEvents implements ITextControlEventHandler {
+	public int calls = 0;
+	public void textEvent(TextControlEvent event) { self.calls++; }
+}
+
+void verifyLifecycleCycle(int cycle) {
 	var application = LinuxApplication(16); int credits = application.context().terminalPool.available(); var window = application.createWindow("UI2 eligibility", 240.0, 120.0);
 	var root = application.createContainer(); var button = application.createButton("retained preference");
 	var receiver = UI2LinuxStateReceiver(); var scope = CallbackScope();
@@ -214,6 +282,7 @@ void verifyLifecycleCycle() {
 	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
 	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
 	UI2LinuxButtonChecks.retirement(application); UI2LinuxWindowStateChecks.state(application); UI2LinuxImageChecks.retainedPixels(application); UI2LinuxMutationChecks.mutation(application);
+	UI2LinuxMutationChecks.pendingImage(application, cycle);
 	assert(application.context().actions.pendingCount() == 0);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(application.context().terminalPool.available() == credits);
@@ -225,9 +294,10 @@ int main() {
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
 	assert(ui2NativeWindowCount() == 0);
 	for (int cycle = 0; cycle < 100; cycle++) {
-		verifyLifecycleCycle(); assert(ui2NativeWindowCount() == 0);
+		verifyLifecycleCycle(cycle); assert(ui2NativeWindowCount() == 0);
 		printf("UI2_CYCLE lifecycle %d windows=0\n", cycle + 1); fflush(stdout);
 	}
 	printf("UI2_POLICY lifecycle work_capacity=16 fault_step=0 rollback_failures=1 quarantine_failures=2\n");
+	printf("UI2_E29 pending_image cycles=100 commit=34 rollback_step0=33 rollback_step1=33 late_closed=100\n");
 	printf("PASS: UI2 Linux inherited eligibility and scoped observations\n"); SDL_Quit(); return 0;
 }

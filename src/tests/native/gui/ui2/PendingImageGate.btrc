@@ -1,0 +1,35 @@
+import Library.Image;
+
+#include <assert.h>
+#include <time.h>
+#include <unistd.h>
+
+/* The worker calls hold only after creating the real provider handle. The UI
+ * owns this barrier until join and releases it even when a mutation throws. */
+class PendingImageGate {
+	public Atomic<bool> ready;
+	public Atomic<bool> proceed;
+	public Atomic<bool> expired;
+	public PendingImageGate() { self.ready.init(false); self.proceed.init(false); self.expired.init(false); }
+
+	class long long now() { struct timespec value; assert(clock_gettime(CLOCK_MONOTONIC, &value) == 0); return (long long)value.tv_sec * 1000000000LL + (long long)value.tv_nsec; }
+
+	class Image pixels(int red) {
+		var pixels = Image(2, 2);
+		for (int index = 0; index < 4; index++) { pixels.data[index * 4] = (unsigned char)red; pixels.data[index * 4 + 1] = 17; pixels.data[index * 4 + 2] = 39; pixels.data[index * 4 + 3] = 255; }
+		return pixels;
+	}
+
+	public void hold() {
+		long long deadline = PendingImageGate.now() + 30000000000LL;
+		self.ready.store(true, MemoryOrder.RELEASE);
+		while (!self.proceed.load(MemoryOrder.ACQUIRE) && PendingImageGate.now() < deadline) { usleep(100); }
+		if (!self.proceed.load(MemoryOrder.ACQUIRE)) { self.expired.store(true, MemoryOrder.RELEASE); }
+	}
+
+	public void waitReady() {
+		long long deadline = PendingImageGate.now() + 30000000000LL;
+		while (!self.ready.load(MemoryOrder.ACQUIRE) && PendingImageGate.now() < deadline) { usleep(100); }
+		assert(self.ready.load(MemoryOrder.ACQUIRE));
+	}
+}

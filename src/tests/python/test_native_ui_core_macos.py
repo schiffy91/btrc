@@ -121,6 +121,11 @@ def test_macos_ui2_scoped_worker_signal(
     manifest = package / "btrc.toml"
     root = Path(__file__).resolve().parents[3]
     source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
+    if fixture == "UI2MacOSContainer":
+        source.write_text(source.read_text().replace("../../PendingImageGate.btrc", "PendingImageGate.btrc"))
+        (source.parent / "PendingImageGate.btrc").write_text(
+            (root / "src/tests/native/gui/ui2/PendingImageGate.btrc").read_text()
+        )
     if fixture in {
         "UI2MacOSButtonState",
         "UI2MacOSButtonCloseFailure",
@@ -175,6 +180,7 @@ def test_macos_ui2_scoped_worker_signal(
                 "-[BTRCUI2ContainerProbe field]",
                 "-[BTRCUI2ContainerProbe begin:]",
                 "-[BTRCUI2ContainerProbe verifyFieldFirst:]",
+                "+[BTRCUI2ContainerProbe imageView:red:]",
                 "-[BTRCUI2ContainerProbe finish]",
             ]
         manifest.write_text(
@@ -241,6 +247,13 @@ def test_macos_ui2_scoped_worker_signal(
     assert marker in ran.stdout
     if repeated:
         assert ran.stdout.splitlines().count(f"UI2 acceptance {fixture} cycles=100") == 1
+    if fixture == "UI2MacOSContainer":
+        assert (
+            ran.stdout.splitlines().count(
+                "UI2_E29 pending_image cycles=100 commit=34 rollback_before=33 rollback_after=33 late_closed=100"
+            )
+            == 1
+        )
 
 
 @pytest.mark.parametrize("module", ["MacOSViewInput", "MacOSComposedCapture"])
