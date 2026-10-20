@@ -100,6 +100,7 @@ class BoundaryTrial {
 		printf("E40 count=%d terminal=%d boundary=%d first_keys=%d queued_after_first=%d total_keys=%d expected_keys=%d closed_keys=%d first_key_mismatch=%d releases=%d text=%d close=%d bounded=%d work=%d frame=%d lossless=%d\n", count, terminal, boundary, firstDelivered, remaining, keys.codes.len, expected.len, terminal == 3 ? expected.len - keys.codes.len : 0, mismatch, keys.releases, textDelivered ? 1 : 0, closeDelivered ? 1 : 0, bounded ? 1 : 0, work.runs, frameProgress ? 1 : 0, passed ? 1 : 0);
 		fflush(stdout);
 		printf("E40_ADMISSION accepted=%d rejected=%d\n", eventBoundaryAccepted(), eventBoundaryRejected());
+		fflush(stdout);
 		assert(eventBoundaryAccepted() == count && eventBoundaryRejected() == 0);
 		eventBoundaryDisarm();
 		scope.cancel();

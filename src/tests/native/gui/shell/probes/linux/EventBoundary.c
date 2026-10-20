@@ -36,8 +36,7 @@ int eventBoundaryLatest(void) { return latest; }
 /* After flushing setup traffic, isolate newly submitted target input from
  * asynchronous compositor notifications. Admitted test events are not
  * synthesized, reordered, removed or modified by the observer. */
-static bool accepted(void *unused, SDL_Event *event) {
-    (void)unused;
+static bool testInput(const SDL_Event *event) {
     if (event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP)
         return event->key.windowID == target;
     if (event->type == SDL_EVENT_TEXT_INPUT)
@@ -45,9 +44,16 @@ static bool accepted(void *unused, SDL_Event *event) {
     return event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event->window.windowID == target;
 }
 
+static bool accepted(void *unused, SDL_Event *event) {
+    (void)unused;
+    /* The production scheduler and sliced input loop both need real SDL wakes.
+     * Refusing their user events would inject an unrelated native-source failure. */
+    return event->type == SDL_EVENT_USER || testInput(event);
+}
+
 bool __real_SDL_PushEvent(SDL_Event *event);
 bool __wrap_SDL_PushEvent(SDL_Event *event) {
-    bool relevant = armed && accepted(NULL, event);
+    bool relevant = armed && testInput(event);
     bool result = __real_SDL_PushEvent(event);
     if (relevant) { if (result) { admitted++; } else { rejected++; } }
     return result;
@@ -64,7 +70,12 @@ void eventBoundaryArm(unsigned int window) {
 }
 
 int eventBoundaryQueued(void) {
-    return SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
+    /* Peek the injected classes without counting or removing permitted wakes. */
+    int keys = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP);
+    int text = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_TEXT_INPUT, SDL_EVENT_TEXT_INPUT);
+    int close = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_WINDOW_CLOSE_REQUESTED, SDL_EVENT_WINDOW_CLOSE_REQUESTED);
+    if (keys < 0 || text < 0 || close < 0) { abort(); }
+    return keys + text + close;
 }
 
 void eventBoundaryClose(unsigned int window) {
