@@ -1,0 +1,336 @@
+import Library.Vector;
+import Library.Callback;
+import Library.GUI.ControlEventQueue;
+
+#include <assert.h>
+#include <stdio.h>
+
+class CaptureReceiver {
+	public Vector<int> values = [];
+	public int pending = 0;
+	public bool fail = false;
+	public bool publishDuring = false;
+	public bool cancelDuring = false;
+	public ControlEventCaptureOwner? owner = null;
+	public ControlEventQueue? queue = null;
+	public ControlEventCaptureRegistration? registration = null;
+	public ControlEventCaptureRegistration? other = null;
+	public void receive(int value) {
+		self.values.push(value);
+		if (self.cancelDuring) {
+			var owner = self.owner; var registration = self.registration;
+			assert(owner != null && registration != null && owner.entered() && self.pending == 1);
+			registration.cancel(); assert(owner.used() == 0 && owner.entered() && self.pending == 1);
+		}
+		if (self.publishDuring) {
+			self.publishDuring = false; var owner = self.owner; var queue = self.queue; var registration = self.registration; var other = self.other;
+			assert(owner != null && queue != null && registration != null && other != null && owner.entered());
+			CaptureChecks.snapshot(owner, queue, registration, self, 2);
+			CaptureChecks.snapshot(owner, queue, other, self, 3);
+			var ordered = owner.reserveOrdered(registration); assert(ordered != null);
+			CaptureChecks.ordered(queue, registration, self, 4, ordered);
+			bool refused = false; try { queue.dispatchOne(); } catch (string error) { refused = true; }
+			assert(refused && owner.entered());
+		}
+		if (self.fail) { throw "Capture receiver failed"; }
+	}
+}
+
+class CaptureInvocation implements IControlEventInvocation {
+	private CaptureReceiver _receiver;
+	private int _value;
+	private ControlEventDisposition _disposition;
+	public CaptureInvocation(CaptureReceiver receiver, int value, ControlEventDisposition disposition = CONTROL_EVENT_DELIVERED) { self._receiver = receiver; self._value = value; self._disposition = disposition; }
+
+	public void admitted() { self._receiver.pending++; }
+
+	public ControlEventDisposition invoke() { if (self._disposition == CONTROL_EVENT_DELIVERED) { self._receiver.receive(self._value); } return self._disposition; }
+
+	public void retired() { assert(self._receiver.pending > 0); self._receiver.pending--; }
+}
+
+class CaptureWake implements IControlEventWake { public bool requestTurn() { return false; } }
+
+class CaptureHook implements IControlEventInvocation {
+	public CaptureReceiver receiver;
+	public int value;
+	public int admissions = 0;
+	public int retirements = 0;
+	public bool failAdmission = false;
+	public bool failRetirement = false;
+	public ControlEventTicket? abandon = null;
+	public ControlEventQueue? closeDuring = null;
+	public CaptureHook(CaptureReceiver receiver, int value) { self.receiver = receiver; self.value = value; }
+
+	public void admitted() {
+		self.admissions++; if (self.failAdmission) { throw "admission failure"; }
+		self.receiver.pending++;
+		if (self.abandon != null) { self.abandon.retire(); }
+		if (self.closeDuring != null) { self.closeDuring.close(); }
+	}
+
+	public ControlEventDisposition invoke() { self.receiver.receive(self.value); return CONTROL_EVENT_DELIVERED; }
+
+	public void retired() { self.retirements++; assert(self.receiver.pending > 0); self.receiver.pending--; if (self.failRetirement) { throw "retirement failure"; } }
+}
+
+class CaptureTarget implements IControlEventTarget { public ControlEventDisposition admission(long long generation) { return CONTROL_EVENT_DELIVERED; } }
+class CaptureValue { public int value; public CaptureValue(int value) { self.value = value; } }
+class CaptureLegacyReceiver { public int calls = 0; class void deliver(CaptureLegacyReceiver receiver, CaptureValue value) { receiver.calls += value.value; } }
+
+class CaptureChecks {
+	class void snapshot(ControlEventCaptureOwner owner, ControlEventQueue queue, ControlEventCaptureRegistration registration, CaptureReceiver receiver, int value, long long interaction = 1LL, long long key = 1LL, ControlEventDisposition disposition = CONTROL_EVENT_DELIVERED) {
+		var receipt = owner.capture(registration);
+		try { assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, interaction, key, CaptureInvocation(receiver, value, disposition), null, receipt))); }
+		catch (string error) { receipt.retired(); throw error; }
+	}
+
+	class void ordered(ControlEventQueue queue, ControlEventCaptureRegistration registration, CaptureReceiver receiver, int value, ControlEventCaptureLease lease) {
+		var receipt = lease.commit();
+		try { assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 0LL, CaptureInvocation(receiver, value), null, receipt))); }
+		catch (string error) { receipt.retired(); throw error; }
+	}
+
+	class void terminal(ControlEventQueue queue, ControlEventTerminalPool pool, ControlEventCaptureRegistration registration, CaptureReceiver receiver, int value, ControlEventCaptureLease lease) {
+		assert(pool.reserve()); var ticket = ControlEventTicket(pool, registration.identity(), true); var receipt = lease.commit();
+		assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 0LL, CaptureInvocation(receiver, value), ticket, receipt)));
+	}
+
+	class void close(ControlEventCaptureOwner owner, ControlEventQueue queue, CaptureReceiver receiver) { owner.seal(); queue.close(); assert(owner.used() == 0 && !owner.entered() && receiver.pending == 0); }
+
+	class void replacementAndBaseRecovery() {
+		var pool = ControlEventTerminalPool(8); var owner = ControlEventCaptureOwner(4, pool); var queue = ControlEventQueue(1, pool, 0, owner); var receiver = CaptureReceiver();
+		var first = owner.reserveRegistration(true, false); var second = owner.reserveRegistration(true, true);
+		assert(first != null && second != null && owner.used() == 4);
+		CaptureChecks.snapshot(owner, queue, first, receiver, 10); CaptureChecks.snapshot(owner, queue, first, receiver, 11);
+		var base = owner.reserveBarrier(second); assert(base != null);
+		CaptureChecks.terminal(queue, pool, second, receiver, 20, base);
+		CaptureChecks.snapshot(owner, queue, first, receiver, 12); CaptureChecks.snapshot(owner, queue, first, receiver, 13);
+		assert(queue.pendingCount() == 3 && owner.used() == 4 && owner.reserveBarrier(second) == null);
+		while (queue.dispatchOne()) {}
+		assert(receiver.values.len == 3 && receiver.values.get(0) == 11 && receiver.values.get(1) == 20 && receiver.values.get(2) == 13);
+		assert(queue.retired(CONTROL_EVENT_SUPERSEDED) == 2LL && owner.used() == 4);
+		var rearmed = owner.reserveBarrier(second); assert(rearmed != null); rearmed.cancel();
+		CaptureChecks.snapshot(owner, queue, first, receiver, 30);
+		base = owner.reserveBarrier(second); assert(base != null); CaptureChecks.terminal(queue, pool, second, receiver, 40, base);
+		queue.cancelRegistration(second.identity());
+		CaptureChecks.snapshot(owner, queue, first, receiver, 35); assert(queue.pendingCount() == 2);
+		assert(owner.reserveBarrier(second) == null && owner.used() == 4);
+		assert(queue.dispatchOne()); rearmed = owner.reserveBarrier(second); assert(rearmed != null); rearmed.cancel();
+		assert(queue.dispatchOne() && receiver.values.get(receiver.values.len - 1) == 35);
+		assert(pool.available() == 8); CaptureChecks.close(owner, queue, receiver);
+	}
+
+	class void subscriptionObligations() {
+		var pool = ControlEventTerminalPool(8);
+		var owner = ControlEventCaptureOwner(4, pool); var first = owner.reserveRegistration(true, true); assert(first != null && owner.used() == 2);
+		var old = owner.capture(first); var lease = owner.reserveBarrier(first); assert(lease != null); var barrier = lease.commit();
+		var second = owner.reserveRegistration(true, false); assert(second != null && owner.used() == 4);
+		assert(owner.reserveRegistration(true, false) == null && owner.used() == 4);
+		second.cancel(); second.cancel(); assert(owner.used() == 2);
+		barrier.retired(); var overlap = owner.reserveBarrier(first); assert(overlap != null && owner.used() == 3); overlap.cancel();
+		old.retired(); var ready = owner.reserveBarrier(first); assert(ready != null); ready.cancel(); owner.seal(); assert(owner.used() == 0);
+		var consumed = ControlEventCaptureOwner(3, pool); var source = consumed.reserveRegistration(true, false); assert(source != null);
+		var prior = consumed.capture(source); var once = consumed.reserveBarrier(source); assert(once != null); var final = once.commit();
+		var later = consumed.reserveRegistration(true, false); assert(later != null && consumed.used() == 3);
+		final.retired(); prior.retired(); assert(consumed.used() == 2); consumed.seal(); assert(consumed.used() == 0);
+		var future = ControlEventCaptureOwner(3, pool); source = future.reserveRegistration(true, false); assert(source != null);
+		once = future.reserveBarrier(source); assert(once != null && future.used() == 2);
+		assert(future.reserveRegistration(true, false) == null && future.used() == 2);
+		once.cancel(); later = future.reserveRegistration(true, false); assert(later != null && future.used() == 2);
+		future.seal(); assert(future.used() == 0);
+	}
+
+	class void localKeysAndOrderedRecords() {
+		var pool = ControlEventTerminalPool(2); var owner = ControlEventCaptureOwner(2, pool); var queue = ControlEventQueue(1, pool, 0, owner); var receiver = CaptureReceiver();
+		var registration = owner.reserveRegistration(true, false); assert(registration != null);
+		CaptureChecks.snapshot(owner, queue, registration, receiver, 1, 1LL);
+		var next = owner.reserveKeyChange(registration); assert(next != null); var transition = next.commit(); transition.retired();
+		CaptureChecks.snapshot(owner, queue, registration, receiver, 2, 2LL);
+		int model = 2; var refused = owner.reserveKeyChange(registration); if (refused != null) { model = 3; refused.cancel(); }
+		assert(refused == null && model == 2 && owner.used() == 2);
+		bool misuse = false; try { CaptureChecks.snapshot(owner, queue, registration, receiver, 3, 3LL); } catch (string error) { misuse = true; }
+		assert(misuse && queue.pendingCount() == 2 && receiver.pending == 2 && owner.used() == 2);
+		CaptureChecks.snapshot(owner, queue, registration, receiver, 4, 2LL);
+		while (queue.dispatchOne()) {}
+		assert(receiver.values.len == 2 && receiver.values.get(0) == 1 && receiver.values.get(1) == 4 && owner.used() == 1);
+		assert(owner.reserveOrdered(registration) == null && owner.used() == 1); CaptureChecks.close(owner, queue, receiver);
+		var orderedOwner = ControlEventCaptureOwner(3, pool); registration = orderedOwner.reserveRegistration(true, false); assert(registration != null);
+		var prepared = orderedOwner.reserveOrdered(registration); assert(prepared != null && orderedOwner.used() == 3);
+		var receipt = prepared.commit(); bool released = false; try { prepared.cancel(); } catch (string error) { released = true; }
+		assert(released && orderedOwner.used() == 3); receipt.retired(); assert(orderedOwner.used() == 1);
+		orderedOwner.seal(); assert(orderedOwner.used() == 0);
+	}
+
+	class void enteredOwnership() {
+		var pool = ControlEventTerminalPool(8); var owner = ControlEventCaptureOwner(5, pool); var queue = ControlEventQueue(1, pool, 0, owner); var receiver = CaptureReceiver();
+		var first = owner.reserveRegistration(true, false); var second = owner.reserveRegistration(true, false); assert(first != null && second != null);
+		receiver.owner = owner; receiver.queue = queue; receiver.registration = first; receiver.other = second; receiver.publishDuring = true;
+		CaptureChecks.snapshot(owner, queue, first, receiver, 1);
+		assert(queue.dispatchOne() && !owner.entered() && owner.used() == 5 && queue.pendingCount() == 3);
+		while (queue.dispatchOne()) {}
+		assert(receiver.values.len == 4 && receiver.values.get(0) == 1 && receiver.values.get(1) == 2 && receiver.values.get(2) == 3 && receiver.values.get(3) == 4 && owner.used() == 2);
+		receiver.owner = null; receiver.queue = null; receiver.registration = null; receiver.other = null;
+		CaptureChecks.close(owner, queue, receiver);
+		var cancelled = ControlEventCaptureOwner(1, pool); var cancelledQueue = ControlEventQueue(1, pool, 0, cancelled); var during = CaptureReceiver();
+		var live = cancelled.reserveRegistration(true, false); assert(live != null);
+		during.owner = cancelled; during.registration = live; during.cancelDuring = true;
+		CaptureChecks.snapshot(cancelled, cancelledQueue, live, during, 9);
+		assert(cancelledQueue.dispatchOne() && cancelled.used() == 0 && !cancelled.entered() && during.pending == 0);
+		during.owner = null; during.registration = null; CaptureChecks.close(cancelled, cancelledQueue, during);
+	}
+
+	class void metadataAndForeignOwners() {
+		var pool = ControlEventTerminalPool(8);
+		var disabled = ControlEventCaptureOwner(0, pool); assert(disabled.reserveRegistration(false, true) == null);
+		var owner = ControlEventCaptureOwner(1, pool); var registration = owner.reserveRegistration(false, true); assert(registration != null && owner.used() == 0);
+		assert(owner.reserveRegistration(false, false) == null);
+		var first = owner.reserveBarrier(registration); assert(first != null && owner.reserveBarrier(registration) == null); first.cancel();
+		var other = ControlEventCaptureOwner(1, pool); bool foreign = false;
+		try { other.reserveBarrier(registration); } catch (string error) { foreign = true; }
+		assert(foreign && owner.used() == 0 && other.used() == 0); owner.seal(); other.seal();
+	}
+
+	class void cancellationAndRebind() {
+		var pool = ControlEventTerminalPool(8); var owner = ControlEventCaptureOwner(4, pool); var queue = ControlEventQueue(1, pool, 0, owner); var receiver = CaptureReceiver();
+		var registration = owner.reserveRegistration(true, true); assert(registration != null);
+		CaptureChecks.snapshot(owner, queue, registration, receiver, 1);
+		var destination = ControlEventCaptureOwner(2, pool); var blocker = destination.reserveRegistration(true, false); assert(blocker != null);
+		var prepared = destination.reserveRegistration(true, true); assert(prepared == null && owner.used() == 2 && receiver.pending == 1 && destination.used() == 1);
+		blocker.cancel(); prepared = destination.reserveRegistration(true, true); assert(prepared != null && destination.used() == 2);
+		// Destination reservation stays unexposed until the whole move can commit.
+		queue.cancelRegistration(registration.identity()); registration.cancel(); assert(owner.used() == 0 && receiver.pending == 0);
+		var destinationQueue = ControlEventQueue(1, pool, 0, destination); CaptureChecks.snapshot(destination, destinationQueue, prepared, receiver, 2);
+		bool stale = false; try { owner.capture(registration); } catch (string error) { stale = true; }
+		assert(stale && destinationQueue.dispatchOne() && receiver.values.len == 1 && receiver.values.get(0) == 2);
+		CaptureChecks.close(owner, queue, receiver); CaptureChecks.close(destination, destinationQueue, receiver);
+		var draining = ControlEventCaptureOwner(2, pool); registration = draining.reserveRegistration(true, true); assert(registration != null);
+		var record = draining.capture(registration); registration.cancel(); assert(draining.used() == 1);
+		record.retired(); assert(draining.used() == 0); draining.seal();
+	}
+
+	class void abandonedPreparations() {
+		var pool = ControlEventTerminalPool(8); var owner = ControlEventCaptureOwner(6, pool);
+		{ var temporary = owner.reserveRegistration(true, true); assert(temporary != null && owner.used() == 2); }
+		assert(owner.used() == 0);
+		var registration = owner.reserveRegistration(true, false); assert(registration != null);
+		{ var lease = owner.reserveOrdered(registration); assert(lease != null && owner.used() == 3); }
+		assert(owner.used() == 1);
+		{ var receipt = owner.capture(registration); assert(owner.used() == 1); }
+		{ ControlEventCaptureReceipt? receipt = owner.capture(registration); var queue = ControlEventQueue(1, pool, 0, owner); var receiver = CaptureReceiver();
+			assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, CaptureInvocation(receiver, 1), null, receipt)));
+			receipt = null;
+			assert(receiver.pending == 1 && queue.dispatchOne() && receiver.values.get(0) == 1); queue.close(); }
+		assert(owner.used() == 0);
+		var ordered = ControlEventCaptureOwner(3, pool); var source = ordered.reserveRegistration(true, false); assert(source != null);
+		var lease = ordered.reserveOrdered(source); assert(lease != null); ControlEventCaptureBarrier? barrier = lease.commit(); lease = null;
+		assert(ordered.used() == 3); barrier = null; assert(ordered.used() == 1); source.cancel(); assert(ordered.used() == 0);
+	}
+
+	class void queueOwnership() {
+		var pool = ControlEventTerminalPool(8); var owner = ControlEventCaptureOwner(2, pool); var queue = ControlEventQueue(1, pool, 0, owner);
+		bool refused = false; try { var duplicate = ControlEventQueue(1, pool, 0, owner); } catch (string error) { refused = true; } assert(refused);
+		var other = ControlEventCaptureOwner(2, pool); var foreignQueue = ControlEventQueue(1, pool, 0, other);
+		var registration = owner.reserveRegistration(true, false); assert(registration != null); var receipt = owner.capture(registration); var receiver = CaptureReceiver();
+		refused = false; try { foreignQueue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, CaptureInvocation(receiver, 1), null, receipt)); } catch (string error) { refused = true; }
+		assert(refused && receiver.pending == 0 && owner.used() == 1 && foreignQueue.pendingCount() == 0);
+		refused = false; try { queue.enqueue(ControlEventRecord(pool.registrationIdentity(), 1LL, 1LL, 1LL, CaptureInvocation(receiver, 2), null, receipt)); } catch (string error) { refused = true; }
+		assert(refused && receiver.pending == 0 && queue.pendingCount() == 0);
+		assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, CaptureInvocation(receiver, 1), null, receipt)));
+		var scope = CallbackScope(); var legacy = CaptureLegacyReceiver();
+		var channel = new ControlEventChannel<CaptureLegacyReceiver, CaptureValue>(queue, CaptureTarget(), legacy, CaptureLegacyReceiver.deliver, scope);
+		assert(channel.publish(CaptureValue(7), 1LL, 0LL, 1LL) && queue.pendingCount() == 2);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && queue.pendingCount() == 1);
+		assert(queue.dispatchOne() && receiver.values.get(0) == 1 && legacy.calls == 0);
+		queue.close(); foreignQueue.close(); assert(owner.used() == 0 && other.used() == 0);
+		refused = false; var mismatched = ControlEventCaptureOwner(1, pool);
+		try { var invalid = ControlEventQueue(1, ControlEventTerminalPool(1), 0, mismatched); } catch (string error) { refused = true; } assert(refused);
+	}
+
+	class void atomicAdmission() {
+		var pool = ControlEventTerminalPool(8); var owner = ControlEventCaptureOwner(3, pool); var queue = ControlEventQueue(1, pool, 0, owner); var receiver = CaptureReceiver();
+		var registration = owner.reserveRegistration(true, false); assert(registration != null); var receipt = owner.capture(registration);
+		var hook = CaptureHook(receiver, 1); hook.failAdmission = true; bool failed = false;
+		try { queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, hook, null, receipt)); } catch (string error) { failed = error == "admission failure"; }
+		assert(failed && hook.admissions == 1 && hook.retirements == 0 && receiver.pending == 0 && queue.pendingCount() == 0);
+		hook.failAdmission = false; assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, hook, null, receipt)));
+		assert(queue.dispatchOne() && hook.retirements == 1 && receiver.pending == 0);
+		for (int index = 0; index < 3; index++) {
+			var lease = owner.reserveBarrier(registration); assert(lease != null); var barrier = lease.commit();
+			assert(pool.reserve()); var ticket = ControlEventTicket(pool, registration.identity(), true); var attempt = CaptureHook(receiver, 2);
+			if (index == 0) { ticket.retire(); } else { attempt.abandon = ticket; attempt.failRetirement = index == 2; }
+			failed = false; try { queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 0LL, attempt, ticket, barrier)); }
+			catch (string error) { failed = error == "Control terminal ticket is stale or belongs to another registration"; }
+			assert(failed && attempt.admissions == (index == 0 ? 0 : 1) && attempt.retirements == (index == 0 ? 0 : 1));
+			assert(receiver.pending == 0 && queue.pendingCount() == 0 && !ticket.queued() && pool.available() == 8);
+			barrier.retired(); assert(owner.used() == 1);
+		}
+		receipt = owner.capture(registration); var closing = CaptureHook(receiver, 3); closing.closeDuring = queue;
+		failed = false; try { queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, closing, null, receipt)); } catch (string error) { failed = true; }
+		assert(failed && closing.admissions == 1 && closing.retirements == 1 && receiver.pending == 0 && owner.used() == 1);
+		assert(!queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, CaptureInvocation(receiver, 4), null, receipt)));
+		receipt.retired(); assert(owner.used() == 0);
+	}
+
+	class void cancelledAdmission() {
+		var pool = ControlEventTerminalPool(2); var owner = ControlEventCaptureOwner(1, pool); var queue = ControlEventQueue(1, pool, 0, owner);
+		var registration = owner.reserveRegistration(true, false); assert(registration != null); var receipt = owner.capture(registration); registration.cancel();
+		var receiver = CaptureReceiver(); var hook = CaptureHook(receiver, 1); bool failed = false;
+		try { queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, hook, null, receipt)); } catch (string error) { failed = true; }
+		assert(failed && hook.admissions == 0 && queue.pendingCount() == 0 && owner.used() == 1); receipt.retired(); assert(owner.used() == 0); queue.close();
+	}
+
+	class void atomicReplacement() {
+		var pool = ControlEventTerminalPool(8); var owner = ControlEventCaptureOwner(1, pool); var queue = ControlEventQueue(1, pool, 0, owner); var receiver = CaptureReceiver();
+		var registration = owner.reserveRegistration(true, false); assert(registration != null);
+		var old = CaptureHook(receiver, 1); var receipt = owner.capture(registration);
+		assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, old, null, receipt)));
+		var next = CaptureHook(receiver, 2); next.failAdmission = true; var candidate = owner.capture(registration); bool failed = false;
+		try { queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, next, null, candidate)); } catch (string error) { failed = error == "admission failure"; }
+		assert(failed && old.retirements == 0 && next.retirements == 0 && receiver.pending == 1 && queue.pendingCount() == 1 && queue.retired(CONTROL_EVENT_SUPERSEDED) == 0LL);
+		candidate.retired(); assert(queue.dispatchOne() && receiver.values.get(0) == 1 && old.retirements == 1);
+		old = CaptureHook(receiver, 3); old.failRetirement = true; receipt = owner.capture(registration);
+		assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, old, null, receipt)));
+		next = CaptureHook(receiver, 4); candidate = owner.capture(registration);
+		assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, next, null, candidate)));
+		assert(receiver.pending == 1 && old.retirements == 1 && next.admissions == 1 && queue.retired(CONTROL_EVENT_SUPERSEDED) == 1LL);
+		failed = false; try { queue.dispatchOne(); } catch (string error) { failed = error == "retirement failure"; }
+		assert(failed && receiver.values.len == 1 && queue.pendingCount() == 1 && !queue.canCapture(0));
+		queue.close(); assert(next.retirements == 1 && receiver.pending == 0 && owner.used() == 0 && queue.retired(CONTROL_EVENT_CLOSED) == 1LL);
+	}
+
+	class void replacementRevalidation() {
+		var pool = ControlEventTerminalPool(2); var owner = ControlEventCaptureOwner(1, pool); var queue = ControlEventQueue(1, pool, 0, owner); var receiver = CaptureReceiver();
+		var registration = owner.reserveRegistration(true, false); assert(registration != null); var old = CaptureHook(receiver, 1);
+		assert(queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, old, null, owner.capture(registration))));
+		var next = CaptureHook(receiver, 2); next.closeDuring = queue; next.failRetirement = true; var candidate = owner.capture(registration); bool failed = false;
+		try { queue.enqueue(ControlEventRecord(registration.identity(), 1LL, 1LL, 1LL, next, null, candidate)); } catch (string error) { failed = error == "Semantic queue is closed"; }
+		assert(failed && old.retirements == 1 && next.retirements == 1 && receiver.pending == 0 && queue.pendingCount() == 0 && owner.used() == 0);
+		assert(queue.retired(CONTROL_EVENT_SUPERSEDED) == 0LL && queue.retired(CONTROL_EVENT_CLOSED) == 1LL); candidate.retired();
+	}
+
+	class void failureRetirement() {
+		for (int index = 0; index < 4; index++) {
+			var pool = ControlEventTerminalPool(2); var owner = ControlEventCaptureOwner(1, pool); var queue = ControlEventQueue(1, pool, 0, owner); var receiver = CaptureReceiver();
+			var registration = owner.reserveRegistration(true, false); assert(registration != null);
+			if (index == 0) { queue.setWake(CaptureWake()); }
+			receiver.fail = index == 1;
+			ControlEventDisposition disposition = index == 2 ? CONTROL_EVENT_STALE_GENERATION : (index == 3 ? CONTROL_EVENT_INELIGIBLE : CONTROL_EVENT_DELIVERED);
+			CaptureChecks.snapshot(owner, queue, registration, receiver, 1, 1LL, 1LL, disposition);
+			bool failed = false; try { queue.dispatchOne(); } catch (string error) { failed = true; }
+			assert(failed == (index <= 1) && !owner.entered());
+			if (index >= 2) { assert(queue.retired(disposition) == 1LL && receiver.values.len == 0); }
+			if (index == 1) { assert(queue.retired(CONTROL_EVENT_FAILED) == 1LL); }
+			CaptureChecks.close(owner, queue, receiver);
+			assert(owner.reserveRegistration(true, false) == null && owner.available() == 1);
+		}
+	}
+}
+
+int main() {
+	CaptureChecks.replacementAndBaseRecovery(); CaptureChecks.subscriptionObligations(); CaptureChecks.localKeysAndOrderedRecords();
+	CaptureChecks.enteredOwnership(); CaptureChecks.cancellationAndRebind(); CaptureChecks.failureRetirement();
+	CaptureChecks.metadataAndForeignOwners(); CaptureChecks.abandonedPreparations(); CaptureChecks.queueOwnership();
+	CaptureChecks.atomicAdmission(); CaptureChecks.atomicReplacement(); CaptureChecks.cancelledAdmission(); CaptureChecks.replacementRevalidation();
+	printf("PASS: UI2 capture credits preserve epochs ownership and finite admission\n"); return 0;
+}

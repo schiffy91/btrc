@@ -39,6 +39,19 @@ def test_ui2_held_receipts(tmp_path, request, frontend, sanitized):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_ui2_capture_credits(tmp_path, request, frontend, sanitized):
+    _run_fixture(
+        tmp_path,
+        request,
+        frontend,
+        sanitized,
+        "ControlEventCapture",
+        "PASS: UI2 capture credits preserve epochs ownership and finite admission",
+    )
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 def test_ui2_slider_value(tmp_path, request, frontend, sanitized):
     _run_fixture(
         tmp_path,
