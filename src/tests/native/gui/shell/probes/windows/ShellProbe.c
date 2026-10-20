@@ -12,6 +12,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <commctrl.h>
+#include <tlhelp32.h>
 #include "ShellProbe.h"
 #include <assert.h>
 #include <stdio.h>
@@ -24,6 +25,62 @@
 static int drains;
 static int dumps;
 static void trackWglWorkers(void);
+static void resourcePhase(const char *phase, int cycle);
+static void observationFlush(void);
+/* Diagnostic modes are opt-in. Normal runs retain the original census path. */
+static int observationMode(void) {
+    const char *value = getenv("BTRC_UI_SHELL_USER_DIAGNOSTIC");
+    if (!value || !*value) return 0;
+    if (strcmp(value, "count-only") == 0) return 1;
+    if (strcmp(value, "query-bracket") == 0) return 2;
+    assert(!"Unknown USER diagnostic mode"); return 0;
+}
+typedef struct QueryObservation {
+    const char *operation;
+    uintptr_t subject, result;
+    DWORD before, after, beforeError, afterError, error, thread;
+    int cycle;
+    ULONGLONG began, ended;
+} QueryObservation;
+static QueryObservation queryObservations[8192];
+static unsigned queryCount;
+static int observeQueries, observationCycle;
+static QueryObservation *queryBegin(const char *operation, uintptr_t subject) {
+    if (!observeQueries) return NULL;
+    if (queryCount == sizeof queryObservations / sizeof queryObservations[0]) {
+        observationFlush();
+        fprintf(stderr, "SHELL query-overflow capacity=8192\n");
+        assert(!"USER query observation overflow");
+    }
+    QueryObservation *record = &queryObservations[queryCount++];
+    record->cycle = observationCycle; record->operation = operation; record->subject = subject;
+    record->thread = GetCurrentThreadId();
+    SetLastError(ERROR_SUCCESS);
+    record->before = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    record->beforeError = GetLastError();
+    record->began = GetTickCount64();
+    SetLastError(ERROR_SUCCESS);
+    return record;
+}
+static void queryEnd(QueryObservation *record, uintptr_t result, DWORD error) {
+    if (!record) return;
+    record->ended = GetTickCount64(); record->result = result; record->error = error;
+    SetLastError(ERROR_SUCCESS);
+    record->after = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    record->afterError = GetLastError();
+    SetLastError(error);
+}
+static void observationFlush(void) {
+    for (unsigned index = 0; index < queryCount; index++) {
+        QueryObservation *r = &queryObservations[index];
+        fprintf(stderr, "SHELL query cycle=%d operation=%s subject=%p result=%p thread=%lu before=%lu after=%lu before-error=%lu after-error=%lu error=%lu began-ms=%llu ended-ms=%llu\n",
+            r->cycle, r->operation, (void *)r->subject, (void *)r->result, (unsigned long)r->thread,
+            (unsigned long)r->before, (unsigned long)r->after, (unsigned long)r->beforeError,
+            (unsigned long)r->afterError, (unsigned long)r->error,
+            (unsigned long long)r->began, (unsigned long long)r->ended);
+    }
+    queryCount = 0; fflush(stderr);
+}
 
 static int isClass(HWND window, const WCHAR *name) {
     WCHAR actual[64];
@@ -73,6 +130,7 @@ static Controls controls(void) {
 }
 
 void shellProbeObserve(void) {
+    resourcePhase("observe", drains + 1);
     Controls found = controls();
     int labels = 0;
     for (HWND label = GetWindow(found.document, GW_CHILD); label; label = GetWindow(label, GW_HWNDNEXT)) {
@@ -84,6 +142,7 @@ void shellProbeObserve(void) {
 
 /* The deepest visible child under a content point, as Win32 hit-tests a click. */
 void shellProbeClick(double x, double y) {
+    resourcePhase("click-before-submit", drains + 1);
     HWND target = window();
     double factor = scale(target);
     POINT point = {(LONG)(x * factor + 0.5), (LONG)(y * factor + 0.5)};
@@ -97,31 +156,43 @@ void shellProbeClick(double x, double y) {
     assert(PostMessageW(target, WM_MOUSEMOVE, 0, where));
     assert(PostMessageW(target, WM_LBUTTONDOWN, MK_LBUTTON, where));
     assert(PostMessageW(target, WM_LBUTTONUP, 0, where));
+    resourcePhase("click-after-submit", drains + 1);
 }
 static void key(UINT code, WCHAR character) {
+    resourcePhase(code == VK_TAB ? "tab-before-submit" : "enter-before-submit", drains + 1);
     HWND focus = GetFocus();
     assert(focus && "no focused window for key input");
     UINT scan = MapVirtualKeyW(code, MAPVK_VK_TO_VSC);
     assert(PostMessageW(focus, WM_KEYDOWN, code, (LPARAM)(1u | (scan << 16))));
     if (character) assert(PostMessageW(focus, WM_CHAR, character, (LPARAM)(1u | (scan << 16))));
     assert(PostMessageW(focus, WM_KEYUP, code, (LPARAM)(1u | (scan << 16) | (1u << 30) | (1u << 31))));
+    resourcePhase(code == VK_TAB ? "tab-after-submit" : "enter-after-submit", drains + 1);
 }
 void shellProbeTab(void) { key(VK_TAB, L'\t'); }
 void shellProbeEnter(void) { key(VK_RETURN, L'\r'); }
 void shellProbeText(void) {
+    resourcePhase("text-before-submit", drains + 1);
     HWND focus = GetFocus();
     assert(focus && isClass(focus, L"Edit"));
     for (const WCHAR *character = L"draft"; *character; character++) assert(PostMessageW(focus, WM_CHAR, *character, 1));
+    resourcePhase("text-after-submit", drains + 1);
 }
 /* Three notches down over the viewport, in screen coordinates as Win32 sends them. */
 void shellProbeScroll(void) {
+    resourcePhase("scroll-before-submit", drains + 1);
     HWND scroll = controls().scroll;
     RECT bounds;
     assert(GetWindowRect(scroll, &bounds));
     LPARAM where = MAKELPARAM((bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2);
     assert(PostMessageW(scroll, WM_MOUSEWHEEL, MAKEWPARAM(0, (WORD)(SHORT)(-3 * WHEEL_DELTA)), where));
+    resourcePhase("scroll-after-submit", drains + 1);
 }
-void shellProbeClose(void) { trackWglWorkers(); assert(PostMessageW(window(), WM_CLOSE, 0, 0)); }
+void shellProbeClose(void) {
+    resourcePhase("close-before-submit", drains + 1);
+    trackWglWorkers();
+    assert(PostMessageW(window(), WM_CLOSE, 0, 0));
+    resourcePhase("close-after-submit", drains + 1);
+}
 int shellProbeFocus(void) {
     HWND focus = GetFocus();
     if (focus && isClass(focus, L"Edit")) return 1;
@@ -195,18 +266,47 @@ static BOOL CALLBACK resourceWindow(HWND target, LPARAM messageOnly) {
     DWORD thread = GetWindowThreadProcessId(target, &process);
     if (process != GetCurrentProcessId()) return TRUE;
     WCHAR name[128] = L"";
-    GetClassNameW(target, name, 128);
+    SetLastError(ERROR_SUCCESS);
+    QueryObservation *classQuery = queryBegin("GetClassNameW", (uintptr_t)target);
+    int classLength = GetClassNameW(target, name, 128);
+    DWORD classError = GetLastError();
+    queryEnd(classQuery, (uintptr_t)classLength, classError);
     char utf8[512] = {0};
     WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof utf8, NULL, NULL);
     HMODULE module = NULL;
     WCHAR moduleName[512] = L"";
+    QueryObservation *procedureQuery = queryBegin("GetClassLongPtrW.GCLP_WNDPROC", (uintptr_t)target);
     LONG_PTR procedure = GetClassLongPtrW(target, GCLP_WNDPROC);
-    if (procedure && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            (LPCWSTR)(uintptr_t)procedure, &module)) { GetModuleFileNameW(module, moduleName, 512); }
+    DWORD procedureError = GetLastError(); queryEnd(procedureQuery, (uintptr_t)procedure, procedureError);
+    if (procedure) {
+        QueryObservation *moduleQuery = queryBegin("GetModuleHandleExW", (uintptr_t)procedure);
+        BOOL found = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            (LPCWSTR)(uintptr_t)procedure, &module);
+        DWORD moduleError = GetLastError(); queryEnd(moduleQuery, (uintptr_t)module, moduleError);
+        if (found) {
+            moduleQuery = queryBegin("GetModuleFileNameW", (uintptr_t)module);
+            DWORD length = GetModuleFileNameW(module, moduleName, 512);
+            moduleError = GetLastError(); queryEnd(moduleQuery, (uintptr_t)length, moduleError);
+        }
+    }
     char moduleUtf8[2048] = {0};
     WideCharToMultiByte(CP_UTF8, 0, moduleName, -1, moduleUtf8, sizeof moduleUtf8, NULL, NULL);
     fprintf(stderr, "SHELL resource-window cycle=%d thread=%lu handle=%p message-only=%d class=%s module=%s\n",
         drains, (unsigned long)thread, (void *)target, messageOnly != 0, utf8, moduleUtf8);
+    if (observeQueries) {
+        QueryObservation *query = queryBegin("GetClassLongPtrW.GCLP_HCURSOR", (uintptr_t)target);
+        ULONG_PTR cursor = GetClassLongPtrW(target, GCLP_HCURSOR);
+        DWORD error = GetLastError(); queryEnd(query, cursor, error);
+        query = queryBegin("GetClassLongPtrW.GCLP_HICON", (uintptr_t)target);
+        ULONG_PTR icon = GetClassLongPtrW(target, GCLP_HICON);
+        error = GetLastError(); queryEnd(query, icon, error);
+        query = queryBegin("GetClassLongPtrW.GCLP_HICONSM", (uintptr_t)target);
+        ULONG_PTR smallIcon = GetClassLongPtrW(target, GCLP_HICONSM);
+        error = GetLastError(); queryEnd(query, smallIcon, error);
+        query = queryBegin("GetMenu", (uintptr_t)target);
+        HMENU menu = GetMenu(target);
+        error = GetLastError(); queryEnd(query, (uintptr_t)menu, error);
+    }
     return TRUE;
 }
 static BOOL CALLBACK resourceTop(HWND target, LPARAM ignored) {
@@ -219,11 +319,15 @@ static BOOL CALLBACK resourceTop(HWND target, LPARAM ignored) {
     }
     return TRUE;
 }
+static void resourceThreads(void);
 static void resourceWindows(DWORD gdi, DWORD user) {
     static DWORD previousGdi = 0, previousUser = 0;
     if (drains != 1 && gdi == previousGdi && user == previousUser) return;
     fprintf(stderr, "SHELL resource-change cycle=%d gdi=%lu user=%lu previous-gdi=%lu previous-user=%lu\n",
         drains, (unsigned long)gdi, (unsigned long)user, (unsigned long)previousGdi, (unsigned long)previousUser);
+    int wasObserving = observeQueries;
+    observationCycle = drains;
+    observeQueries = observationMode() != 0 && drains > 1;
     previousGdi = gdi;
     previousUser = user;
     EnumWindows(resourceTop, 0);
@@ -232,14 +336,100 @@ static void resourceWindows(DWORD gdi, DWORD user) {
         resourceWindow(message, 1);
         EnumChildWindows(message, resourceWindow, 1);
     }
+    if (observeQueries) { resourceThreads(); observationFlush(); }
+    observeQueries = wasObserving;
+}
+
+/* Diagnostic queries may themselves cause lazy allocation. Bracket each tested
+ * getter without intervening logging or message dispatch; preserve native errors.
+ * Concurrent workers can still allocate inside a bracket, so a changed count is
+ * an interval observation, not an allocation stack. Close Toolhelp handles. */
+static void observationError(const char *operation, DWORD error) {
+    fprintf(stderr, "SHELL observation-error operation=%s error=%lu\n", operation, (unsigned long)error);
+}
+static BOOL CALLBACK resourceThreadWindow(HWND target, LPARAM ignored) {
+    (void)ignored;
+    resourceWindow(target, 0);
+    EnumChildWindows(target, resourceWindow, 0);
+    return TRUE;
+}
+static void resourceThreads(void) {
+    QueryObservation *snapshotQuery = queryBegin("CreateToolhelp32Snapshot", 0);
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    DWORD snapshotError = GetLastError(); queryEnd(snapshotQuery, (uintptr_t)snapshot, snapshotError);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        observationError("CreateToolhelp32Snapshot", GetLastError());
+        return;
+    }
+    THREADENTRY32 entry = {0};
+    entry.dwSize = sizeof entry;
+    QueryObservation *threadQuery = queryBegin("Thread32First", (uintptr_t)snapshot);
+    BOOL available = Thread32First(snapshot, &entry);
+    DWORD threadError = GetLastError(); queryEnd(threadQuery, (uintptr_t)available, threadError);
+    if (!available) observationError("Thread32First", threadError);
+    while (available) {
+        if (entry.th32OwnerProcessID == GetCurrentProcessId()) {
+            GUITHREADINFO info = {0};
+            info.cbSize = sizeof info;
+            SetLastError(ERROR_SUCCESS);
+            QueryObservation *guiQuery = queryBegin("GetGUIThreadInfo", (uintptr_t)entry.th32ThreadID);
+            BOOL observed = GetGUIThreadInfo(entry.th32ThreadID, &info);
+            DWORD error = GetLastError(); queryEnd(guiQuery, (uintptr_t)observed, error);
+            fprintf(stderr, "SHELL resource-thread thread=%lu gui-info=%d error=%lu flags=%lu active=%p focus=%p capture=%p menu-owner=%p move-size=%p caret=%p caret-rect=%ld,%ld,%ld,%ld\n",
+                (unsigned long)entry.th32ThreadID, observed != 0, (unsigned long)error, (unsigned long)info.flags,
+                (void *)info.hwndActive, (void *)info.hwndFocus, (void *)info.hwndCapture, (void *)info.hwndMenuOwner,
+                (void *)info.hwndMoveSize, (void *)info.hwndCaret, info.rcCaret.left, info.rcCaret.top,
+                info.rcCaret.right, info.rcCaret.bottom);
+            /* This enclosing interval includes the individually recorded
+             * callback queries; it is not a leaf-query attribution. */
+            QueryObservation *windowsQuery = queryBegin("EnumThreadWindows", (uintptr_t)entry.th32ThreadID);
+            BOOL enumerated = EnumThreadWindows(entry.th32ThreadID, resourceThreadWindow, 0);
+            error = GetLastError(); queryEnd(windowsQuery, (uintptr_t)enumerated, error);
+            if (!enumerated) observationError("EnumThreadWindows", error);
+        }
+        entry.dwSize = sizeof entry;
+        threadQuery = queryBegin("Thread32Next", (uintptr_t)snapshot);
+        available = Thread32Next(snapshot, &entry);
+        threadError = GetLastError(); queryEnd(threadQuery, (uintptr_t)available, threadError);
+        if (!available && threadError != ERROR_NO_MORE_FILES) observationError("Thread32Next", threadError);
+    }
+    QueryObservation *closeQuery = queryBegin("CloseHandle.snapshot", (uintptr_t)snapshot);
+    BOOL closed = CloseHandle(snapshot);
+    DWORD closeError = GetLastError(); queryEnd(closeQuery, (uintptr_t)closed, closeError);
+    if (!closed) observationError("CloseHandle(snapshot)", closeError);
+}
+static void resourcePhase(const char *phase, int cycle) {
+    int mode = observationMode();
+    if (!mode) return;
+    static int firstSnapshot;
+    SetLastError(ERROR_SUCCESS);
+    DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    DWORD gdiError = GetLastError();
+    SetLastError(ERROR_SUCCESS);
+    DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    DWORD userError = GetLastError();
+    fprintf(stderr, "SHELL resource-phase cycle=%d phase=%s tick-ms=%llu gdi=%lu user=%lu gdi-error=%lu user-error=%lu mode=%s\n",
+        cycle, phase, (unsigned long long)GetTickCount64(), (unsigned long)gdi, (unsigned long)user,
+        (unsigned long)gdiError, (unsigned long)userError, mode == 1 ? "count-only" : "query-bracket");
+    if (mode == 2 && !firstSnapshot) {
+        firstSnapshot = 1; observationCycle = cycle; observeQueries = 1;
+        if (!EnumWindows(resourceTop, 0)) observationError("EnumWindows", GetLastError());
+        HWND message = NULL;
+        while ((message = FindWindowExW(HWND_MESSAGE, message, NULL, NULL)) != NULL) {
+            resourceWindow(message, 1); EnumChildWindows(message, resourceWindow, 1);
+        }
+        resourceThreads(); observeQueries = 0; observationFlush();
+    }
+    fflush(stderr);
 }
 
 /* A bounded turn of the thread's queue after teardown, then the process's
  * GDI and USER object counts for the harness's leak check. */
 void shellProbeDrain(void) {
-    ULONGLONG started = GetTickCount64();
     MSG message;
     drains++;
+    resourcePhase("drain-before", drains);
+    ULONGLONG started = GetTickCount64();
     trackWglWorkers();
     for (;;) {
         for (unsigned dispatched = 0; dispatched < 256 && GetTickCount64() - started < 2000
@@ -269,6 +459,7 @@ void shellProbeDrain(void) {
     fprintf(stderr, "SHELL resources cycle=%d gdi=%lu user=%lu provider=%d private=%d\n", drains,
         (unsigned long)gdi, (unsigned long)user, counted.provider, counted.other);
     resourceWindows(gdi, user);
+    resourcePhase("drain-after", drains);
     fflush(stderr);
 }
 
@@ -444,11 +635,15 @@ void shellProbeDump(void) {
     printf("]");
     if (dumps++ == 0) {
         printf(",\"gpu_adapter\":");
+        resourcePhase("probe-gpu-before", drains + 1);
         gpuAdapter();
+        resourcePhase("probe-gpu-after-release", drains + 1);
     }
     printf(",\"accessibility\":");
     fflush(stdout);
+    resourcePhase("uia-before", drains + 1);
     accessibility(top);
+    resourcePhase("uia-after", drains + 1);
     printf("}\n");
     fflush(stdout);
 }
