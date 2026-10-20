@@ -843,8 +843,8 @@ class TargetToolchain:
         self,
         row: GeneratedTargetRow,
         *,
-        cc: str = "cc",
-        cxx: str = "c++",
+        cc: str | Sequence[str] = "cc",
+        cxx: str | Sequence[str] = "c++",
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
         environment: Mapping[str, str] | None = None,
     ) -> None:
@@ -858,7 +858,7 @@ class TargetToolchain:
         # Arguments only btrc-generated C units receive.
         self.generated_arguments: list[str] = []
         if self.host:
-            self.drivers = {"cc": [self._executable(cc, "C compiler")], "cxx": [self._executable(cxx, "C++ compiler")]}
+            self.drivers = {"cc": self._driver(cc, "C compiler"), "cxx": self._driver(cxx, "C++ compiler")}
         elif row.sysroot_kind == "windows-sdk":
             self.drivers = self._windows_sdk_drivers()
             self.arguments = list(row.target_arguments)
@@ -896,6 +896,14 @@ class TargetToolchain:
         if resolved is None:
             raise NativePlanError(f"{context} is unavailable: {value!r}")
         return resolved
+
+    def _driver(self, value: str | Sequence[str], context: str) -> list[str]:
+        arguments = [value] if isinstance(value, str) else list(value)
+        if not arguments:
+            raise NativePlanError(f"{context} command must not be empty")
+        for argument in arguments:
+            PlanJson.text(argument, context)
+        return [self._executable(arguments[0], context), *arguments[1:]]
 
     def runtime_libraries(self) -> list[str]:
         """The libraries every btrc program links: libm, and threads off Windows."""
@@ -1455,8 +1463,8 @@ class NativePlanBuilder:
         plan_path: Path,
         generated_c: Path,
         output: Path,
-        cc: str = "cc",
-        cxx: str = "c++",
+        cc: str | Sequence[str] = "cc",
+        cxx: str | Sequence[str] = "c++",
         pkg_config: str = "pkg-config",
         optimization: int = 2,
         jobs: int | None = None,
@@ -1464,7 +1472,17 @@ class NativePlanBuilder:
         object_cache: Path | None = None,
         report_path: Path | None = None,
         signing: DarwinSigning | None = None,
+        compile_flags: Sequence[str] = (),
+        link_flags: Sequence[str] = (),
     ) -> NativeBuildReport:
+        # Caller flags retain corpus sanitizer and optimization settings. They
+        # are part of the actual commands and therefore their cache receipts.
+        if isinstance(compile_flags, str) or isinstance(link_flags, str):
+            raise NativePlanError("native build flags must be argument sequences")
+        compile_flags, link_flags = tuple(compile_flags), tuple(link_flags)
+        for flag in (*compile_flags, *link_flags):
+            PlanJson.text(flag, "native build flag")
+        native_compile_flags = tuple(flag for flag in compile_flags if not flag.startswith("-std="))
         started = time.perf_counter()
         if type(optimization) is not int or optimization not in range(4):
             raise NativePlanError("optimization must be an integer from 0 through 3")
@@ -1587,6 +1605,7 @@ class NativePlanBuilder:
                                 *defines,
                                 *package_compile,
                                 f"-O{optimization}",
+                                *compile_flags,
                                 "-c",
                                 str(source),
                                 "-o",
@@ -1611,6 +1630,7 @@ class NativePlanBuilder:
                                 *toolchain.arguments,
                                 *strict,
                                 f"-O{optimization}",
+                                *compile_flags,
                                 "-c",
                                 str(source),
                                 "-o",
@@ -1650,6 +1670,7 @@ class NativePlanBuilder:
                                 *defines,
                                 *package_compile,
                                 f"-O{optimization}",
+                                *native_compile_flags,
                                 "-c",
                                 str(source_path),
                                 "-o",
@@ -1755,6 +1776,7 @@ class NativePlanBuilder:
                         *framework_flags,
                         *library_flags,
                         *runtime_libraries,
+                        *link_flags,
                         "-o",
                         str(staged),
                     ]

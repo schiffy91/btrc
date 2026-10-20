@@ -274,8 +274,14 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
     ], "the two-hour bootstrap waits for the main tier"
     assert list(_rows(windows, "win32-native")) == ["windows-x64", "windows-arm64"]
     assert list(_rows(windows, "target-corpus")) == ["windows-x64", "windows-arm64"]
-    # The executor and the applicability manifest feed win32-native's Process
-    # and FileSystem bundles (CX-P2-06, CX-P2-04) as well as the corpus.
+    # The Winsock provider runs its cases and the HTTP corpus bundle there too
+    # (CX-P2-10); a change to the portable HTTP sources or the HTTP corpus runs
+    # them without the whole Windows corpus.
+    assert manifest.plan("windows.yml", "pr", ["src/stdlib/HTTP/Windows/Win32Sockets.c"])["jobs"] == windows["jobs"]
+    for http in ("src/stdlib/HTTP/HTTPServer.btrc", "src/tests/stdlib/HttpListenerPort.btrc"):
+        assert manifest.plan("windows.yml", "pr", [http])["jobs"] == ["win32-native-build", "win32-native"]
+    # The executor and the applicability manifest feed win32-native's Process,
+    # FileSystem and HTTP bundles (CX-P2-06, CX-P2-04, CX-P2-10) as well as the corpus.
     for runner in ("tools/target_hosts/windows/executor.py", "src/tests/fixtures/target-applicability.toml"):
         assert manifest.plan("windows.yml", "pr", [runner])["jobs"] == [
             "win32-native-build",
@@ -344,6 +350,7 @@ LANE_MACOS = ["native-bundle", "native-gui"]
 # shared shell fixtures and link Library.GPU (CX-UIA-15).
 LANE_WINDOWS = {
     ("pyproject.toml",): ["windows"],
+    ("src/stdlib/HTTP/Client.btrc",): ["win32-native-build", "win32-native"],
     ("src/tests/python/native_ui_shell_fixtures.py",): ["win32-native-build", "win32-native"],
     ("src/stdlib/GPU/Device.btrc",): ["win32-native-build", "win32-native"],
 }

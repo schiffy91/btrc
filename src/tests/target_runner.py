@@ -179,6 +179,7 @@ from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.abi.generated import TARGET_ROWS, GeneratedTargetRow
 from src.compiler.python.abi.hosted import TargetRepository
 from src.tests.corpus_files import language_test_files
+from src.tests.native_build import NativeCorpusBuild
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TOOL_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.runner import _GPU_BUILD, _GPU_DIR, _python_warnings, _selfhost_warnings, expected_warnings
 from src.tests.runner_capabilities import (
@@ -1040,22 +1041,7 @@ class ComputeRuntime:
     def split(cls, flags: Sequence[str]) -> tuple[list[str], list[str]]:
         """Separate preprocessor flags (for the compile) from library flags (for the link)."""
 
-        compile_flags: list[str] = []
-        link_flags: list[str] = []
-        pending: list[str] | None = None
-        for flag in flags:
-            if pending is not None:
-                pending.append(flag)
-                pending = None
-            elif flag.startswith(cls.COMPILE_PREFIXES):
-                compile_flags.append(flag)
-                if flag in cls.COMPILE_PREFIXES:
-                    pending = compile_flags
-            else:
-                link_flags.append(flag)
-                if flag == "-framework":
-                    pending = link_flags
-        return compile_flags, link_flags
+        return NativeCorpusBuild.split_dependency_flags(flags)
 
     @classmethod
     def host_flags(cls) -> tuple[tuple[str, ...], tuple[str, ...]] | str:
@@ -1197,6 +1183,9 @@ class ProgramBuilder:
             c_source, warnings = self.transpile_reference(program)
         else:
             c_source, warnings = self.transpile_selfhost(program)
+        native = c_source if isinstance(c_source, NativeCorpusBuild) else None
+        if native is not None:
+            c_source = "\n".join(native.sources())
         golden = expected_warnings(str(program.path))
         if warnings != golden:
             raise BuildFailure(
@@ -1217,6 +1206,26 @@ class ProgramBuilder:
         object_path = c_path.with_suffix(".o")
         c_path.write_text(c_source, encoding="utf-8")
         artifact = self.configuration.bundle / f"{program_id}{TargetRows.suffix(self.row)}"
+        if native is not None:
+            try:
+                native.build(
+                    artifact,
+                    cc=self.toolchain.drivers["cc"],
+                    compile_flags=[*self.configuration.cflags, *compile_flags],
+                    link_flags=[*self.configuration.cflags, *link_flags],
+                    report=work / f"{program_id}.native-build.json",
+                )
+            except (NativePlanError, OSError, subprocess.TimeoutExpired) as error:
+                raise BuildFailure("native-build", str(error)) from error
+            c_path.unlink()
+            return BuildResult(
+                program.source,
+                frontend,
+                program_id,
+                "built",
+                artifact=artifact.name,
+                sha256=TargetBundle.digest(artifact),
+            )
         self.run_tool(
             self.toolchain.compile_command(
                 c_path, object_path, generated=True, flags=[*self.configuration.cflags, *compile_flags]
@@ -1256,7 +1265,7 @@ class ProgramBuilder:
             program.source, frontend, program_id, "built", artifact=artifact.name, sha256=TargetBundle.digest(artifact)
         )
 
-    def transpile_reference(self, program: CorpusProgram) -> tuple[str, list[str]]:
+    def transpile_reference(self, program: CorpusProgram) -> tuple[str | NativeCorpusBuild, list[str]]:
         options = CompilerOptions(
             map_stdlib_positions=True, use_cache=False, use_ast_cache=False, target=self.row.label
         )
@@ -1272,15 +1281,31 @@ class ProgramBuilder:
             raise BuildFailure("transpile", f"analyzer errors: {result.analyzed.errors}")
         if result.c_source is None:
             raise BuildFailure("transpile", "the compiler emitted no C")
-        return result.c_source, _python_warnings(result, path)
+        source = NativeCorpusBuild.from_result(
+            result, self.configuration.work / "reference" / program.program_id("reference")
+        )
+        return source, _python_warnings(result, path)
 
-    def transpile_selfhost(self, program: CorpusProgram) -> tuple[str, list[str]]:
+    def transpile_selfhost(self, program: CorpusProgram) -> tuple[str | NativeCorpusBuild, list[str]]:
         btrcc = self.configuration.btrcc
         if btrcc is None:
             raise BuildFailure("transpile", "no self-hosted compiler: pass --btrcc or set BTRC_TEST_BTRCC")
+        directory = self.configuration.work / "selfhost" / program.program_id("selfhost")
+        directory.mkdir(parents=True, exist_ok=True)
+        artifact = NativeCorpusBuild(directory / "program.c", directory / "program.json")
         try:
             completed = subprocess.run(
-                [str(btrcc), "--no-cache", "--target", self.row.label, str(program.path)],
+                [
+                    str(btrcc),
+                    "--no-cache",
+                    "--target",
+                    self.row.label,
+                    str(program.path),
+                    "-o",
+                    str(artifact.primary),
+                    "--emit-link-plan",
+                    str(artifact.plan),
+                ],
                 cwd=REPO,
                 capture_output=True,
                 text=True,
@@ -1289,9 +1314,11 @@ class ProgramBuilder:
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             raise BuildFailure("transpile", f"btrcc did not finish: {error}") from error
-        if completed.returncode != 0 or not completed.stdout.strip():
+        if completed.returncode != 0 or not artifact.primary.is_file():
             raise BuildFailure("transpile", f"btrcc exited {completed.returncode}: {completed.stderr[:4000]}")
-        return completed.stdout, _selfhost_warnings(completed.stderr)
+        return (artifact if artifact.required() else artifact.primary.read_text(encoding="utf-8")), _selfhost_warnings(
+            completed.stderr
+        )
 
     @staticmethod
     def run_tool(command: list[str], phase: str) -> None:

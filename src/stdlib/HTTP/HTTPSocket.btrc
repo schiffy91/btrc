@@ -1,9 +1,23 @@
-/* Bounded socket I/O for the HTTP server. */
+/* Bounded socket I/O for the HTTP server.
+ *
+ * `[[package.providers]]` selects HTTPSocket's host seam per row. Linux,
+ * macOS, iOS and Android keep the BSD-socket bodies below
+ * (`#if !defined(_WIN32)`; Unix/HTTPSocketProvider.btrc only completes the
+ * selection), so their C is what it was before Windows had a provider.
+ * Windows rows compile the Winsock twin after `#else`, which keeps every
+ * method and its contract and does its I/O through
+ * Windows/HTTPSocketProvider.btrc: nonblocking non-inheritable SOCKETs with
+ * SO_EXCLUSIVEADDRUSE, waits on each socket's own event under the same one
+ * absolute deadline, and errno set to the POSIX value of each Winsock error.
+ * There the int descriptors are the provider's tokens for SOCKETs it owns,
+ * never CRT descriptors or HANDLEs. Windows has no SIGPIPE, so a send to a
+ * closed peer simply fails, as MSG_NOSIGNAL makes it fail on POSIX. */
 import Library.Bytes;
 import Library.Timer;
 import Library.IO;
 import Library.HTTP.HTTPFraming;
 
+#if !defined(_WIN32)
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -97,6 +111,23 @@ class HTTPSocket {
 		if (descriptor < 0) { return; }
 		shutdown(descriptor, SHUT_RDWR);
 		close(descriptor);
+	}
+
+	/* The peer reads end of input after every byte already sent arrives. */
+	class bool shutdownSend(int descriptor) {
+		if (descriptor < 0) { return false; }
+		return shutdown(descriptor, SHUT_WR) == 0;
+	}
+
+	/* The local port a listener or connection is bound to (the port the
+	 * system chose for an HTTPServer(0)), or -1. */
+	class int localPort(int descriptor) {
+		if (descriptor < 0) { return -1; }
+		struct sockaddr_in address;
+		memset(&address, 0, sizeof(address));
+		socklen_t length = sizeof(address);
+		if (getsockname(descriptor, (struct sockaddr*)&address, &length) != 0 || (int)address.sin_family != (int)AF_INET) { return -1; }
+		return (int)ntohs(address.sin_port);
 	}
 
 	class Bytes emptyBytes() { return Bytes(); }
@@ -208,3 +239,201 @@ class HTTPSocket {
 
 	class bool sendAll(int descriptor, string data, int timeoutSecs) { return HTTPSocket.sendAllUntil(descriptor, data, HTTPSocket.deadlineAfter(timeoutSecs)); }
 }
+#else
+#include <limits.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+/* The Winsock twin of HTTPSocket. Every operation tries its nonblocking call
+ * first and waits on the socket's event only when Winsock reports
+ * WSAEWOULDBLOCK, so a stale readiness notification costs one retry, never a
+ * missed wakeup; the deadline is checked before each try, as the POSIX twin
+ * checks it before each poll. */
+class HTTPSocket {
+	class long long deadlineAfter(int timeoutSecs) {
+		int bounded = timeoutSecs > 0 ? timeoutSecs : 1;
+		if (bounded > 86400) { bounded = 86400; }
+		return MonotonicClock.deadlineAfter((long long)bounded * 1000LL);
+	}
+
+	/* `events` takes the values POLLIN (1, readable: data, end of input or a
+	 * pending connection) and POLLOUT (4, writable) have on every POSIX row. */
+	class bool waitFor(int descriptor, short events, long long deadline) {
+		while (true) {
+			long long remaining = MonotonicClock.remaining(deadline);
+			if (remaining <= 0LL) { return false; }
+			int waitMillis = remaining > (long long)INT_MAX ? INT_MAX : (int)remaining;
+			int ready = btrcWinSocketWait(httpWinsockRegistry(), descriptor, (int)events, waitMillis);
+			if (ready != 0) { return ready > 0; }
+		}
+		return false;
+	}
+
+	/* All interfaces is allowed, with platform adaptations row 6's warning:
+	 * other machines reach the listener only once Windows Firewall lets them. */
+	class int openListener(int port, bool bindAny) {
+		if (port < 0 || port > 65535) { return -1; }
+		int listener = -1;
+		if (btrcWinSocketListen(httpWinsockRegistry(), port, bindAny ? 1 : 0, 64, &listener) != 0) { return -1; }
+		if (bindAny) {
+			fprintf(stderr, "HTTPServer.start reaches other machines on Windows only after Windows Firewall consent; use the loopback default or an install-time inbound rule\n");
+		}
+		return listener;
+	}
+
+	class int acceptConnection(int listener, int timeoutSecs) {
+		if (listener < 0) { return -1; }
+		long long deadline = HTTPSocket.deadlineAfter(timeoutSecs);
+		while (MonotonicClock.remaining(deadline) > 0LL) {
+			int descriptor = -1;
+			int status = btrcWinSocketAccept(httpWinsockRegistry(), listener, &descriptor);
+			if (status == 0) { return descriptor; }
+			if (status < 0 || !HTTPSocket.waitFor(listener, (short)1, deadline)) { return -1; }
+		}
+		return -1;
+	}
+
+	class void closeConnection(int descriptor) {
+		if (descriptor < 0) { return; }
+		btrcWinSocketShutdownSend(httpWinsockRegistry(), descriptor);
+		btrcWinSocketClose(httpWinsockRegistry(), descriptor);
+	}
+
+	/* shutdown(SD_SEND): the peer reads end of input once every byte already
+	 * sent has arrived. HTTPServer.respond ends each response with it. */
+	class bool shutdownSend(int descriptor) {
+		if (descriptor < 0) { return false; }
+		return btrcWinSocketShutdownSend(httpWinsockRegistry(), descriptor) == 0;
+	}
+
+	class int localPort(int descriptor) {
+		if (descriptor < 0) { return -1; }
+		return btrcWinSocketLocalPort(httpWinsockRegistry(), descriptor);
+	}
+
+	class Bytes emptyBytes() { return Bytes(); }
+
+	class Bytes readRequest(int descriptor, int maxHeaderBytes, int maxBodyBytes, int maxRequestBytes, int timeoutSecs) {
+		Bytes data = Bytes();
+		if (descriptor < 0 || maxHeaderBytes < 4 || maxBodyBytes < 0 || maxRequestBytes < maxHeaderBytes) {
+			return HTTPSocket.emptyBytes();
+		}
+		int headerEnd = -1;
+		int contentLength = -1;
+		int transferEncoding = -1;
+		long long deadline = HTTPSocket.deadlineAfter(timeoutSecs);
+		char buffer[8192];
+		while (true) {
+			if (MonotonicClock.remaining(deadline) <= 0LL) {
+				return HTTPSocket.emptyBytes();
+			}
+			int count = 0;
+			int status = btrcWinSocketReceive(httpWinsockRegistry(), descriptor, buffer, (int)sizeof(buffer), &count);
+			if (status == 1) {
+				if (!HTTPSocket.waitFor(descriptor, (short)1, deadline)) { return HTTPSocket.emptyBytes(); }
+				continue;
+			}
+			if (status != 0 || count <= 0 || (long long)count > (long long)(maxRequestBytes - data.len)) {
+				return HTTPSocket.emptyBytes();
+			}
+			data.appendRaw(buffer, count);
+
+			if (headerEnd < 0) {
+				int found = HTTPFraming.headerEnd(data);
+				if (found == -2 || (found < 0 && data.len > maxHeaderBytes)) {
+					return HTTPSocket.emptyBytes();
+				}
+				if (found < 0) { continue; }
+				if (found > maxHeaderBytes - 4) { return HTTPSocket.emptyBytes(); }
+				headerEnd = found;
+				Bytes headerBytes = data.slice(0, headerEnd);
+				string head = headerBytes.toStringLossy();
+				contentLength = HTTPFraming.contentLength(head);
+				transferEncoding = HTTPFraming.transferEncoding(head);
+				if (contentLength == -2 || transferEncoding == -2 || (contentLength >= 0 && transferEncoding == 1) || contentLength > maxBodyBytes) {
+					return HTTPSocket.emptyBytes();
+				}
+			}
+
+			int bodyStart = headerEnd + 4;
+			if (transferEncoding == 1) {
+				int end = HTTPFraming.chunkedEnd(data, bodyStart, maxBodyBytes, maxHeaderBytes);
+				if (end == -2 || end > maxRequestBytes) {
+					return HTTPSocket.emptyBytes();
+				}
+				if (end >= 0) { return data.slice(0, end); }
+			} else {
+				int bodyLength = contentLength >= 0 ? contentLength : 0;
+				if (bodyStart > maxRequestBytes || bodyLength > maxRequestBytes - bodyStart) {
+					return HTTPSocket.emptyBytes();
+				}
+				int messageEnd = bodyStart + bodyLength;
+				if (data.len >= messageEnd) { return data.slice(0, messageEnd); }
+			}
+		}
+		return HTTPSocket.emptyBytes();
+	}
+
+	/* Sends `length` bytes from `data` before the deadline, advancing by what
+	 * each send took. Each piece is copied to the stack first, so the
+	 * provider never holds a pointer into the caller's storage. */
+	class bool sendRawUntil(int descriptor, char* data, size_t length, long long deadline) {
+		if (descriptor < 0 || data == NULL) { return false; }
+		if (length == (size_t)0) { return true; }
+		char piece[65536];
+		size_t sent = 0;
+		while (sent < length) {
+			size_t left = length - sent;
+			int pieceLength = left > sizeof(piece) ? (int)sizeof(piece) : (int)left;
+			memcpy(piece, data + sent, (size_t)pieceLength);
+			int offset = 0;
+			while (offset < pieceLength) {
+				if (MonotonicClock.remaining(deadline) <= 0LL) { return false; }
+				int count = 0;
+				int status = btrcWinSocketSend(httpWinsockRegistry(), descriptor, piece + offset, pieceLength - offset, &count);
+				if (status == 0) {
+					offset = offset + count;
+				} else if (status == 1) {
+					if (!HTTPSocket.waitFor(descriptor, (short)4, deadline)) { return false; }
+				} else {
+					return false;
+				}
+			}
+			sent = sent + (size_t)pieceLength;
+		}
+		return true;
+	}
+
+	/* Sends every byte of data before the deadline; the length is the buffer's own. */
+	class bool sendBytesUntil(int descriptor, Bytes data, long long deadline) {
+		if (descriptor < 0 || data == null) { return false; }
+		if (data.len <= 0) { return true; }
+		return HTTPSocket.sendRawUntil(descriptor, data.data, (size_t)data.len, deadline);
+	}
+
+	class bool sendAllUntil(int descriptor, string data, long long deadline) {
+		if (descriptor < 0 || data == null) { return false; }
+		return HTTPSocket.sendRawUntil(descriptor, (char*)data, strlen(data), deadline);
+	}
+
+	class bool sendAll(int descriptor, string data, int timeoutSecs) { return HTTPSocket.sendAllUntil(descriptor, data, HTTPSocket.deadlineAfter(timeoutSecs)); }
+}
+
+/* What the Winsock provider holds, for tests that prove sockets and the
+ * Winsock subsystem are released and never inherited by a child process. */
+class WinsockDiagnostics {
+	/* Listeners and connections open now. */
+	class int openSockets() { return btrcWinSocketLive(httpWinsockRegistry()); }
+
+	/* How many times WSAStartup and WSACleanup have run: the provider starts
+	 * Winsock with the first socket and cleans it up after the last. */
+	class int startups() { return btrcWinSocketStartups(httpWinsockRegistry()); }
+
+	class int cleanups() { return btrcWinSocketCleanups(httpWinsockRegistry()); }
+
+	/* Whether a child process would inherit the socket behind `descriptor`;
+	 * false for a closed descriptor too. */
+	class bool inheritable(int descriptor) { return btrcWinSocketInheritable(httpWinsockRegistry(), descriptor) == 1; }
+}
+#endif

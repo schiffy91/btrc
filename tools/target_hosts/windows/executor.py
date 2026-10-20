@@ -42,6 +42,7 @@ import os
 import platform
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -432,11 +433,30 @@ class WindowsNativeExecutor:
         capture_factory=BoundedOutput,
         hold=HeldArtifact,
         machine=None,
+        loopback=None,
     ):
         self.job_factory, self.spawn, self.clock = job_factory, spawn, clock
         self.capture_factory, self.hold = capture_factory, hold
         self.machine = machine if machine is not None else self.native_machine
+        self.loopback = loopback if loopback is not None else self.loopback_listener
         self.label, self.staging, self.programs, self.provenance = None, None, {}, {}
+
+    def granted_capabilities(self):
+        """The host capabilities programs get here: ``loopback-listener`` when
+        this host opens an IPv4 loopback listener, probed as the corpus
+        runner's local executor probes its host (src/tests/runner_capabilities.py).
+        A Job Object does not restrict sockets, so the probe answers for the runs."""
+        return frozenset({"loopback-listener"}) if self.loopback() else frozenset()
+
+    @staticmethod
+    def loopback_listener():
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+                listener.bind(("127.0.0.1", 0))
+                listener.listen(1)
+        except OSError:
+            return False
+        return True
 
     @staticmethod
     def native_machine():
