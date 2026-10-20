@@ -4530,10 +4530,10 @@ class FeNativeDeclarationImporter {
 					for method in callback.methods { self.callbackOperations.put(method, true); }
 				} else if (callback.lifetime == "instantiated") {
 					for method in callback.methods { self.callbackOperations.put(method, true); }
-					/* Scoped admission preserves outbound message dispatch through its
-					 * overrides. A subclass initializer is imported as its constructor. */
+					/* Scoped admission preserves outbound instance dispatch. Unsupported
+					 * class overrides stay hidden until the scoped constructor rejects them. */
 					string initializer = Strings.split(key, ".").get(0);
-					if (callback.superBefore.len == 0) { for method in callback.overrides { if (method != initializer) { self.callbackOperations.put(method, true); } } }
+					for method in callback.overrides { if (method != initializer && (callback.superBefore.len == 0 || !method.startsWith("-["))) { self.callbackOperations.put(method, true); } }
 				} else if (!callback.unregister.isEmpty()) { self.callbackOperations.put(callback.unregister, true); }
 				var realtime = callback.realtime;
 				if (realtime != null) { for method in realtime.operations.keys() { self.callbackOperations.put(Strings.split(realtime.operations.get(method), ".").get(0), true); } }
