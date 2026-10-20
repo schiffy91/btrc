@@ -87,6 +87,30 @@ int main() {
 	assert(receiver.events.get(0).adjustment == UI_RANGE_ADJUST_SMALL_DECREMENT);
 	assert(receiver.events.get(1).adjustment == UI_RANGE_ADJUST_LARGE_INCREMENT);
 	assert(receiver.events.get(0).input == SLIDER_INPUT_RELATIVE_ADJUSTMENT && receiver.events.get(0).count == 1);
+	receiver.events.clear();
+	BTRCUI2SliderProbe.choose(native, 4.5);
+	assert(slider.value() == 5.0 && receiver.events.isEmpty());
+	while (context.dispatchOne()) {}
+	assert(receiver.events.len == 1 && receiver.events.get(0).phase == CONTROL_PHASE_COMMIT);
+	assert(receiver.events.get(0).input == SLIDER_INPUT_ABSOLUTE_ASSISTIVE && receiver.events.get(0).value == 5.0);
+	receiver.events.clear(); slider.setValue(7.0); assert(slider.invoke(down) == null);
+	context.beginTreeMutation();
+	NSNotificationCenter.defaultCenter().postNotificationName(NSWindowDidResignKeyNotification, window);
+	assert(slider.value() != 7.0 && !context.dispatchOne());
+	context.endTreeMutation();
+	while (context.dispatchOne()) {}
+	assert(slider.value() == 7.0 && receiver.events.len == 2);
+	assert(receiver.events.get(1).phase == CONTROL_PHASE_CANCEL && receiver.events.get(1).cancelReason == CONTROL_CANCEL_CAPTURE_LOSS);
+	receiver.events.clear(); assert(slider.invoke(down) == null);
+	context.beginTreeMutation();
+	NSNotificationCenter.defaultCenter().postNotificationName(NSWindowDidResignKeyNotification, window);
+	context.endTreeMutation();
+	assert(slider.invoke(up) == null); assert(slider.invoke(down) == null);
+	while (context.dispatchOne()) {}
+	assert(slider.value() != 10.0);
+	assert(slider.invoke(up) == null && slider.value() == 10.0);
+	while (context.dispatchOne()) {}
+	assert(receiver.events.len == 4 && receiver.events.get(3).phase == CONTROL_PHASE_COMMIT);
 	slider.stateNode().detachWindow(); window.setContentView(null);
 	assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	for (int cycle = 0; cycle < 100; cycle++) {
