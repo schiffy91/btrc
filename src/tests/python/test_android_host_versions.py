@@ -13,6 +13,7 @@ import shlex
 import struct
 import subprocess
 import sys
+import time
 from pathlib import Path
 from xml.dom import minidom
 
@@ -519,6 +520,65 @@ def test_app_shutdown_waits_for_a_dying_process(tmp_path):
     executor = executor_bundle(tmp_path, transport)
     executor.run(ExecutionRequest("probe"))
     assert len([args for args, _ in transport.calls if args[:2] == ["shell", "pidof"]]) == 2
+
+
+@pytest.mark.parametrize("running", [False, True])
+def test_app_shutdown_observes_slow_transport_before_enforcing_poll_budget(tmp_path, monkeypatch, running):
+    clock = [0.0]
+
+    class SlowShutdown(FakeAdb):
+        def __call__(self, command, **options):
+            result = super().__call__(command, **options)
+            if command[3:5] == ["shell", "pidof"]:
+                clock[0] += 3.0
+                if options["timeout"] < 3.0:
+                    raise subprocess.TimeoutExpired(command, options["timeout"])
+            return result
+
+    monkeypatch.setattr("tools.target_hosts.android.app.time.monotonic", lambda: clock[0])
+    transport = SlowShutdown(lingering_polls=int(running))
+    executor = executor_bundle(tmp_path, transport)
+    if running:
+        with pytest.raises(RuntimeError, match="app process survived force-stop"):
+            executor.stop_app("dev.btrc.testhost.fixture")
+    else:
+        executor.stop_app("dev.btrc.testhost.fixture")
+    assert len([args for args, _ in transport.calls if args[:2] == ["shell", "pidof"]]) == 1
+
+
+def test_app_shutdown_observes_absence_after_a_scheduler_delay(tmp_path, monkeypatch):
+    ticks = iter((0.0, 3.0))
+    monkeypatch.setattr("tools.target_hosts.android.app.time.monotonic", lambda: next(ticks, 3.0))
+
+    class DelayedObservation(FakeAdb):
+        def __call__(self, command, **options):
+            if command[3:5] == ["shell", "pidof"]:
+                assert time.monotonic() == 3.0
+            return super().__call__(command, **options)
+
+    transport = DelayedObservation()
+    executor_bundle(tmp_path, transport).stop_app("dev.btrc.testhost.fixture")
+    assert len([args for args, _ in transport.calls if args[:2] == ["shell", "pidof"]]) == 1
+
+
+@pytest.mark.parametrize("fault", ["timeout", "disconnected"])
+def test_app_shutdown_transport_failure_still_fails_cleanup(tmp_path, fault):
+    class UnavailableObservation(FakeAdb):
+        def __call__(self, command, **options):
+            result = super().__call__(command, **options)
+            if command[3:5] == ["shell", "pidof"]:
+                if fault == "timeout":
+                    raise subprocess.TimeoutExpired(command, options["timeout"])
+                return subprocess.CompletedProcess(command, 255, b"", b"disconnected")
+            return result
+
+    transport = UnavailableObservation()
+    executor = executor_bundle(tmp_path, transport)
+    with pytest.raises(ExceptionGroup, match="app cleanup failed") as caught:
+        executor.run(ExecutionRequest("probe"))
+    assert len(caught.value.exceptions) == 1
+    assert isinstance(caught.value.exceptions[0], subprocess.TimeoutExpired if fault == "timeout" else RuntimeError)
+    assert not transport.installed
 
 
 def test_unknown_program_is_a_request_error(tmp_path):

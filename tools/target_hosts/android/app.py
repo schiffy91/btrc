@@ -236,14 +236,19 @@ class NativeActivityExecutor:
     def stop_app(self, package):
         self.adb("shell", "am", "force-stop", package)
         deadline = time.monotonic() + 2
-        while (remaining := deadline - time.monotonic()) > 0:
-            result = self.adb("shell", "pidof", package, check=False, timeout=remaining)
+        while True:
+            # The poll budget bounds retries while a process is still present.
+            # adb keeps its transport timeout: a slow reply can prove absence,
+            # but a timed-out or failed query cannot prove shutdown.
+            result = self.adb("shell", "pidof", package, check=False)
             if result.returncode not in (0, 1) or result.stderr:
                 raise RuntimeError("adb transport failed while verifying app shutdown")
             if not result.stdout.strip():
                 return
-            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
-        raise RuntimeError("app process survived force-stop")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("app process survived force-stop")
+            time.sleep(min(0.05, remaining))
 
     def close(self):
         self.bundle = None
