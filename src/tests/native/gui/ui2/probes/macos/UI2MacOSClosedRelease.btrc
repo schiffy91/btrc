@@ -1,0 +1,43 @@
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.MacOS.MacOSStack;
+
+#include <assert.h>
+#include <stdio.h>
+
+class ClosedReleaseWorker implements INativeWorkerBody {
+	private MacOSStack? _owner;
+	public ClosedReleaseWorker(MacOSStack owner) { self._owner = owner; }
+
+	public void releaseOnMain() { assert(NSThread.isMainThread()); self._owner = null; }
+
+	public int workLoop() {
+		assert(!NSThread.isMainThread());
+		if (self._owner != null) {
+			printf("UI2 closed final release worker entered\n"); fflush(stdout);
+			self._owner = null;
+			printf("UI2 final release unexpectedly returned\n"); fflush(stdout);
+		}
+		return 0;
+	}
+}
+
+ClosedReleaseWorker makeClosedOwner() {
+	var owner = MacOSStack(true, 0.0);
+	assert(owner.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(owner.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	return ClosedReleaseWorker(owner);
+}
+
+int main() {
+	NSApplication.sharedApplication();
+	// A cancelled scope remains executor-affine (ui2-approved.md:827;
+	// reviews/ui2/parity.md:233). The allowed final release stays on the UI thread.
+	var control = makeClosedOwner(); control.releaseOnMain();
+	var controlWorker = NativeWorker(); assert(controlWorker.start(control) == NATIVE_WORKER_STARTED);
+	assert(controlWorker.join() && !controlWorker.workerFailed());
+	var body = makeClosedOwner(); var worker = NativeWorker();
+	assert(worker.start(body) == NATIVE_WORKER_STARTED);
+	assert(worker.join());
+	return worker.workerFailed() ? 2 : 3;
+}

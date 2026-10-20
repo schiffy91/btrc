@@ -26,7 +26,7 @@ class HostedApplicationWork implements IApplicationWork {
 
 	public void run() { assert(NSThread.isMainThread()); self.trace.push(self.value); if (self.value == 4) { self.application.requestQuit(); } }
 }
-int main() {
+void verifyAcceptanceCycle() {
 	var native = NSApplication.sharedApplication(); var delegateScope = CallbackScope();
 	native.setDelegate(ExistingApplicationDelegate(), delegateScope); var original = btrcUI2ApplicationDelegate(); assert(original != (uintptr_t)0);
 	var application = MacOSApplication(4); assert(btrcUI2ApplicationDelegate() == original);
@@ -56,5 +56,12 @@ int main() {
 	assert(!direct.isRunning() && directAttachment.attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(directOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && btrcUI2ApplicationDelegate() == original);
 	assert(delegateScope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+int main() {
+	int completed = 0;
+	for (int cycle = 0; cycle < 100; cycle++) { verifyAcceptanceCycle(); completed++; }
+	assert(completed == 100);
+	print("UI2 acceptance UI2MacOSApplicationHost cycles=100");
 	print("PASS: UI2 macOS host attachment preserves delegate and drains application work"); return 0;
 }

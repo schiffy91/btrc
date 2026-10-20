@@ -1,0 +1,42 @@
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.MacOS.MacOSStack;
+
+#include <assert.h>
+#include <stdio.h>
+
+/* The body is retained through join. Only its native owner is released by the
+ * worker, after the constructing function has returned and dropped its alias. */
+class FinalReleaseWorker implements INativeWorkerBody {
+	private MacOSStack? _owner;
+	public FinalReleaseWorker(MacOSStack owner) { self._owner = owner; }
+
+	public void releaseOnMain() { assert(NSThread.isMainThread()); self._owner = null; }
+
+	public int workLoop() {
+		assert(!NSThread.isMainThread());
+		if (self._owner != null) {
+			printf("UI2 final release worker entered\n"); fflush(stdout);
+			self._owner = null;
+			/* Reaching this point would silently permit off-executor release. */
+			printf("UI2 final release unexpectedly returned\n"); fflush(stdout);
+			return 1;
+		}
+		return 0;
+	}
+}
+
+FinalReleaseWorker makeOwner() { return FinalReleaseWorker(MacOSStack(true, 0.0)); }
+
+int main() {
+	NSApplication.sharedApplication();
+	/* Prove ordinary final release and the native worker itself before the
+	 * fatal subprocess case. No explicit close or synthetic abort on that path. */
+	var control = makeOwner(); control.releaseOnMain();
+	var controlWorker = NativeWorker(); assert(controlWorker.start(control) == NATIVE_WORKER_STARTED);
+	assert(controlWorker.join() && !controlWorker.workerFailed());
+	var body = makeOwner(); var worker = NativeWorker();
+	assert(worker.start(body) == NATIVE_WORKER_STARTED);
+	assert(worker.join());
+	/* A contained destructor exception is also a failed fatal-policy oracle. */
+	return worker.workerFailed() ? 2 : 3;
+}

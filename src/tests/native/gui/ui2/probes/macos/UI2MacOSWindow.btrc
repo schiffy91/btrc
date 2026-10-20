@@ -199,8 +199,15 @@ void verifyCapturedRootPressure() {
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && root.close() == CALLBACK_CANCELLATION_COMPLETE && window.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
 }
 
+void verifyAcceptanceCycle() {
+	verifyState(); verifyResubscribeWithPendingState(); verifyResubscribeWithPendingState(8); verifyCapturedRootPressure(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose(); verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation(); verifyQuitCapturedCancellation();
+}
+
 int main() {
 	NSApplication.sharedApplication();
-	verifyState(); verifyResubscribeWithPendingState(); verifyResubscribeWithPendingState(8); verifyCapturedRootPressure(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose(); verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation(); verifyQuitCapturedCancellation();
+	int completed = 0;
+	for (int cycle = 0; cycle < 100; cycle++) { verifyAcceptanceCycle(); completed++; }
+	assert(completed == 100);
+	print("UI2 acceptance UI2MacOSWindow cycles=100");
 	print("PASS: UI2 macOS window state and reversible close transactions"); return 0;
 }
