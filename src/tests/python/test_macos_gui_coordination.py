@@ -116,7 +116,7 @@ class GuiProcesses:
             "def test_orchestrator(journey_fixture):\n"
             "    journey()\n"
             "    subprocess.run([sys.executable, '-m', 'pytest', '-q', '-c', os.environ['LEASE_CONFIG'],\n"
-            "                    '--rootdir=' + str(Path.cwd()), '--confcutdir=' + str(Path.cwd()), '-o', 'cache_dir=' + os.environ['LEASE_CACHE'], 'test_process.py::test_gui'],\n"
+            "                    '--rootdir=' + str(Path.cwd()), '--confcutdir=' + str(Path.cwd()), '-o', 'cache_dir=' + os.environ['LEASE_CACHE'], '--skip-report=' + str(Path.cwd() / 'nested-skip-report.json'), 'test_process.py::test_gui'],\n"
             "                   env=os.environ | {'LEASE_ROLE': 'nested'}, check=True, timeout=15)\n"
         )
 
@@ -159,6 +159,7 @@ class GuiProcesses:
                 "--confcutdir=" + str(self.root),
                 "-o",
                 "cache_dir=" + environment["LEASE_CACHE"],
+                f"--skip-report={self.root / (role + '-skip-report.json')}",
                 *arguments,
                 selection or "test_process.py::" + (node or ("test_gui" if marked else "test_ordinary")),
             ],
@@ -221,6 +222,39 @@ class GuiProcesses:
             elif process.poll() is None:
                 process.kill()
             process.communicate(timeout=15)
+
+
+@pytest.mark.parametrize("explicit", [None, "joined", "separate"])
+def test_gui_child_reports_are_isolated_and_explicit_paths_win(tmp_path, explicit):
+    processes = GuiProcesses(tmp_path)
+    # Give the child a sentinel default so the regression detects default-path
+    # writes without racing unrelated pytest sessions in the real repository.
+    default_report = tmp_path / "repository-default.json"
+    default_report.write_bytes(b"parent session evidence\n")
+    with (tmp_path / "conftest.py").open("a") as stream:
+        stream.write(
+            "\nfrom src.tests import skip_ledger\n"
+            "skip_ledger.DEFAULT_REPORT = Path('repository-default.json').resolve()\n"
+        )
+    selected = tmp_path / "explicit.json"
+    arguments = (
+        ()
+        if explicit is None
+        else (f"--skip-report={selected}",)
+        if explicit == "joined"
+        else ("--skip-report", str(selected))
+    )
+    try:
+        processes.start("ordinary", marked=False, arguments=arguments)
+        processes.finish("ordinary")
+        default = tmp_path / "ordinary-skip-report.json"
+        report = json.loads((default if explicit is None else selected).read_text())
+        assert report["tests"] == {"test_process.py::test_ordinary": "passed"}
+        if explicit is not None:
+            assert not default.exists()
+        assert default_report.read_bytes() == b"parent session evidence\n"
+    finally:
+        processes.close()
 
 
 @pytest.fixture(params=[("macos_gui", "darwin"), ("linux_gui", "linux")], ids=["macos", "linux"])
@@ -394,6 +428,9 @@ def test_native_gui_unmarked_orchestrator_waits_without_owning_child_lease(gui_p
     processes.finish("orchestrator")
     assert (processes.root / "nested.entered").exists()
     assert (processes.root / "nested.teardown").exists()
+    for role, name in (("orchestrator", "test_orchestrator"), ("nested", "test_gui")):
+        report = json.loads((processes.root / f"{role}-skip-report.json").read_text())
+        assert report["tests"] == {f"test_process.py::{name}": "passed"}
 
 
 LINUX_GUI_TESTS = {
