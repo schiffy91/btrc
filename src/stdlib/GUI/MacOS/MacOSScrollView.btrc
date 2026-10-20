@@ -3,17 +3,21 @@ import Library.Math;
 import Library.Callback;
 import Library.Vector;
 import Library.GUI.IContainer;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSRunLoop;
 import Library.Console;
 import Library.GUI.IScrollView;
 import Library.GUI.IView;
 import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSView;
 
-/* Native vertical viewport. AppKit owns clipping, wheel/momentum handling and
+/* Native two-axis viewport. AppKit owns clipping, wheel/momentum handling and
  * overlay scrollers. Public offsets count logical points down from the top;
  * native document children use AppKit's unflipped coordinates. */
 class MacOSScrollLayout implements IMacOSContainerLayout {
 	private NSScrollView? _scroll;
+	private long long _revision = 1LL;
 
 	public MacOSScrollLayout() {
 		self._scroll = null;
@@ -24,7 +28,7 @@ class MacOSScrollLayout implements IMacOSContainerLayout {
 		scroll.setBorderType(NSNoBorder);
 		scroll.setDrawsBackground(false);
 		scroll.setHasVerticalScroller(true);
-		scroll.setHasHorizontalScroller(false);
+		scroll.setHasHorizontalScroller(true);
 		scroll.setAutohidesScrollers(true);
 		scroll.setScrollerStyle(NSScrollerStyleOverlay);
 		scroll.setDocumentView(document);
@@ -59,41 +63,46 @@ class MacOSScrollLayout implements IMacOSContainerLayout {
 
 	public void forgetChild(NSView child) {}
 
+	public long long modelRevision() { return self._revision; }
+
 	public void setContentSize(double width, double height) {
 		if (!Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid scroll content size"; }
-		double offset = self.scrollOffset();
-		var document = self.documentView();
-		var frame = document.frame();
-		frame.size.width = width;
-		frame.size.height = height;
-		document.setFrame(frame);
-		self.nativeControl().tile();
-		self.scrollTo(offset);
+		var document = self.documentView(); var frame = document.frame();
+		if (frame.size.width == width && frame.size.height == height) { return; }
+		if (self._revision == 9223372036854775807LL) { throw "Scroll document revisions exhausted"; }
+		var offset = self.offset(); frame.size.width = width; frame.size.height = height;
+		document.setFrame(frame); self._revision++; self.nativeControl().tile(); self.scrollToOffset(offset);
 	}
 
-	public double scrollOffset() {
-		var scroll = self.nativeControl();
-		var bounds = scroll.contentView().bounds();
-		var frame = self.documentView().frame();
-		double maximum = frame.size.height - bounds.size.height;
-		if (maximum <= 0.0) { return 0.0; }
-		double offset = maximum - bounds.origin.y;
-		return offset < 0.0 ? 0.0 : (offset > maximum ? maximum : offset);
+	public ScrollOffset offset() {
+		var bounds = self.nativeControl().contentView().bounds(); var frame = self.documentView().frame();
+		double maximumX = Math.maxDouble(0.0, frame.size.width - bounds.size.width);
+		double maximumY = Math.maxDouble(0.0, frame.size.height - bounds.size.height);
+		var result = ScrollOffset();
+		result.x = Math.maxDouble(0.0, Math.minDouble(maximumX, bounds.origin.x - frame.origin.x));
+		result.y = Math.maxDouble(0.0, Math.minDouble(maximumY, frame.origin.y + maximumY - bounds.origin.y));
+		return result;
 	}
 
-	public void scrollTo(double offset) {
-		if (!Math.isFinite(offset)) { throw "Invalid scroll offset"; }
-		var scroll = self.nativeControl();
-		var clip = scroll.contentView();
-		var bounds = clip.bounds();
-		var frame = self.documentView().frame();
-		double maximum = frame.size.height - bounds.size.height;
-		maximum = maximum < 0.0 ? 0.0 : maximum;
-		offset = offset < 0.0 ? 0.0 : (offset > maximum ? maximum : offset);
-		bounds.origin.x = 0.0;
-		bounds.origin.y = maximum - offset;
-		clip.scrollToPoint(bounds.origin);
-		scroll.reflectScrolledClipView(clip);
+	public ScrollRect visibleRect() {
+		var bounds = self.nativeControl().contentView().bounds(); var frame = self.documentView().frame();
+		double x = bounds.origin.x - frame.origin.x;
+		double y = frame.size.height - (bounds.origin.y - frame.origin.y) - bounds.size.height;
+		var result = ScrollRect();
+		result.x = Math.maxDouble(0.0, Math.minDouble(frame.size.width, x)); result.y = Math.maxDouble(0.0, Math.minDouble(frame.size.height, y));
+		result.width = Math.maxDouble(0.0, Math.minDouble(frame.size.width, x + bounds.size.width) - result.x);
+		result.height = Math.maxDouble(0.0, Math.minDouble(frame.size.height, y + bounds.size.height) - result.y);
+		return result;
+	}
+
+	public void scrollToOffset(ScrollOffset offset) {
+		if (offset == null || !Math.isFinite(offset.x) || !Math.isFinite(offset.y)) { throw "Invalid scroll offset"; }
+		var scroll = self.nativeControl(); var clip = scroll.contentView(); var bounds = clip.bounds(); var frame = self.documentView().frame();
+		double maximumX = Math.maxDouble(0.0, frame.size.width - bounds.size.width);
+		double maximumY = Math.maxDouble(0.0, frame.size.height - bounds.size.height);
+		bounds.origin.x = frame.origin.x + Math.maxDouble(0.0, Math.minDouble(maximumX, offset.x));
+		bounds.origin.y = frame.origin.y + maximumY - Math.maxDouble(0.0, Math.minDouble(maximumY, offset.y));
+		clip.scrollToPoint(bounds.origin); scroll.reflectScrolledClipView(clip);
 	}
 
 	public void close() {
@@ -106,11 +115,141 @@ class MacOSScrollLayout implements IMacOSContainerLayout {
 	}
 }
 
+/* Absolute geometry is replaceable observation. One reserved settlement keeps
+ * the latest unadmitted snapshot while the normal semantic lane is full. */
+class MacOSScrollObservation implements IAppKitNotificationObserver, IMacOSNativeSettlement {
+	private MacOSScrollLayout _layout;
+	private MacOSViewState _state;
+	private MacOSViewContext? _context;
+	private CallbackScope _native = CallbackScope();
+	private MacOSNativeSettlementRegistration? _settlement;
+	private ControlEventChannel<IScrollControlEventHandler, ScrollControlEvent>? _changes;
+	private ScrollRect _last;
+	private ScrollOffset _lastOffset;
+	private double _viewportWidth;
+	private double _viewportHeight;
+	private ScrollControlEvent? _pending;
+	private long long _sequence = 0LL;
+	private int _mutations = 0;
+	private bool _deferred = false;
+	private ControlOrigin _deferredOrigin = CONTROL_ORIGIN_USER;
+	private bool _closed = false;
+	private bool _failed = false;
+	private string _failure = "";
+
+	public MacOSScrollObservation(MacOSScrollLayout layout, MacOSViewState state) {
+		self._layout = layout; self._state = state; self.readBaseline();
+		try {
+			var clip = layout.nativeControl().contentView(); clip.setPostsBoundsChangedNotifications(true); clip.setPostsFrameChangedNotifications(true);
+			NSNotificationCenter.defaultCenter().addObserverForName(NSViewBoundsDidChangeNotification, clip, null, self, self._native);
+			NSNotificationCenter.defaultCenter().addObserverForName(NSViewFrameDidChangeNotification, clip, null, self, self._native);
+		} catch (string error) { self._native.cancel(); throw error; }
+	}
+
+	/* Geometry is observed before application attachment. Preserve the first
+	 * callback error until a context exists, then seal that source normally. */
+	private void recordFailure(string error) {
+		if (!self._failed) { self._failed = true; self._failure = error; }
+		var context = self._context; if (context == null) { context = self._state.context(); }
+		if (context != null) { context.recordNativeFailure(self._failure); }
+	}
+
+	public void check() {
+		if (!NSThread.isMainThread()) { throw "Native scroll observation requires the main thread"; }
+		if (self._context == null) {
+			var context = self._state.context();
+			if (context != null) {
+				self._context = context;
+				if (self._failed) { context.recordNativeFailure(self._failure); }
+				else { try { self._settlement = context.registerNativeSettlement(self, self._native); } catch (string error) { self.recordFailure(error); throw error; } }
+			}
+		}
+		if (self._failed) { throw self._failure; }
+		if (self._context != null) { self._context.checkNativeFailure(); }
+		self._layout.nativeControl();
+	}
+
+	private void requestSettlement() {
+		if (self._settlement == null) { throw "Scroll observation has no application settlement"; }
+		self._settlement.request();
+	}
+
+	class void deliver(IScrollControlEventHandler receiver, ScrollControlEvent event) { receiver.scrollEvent(event); }
+
+	public ICallbackRegistration subscribe(IScrollControlEventHandler receiver, CallbackScope owner) {
+		self._state.requireMutation(); self.check(); if (self._context == null) { throw "Scroll observation requires an application context"; } if (self._closed) { throw "Scroll observation is closed"; }
+		if (self._changes != null && self._changes.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing scroll observer first"; }
+		var channel = new ControlEventChannel<IScrollControlEventHandler, ScrollControlEvent>(self._state.events(), MacOSViewObservation(self._state), receiver, MacOSScrollObservation.deliver, owner);
+		self._state.ownChannel(channel); self._changes = channel; self.readBaseline(); self._pending = null; self._deferred = false; return channel;
+	}
+
+	public void beginMutation() { self._mutations++; }
+
+	public void endMutation(ControlOrigin origin) {
+		self._mutations--;
+		try { if (self._mutations == 0 && !self._closed) { self.changed(origin); } } catch (string error) { self.recordFailure(error); throw error; }
+	}
+
+	public void invoke(NSNotification notification) {
+		try { if (!self._closed && self._mutations == 0) { self.check(); self.changed(CONTROL_ORIGIN_USER); } }
+		catch (string error) { self.recordFailure(error); }
+	}
+
+	private void readBaseline() {
+		self._last = self._layout.visibleRect(); self._lastOffset = self._layout.offset();
+		var bounds = self._layout.nativeControl().contentView().bounds(); self._viewportWidth = bounds.size.width; self._viewportHeight = bounds.size.height;
+	}
+
+	private void changed(ControlOrigin origin) {
+		if (self._context != null && self._context.treeMutationActive()) { self._deferred = true; self._deferredOrigin = origin; self.requestSettlement(); return; }
+		var bounds = self._layout.nativeControl().contentView().bounds();
+		if (origin == CONTROL_ORIGIN_USER && (bounds.size.width != self._viewportWidth || bounds.size.height != self._viewportHeight)) {
+			origin = CONTROL_ORIGIN_SYSTEM; self._mutations++;
+			try { self._layout.scrollToOffset(self._lastOffset); } finally { self._mutations--; }
+		}
+		self._viewportWidth = bounds.size.width; self._viewportHeight = bounds.size.height;
+		var rect = self._layout.visibleRect(); var offset = self._layout.offset();
+		bool sameOffset = offset.x == self._lastOffset.x && offset.y == self._lastOffset.y; self._lastOffset = offset;
+		if (sameOffset && rect.x == self._last.x && rect.y == self._last.y && rect.width == self._last.width && rect.height == self._last.height) { return; }
+		self._last = rect;
+		if (self._sequence == 9223372036854775807LL) { throw "Scroll observation identities exhausted"; } self._sequence++;
+		var channel = self._changes; if (channel == null || !channel.isOpen()) { self._pending = null; return; }
+		var identity = ControlEventContext(); identity.generation = self._state.generation(); identity.interaction = 0LL;
+		identity.sequence = self._sequence; identity.modelRevision = self._layout.modelRevision(); identity.origin = origin;
+		// Delivered snapshots never share the provider's resize/no-op baseline.
+		var event = ScrollControlEvent(); event.context = identity; event.offset = ScrollOffset(); event.visibleRect = ScrollRect();
+		event.offset.x = offset.x; event.offset.y = offset.y;
+		event.visibleRect.x = rect.x; event.visibleRect.y = rect.y; event.visibleRect.width = rect.width; event.visibleRect.height = rect.height; self._pending = event;
+		self.publishPending();
+	}
+
+	private void publishPending() {
+		var channel = self._changes; var event = self._pending;
+		if (event == null) { return; }
+		if (channel == null || !channel.isOpen() || event.context.generation != self._state.generation()) { self._pending = null; return; }
+		var context = self._context; if (context == null) { throw "Scroll observation has no application context"; } context.checkNativeFailure();
+		if (!self._state.events().canCapture(0)) { throw "Scroll observation source is unavailable"; }
+		if (channel.publish(event, event.context.generation, 0LL, 1LL)) { self._pending = null; }
+		else { self.requestSettlement(); }
+	}
+
+	public void settleNative() {
+		if (self._closed || (self._context != null && self._context.treeMutationActive()) || self._mutations != 0) { return; }
+		if (self._deferred) { var origin = self._deferredOrigin; self._deferred = false; self.changed(origin); }
+		self.publishPending();
+	}
+
+	public CallbackCancellation cancel() { self._closed = true; self._pending = null; self._deferred = false; return self._native.cancel(); }
+
+	public CallbackCancellation pollCompletion() { return self._native.pollCompletion(); }
+}
+
 class MacOSScrollView implements IScrollView, IMacOSView {
 	private MacOSContainer _container;
 	private MacOSScrollLayout _layout;
+	private MacOSScrollObservation? _observation;
 
-	public MacOSScrollView() { self._layout = MacOSScrollLayout(); self._container = MacOSContainer(self._layout); }
+	public MacOSScrollView() { self._layout = MacOSScrollLayout(); self._container = MacOSContainer(self._layout); self._observation = MacOSScrollObservation(self._layout, self._container.stateNode()); }
 
 	public MacOSViewState stateNode() { return self._container.stateNode(); }
 
@@ -118,7 +257,7 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 
 	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._container.onInteractionStateChanged(handler, owner); }
 
-	public NSView nativeView() { return self._container.nativeView(); }
+	public NSView nativeView() { var native = self._container.nativeView(); if (self._observation != null) { self._observation.check(); } return native; }
 
 	public NSScrollView nativeControl() { self.nativeView(); return self._layout.nativeControl(); }
 
@@ -151,10 +290,9 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 	public double fittingHeight() { return self._container.fittingHeight(); }
 
 	public void arrange(double x, double y, double width, double height) {
-		double offset = self.scrollOffset();
-		self._container.arrange(x, y, width, height);
-		self.nativeControl().tile();
-		self.scrollTo(offset);
+		var offset = self.offset(); var observation = self._observation; if (observation != null) { observation.beginMutation(); }
+		try { self._container.arrange(x, y, width, height); self.nativeControl().tile(); self._layout.scrollToOffset(offset); }
+		finally { if (observation != null) { observation.endMutation(CONTROL_ORIGIN_SYSTEM); } }
 	}
 
 	public bool isVisible() { return self._container.isVisible(); }
@@ -167,20 +305,44 @@ class MacOSScrollView implements IScrollView, IMacOSView {
 
 	public void setVisible(bool visible) { self._container.setVisible(visible); }
 
-	public void setContentSize(double width, double height) { self.stateNode().requireMutation(); self.nativeView(); self._layout.setContentSize(width, height); }
+	public ScrollOffset offset() { self.nativeView(); return self._layout.offset(); }
 
-	public double scrollOffset() { self.nativeView(); return self._layout.scrollOffset(); }
+	public ScrollRect visibleRect() { self.nativeView(); return self._layout.visibleRect(); }
 
-	public void scrollTo(double offset) { self.stateNode().requireMutation(); self.nativeView(); self._layout.scrollTo(offset); }
+	public ICallbackRegistration onOffsetChanged(IScrollControlEventHandler receiver, CallbackScope owner) {
+		self.stateNode().requireMutation(); self.nativeView();
+		var observation = self._observation; if (observation == null) { throw "Scroll observation is unavailable"; }
+		return observation.subscribe(receiver, owner);
+	}
+
+	public void setContentSize(double width, double height) {
+		self.stateNode().requireMutation(); self.nativeView(); var observation = self._observation; if (observation != null) { observation.beginMutation(); }
+		try { self._layout.setContentSize(width, height); } finally { if (observation != null) { observation.endMutation(CONTROL_ORIGIN_SYSTEM); } }
+	}
+
+	public void scrollToOffset(ScrollOffset offset) {
+		self.stateNode().requireMutation(); self.nativeView(); var observation = self._observation; if (observation != null) { observation.beginMutation(); }
+		try { self._layout.scrollToOffset(offset); } finally { if (observation != null) { observation.endMutation(CONTROL_ORIGIN_MODEL); } }
+	}
+
+	public double scrollOffset() { return self.offset().y; }
+
+	public void scrollTo(double y) { var offset = self.offset(); offset.y = y; self.scrollToOffset(offset); }
 
 	public CallbackCancellation close() {
-		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.close();
+		CallbackCancellation state = CALLBACK_CANCELLATION_COMPLETE;
+		try { if (self._container != null) { state = self._container.close(); } }
+		catch (string error) { var observation = self._observation; if (observation != null) { if (self._container != null && !self._container.isOpen()) { observation.cancel(); } } throw error; }
+		var native = self._observation == null ? CALLBACK_CANCELLATION_COMPLETE : self._observation.cancel();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { state = native; }
 		if (state == CALLBACK_CANCELLATION_COMPLETE && self._layout != null) { self._layout.close(); }
 		return state;
 	}
 
 	public CallbackCancellation pollClose() {
+		var native = self._observation == null ? CALLBACK_CANCELLATION_COMPLETE : self._observation.pollCompletion();
 		var state = self._container == null ? CALLBACK_CANCELLATION_COMPLETE : self._container.pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { state = native; }
 		if (state == CALLBACK_CANCELLATION_COMPLETE && self._layout != null) { self._layout.close(); }
 		return state;
 	}

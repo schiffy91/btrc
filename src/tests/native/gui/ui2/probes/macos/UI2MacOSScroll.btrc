@@ -1,0 +1,146 @@
+import Library.Callback;
+import Library.Vector;
+import Library.Math;
+import Library.GUI.IScrollView;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSScrollView;
+import Library.GUI.MacOS.MacOSContainer;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+#include <stdio.h>
+
+class ScrollWake implements IControlEventWake {
+	public int calls = 0;
+	public bool requestTurn() { self.calls++; return true; }
+}
+class ScrollObserver implements IScrollControlEventHandler {
+	public Vector<ScrollControlEvent> events = [];
+	public MacOSViewContext context;
+	public MacOSScrollView? closeInside;
+	public ScrollObserver(MacOSViewContext context) { self.context = context; }
+
+	public void scrollEvent(ScrollControlEvent event) {
+		assert(!self.context.treeMutationActive()); self.events.push(event);
+		if (self.closeInside != null) { assert(self.closeInside.close() == CALLBACK_CANCELLATION_PENDING); }
+	}
+}
+ScrollOffset position(double x, double y) { var result = ScrollOffset(); result.x = x; result.y = y; return result; }
+
+void drain(MacOSViewContext context) { for (int index = 0; index < 64 && context.pending(); index++) { context.dispatchOne(); } assert(!context.pending()); }
+
+void sizeViewport(MacOSScrollView scroll, double width, double height) {
+	var parent = NSView.new(); if (parent == null) { throw "Cannot create scroll fixture parent"; } scroll.attachTo(parent);
+	try { scroll.arrange(0.0, 0.0, width, height); } finally { scroll.detachFrom(parent); }
+}
+
+void verifyPreContextFailure() {
+	var view = MacOSView(); var layout = MacOSScrollLayout(); var observation = MacOSScrollObservation(layout, view.stateNode());
+	var clip = layout.nativeControl().contentView(); layout.close();
+	NSNotificationCenter.defaultCenter().postNotificationName(NSViewBoundsDidChangeNotification, clip);
+	string firstError = ""; try { observation.check(); } catch (string error) { firstError = error; } assert(firstError != "");
+	var context = MacOSViewContext(ScrollWake(), 8); view.stateNode().configure(context);
+	bool failed = false; try { observation.check(); } catch (string error) { failed = error == firstError; }
+	assert(failed && context.nativeFailed());
+	assert(observation.cancel() == CALLBACK_CANCELLATION_COMPLETE && view.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+void verifyUnsubscribedResize() {
+	var context = MacOSViewContext(ScrollWake(), 8); var scroll = MacOSScrollView(); scroll.stateNode().configure(context);
+	sizeViewport(scroll, 200.0, 100.0); scroll.setContentSize(400.0, 300.0); scroll.scrollToOffset(position(50.0, 60.0));
+	var frame = scroll.nativeControl().frame(); frame.size.width = 250.0; frame.size.height = 150.0;
+	scroll.nativeControl().setFrame(frame); scroll.nativeControl().tile();
+	var offset = scroll.offset(); var bounds = scroll.nativeControl().contentView().bounds(); var document = scroll.documentView().frame();
+	if (offset.x != 50.0 || offset.y != 60.0 || context.pending()) {
+		fprintf(stderr, "unsubscribed resize: offset=%g,%g clip=%g,%g,%g,%g document=%g,%g,%g,%g pending=%d\n", offset.x, offset.y, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height, document.origin.x, document.origin.y, document.size.width, document.size.height, (int)context.pending());
+	}
+	assert(offset.x == 50.0 && offset.y == 60.0 && !context.pending());
+	assert(scroll.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+void verifyGeometry() {
+	var context = MacOSViewContext(ScrollWake(), 8); var scroll = MacOSScrollView(); scroll.stateNode().configure(context);
+	sizeViewport(scroll, 200.0, 100.0); scroll.setContentSize(400.0, 300.0);
+	var owner = CallbackScope(); var receiver = ScrollObserver(context); scroll.onOffsetChanged(receiver, owner);
+	assert(receiver.events.isEmpty() && !context.pending());
+	scroll.scrollToOffset(position(50.0, 60.0)); assert(receiver.events.isEmpty()); drain(context);
+	assert(receiver.events.len == 1 && receiver.events.get(0).context.origin == CONTROL_ORIGIN_MODEL);
+	assert(scroll.offset().x == 50.0 && scroll.offset().y == 60.0);
+	scroll.scrollTo(80.0); drain(context); assert(scroll.offset().x == 50.0 && scroll.scrollOffset() == 80.0);
+	int count = receiver.events.len;
+	scroll.scrollToOffset(position(50.0, 80.0)); scroll.setContentSize(400.0, 300.0); drain(context); assert(receiver.events.len == count);
+	bool rejected = false; try { scroll.scrollToOffset(position(NAN, 5.0)); } catch (string error) { rejected = true; } assert(rejected);
+	rejected = false; try { scroll.scrollToOffset(position(5.0, (double)Math.INF())); } catch (string error) { rejected = true; } assert(rejected);
+	rejected = false; try { scroll.setContentSize(NAN, 100.0); } catch (string error) { rejected = true; } assert(rejected);
+	assert(scroll.offset().x == 50.0 && scroll.offset().y == 80.0 && receiver.events.len == count && !context.pending());
+	scroll.scrollToOffset(position(-20.0, 900.0)); drain(context);
+	var viewport = scroll.nativeControl().contentView().bounds();
+	assert(scroll.offset().x == 0.0 && scroll.offset().y == 300.0 - viewport.size.height);
+	assert(scroll.visibleRect().width == viewport.size.width && scroll.visibleRect().height == viewport.size.height);
+	// Native clip movement is observed after its callback, with USER origin.
+	var clip = scroll.nativeControl().contentView(); var point = clip.bounds().origin; point.x = 30.0; point.y = 300.0 - viewport.size.height - 40.0;
+	clip.scrollToPoint(point); assert(receiver.events.len == count + 1); drain(context);
+	assert(scroll.offset().x == 30.0 && scroll.offset().y == 40.0 && receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_USER);
+	// Inject native elastic geometry; this is not a physical tracking gesture.
+	point.x = -15.0; BTRCUI2ScrollProbe.forceClip(clip, point);
+	assert(clip.bounds().origin.x == -15.0); drain(context);
+	var elasticOffset = scroll.offset(); var elasticRect = scroll.visibleRect(); var elasticBounds = clip.bounds(); var elasticDocument = scroll.documentView().frame();
+	if (elasticOffset.x != 0.0 || elasticRect.x != 0.0 || elasticRect.width != viewport.size.width - 15.0) {
+		fprintf(stderr, "forced overscroll: offset=%g,%g visible=%g,%g,%g,%g clip=%g,%g,%g,%g doc=%g,%g,%g,%g originalViewport=%g,%g\n", elasticOffset.x, elasticOffset.y, elasticRect.x, elasticRect.y, elasticRect.width, elasticRect.height, elasticBounds.origin.x, elasticBounds.origin.y, elasticBounds.size.width, elasticBounds.size.height, elasticDocument.origin.x, elasticDocument.origin.y, elasticDocument.size.width, elasticDocument.size.height, viewport.size.width, viewport.size.height);
+	}
+	assert(elasticOffset.x == 0.0 && elasticRect.x == 0.0 && elasticRect.width == viewport.size.width - 15.0);
+	assert(receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_USER);
+	scroll.scrollToOffset(position(100.0, 120.0)); drain(context);
+	var delivered = receiver.events.get(receiver.events.len - 1); int deliveredCount = receiver.events.len;
+	delivered.offset.x = 0.0; delivered.offset.y = 0.0; delivered.visibleRect.x = 999.0; delivered.visibleRect.y = 999.0; delivered.visibleRect.width = 0.0; delivered.visibleRect.height = 0.0;
+	scroll.scrollToOffset(position(100.0, 120.0)); drain(context);
+	assert(receiver.events.len == deliveredCount && scroll.offset().x == 100.0 && scroll.offset().y == 120.0);
+	var frame = scroll.nativeControl().frame(); frame.size.width = 350.0; frame.size.height = 250.0; scroll.nativeControl().setFrame(frame); scroll.nativeControl().tile(); drain(context);
+	viewport = clip.bounds(); assert(scroll.offset().x == 400.0 - viewport.size.width && scroll.offset().y == 300.0 - viewport.size.height);
+	assert(receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_SYSTEM);
+	scroll.setContentSize(30.0, 20.0); drain(context);
+	assert(scroll.offset().x == 0.0 && scroll.offset().y == 0.0 && scroll.visibleRect().width == 30.0 && scroll.visibleRect().height == 20.0);
+	assert(receiver.events.get(receiver.events.len - 1).context.origin == CONTROL_ORIGIN_SYSTEM);
+	scroll.setContentSize(0.0, 0.0); drain(context); assert(scroll.visibleRect().width == 0.0 && scroll.visibleRect().height == 0.0);
+	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && scroll.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+void verifyPressureAndMutation() {
+	var context = MacOSViewContext(ScrollWake(), 1); var first = MacOSScrollView(); var second = MacOSScrollView();
+	first.stateNode().configure(context); second.stateNode().configure(context);
+	sizeViewport(first, 100.0, 80.0); sizeViewport(second, 100.0, 80.0); first.setContentSize(300.0, 300.0); second.setContentSize(300.0, 300.0);
+	var firstOwner = CallbackScope(); var secondOwner = CallbackScope(); var firstReceiver = ScrollObserver(context); var secondReceiver = ScrollObserver(context);
+	first.onOffsetChanged(firstReceiver, firstOwner); second.onOffsetChanged(secondReceiver, secondOwner);
+	first.scrollTo(10.0); second.scrollTo(20.0); second.scrollTo(30.0); drain(context);
+	assert(firstReceiver.events.len == 1 && secondReceiver.events.len == 1 && secondReceiver.events.get(0).offset.y == 30.0 && !context.nativeFailed());
+	context.beginTreeMutation(); second.scrollToOffset(position(25.0, 45.0)); assert(!context.dispatchOne() && secondReceiver.events.len == 1);
+	context.endTreeMutation(); drain(context); assert(secondReceiver.events.len == 2 && secondReceiver.events.get(1).context.origin == CONTROL_ORIGIN_MODEL);
+	first.scrollTo(50.0); assert(firstOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE); drain(context); assert(firstReceiver.events.len == 1);
+	secondReceiver.closeInside = second; second.scrollTo(60.0); drain(context); assert(second.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(secondOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && first.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+void verifyNestedAndFailedClose() {
+	var wake = ScrollWake(); var context = MacOSViewContext(wake, 8); var outer = MacOSScrollView(); var inner = MacOSScrollView();
+	outer.stateNode().configure(context); sizeViewport(outer, 200.0, 100.0); outer.setContentSize(500.0, 500.0); outer.attach(inner);
+	inner.arrange(10.0, 10.0, 120.0, 70.0); inner.setContentSize(300.0, 300.0);
+	var receiver = ScrollObserver(context); var owner = CallbackScope(); inner.onOffsetChanged(receiver, owner);
+	bool rejected = false; try { inner.close(); } catch (string error) { rejected = true; } assert(rejected && inner.isOpen());
+	inner.scrollToOffset(position(20.0, 30.0)); drain(context); assert(receiver.events.len == 1);
+	outer.scrollToOffset(position(80.0, 90.0)); drain(context); assert(inner.offset().x == 20.0 && inner.offset().y == 30.0 && receiver.events.len == 1);
+	var child = MacOSView(); inner.attach(child); outer.detach(inner); drain(context);
+	var closingClip = inner.nativeControl().contentView(); BTRCUI2DetachFault.armView(child.nativeView(), false);
+	bool failed = false; try { inner.close(); } catch (string error) { failed = true; } assert(failed && !inner.isOpen());
+	context.recordNativeFailure("shutdown fixture failure"); int calls = wake.calls;
+	NSNotificationCenter.defaultCenter().postNotificationName(NSViewBoundsDidChangeNotification, closingClip);
+	assert(wake.calls == calls);
+	assert(inner.close() == CALLBACK_CANCELLATION_COMPLETE && outer.close() == CALLBACK_CANCELLATION_COMPLETE && owner.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
+int main() {
+	NSApplication.sharedApplication(); verifyPreContextFailure(); verifyUnsubscribedResize(); verifyGeometry(); verifyPressureAndMutation(); verifyNestedAndFailedClose();
+	print("PASS: UI2 macOS scroll geometry origins pressure and scoped shutdown"); return 0;
+}
