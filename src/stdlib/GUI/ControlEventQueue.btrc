@@ -248,6 +248,8 @@ class ControlEventCaptureOwner {
 
 	public int available() { return self._capacity - self._used; }
 
+	public bool canReserveKeyChange() { return !self._sealed && self.available() > 0 && self._leases.len < self._capacity; }
+
 	public bool entered() { return self._entered; }
 
 	private void requireIdentities(int count) { if (count > 9223372036854775807LL - self._next) { throw "Capture identities exhausted"; } }
@@ -566,6 +568,8 @@ class ControlEventQueue {
 		if (capture != null) { capture.bind(pool); } self._capture = capture;
 		for (int index = 0; index < 7; index++) { self._retired.push(0LL); }
 	}
+
+	public bool captureEnabled() { return self._capture != null; }
 
 	public ControlEventCaptureOwner captureOwner() { if (self._capture == null) { throw "Semantic queue has no capture owner"; } return self._capture; }
 
