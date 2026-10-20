@@ -1,0 +1,107 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ITextField;
+import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class CaptureTextObservation implements ITextControlEventHandler {
+	public Vector<TextControlEvent> events = [];
+	public void textEvent(TextControlEvent event) { self.events.push(event); }
+}
+
+class TextCaptureChecks {
+	class void subscribe(MacOSTextField field, CaptureTextObservation receiver, CallbackScope owner) { field.onDraftChanged(receiver, owner); field.onCommit(receiver, owner); field.onCancel(receiver, owner); }
+
+	class void drain(MacOSViewContext context) { assert(!context.nativeFailed()); while (context.dispatchOne()) {} }
+
+	class void pressure(int route, bool retained) {
+		var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 1, null, 4);
+		var field = MacOSTextField("accepted"); field.stateNode().configure(context); var native = field.nativeControl(); var window = BTRCUI2TextProbe.host(native);
+		var queue = context.createQueue(); field.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+		var owner = CallbackScope(); var observed = CaptureTextObservation(); TextCaptureChecks.subscribe(field, observed, owner);
+		assert(queue.captureOwner().used() == 3);
+		assert(BTRCUI2TextCaptureProbe.focus(native, (long)route));
+		BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("retained"));
+		assert(field.text() == "retained" && queue.pendingCount() == 1 && !context.nativeFailed());
+		if (retained) { field.setEnabled(false); field.setEnabled(true); }
+		else { BTRCUI2TextProbe.blur(native); }
+		assert(queue.pendingCount() == 2 && observed.events.isEmpty());
+		assert(!BTRCUI2TextCaptureProbe.focus(native, (long)route));
+		assert(field.text() == "retained" && context.nativeFailed());
+		assert(context.nativeFailure() == "Native text focus admission unavailable");
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		field.stateNode().detachWindow(); BTRCUI2TextProbe.finish(window); assert(field.close() == CALLBACK_CANCELLATION_COMPLETE);
+		context.close(); assert(signal.close());
+	}
+
+	class void draftOnly() {
+		var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 1, null, 3);
+		var field = MacOSTextField("base"); field.stateNode().configure(context); var native = field.nativeControl(); var window = BTRCUI2TextProbe.host(native);
+		var queue = context.createQueue(); field.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+		var owner = CallbackScope(); var observed = CaptureTextObservation(); field.onDraftChanged(observed, owner);
+		for (int index = 1; index <= 3; index++) {
+			assert(BTRCUI2TextCaptureProbe.focus(native, 0L)); BTRCUI2TextProbe.replace(native, AppKitText.nativeValue(f"draft{index}")); BTRCUI2TextProbe.blur(native);
+			assert(queue.pendingCount() == index && !context.nativeFailed());
+		}
+		assert(!BTRCUI2TextCaptureProbe.focus(native, 0L)); assert(field.text() == "draft3" && context.nativeFailed());
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE); field.stateNode().detachWindow(); BTRCUI2TextProbe.finish(window); assert(field.close() == CALLBACK_CANCELLATION_COMPLETE);
+		context.close(); assert(signal.close());
+	}
+
+	class void failedFocus() {
+		var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 1, null, 16);
+		var field = MacOSTextField("base"); field.stateNode().configure(context); var native = field.nativeControl(); var window = BTRCUI2TextProbe.host(native);
+		var queue = context.createQueue(); field.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+		var owner = CallbackScope(); var observed = CaptureTextObservation(); TextCaptureChecks.subscribe(field, observed, owner);
+		BTRCUI2TextCaptureProbe.failFocus(native);
+		assert(context.nativeFailed() && context.nativeFailure() == "Native text focus failed");
+		assert(queue.pendingCount() == 0 && queue.captureOwner().used() == 0 && observed.events.isEmpty());
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		field.stateNode().detachWindow(); BTRCUI2TextProbe.finish(window); assert(field.close() == CALLBACK_CANCELLATION_COMPLETE);
+		context.close(); assert(signal.close());
+	}
+
+	class void lateSubscription() {
+		var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 1, null, 1);
+		var field = MacOSTextField("base"); field.stateNode().configure(context); var native = field.nativeControl(); var window = BTRCUI2TextProbe.host(native);
+		var queue = context.createQueue(); field.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+		assert(BTRCUI2TextCaptureProbe.focus(native, 0L)); BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("draft"));
+		var owner = CallbackScope(); bool refused = false;
+		try { field.onDraftChanged(CaptureTextObservation(), owner); } catch (string error) { refused = error == "Text draft reservation unavailable"; }
+		assert(refused && field.text() == "draft" && !context.nativeFailed() && queue.captureOwner().used() == 0 && queue.pendingCount() == 0);
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE); BTRCUI2TextProbe.blur(native);
+		field.stateNode().detachWindow(); BTRCUI2TextProbe.finish(window); assert(field.close() == CALLBACK_CANCELLATION_COMPLETE);
+		context.close(); assert(signal.close());
+	}
+}
+
+int main() {
+	BTRCUI2TextProbe.prepare();
+	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 1, null, 64);
+	var first = MacOSTextField("first"); var second = MacOSTextField("second"); first.stateNode().configure(context); second.stateNode().configure(context);
+	var a = first.nativeControl(); var b = second.nativeControl(); var window = BTRCUI2TextCaptureProbe.host(a, b); var queue = context.createQueue();
+	first.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED); second.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+	var owner = CallbackScope(); var observed = CaptureTextObservation(); TextCaptureChecks.subscribe(first, observed, owner); TextCaptureChecks.subscribe(second, observed, owner);
+	assert(BTRCUI2TextCaptureProbe.focus(a, 2L)); BTRCUI2TextProbe.replace(a, AppKitText.nativeValue("A1")); BTRCUI2TextProbe.replace(a, AppKitText.nativeValue("A2"));
+	assert(BTRCUI2TextCaptureProbe.focus(b, 1L)); BTRCUI2TextProbe.replace(b, AppKitText.nativeValue("B1"));
+	assert(queue.pendingCount() == 3 && observed.events.isEmpty()); TextCaptureChecks.drain(context);
+	assert(observed.events.len == 3);
+	assert(observed.events.get(0).phase == CONTROL_PHASE_DRAFT && observed.events.get(0).text == "A2");
+	assert(observed.events.get(1).phase == CONTROL_PHASE_COMMIT && observed.events.get(1).text == "A2");
+	assert(observed.events.get(2).phase == CONTROL_PHASE_DRAFT && observed.events.get(2).text == "B1");
+	observed.events.clear(); second.setEnabled(false); second.setEnabled(true); TextCaptureChecks.drain(context);
+	assert(observed.events.len == 1 && observed.events.get(0).phase == CONTROL_PHASE_CANCEL && observed.events.get(0).text == "B1");
+	long long cancelled = observed.events.get(0).context.interaction;
+	observed.events.clear(); assert(BTRCUI2TextCaptureProbe.focus(b, 2L)); BTRCUI2TextProbe.blur(b); TextCaptureChecks.drain(context);
+	assert(observed.events.len == 1 && observed.events.get(0).phase == CONTROL_PHASE_COMMIT && observed.events.get(0).text == "B1" && observed.events.get(0).context.interaction > cancelled);
+	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE); first.stateNode().detachWindow(); second.stateNode().detachWindow(); BTRCUI2TextProbe.finish(window);
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE); context.close(); assert(signal.close());
+	for (int route = 0; route < 3; route++) { TextCaptureChecks.pressure(route, false); TextCaptureChecks.pressure(route, true); }
+	TextCaptureChecks.draftOnly(); TextCaptureChecks.lateSubscription(); TextCaptureChecks.failedFocus();
+	print("PASS: UI2 macOS text capture before native focus and editing"); return 0;
+}
