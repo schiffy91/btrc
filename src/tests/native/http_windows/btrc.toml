@@ -1,0 +1,16 @@
+manifest-version = 1
+
+[package]
+name = "windowsHttpCases"
+
+[[native.sources]]
+path = "WinsockPeer.c"
+language = "c"
+standard = "c11"
+modules = ["WindowsHttpCases"]
+os = ["windows"]
+
+[[native.libraries]]
+name = "ws2_32"
+modules = ["WindowsHttpCases"]
+os = ["windows"]

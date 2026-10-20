@@ -3,3 +3,30 @@ manifest-version = 1
 [package]
 name = "btrc_stdlib_http"
 exports = ["HTTP", "HTTPClient", "HTTPFraming", "HTTPRequest", "HTTPResponse", "HTTPResponseHeaders", "HTTPServer", "HTTPSocket", "HTTPStatus", "HTTPUrl"]
+
+[[package.providers]]
+module = "HTTPSocket"
+implementation = "Unix.HTTPSocketProvider"
+os = ["android", "ios", "linux", "macos"]
+
+[[package.providers]]
+module = "HTTPSocket"
+implementation = "Windows.HTTPSocketProvider"
+os = ["windows"]
+
+[[native.sources]]
+path = "Windows/Win32Sockets.c"
+language = "c"
+standard = "c11"
+modules = ["HTTPSocket"]
+os = ["windows"]
+
+[[native.include-directories]]
+path = "Windows"
+modules = ["HTTPSocket"]
+os = ["windows"]
+
+[[native.libraries]]
+name = "ws2_32"
+modules = ["HTTPSocket"]
+os = ["windows"]
