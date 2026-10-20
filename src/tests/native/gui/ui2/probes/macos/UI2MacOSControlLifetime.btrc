@@ -40,7 +40,8 @@ class ControlLifetimeCycle implements IControlLifetimeCycle {
 		slider.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
 		var owner = CallbackScope(); var selection = ControlLifetimeSelection(); var adjustment = ControlLifetimeSlider();
 		Vector<ICallbackRegistration> registrations = [select.onChanged(selection, owner), select.onCommit(selection, owner), select.onCancel(selection, owner), slider.onPreview(adjustment, owner), slider.onCommit(adjustment, owner), slider.onCancel(adjustment, owner)];
-		assert(capture.used() == 6);
+		// Two keyed slots plus two continuation slots for each of four terminal promises.
+		assert(capture.used() == 10);
 		// Observe both populated generations, including their retired menu adapters.
 		for (int generation = 1; generation <= 2; generation++) {
 			select.setOptions(self.model(generation == 1 ? "First" : "Replacement"));
