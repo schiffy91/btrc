@@ -2,8 +2,8 @@
 
 # PLAN: unified btrc and BTRSmith roadmap
 
-Updated **2026-10-12** for the owner's priorities, five-platform BTRSmith scope
-and execution handoff. Read [AGENTS.md](AGENTS.md) first for architecture and
+Updated **2026-10-20** for the owner-directed consolidation and repair queue.
+The five-platform priorities and earlier execution handoff remain below. Read [AGENTS.md](AGENTS.md) first for architecture and
 development rules. Detailed evidence below retains its original dates; this
 planning update does not assert new implementation or qualification results.
 
@@ -19,6 +19,142 @@ D29 governs the consolidated queue. [WORKSTREAMS.md](WORKSTREAMS.md) retains fil
 batch evidence. The frozen [reference](docs/design/plan-reference.md) and every
 `ref:N` line citation remain unchanged. This document has no effort or calendar
 estimates: order follows the owner's stack rank and demonstrated dependencies.
+
+## Owner-directed consolidation and repairs (2026-10-20)
+
+The owner explicitly changed the sequence: document every branch's remaining
+gaps here, merge the accumulated work into `main`, then fix it on `main`.
+For this consolidation, that instruction supersedes the earlier requirement
+to finish qualification before landing. Architecture, acceptance thresholds,
+resource assertions and evidence requirements remain unchanged. Landing does
+not close the gaps below or make the combined tree qualified.
+
+The starting `main` was `dc97d1f23610a7135d8471cbc0450e39ac196452`.
+All 16 open PR heads were already ancestors of integration `7bcf11cf`.
+The consolidation also includes the three published diagnostic branches and
+three saved local diagnostic/repair branches listed below, with their histories.
+PR #106 was retargeted from `claude/parity-wave-2` to `main`.
+There were 21 remote branches including `main` before landing; 252 older remote
+branches had already been retired with recovery records.
+
+### Branch inventory and remaining work
+
+The gap IDs refer to the repair queue immediately below. Every implementation
+row also needs G07 on the final combined revision. “No separate defect
+identified” records the current audit result; it does not assert a passing gate.
+Historical heads remain useful provenance after their branches are deleted.
+
+| Branch / PR / audited head | What it does | Remaining work |
+|---|---|---|
+| `main`, `dc97d1f2` | Holds the previously integrated baseline. | Receive this consolidation, then close G01–G07 and reconcile G09. |
+| `codex/windows-sockets-20261019`, [#107](https://github.com/schiffy91/btrc/pull/107), `83d7c412` | Combines platform integration with SDK-backed Winsock HTTP support. | G04 and final Windows HTTP/native corpus evidence; service supervision remains G08. |
+| `claude/parity-wave-3`, [#106](https://github.com/schiffy91/btrc/pull/106), `f1bb5c7d` | Aligns function-pointer conversions and nullable calls between compilers. | No separate unresolved source defect identified; final parity, bootstrap and C11 evidence under G07. |
+| `claude/integ-b18`, [#105](https://github.com/schiffy91/btrc/pull/105), `3e8bb4b4` | Combines compiler parity, ABI fixes and Windows, Android, iOS and macOS changes. | Shared G01–G07; no additional missing branch source identified. |
+| `claude/win-shell`, [#104](https://github.com/schiffy91/btrc/pull/104), `9aad8c4b` | Implements the native Win32 GUI shell on x64 and ARM64. | G04, including observer regression and all native frontend/sanitizer variants. |
+| `claude/ios-corpus`, [#103](https://github.com/schiffy91/btrc/pull/103), `f881b735` | Runs the full applicable corpus through both compilers on the hosted iOS simulator. | Final combined corpus/host evidence under G07; retain restricted and missing-provider classifications. Simulator results do not establish device coverage. |
+| `claude/android-corpus`, [#102](https://github.com/schiffy91/btrc/pull/102), `6efc6224` | Adds Android corpus execution and host supervision on emulators. | G05 and final two-compiler corpus/host evidence. |
+| `claude/macos-flakes`, [#101](https://github.com/schiffy91/btrc/pull/101), `48fb9921` | Improves hosted macOS reader diagnostics and bounded shell execution. | No separate new branch defect identified; combined macOS E40 failures remain G03. |
+| `claude/parity-wave-2`, [#100](https://github.com/schiffy91/btrc/pull/100), `c5009984` | Aligns opaque/native storage, pointer/null and callback behavior between compilers. | Final parity, bootstrap and C11 gates under G07. |
+| `claude/integ-b17`, [#99](https://github.com/schiffy91/btrc/pull/99), `5f55c5a5` | Combines Windows corpus, regex, terminal and process support. | Historical temporary-directory defects were repaired downstream; final combined Windows evidence remains G07. |
+| `claude/win-process`, [#97](https://github.com/schiffy91/btrc/pull/97), `8ef8421e` | Implements the `CreateProcessW` launch seam and Windows Process provider. | Final native process qualification under G07; the separately specified service supervisor remains G08. |
+| `claude/win-regex-terminal`, [#96](https://github.com/schiffy91/btrc/pull/96), `62235115` | Adds Windows regex, glob, fnmatch and console Terminal support. | No separate new source defect identified; final Windows/native corpus coverage remains G07. |
+| `claude/win-filesystem`, [#95](https://github.com/schiffy91/btrc/pull/95), `578f5bae` | Implements Windows filesystem operations, private directories, locks and durable replacement. | The junction fixture publication protocol was repaired downstream; final repaired native execution remains G07. NTFS durability assumptions are not crash-test evidence. |
+| `claude/win-corpus`, [#94](https://github.com/schiffy91/btrc/pull/94), `add1f88b` | Runs the applicable corpus on hosted Windows x64 and ARM64. | Historical temporary-directory failures were repaired downstream; final runs and exact restricted/missing-provider accounting remain G07. |
+| `codex/cx-uia-21-interface`, [#67](https://github.com/schiffy91/btrc/pull/67), `dcf8e628` | Combines compiler/platform work with UI2 interfaces, controls and lifecycle acceptance. | G01–G07; new macOS lifecycle acceptance has compile/link evidence where native hosted execution remains outstanding. |
+| `codex/cx-p2-01-r2`, [#52](https://github.com/schiffy91/btrc/pull/52), `6866eb3d` | Specifies Windows service supervision and process containment. | G08: this branch is a specification; implementation and native acceptance are still absent. |
+| `codex/cx-p1-04`, [#34](https://github.com/schiffy91/btrc/pull/34), `f49c5fe1` | Adds standalone iPhone and iPad simulator test-host tooling. | Later host work supersedes this head's launch-identity failure; qualify the combined tooling under G07 rather than claiming the historical head passed. |
+| `codex/ui2-completion-20261019`, published `a7611638`, local `7bcf11cf` before these merges | Accumulates integration repairs, Android process snapshots and isolated nested GUI reports. | G01–G07; nested report isolation passed 26 portable tests, but the full unit run remains incomplete. |
+| `codex/e40-loop-diagnostic-20261020`, `3a5aba9f` | Captures bounded loop counters and stacks for two failing macOS tracking routes. | G03; static checks and compile/link passed, but diagnostic runtime and a demonstrated production repair remain pending. |
+| `codex/bench-memory-diagnostic-20261020`, `5e7e5fea` | Compares pinned baseline/candidate compiler memory on one hosted Linux environment. | G06; image metadata collection failed before any measurements. |
+| `codex/windows-user-observer-20261020`, `16b3cc2f` | Compares count-only and instrumented Windows USER-resource observations. | G04; initial observer intrusion is demonstrated, while a later count increase remains unexplained. The merged repair removes the foreign WNDPROC query from the current observer. |
+| Local `codex/linux-unit-diagnostic-20261020`, `02b22eaa` | Retains the first failure from the complete Linux unit selection. | G01; 108 workflow contracts passed, but this diagnostic was not dispatched before consolidation and cannot establish a full passing unit gate. |
+| Local `codex/linux-gui-sharding-20261020`, `1ebaefa7` | Splits each Linux GUI session into four deterministic partitions and checks exact combined coverage. | G02; portable/workflow tests and hosted execution were not run before landing. Existing qualification-bundle expectations may still omit E40 rows; the synthetic skip test covers call-time, not setup-time skips. |
+| Local `codex/windows-observer-repair-20261020`, `970ce901` | Removes the intrusive foreign WNDPROC query and adds a hidden ANSI-window observer regression. | G04; all new cross-build/link and native execution variants remain unqualified at landing. |
+
+### Repair queue after landing
+
+- **G01: identify and fix Linux unit failures.** In
+  [run 39421612625](https://github.com/schiffy91/btrc/actions/runs/39421612625),
+  unit job `118624440926` hit its 90-minute limit at about 92% with 57 failure
+  and two error progress markers. The aborted run did not retain failing node
+  identities or terminal JUnit. Nested GUI tests overwrote the default report;
+  `7bcf11cf` isolates those reports and passed 26 portable checks. Run the
+  retained fail-fast diagnostic on main to obtain actual failing nodes, repair
+  them, then finish the complete unit gate. Do not count synthetic nested-test
+  artifacts as the parent unit suite.
+- **G02: finish Linux GUI execution and prove complete coverage.** The same
+  run's X11 job `118624440733` and Wayland job `118624440379` hit 90 minutes
+  at about 66% and 58%. The merged partition implementation retains the original
+  selection, case budgets and dedicated E40 exclusions. Run its portable tests,
+  fix any stale inventory expectations, cover setup-time skips, then prove that
+  the four cells per session are disjoint, complete and actually executed.
+  X11 remains required; Wayland retains its existing report-only classification.
+- **G03: repair macOS tracking and presentation.** All four E40
+  frontend/sanitizer cells in
+  [run 39421612565](https://github.com/schiffy91/btrc/actions/runs/39421612565)
+  failed. Tracking journeys lacked native entry/service and load cases lacked
+  positive presentation. Continuous source rearming is established in source;
+  starvation as the cause is not established. Focused
+  [run 39435082788](https://github.com/schiffy91/btrc/actions/runs/39435082788)
+  was still queued at the last observation. Inspect its existing result before
+  submitting another run, fix the demonstrated cause, then run the full E40 and
+  lifecycle matrix. Local Mac work remains compile/link only; use hosted native
+  execution for visible GUI evidence.
+- **G04: finish Windows observer repair and strict resource qualification.**
+  Reference UBSan in
+  [run 39421612635](https://github.com/schiffy91/btrc/actions/runs/39421612635)
+  grew from USER 6 to 7 at cycle 37. The paired
+  [diagnostic 39446288124](https://github.com/schiffy91/btrc/actions/runs/39446288124)
+  passed count-only at USER 6 for all 102 cycles and 100 restores. Instrumented
+  mode observed an initial USER increment around `GetClassLongPtrW(GCLP_WNDPROC)`
+  and a separate USER 7 to 8 increase at cycle 66 before that cycle's queries.
+  A returned opaque procedure handle also cannot support the old module-address
+  inference. The merged repair removes that query and exercises the actual
+  observer around a hidden ANSI window. Cross-build/link and run every
+  frontend × x64/ARM64 × plain/UBSan variant, then resolve any remaining drift.
+  Keep the original 102 cycles, 100 restores and exact USER/GDI assertions.
+- **G05: resolve Android API 36 transport loss.** In
+  [run 39421612552](https://github.com/schiffy91/btrc/actions/runs/39421612552),
+  API 36 went offline during the ninth of 28 host fixture cases; ADB exited 255.
+  API 29 and target corpus results do not explain the disconnect. Snapshot
+  commits `fecba284`/`a7611638` retain owned process state before shutdown;
+  their 110 portable checks passed. Complete
+  [run 39446987361](https://github.com/schiffy91/btrc/actions/runs/39446987361),
+  inspect that evidence, repair a demonstrated cause if it recurs, and retain
+  complete final-revision host/corpus evidence. No transport fix is claimed.
+- **G06: fix benchmark metadata collection and the memory regression.**
+  `BenchArc` and `RunStrings` exceeded their original peak-memory allowances
+  by 32,768 and 61,440 bytes. The attribution
+  [run 39446272710](https://github.com/schiffy91/btrc/actions/runs/39446272710)
+  failed on the Podman image-inspect `.Id` template before measuring anything.
+  Replace the unsupported template with structured metadata capture and test it,
+  then run the pinned baseline/candidate comparison on the hosted Linux runner.
+  Attribute and repair the regression with the original guards. The 136 portable
+  diagnostic checks do not constitute measurements; two real-measurement tests
+  were intentionally excluded on the Mac. Do not rebaseline or relax limits.
+- **G07: qualify the final combined revision.** Run and reconcile `make test`,
+  `make bootstrap`, all eight `make test-c11` configurations, lint, formatting,
+  generated-source, extension and repository-hygiene gates, plus the affected
+  platform/native/E40/corpus and memory checks. Keep exact revisions, selections,
+  skips and provenance. Earlier focused passes and compile-only checks cover
+  only their recorded scope. Preserve missing provider/device evidence as open
+  coverage in the existing roadmap.
+- **G08: implement the separately scoped Windows service design.** PR #52
+  lands its specification only. The existing service-supervision/containment
+  roadmap items still need implementation and native acceptance; merging that
+  document does not create those capabilities or expand the Process provider's
+  current claim.
+- **G09: reconcile PRs and retire merged branches.** Verify every audited head
+  is an ancestor of published main, reconcile all 16 PRs, preserve any branch
+  still needed by a running diagnostic, and delete completed stale remote
+  branches only at their verified tips. Keep recovery references and receipts.
+
+The consolidation's local audit and retained artifacts are under
+`~/.cache/btrc/consolidation-20261019/`, beginning with
+`main-consolidation-owner-directed.json`. Git history and the linked hosted
+runs provide the portable record. Update this queue as fixes land on main;
+do not mark the overall work complete while G01–G07 remain open.
+
 
 ## Owner priorities and execution handoff (2026-10-12)
 
