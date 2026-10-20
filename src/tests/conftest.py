@@ -280,6 +280,107 @@ def _exclusive(lock_path: Path, *, timeout: float | None = None, owner: str = ""
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+@contextlib.contextmanager
+def _gui_exclusive(lock_path: Path, *, timeout: float, owner: str):
+    """FIFO GUI ownership; a waiter's kernel-held ticket survives only its process.
+
+    The queue guard covers publication and head selection, never GUI work.
+    Compiler locks continue to use the ordinary _exclusive owner.
+    """
+    if os.name == "nt":  # pragma: no cover - GUI leases apply to POSIX hosts
+        yield
+        return
+    import fcntl
+
+    deadline = time.monotonic() + timeout
+    queue = lock_path.with_name(lock_path.name + ".queue")
+    queue.mkdir(parents=True, exist_ok=True)
+    ticket_path = None
+    ticket = None
+
+    def wait():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            holder = lock_path.read_text().strip() if lock_path.exists() else ""
+            raise TimeoutError(
+                f"Timed out after {timeout:g}s waiting for {lock_path}; "
+                f"last recorded holder: {holder or 'not yet recorded'}"
+            )
+        time.sleep(min(0.05, remaining))
+
+    @contextlib.contextmanager
+    def guarded():
+        with (queue / "guard").open("a+") as guard:
+            while True:
+                if time.monotonic() >= deadline:
+                    wait()
+                try:
+                    fcntl.flock(guard.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    wait()
+            try:
+                yield
+            finally:
+                fcntl.flock(guard.fileno(), fcntl.LOCK_UN)
+
+    try:
+        with guarded():
+            positions = [int(path.stem) for path in queue.glob("*.ticket")]
+            planned = queue / f"{max(positions, default=0) + 1:020d}.ticket"
+            ticket = planned.open("x+")
+            ticket_path = planned
+            # Publish a locked ticket under the guard: another waiter cannot
+            # mistake an incompletely admitted ticket for a dead process.
+            fcntl.flock(ticket.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            json.dump({"pid": os.getpid(), "owner": owner}, ticket)
+            ticket.flush()
+        with lock_path.open("a+") as execution:
+            acquired = False
+            while not acquired:
+                with guarded():
+                    for head in sorted(queue.glob("*.ticket")):
+                        if head == ticket_path:
+                            try:
+                                fcntl.flock(execution.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                                acquired = True
+                            except BlockingIOError:
+                                pass
+                            break
+                        try:
+                            previous = head.open("r+")
+                        except FileNotFoundError:
+                            continue  # A timed-out waiter removed its own ticket.
+                        with previous:
+                            try:
+                                fcntl.flock(previous.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            except BlockingIOError:
+                                break  # The oldest ticket is still owned.
+                            # An unlocked ticket has no live owner. Kernel locks,
+                            # rather than PID liveness, also cover PID reuse.
+                            head.unlink(missing_ok=True)
+                if not acquired:
+                    wait()
+            try:
+                execution.seek(0)
+                execution.truncate()
+                json.dump({"pid": os.getpid(), "owner": owner}, execution)
+                execution.flush()
+                yield
+            finally:
+                fcntl.flock(execution.fileno(), fcntl.LOCK_UN)
+    finally:
+        # Removing only our ticket needs no queue guard, including on timeout.
+        # Readers tolerate its disappearance; the lifetime lock stays held
+        # until unlink completes so it can never be reaped as a live waiter.
+        try:
+            if ticket_path is not None:
+                ticket_path.unlink(missing_ok=True)
+        finally:
+            if ticket is not None:
+                ticket.close()
+
+
 @pytest.fixture(autouse=True)
 def _macos_gui_session(request):
     """Only AppKit execution owns focus; ordinary workers remain parallel.
@@ -292,7 +393,7 @@ def _macos_gui_session(request):
         yield
         return
     lock_path = request.config.cache.mkdir("macos-gui") / "execution.lock"
-    with _exclusive(lock_path, timeout=1800, owner=request.node.nodeid):
+    with _gui_exclusive(lock_path, timeout=1800, owner=request.node.nodeid):
         yield
 
 
@@ -310,7 +411,7 @@ def _linux_gui_session(request):
         yield
         return
     lock_path = request.config.cache.mkdir("linux-gui") / "execution.lock"
-    with _exclusive(lock_path, timeout=1800, owner=request.node.nodeid):
+    with _gui_exclusive(lock_path, timeout=1800, owner=request.node.nodeid):
         yield
 
 
