@@ -289,6 +289,19 @@ static inline int btrcTestRename(char* from, char* to) {
     return status;
 }
 
+/* A failed rename must not strand the fixture's worker in an infinite restore
+ * loop. Preserve the last Win32 error, including an occupied destination. A
+ * zero budget performs one real attempt for deterministic protocol checks. */
+static inline int btrcTestRenameWithin(char* from, char* to, int milliseconds) {
+    ULONGLONG started = GetTickCount64();
+    int status;
+    do {
+        status = btrcTestRename(from, to);
+        if (status == 0 || GetTickCount64() - started >= (ULONGLONG)milliseconds) { return status; }
+        Sleep(1);
+    } while (1);
+}
+
 static inline void btrcTestSleep(int milliseconds) { Sleep((DWORD)milliseconds); }
 
 /* Hold `path` open for reading without sharing delete access, as a CRT stream
