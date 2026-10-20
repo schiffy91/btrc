@@ -592,8 +592,8 @@ id = "Library.HTTP"
 group = "stdlib/HTTP"
 title = "HTTP package aggregate"
 regression = ["src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "pure codecs build; HTTPSocket/HTTPServer need Winsock (empty sys/socket.h shim), HTTPClient needs Win32 Process" }
-windows-arm64 = { parity = "adapted", implementation = "partial", owner = "W1", status = "implemented-unverified", reason = "pure codecs build; HTTPSocket/HTTPServer need Winsock (empty sys/socket.h shim), HTTPClient needs Win32 Process" }
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "codecs and HTTPServer use the Winsock HTTPSocket provider; HTTPClient uses CreateProcessW and requires curl.exe on PATH; platform runtime qualification is tracked separately" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "codecs and HTTPServer use the Winsock HTTPSocket provider; HTTPClient uses CreateProcessW and requires curl.exe on PATH; platform runtime qualification is tracked separately" }
 ios-device = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl, forbidden on iOS, needs NSURLSession" }
 ios-simulator = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl, forbidden on iOS, needs NSURLSession" }
 android-arm64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl (no curl/exec on Android), needs HttpURLConnection via JNI" }
@@ -605,8 +605,8 @@ id = "Library.HTTP.HTTPClient"
 group = "stdlib/HTTP"
 title = "HTTPS client via curl"
 regression = ["src/tests/python/test_stdlib_process_security.py::test_http_client_is_direct_and_protocol_restricted", "src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "ChildProcess.run now launches through the CreateProcessW provider, but the client's contract is a curl child and its local test stand-in a /bin/sh script; the Windows transport is WinHTTP (platforms-p3-sockets-http)" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "ChildProcess.run now launches through the CreateProcessW provider, but the client's contract is a curl child and its local test stand-in a /bin/sh script; the Windows transport is WinHTTP (platforms-p3-sockets-http)" }
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "curl child launched through the CreateProcessW provider; requires curl.exe on PATH; Windows native fixtures exercise the client when curl is available" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "curl child launched through the CreateProcessW provider; requires curl.exe on PATH; Windows native fixtures exercise the client when curl is available" }
 ios-device = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "spawns curl via ChildProcess.run; iOS forbids posix_spawn of child processes, contract needs NSURLSession" }
 ios-simulator = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "spawns curl via ChildProcess.run; iOS forbids posix_spawn of child processes, contract needs NSURLSession" }
 android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "spawns curl via ChildProcess.run; no curl on Android and W^X blocks exec of app binaries, needs HttpURLConnection/JNI" }
@@ -670,8 +670,8 @@ id = "Library.HTTP.HTTPServer"
 group = "stdlib/HTTP"
 title = "Bounded HTTP/1.1 server"
 regression = ["src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "includes sys/socket.h (empty win shim) and calls shutdown(SHUT_WR) on fds; needs Winsock SOCKET/closesocket backend" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "includes sys/socket.h (empty win shim) and calls shutdown(SHUT_WR) on fds; needs Winsock SOCKET/closesocket backend" }
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "portable framing and lifecycle use HTTPSocket, whose Windows provider owns Winsock SOCKET handles and shutdown/close operations" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "portable framing and lifecycle use HTTPSocket, whose Windows provider owns Winsock SOCKET handles and shutdown/close operations" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "BSD sockets via HTTPSocket build on iOS; loopback/any listener allowed while foregrounded" }
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "BSD sockets via HTTPSocket build on iOS; loopback/any listener allowed while foregrounded" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "BSD sockets via HTTPSocket build on bionic; listener needs INTERNET permission only" }
@@ -683,8 +683,8 @@ id = "Library.HTTP.HTTPSocket"
 group = "stdlib/HTTP"
 title = "Bounded TCP socket I/O"
 regression = ["src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "socket/poll/fcntl with empty win shims (sys/socket.h, netinet/in.h, poll.h); needs Winsock WSAPoll backend" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "socket/poll/fcntl with empty win shims (sys/socket.h, netinet/in.h, poll.h); needs Winsock WSAPoll backend" }
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "btrc.toml selects Windows.HTTPSocketProvider and SDK-compiled Win32Sockets.c with ws2_32; handles, bounded waits and cancellation use Winsock" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "btrc.toml selects Windows.HTTPSocketProvider and SDK-compiled Win32Sockets.c with ws2_32; handles, bounded waits and cancellation use Winsock" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "socket/poll/fcntl and send(MSG_NOSIGNAL) available in Darwin/iOS libc; same code" }
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "socket/poll/fcntl and send(MSG_NOSIGNAL) available in Darwin/iOS libc; same code" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "socket/poll/fcntl and send(MSG_NOSIGNAL) available in bionic; same code" }
