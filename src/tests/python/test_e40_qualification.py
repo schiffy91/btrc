@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from tools.ui.e40 import E40Run, LinuxE40Cases
+from tools.ui.e40 import E40Run, LinuxE40Cases, MacOSE40Cases
 
 NODES = LinuxE40Cases.nodes("python", "plain")
 METADATA = {"frontend": "python", "variant": "plain", "session": "x11", "revision": "a" * 40, "source_changes": []}
@@ -129,3 +129,140 @@ def test_report_identity_must_match_the_qualification_run(tmp_path, field, value
     path.write_text(json.dumps(report))
     with pytest.raises(RuntimeError, match="provenance/outcome differs"):
         LinuxE40Cases.validate_evidence(tmp_path, METADATA)
+
+
+MAC_METADATA = {**METADATA, "frontend": "reference", "provider": "macos"}
+
+
+@pytest.fixture
+def mac_evidence(tmp_path, monkeypatch):
+    calls = []
+
+    class Evidence:
+        def __init__(self, report, sanitized):
+            self.report = report
+            assert sanitized is False
+
+        def bursts(self):
+            calls.append((self.report["entry"], "bursts"))
+
+        def load(self):
+            calls.append((self.report["entry"], "load"))
+
+        def tracking(self, trial):
+            calls.append((self.report["entry"], trial))
+
+        def presentations(self, path):
+            assert path.is_file()
+            calls.append((self.report["entry"], "presentations"))
+
+    monkeypatch.setattr("src.tests.python.native_ui2_e40_evidence.E40Evidence", Evidence)
+    for entry in MacOSE40Cases.entries:
+        for trial in MacOSE40Cases.trials:
+            directory = tmp_path / "native/reference/plain" / entry / trial
+            directory.mkdir(parents=True)
+            identity = {
+                **MAC_METADATA,
+                "sanitized": False,
+                "native_optimization": 2,
+                "native_build_commands": [
+                    ["/usr/bin/clang", "-c", "source.c", "-o", "source.o"],
+                    ["/usr/bin/clang", "source.o", "-o", "program"],
+                ],
+                "executable_sha256": "0" * 64,
+            }
+            (directory / "provenance.json").write_text(json.dumps(identity))
+            (directory / "observations.json").write_text(json.dumps({"entry": entry, "trial": trial}))
+            (directory / "stdout.txt").write_text("native output")
+            (directory / "stderr.txt").write_text("")
+            if trial != "bursts":
+                (directory / "observations.json.presentations.csv").write_text("native presentation records")
+    return calls
+
+
+def test_macos_catalog_has_four_disjoint_twelve_case_cells():
+    all_nodes = MacOSE40Cases.all_nodes()
+    assert len(all_nodes) == len(set(all_nodes)) == 48
+    for frontend in ("reference", "selfhost"):
+        for variant in ("plain", "sanitized"):
+            nodes = MacOSE40Cases.nodes(frontend, variant)
+            assert len(nodes) == 12
+            assert nodes[0].endswith(f"[{variant}-{frontend}-desktop-bursts]")
+            assert nodes[-1].endswith(f"[{variant}-{frontend}-host-sheet]")
+
+
+@pytest.mark.parametrize(
+    "host,environment",
+    [
+        ("linux", {"CI": "true", "BTRC_UI2_HOSTED_E40": "1"}),
+        ("darwin", {}),
+        ("darwin", {"CI": "true"}),
+        ("darwin", {"BTRC_UI2_HOSTED_E40": "1"}),
+    ],
+)
+def test_macos_runtime_requires_both_hosted_opt_ins(host, environment):
+    with pytest.raises(RuntimeError, match="hosted CI opt-in"):
+        MacOSE40Cases.require_hosted(host, environment)
+
+
+def test_macos_explicit_hosted_admission():
+    MacOSE40Cases.require_hosted("darwin", {"CI": "true", "BTRC_UI2_HOSTED_E40": "1"})
+
+
+def test_fresh_output_refuses_existing_directory_without_deleting_it(tmp_path):
+    marker = tmp_path / "user-file.txt"
+    marker.write_text("preserve me")
+    run = E40Run([], tmp_path, {}, MacOSE40Cases.validate_evidence, fresh_output=True)
+    with pytest.raises(FileExistsError):
+        run.run()
+    assert marker.read_text() == "preserve me"
+    assert not (tmp_path / "provenance.json").exists()
+
+
+def test_mac_artifact_owner_delegates_every_trial_and_presentation(tmp_path, mac_evidence):
+    MacOSE40Cases.validate_evidence(tmp_path, MAC_METADATA)
+    assert len(mac_evidence) == 22
+    for entry in MacOSE40Cases.entries:
+        assert [trial for observed, trial in mac_evidence if observed == entry].count("presentations") == 5
+        assert {trial for observed, trial in mac_evidence if observed == entry} == {
+            *MacOSE40Cases.trials,
+            "presentations",
+        }
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["observations.json", "provenance.json", "stdout.txt", "stderr.txt", "observations.json.presentations.csv"],
+)
+def test_mac_artifacts_cannot_omit_case_evidence(tmp_path, mac_evidence, missing):
+    (tmp_path / "native/reference/plain/host/sheet" / missing).unlink()
+    with pytest.raises((RuntimeError, AssertionError)):
+        MacOSE40Cases.validate_evidence(tmp_path, MAC_METADATA)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("revision", "b" * 40),
+        ("source_changes", [" M wrong.btrc"]),
+        ("frontend", "selfhost"),
+        ("sanitized", True),
+        ("native_build_commands", []),
+        ("native_optimization", 0),
+        ("executable_sha256", "missing"),
+    ],
+)
+def test_mac_report_provenance_is_bound_to_the_run(tmp_path, mac_evidence, field, value):
+    path = tmp_path / "native/reference/plain/desktop/bursts/provenance.json"
+    identity = json.loads(path.read_text())
+    identity[field] = value
+    path.write_text(json.dumps(identity))
+    with pytest.raises(RuntimeError):
+        MacOSE40Cases.validate_evidence(tmp_path, MAC_METADATA)
+
+
+def test_mac_native_identity_cannot_be_reused_for_another_trial(tmp_path, mac_evidence):
+    path = tmp_path / "native/reference/plain/host/sheet/observations.json"
+    path.write_text(json.dumps({"entry": "desktop", "trial": "sheet"}))
+    with pytest.raises(RuntimeError, match="native trial identity differs"):
+        MacOSE40Cases.validate_evidence(tmp_path, MAC_METADATA)

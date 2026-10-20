@@ -1,8 +1,7 @@
 """Run a serial E40 qualification cell and retain its exact evidence inventory.
 
-Linux currently supplies the case selection. The run/evidence owner accepts an
-explicit node list so a later native provider can reuse it with its own cases
-and visibility admission. This command does not activate a macOS application.
+Provider case owners select exact nodes and validate native evidence. macOS
+execution requires explicit hosted admission and a new output directory.
 """
 
 from __future__ import annotations
@@ -81,6 +80,85 @@ class LinuxE40Cases:
             raise RuntimeError("E40 burst evidence must cover every count/final pair exactly once")
 
 
+class MacOSE40Cases:
+    """Hosted AppKit desktop/attached-host trials for one compiler variant."""
+
+    suite = "src/tests/python/test_native_ui2_macos_e40.py"
+    entries = ("desktop", "host")
+    trials = ("bursts", "load", "popup", "slider", "resize", "sheet")
+
+    @classmethod
+    def nodes(cls, frontend: str, variant: str) -> list[str]:
+        return [
+            f"{cls.suite}::test_macos_ui2_e40[{variant}-{frontend}-{entry}-{trial}]"
+            for entry in cls.entries
+            for trial in cls.trials
+        ]
+
+    @classmethod
+    def all_nodes(cls) -> list[str]:
+        return [
+            node
+            for frontend in ("reference", "selfhost")
+            for variant in ("plain", "sanitized")
+            for node in cls.nodes(frontend, variant)
+        ]
+
+    @staticmethod
+    def require_hosted(host: str, environment: dict[str, str]) -> None:
+        if host != "darwin" or environment.get("CI") != "true" or environment.get("BTRC_UI2_HOSTED_E40") != "1":
+            raise RuntimeError("macOS E40 requires Darwin and explicit hosted CI opt-in")
+
+    @classmethod
+    def validate_evidence(cls, output: Path, metadata: dict[str, object]) -> None:
+        from src.tests.python.native_ui2_e40_evidence import E40Evidence
+
+        root = output / "native" / str(metadata["frontend"]) / str(metadata["variant"])
+        expected = {root / entry / trial / "observations.json" for entry in cls.entries for trial in cls.trials}
+        if set((output / "native").rglob("observations.json")) != expected:
+            raise RuntimeError("macOS E40 requires exactly 12 distinct native trial reports")
+        for entry in cls.entries:
+            for trial in cls.trials:
+                directory = root / entry / trial
+                for name in ("provenance.json", "stdout.txt", "stderr.txt"):
+                    if not (directory / name).is_file():
+                        raise RuntimeError(f"Missing macOS E40 evidence: {directory / name}")
+                identity = json.loads((directory / "provenance.json").read_text())
+                if (
+                    identity["revision"] != metadata["revision"]
+                    or identity["source_changes"] != metadata["source_changes"]
+                    or identity["frontend"] != metadata["frontend"]
+                    or identity["sanitized"] != (metadata["variant"] == "sanitized")
+                ):
+                    raise RuntimeError(f"macOS E40 report identity differs: {directory}")
+                commands = identity["native_build_commands"]
+                if (
+                    not isinstance(commands, list)
+                    or not commands
+                    or not all(
+                        isinstance(command, list) and command and all(isinstance(arg, str) for arg in command)
+                        for command in commands
+                    )
+                    or not any("-c" in command for command in commands)
+                    or not any("-o" in command and "-c" not in command for command in commands)
+                    or identity["native_optimization"] != 2
+                    or re.fullmatch(r"[0-9a-f]{64}", identity["executable_sha256"]) is None
+                ):
+                    raise RuntimeError(f"Incomplete macOS E40 build provenance: {directory}")
+                report = json.loads((directory / "observations.json").read_text())
+                if report["entry"] != entry or report["trial"] != trial:
+                    raise RuntimeError(f"macOS E40 native trial identity differs: {directory}")
+                evidence = E40Evidence(report, metadata["variant"] == "sanitized")
+                if trial == "bursts":
+                    evidence.bursts()
+                elif trial == "load":
+                    evidence.load()
+                else:
+                    evidence.tracking(trial)
+                if trial != "bursts":
+                    evidence.presentations(directory / "observations.json.presentations.csv")
+
+
 class E40Run:
     """Own collection, one serial test process and its durable evidence record."""
 
@@ -90,11 +168,20 @@ class E40Run:
         output: Path,
         metadata: dict[str, object],
         validate_evidence: Callable[[Path, dict[str, object]], None],
+        *,
+        fresh_output: bool = False,
+        environment: dict[str, str] | None = None,
+        native_compiler: str = "cc",
+        catalog_nodes: list[str] | None = None,
     ):
         self.nodes = nodes
         self.output = output
         self.metadata = metadata
         self.validate_evidence = validate_evidence
+        self.fresh_output = fresh_output
+        self.environment = dict(os.environ) | (environment or {})
+        self.native_compiler = native_compiler
+        self.catalog_nodes = catalog_nodes
         self.record: dict[str, object] = {
             "schema": "btrc.e40-run/1",
             **metadata,
@@ -126,7 +213,9 @@ class E40Run:
         # Stream pytest progress to the CI log while retaining its full output.
         log = self.output / f"{name}.txt"
         with log.open("w") as stream:
-            process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            process = subprocess.Popen(
+                command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=self.environment
+            )
             assert process.stdout is not None
             for line in process.stdout:
                 stream.write(line)
@@ -161,7 +250,7 @@ class E40Run:
             raise RuntimeError("E40 qualification requires every selected case to pass without skips")
 
     def run(self) -> None:
-        self.output.mkdir(parents=True, exist_ok=True)
+        self.output.mkdir(parents=True, exist_ok=not self.fresh_output)
         cell = str(self.metadata["cell"])
         self.record.update(
             revision=self.command_line(["git", "-c", f"safe.directory={ROOT}", "rev-parse", "HEAD"]),
@@ -171,21 +260,38 @@ class E40Run:
             platform=platform.platform(),
             machine=platform.machine(),
             runner=os.environ.get("BTRC_TEST_RUNNER", "unconfigured"),
-            compiler=self.command_line(["cc", "--version"]).splitlines()[0],
+            compiler=self.command_line([self.native_compiler, "--version"]).splitlines()[0],
             native_reader=self.digest(os.environ.get("BTRC_NATIVE_HEADER_READER")),
             selfhost_compiler=self.digest(os.environ.get("BTRC_TEST_BTRCC")),
-            native_flags=["-std=c11", "-pedantic-errors", "-O2"],
-            sanitizer_flags=["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
-            if self.metadata["variant"] == "sanitized"
-            else [],
             display={name: os.environ.get(name) for name in ("SDL_VIDEODRIVER", "DISPLAY", "WAYLAND_DISPLAY")},
             graphics={
                 name: os.environ.get(name) for name in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "BTRC_LAVAPIPE_ICD")
             },
-            physical_device_latency="not measured; hosted headless native session",
+            physical_device_latency="not measured",
+            native_environment={
+                name: self.environment.get(name) for name in ("CI", "BTRC_UI2_HOSTED_E40", "BTRC_UI2_E40_ARTIFACTS")
+            },
         )
         self.save()
         try:
+            if self.catalog_nodes is not None:
+                catalog = self.phase(
+                    "catalog",
+                    [
+                        sys.executable,
+                        "-m",
+                        "pytest",
+                        "--collect-only",
+                        "-q",
+                        "-n",
+                        "0",
+                        "-m",
+                        "e40_qualification",
+                        f"--skip-report=build/skip-report-e40-{cell}-catalog.json",
+                        *dict.fromkeys(node.split("::")[0] for node in self.catalog_nodes),
+                    ],
+                )
+                self.validate_collection(catalog.stdout, self.catalog_nodes)
             collection = self.phase(
                 "collection",
                 [
@@ -236,38 +342,59 @@ class E40Run:
                 for path in sorted(self.output.rglob("*"))
                 if path.is_file()
                 and path.suffix in {".json", ".csv", ".txt", ".xml"}
-                and path.name != "provenance.json"
+                and path != self.output / "provenance.json"
             ]
             self.save()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--frontend", required=True, choices=("python", "selfhost"))
+    parser.add_argument("--provider", choices=("linux", "macos"), default="linux")
+    parser.add_argument("--frontend", required=True, choices=("python", "reference", "selfhost"))
     parser.add_argument("--variant", required=True, choices=("plain", "sanitized"))
-    parser.add_argument("--session", required=True, choices=("x11", "wayland"))
+    parser.add_argument("--session", choices=("x11", "wayland"))
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    if sys.platform != "linux":
-        parser.error("The Linux E40 cell requires Linux; no native macOS admission is implied")
-    if os.environ.get("SDL_VIDEODRIVER") != args.session:
-        parser.error("Run inside the explicitly selected native display session")
+    if args.provider == "linux":
+        if sys.platform != "linux" or args.frontend not in ("python", "selfhost"):
+            parser.error("Linux E40 requires Linux and the python or selfhost frontend")
+        if args.session is None or os.environ.get("SDL_VIDEODRIVER") != args.session:
+            parser.error("Run inside the explicitly selected native display session")
+        cases = LinuxE40Cases
+    else:
+        try:
+            MacOSE40Cases.require_hosted(sys.platform, dict(os.environ))
+        except RuntimeError as error:
+            parser.error(str(error))
+        if args.session is not None or args.frontend not in ("reference", "selfhost"):
+            parser.error("macOS E40 uses AppKit with the reference or selfhost frontend")
+        cases = MacOSE40Cases
     if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
         parser.error("E40 requires an explicit native reader")
     if args.frontend == "selfhost" and not os.environ.get("BTRC_TEST_BTRCC"):
         parser.error("Selfhost E40 requires the compiler built for this revision")
-    cell = f"{args.session}-{args.frontend}-{args.variant}"
+    cell = f"{args.session or args.provider}-{args.frontend}-{args.variant}"
+    output = (args.output or ROOT / "build" / "e40" / cell).resolve()
+    metadata = {
+        "provider": args.provider,
+        "cell": cell,
+        "session": args.session,
+        "frontend": args.frontend,
+        "variant": args.variant,
+    }
+    if args.provider == "linux":
+        metadata["linux_observer_flags"] = ["-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2"]
+        if args.variant == "sanitized":
+            metadata["linux_observer_flags"] += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
     run = E40Run(
-        LinuxE40Cases.nodes(args.frontend, args.variant),
-        (args.output or ROOT / "build" / "e40" / cell).resolve(),
-        {
-            "provider": "linux",
-            "cell": cell,
-            "session": args.session,
-            "frontend": args.frontend,
-            "variant": args.variant,
-        },
-        LinuxE40Cases.validate_evidence,
+        cases.nodes(args.frontend, args.variant),
+        output,
+        metadata,
+        cases.validate_evidence,
+        fresh_output=args.provider == "macos",
+        environment={"BTRC_UI2_E40_ARTIFACTS": str(output / "native")} if args.provider == "macos" else None,
+        native_compiler="/usr/bin/clang" if args.provider == "macos" else "cc",
+        catalog_nodes=MacOSE40Cases.all_nodes() if args.provider == "macos" else None,
     )
     try:
         run.run()
