@@ -613,7 +613,10 @@ def _scope_step(workflow: str, name: str = "Classify the change") -> dict[str, o
 
 def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
     scope = dict(_parsed("ci.yml")["jobs"]["scope"])
-    assert scope.pop("if") == "${{ github.event_name != 'workflow_dispatch' || (inputs.focus != 'bench-diagnostic' && inputs.focus != 'unit-diagnostic') }}"
+    assert (
+        scope.pop("if")
+        == "${{ github.event_name != 'workflow_dispatch' || (inputs.focus != 'bench-diagnostic' && inputs.focus != 'unit-diagnostic') }}"
+    )
     for workflow in CORE_WORKFLOWS:
         document = _parsed(workflow)
         actual_scope = dict(document["jobs"]["scope"])
@@ -1635,7 +1638,10 @@ def test_the_android_corpus_lane_is_tiered_beside_untiered_fixture_jobs() -> Non
     jobs = document["jobs"]
     assert document["env"]["CI_WORKFLOW"] == workflow
     ci_scope = dict(_parsed("ci.yml")["jobs"]["scope"])
-    assert ci_scope.pop("if") == "${{ github.event_name != 'workflow_dispatch' || (inputs.focus != 'bench-diagnostic' && inputs.focus != 'unit-diagnostic') }}"
+    assert (
+        ci_scope.pop("if")
+        == "${{ github.event_name != 'workflow_dispatch' || (inputs.focus != 'bench-diagnostic' && inputs.focus != 'unit-diagnostic') }}"
+    )
     assert jobs["scope"] == ci_scope
     tiered = [entry for entry in TIERS.jobs if entry.workflow == workflow]
     listed = {entry.job for entry in tiered}
