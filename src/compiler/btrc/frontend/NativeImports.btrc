@@ -3463,9 +3463,12 @@ class FeNativeDeclarationImporter {
 			NativeNode first = self.callbackExports.get(binding.methods.get(0));
 			if (first.kind == NNK_NATIVE_OBJECTIVE_C_METHOD && first.protocolOwner) { projection.delegateProtocol = first.receiver; }
 		}
-		self.protocolMethods(binding, 0, projection, true, instanceOverrides);
-		self.instantiatedTerminal(binding, projection);
-		self.instantiatedFactory(binding, projection, classOverrides);
+		if (binding.superBefore.len > 0) { self.superAdmissionMethods(binding, projection, instanceOverrides, classOverrides); }
+		else {
+			self.protocolMethods(binding, 0, projection, true, instanceOverrides);
+			self.instantiatedTerminal(binding, projection);
+			self.instantiatedFactory(binding, projection, classOverrides);
+		}
 		projection.superclass = superclass;
 		projection.initializer = declaration;
 		for parameter in declaration.signature.parameters { projection.initializerParameters.push(self.blockTypeSpelling(parameter)); }
@@ -3474,10 +3477,15 @@ class FeNativeDeclarationImporter {
 		method.name = Strings.split(declaration.selector, ":").get(0);
 		method.returnType = self.objectiveCType(declaration.signature.returnType, false, declaration.receiver);
 		var factoryParameter = self.node(NK_PARAM);
-		factoryParameter.name = "factory";
+		factoryParameter.name = projection.scopedSuper ? "receiver" : "factory";
 		factoryParameter.type = self.node(NK_TYPE_EXPR);
-		factoryParameter.type.base = projection.factoryInterface;
+		factoryParameter.type.base = projection.scopedSuper ? binding.interfaceName : projection.factoryInterface;
 		method.paramsMut().push(factoryParameter);
+		if (projection.scopedSuper) {
+			Node scope = self.node(NK_PARAM); scope.name = "scope";
+			scope.type = self.node(NK_TYPE_EXPR); scope.type.base = "CallbackScope";
+			method.paramsMut().push(scope);
+		}
 		for index in range(declaration.signature.parameters.len) {
 			var parameter = self.node(NK_PARAM);
 			parameter.name = f"argument{index}";
@@ -3491,6 +3499,54 @@ class FeNativeDeclarationImporter {
 		if (imported.methods.has(method.name)) { self.fail(f"ambiguous Objective-C method projection {declaration.receiver}.{method.name}"); }
 		imported.methods.put(method.name, contract);
 		imported.declaration.membersMut().push(method);
+	}
+
+	private void superAdmissionMethods(FeNativeCallbackBinding binding, FeNativeCallbackProjection projection, Vector<NativeNode> methods, Vector<NativeNode> classMethods) {
+		if (classMethods.len > 0) { self.fail("super-admission requires instance overrides"); }
+		projection.scopedSuper = true;
+		Node projectedInterface = self.node(NK_INTERFACE_DECL); projectedInterface.name = binding.interfaceName;
+		string identity = "super-admission-interface";
+		for method in methods {
+			if (method.selector == "btrcUnregister" || method.selector.startsWith("btrcConfigure:")) { self.fail(f"super-admission override collides with a generated private selector: {method.name}"); }
+			NativeNode nativeResult = method.signature.returnType;
+			bool sdkBool = false;
+			while (nativeResult.kind == NNK_NATIVE_ALIAS || nativeResult.kind == NNK_NATIVE_QUALIFIED_TYPE) {
+				if (nativeResult.kind == NNK_NATIVE_ALIAS && nativeResult.name == "BOOL") { sdkBool = true; }
+				nativeResult = nativeResult.underlying;
+			}
+			Node result = self.objectiveCScalar(method.signature.returnType);
+			if (sdkBool && nativeResult.kind == NNK_NATIVE_BUILTIN && nativeResult.name == "signed char") { result.base = "bool"; }
+			if (method.requiresSuper || (result.base != "void" && result.base != "bool") || result.pointerDepth != 0) { self.fail(f"super-admission requires void or BOOL without requires-super: {method.name}"); }
+			string before = binding.superBefore.get(method.name);
+			string after = binding.superAfter.get(method.name);
+			for name in [before, after] {
+				if (!self.grammar.vocabulary.keywordToken(name).isEmpty() || name.startsWith("__") || (name.length() > 1 && name[0] == '_' && name[1] >= 'A' && name[1] <= 'Z')) { self.fail(f"super-admission requires a nonreserved BTRC identifier: {name}"); }
+			}
+			var callback = FeNativeCallbackProjection(binding.interfaceName, 0, -1, method.signature.parameters.len, result);
+			callback.methodName = before; callback.superAfter = after; callback.nativeMethod = method;
+			callback.nativeReturn = self.blockTypeSpelling(method.signature.returnType);
+			Node signature = self.node(NK_METHOD_SIG); signature.name = before;
+			signature.returnType = self.node(NK_TYPE_EXPR); signature.returnType.base = "bool";
+			for position in range(method.signature.parameters.len) {
+				NativeNode parameter = method.signature.parameters.get(position);
+				Node value = self.objectiveCType(parameter, true);
+				callback.parameters.push(value); callback.nativeParameters.push(self.blockTypeSpelling(parameter));
+				Node argument = self.node(NK_PARAM); argument.name = f"argument{position}"; argument.type = value;
+				signature.paramsMut().push(argument);
+			}
+			Node context = self.node(NK_TYPE_EXPR); context.base = "void"; context.pointerDepth = 1;
+			callback.parameters.push(context); projectedInterface.methodsMut().push(signature);
+			Node finish = self.node(NK_METHOD_SIG); finish.name = after;
+			finish.returnType = self.node(NK_TYPE_EXPR); finish.returnType.base = "void";
+			for name in ["invokedSuper", "nativeFailed"] {
+				Node argument = self.node(NK_PARAM); argument.name = name;
+				argument.type = self.node(NK_TYPE_EXPR); argument.type.base = "bool";
+				finish.paramsMut().push(argument);
+			}
+			projectedInterface.methodsMut().push(finish); projection.delegateMethods.push(callback);
+			identity = identity + ":" + method.name + ":" + before + ":" + after + ":" + self.typeIdentity(method.signature);
+		}
+		self.add(binding.interfaceName, projectedInterface, identity);
 	}
 
 	/* The checked instance and class overrides of an adapter that extends

@@ -516,6 +516,7 @@ class NativeCallbackBinding:
     superclass: str = ""
     overrides: tuple[str, ...] = ()
     method_names: tuple[tuple[str, str], ...] = ()
+    super_admission: tuple[tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1702,6 +1703,7 @@ class PackageManifestValidator:
                         "cancellation",
                         "methods",
                         "method-names",
+                        "super-admission",
                         "slot-getter",
                         "action-setter",
                         "action-getter",
@@ -1753,6 +1755,31 @@ class PackageManifestValidator:
             # A subclass adapter maps the implicit self of its superclass's
             # designated initializer: BTRC creates the instance there.
             subclass = parameter.rsplit(".", 1)[1] == "self"
+            admission = value.get("super-admission", {})
+            if "super-admission" in value:
+                if not isinstance(admission, dict) or not admission:
+                    raise ValueError(f"{location}.super-admission requires a nonempty method table")
+                if lifetime != "instantiated" or not subclass or scope != "instance":
+                    raise ValueError(f"{location}.super-admission requires a designated-initializer instance adapter")
+                if value.get("cancellation") != "entry-barrier":
+                    raise ValueError(f"{location}.super-admission requires cancellation entry-barrier")
+                if any(key in value for key in ("methods", "terminal", "method-names")):
+                    raise ValueError(f"{location}.super-admission cannot combine methods, terminal or method-names")
+                if (
+                    not isinstance(overrides, list)
+                    or any(not isinstance(method, str) for method in overrides)
+                    or set(admission) != set(overrides)
+                ):
+                    raise ValueError(f"{location}.super-admission must map every override exactly once")
+                names = set()
+                for hooks in admission.values():
+                    if not isinstance(hooks, dict) or set(hooks) != {"before", "after"}:
+                        raise ValueError(f"{location}.super-admission requires before and after names")
+                    for name in hooks.values():
+                        self._identifier(name, f"{location}.super-admission")
+                        if name in names:
+                            raise ValueError(f"{location}.super-admission hook names must be distinct")
+                        names.add(name)
             if ("superclass" in value or "overrides" in value) and lifetime != "instantiated":
                 raise ValueError(f"{location}: superclass and overrides require an instantiated adapter")
             if lifetime == "instantiated":
@@ -1785,7 +1812,7 @@ class PackageManifestValidator:
                 if len(set(overrides)) != len(overrides):
                     raise ValueError(f"{location}.overrides contains a duplicate value")
                 if any(
-                    key in value
+                    key in value and not (key == "cancellation" and admission)
                     for key in (
                         "unregister",
                         "activation-failure",
@@ -1989,6 +2016,7 @@ class PackageManifestValidator:
                     superclass,
                     tuple(sorted(overrides)) if isinstance(overrides, list) else (),
                     tuple(sorted(method_names.items())),
+                    tuple((symbol, hooks["before"], hooks["after"]) for symbol, hooks in sorted(admission.items())),
                 )
             )
         return tuple(callbacks)

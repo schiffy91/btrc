@@ -3054,6 +3054,10 @@ class DeclarationLowerer {
 				self.emitOneShotObjectiveCAdapter(imported, method, contract, module, native);
 				continue;
 			}
+			if (contract.callbacks.len > 0 && contract.callbacks.get(0).scopedSuper) {
+				self.emitScopedSuperAdapter(imported, method, contract, module, native);
+				continue;
+			}
 			if (contract.callbacks.len > 0 && !contract.callbacks.get(0).instantiatedScope.isEmpty()) {
 				self.emitInstanceInstantiatedAdapter(imported, method, contract, module, native);
 				continue;
@@ -4359,6 +4363,282 @@ class DeclarationLowerer {
 		thunk.body = self.nativeCallbackBoundary(body, module);
 		self.appendFunction(thunk, module);
 		return thunk.name;
+	}
+
+	/* Hook failures stay inside their C thunk. The outer native extent owns
+	 * the receiver and retains the first error until every claim is released. */
+	private IRNode superAdmissionBoundary(Vector<IRNode> body, IRModule module) {
+		IRNode entry = IRNode.variable("entry");
+		IRNode failed = IRNode.fieldAccess(entry, "failed", true);
+		IRNode error = IRNode.fieldAccess(entry, "error", true);
+		self.context.referenceHelper("__btrc_copy_error_message");
+		body.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
+		return self.nativeCallbackBoundary(body, module, [IRNode.ifStatement(IRNode.unary("!", failed, true), IRNode.block([
+			IRNode.expressionStatement(IRNode.call("__btrc_copy_error_message", [error, IRNode.sizeofExpression(error), IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "error_msg", false)])),
+			IRNode.assignment(failed, IRNode.literal("true"))
+		]), null)]);
+	}
+
+	private void emitSuperAdmissionThunks(string prefix, FeNativeCallbackProjection callback, Node contextType, string entryType, IRModule module) {
+		string contextSymbol = TypeIdentity.mangleGenericSymbol(contextType.base, contextType.genericArgs());
+		Node receiverType = contextType.genericArgs().get(0);
+		string receiverC = self.cTypes.lower(receiverType);
+		IRNode context = IRNode.cast(self.cTypes.lower(contextType), IRNode.variable("rawContext"));
+		IRNode entry = IRNode.variable("entry");
+		IRNode rawReceiver = IRNode.fieldAccess(entry, "receiver", true);
+		IRNode receiver = IRNode.cast(receiverC, rawReceiver);
+		Vector<IRParam> common = [IRParam("void*", "rawContext"), IRParam(entryType, "entry")];
+		for index in range(callback.delegateMethods.len) {
+			var projection = callback.delegateMethods.get(index);
+			Vector<Node> values = self.nativeCallbackTypes(projection);
+			var before = IRFunction(); before.name = f"{prefix}_before{index}"; before.returnType = "bool"; before.isStatic = true;
+			before.params = [IRParam("void*", "rawContext"), IRParam(entryType, "entry")];
+			for position in range(values.len - 1) { before.params.push(IRParam(self.cTypes.lower(values.get(position)), f"argument{position}")); }
+			Map<string, bool> names = {}; for parameter in before.params { names.put(parameter.name, true); }
+			Vector<IRNode> invokeBody = [];
+			IRNode cleanup = self.nativeCleanupScope(names, invokeBody);
+			Vector<IRNode> arguments = [receiver];
+			Vector<Vector<IRNode>> releases = [];
+			for position in range(values.len - 1) {
+				Node value = values.get(position);
+				IRNode argument = IRNode.variable(f"argument{position}");
+				if (self.managedValues.isNative(value)) {
+					if (!value.isNullable) { invokeBody.push(self.nativeNullGuard(argument, "super-admission: null argument")); }
+					argument = self.emitNativeLease(position, value, argument, names, invokeBody, releases);
+				}
+				arguments.push(argument);
+			}
+			invokeBody.push(IRNode.assignment(IRNode.variable("admitted"), IRNode.call(callback.interfaceName + "_" + projection.methodName, arguments)));
+			for (int releaseIndex = releases.len - 1; releaseIndex >= 0; releaseIndex--) { invokeBody.extend(releases.get(releaseIndex)); } invokeBody.push(cleanup);
+			before.body = IRNode.block([
+				IRNode.variableDeclaration("bool", "admitted", IRNode.literal("false")),
+				self.superAdmissionBoundary([
+				IRNode.assignment(rawReceiver, IRNode.cast("void*", IRNode.call(contextSymbol + "_enter", [context]))),
+				IRNode.ifStatement(rawReceiver, IRNode.block(invokeBody), null)
+			], module),
+				IRNode.returnStatement(IRNode.binary(IRNode.unary("!", IRNode.fieldAccess(entry, "failed", true), true), "&&", IRNode.variable("admitted")))
+			]);
+			self.appendFunction(before, module);
+			var after = IRFunction(); after.name = f"{prefix}_after{index}"; after.returnType = "void"; after.isStatic = true;
+			after.params = [IRParam("void*", "rawContext"), IRParam(entryType, "entry"), IRParam("bool", "invokedSuper"), IRParam("bool", "nativeFailed")];
+			after.body = IRNode.block([self.superAdmissionBoundary([IRNode.ifStatement(rawReceiver, IRNode.block([
+				IRNode.expressionStatement(IRNode.call(callback.interfaceName + "_" + projection.superAfter, [receiver, IRNode.variable("invokedSuper"), IRNode.variable("nativeFailed")]))
+			]), null)], module)]);
+			self.appendFunction(after, module);
+		}
+		var finish = IRFunction(); finish.name = prefix + "_finish"; finish.returnType = "void"; finish.params = common; finish.isStatic = true;
+		finish.body = IRNode.block([IRNode.ifStatement(rawReceiver, IRNode.block([
+			self.superAdmissionBoundary([IRNode.ifStatement(IRNode.fieldAccess(entry, "failed", true), IRNode.block([IRNode.expressionStatement(IRNode.call(contextSymbol + "_cancel", [context]))]), null)], module),
+			self.superAdmissionBoundary([IRNode.expressionStatement(IRNode.call(contextSymbol + "_leave", [context]))], module),
+			IRNode.variableDeclaration(receiverC, "receiver", receiver), IRNode.assignment(rawReceiver, IRNode.literal("NULL")),
+			self.superAdmissionBoundary([IRNode.expressionStatement(self.managedLifetime.releaseValue(IRNode.variable("receiver"), receiverType))], module),
+			self.superAdmissionBoundary([IRNode.expressionStatement(IRNode.call(contextSymbol + "_pollCompletion", [context]))], module)
+		]), null)]);
+		self.appendFunction(finish, module);
+		var cancel = IRFunction(); cancel.name = prefix + "_cancelContext"; cancel.returnType = "void"; cancel.isStatic = true;
+		cancel.params = [IRParam("void*", "rawContext")];
+		cancel.body = self.nativeCallbackBoundary([
+			IRNode.expressionStatement(IRNode.call(contextSymbol + "_cancel", [context])),
+			IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))
+		], module);
+		self.appendFunction(cancel, module);
+		var failure = IRFunction(); failure.name = prefix + "_failed"; failure.returnType = "void"; failure.isStatic = true;
+		failure.params = [IRParam(entryType, "entry")];
+		failure.body = IRNode.block([IRNode.ifStatement(IRNode.fieldAccess(entry, "failed", true), IRNode.block([
+			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.literal("\"BTRC native callback failed: \""), IRNode.variable("stderr")])),
+			IRNode.expressionStatement(IRNode.call("fputs", [IRNode.fieldAccess(entry, "error", true), IRNode.variable("stderr")])), self.abortStatement()
+		]), null)]);
+		self.appendFunction(failure, module);
+	}
+
+	private void emitScopedSuperAdapter(FeNativeImportedDeclaration imported, Node method, FeNativeCallContract contract, IRModule module, IRModule native) {
+		FeNativeCallbackProjection callback = contract.callbacks.get(0);
+		var initializer = callback.initializer;
+		if (initializer == null) { throw "super-admission requires an initializer"; }
+		string owner = imported.declaration.name;
+		string prefix = "__btrc_objc_" + owner + "_" + method.name;
+		Node token = Node(); token.kind = NK_TYPE_EXPR; token.base = "void"; token.pointerDepth = 1;
+		Node contextType = Node(); contextType.kind = NK_TYPE_EXPR; contextType.base = "CallbackContext"; contextType.pointerDepth = 1;
+		contextType.genericArgsStorage = [method.params().get(0).type, token];
+		string contextC = self.cTypes.lower(contextType);
+		string contextSymbol = TypeIdentity.mangleGenericSymbol(contextType.base, contextType.genericArgs());
+		self.emitStoredContextLifetime(prefix, contextType, contextSymbol, module);
+		var selfRelease = IRFunctionDecl("__btrc_objc_" + owner + "_release", "void", false);
+		selfRelease.params = [IRParam("void*", "value")];
+		native.functionDecls.push(selfRelease);
+		string entryName = prefix + "Entry";
+		string entryC = "struct " + entryName;
+		string entryPointer = entryC + "*";
+		var record = IRStructDef(); record.name = entryName;
+		var errorField = IRStructField("char", "error"); errorField.arraySize = IRNode.literal("1024");
+		record.fields = [IRStructField("void*", "receiver"), IRStructField("bool", "failed"), errorField];
+		module.structForwards.push(IRStructForward(entryName)); native.structForwards.push(IRStructForward(entryName));
+		module.structDefs.push(record); native.structDefs.push(record);
+		self.emitSuperAdmissionThunks(prefix, callback, contextType, entryPointer, module);
+		Vector<string> transportNames = ["retain", "release", "cancel", "finish", "failed"];
+		Vector<string> transportTypes = [prefix + "Lifetime", prefix + "Lifetime", prefix + "Lifetime", prefix + "Finish", prefix + "Failure"];
+		var lifetime = IRFunctionPointerTypedef(prefix + "Lifetime", "void"); lifetime.paramTypes = ["void*"];
+		var finish = IRFunctionPointerTypedef(prefix + "Finish", "void"); finish.paramTypes = ["void*", entryPointer];
+		var failure = IRFunctionPointerTypedef(prefix + "Failure", "void"); failure.paramTypes = [entryPointer];
+		var afterType = IRFunctionPointerTypedef(prefix + "After", "void"); afterType.paramTypes = ["void*", entryPointer, "bool", "bool"];
+		Vector<IRFunctionPointerTypedef> definitions = [lifetime, finish, failure, afterType];
+		Vector<Vector<Node>> values = [];
+		for index in range(callback.delegateMethods.len) {
+			var arguments = self.nativeCallbackTypes(callback.delegateMethods.get(index)); values.push(arguments);
+			var before = IRFunctionPointerTypedef(f"{prefix}Before{index}", "bool"); before.paramTypes = ["void*", entryPointer];
+			for position in range(arguments.len - 1) { before.paramTypes.push(self.cTypes.lower(arguments.get(position))); }
+			definitions.push(before);
+			transportNames.push(f"before{index}"); transportNames.push(f"after{index}");
+			transportTypes.push(before.name); transportTypes.push(afterType.name);
+		}
+		for definition in definitions { module.functionPointerTypedefs.push(definition); native.functionPointerTypedefs.push(definition); }
+		self.appendPreprocessorDecl(native, IRPreprocessorDecl.include("pthread.h", true));
+		string holderName = prefix + "Holder";
+		string holderC = holderName + "*";
+		IRNode held = IRNode.variable("_context"); IRNode raw = IRNode.variable("context");
+		Vector<IRNode> noArguments = []; Vector<IRParam> noParameters = [];
+		var holder = IRObjectiveCClass(holderName, callback.superclass);
+		holder.fields = [IRStructField("void*", "_context"), IRStructField("pthread_t", "_executor"), IRStructField("bool", "_configured")];
+		Vector<IRParam> configureParameters = [IRParam("void*", "context")];
+		Vector<IRNode> configureBody = [IRNode.assignment(IRNode.variable("_executor"), IRNode.call("pthread_self", noArguments))];
+		string configureSelector = "btrcConfigure:";
+		for index in range(transportNames.len) {
+			string name = transportNames.get(index); string valueType = transportTypes.get(index);
+			holder.fields.push(IRStructField(valueType, "_" + name)); configureParameters.push(IRParam(valueType, name));
+			configureSelector = configureSelector + name + ":";
+			configureBody.push(IRNode.assignment(IRNode.variable("_" + name), IRNode.variable(name)));
+		}
+		configureBody.extend([
+			IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_retain"), [raw])), IRNode.assignment(held, raw), IRNode.assignment(IRNode.variable("_configured"), IRNode.literal("true"))
+		]);
+		IRNode wrongThread = IRNode.ifStatement(IRNode.binary(IRNode.call("pthread_equal", [IRNode.variable("_executor"), IRNode.call("pthread_self", noArguments)]), "==", IRNode.literal("0")), IRNode.block([self.abortStatement()]), null);
+		holder.methods = [IRObjectiveCMethod(configureSelector, "void", configureParameters, IRNode.block(configureBody))];
+		holder.methods.push(IRObjectiveCMethod("btrcUnregister", "BOOL", noParameters, IRNode.block([
+			wrongThread, IRNode.variableDeclaration("void*", "context", held), IRNode.assignment(held, IRNode.literal("NULL")),
+			IRNode.ifStatement(raw, IRNode.block([IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_release"), [raw]))]), null), IRNode.returnStatement(IRNode.literal("YES"))
+		])));
+		for index in range(callback.delegateMethods.len) {
+			var projection = callback.delegateMethods.get(index);
+			var nativeMethod = projection.nativeMethod;
+			if (nativeMethod == null) { throw "super-admission requires a native method"; }
+			Vector<IRParam> parameters = [];
+			Vector<IRNode> arguments = self.instantiatedArguments(projection, values.get(index), parameters);
+			bool returns = projection.returnType.base != "void";
+			IRNode early = IRNode.returnStatement(returns ? IRNode.literal("NO") : null);
+			IRNode entry = IRNode.addressOf(IRNode.variable("entry"));
+			Vector<IRNode> body = [
+				IRNode.ifStatement(IRNode.unary("!", IRNode.variable("_configured"), true), IRNode.block([early]), null), wrongThread,
+				IRNode.ifStatement(IRNode.unary("!", held, true), IRNode.block([early]), null),
+				IRNode.variableDeclaration("void*", "selfPin", IRNode.cast("void*", IRNode.variable("self"), "retain")),
+				IRNode.variableDeclaration("void*", "context", held), IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_retain"), [raw])),
+				IRNode.variableDeclaration(entryC, "entry", IRNode.initializerList([IRNode.literal("0")])),
+				IRNode.variableDeclaration("bool", "invokedSuper", IRNode.literal("false")), IRNode.variableDeclaration("bool", "nativeFailed", IRNode.literal("false"))
+			];
+			Vector<IRNode> argumentReleases = [];
+			for position in range(parameters.len) {
+				Node value = values.get(index).get(position);
+				if (!self.managedValues.isNative(value)) { continue; }
+				/* The explicit pin ends before failure reporting; an implicit ARC
+				 * parameter claim would otherwise survive until method return. */
+				parameters.get(position).cType = parameters.get(position).cType + " __unsafe_unretained";
+				string pin = f"argumentPin{position}";
+				body.push(IRNode.variableDeclaration("void*", pin, IRNode.cast("void*", IRNode.variable(parameters.get(position).name), "retain")));
+				string releaseName = "__btrc_objc_" + value.base + "_release";
+				var releasePrototype = IRFunctionDecl(releaseName, "void", false); releasePrototype.params = [IRParam("void*", "value")];
+				native.functionDecls.push(releasePrototype);
+				argumentReleases.push(IRNode.expressionStatement(IRNode.call(releaseName, [IRNode.variable(pin)])));
+			}
+			if (returns) { body.push(IRNode.variableDeclaration(projection.nativeReturn, "result", IRNode.literal("NO"))); }
+			Vector<IRNode> superArguments = []; for parameter in parameters { superArguments.push(IRNode.variable(parameter.name)); }
+			IRNode superCall = IRNode.objectiveCMessage(IRNode.variable("super"), nativeMethod.selector, superArguments);
+			Vector<IRNode> beforeArguments = [raw, entry]; beforeArguments.extend(arguments);
+			body.extend([
+				IRNode.ifStatement(IRNode.indirectCall(IRNode.variable(f"_before{index}"), beforeArguments), IRNode.block([
+				IRNode.assignment(IRNode.variable("invokedSuper"), IRNode.literal("true")),
+				IRNode.objectiveCExceptionBoundary(IRNode.block([returns ? IRNode.assignment(IRNode.variable("result"), superCall) : IRNode.expressionStatement(superCall)]), IRNode.block([IRNode.assignment(IRNode.variable("nativeFailed"), IRNode.literal("true"))]))
+			]), null),
+				IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable(f"_after{index}"), [raw, entry, IRNode.variable("invokedSuper"), IRNode.variable("nativeFailed")])),
+				IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_finish"), [raw, entry]))
+			]);
+			for (int releaseIndex = argumentReleases.len - 1; releaseIndex >= 0; releaseIndex--) { body.push(argumentReleases.get(releaseIndex)); }
+			body.extend([
+				IRNode.variableDeclaration(prefix + "Failure", "failed", IRNode.variable("_failed")),
+				IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_release"), [raw])),
+				IRNode.expressionStatement(IRNode.call("__btrc_objc_" + owner + "_release", [IRNode.variable("selfPin")])),
+				IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("failed"), [entry]))
+			]);
+			if (returns) { body.push(IRNode.returnStatement(IRNode.variable("result"))); }
+			holder.methods.push(IRObjectiveCMethod(nativeMethod.selector, projection.nativeReturn, parameters, IRNode.block(body)));
+		}
+		holder.methods.push(IRObjectiveCMethod("dealloc", "void", noParameters, IRNode.block([IRNode.ifStatement(held, IRNode.block([
+			wrongThread, IRNode.variableDeclaration("void*", "context", held),
+			IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_retain"), [raw])),
+			IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_cancel"), [raw])),
+			IRNode.expressionStatement(IRNode.indirectCall(IRNode.variable("_release"), [raw]))
+		]), null)])));
+		native.objectiveCClasses.push(holder);
+		var unregister = IRFunction(); unregister.name = prefix + "Unregister"; unregister.returnType = "bool";
+		unregister.params = [IRParam("void*", "token")];
+		unregister.body = IRNode.block([IRNode.objectiveCExceptionBoundary(IRNode.block([
+			IRNode.returnStatement(IRNode.objectiveCMessage(IRNode.cast(holderC, IRNode.variable("token"), "borrow"), "btrcUnregister", noArguments))
+		]), IRNode.block([self.abortStatement()]))]);
+		native.functions.push(unregister);
+		var unregisterPrototype = IRFunctionDecl(unregister.name, unregister.returnType, false); unregisterPrototype.params = unregister.params;
+		module.functionDecls.push(unregisterPrototype);
+		Vector<IRParam> sourceParameters = []; for parameter in method.params() { sourceParameters.push(self.cTypes.lowerParameter(parameter)); }
+		string resultC = self.cTypes.lower(method.returnType);
+		var adapter = IRFunction(); adapter.name = prefix; adapter.returnType = "int";
+		adapter.params = [IRParam("void*", "context")];
+		for index in range(transportNames.len) { adapter.params.push(IRParam(transportTypes.get(index), transportNames.get(index))); }
+		Vector<IRNode> initArguments = [];
+		for index in range(2, sourceParameters.len) {
+			adapter.params.push(sourceParameters.get(index));
+			Node valueType = method.params().get(index).type; IRNode value = IRNode.variable(sourceParameters.get(index).name);
+			initArguments.push(self.managedValues.isNative(valueType) ? IRNode.cast(self.objectiveCObjectType(valueType.base), value, "borrow") : self.objectiveCValue(valueType, value, true));
+		}
+		adapter.params.push(IRParam(resultC + " volatile*", "nativeResult"));
+		Vector<IRNode> configureArguments = [raw]; for name in transportNames { configureArguments.push(IRNode.variable(name)); }
+		adapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([IRNode.objectiveCExceptionBoundary(IRNode.block([
+			IRNode.variableDeclaration(holderC, "created", IRNode.objectiveCMessage(IRNode.objectiveCMessage(IRNode.variable(holderName), "alloc", noArguments), initializer.selector, initArguments)),
+			IRNode.ifStatement(IRNode.unary("!", IRNode.variable("created"), true), IRNode.block([IRNode.returnStatement(IRNode.literal("1"))]), null),
+			IRNode.expressionStatement(IRNode.objectiveCMessage(IRNode.variable("created"), configureSelector, configureArguments)),
+			IRNode.assignment(IRNode.dereference(IRNode.variable("nativeResult")), IRNode.cast(resultC, IRNode.variable("created"), "retain")), IRNode.returnStatement(IRNode.literal("0"))
+		]), IRNode.block([IRNode.returnStatement(IRNode.literal("1"))]))]))]);
+		native.functions.push(adapter);
+		var adapterPrototype = IRFunctionDecl(prefix, "int", false); adapterPrototype.params = adapter.params; module.functionDecls.push(adapterPrototype);
+		var wrapper = IRFunction(); wrapper.name = owner + "_" + method.name; wrapper.returnType = resultC; wrapper.params = sourceParameters; wrapper.isStatic = true;
+		IRNode resultSlot = IRNode.variableDeclaration(resultC, "nativeResult", IRNode.literal("NULL"));
+		Vector<IRNode> body = [resultSlot]; Map<string, bool> names = {}; for parameter in sourceParameters { names.put(parameter.name, true); }
+		IRNode cleanup = self.nativeCleanupScope(names, body);
+		body.push(self.nativeNullGuard(IRNode.variable("receiver"), "super-admission requires a receiver"));
+		body.push(self.nativeNullGuard(IRNode.variable("scope"), "super-admission requires a scope"));
+		IRNode context = IRNode.variable("context");
+		IRNode contextSlot = IRNode.variableDeclaration(contextC, "context", IRNode.call(contextSymbol + "_new", [IRNode.variable("receiver"), IRNode.functionReference(unregister.name)]));
+		body.extend([contextSlot, IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(contextSlot, self.managedValues.runtimeType(contextType)))]);
+		Vector<string> thunks = [prefix + "_retain", prefix + "_release", prefix + "_cancelContext", prefix + "_finish", prefix + "_failed"];
+		for index in range(values.len) { thunks.push(f"{prefix}_before{index}"); thunks.push(f"{prefix}_after{index}"); }
+		Vector<IRNode> arguments = [IRNode.cast("void*", context)]; for thunk in thunks { arguments.push(IRNode.functionReference(thunk)); }
+		Vector<Vector<IRNode>> releases = [];
+		for index in range(2, sourceParameters.len) {
+			Node valueType = method.params().get(index).type; IRNode argument = IRNode.variable(sourceParameters.get(index).name);
+			if (self.managedValues.isNative(valueType)) {
+				if (!valueType.isNullable) { body.push(self.nativeNullGuard(argument, "super-admission: null initializer argument")); }
+				argument = self.emitNativeLease(index, valueType, argument, names, body, releases);
+			}
+			arguments.push(argument);
+		}
+		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_activate", [context, IRNode.variable("scope")])));
+		arguments.push(IRNode.addressOf(IRNode.variable("nativeResult")));
+		self.context.referenceHelper("__btrc_throw");
+		IRNode failed = IRNode.call("__btrc_throw", [IRNode.literal("\"super-admission initializer failed before publication\"")]); ((IRCallPayload)failed.payload).neverReturns = true;
+		body.extend([
+			IRNode.ifStatement(IRNode.call(prefix, arguments), IRNode.block([IRNode.expressionStatement(IRNode.call(contextSymbol + "_abortActivation", [context])), IRNode.expressionStatement(failed)]), null),
+			IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(resultSlot, self.managedValues.runtimeType(method.returnType))),
+			IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [context, IRNode.cast("void*", IRNode.variable("nativeResult"))]))
+		]);
+		self.releaseStoredLocal(context, contextType, "releasedContext", body);
+		for (int releaseIndex = releases.len - 1; releaseIndex >= 0; releaseIndex--) { body.extend(releases.get(releaseIndex)); } body.push(cleanup); body.push(IRNode.returnStatement(IRNode.variable("nativeResult")));
+		wrapper.body = IRNode.block(body); self.appendFunction(wrapper, module);
 	}
 
 	/* Hand the SDK a generated class it instantiates once per instance

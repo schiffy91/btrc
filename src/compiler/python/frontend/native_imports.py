@@ -558,6 +558,7 @@ class NativeCallbackProjection:
     # A stored Objective-C block bound to the main thread (executor = "main"):
     # it registers there, and its holder posts a final release made elsewhere.
     main_executor: bool = False
+    super_after: str = ""
 
     def is_context(self, index):
         return index == self.callback_context_index or index in self.callback_context_indices
@@ -647,6 +648,7 @@ class NativeInstantiatedProjection:
     initializer: NativeObjectiveCMethod | None = None
     initializer_parameters: tuple[str, ...] = ()
     class_methods: tuple[NativeCallbackProjection, ...] = ()
+    scoped_super: bool = False
 
     @property
     def parameter_interface(self):
@@ -6952,9 +6954,13 @@ class NativeDeclarationImporter:
         if binding.methods:
             first = self._callback_exports.get(binding.methods[0])
             protocol = first.receiver if isinstance(first, NativeObjectiveCMethod) and first.protocol_owner else ""
-        methods = self._protocol_methods(binding, 0, protocol, object_results=True, overrides=instance_overrides)
-        terminal = self._instantiated_terminal(binding, methods)
-        factory, class_methods = self._instantiated_factory(binding, class_overrides)
+        if binding.super_admission:
+            methods = self._super_admission_methods(binding, instance_overrides, class_overrides)
+            terminal, factory, class_methods = -1, "", ()
+        else:
+            methods = self._protocol_methods(binding, 0, protocol, object_results=True, overrides=instance_overrides)
+            terminal = self._instantiated_terminal(binding, methods)
+            factory, class_methods = self._instantiated_factory(binding, class_overrides)
         projection = NativeInstantiatedProjection(
             binding.interface,
             0,
@@ -6969,6 +6975,7 @@ class NativeDeclarationImporter:
                 self._block_type_spelling(parameter) for parameter in declaration.signature.parameters
             ),
             class_methods=class_methods,
+            scoped_super=bool(binding.super_admission),
         )
         name = declaration.selector.split(":", 1)[0]
         method = ast.MethodDecl(
@@ -6976,7 +6983,14 @@ class NativeDeclarationImporter:
             name=name,
             return_type=self._objective_c_type(declaration.signature.return_type, related_owner=declaration.receiver),
             params=[
-                ast.Param(type=ast.TypeExpr(base=factory), name="factory"),
+                *(
+                    [
+                        ast.Param(type=ast.TypeExpr(base=binding.interface), name="receiver"),
+                        ast.Param(type=ast.TypeExpr(base="CallbackScope"), name="scope"),
+                    ]
+                    if binding.super_admission
+                    else [ast.Param(type=ast.TypeExpr(base=factory), name="factory")]
+                ),
                 *[
                     ast.Param(type=self._objective_c_type(native, parameter=True), name=f"argument{index}")
                     for index, native in enumerate(declaration.signature.parameters)
@@ -6989,6 +7003,78 @@ class NativeDeclarationImporter:
             raise NativeImportError(f"ambiguous Objective-C method projection {declaration.receiver}.{name}")
         owner.source_file.methods[name] = contract
         owner.members.append(method)
+
+    def _super_admission_methods(self, binding, methods, class_methods):
+        """Checked before/after hooks for one scoped native superclass extent."""
+        if class_methods:
+            raise NativeImportError("super-admission requires instance overrides")
+        hooks = {symbol: (before, after) for symbol, before, after in binding.super_admission}
+        signatures, projections, identities = [], [], []
+        for method in methods:
+            if method.selector == "btrcUnregister" or method.selector.startswith("btrcConfigure:"):
+                raise NativeImportError(
+                    f"super-admission override collides with a generated private selector: {method.name}"
+                )
+            native_result = method.signature.return_type
+            sdk_bool = False
+            while isinstance(native_result, (NativeAlias, NativeQualifiedType)):
+                sdk_bool |= isinstance(native_result, NativeAlias) and native_result.name == "BOOL"
+                native_result = native_result.underlying
+            result = self._objective_c_scalar(method.signature.return_type)
+            if sdk_bool and isinstance(native_result, NativeBuiltin) and native_result.name == "signed char":
+                result = replace(result, base="bool")
+            if method.requires_super or result.base not in {"void", "bool"} or result.pointer_depth:
+                raise NativeImportError(f"super-admission requires void or BOOL without requires-super: {method.name}")
+            before, after = hooks[method.name]
+            for name in (before, after):
+                if (
+                    name in self._grammar.load().keywords
+                    or name.startswith("__")
+                    or (len(name) > 1 and name[0] == "_" and "A" <= name[1] <= "Z")
+                ):
+                    raise NativeImportError(f"super-admission requires a nonreserved BTRC identifier: {name}")
+            parameters = tuple(self._objective_c_type(value, parameter=True) for value in method.signature.parameters)
+            signatures.extend(
+                [
+                    ast.MethodSig(
+                        name=before,
+                        return_type=ast.TypeExpr(base="bool"),
+                        params=[
+                            ast.Param(type=value, name=f"argument{index}") for index, value in enumerate(parameters)
+                        ],
+                    ),
+                    ast.MethodSig(
+                        name=after,
+                        return_type=ast.TypeExpr(base="void"),
+                        params=[
+                            ast.Param(type=ast.TypeExpr(base="bool"), name="invokedSuper"),
+                            ast.Param(type=ast.TypeExpr(base="bool"), name="nativeFailed"),
+                        ],
+                    ),
+                ]
+            )
+            projections.append(
+                NativeCallbackProjection(
+                    binding.interface,
+                    0,
+                    -1,
+                    len(parameters),
+                    (*parameters, ast.TypeExpr(base="void", pointer_depth=1)),
+                    result,
+                    tuple(self._block_type_spelling(value) for value in method.signature.parameters),
+                    self._block_type_spelling(method.signature.return_type),
+                    method_name=before,
+                    native_method=method,
+                    super_after=after,
+                )
+            )
+            identities.append((method.name, before, after, self._type_identity(method.signature)))
+        self._add(
+            binding.interface,
+            ast.InterfaceDecl(name=binding.interface, methods=signatures),
+            ("super-admission-interface", tuple(identities)),
+        )
+        return tuple(projections)
 
     def _superclass_overrides(self, binding):
         """The checked instance and class overrides of an adapter that extends `binding.superclass`.

@@ -487,6 +487,8 @@ class FeNativeCallbackBinding {
 	public Vector<int> ownedArguments = [];
 	public Vector<string> methods = [];
 	public Map<string, string> methodNames = {};
+	public Map<string, string> superBefore = {};
+	public Map<string, string> superAfter = {};
 	public string slotGetter = "";
 	public string actionSetter = "";
 	public string actionGetter = "";
@@ -568,6 +570,8 @@ class FeNativeCallbackProjection {
 	public Vector<int> ownedArguments = [];
 	public bool oneShot = false;
 	public string methodName = "invoke";
+	public string superAfter = "";
+	public bool scopedSuper = false;
 	public NativeNode? nativeMethod = null;
 	public NativeNode? slotGetter = null;
 	public NativeNode? actionSetter = null;
