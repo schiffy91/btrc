@@ -616,8 +616,12 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         if workflow == "ci.yml":
             actual_scope.pop("if")
         if workflow == "macos.yml":
-            assert (
-                actual_scope.pop("if") == "github.event_name != 'workflow_dispatch' || inputs.focus != 'e40-diagnostic'"
+            assert actual_scope.pop("if") == (
+                "github.event_name != 'workflow_dispatch' || inputs.focus != 'e40-diagnostic'"
+            )
+        if workflow == "windows.yml":
+            assert actual_scope.pop("if") == (
+                "github.event_name != 'workflow_dispatch' || inputs.focus != 'user-census-diagnostic'"
             )
         assert actual_scope == scope, workflow
         assert document["env"]["CI_WORKFLOW"] == workflow, workflow
@@ -629,6 +633,8 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
             untiered.add("bench-diagnostic")
         if workflow == "macos.yml":
             untiered.add("macos-e40-diagnostic")
+        if workflow == "windows.yml":
+            untiered.update({"user-census-build", "user-census-diagnostic"})
         assert set(jobs) - untiered == listed, workflow
         for name in listed:
             job = jobs[name]
@@ -1309,7 +1315,8 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                     "type": "choice",
                     "options": ["full", "native-gui", "extended"]
                     + (["bench-diagnostic"] if workflow == "ci.yml" else [])
-                    + (["e40-diagnostic"] if workflow == "macos.yml" else []),
+                    + (["e40-diagnostic"] if workflow == "macos.yml" else [])
+                    + (["user-census-diagnostic"] if workflow == "windows.yml" else []),
                     "default": "full",
                 }
             }
@@ -2089,3 +2096,19 @@ def test_mac_loop_diagnostic_is_opt_in_and_preserves_exact_native_trials() -> No
     )
     assert upload["if"] == "always()"
     assert "build/e40-diagnostic/native/" in upload["with"]["path"]
+
+
+def test_windows_user_census_diagnostic_is_manual_and_separate():
+    jobs = _parsed("windows.yml")["jobs"]
+    guard = "github.event_name == 'workflow_dispatch' && inputs.focus == 'user-census-diagnostic'"
+    assert jobs["user-census-build"]["if"] == guard
+    assert jobs["user-census-diagnostic"]["if"] == guard
+    assert jobs["user-census-diagnostic"]["needs"] == "user-census-build"
+    assert jobs["user-census-diagnostic"]["runs-on"] == "windows-latest"
+    assert "inputs.focus != 'user-census-diagnostic'" in jobs["scope"]["if"]
+    for name, stage in (("user-census-build", "build"), ("user-census-diagnostic", "run")):
+        commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
+        assert f"tools.ui.windows_user_diagnostic {stage}" in commands
+        assert "--repeat" not in commands
+        uploads = [step for step in jobs[name]["steps"] if "actions/upload-artifact@" in step.get("uses", "")]
+        assert uploads and all(step.get("if") == "always()" for step in uploads)

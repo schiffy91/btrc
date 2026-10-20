@@ -498,20 +498,28 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     directory = (Path(evidence) / f"native-shell-{target}").resolve()
     executable = directory / shell_name(frontend, target, sanitized)
     assert executable.is_file(), sorted(path.name for path in directory.iterdir()) if directory.is_dir() else directory
+    diagnostic_mode = os.environ.get("BTRC_UI_SHELL_USER_DIAGNOSTIC", "")
+    if diagnostic_mode:
+        assert diagnostic_mode in {"count-only", "query-bracket"}
+        assert (frontend, target, sanitized) == ("python", "windows-x64", True)
     measured_cycles = int(os.environ.get("BTRC_UI_SHELL_CYCLES", "100"))
+    if diagnostic_mode:
+        assert measured_cycles == 100
     assert 1 <= measured_cycles <= 100
     warmup_cycles = 2
     cycles = measured_cycles + warmup_cycles
     state = tmp_path / "state"
     state.mkdir()
     environment = {**os.environ}
-    for diagnostic in ("BTRC_UI_SHELL_NO_AX", "BTRC_UI_SHELL_NO_SCROLL"):
-        environment.pop(diagnostic, None)
+    for flag_name in ("BTRC_UI_SHELL_NO_AX", "BTRC_UI_SHELL_NO_SCROLL"):
+        environment.pop(flag_name, None)
     client = directory / f"uia-probe-{FRONTENDS[frontend]}-{target}.exe"
     if client.is_file():
         environment["BTRC_UI_SHELL_UIA_PROBE"] = str(client)
     result = run_shell([str(executable), str(cycles), str(state)], environment, 1200)
     artifacts = REPO / "build/ui-shell" / shell_name(frontend, target, sanitized).removesuffix(".exe")
+    if diagnostic_mode:
+        artifacts = artifacts / diagnostic_mode
     artifacts.mkdir(parents=True, exist_ok=True)
     (artifacts / "shell.stdout").write_text(result.stdout, encoding="utf-8")
     (artifacts / "shell.stderr").write_text(result.stderr, encoding="utf-8")
@@ -561,6 +569,8 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     for restart in range(100):
         restored = run_shell([str(executable), str(state), "restore"], environment, 60)
         (artifacts / f"restore-{restart}.stdout").write_text(restored.stdout, encoding="utf-8")
+        if diagnostic_mode:
+            (artifacts / f"restore-{restart}.stderr").write_text(restored.stderr, encoding="utf-8")
         assert restored.returncode == 0, restored.stderr + restored.stdout
         assert expected in restored.stdout.splitlines(), restored.stdout
         restored_teardown = re.search(
