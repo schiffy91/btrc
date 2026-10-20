@@ -48,8 +48,11 @@ files under `probes/linux/`. Drivers live in `src/tests/python/`. Native `.m` or
 | E46 reversible close (`UI2LifecycleChecks.closeTransaction`) | `UI2MacOSWindow` via the window driver; `UI2MacOSApplicationQuit` via the macOS core driver | `UI2LinuxWindowClose`, `UI2LinuxWindowQuit` via the Linux core driver | Full 100-cycle two-window/resource matrix and hosted dirty-dismissal journey |
 
 The current acceptance extension adds 100 fresh cycles to macOS container,
-executor, window and application-quit scenarios, and Linux lifecycle, executor,
-window-close and window-quit scenarios. It adds `UI2MacOSFinalRelease.btrc` and
+executor, application-host, window and application-quit scenarios, and Linux
+lifecycle, executor, window-close and window-quit scenarios. The macOS host
+extension at `77043828` repeats the public CANCEL/DEFER/REPLACE journey and the
+core driver requires `UI2 acceptance UI2MacOSApplicationHost cycles=100`.
+It adds `UI2MacOSFinalRelease.btrc` and
 `UI2LinuxFinalRelease.btrc` as subprocess checks: the former uses the macOS
 core driver row, and the latter uses
 `test_native_ui_core_linux.py::test_linux_ui2_final_release_requires_executor`.
@@ -57,6 +60,14 @@ These are coordinated work in progress beyond the source revision above;
 qualification is pending. A fatal last-release test must observe the required
 process failure, not merely a caught destructor exception. Catalog regression
 mappings remain on the existing rows until the new rows are integrated.
+
+The approved callback-scope diagnostic is
+`Callback scope destruction requires its creating thread`
+(`docs/design/ui-contracts/ui2-approved.md:827`;
+`docs/design/ui-contracts/reviews/ui2/parity.md:233–237`). Cancellation does not
+remove that affinity: a component retaining a fully cancelled scope still
+aborts when its final reference is released on a worker. The positive control
+closes, drains and releases the owner on the UI thread.
 
 ## E40 boundary, load and tracking
 
