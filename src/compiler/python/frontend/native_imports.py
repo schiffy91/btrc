@@ -1169,8 +1169,11 @@ class NativeDeclarationImporter:
                 if callback.lifetime == "instantiated"
                 else (callback.unregister,)
             )
-            # A subclass adapter's own initializer is imported, as its constructor.
-            if operation and (callback.lifetime != "instantiated" or operation != callback.parameter.rsplit(".", 1)[0])
+            # Scoped admission preserves outbound message dispatch through its
+            # overrides. A subclass initializer is imported as its constructor.
+            if operation
+            and not (callback.super_admission and operation in callback.overrides)
+            and (callback.lifetime != "instantiated" or operation != callback.parameter.rsplit(".", 1)[0])
         }
         for binding in plan.bindings:
             for callback in binding.callbacks:

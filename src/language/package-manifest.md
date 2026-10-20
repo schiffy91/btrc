@@ -1142,6 +1142,10 @@ class-static receiver. A nil result or native exception during initialization
 aborts unpublished activation and throws at the source call. The other
 instantiated-adapter forms retain their factory API.
 
+The selected override methods remain callable from BTRC through ordinary native
+message dispatch. Such calls enter the same before/super/after extent as calls
+from the SDK; they do not bypass admission or call the superclass directly.
+
 `super-admission` maps every override to distinct, nonreserved BTRC hook names.
 Its table and per-selector hook tables may be inline or nested. This mode
 accepts only instance overrides returning void or BOOL (including the SDK BOOL
