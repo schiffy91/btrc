@@ -131,6 +131,14 @@ int main() {
 		assert(next.close() == CALLBACK_CANCELLATION_COMPLETE && next.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(lifetime.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.retireQueue(queue);
 	}
+	var failed = MacOSSlider(0.0, 10.0, 10); failed.stateNode().configure(context);
+	var failedOwner = CallbackScope(); failed.onCancel(SliderObservation(), failedOwner);
+	window.setContentView(failed.nativeView()); failed.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+	assert(failed.invoke(SliderInput.pointer(failed, window, NSEventTypeLeftMouseDown, 20.0)) == null);
+	context.recordNativeFailure("injected slider source failure");
+	failed.setEnabled(false); assert(!failed.isEnabled());
+	failed.stateNode().detachWindow(); window.setContentView(null);
+	assert(failed.close() == CALLBACK_CANCELLATION_COMPLETE && failedOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	window.close();
 	context.close(); assert(signal.close());
 	print("PASS: UI2 macOS slider model and semantic controls"); return 0;

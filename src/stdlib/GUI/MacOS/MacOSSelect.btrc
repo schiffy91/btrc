@@ -35,7 +35,7 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 	private string? _previousKey;
 	private bool _tracking = false;
 	private bool _closing = false;
-	private bool _suppressAction = false;
+	private bool _nativeFailed = false;
 	private long long _pendingClose = 0LL;
 	private ControlCancelReason _closeReason = CONTROL_CANCEL_PLATFORM_INTERRUPTION;
 	private MacOSNativeSettlementRegistration? _settlement;
@@ -134,7 +134,7 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 
 	private bool beginMenu() {
 		if (self._tracking) { return true; }
-		if (self._closing || self._availability != SELECT_AVAILABILITY_READY || !self.stateNode().effectiveEligible()) { return false; }
+		if (self._closing || self._nativeFailed || self._availability != SELECT_AVAILABILITY_READY || !self.stateNode().effectiveEligible()) { return false; }
 		self.reserveSettlement();
 		if (self._interaction == 9223372036854775807LL) { throw "Selection interaction identities exhausted"; }
 		bool admitted = true;
@@ -156,15 +156,16 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 			if (channel != null && channel.isOpen() && ticket != null) {
 				var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason); channel.publishTerminal(event, self._interactionGeneration, self._interaction, ticket);
 			}
-		} finally { self.finishMenu(); }
-		self._suppressAction = true;
-		var menu = self._menu; if (menu != null) { menu.cancelTracking(); }
-		if (self._button != null) { self.projectSelection(); }
+		} finally {
+			self.finishMenu();
+			try { var menu = self._menu; if (menu != null) { menu.cancelTracking(); } }
+			finally { if (self._button != null) { self.projectSelection(); } }
+		}
 	}
 
 	private void acceptSelection() {
 		if (self._closing) { return; }
-		if (self._suppressAction || !self.stateNode().effectiveEligible() || self._availability != SELECT_AVAILABILITY_READY) { self.projectSelection(); return; }
+		if (self._nativeFailed || !self.stateNode().effectiveEligible() || self._availability != SELECT_AVAILABILITY_READY) { self.projectSelection(); return; }
 		int index = (int)self.control().indexOfSelectedItem();
 		if (index < 0 || index >= self._keys.len || !self._enabledItems.get(index) || !self.beginMenu()) { self.projectSelection(); return; }
 		self._highlight = index;
@@ -180,9 +181,8 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 	}
 
 	private void nativeFailure(string error) {
-		var context = self.stateNode().context();
+		self._nativeFailed = true; var context = self.stateNode().context();
 		if (context != null) { context.recordNativeFailure(error); }
-		else { self._suppressAction = true; }
 	}
 
 	public void invoke() { try { self.acceptSelection(); } catch (string error) { self.nativeFailure(error); } }
@@ -190,7 +190,7 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 	public void menuWillOpen(NSMenu menu) {
 		try {
 			if (menu != self._menu || self._closing) { menu.cancelTracking(); }
-			else { self._suppressAction = false; if (!self.beginMenu()) { menu.cancelTracking(); } }
+			else { if (!self.beginMenu()) { menu.cancelTracking(); } }
 		} catch (string error) { self.nativeFailure(error); }
 	}
 
@@ -227,7 +227,7 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 		if (self._tracking && self._pendingClose == self._interaction) { self.cancelMenu(self._closeReason == CONTROL_CANCEL_ESCAPE ? CONTROL_ORIGIN_USER : CONTROL_ORIGIN_SYSTEM, self._closeReason); }
 	}
 
-	public void eligibilityLost() { self.cancelMenu(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); }
+	public void eligibilityLost() { try { self.cancelMenu(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); } catch (string error) { self.nativeFailure(error); } }
 
 	public MacOSViewState stateNode() { return self._view.stateNode(); }
 
@@ -377,7 +377,8 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 	public CallbackCancellation close() {
 		self._view.requireDetached();
 		if (!self._closing) {
-			self.cancelMenu(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING); self._closing = true;
+			self._closing = true;
+			try { self.cancelMenu(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING); } catch (string error) { self.nativeFailure(error); }
 			self._menuCallbacks.cancel();
 			if (self._failedMenuCallbacks != null) { self._failedMenuCallbacks.cancel(); }
 			self._native.cancel(); self._view.close();

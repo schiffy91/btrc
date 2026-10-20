@@ -66,12 +66,19 @@ int main() {
 		assert(receiver.events.get(1).cancelReason == CONTROL_CANCEL_PLATFORM_INTERRUPTION);
 		receiver.events.clear();
 		BTRCUI2SelectProbe.begin(native); BTRCUI2SelectProbe.highlight(native, 0L);
+		var oldItem = BTRCUI2SelectProbe.item(native, 1L);
 		var replacement = SelectionFixture.model(); select.setOptions(replacement);
-		BTRCUI2SelectProbe.choose(native, 1L); BTRCUI2SelectProbe.end(native);
+		BTRCUI2SelectProbe.dispatchOld(oldItem, native); BTRCUI2SelectProbe.end(native);
 		while (context.dispatchOne()) {}
 		assert(receiver.events.len == 2 && receiver.events.get(1).phase == CONTROL_PHASE_CANCEL);
 		assert(receiver.events.get(1).context.origin == CONTROL_ORIGIN_MODEL && select.selectedKey() == "one");
+		receiver.events.clear(); BTRCUI2SelectProbe.choose(native, 1L);
+		while (context.dispatchOne()) {}
+		assert(receiver.events.len == 1 && receiver.events.get(0).phase == CONTROL_PHASE_COMMIT && select.selectedKey() == "two");
 	}
+	receiver.events.clear(); BTRCUI2SelectProbe.begin(native); BTRCUI2SelectProbe.highlight(native, 0L);
+	context.recordNativeFailure("injected selection source failure");
+	select.setEnabled(false); assert(!select.isEnabled());
 	select.stateNode().detachWindow(); window.setContentView(null); window.close();
 	assert(select.close() == CALLBACK_CANCELLATION_COMPLETE && owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	context.close(); assert(signal.close());

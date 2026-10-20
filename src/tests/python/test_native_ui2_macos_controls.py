@@ -36,7 +36,7 @@ def test_macos_ui2_controls(native_project, native_compile, gui_provider_root, s
         if fixture == "UI2MacOSSlider"
         else '["+[BTRCUI2SelectProbe begin:]", "+[BTRCUI2SelectProbe highlight:index:]", '
         '"+[BTRCUI2SelectProbe choose:index:]", "+[BTRCUI2SelectProbe end:]", '
-        '"+[BTRCUI2SelectProbe presentation:title:count:selected:]"]'
+        '"+[BTRCUI2SelectProbe item:index:]", "+[BTRCUI2SelectProbe dispatchOld:button:]", "+[BTRCUI2SelectProbe presentation:title:count:selected:]"]'
     )
     manifest.write_text(
         manifest.read_text() + f'\n[[native.bindings]]\nmodule = "Main"\nheader = "{fixture}.h"\n'

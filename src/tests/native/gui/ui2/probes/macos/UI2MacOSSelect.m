@@ -17,4 +17,9 @@
 + (BOOL)presentation:(NSPopUpButton *)button title:(NSString *)title count:(NSInteger)count selected:(NSInteger)selected {
     return [button.cell.title isEqualToString:title] && button.numberOfItems == count && button.indexOfSelectedItem == selected;
 }
++ (NSMenuItem *)item:(NSPopUpButton *)button index:(NSInteger)index { return [button itemAtIndex:index]; }
++ (void)dispatchOld:(NSMenuItem *)item button:(NSPopUpButton *)button {
+    // AppKit's old menu no longer targets the cell; exercise a previously captured target too.
+    [button.cell performSelector:item.action withObject:item];
+}
 @end
