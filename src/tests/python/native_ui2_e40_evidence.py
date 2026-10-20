@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from itertools import pairwise
-from math import ceil
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class E40Evidence:
 
     SIZES = (4095, 4096, 4097, 8193)
     FINALS = ("release", "text", "close")
-    CLASSES = ("input", "completion", "timer", "immediate", "delayed", "presentation")
+    CLASSES = ("input", "completion", "timer", "immediate", "delayed", "presentation_first", "presentation_second")
     TRACKING = ("popup", "slider", "resize", "sheet")
 
     @staticmethod
@@ -39,6 +39,7 @@ class E40Evidence:
         assert self.report["clock"] == "mach_continuous_time nanoseconds"
         assert self.report["visible_windows"] >= 2
         assert self.report["application_active"] is True
+        assert self.report["window_key"] is True
         assert self.report["native_failure"] is None
         assert self.report["trace_overflow"] == 0
 
@@ -59,7 +60,7 @@ class E40Evidence:
             assert row["ordered_delivered"] == size - (final != "release"), row
             assert row["ordered_duplicates"] == row["ordered_reordered"] == 0, row
             assert row["terminal_delivered"] == 1, row
-            assert row["pending"] == 0, row
+            assert row["pending"] == 0 and row["window_key"] is True, row
         assert seen == expected
 
     def _class(self, row):
@@ -70,8 +71,23 @@ class E40Evidence:
         assert counts["accepted"] == sum(counts[name] for name in ("delivered", "cancelled", "stale", "pending")), row
         assert counts["delivered"] > 0 and counts["pending"] == 0, row
         assert row["duplicates"] == row["ordered_reordered"] == 0, row
-        latency = self._samples(row["latency_ns"])
-        assert len(latency) == counts["delivered"], row
+        histogram = self._samples(row["latency_histogram"])
+        assert len(histogram) == 10002 and sum(histogram) == counts["delivered"]
+        width = self._integer(row["latency_bin_ns"], minimum=1)
+        maximum = self._integer(row["maximum_latency_ns"])
+        threshold = (counts["delivered"] * 95 + 99) // 100
+        cumulative = 0
+        percentile = None
+        for index, count in enumerate(histogram):
+            cumulative += count
+            if cumulative >= threshold:
+                percentile = maximum if index == len(histogram) - 1 else (index + 1) * width
+                break
+        for name in ("accepted_by_second", "delivered_by_second"):
+            buckets = self._samples(row[name])
+            assert len(buckets) == 600
+        runnable = row["runnable_by_second"]
+        assert len(runnable) == 600 and all(value is True for value in runnable)
         gaps = self._samples(row["runnable_service_gaps_ns"])
         self._samples(row["handler_ns"])
         depths = self._samples(row["queue_depth"])
@@ -79,8 +95,8 @@ class E40Evidence:
         assert max(depths) <= self._integer(row["capacity"], minimum=1)
         assert max(byte_depths) <= self._integer(row["byte_limit"], minimum=1)
         if not self.sanitized:
-            if row["name"] != "presentation":
-                assert sorted(latency)[ceil(len(latency) * 0.95) - 1] <= 100_000_000, row["name"]
+            if not row["name"].startswith("presentation_"):
+                assert percentile is not None and percentile <= 100_000_000, row["name"]
             assert max(gaps) <= 250_000_000, row["name"]
 
     def load(self):
@@ -94,10 +110,52 @@ class E40Evidence:
         closes = self._samples(self.report["close_start_ns"])
         if not self.sanitized:
             assert max(closes) <= 250_000_000
-        presented = self._samples(self.report["presented_ns"])
-        assert len(presented) >= 2 and all(a < b for a, b in pairwise(presented))
         assert self.report["presentation_source"] == "MTLDrawable.addPresentedHandler/presentedTime"
         assert self.report["native_enqueue_errors"] == 0
+        started = self._integer(self.report["load_started_ns"], minimum=1)
+        ended = self._integer(self.report["load_ended_ns"], minimum=started + 600_000_000_000)
+        assert ended - started == self.report["elapsed_ns"]
+        producer = self._samples(self.report["producer_by_second"])
+        assert len(producer) == 600 and min(producer) > 0
+        assert sum(producer) == self._integer(self.report["producer_iterations"], minimum=600)
+        self._integer(self.report["producer_max_gap_ns"])
+        self._integer(self.report["presentation_clock_uncertainty_ns"])
+        assert (
+            self.report["accounted_storage"]
+            == "retained payload/reference credits; excludes native and driver allocations"
+        )
+
+    def presentations(self, path):
+        counts = [0, 0]
+        previous = [0, 0]
+        active = [set(), set()]
+        began = self.report["load_started_ns"]
+        ended = self.report["load_ended_ns"]
+        with path.open(newline="") as stream:
+            rows = csv.DictReader(stream)
+            assert rows.fieldnames == [
+                "window",
+                "presented_continuous_ns",
+                "native_presented_seconds",
+                "callback_continuous_ns",
+            ]
+            for row in rows:
+                window = int(row["window"])
+                assert window in (0, 1)
+                stamp = int(row["presented_continuous_ns"])
+                assert stamp > previous[window] and float(row["native_presented_seconds"]) > 0
+                # The mapping is sampled once; retain its measured uncertainty.
+                assert stamp <= int(row["callback_continuous_ns"]) + self.report["presentation_clock_uncertainty_ns"]
+                previous[window] = stamp
+                counts[window] += 1
+                if began <= stamp < ended:
+                    active[window].add((stamp - began) // 1_000_000_000)
+        assert counts == self.report["presented_counts"] and min(counts) > 0
+        by_name = {row["name"]: row for row in self.report["classes"]}
+        for window, name in enumerate(("presentation_first", "presentation_second")):
+            assert counts[window] == by_name[name]["delivered"]
+            if not self.sanitized:
+                assert active[window] == set(range(600))
 
     def tracking(self, trial):
         assert trial in self.TRACKING

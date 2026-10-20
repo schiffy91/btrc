@@ -1,0 +1,168 @@
+import Library.App;
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IGPUView;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GUI.MacOS.MacOSApplication;
+
+import ./Host.btrc;
+#include <assert.h>
+#include <string.h>
+#include <unistd.h>
+
+class E40LoadProducer implements INativeWorkerBody {
+	private IApplicationPublisher _publisher;
+	public Atomic<bool> stop;
+	public Atomic<bool> done;
+	public Atomic<bool> ready;
+	public int failure = 0;
+	public E40LoadProducer(IApplicationPublisher publisher) {
+		self._publisher = publisher; self.stop.init(false); self.done.init(false); self.ready.init(true);
+	}
+
+	public int workLoop() {
+		long long sequence = 0LL;
+		while (!self.stop.load(MemoryOrder.ACQUIRE)) {
+			e40LoadProducerTick();
+			for (int index = 0; index < 4; index++) { e40LoadPushInput(0); }
+			if (self.ready.load(MemoryOrder.ACQUIRE)) {
+				self.ready.store(false, MemoryOrder.RELEASE); e40LoadReceipt(1, sequence + 1LL, 0ULL, 8);
+				var outcome = self._publisher.tryPublish(1LL, sequence + 1LL, WORK_SUSPENSION_DEFER, 0LL, sequence + 1LL);
+				if (outcome == PUBLISH_ACCEPTED) { sequence++; }
+				else {
+					e40LoadReject(1, sequence + 1LL); self.ready.store(true, MemoryOrder.RELEASE);
+					if (outcome != PUBLISH_FULL) { self.failure = 1; break; }
+				}
+			}
+			usleep(5000u);
+		}
+		self.done.store(true, MemoryOrder.RELEASE); return self.failure;
+	}
+}
+class E40LoadReceiver implements IApplicationPublicationHandler, IWindowKeyHandler, IWindowCloseRequestHandler {
+	public E40LoadProducer? producer;
+	public int closes = 0;
+	public void deliver(ApplicationPublication publication) {
+		unsigned long long began = e40LoadNow();
+		assert(publication.generation == 1LL && publication.sequence == publication.payload);
+		e40LoadDeliver(1, publication.sequence);
+		var producer = self.producer; if (producer == null) { throw "Load producer is absent"; }
+		producer.ready.store(true, MemoryOrder.RELEASE); e40LoadHandler(1, began);
+	}
+
+	public bool key(AppKeyboardEvent event) {
+		unsigned long long began = e40LoadNow(); bool accepted = e40LoadInputDelivery(); e40LoadHandler(0, began); return accepted;
+	}
+
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		unsigned long long began = e40LoadNow(); e40LoadDeliver(7, 1LL); self.closes++;
+		assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL).state == WINDOW_CLOSE_CANCELLED); e40LoadHandler(7, began);
+	}
+}
+class E40LoadWork implements IApplicationWork {
+	private IApplication _application;
+	private int _kind;
+	private long long _sequence = 0LL;
+	public bool running = true;
+	public E40LoadWork(IApplication application, int kind) { self._application = application; self._kind = kind; }
+
+	public void arm() {
+		double delay = self._kind == 2 ? 0.005 : (self._kind == 4 ? 0.001 : 0.0);
+		unsigned long long due = e40LoadNow() + (unsigned long long)(delay * 1000000000.0);
+		long long next = self._sequence + 1LL; e40LoadReceipt(self._kind, next, due, (int)sizeof(void*));
+		try {
+			if (self._kind == 3) { self._application.post(self); }
+			else if (self._kind == 4) { self._application.postAfter(delay, self); }
+			else { assert(self._application.schedule(self, delay, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_ACCEPTED); }
+		} catch (string error) { e40LoadReject(self._kind, next); throw error; }
+		self._sequence = next;
+	}
+
+	public void run() {
+		unsigned long long began = e40LoadNow(); e40LoadDeliver(self._kind, self._sequence);
+		if (self.running) { self.arm(); } e40LoadHandler(self._kind, began);
+	}
+}
+class E40LoadRun implements IApplicationWork {
+	private IApplication _application;
+	private IGPUView _first;
+	private IGPUView _second;
+	private E40LoadReceiver _receiver;
+	private E40LoadProducer _producer;
+	private NativeWorker _worker = NativeWorker();
+	private E40LoadWork _timer;
+	private E40LoadWork _immediate;
+	private E40LoadWork _delayed;
+	private bool _hosted;
+	private int _stage = 0;
+	private unsigned long long _deadline;
+	public E40LoadRun(IApplication application, IGPUView first, IGPUView second, E40LoadReceiver receiver, E40LoadProducer producer, bool hosted) {
+		self._application = application; self._first = first; self._second = second; self._receiver = receiver; self._producer = producer; self._hosted = hosted;
+		self._timer = E40LoadWork(application, 2); self._immediate = E40LoadWork(application, 3); self._delayed = E40LoadWork(application, 4);
+		self._deadline = e40LoadNow() + 20000000000ULL;
+	}
+
+	private void frame(IGPUView view, int window) {
+		if (e40LoadPending(5 + window) != 0) { return; }
+		e40LoadFrame(window);
+		var availability = view.beginFrame(window == 0 ? 0.2 : 0.6, 0.3, 0.5);
+		if (availability == GPU_SURFACE_FRAME_READY) { assert(view.frameRenderer().present()); }
+		else { e40LoadRejectFrame(window); }
+	}
+
+	private bool pending() { for (int kind = 0; kind < 8; kind++) { if (e40LoadPending(kind) != 0) { return true; } } return false; }
+
+	public void run() {
+		unsigned long long now = e40LoadNow();
+		if (self._stage == 0) {
+			assert(now < self._deadline);
+			bool first = self._first.poll(); bool second = self._second.poll();
+			assert(self._first.error().isEmpty() && self._second.error().isEmpty());
+			if (first && second && e40LoadReady()) {
+				e40LoadObserveSurfaces(); self._deadline = e40LoadBegin() + 600000000000ULL;
+				self._timer.arm(); self._immediate.arm(); self._delayed.arm();
+				assert(self._worker.start(self._producer) == NATIVE_WORKER_STARTED); self._stage = 1;
+			}
+		}
+		if (self._stage == 1 || self._stage == 2) {
+			self.frame(self._first, 0); self.frame(self._second, 1);
+			if (self._stage == 1 && now >= self._deadline) { e40LoadPushClose(); self._stage = 2; self._deadline = now + 5000000000ULL; }
+			if (self._stage == 2) {
+				assert(now < self._deadline);
+				if (self._receiver.closes == 1) {
+					self._producer.stop.store(true, MemoryOrder.RELEASE); self._timer.running = false; self._immediate.running = false; self._delayed.running = false;
+					self._stage = 3; self._deadline = now + 10000000000ULL;
+				}
+			}
+		}
+		if (self._stage == 3) {
+			assert(now < self._deadline);
+			if (self._producer.done.load(MemoryOrder.ACQUIRE) && !self.pending()) {
+				assert(self._worker.join() && !self._worker.workerFailed() && self._producer.failure == 0);
+				e40LoadReport(self._hosted); self._receiver.producer = null; self._application.requestQuit(); return;
+			}
+		}
+		assert(self._application.schedule(self, 0.005, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_ACCEPTED);
+	}
+}
+int main(int argc, char** argv) {
+	assert(argc == 3); e40LoadRequireHosted();
+	bool hosted = strcmp(argv[1], "host") == 0; assert(hosted || strcmp(argv[1], "desktop") == 0);
+	var application = MacOSApplication(256); var first = application.createWindow("E40 load first", 320.0, 200.0); var second = application.createWindow("E40 load second", 320.0, 200.0);
+	var firstView = application.createGPUView(false); var secondView = application.createGPUView(false);
+	first.attachRoot(firstView); second.attachRoot(secondView); first.show(); second.show(); e40LoadSetup(argv[2]);
+	var owner = CallbackScope(); var receiver = E40LoadReceiver(); first.onKey(receiver, owner); second.onKey(receiver, owner); first.onCloseRequested(receiver, owner);
+	var created = application.createPublisher(64, receiver, owner); var publisher = created.publisher;
+	assert(created.kind == APPLICATION_PUBLISHER_CREATED); if (publisher == null) { throw "Load publisher was not created"; }
+	var producer = E40LoadProducer(publisher); receiver.producer = producer;
+	var run = E40LoadRun(application, firstView, secondView, receiver, producer, hosted); application.post(run);
+	if (hosted) {
+		var host = E40ApplicationHost(); var hostOwner = CallbackScope(); var attached = application.attachHost(host, hostOwner);
+		assert(attached.kind == APPLICATION_HOST_ATTACHED && attached.attachment != null); host.attachment = attached.attachment;
+		e40LoadRunHost(); assert(application.close() == CALLBACK_CANCELLATION_COMPLETE); assert(hostOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE); host.close();
+	} else { application.run(); }
+	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	e40LoadCleanup(); print("PASS: E40 macOS 600-second declared load"); return 0;
+}

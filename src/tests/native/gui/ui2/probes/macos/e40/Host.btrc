@@ -1,0 +1,23 @@
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+/* A separate host-owned source services the public attachment. Native event
+ * dispatch still belongs to NSApplication.run; no fixture pump is installed. */
+class E40ApplicationHost implements IApplicationHost, IAppKitNotificationObserver {
+	public IApplicationHostAttachment? attachment;
+	private MacOSRunLoopSignal _signal = MacOSRunLoopSignal();
+	private CallbackScope _callbacks = CallbackScope();
+	public E40ApplicationHost() { self._signal.subscribe(self, self._callbacks); }
+
+	public bool requestTurn() { return self._signal.requestTurn(); }
+
+	public void scheduleTurn(unsigned long long deadline) { self._signal.scheduleDeadline(deadline); }
+
+	public void invoke(NSNotification notification) { var attached = self.attachment; if (attached != null) { attached.serviceTurn(); } }
+
+	public void close() { assert(self._callbacks.cancel() == CALLBACK_CANCELLATION_COMPLETE); assert(self._signal.close()); self.attachment = null; }
+}
+

@@ -80,7 +80,7 @@ bool e40BoundaryReady(void) {
     return NSApp.active && firstWindow.visible && secondWindow.visible && firstWindow.keyWindow;
 }
 void e40BoundaryBegin(int size, int final, int repeat, int ordinal) {
-    assert(NSThread.isMainThread && !active);
+    assert(NSThread.isMainThread && !active && NSApp.active && firstWindow.keyWindow);
     assert(size == 4095 || size == 4096 || size == 4097 || size == 8193);
     assert(final >= 0 && final <= 2 && repeat >= 0 && repeat < 100);
     burstSize = size; finalKind = final; repetition = repeat; terminalPosition = MIN(size, 4097);
@@ -118,6 +118,7 @@ void e40BoundaryBegin(int size, int final, int repeat, int ordinal) {
 bool e40BoundaryKey(void) {
     int index = identity(NSApp.currentEvent);
     if (!active || index == 0) { return false; }
+    assert(NSApp.active && firstWindow.keyWindow);
     observeNative(index);
     if (finalKind == 1 && index == terminalPosition) { return false; }
     if (orderedSeen[index]) { orderedDuplicates++; } orderedSeen[index] = true; orderedCount++;
@@ -145,7 +146,7 @@ void e40BoundaryFinish(void) {
     [rows addObject:@{@"size":@(burstSize), @"final":@[@"release", @"text", @"close"][finalKind], @"repeat":@(repetition),
         @"native_submitted":@(burstSize), @"native_observed":@(nativeCount), @"native_enqueue_errors":@(enqueueErrors),
         @"native_duplicates":@(nativeDuplicates), @"native_reordered":@(nativeReordered), @"ordered_delivered":@(orderedCount),
-        @"ordered_duplicates":@(orderedDuplicates), @"ordered_reordered":@(orderedReordered), @"terminal_delivered":@(terminalCount), @"pending":@0}];
+        @"ordered_duplicates":@(orderedDuplicates), @"ordered_reordered":@(orderedReordered), @"terminal_delivered":@(terminalCount), @"pending":@0, @"window_key":@(firstWindow.keyWindow)}];
     active = false;
 }
 void e40BoundaryReport(void) {
@@ -153,7 +154,7 @@ void e40BoundaryReport(void) {
     NSDictionary *report = @{@"schema":@"btrc.ui2.macos-e40/1", @"trial":@"bursts", @"entry":entryMode,
         @"native_backend":@"AppKit", @"clock":@"mach_continuous_time nanoseconds", @"reported_ns":@(now()),
         @"visible_windows":@(firstWindow.visible + secondWindow.visible), @"application_active":@(NSApp.active),
-        @"native_failure":NSNull.null, @"trace_overflow":@0, @"bursts":rows,
+        @"window_key":@(firstWindow.keyWindow), @"native_failure":NSNull.null, @"trace_overflow":@0, @"bursts":rows,
         @"native_submission_api":@"NSApplication.postEvent (void); exceptions reported separately",
         @"close_stimulus":@"queued application-defined event invokes public NSWindow.performClose", @"physical_input":@NO};
     NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:report options:0 error:&error];
