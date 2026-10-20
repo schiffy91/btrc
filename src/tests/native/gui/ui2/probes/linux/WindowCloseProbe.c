@@ -21,3 +21,12 @@ int ui2PushPointerMotion(unsigned int window) {
     event.motion.y = 5.0f;
     return SDL_PushEvent(&event) ? 1 : 0;
 }
+
+/* Counts SDL-owned windows, not toolkit-private or GPU allocations. */
+int ui2NativeWindowCount(void) {
+    int count = 0;
+    SDL_Window **windows = SDL_GetWindows(&count);
+    if (windows == NULL) { return -1; }
+    SDL_free(windows);
+    return count;
+}

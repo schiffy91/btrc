@@ -1,0 +1,37 @@
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+/* The UI transfers the owner to the worker body. No application
+ * alias survives on the UI stack when the worker drops this last field. */
+class LinuxFinalRelease implements INativeWorkerBody {
+	private LinuxApplication? _application;
+	public LinuxFinalRelease(bool closeFirst) {
+		var application = LinuxApplication(4);
+		if (closeFirst) { assert(application.close() == CALLBACK_CANCELLATION_COMPLETE); }
+		self._application = application;
+	}
+
+	public int workLoop() {
+		assert(!SDL_IsMainThread());
+		fprintf(stderr, "UI2_FINAL_RELEASE worker-entered\n"); fflush(stderr);
+		self._application = null;
+		fprintf(stderr, "UI2_FINAL_RELEASE worker-returned\n"); fflush(stderr);
+		return 0;
+	}
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 2 && (strcmp(argv[1], "open") == 0 || strcmp(argv[1], "closed") == 0));
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	var transfer = LinuxFinalRelease(strcmp(argv[1], "closed") == 0); var worker = NativeWorker();
+	assert(worker.start(transfer) == NATIVE_WORKER_STARTED && worker.join());
+	/* A contained destructor exception is not the approved fatal outcome. */
+	fprintf(stderr, "UI2_FINAL_RELEASE joined failed=%d\n", worker.workerFailed() ? 1 : 0); fflush(stderr);
+	SDL_Quit(); return worker.workerFailed() ? 2 : 0;
+}

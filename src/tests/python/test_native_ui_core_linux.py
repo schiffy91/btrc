@@ -1,6 +1,8 @@
 """Approved UI2 Linux outcomes through the real SDL provider, never a fake loop."""
 
+import json
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -10,6 +12,13 @@ from src.tests.python.linux_provider_fixtures import build_provider_program, pro
 from src.tests.runner_capabilities import linux_display_error
 
 pytestmark = pytest.mark.linux_gui
+
+CYCLE_SUITES = {
+    "UI2LinuxLifecycle.btrc": ("lifecycle", "windows"),
+    "UI2LinuxWindowClose.btrc": ("window-close", "windows"),
+    "UI2LinuxWindowQuit.btrc": ("window-quit", "windows"),
+    "UI2LinuxExecutor.btrc": ("hosted-suspension", "pending"),
+}
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
@@ -32,7 +41,7 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
         pytest.skip(error)
     root = Path(__file__).resolve().parents[3]
     source = root / "src/tests/native/gui/ui2/probes/linux" / fixture
-    if fixture in ("UI2LinuxWindowClose.btrc", "UI2LinuxWindowQuit.btrc"):
+    if fixture in ("UI2LinuxWindowClose.btrc", "UI2LinuxWindowQuit.btrc", "UI2LinuxLifecycle.btrc"):
         package = tmp_path / "fixture"
         package.mkdir()
         for name in (fixture, "WindowCloseProbe.btrc", "WindowCloseProbe.h", "WindowCloseProbe.c"):
@@ -40,7 +49,7 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
         (package / "btrc.toml").write_text(
             'manifest-version = 1\n[package]\nname = "ui2LinuxWindowClose"\n'
             '[[native.bindings]]\nmodule = "WindowCloseProbe"\nheader = "WindowCloseProbe.h"\n'
-            'language = "c"\nstandard = "c11"\nsymbols = ["ui2PushWindowClose", "ui2PushQuit", "ui2PushPointerMotion"]\n'
+            'language = "c"\nstandard = "c11"\nsymbols = ["ui2PushWindowClose", "ui2PushQuit", "ui2PushPointerMotion", "ui2NativeWindowCount"]\n'
             '[[native.sources]]\npath = "WindowCloseProbe.c"\nlanguage = "c"\n'
             'standard = "c11"\nmodules = ["WindowCloseProbe"]\n'
             '[[native.pkg-config]]\nname = "sdl3"\nmodules = ["WindowCloseProbe"]\n'
@@ -58,10 +67,67 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
         [str(executable)],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=600 if fixture in CYCLE_SUITES else 30,
         env=provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1"),
     )
     (tmp_path / "stdout.txt").write_text(result.stdout)
     (tmp_path / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
     assert marker in result.stdout
+    if fixture in CYCLE_SUITES:
+        name, resource = CYCLE_SUITES[fixture]
+        actual = [line for line in result.stdout.splitlines() if line.startswith("UI2_CYCLE ")]
+        expected = [f"UI2_CYCLE {name} {cycle} {resource}=0" for cycle in range(1, 101)]
+        assert actual == expected, result.stdout
+        policies = [line for line in result.stdout.splitlines() if line.startswith("UI2_POLICY ")]
+        assert len(policies) == 1 and policies[0].startswith(f"UI2_POLICY {name} ")
+        (tmp_path / "acceptance-cycles.json").write_text(
+            json.dumps(
+                {
+                    "fixture": fixture,
+                    "frontend": frontend,
+                    "sanitized": sanitized,
+                    "cycles": 100,
+                    "resource": resource,
+                    "residual": 0,
+                    "policy": policies[0],
+                    "scope": "SDL windows and provider callback/credit assertions; no private-memory census",
+                },
+                indent=2,
+            )
+        )
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_linux_ui2_final_release_requires_executor(tmp_path, request, frontend, sanitized):
+    require_linux_reader()
+    if error := linux_display_error():
+        pytest.skip(error)
+    root = Path(__file__).resolve().parents[3]
+    executable = build_provider_program(
+        root / "src/tests/native/gui/ui2/probes/linux/UI2LinuxFinalRelease.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        data_root=request.getfixturevalue("gui_provider_root"),
+    )
+    environment = provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1")
+    for state in ("closed", "open"):
+        result = subprocess.run([str(executable), state], capture_output=True, text=True, timeout=30, env=environment)
+        (tmp_path / f"{state}-stdout.txt").write_text(result.stdout)
+        (tmp_path / f"{state}-stderr.txt").write_text(result.stderr)
+        (tmp_path / f"{state}-result.json").write_text(
+            json.dumps({"state": state, "returncode": result.returncode, "frontend": frontend, "sanitized": sanitized})
+        )
+        assert "UI2_FINAL_RELEASE worker-entered" in result.stderr, result.stderr
+        if state == "closed":
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "UI2_FINAL_RELEASE worker-returned" in result.stderr
+            assert "UI2_FINAL_RELEASE joined failed=0" in result.stderr
+        else:
+            assert result.returncode == -signal.SIGABRT, result.stdout + result.stderr
+            assert "Native application destroyed before subtree cleanup completed" in result.stderr
+            assert "UI2_FINAL_RELEASE worker-returned" not in result.stderr
+            assert "UI2_FINAL_RELEASE joined" not in result.stderr
