@@ -1,0 +1,102 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ITextField;
+import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class TextObservation implements ITextControlEventHandler {
+	public Vector<TextControlEvent> events = [];
+	public void textEvent(TextControlEvent event) { self.events.push(event); }
+
+	public int count(ControlPhase phase) { int total = 0; for event in self.events { if (event.phase == phase) { total++; } } return total; }
+
+	public TextControlEvent last() { assert(!self.events.isEmpty()); return self.events.get(self.events.len - 1); }
+}
+
+void drainText(MacOSViewContext context) { while (context.dispatchOne()) {} }
+
+int main() {
+	BTRCUI2TextProbe.prepare();
+	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8);
+	var field = MacOSTextField("accepted"); field.stateNode().configure(context);
+	var native = field.nativeControl(); var window = BTRCUI2TextProbe.host(native);
+	field.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+	var owner = CallbackScope(); var receiver = TextObservation();
+	field.onDraftChanged(receiver, owner); field.onCommit(receiver, owner); field.onCancel(receiver, owner);
+	assert(BTRCUI2TextProbe.focus(native)); BTRCUI2TextProbe.blur(native); drainText(context); assert(receiver.events.isEmpty());
+	assert(BTRCUI2TextProbe.focus(native)); BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("draft"));
+	assert(field.text() == "draft" && receiver.events.isEmpty());
+	BTRCUI2TextProbe.select(native, 1UL, 2UL); field.setText("accepted");
+	assert(BTRCUI2TextProbe.state(native, AppKitText.nativeValue("draft"), false, 1UL, 2UL));
+	drainText(context); assert(receiver.count(CONTROL_PHASE_DRAFT) == 1 && receiver.last().text == "draft" && !receiver.last().composing);
+	long long interaction = receiver.last().context.interaction; long long revision = receiver.last().context.modelRevision;
+	receiver.events.clear(); BTRCUI2TextProbe.accept(native); assert(field.text() == "draft"); BTRCUI2TextProbe.blur(native); drainText(context);
+	assert(receiver.count(CONTROL_PHASE_COMMIT) == 1 && receiver.last().text == "draft");
+	assert(receiver.last().context.interaction == interaction && receiver.last().context.modelRevision == revision && field.text() == "draft");
+	receiver.events.clear(); assert(BTRCUI2TextProbe.focus(native)); BTRCUI2TextProbe.accept(native); BTRCUI2TextProbe.blur(native); drainText(context); assert(receiver.events.isEmpty());
+
+	for (int cycle = 0; cycle < 20; cycle++) {
+		field.setText("accepted"); receiver.events.clear(); assert(BTRCUI2TextProbe.focus(native));
+		BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("A😀漢B")); drainText(context); receiver.events.clear();
+		BTRCUI2TextProbe.select(native, 1UL, 2UL); BTRCUI2TextProbe.mark(native, AppKitText.nativeValue("候補"));
+		BTRCUI2TextProbe.mark(native, AppKitText.nativeValue("候"));
+		assert(field.text() == "A候漢B"); field.setText("accepted");
+		assert(BTRCUI2TextProbe.state(native, AppKitText.nativeValue("A候漢B"), true, 2UL, 0UL));
+		drainText(context); assert(receiver.count(CONTROL_PHASE_DRAFT) == 1 && receiver.last().composing && receiver.last().text == "A候漢B");
+		long long compositionInteraction = receiver.last().context.interaction;
+		receiver.events.clear(); BTRCUI2TextProbe.escape(native);
+		assert(BTRCUI2TextProbe.state(native, AppKitText.nativeValue("A😀漢B"), false, 1UL, 2UL));
+		drainText(context); assert(receiver.count(CONTROL_PHASE_CANCEL) == 0 && receiver.count(CONTROL_PHASE_COMMIT) == 0 && receiver.count(CONTROL_PHASE_DRAFT) == 1);
+		assert(!receiver.last().composing && receiver.last().context.interaction == compositionInteraction);
+		BTRCUI2TextProbe.undo(native); assert(field.text() == "accepted"); drainText(context);
+		receiver.events.clear(); BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("abandoned")); drainText(context); receiver.events.clear();
+		BTRCUI2TextProbe.escape(native); assert(field.text() == "accepted"); drainText(context);
+		assert(receiver.count(CONTROL_PHASE_CANCEL) == 1 && receiver.last().cancelReason == CONTROL_CANCEL_ESCAPE && receiver.last().text == "accepted" && !receiver.last().composing);
+		BTRCUI2TextProbe.blur(native); drainText(context); assert(receiver.count(CONTROL_PHASE_COMMIT) == 0);
+	}
+
+	field.setText("accepted"); receiver.events.clear(); assert(BTRCUI2TextProbe.focus(native));
+	BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("compose")); BTRCUI2TextProbe.mark(native, AppKitText.nativeValue("候"));
+	drainText(context); assert(receiver.last().composing); long long acceptedComposition = receiver.last().context.interaction;
+	receiver.events.clear(); BTRCUI2TextProbe.accept(native); BTRCUI2TextProbe.blur(native); drainText(context);
+	assert(receiver.count(CONTROL_PHASE_COMMIT) == 1 && receiver.last().text == "compose候" && !receiver.last().composing);
+	assert(receiver.last().context.interaction == acceptedComposition && field.text() == "compose候");
+
+	field.setText("base"); receiver.events.clear(); assert(BTRCUI2TextProbe.focus(native));
+	BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("retained😀")); BTRCUI2TextProbe.select(native, 8UL, 2UL);
+	BTRCUI2TextProbe.mark(native, AppKitText.nativeValue("候")); drainText(context); receiver.events.clear();
+	field.setEnabled(false); assert(field.text() == "retained😀"); field.setEnabled(true); drainText(context);
+	assert(receiver.count(CONTROL_PHASE_CANCEL) == 1 && receiver.last().context.origin == CONTROL_ORIGIN_SYSTEM && receiver.last().cancelReason == CONTROL_CANCEL_ELIGIBILITY_LOSS);
+	assert(receiver.last().text == "retained😀" && !receiver.last().composing);
+	long long cancelledInteraction = receiver.last().context.interaction;
+	receiver.events.clear(); assert(BTRCUI2TextProbe.focus(native)); field.setEnabled(false); field.setEnabled(true); drainText(context);
+	assert(receiver.count(CONTROL_PHASE_CANCEL) == 1 && receiver.last().context.interaction > cancelledInteraction && receiver.last().text == "retained😀");
+	cancelledInteraction = receiver.last().context.interaction;
+	receiver.events.clear(); assert(BTRCUI2TextProbe.focus(native)); BTRCUI2TextProbe.accept(native); drainText(context);
+	assert(receiver.count(CONTROL_PHASE_COMMIT) == 1 && receiver.last().text == "retained😀" && receiver.last().context.interaction > cancelledInteraction);
+	BTRCUI2TextProbe.blur(native); drainText(context); assert(receiver.count(CONTROL_PHASE_COMMIT) == 1);
+	// A retained draft also commits when focus departs without another keystroke.
+	receiver.events.clear(); assert(BTRCUI2TextProbe.focus(native)); BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("retained blur"));
+	drainText(context); field.setEnabled(false); field.setEnabled(true); drainText(context); receiver.events.clear();
+	assert(BTRCUI2TextProbe.focus(native)); BTRCUI2TextProbe.blur(native); drainText(context);
+	assert(receiver.count(CONTROL_PHASE_COMMIT) == 1 && receiver.last().text == "retained blur" && field.text() == "retained blur");
+
+	receiver.events.clear(); assert(BTRCUI2TextProbe.focus(native)); BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("old draft")); drainText(context); receiver.events.clear();
+	field.setText("replacement"); assert(field.text() == "replacement"); drainText(context);
+	assert(receiver.count(CONTROL_PHASE_CANCEL) == 1 && receiver.last().context.origin == CONTROL_ORIGIN_MODEL && receiver.last().text == "old draft");
+	long long oldRevision = receiver.last().context.modelRevision;
+	receiver.events.clear(); assert(BTRCUI2TextProbe.focus(native)); BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("final")); BTRCUI2TextProbe.blur(native); drainText(context);
+	assert(receiver.count(CONTROL_PHASE_COMMIT) == 1 && receiver.last().text == "final" && receiver.last().context.modelRevision == oldRevision + 1LL);
+
+	assert(BTRCUI2TextProbe.focus(native)); BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("failure draft"));
+	context.recordNativeFailure("injected text source failure"); field.setEnabled(false);
+	field.stateNode().detachWindow(); BTRCUI2TextProbe.finish(window);
+	assert(field.close() == CALLBACK_CANCELLATION_COMPLETE && owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	context.close(); assert(signal.close());
+	print("PASS: UI2 macOS text drafts composition cancellation and commit"); return 0;
+}
