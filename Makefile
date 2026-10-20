@@ -6,7 +6,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer linux-ci clean \
-	test-shard-unit test-native-gui test-shard-gui test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
+	test-e40 test-e40-linux test-shard-unit test-native-gui test-shard-gui test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
 
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
@@ -273,13 +273,32 @@ gpu-required: gpu ## Require the compiler's WebGPU compute runtime
 
 test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
 	$(NIX) $(PYTEST) src/tests/ \
-		--ignore=src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report.json $(PYTEST_ARGS)
+		--ignore=src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report.json $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report.json
+	$(MAKE) --no-print-directory test-e40
 	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report-bootstrap.json $(PYTEST_SERIAL_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-bootstrap.json
 
 test-unit: generated-check ## Run Python reference-compiler unit tests (lexer, parser, analyzer, codegen)
-	$(NIX) $(PYTEST) src/tests/python/ $(PYTEST_ARGS)
+	$(NIX) $(PYTEST) src/tests/python/ $(PYTEST_ARGS) -m "not e40_qualification"
+
+# E40 qualifying loads own one serial process. Native macOS runtime still
+# requires its explicit hosted opt-in; this target never supplies it.
+test-e40: generated-check gpu-required ## Run platform-admitted E40 qualification serially
+	$(NIX) tools/virtual-display.sh $(PYTEST) src/tests/ -m e40_qualification \
+		--skip-report=build/skip-report-e40.json $(PYTEST_SERIAL_ARGS) -n 0
+	$(NIX) $(SKIP_GATE) build/skip-report-e40.json
+
+E40_FRONTEND ?= python
+E40_VARIANT ?= plain
+E40_SESSION ?= x11
+E40_CELL := $(E40_SESSION)-$(E40_FRONTEND)-$(E40_VARIANT)
+E40_BTRCC := $(if $(filter selfhost,$(E40_FRONTEND)),BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))")
+
+test-e40-linux: generated-check gpu-required $(if $(filter selfhost,$(E40_FRONTEND)),btrcc) ## Qualify one serial Linux E40 cell with exact collection and evidence checks
+	$(NIX) env $(E40_BTRCC) BTRC_VIRTUAL_DISPLAY=$(E40_SESSION) tools/virtual-display.sh \
+		python3 -m tools.ui.e40 --frontend $(E40_FRONTEND) --variant $(E40_VARIANT) --session $(E40_SESSION)
+	$(NIX) $(SKIP_GATE) build/skip-report-e40-$(E40_CELL).json
 
 test-lsp: generated-check ## Run the editor/LSP server tests (reuses the compiler)
 	$(NIX) $(PYTEST) src/tests/lsp/ $(PYTEST_ARGS)
@@ -330,7 +349,7 @@ SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"
 
 test-shard-unit: generated-check gpu-required ## CI shard: everything but the self-host and corpus suites
 	$(NIX) $(PYTEST) src/tests/ \
-		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(PYTEST_ARGS)
+		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-unit.json
 
 # The focused native-GUI gate (PLAN Stage 30, ui-0-focused-gate): the GUI,
@@ -344,7 +363,7 @@ NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui_runtime.py tes
 	test_native_linux_call_shapes.py test_native_webgpu_imports.py) $(sort $(wildcard src/tests/python/test_native_ui_*.py src/tests/python/test_native_ui2_*.py))
 
 test-native-gui: generated-check ## Focused gate: the native GUI, tray and provider suites only
-	$(NIX) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS)
+	$(NIX) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-native-gui.json
 
 # The Linux GUI and audio CI shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
@@ -369,7 +388,7 @@ test-shard-gui: generated-check gpu-required btrcc ## CI shard: native GUI and L
 	$(NIX) $(SHARD_BTRCC) ALSA_CONFIG_PATH="$(abspath nix/asound.conf)" tools/ui/headless-session.sh --$(GUI_SESSION) -- \
 		python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py --output $(GUI_SHARD_DIR) -- \
 		$(PYTEST) $(GUI_SHARD_TESTS) --basetemp=$(GUI_SHARD_DIR)/pytest --junitxml=$(GUI_SHARD_DIR)/junit.xml \
-		--skip-report=build/skip-report-gui-$(GUI_SESSION).json $(PYTEST_ARGS)
+		--skip-report=build/skip-report-gui-$(GUI_SESSION).json $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-gui-$(GUI_SESSION).json
 
 test-shard-btrc: generated-check gpu-required btrcc ## CI shard: self-host contract tests

@@ -531,6 +531,7 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         ("ci.yml", "tests"),
         ("ci.yml", "native-gui"),
         ("ci.yml", "linux-gui"),
+        ("ci.yml", "linux-e40"),
         ("macos.yml", "tests"),
         ("macos.yml", "native-gui"),
         ("windows.yml", "windows"),
@@ -990,7 +991,7 @@ def test_a_plain_pull_request_plans_from_its_changed_paths(tmp_path: Path) -> No
 
 LANE_HEAVY_LINUX = ["static", "release", "tests", "bench", "linux-arm64-bundle"]
 LANE_LIGHT_LINUX = ["static", "release", "tests"]
-LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui"]
+LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui", "linux-e40"]
 
 
 @pytest.mark.parametrize(
@@ -1012,7 +1013,7 @@ LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui"]
         (("src/stdlib/HTTP/Client.btrc",), LANE_HEAVY_LINUX, []),
         (
             ("src/tests/python/test_native_gui_target.py",),
-            [*LANE_LIGHT_LINUX, "linux-gui"],
+            [*LANE_LIGHT_LINUX, "linux-gui", "linux-e40"],
             ["native-bundle", "native-gui"],
         ),
         # A pull request with no listed file plans the whole lane selection.
@@ -1276,7 +1277,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
             }
         }, workflow
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
-        expected = {"ci.yml": ["native-gui", "linux-gui"], "macos.yml": ["native-gui"]}.get(workflow, [])
+        expected = {"ci.yml": ["native-gui", "linux-gui", "linux-e40"], "macos.yml": ["native-gui"]}.get(workflow, [])
         assert TIERS.plan(workflow, "native-gui")["jobs"] == expected, workflow
 
     linux = _job(_workflow("ci.yml"), "native-gui")
@@ -1788,3 +1789,60 @@ def test_reader_post_evidence_preserves_admitted_closure_when_query_fails(tmp_pa
     report = json.loads((evidence / "post.json").read_text())
     assert report["closure"] == {str(lost): False}
     assert report["query"]["returncode"] == 1 and report["query"]["stderr"] == "path is not valid"
+
+
+def test_linux_e40_has_serial_cells_and_complete_artifacts() -> None:
+    job = _parsed("ci.yml")["jobs"]["linux-e40"]
+    assert job["name"] == "linux-e40 (${{ matrix.cell }})"
+    assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
+    assert job["timeout-minutes"] == "90"
+    rows = [shard.row for shard in TIERS.shards if shard.job == "ci.yml/linux-e40"]
+    expected = {
+        (session, frontend, variant, f"{session}-{frontend}-{variant}")
+        for session in ("x11", "wayland")
+        for frontend in ("python", "selfhost")
+        for variant in ("plain", "sanitized")
+    }
+    assert len(rows) == 8
+    assert all(row["report_only"] == ("true" if row["session"] == "wayland" else "false") for row in rows)
+    assert {(row["session"], row["frontend"], row["variant"], row["cell"]) for row in rows} == expected
+    for tier in ("main", "extended", "release", "native-gui"):
+        assert TIERS.plan("ci.yml", tier)["matrix"]["linux-e40"]["include"] == rows
+    for tier in ("pr", "lane"):
+        assert "linux-e40" in TIERS.plan("ci.yml", tier, ["src/stdlib/GUI/Linux/LinuxApplication.btrc"])["jobs"]
+        assert "linux-e40" not in TIERS.plan("ci.yml", tier, ["src/stdlib/GUI/MacOS/MacOSWindow.btrc"])["jobs"]
+    assert "linux-e40" not in TIERS.plan("ci.yml", "docs")["jobs"]
+    commands = _job_commands(job, "ci.yml", "linux-e40")
+    executions = [command for command in commands if "test-e40-linux" in command]
+    assert len(executions) == len(rows)
+    expected_commands = {
+        'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= '
+        "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer "
+        f"E40_SESSION={row['session']} E40_FRONTEND={row['frontend']} E40_VARIANT={row['variant']} test-e40-linux"
+        for row in rows
+    }
+    assert set(executions) == expected_commands
+    uploads = {step.get("name"): step for step in job["steps"] if step.get("uses") == UPLOAD_ARTIFACT}
+    evidence = uploads["Retain native evidence and provenance"]
+    assert evidence["if"] == "always()"
+    assert evidence["with"]["if-no-files-found"] == "error"
+    for suffix in ("json", "csv", "txt"):
+        assert f"build/e40/${{{{ matrix.cell }}}}/**/*.{suffix}" in evidence["with"]["path"]
+    assert uploads["Retain the JUnit results"]["with"]["path"] == "build/e40/${{ matrix.cell }}/junit.xml"
+    assert uploads["Retain the skip report"]["with"]["path"] == SKIP_REPORTS
+
+
+def test_e40_moves_from_parallel_stages_to_explicit_serial_full_test_stage() -> None:
+    makefile = (REPO / "Makefile").read_text()
+    for target in ("test", "test-unit", "test-shard-unit", "test-native-gui", "test-shard-gui"):
+        body = makefile.split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
+        assert '-m "not e40_qualification"' in body, target
+    full = makefile.split("\ntest:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) --no-print-directory test-e40" in full
+    serial = makefile.split("\ntest-e40:", 1)[1].split("\n\n", 1)[0]
+    assert "-m e40_qualification" in serial and "$(PYTEST_SERIAL_ARGS) -n 0" in serial
+    assert "BTRC_UI2_HOSTED_E40" not in serial and "CI=true" not in serial
+    linux = makefile.split("\ntest-e40-linux:", 1)[1].split("\n\n", 1)[0]
+    assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in linux
+    assert "python3 -m tools.ui.e40" in linux
+    assert "test_native_ui_*.py src/tests/python/test_native_ui2_*.py" in makefile

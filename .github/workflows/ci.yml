@@ -502,3 +502,56 @@ jobs:
           path: build/skip-report*.json
           if-no-files-found: warn
           retention-days: 14
+
+  # Each row runs 16 repeated bursts and one 600-second load serially.
+  # X11 gates; Wayland retains the approved carried residual.
+  linux-e40:
+    needs: scope
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-e40')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['linux-e40'] }}
+    name: linux-e40 (${{ matrix.cell }})
+    continue-on-error: ${{ matrix.report_only == 'true' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - run: make devcontainer
+      - run: chmod -R a+w .
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=${{ matrix.session }} E40_FRONTEND=${{ matrix.frontend }} E40_VARIANT=${{ matrix.variant }} test-e40-linux
+      - name: Open qualification evidence to the runner
+        if: always()
+        run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest chmod -R a+rX build/e40
+        continue-on-error: true
+      - name: Retain native evidence and provenance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e40-evidence-ci-linux-e40-${{ matrix.cell }}
+          path: |
+            build/e40/${{ matrix.cell }}/**/*.json
+            build/e40/${{ matrix.cell }}/**/*.csv
+            build/e40/${{ matrix.cell }}/**/*.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain the JUnit results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-ci-linux-e40-${{ matrix.cell }}
+          path: build/e40/${{ matrix.cell }}/junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-ci-linux-e40-${{ matrix.cell }}
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14

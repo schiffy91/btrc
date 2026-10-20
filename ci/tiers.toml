@@ -20,7 +20,7 @@ lane = "A codex/* pull request: the static gates, the release job and the unit s
 main = "A push to main, a pull request that touches the compilers or the CI hotspots, the ci:full label, or a full dispatch: today's full matrix."
 extended = "A nightly or extended dispatch: the main matrix plus macOS's remaining clang C11 cells."
 release = "release.yml's dispatch or tag: every hosted job of every tier, then one ledger bundle."
-native-gui = "A dispatch with focus=native-gui: the native-GUI jobs and the Linux GUI shard alone."
+native-gui = "A dispatch with focus=native-gui: the native-GUI jobs, Linux GUI shard and serial Linux E40 qualification."
 hardware = "Self-hosted runners and devices: never scheduled here; the ledger bundle records them as awaiting."
 
 # A changed path selects corpus directories for a shard's `corpus_tiers`. A
@@ -242,6 +242,95 @@ changed_paths = [
   "!src/tests/python/test_native_objective_c_*.py",
   "!tools/ui/codex-setup.sh",
 ]
+
+# E40 retains all 100-repetition bursts and the 600-second load in each row.
+# X11 gates the approved UI2 landing. Wayland retains its carried report-only
+# status until the approved residual is qualified and promoted separately.
+[[jobs]]
+workflow = "ci.yml"
+job = "linux-e40"
+key = "cell"
+reports = ["skip-report", "junit"]
+
+[[shards]]
+job = "ci.yml/linux-e40"
+cell = "x11-python-plain"
+report_only = "false"
+session = "x11"
+frontend = "python"
+variant = "plain"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
+
+[[shards]]
+job = "ci.yml/linux-e40"
+cell = "x11-python-sanitized"
+report_only = "false"
+session = "x11"
+frontend = "python"
+variant = "sanitized"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
+
+[[shards]]
+job = "ci.yml/linux-e40"
+cell = "x11-selfhost-plain"
+report_only = "false"
+session = "x11"
+frontend = "selfhost"
+variant = "plain"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
+
+[[shards]]
+job = "ci.yml/linux-e40"
+cell = "x11-selfhost-sanitized"
+report_only = "false"
+session = "x11"
+frontend = "selfhost"
+variant = "sanitized"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
+
+[[shards]]
+job = "ci.yml/linux-e40"
+cell = "wayland-python-plain"
+report_only = "true"
+session = "wayland"
+frontend = "python"
+variant = "plain"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
+
+[[shards]]
+job = "ci.yml/linux-e40"
+cell = "wayland-python-sanitized"
+report_only = "true"
+session = "wayland"
+frontend = "python"
+variant = "sanitized"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
+
+[[shards]]
+job = "ci.yml/linux-e40"
+cell = "wayland-selfhost-plain"
+report_only = "true"
+session = "wayland"
+frontend = "selfhost"
+variant = "plain"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
+
+[[shards]]
+job = "ci.yml/linux-e40"
+cell = "wayland-selfhost-sanitized"
+report_only = "true"
+session = "wayland"
+frontend = "selfhost"
+variant = "sanitized"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
 
 [[shards]]
 job = "ci.yml/tests"
