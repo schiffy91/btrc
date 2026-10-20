@@ -78,6 +78,10 @@ EXPECTED_REFUSALS = {
         "imports the GUI package's private MacOS modules; test_native_webgpu_imports.py compiles it "
         "against the GUI provider data root, not the stdlib"
     ),
+    "package:src/tests/native/gui/webgpu_child/Ownership.btrc": (
+        "imports the GUI package's private MacOS modules; test_native_webgpu_imports.py compiles it "
+        "against the GUI provider data root, not the stdlib"
+    ),
 }
 NO_PROVIDER = re.compile(r"module '(?P<module>.+)' has no provider for target (?P<target>\S+)$")
 QUOTED_PATH = re.compile(r"'(/[^']*)'")
