@@ -1,0 +1,183 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.ISelect;
+import Library.GUI.MacOS.MacOSSelect;
+import Library.GUI.MacOS.MacOSViewState;
+
+#include <assert.h>
+
+class SelectCaptureWake implements IControlEventWake {
+	public NSPopUpButton? nested;
+	public bool requestTurn() {
+		var button = self.nested; self.nested = null;
+		if (button != null) { BTRCUI2SelectCaptureProbe.choose(button, 0L); }
+		return true;
+	}
+}
+class SelectCaptureReceiver implements ISelectionControlEventHandler {
+	public Vector<SelectionControlEvent> events = [];
+	public void selectionEvent(SelectionControlEvent event) { self.events.push(event); }
+}
+class SelectCaptureChecks {
+	class SelectModel model() {
+		var first = SelectOption(); first.key = "first"; first.title = "First"; first.enabled = true;
+		var second = SelectOption(); second.key = "second"; second.title = "Second"; second.enabled = true;
+		var result = SelectModel(); result.options = [first, second]; result.selectedKey = "first"; result.availability = SELECT_AVAILABILITY_READY; result.statusText = ""; return result;
+	}
+
+	class void route(int route) {
+		var wake = SelectCaptureWake(); var context = MacOSViewContext(wake, 1, null, 4);
+		var select = MacOSSelect(); select.stateNode().configure(context); select.setOptions(SelectCaptureChecks.model());
+		var window = BTRCUI2SelectCaptureProbe.host(select.nativeView()); select.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+		var scope = CallbackScope(); var receiver = SelectCaptureReceiver();
+		select.onChanged(receiver, scope); select.onCommit(receiver, scope); select.onCancel(receiver, scope);
+		var native = (NSPopUpButton?)select.nativeView(); assert(native != null);
+		var first = BTRCUI2SelectCaptureProbe.item(native, 0L); var second = BTRCUI2SelectCaptureProbe.item(native, 1L);
+		BTRCUI2SelectCaptureProbe.observe(native);
+		if (route == 0) { BTRCUI2SelectCaptureProbe.choose(native, 1L); }
+		else if (route == 1) { assert(BTRCUI2SelectCaptureProbe.key(native, 1L)); }
+		else { assert(BTRCUI2SelectCaptureProbe.press(second, route == 3 || route == 5, route >= 4)); }
+		assert(!context.nativeFailed() && select.selectedKey() == "second" && receiver.events.isEmpty());
+		assert(BTRCUI2SelectCaptureProbe.state(native, 1L) && BTRCUI2SelectCaptureProbe.notifications(native, 1L));
+		while (context.dispatchOne()) {}
+		assert(receiver.events.len == 1 && receiver.events.get(0).phase == CONTROL_PHASE_COMMIT && receiver.events.get(0).previousKey == "first" && receiver.events.get(0).acceptedKey == "second");
+		BTRCUI2SelectCaptureProbe.choose(native, 0L); while (context.dispatchOne()) {}
+		assert(receiver.events.len == 2 && receiver.events.get(1).acceptedKey == "first");
+		assert(BTRCUI2SelectCaptureProbe.notifications(native, 2L));
+		// Retained old native items must not acquire a new model's admission.
+		select.setSelectedKey("second"); assert(!BTRCUI2SelectCaptureProbe.press(first, false, false));
+		assert(select.selectedKey() == "second" && BTRCUI2SelectCaptureProbe.state(native, 1L) && !context.dispatchOne());
+		assert(!BTRCUI2SelectCaptureProbe.cancel(first));
+		select.stateNode().detachWindow(); BTRCUI2SelectCaptureProbe.finish(window);
+		assert(select.close() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!BTRCUI2SelectCaptureProbe.press(second, false, true)); context.close();
+	}
+
+	class void pressure(int route, bool queued) {
+		// Each rejected begin gets a fresh failure domain. Three registration
+		// promises exhaust a budget of three before key preparation; a queued
+		// commit exhausts a budget of four after acquiring the next key.
+		var wake = SelectCaptureWake(); var context = MacOSViewContext(wake, 1, null, queued ? 4 : 3);
+		var select = MacOSSelect(); select.stateNode().configure(context); select.setOptions(SelectCaptureChecks.model());
+		var window = BTRCUI2SelectCaptureProbe.host(select.nativeView()); select.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+		var scope = CallbackScope(); var receiver = SelectCaptureReceiver();
+		select.onChanged(receiver, scope); select.onCommit(receiver, scope); select.onCancel(receiver, scope);
+		var native = (NSPopUpButton?)select.nativeView(); assert(native != null); BTRCUI2SelectCaptureProbe.observe(native);
+		if (queued) { BTRCUI2SelectCaptureProbe.choose(native, 1L); assert(!context.nativeFailed() && select.selectedKey() == "second"); }
+		long target = queued ? 0L : 1L; var item = BTRCUI2SelectCaptureProbe.item(native, target);
+		var capture = select.stateNode().events().captureOwner();
+		if (route == 0) { BTRCUI2SelectCaptureProbe.choose(native, target); }
+		else if (route == 1) { assert(!BTRCUI2SelectCaptureProbe.key(native, target)); }
+		else if (route < 6) {
+			bool legacy = route == 3 || route == 5;
+			bool accepted = BTRCUI2SelectCaptureProbe.press(item, legacy, route >= 4);
+			// Legacy AX is void; its helper reports only that the call returned.
+			assert(legacy || !accepted);
+		} else { BTRCUI2SelectCaptureProbe.refusedOpening(native, (long)route - 6L); }
+		assert(context.nativeFailed() && receiver.events.isEmpty());
+		assert(context.nativeFailure() == (queued ? "Selection commit reservation unavailable" : "Selection change reservation unavailable"));
+		bool reported = false; try { context.checkNativeFailure(); } catch (string error) { reported = error == context.nativeFailure(); } assert(reported);
+		assert(select.selectedKey() == (queued ? "second" : "first"));
+		assert(BTRCUI2SelectCaptureProbe.state(native, queued ? 1L : 0L) && BTRCUI2SelectCaptureProbe.notifications(native, queued ? 1L : 0L));
+		select.stateNode().detachWindow(); BTRCUI2SelectCaptureProbe.finish(window);
+		assert(select.close() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+		// Failure sealing and teardown must leave no acquired key or terminal credit.
+		assert(capture.available() == (queued ? 4 : 3));
+	}
+
+	class void reentrant() {
+		var wake = SelectCaptureWake(); var context = MacOSViewContext(wake, 1, null, 16);
+		var select = MacOSSelect(); select.stateNode().configure(context); select.setOptions(SelectCaptureChecks.model());
+		var window = BTRCUI2SelectCaptureProbe.host(select.nativeView()); select.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+		var scope = CallbackScope(); var receiver = SelectCaptureReceiver(); select.onChanged(receiver, scope); select.onCommit(receiver, scope); select.onCancel(receiver, scope);
+		var native = (NSPopUpButton?)select.nativeView(); assert(native != null); BTRCUI2SelectCaptureProbe.observe(native); wake.nested = native;
+		BTRCUI2SelectCaptureProbe.choose(native, 1L);
+		assert(!context.nativeFailed() && select.selectedKey() == "first" && BTRCUI2SelectCaptureProbe.notifications(native, 2L));
+		while (context.dispatchOne()) {}
+		assert(receiver.events.len == 2 && receiver.events.get(0).acceptedKey == "second" && receiver.events.get(1).acceptedKey == "first");
+		assert(receiver.events.get(0).context.interaction + 1LL == receiver.events.get(1).context.interaction);
+		select.stateNode().detachWindow(); BTRCUI2SelectCaptureProbe.finish(window);
+		assert(select.close() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+	}
+
+	class void nestedOpening(bool refused) {
+		int budget = refused ? 4 : 16;
+		var wake = SelectCaptureWake(); var context = MacOSViewContext(wake, 1, null, budget);
+		var select = MacOSSelect(); select.stateNode().configure(context); select.setOptions(SelectCaptureChecks.model());
+		var window = BTRCUI2SelectCaptureProbe.host(select.nativeView()); select.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+		var scope = CallbackScope(); var receiver = SelectCaptureReceiver(); select.onChanged(receiver, scope); select.onCommit(receiver, scope); select.onCancel(receiver, scope);
+		var native = (NSPopUpButton?)select.nativeView(); assert(native != null); BTRCUI2SelectCaptureProbe.observe(native);
+		var capture = select.stateNode().events().captureOwner();
+		BTRCUI2SelectCaptureProbe.nestedOpening(native, refused);
+		assert(select.selectedKey() == "first" && receiver.events.isEmpty());
+		assert(BTRCUI2SelectCaptureProbe.state(native, 0L) && BTRCUI2SelectCaptureProbe.notifications(native, 0L));
+		if (refused) {
+			assert(context.nativeFailed() && context.nativeFailure() == "Selection change reservation unavailable");
+		} else {
+			assert(!context.nativeFailed()); while (context.dispatchOne()) {}
+			assert(receiver.events.len == 2);
+			for event in receiver.events { assert(event.phase == CONTROL_PHASE_CANCEL && event.previousKey == "first" && event.acceptedKey == "first"); }
+			assert(receiver.events.get(1).context.interaction == receiver.events.get(0).context.interaction + 1LL);
+		}
+		select.stateNode().detachWindow(); BTRCUI2SelectCaptureProbe.finish(window);
+		assert(select.close() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+		assert(capture.available() == budget);
+	}
+
+	class void failedSuperclass() {
+		var wake = SelectCaptureWake(); var context = MacOSViewContext(wake, 1, null, 4);
+		var select = MacOSSelect(); select.stateNode().configure(context); select.setOptions(SelectCaptureChecks.model());
+		var window = BTRCUI2SelectCaptureProbe.host(select.nativeView()); select.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+		var scope = CallbackScope(); var receiver = SelectCaptureReceiver(); select.onChanged(receiver, scope); select.onCommit(receiver, scope); select.onCancel(receiver, scope);
+		var native = (NSPopUpButton?)select.nativeView(); assert(native != null); BTRCUI2SelectCaptureProbe.observe(native);
+		var capture = select.stateNode().events().captureOwner();
+		BTRCUI2SelectCaptureProbe.failedSuperclass(native);
+		assert(context.nativeFailed() && context.nativeFailure() == "Native selection activation failed");
+		// Native failure seals all capture registrations and releases every
+		// unconsumed promise. No semantic CANCEL is admitted after that seal.
+		assert(capture.available() == 4 && select.stateNode().events().pendingCount() == 0);
+		bool reported = false; try { context.checkNativeFailure(); } catch (string error) { reported = error == "Native selection activation failed"; } assert(reported);
+		assert(select.selectedKey() == "first" && receiver.events.isEmpty());
+		assert(BTRCUI2SelectCaptureProbe.state(native, 0L) && BTRCUI2SelectCaptureProbe.notifications(native, 0L));
+		select.stateNode().detachWindow(); BTRCUI2SelectCaptureProbe.finish(window);
+		assert(select.close() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+		assert(capture.available() == 4);
+	}
+
+	class void cancelledOpening() {
+		var wake = SelectCaptureWake(); var context = MacOSViewContext(wake, 1, null, 4);
+		var select = MacOSSelect(); select.stateNode().configure(context); select.setOptions(SelectCaptureChecks.model());
+		var window = BTRCUI2SelectCaptureProbe.host(select.nativeView()); select.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+		var scope = CallbackScope(); var receiver = SelectCaptureReceiver();
+		select.onChanged(receiver, scope); select.onCommit(receiver, scope); select.onCancel(receiver, scope);
+		var native = (NSPopUpButton?)select.nativeView(); assert(native != null); BTRCUI2SelectCaptureProbe.observe(native);
+		for (long route = 0L; route < 4L; route++) {
+			// Three registration promises leave exactly one prospective key.
+			// A second acquisition for click -> track would refuse native opening.
+			assert(select.stateNode().events().captureOwner().available() == 1);
+			BTRCUI2SelectCaptureProbe.cancelledOpening(native, route);
+			assert(!context.nativeFailed() && select.selectedKey() == "first");
+			assert(BTRCUI2SelectCaptureProbe.state(native, 0L) && BTRCUI2SelectCaptureProbe.notifications(native, 0L));
+			while (context.dispatchOne()) {}
+			assert(receiver.events.len == (int)route + 1);
+			var event = receiver.events.get((int)route);
+			assert(event.phase == CONTROL_PHASE_CANCEL && event.previousKey == "first" && event.acceptedKey == "first");
+			assert(event.context.origin == CONTROL_ORIGIN_SYSTEM);
+			assert(event.cancelReason == CONTROL_CANCEL_PLATFORM_INTERRUPTION);
+			if (route > 0L) { assert(event.context.interaction == receiver.events.get((int)route - 1).context.interaction + 1LL); }
+		}
+		select.stateNode().detachWindow(); BTRCUI2SelectCaptureProbe.finish(window);
+		assert(select.close() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+	}
+}
+int main() {
+	NSApplication.sharedApplication();
+	for (int route = 0; route < 6; route++) { SelectCaptureChecks.route(route); }
+	for (int route = 0; route < 10; route++) { SelectCaptureChecks.pressure(route, false); SelectCaptureChecks.pressure(route, true); }
+	SelectCaptureChecks.reentrant();
+	SelectCaptureChecks.cancelledOpening();
+	SelectCaptureChecks.nestedOpening(false); SelectCaptureChecks.nestedOpening(true); SelectCaptureChecks.failedSuperclass();
+	print("PASS: macOS native selection admission and accessibility ownership"); return 0;
+}
