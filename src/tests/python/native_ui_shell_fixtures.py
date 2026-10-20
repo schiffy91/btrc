@@ -12,6 +12,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -87,12 +88,15 @@ def build_shell(tmp_path, frontend, sanitized, request):
     system = "macos" if sys.platform == "darwin" else "linux"
     architecture = "aarch64" if platform.machine() in {"arm64", "aarch64"} else "x86_64"
     probe = SHELL / "probes" / system / "ShellProbe"
+    header = probe.parent / "MacOSShellProbe.h" if system == "macos" else probe.with_suffix(".h")
     source = NativeBindingPackage.write(
         SHELL / "NativeShell.btrc",
         tmp_path / "package",
-        probe.with_suffix(".h"),
+        header,
         (*SYMBOLS, *MACOS_SYMBOLS) if system == "macos" else SYMBOLS,
     )
+    if system == "macos":
+        shutil.copyfile(probe.with_suffix(".h"), tmp_path / "package/ShellProbe.h")
     manifest = tmp_path / "package/btrc.toml"
     manifest.write_text(manifest.read_text() + 'read-only-borrows = ["shellStateCheckpoint.draft"]\n')
     generated, plan = tmp_path / "Shell.c", tmp_path / "Shell.json"

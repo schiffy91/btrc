@@ -1,5 +1,5 @@
 #import <AppKit/AppKit.h>
-#import "ShellProbe.h"
+#import "MacOSShellProbe.h"
 #import <CoreGraphics/CoreGraphics.h>
 #include <assert.h>
 #include <stdio.h>
