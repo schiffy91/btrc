@@ -12,7 +12,8 @@ from tools.native_plan import NativePlanBuilder
 
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
-def test_macos_ui2_slider(native_project, native_compile, gui_provider_root, sanitized):
+@pytest.mark.parametrize("fixture", ["UI2MacOSSlider", "UI2MacOSSelect"])
+def test_macos_ui2_controls(native_project, native_compile, gui_provider_root, sanitized, fixture):
     source, _, _ = native_project
     package = source.parent.parent
     manifest = package / "btrc.toml"
@@ -27,7 +28,23 @@ def test_macos_ui2_slider(native_project, native_compile, gui_provider_root, san
         '"+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]"]\n'
     )
     root = Path(__file__).resolve().parents[3]
-    source.write_text((root / "src/tests/native/gui/ui2/probes/macos/UI2MacOSSlider.btrc").read_text())
+    for suffix in ("h", "m"):
+        name = f"{fixture}.{suffix}"
+        (package / name).write_text((root / "src/tests/native/gui/ui2/probes/macos" / name).read_text())
+    symbols = (
+        '["+[BTRCUI2SliderProbe choose:value:]"]'
+        if fixture == "UI2MacOSSlider"
+        else '["+[BTRCUI2SelectProbe begin:]", "+[BTRCUI2SelectProbe highlight:index:]", '
+        '"+[BTRCUI2SelectProbe choose:index:]", "+[BTRCUI2SelectProbe end:]", '
+        '"+[BTRCUI2SelectProbe presentation:title:count:selected:]"]'
+    )
+    manifest.write_text(
+        manifest.read_text() + f'\n[[native.bindings]]\nmodule = "Main"\nheader = "{fixture}.h"\n'
+        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        f"symbols = {symbols}\n"
+        f'[[native.sources]]\npath = "{fixture}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+    )
+    source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
     plan = package / "Slider.link.json"
     result = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert result.successful, str(result.failure) + str(result.diagnostics)
@@ -52,4 +69,9 @@ def test_macos_ui2_slider(native_project, native_compile, gui_provider_root, san
         timeout=30,
     )
     assert ran.returncode == 0, ran.stdout + ran.stderr
-    assert "PASS: UI2 macOS slider model and semantic controls" in ran.stdout
+    marker = (
+        "PASS: UI2 macOS slider model and semantic controls"
+        if fixture == "UI2MacOSSlider"
+        else "PASS: UI2 macOS keyed selection and native callback settlement"
+    )
+    assert marker in ran.stdout

@@ -1,0 +1,79 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ISelect;
+import Library.GUI.MacOS.MacOSSelect;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class SelectionObservation implements ISelectionControlEventHandler {
+	public Vector<SelectionControlEvent> events = [];
+	public void selectionEvent(SelectionControlEvent event) { self.events.push(event); }
+}
+class SelectionFixture {
+	class SelectOption option(string key, string title, bool enabled) {
+		var result = SelectOption(); result.key = key; result.title = title; result.enabled = enabled; return result;
+	}
+
+	class SelectModel model() {
+		var result = SelectModel(); result.options = [SelectionFixture.option("one", "Duplicate", true), SelectionFixture.option("two", "Duplicate", true), SelectionFixture.option("disabled", "Unavailable", false)];
+		result.selectedKey = "one"; result.availability = SELECT_AVAILABILITY_READY; result.statusText = ""; return result;
+	}
+}
+int main() {
+	NSApplication.sharedApplication();
+	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8);
+	var select = MacOSSelect(); select.stateNode().configure(context);
+	var owner = CallbackScope(); var receiver = SelectionObservation();
+	select.onChanged(receiver, owner); select.onCommit(receiver, owner); select.onCancel(receiver, owner);
+	var model = SelectionFixture.model(); select.setOptions(model); model.options.get(0).title = "Foreign edit";
+	assert(select.selectedKey() == "one" && select.selectedTitle() == "Duplicate");
+	var snapshot = select.optionsState(); snapshot.options.get(0).key = "changed";
+	assert(select.optionsState().options.get(0).key == "one");
+	bool invalid = false; var duplicate = SelectionFixture.model(); duplicate.options.get(1).key = "one";
+	try { select.setOptions(duplicate); } catch (string error) { invalid = true; }
+	assert(invalid && select.itemCount() == 3 && select.selectedKey() == "one");
+	select.setSelectedIndex(-1); assert(select.selectedKey() == null);
+	select.setSelectedKey("disabled"); assert(select.selectedIndex() == 2 && !select.isItemEnabled(2));
+	select.setSelectedKey("one"); assert(!context.dispatchOne() && receiver.events.isEmpty());
+	var native = (NSPopUpButton?)select.nativeView(); assert(native != null);
+	var loading = SelectionFixture.model(); loading.selectedKey = null; loading.availability = SELECT_AVAILABILITY_LOADING; loading.statusText = "Loading";
+	select.setOptions(loading); assert(BTRCUI2SelectProbe.presentation(native, AppKitText.nativeValue("Loading"), 3L, -1L));
+	assert(select.selectedKey() == null && select.itemCount() == 3);
+	select.setOptions(SelectionFixture.model()); assert(BTRCUI2SelectProbe.presentation(native, AppKitText.nativeValue("Duplicate"), 3L, 0L));
+	var window = NSWindow.new(); window.setReleasedWhenClosed(false); window.setContentView(select.nativeView());
+	select.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
+	for (int cycle = 0; cycle < 100; cycle++) {
+		select.setSelectedKey("one"); receiver.events.clear();
+		BTRCUI2SelectProbe.begin(native); BTRCUI2SelectProbe.highlight(native, 1L);
+		// Exercise both callback orders through the real generated native adapters.
+		if (cycle % 2 == 0) { BTRCUI2SelectProbe.end(native); }
+		BTRCUI2SelectProbe.choose(native, 1L);
+		if (cycle % 2 != 0) { BTRCUI2SelectProbe.end(native); }
+		assert(receiver.events.isEmpty() && select.selectedKey() == "two");
+		assert(BTRCUI2SelectProbe.presentation(native, AppKitText.nativeValue("Duplicate"), 3L, 1L));
+		while (context.dispatchOne()) {}
+		assert(receiver.events.len == 2 && receiver.events.get(0).phase == CONTROL_PHASE_CHANGE && receiver.events.get(1).phase == CONTROL_PHASE_COMMIT);
+		assert(receiver.events.get(1).previousKey == "one" && receiver.events.get(1).acceptedKey == "two");
+		assert(receiver.events.get(0).context.interaction == receiver.events.get(1).context.interaction);
+		receiver.events.clear();
+		BTRCUI2SelectProbe.begin(native); BTRCUI2SelectProbe.highlight(native, 0L); BTRCUI2SelectProbe.end(native);
+		while (context.dispatchOne()) {}
+		assert(receiver.events.len == 2 && receiver.events.get(1).phase == CONTROL_PHASE_CANCEL && select.selectedKey() == "two");
+		assert(receiver.events.get(1).cancelReason == CONTROL_CANCEL_PLATFORM_INTERRUPTION);
+		receiver.events.clear();
+		BTRCUI2SelectProbe.begin(native); BTRCUI2SelectProbe.highlight(native, 0L);
+		var replacement = SelectionFixture.model(); select.setOptions(replacement);
+		BTRCUI2SelectProbe.choose(native, 1L); BTRCUI2SelectProbe.end(native);
+		while (context.dispatchOne()) {}
+		assert(receiver.events.len == 2 && receiver.events.get(1).phase == CONTROL_PHASE_CANCEL);
+		assert(receiver.events.get(1).context.origin == CONTROL_ORIGIN_MODEL && select.selectedKey() == "one");
+	}
+	select.stateNode().detachWindow(); window.setContentView(null); window.close();
+	assert(select.close() == CALLBACK_CANCELLATION_COMPLETE && owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	context.close(); assert(signal.close());
+	print("PASS: UI2 macOS keyed selection and native callback settlement"); return 0;
+}

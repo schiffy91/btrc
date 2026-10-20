@@ -17,14 +17,25 @@ class MacOSSliderFocus implements IAppKitNotificationObserver {
 	public void invoke(NSNotification notification) { self._slider.focusLost(notification); }
 }
 
+class MacOSSliderAction implements IAppKitSliderAction {
+	private MacOSSlider _slider;
+	public MacOSSliderAction(MacOSSlider slider) { self._slider = slider; }
+
+	public void invoke() { self._slider.acceptAssistive(); }
+}
+
 /* AppKit draws the native control; the shared model owns value and tracking.
  * Consuming slider presses prevents NSSliderCell from entering a nested loop. */
-class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKitEventMonitor {
+class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKitEventMonitor, IMacOSNativeSettlement {
 	private NSSlider? _slider;
 	private MacOSView _view;
 	private SliderInteraction _interaction;
 	private CallbackScope _native = CallbackScope();
 	private bool _closing = false;
+	private MacOSNativeSettlementRegistration? _settlement;
+	private NSWindow? _trackingWindow;
+	private long long _trackingSerial = 0LL;
+	private long long _pendingFocusLoss = 0LL;
 
 	public MacOSSlider(double minimum, double maximum, int intervals = 0) {
 		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
@@ -38,6 +49,7 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 		slider.setContinuous(false);
 		self.project();
 		try {
+			slider.setTarget(MacOSSliderAction(self), self._native);
 			NSEvent.addLocalMonitorForEventsMatchingMask(NSEventMaskLeftMouseDown | NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp | NSEventMaskKeyDown, self, self._native);
 			var focus = MacOSSliderFocus(self);
 			NSNotificationCenter.defaultCenter().addObserverForName(NSWindowDidResignKeyNotification, null, null, focus, self._native);
@@ -85,7 +97,7 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
 		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		var native = self._native.pollCompletion(); if (native != CALLBACK_CANCELLATION_COMPLETE) { return native; }
-		var state = self._view.pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._slider = null; } return state;
+		var state = self._view.pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._slider = null; self._settlement = null; self._trackingWindow = null; } return state;
 	}
 
 	public SliderRange range() { self.control(); return self._interaction.range(); }
@@ -116,18 +128,40 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 		if (self._interaction.setValue(value)) { self.project(); }
 	}
 
+	private void reserveSettlement() {
+		if (self._settlement != null) { return; }
+		var context = self.stateNode().context(); if (context == null) { throw "Native slider interactions require an application context"; }
+		self._settlement = context.registerNativeSettlement(self, self._native);
+	}
+
+	public void settleNative() {
+		long long pending = self._pendingFocusLoss; self._pendingFocusLoss = 0LL;
+		if (pending > 0LL && pending == self._trackingSerial) { self.cancelTracking(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); }
+	}
+
+	public void acceptAssistive() {
+		try {
+			if (!self._closing && self.stateNode().effectiveEligible()) {
+				self.reserveSettlement();
+				self._interaction.assistiveValue(self.stateNode().generation(), self.control().doubleValue()); self.project();
+			}
+		} catch (string error) {
+			var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); }
+		}
+	}
+
 	public ICallbackRegistration onPreview(ISliderControlEventHandler receiver, CallbackScope owner) {
-		var state = self.stateNode(); state.requireMutation();
+		var state = self.stateNode(); state.requireMutation(); self.reserveSettlement();
 		var channel = self._interaction.onPreview(state.events(), state, receiver, owner); state.ownChannel(channel); return channel;
 	}
 
 	public ICallbackRegistration onCommit(ISliderControlEventHandler receiver, CallbackScope owner) {
-		var state = self.stateNode(); state.requireMutation();
+		var state = self.stateNode(); state.requireMutation(); self.reserveSettlement();
 		var channel = self._interaction.onCommit(state.events(), state, receiver, owner); state.ownChannel(channel); return channel;
 	}
 
 	public ICallbackRegistration onCancel(ISliderControlEventHandler receiver, CallbackScope owner) {
-		var state = self.stateNode(); state.requireMutation();
+		var state = self.stateNode(); state.requireMutation(); self.reserveSettlement();
 		var channel = self._interaction.onCancel(state.events(), state, receiver, owner); state.ownChannel(channel); return channel;
 	}
 
@@ -140,11 +174,21 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	}
 
 	public void focusLost(NSNotification notification) {
-		var slider = self._slider;
-		if (self._closing || slider == null) { return; }
-		NSView view = slider; id? window = view.window();
+		try { self.cancelForFocus(notification); }
+		catch (string error) {
+			var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); }
+		}
+	}
+
+	private void cancelForFocus(NSNotification notification) {
+		if (self._closing || !self._interaction.active()) { return; }
+		id? window = self._trackingWindow;
 		if (notification.name() == NSApplicationDidResignActiveNotification || notification.object() == window) {
-			self.cancelTracking(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS);
+			var context = self.stateNode().context();
+			if (context != null && context.treeMutationActive()) {
+				self._pendingFocusLoss = self._trackingSerial; var settlement = self._settlement;
+				if (settlement == null) { throw "Slider focus settlement was not reserved"; } settlement.request();
+			} else { self.cancelTracking(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); }
 		}
 	}
 
@@ -162,6 +206,16 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	}
 
 	public NSEvent? invoke(NSEvent event) {
+		NSEvent? result = null;
+		try { result = self.input(event); }
+		catch (string error) {
+			var context = self.stateNode().context();
+			if (context != null) { context.recordNativeFailure(error); }
+		}
+		return result;
+	}
+
+	private NSEvent? input(NSEvent event) {
 		var slider = self._slider;
 		if (self._closing || slider == null || !self.stateNode().effectiveEligible()) { return event; }
 		NSView view = slider; var window = view.window();
@@ -179,14 +233,16 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 			else if (key == kVK_PageDown) { adjustment = UI_RANGE_ADJUST_LARGE_DECREMENT; }
 			else if (key == kVK_Home) { adjustment = UI_RANGE_ADJUST_MINIMUM; }
 			else if (key == kVK_End) { adjustment = UI_RANGE_ADJUST_MAXIMUM; }
-			if (adjustment != UI_RANGE_ADJUST_NONE) { self._interaction.adjust(self.stateNode().generation(), adjustment, 1); self.project(); return null; }
+			if (adjustment != UI_RANGE_ADJUST_NONE) { self.reserveSettlement(); self._interaction.adjust(self.stateNode().generation(), adjustment, 1); self.project(); return null; }
 			return event;
 		}
 		if (type == NSEventTypeLeftMouseDown) {
 			var content = window.contentView(); if (content == null) { return event; }
 			var hit = content.hitTest(content.convertPoint(event.locationInWindow(), null));
 			if (hit != view && (hit == null || !hit.isDescendantOf(view))) { return event; }
-			if (self._interaction.begin(self.stateNode().generation())) { window.makeFirstResponder(slider); self._interaction.preview(self.valueAt(event)); self.project(); }
+			self.reserveSettlement();
+			if (self._trackingSerial == 9223372036854775807LL) { throw "Slider tracking identities exhausted"; }
+			if (self._interaction.begin(self.stateNode().generation())) { self._trackingSerial++; self._trackingWindow = window; window.makeFirstResponder(slider); self._interaction.preview(self.valueAt(event)); self.project(); }
 			return null;
 		}
 		if (type == NSEventTypeLeftMouseDragged && self._interaction.active()) { self._interaction.preview(self.valueAt(event)); self.project(); return null; }

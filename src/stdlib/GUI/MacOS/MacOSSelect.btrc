@@ -1,26 +1,60 @@
 import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.AppKitEvents;
 import Library.Vector;
+import Library.Set;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.MacOSActionQueue;
 import Library.Callback;
 import Library.GUI.ISelect;
 import Library.Math;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
 
-/* Selection is native state. Read it after event dispatch, like a text field;
- * programmatic replacement does not fabricate a user-action event. */
-class MacOSSelect implements ISelect, IMacOSView {
+/* The owning keyed snapshot is authoritative; AppKit presents and tracks it. */
+class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKitButtonAction, IAppKitMenuEvents, IMacOSNativeSettlement {
 	private NSPopUpButton? _button;
 	private MacOSView _view;
+	private NSMenu? _menu;
+	private NSMenuItem? _presentation;
+	private CallbackScope _native = CallbackScope();
+	private CallbackScope _menuCallbacks = CallbackScope();
+	private NSMenu? _failedMenu;
+	private CallbackScope? _failedMenuCallbacks;
+	private Vector<string> _titles = [];
+	private Vector<string> _keys = [];
+	private Vector<bool> _enabledItems = [];
+	private int _selected = -1;
+	private int _highlight = -1;
+	private SelectAvailability _availability = SELECT_AVAILABILITY_EMPTY;
+	private string _statusText = "";
+	private long long _modelRevision = 1LL;
+	private long long _legacyRevision = 0LL;
+	private long long _interaction = 0LL;
+	private long long _sequence = 0LL;
+	private long long _interactionGeneration = 0LL;
+	private string? _previousKey;
+	private bool _tracking = false;
+	private bool _closing = false;
+	private bool _suppressAction = false;
+	private long long _pendingClose = 0LL;
+	private ControlCancelReason _closeReason = CONTROL_CANCEL_PLATFORM_INTERRUPTION;
+	private MacOSNativeSettlementRegistration? _settlement;
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _changed;
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _commit;
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _cancel;
+	private ControlEventTicket? _commitTicket;
+	private ControlEventTicket? _cancelTicket;
 
 	public MacOSSelect() {
 		if (!NSThread.isMainThread()) { throw "Native selections require the main thread"; }
 		var button = NSPopUpButton.new();
 		if (button == null) { throw "Cannot create native selection"; }
 		self._button = button;
-		self._view = MacOSView(button);
+		self._view = MacOSView(button); self._view.bindEligibility(self);
 		button.setPullsDown(false);
 		button.setAutoenablesItems(false);
-		self.setItems(new Vector<string>(), -1);
+		try { self.setItems(new Vector<string>(), -1); NSButton native = button; native.setTarget(self, self._native); }
+		catch (string error) { self._native.cancel(); self._menuCallbacks.cancel(); self._view.close(); self._button = null; throw error; }
 	}
 
 	private NSPopUpButton control() {
@@ -32,6 +66,168 @@ class MacOSSelect implements ISelect, IMacOSView {
 	private void validateSelection(int count, int index) {
 		if (count == 0 ? index != -1 : index < 0 || index >= count) { throw "Native selection index is out of range"; }
 	}
+
+	class void deliverSelection(ISelectionControlEventHandler receiver, SelectionControlEvent event) { receiver.selectionEvent(event); }
+
+	private void reserveSettlement() {
+		if (self._settlement != null) { return; }
+		var context = self.stateNode().context(); if (context == null) { throw "Native selection interactions require an application context"; }
+		self._settlement = context.registerNativeSettlement(self, self._native);
+	}
+
+	private NSPopUpButtonCell cell() {
+		var cell = (NSPopUpButtonCell?)self.control().cell();
+		if (cell == null) { throw "Native selection cell is unavailable"; } return cell;
+	}
+
+	private void projectSelection() {
+		self.control().selectItemAtIndex(self._selected);
+		var presentation = self._presentation;
+		if (presentation != null) { presentation.setTitle(AppKitText.nativeValue(self._selected < 0 ? self._statusText : self._titles.get(self._selected))); }
+	}
+
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent> subscribe(ISelectionControlEventHandler receiver, CallbackScope owner) {
+		self.stateNode().requireMutation(); self.control();
+		self.reserveSettlement();
+		var channel = new ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>(self.stateNode().events(), self.stateNode(), receiver, MacOSSelect.deliverSelection, owner);
+		try { self.stateNode().ownChannel(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public ICallbackRegistration onChanged(ISelectionControlEventHandler receiver, CallbackScope owner) {
+		if (self._changed != null && self._changed.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection change handler first"; }
+		self._changed = self.subscribe(receiver, owner); return self._changed;
+	}
+
+	public ICallbackRegistration onCommit(ISelectionControlEventHandler receiver, CallbackScope owner) {
+		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection commit handler first"; }
+		var channel = self.subscribe(receiver, owner);
+		try { if (self._tracking) { self._commitTicket = channel.beginInteraction(); if (self._commitTicket == null) { throw "Selection commit reservation unavailable"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._commit = channel; return channel;
+	}
+
+	public ICallbackRegistration onCancel(ISelectionControlEventHandler receiver, CallbackScope owner) {
+		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection cancel handler first"; }
+		var channel = self.subscribe(receiver, owner);
+		try { if (self._tracking) { self._cancelTicket = channel.beginInteraction(); if (self._cancelTicket == null) { throw "Selection cancel reservation unavailable"; } } }
+		catch (string error) { channel.cancel(); throw error; }
+		self._cancel = channel; return channel;
+	}
+
+	private void releaseTickets() {
+		if (self._commitTicket != null && !self._commitTicket.queued()) { self._commitTicket.retire(); }
+		if (self._cancelTicket != null && !self._cancelTicket.queued()) { self._cancelTicket.retire(); }
+		self._commitTicket = null; self._cancelTicket = null;
+	}
+
+	private string? keyAt(int index) { return index < 0 || index >= self._keys.len ? null : self._keys.get(index); }
+
+	class bool sameKey(string? left, string? right) { if (left == null || right == null) { return left == null && right == null; } return left.equals(right); }
+
+	private SelectionControlEvent snapshot(ControlPhase phase, ControlOrigin origin, ControlCancelReason reason) {
+		if (self._sequence == 9223372036854775807LL) { throw "Selection event sequences exhausted"; }
+		var context = ControlEventContext(); context.generation = self._interactionGeneration; context.interaction = self._interaction;
+		context.sequence = ++self._sequence; context.modelRevision = self._modelRevision; context.origin = origin;
+		var event = SelectionControlEvent(); event.context = context; event.phase = phase; event.cancelReason = reason;
+		event.previousKey = self._previousKey; event.candidateKey = self.keyAt(self._highlight); event.acceptedKey = self.keyAt(self._selected); return event;
+	}
+
+	private bool beginMenu() {
+		if (self._tracking) { return true; }
+		if (self._closing || self._availability != SELECT_AVAILABILITY_READY || !self.stateNode().effectiveEligible()) { return false; }
+		self.reserveSettlement();
+		if (self._interaction == 9223372036854775807LL) { throw "Selection interaction identities exhausted"; }
+		bool admitted = true;
+		try {
+			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); admitted = self._commitTicket != null; }
+			if (admitted && self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); admitted = self._cancelTicket != null; }
+		} catch (string error) { self.releaseTickets(); throw error; }
+		if (!admitted) { self.releaseTickets(); return false; }
+		self._tracking = true; self._interaction++; self._interactionGeneration = self.stateNode().generation();
+		self._previousKey = self.keyAt(self._selected); self._highlight = self._selected; self._pendingClose = 0LL; return true;
+	}
+
+	private void finishMenu() { self._tracking = false; self._pendingClose = 0LL; self.releaseTickets(); }
+
+	private void cancelMenu(ControlOrigin origin, ControlCancelReason reason) {
+		if (!self._tracking) { return; }
+		try {
+			var channel = self._cancel; var ticket = self._cancelTicket;
+			if (channel != null && channel.isOpen() && ticket != null) {
+				var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason); channel.publishTerminal(event, self._interactionGeneration, self._interaction, ticket);
+			}
+		} finally { self.finishMenu(); }
+		self._suppressAction = true;
+		var menu = self._menu; if (menu != null) { menu.cancelTracking(); }
+		if (self._button != null) { self.projectSelection(); }
+	}
+
+	private void acceptSelection() {
+		if (self._closing) { return; }
+		if (self._suppressAction || !self.stateNode().effectiveEligible() || self._availability != SELECT_AVAILABILITY_READY) { self.projectSelection(); return; }
+		int index = (int)self.control().indexOfSelectedItem();
+		if (index < 0 || index >= self._keys.len || !self._enabledItems.get(index) || !self.beginMenu()) { self.projectSelection(); return; }
+		self._highlight = index;
+		try {
+			if (index != self._selected) {
+				self._selected = index; self.projectSelection(); var channel = self._commit; var ticket = self._commitTicket;
+				if (channel != null && channel.isOpen() && ticket != null) {
+					var event = self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
+					channel.publishTerminal(event, self._interactionGeneration, self._interaction, ticket);
+				}
+			}
+		} finally { self.finishMenu(); }
+	}
+
+	private void nativeFailure(string error) {
+		var context = self.stateNode().context();
+		if (context != null) { context.recordNativeFailure(error); }
+		else { self._suppressAction = true; }
+	}
+
+	public void invoke() { try { self.acceptSelection(); } catch (string error) { self.nativeFailure(error); } }
+
+	public void menuWillOpen(NSMenu menu) {
+		try {
+			if (menu != self._menu || self._closing) { menu.cancelTracking(); }
+			else { self._suppressAction = false; if (!self.beginMenu()) { menu.cancelTracking(); } }
+		} catch (string error) { self.nativeFailure(error); }
+	}
+
+	public void menu(NSMenu menu, NSMenuItem? item) {
+		try {
+			if (menu == self._menu && self._tracking && item != null) {
+				int index = -1;
+				for (int position = 0; position < self._keys.len; position++) { if (self.control().itemAtIndex(position) == item) { index = position; break; } }
+				if (index >= 0 && self._enabledItems.get(index) && index != self._highlight) {
+					self._highlight = index; var channel = self._changed;
+					if (channel != null && channel.isOpen()) {
+						var event = self.snapshot(CONTROL_PHASE_CHANGE, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
+						if (!channel.publish(event, self._interactionGeneration, self._interaction, self._modelRevision)) { throw "Selection candidate queue cannot admit native input"; }
+					}
+				}
+			}
+		} catch (string error) { self.nativeFailure(error); }
+	}
+
+	public void menuDidClose(NSMenu menu) {
+		try {
+			if (menu == self._menu && self._tracking) {
+				self._pendingClose = self._interaction;
+				var event = NSApplication.sharedApplication().currentEvent();
+				self._closeReason = event != null && event.type() == NSEventTypeKeyDown && event.keyCode() == kVK_Escape ? CONTROL_CANCEL_ESCAPE : CONTROL_CANCEL_PLATFORM_INTERRUPTION;
+				var settlement = self._settlement;
+				if (settlement != null) { settlement.request(); }
+				else { self.finishMenu(); }
+			}
+		} catch (string error) { self.nativeFailure(error); }
+	}
+
+	public void settleNative() {
+		if (self._tracking && self._pendingClose == self._interaction) { self.cancelMenu(self._closeReason == CONTROL_CANCEL_ESCAPE ? CONTROL_ORIGIN_USER : CONTROL_ORIGIN_SYSTEM, self._closeReason); }
+	}
+
+	public void eligibilityLost() { self.cancelMenu(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); }
 
 	public MacOSViewState stateNode() { return self._view.stateNode(); }
 
@@ -63,50 +259,104 @@ class MacOSSelect implements ISelect, IMacOSView {
 
 	public void setVisible(bool visible) { self._view.setVisible(visible); }
 
-	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+	public CallbackCancellation pollClose() {
+		if (!NSThread.isMainThread()) { throw "Native selections require the main thread"; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var menu = self._menuCallbacks.pollCompletion(); if (menu != CALLBACK_CANCELLATION_COMPLETE) { return menu; }
+		var failed = self._failedMenuCallbacks;
+		if (failed != null) { var status = failed.pollCompletion(); if (status != CALLBACK_CANCELLATION_COMPLETE) { return status; } }
+		var native = self._native.pollCompletion(); if (native != CALLBACK_CANCELLATION_COMPLETE) { return native; }
+		var state = self._view.pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self._button = null; self._menu = null; self._presentation = null; self._settlement = null; self._failedMenu = null; self._failedMenuCallbacks = null; }
+		return state;
+	}
 
-	public void setItems(Vector<string> titles, int selectedIndex) {
-		var button = self.control();
-		self.validateSelection(titles.len, selectedIndex);
-		var menu = NSMenu.new();
-		if (menu == null) { throw "Cannot create native selection menu"; }
-		menu.setAutoenablesItems(false);
-		for title in titles {
-			var item = NSMenuItem.new();
-			if (item == null) { throw "Cannot create native selection item"; }
-			item.setTitle(AppKitText.nativeValue(title));
-			menu.addItem(item);
+	public SelectModel optionsState() {
+		self.control(); var model = SelectModel(); model.options = []; model.selectedKey = self.keyAt(self._selected); model.availability = self._availability; model.statusText = self._statusText;
+		for (int index = 0; index < self._keys.len; index++) { var option = SelectOption(); option.key = self._keys.get(index); option.title = self._titles.get(index); option.enabled = self._enabledItems.get(index); model.options.push(option); }
+		return model;
+	}
+
+	public string? selectedKey() { self.control(); return self.keyAt(self._selected); }
+
+	public void setOptions(SelectModel model) {
+		self.stateNode().requireMutation(); self.control();
+		if (model == null || model.options == null || model.statusText == null) { throw "Selection model has missing required data"; }
+		if (model.availability != SELECT_AVAILABILITY_READY && model.availability != SELECT_AVAILABILITY_EMPTY && model.availability != SELECT_AVAILABILITY_LOADING && model.availability != SELECT_AVAILABILITY_ERROR) { throw "Unknown selection availability"; }
+		if ((model.availability == SELECT_AVAILABILITY_EMPTY && (model.options.len != 0 || model.selectedKey != null)) || (model.availability == SELECT_AVAILABILITY_READY && model.options.len == 0)) { throw "Selection availability conflicts with its options"; }
+		Vector<string> keys = []; Vector<string> titles = []; Vector<bool> enabled = []; var seen = new Set<string>(); int selected = -1;
+		int index = 0;
+		bool identical = model.availability == self._availability && model.statusText.equals(self._statusText) && MacOSSelect.sameKey(model.selectedKey, self.keyAt(self._selected)) && model.options.len == self._keys.len;
+		for option in model.options {
+			if (option == null || option.key == null || option.key.isEmpty() || option.title == null || seen.contains(option.key)) { throw "Selection option has an invalid or duplicate key or title"; }
+			seen.add(option.key); keys.push(option.key); titles.push(option.title); enabled.push(option.enabled);
+			if (MacOSSelect.sameKey(option.key, model.selectedKey)) { selected = index; }
+			if (identical && (!self._keys.get(index).equals(option.key) || !self._titles.get(index).equals(option.title) || self._enabledItems.get(index) != option.enabled)) { identical = false; }
+			index++;
 		}
-		button.setMenu(menu);
-		button.selectItemAtIndex(selectedIndex);
+		if (model.selectedKey != null && selected < 0) { throw "Selection key is missing from options"; }
+		if (identical) { return; }
+		if (self._modelRevision == 9223372036854775807LL) { throw "Selection model revisions exhausted"; }
+		var menu = NSMenu.new(); if (menu == null) { throw "Cannot create native selection menu"; }
+		menu.setAutoenablesItems(false);
+		for (int itemIndex = 0; itemIndex < titles.len; itemIndex++) {
+			var item = NSMenuItem.new(); if (item == null) { throw "Cannot create native selection item"; }
+			item.setTitle(AppKitText.nativeValue(titles.get(itemIndex))); item.setEnabled(enabled.get(itemIndex) && model.availability == SELECT_AVAILABILITY_READY); menu.addItem(item);
+		}
+		var presentation = NSMenuItem.new(); if (presentation == null) { throw "Cannot create selection status presentation"; }
+		presentation.setTitle(AppKitText.nativeValue(selected < 0 ? model.statusText : titles.get(selected)));
+		var cell = self.cell();
+		var callbacks = CallbackScope(); menu.setDelegate(self, callbacks);
+		try {
+			self.cancelMenu(CONTROL_ORIGIN_MODEL, CONTROL_CANCEL_MODEL_REPLACEMENT);
+			self.control().setMenu(menu); self.control().selectItemAtIndex(selected);
+			cell.setUsesItemFromMenu(false); cell.setMenuItem(presentation);
+		} catch (string error) {
+			bool restored = false;
+			try { self.control().setMenu(self._menu); self.control().selectItemAtIndex(self._selected); cell.setMenuItem(self._presentation); restored = true; }
+			catch (string rollback) {
+				self._failedMenu = menu; self._failedMenuCallbacks = callbacks;
+				self.stateNode().quarantine(); self.nativeFailure(rollback);
+			}
+			if (restored) { callbacks.cancel(); }
+			throw error;
+		}
+		self._menuCallbacks.cancel(); self._menuCallbacks = callbacks; self._menu = menu; self._presentation = presentation;
+		self._keys = keys; self._titles = titles; self._enabledItems = enabled; self._selected = selected;
+		self._availability = model.availability; self._statusText = model.statusText; self._modelRevision++; self._highlight = selected;
 	}
 
-	public int itemCount() { return (int)self.control().numberOfItems(); }
-
-	public int selectedIndex() { return (int)self.control().indexOfSelectedItem(); }
-
-	private NSMenuItem item(int index) {
-		var button = self.control();
-		if (index < 0 || index >= (int)button.numberOfItems()) { throw "Native selection item is out of range"; }
-		var item = button.itemAtIndex(index);
-		if (item == null) { throw "Native selection item is missing"; }
-		return item;
+	public void setSelectedKey(string? key) {
+		self.stateNode().requireMutation(); self.control(); if (MacOSSelect.sameKey(key, self.keyAt(self._selected))) { return; }
+		var model = self.optionsState(); model.selectedKey = key; self.setOptions(model);
 	}
 
-	public void setItemEnabled(int index, bool enabled) { self.item(index).setEnabled(enabled); }
+	/* Each index replacement starts a fresh reserved-key session. Titles never
+	 * define identity, even when two rows display exactly the same text. */
+	public void setItems(Vector<string> titles, int selectedIndex) {
+		self.stateNode().requireMutation(); self.control(); if (titles == null) { throw "Native selection items are missing"; } self.validateSelection(titles.len, selectedIndex);
+		if (self._legacyRevision == 9223372036854775807LL) { throw "Legacy selection replacements exhausted"; }
+		long long revision = self._legacyRevision + 1LL; var model = SelectModel(); model.options = []; model.selectedKey = null; model.availability = titles.len == 0 ? SELECT_AVAILABILITY_EMPTY : SELECT_AVAILABILITY_READY; model.statusText = "";
+		for (int index = 0; index < titles.len; index++) { var option = SelectOption(); option.key = f"btrc:legacy:{revision}:{index}"; option.title = titles.get(index); option.enabled = true; model.options.push(option); if (index == selectedIndex) { model.selectedKey = option.key; } }
+		self.setOptions(model); self._legacyRevision = revision;
+	}
 
-	public bool isItemEnabled(int index) { return self.item(index).isEnabled(); }
+	public int itemCount() { self.control(); return self._titles.len; }
+
+	public int selectedIndex() { self.control(); return self._selected; }
+
+	private void requireItem(int index) { if (index < 0 || index >= self._titles.len) { throw "Native selection item is out of range"; } }
+
+	public void setItemEnabled(int index, bool enabled) { self.stateNode().requireMutation(); self.control(); self.requireItem(index); if (self._enabledItems.get(index) == enabled) { return; } var model = self.optionsState(); model.options.get(index).enabled = enabled; self.setOptions(model); }
+
+	public bool isItemEnabled(int index) { self.control(); self.requireItem(index); return self._enabledItems.get(index); }
 
 	public void setSelectedIndex(int index) {
-		var button = self.control();
-		self.validateSelection((int)button.numberOfItems(), index);
-		button.selectItemAtIndex(index);
+		self.stateNode().requireMutation(); self.control(); if (index < -1 || index >= self._keys.len) { throw "Native selection index is out of range"; }
+		self.setSelectedKey(self.keyAt(index));
 	}
 
-	public string selectedTitle() {
-		var title = self.control().titleOfSelectedItem();
-		return title == null ? "" : AppKitText.ownedValue(title);
-	}
+	public string selectedTitle() { self.control(); return self._selected >= 0 && self._selected < self._titles.len ? self._titles.get(self._selected) : ""; }
 
 	public void setEnabled(bool enabled) {
 		var state = self._view.stateNode(); state.requireMutation(); var control = self.control(); bool previous = control.isEnabled();
@@ -124,5 +374,14 @@ class MacOSSelect implements ISelect, IMacOSView {
 
 	public bool isEnabled() { return self.control().isEnabled(); }
 
-	public CallbackCancellation close() { var state = self._view.close(); self._button = null; return state; }
+	public CallbackCancellation close() {
+		self._view.requireDetached();
+		if (!self._closing) {
+			self.cancelMenu(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING); self._closing = true;
+			self._menuCallbacks.cancel();
+			if (self._failedMenuCallbacks != null) { self._failedMenuCallbacks.cancel(); }
+			self._native.cancel(); self._view.close();
+		}
+		return self.pollClose();
+	}
 }
