@@ -264,11 +264,31 @@ language = "c"
 standard = "c11"
 symbols = [
 	"CACurrentMediaTime",
-	"CFUUIDCreate", "CFUUIDCreateString", "CFStringGetCString", "kCFStringEncodingUTF8", "CFRetain", "CFRelease",
+	"CFRunLoopSourceRef", "CFRunLoopTimerRef", "CFStringRef", "CFTypeRef", "CFRetain", "CFRelease", "CFGetTypeID", "CFStringGetTypeID",
 	"CFRunLoopSourceContext", "CFRunLoopGetMain", "CFRunLoopSourceCreate", "CFRunLoopAddSource", "CFRunLoopSourceSignal", "CFRunLoopWakeUp", "CFRunLoopSourceInvalidate", "kCFRunLoopCommonModes",
 	"CFRunLoopTimerContext", "CFAbsoluteTimeGetCurrent", "CFRunLoopTimerCreate", "CFRunLoopAddTimer", "CFRunLoopTimerInvalidate", "CFRunLoopTimerIsValid",
 ]
+borrowed-parameters = ["CFRunLoopAddSource.mode", "CFRunLoopAddTimer.mode", "CFGetTypeID.cf"]
+static-globals = ["kCFRunLoopCommonModes"]
 os = ["macos"]
+
+[native.bindings.resources.CFTypeRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+
+[native.bindings.resources.CFStringRef]
+ownership = "reference-counted"
+retain = "CFRetain"
+release = "CFRelease"
+type-query = "CFGetTypeID"
+type-tag = "CFStringGetTypeID"
+
+[native.bindings.unmanaged-handles.CFRunLoopSourceRef]
+release = "CFRelease"
+
+[native.bindings.unmanaged-handles.CFRunLoopTimerRef]
+release = "CFRelease"
 
 [[native.bindings]]
 module = "MacOS.MacOSRunLoop"
@@ -276,7 +296,7 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
-	"+[NSThread isMainThread]", "+[NSString stringWithUTF8String:]",
+	"+[NSThread isMainThread]", "+[NSString stringWithUTF8String:]", "+[NSUUID UUID]", "-[NSUUID UUIDString]",
 	"+[NSNotificationCenter defaultCenter]", "-[NSNotificationCenter addObserverForName:object:queue:usingBlock:]", "-[NSNotificationCenter removeObserver:]", "-[NSNotificationCenter postNotificationName:object:]",
 	"-[NSApplication isRunning]", "-[NSApplication stop:]", "-[NSApplication postEvent:atStart:]",
 	"+[NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:]", "NSEventTypeApplicationDefined"
