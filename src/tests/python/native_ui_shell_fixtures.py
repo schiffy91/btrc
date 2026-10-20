@@ -47,6 +47,7 @@ SYMBOLS = (
     "shellStateAnchor",
     "shellStateCommits",
 )
+MACOS_SYMBOLS = ("shellProbeCaretBegin", "shellProbeCaretFinish")
 
 
 def shell_environment(sanitized):
@@ -87,7 +88,10 @@ def build_shell(tmp_path, frontend, sanitized, request):
     architecture = "aarch64" if platform.machine() in {"arm64", "aarch64"} else "x86_64"
     probe = SHELL / "probes" / system / "ShellProbe"
     source = NativeBindingPackage.write(
-        SHELL / "NativeShell.btrc", tmp_path / "package", probe.with_suffix(".h"), SYMBOLS
+        SHELL / "NativeShell.btrc",
+        tmp_path / "package",
+        probe.with_suffix(".h"),
+        (*SYMBOLS, *MACOS_SYMBOLS) if system == "macos" else SYMBOLS,
     )
     manifest = tmp_path / "package/btrc.toml"
     manifest.write_text(manifest.read_text() + 'read-only-borrows = ["shellStateCheckpoint.draft"]\n')
@@ -291,8 +295,8 @@ def macos_private_survivors(stderr, counts):
     return rows
 
 
-def exercise_macos_control(tmp_path, sanitized):
-    """Measure toolkit retention independently with the same host, probe and C flags."""
+def build_macos_control(tmp_path, sanitized):
+    """Build the native control without starting AppKit or taking focus."""
     probe = SHELL / "probes/macos"
     sources = [probe / "AppKitControl.m", probe / "ShellProbe.m"]
     executable = tmp_path / "AppKitControl"
@@ -319,6 +323,12 @@ def exercise_macos_control(tmp_path, sanitized):
     built = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=120)
     (tmp_path / "appkit-control-build.log").write_text(built.stdout + built.stderr)
     assert built.returncode == 0, built.stderr
+    return executable, environment, sources, command
+
+
+def exercise_macos_control(tmp_path, sanitized):
+    """Measure toolkit retention independently with the same host, probe and C flags."""
+    executable, environment, sources, command = build_macos_control(tmp_path, sanitized)
     try:
         result = subprocess.run([str(executable)], capture_output=True, text=True, env=environment, timeout=1200)
     except subprocess.TimeoutExpired as error:
@@ -363,6 +373,7 @@ def exercise_macos_control(tmp_path, sanitized):
         "retained_provider_control": {"returncode": retained.returncode, "drains": drains},
         "teardown": rows,
         "tab_context": [probe["key_views"]["tab_context"] for probe in probes],
+        "caret_lifecycle": [probe["caret_lifecycle"] for probe in probes],
         "private_classes": macos_private_survivors(result.stderr, [row[2] for row in rows]),
         "source_sha256": {source.name: hashlib.sha256(source.read_bytes()).hexdigest() for source in sources},
         "build_command": command,

@@ -9,6 +9,8 @@
  * fixture hierarchy, never by excluding inconvenient AppKit subclasses. */
 static NSHashTable *owned;
 static NSHashTable *privateObjects;
+static NSHashTable *caretEditor;
+static NSMutableArray *caretContexts;
 static NSWindow *window(void) {
     for (NSWindow *candidate in NSApplication.sharedApplication.windows)
         if ([candidate.title isEqualToString:@"BTRC native shell"]) return candidate;
@@ -23,6 +25,10 @@ void shellProbeObserve(void) {
     @autoreleasepool {
         if (!owned) owned = [[NSHashTable weakObjectsHashTable] retain];
         if (!privateObjects) privateObjects = [[NSHashTable weakObjectsHashTable] retain];
+        if (!caretEditor) caretEditor = [[NSHashTable weakObjectsHashTable] retain];
+        [caretEditor removeAllObjects];
+        [caretContexts release];
+        caretContexts = [NSMutableArray new];
         NSWindow *target = window();
         [owned addObject:target];
         assert(target.contentView.subviews.count == 1);
@@ -110,6 +116,55 @@ int shellProbeFocus(void) {
         if ([responder isKindOfClass:NSTextView.class]) return 1;
         if ([responder isKindOfClass:NSButton.class]) return 2;
         return 0;
+    }
+}
+static NSTextView *activeEditor(NSWindow *target) {
+    if (!NSApp.isActive || !target.isKeyWindow) {
+        [NSApp activateIgnoringOtherApps:YES];
+        [target makeKeyAndOrderFront:nil];
+        return nil;
+    }
+    NSTextField *field = nil;
+    for (NSView *child in target.contentView.subviews.firstObject.subviews)
+        if ([child isKindOfClass:NSTextField.class]) field = (NSTextField *)child;
+    NSText *editor = field.currentEditor;
+    if (![editor isKindOfClass:NSTextView.class] || editor != target.firstResponder) return nil;
+    return (NSTextView *)editor;
+}
+static void observeCaret(NSWindow *target, NSTextView *editor, BOOL restart) {
+    /* This asks the real editor to update and draw its insertion point. It
+     * neither creates an indicator itself nor names a private helper class. */
+    [editor updateInsertionPointStateAndRestartTimer:restart];
+    [editor displayIfNeeded];
+    observePrivate(target.contentView);
+    observePrivate(editor);
+    [caretContexts addObject:@{
+        @"application_active": @(NSApp.isActive), @"window_key": @(target.isKeyWindow),
+        @"field_editor": @(editor.isFieldEditor),
+        @"collapsed_selection": @(editor.selectedRange.length == 0),
+        @"restart_timer": @(restart)
+    }];
+}
+int shellProbeCaretBegin(void) {
+    @autoreleasepool {
+        NSWindow *target = window();
+        NSTextView *editor = activeEditor(target);
+        if (!editor) return 0;
+        assert(caretContexts.count == 0);
+        [editor setSelectedRange:NSMakeRange(editor.string.length, 0)];
+        [caretEditor addObject:editor];
+        observeCaret(target, editor, YES);
+        return 1;
+    }
+}
+int shellProbeCaretFinish(void) {
+    @autoreleasepool {
+        NSWindow *target = window();
+        NSTextView *editor = activeEditor(target);
+        if (!editor || ![caretEditor containsObject:editor]) return 0;
+        assert(caretContexts.count == 1);
+        observeCaret(target, editor, NO);
+        return 1;
     }
 }
 /* AppKit-private objects that outlived an earlier drain. */
@@ -313,7 +368,8 @@ void shellProbeDump(void) {
             @"subview_total": @(subviewTotal(target.contentView)),
             @"ax_frame_space": @"AppKit screen points; origin bottom-left",
             @"native_frame_space": @"window content points; origin bottom-left",
-            @"accessibility": accessibility, @"native_controls": native, @"key_views": traversal
+            @"accessibility": accessibility, @"native_controls": native, @"key_views": traversal,
+            @"caret_lifecycle": caretContexts
         };
         NSData *data = [NSJSONSerialization dataWithJSONObject:document options:0 error:NULL];
         assert(data);

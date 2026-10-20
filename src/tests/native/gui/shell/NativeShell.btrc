@@ -38,6 +38,9 @@ class ShellJourney implements IApplicationWork {
 	private Timer _journey = Timer();
 	private Timer _stepClock = Timer();
 	private int _step = 0;
+#if defined(__APPLE__)
+	private int _caretPhase = 0;
+#endif
 	private bool _restore;
 	private GPUReadback? _readback;
 	public bool done = false;
@@ -105,6 +108,17 @@ class ShellJourney implements IApplicationWork {
 		} else if (self._step == 1) {
 			if (self.pending(shellProbeFocus() == 1)) { return; }
 			assert(shellProbeFocus() == 1);
+#if defined(__APPLE__)
+			if (self._caretPhase == 0) {
+				bool ready = shellProbeCaretBegin() == 1;
+				if (self.pending(ready)) { return; }
+				assert(ready); self._caretPhase = 1; self._stepClock.start();
+				GUI.postAfter(0.01, self); return;
+			}
+			bool ready = shellProbeCaretFinish() == 1;
+			if (self.pending(ready)) { return; }
+			assert(ready);
+#endif
 			shellProbeTab();
 		} else if (self._step == 2) {
 			/* The next packet classifies provider-specific Tab traversal;
