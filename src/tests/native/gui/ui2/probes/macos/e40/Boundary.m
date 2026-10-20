@@ -106,10 +106,10 @@ void e40BoundaryBegin(int size, int final, int repeat, int ordinal) {
         } else {
             bool terminal = index == terminalPosition;
             NSEventType type = final == 0 && terminal ? NSEventTypeKeyUp : NSEventTypeKeyDown;
-            NSString *characters = final == 1 && terminal ? @"\r" : @"\uF710";
+            NSString *characters = final == 1 && terminal ? @"\r" : @"\uF703";
             event = [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:0 timestamp:stamp
                 windowNumber:firstWindow.windowNumber context:nil characters:characters charactersIgnoringModifiers:characters
-                isARepeat:NO keyCode:final == 1 && terminal ? 36 : 105];
+                isARepeat:NO keyCode:final == 1 && terminal ? 36 : 124];
         }
         @try { if (!event) { enqueueErrors++; } else { [NSApp postEvent:event atStart:NO]; } }
         @catch (NSException *error) { enqueueErrors++; fail(error.reason); }

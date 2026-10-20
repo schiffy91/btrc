@@ -65,13 +65,15 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
             "e40LoadPushInput",
             "e40LoadInputDelivery",
             "e40LoadPushClose",
-            "e40LoadFrame",
+            "e40LoadTryFrame",
+            "e40LoadDeadline",
             "e40LoadRejectFrame",
             "e40LoadReport",
             "e40LoadCleanup",
             "e40LoadRunHost",
         ]
     if stem == "Load":
+        (package / "Presentation.h").write_text((FIXTURES / "Presentation.h").read_text())
         symbols += [
             "e40LoadTrial",
             "e40TrackingStart",

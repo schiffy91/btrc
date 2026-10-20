@@ -124,11 +124,10 @@ class E40LoadRun implements IApplicationWork {
 		self._deadline = e40LoadNow() + 20000000000ULL;
 	}
 
-	private void frame(IGPUView view, int window) {
-		if (e40LoadPending(5 + window) != 0) { return; }
-		e40LoadFrame(window);
+	private void frame(IGPUView view, int window, bool allowNew) {
+		if (!e40LoadTryFrame(window, allowNew)) { return; }
 		var availability = view.beginFrame(window == 0 ? 0.2 : 0.6, 0.3, 0.5);
-		if (availability == GPU_SURFACE_FRAME_READY) { assert(view.frameRenderer().present()); }
+		if (availability == GPU_SURFACE_FRAME_READY) { if (!view.frameRenderer().present()) { e40LoadDeadline("present-rejected"); } }
 		else { e40LoadRejectFrame(window); }
 	}
 
@@ -137,7 +136,7 @@ class E40LoadRun implements IApplicationWork {
 	public void run() {
 		unsigned long long now = e40LoadNow();
 		if (self._stage == 0) {
-			assert(now < self._deadline);
+			if (now >= self._deadline) { e40LoadDeadline("setup-or-close"); }
 			bool first = self._first.poll(); bool second = self._second.poll();
 			assert(self._first.error().isEmpty() && self._second.error().isEmpty());
 			if (first && second && e40LoadReady()) {
@@ -147,10 +146,10 @@ class E40LoadRun implements IApplicationWork {
 			}
 		}
 		if (self._stage == 1 || self._stage == 2) {
-			self.frame(self._first, 0); self.frame(self._second, 1);
+			self.frame(self._first, 0, true); self.frame(self._second, 1, true);
 			if (self._stage == 1 && now >= self._deadline) { assert(e40TrackingDone()); e40LoadPushClose(); self._stage = 2; self._deadline = now + 5000000000ULL; }
 			if (self._stage == 2) {
-				assert(now < self._deadline);
+				if (now >= self._deadline) { e40LoadDeadline("setup-or-close"); }
 				if (self._receiver.closes == 1) {
 					self._producer.stop.store(true, MemoryOrder.RELEASE); self._timer.running = false; self._immediate.running = false; self._delayed.running = false;
 					self._stage = 3; self._deadline = now + 10000000000ULL;
@@ -158,7 +157,8 @@ class E40LoadRun implements IApplicationWork {
 			}
 		}
 		if (self._stage == 3) {
-			assert(now < self._deadline);
+			if (now >= self._deadline) { e40LoadDeadline("drain"); }
+			self.frame(self._first, 0, false); self.frame(self._second, 1, false);
 			if (self._producer.done.load(MemoryOrder.ACQUIRE) && !self.pending()) {
 				assert(self._worker.join() && !self._worker.workerFailed() && self._producer.failure == 0);
 				e40LoadReport(self._hosted); self._receiver.producer = null; self._application.requestQuit(); return;
