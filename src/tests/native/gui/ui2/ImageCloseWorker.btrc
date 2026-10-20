@@ -1,0 +1,21 @@
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.IImageHandle;
+
+#include <assert.h>
+#include <unistd.h>
+
+/* The test retains both owners until join; the worker only closes the handle. */
+class ImageCloseWorker implements INativeWorkerBody {
+	private IImageHandle _handle;
+	public Atomic<bool> ready;
+	public Atomic<bool> proceed;
+	public ImageCloseWorker(IImageHandle handle) { self._handle = handle; self.ready.init(false); self.proceed.init(false); }
+
+	public int workLoop() {
+		self.ready.store(true, MemoryOrder.RELEASE);
+		while (!self.proceed.load(MemoryOrder.ACQUIRE)) { usleep(1); }
+		self._handle.close(); self._handle.close(); return 0;
+	}
+
+	public void waitReady() { while (!self.ready.load(MemoryOrder.ACQUIRE)) { usleep(1); } }
+}

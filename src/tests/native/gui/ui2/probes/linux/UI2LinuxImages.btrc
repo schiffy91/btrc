@@ -1,0 +1,70 @@
+import Library.Image;
+import Library.Callback;
+import Library.GUI.IImageView;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxImageView;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include "../../ImageCloseWorker.btrc"
+#include <stdio.h>
+
+class LinuxImageChecks {
+	class Image pixels(int red) {
+		var pixels = Image(2, 2);
+		for (int index = 0; index < 4; index++) { pixels.data[index * 4] = (unsigned char)red; pixels.data[index * 4 + 1] = 17; pixels.data[index * 4 + 2] = 39; pixels.data[index * 4 + 3] = 255; }
+		return pixels;
+	}
+
+	class void rendered(LinuxWindow window, int red) {
+		var image = window.render(true); assert(image != null);
+		var pixel = image.pixel(image.width / 2, image.height / 2);
+		assert(pixel.red == red && pixel.green == 17 && pixel.blue == 39);
+	}
+
+	class void retained(LinuxApplication application) {
+		var window = application.createWindow("UI2 image ownership", 80.0, 80.0);
+		var native = application.firstWindow(); assert(native != null);
+		var first = application.createImageView(); var second = application.createImageView();
+		var handle = LinuxImageHandle.create(LinuxImageChecks.pixels(205), 4); var captured = handle.pixels();
+		first.setImageHandle(handle); second.setImageHandle(handle); window.attachRoot(first); window.show();
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (!native.pollDevice() && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); } assert(native.pollDevice());
+		LinuxImageChecks.rendered(native, 205);
+		var body = ImageCloseWorker(handle); var worker = NativeWorker(); assert(worker.start(body) == NATIVE_WORKER_STARTED);
+		body.waitReady(); body.proceed.store(true, MemoryOrder.RELEASE); assert(worker.join() && !worker.workerFailed());
+		assert(!handle.isOpen() && handle.width() == 2 && handle.height() == 2 && captured.pixel(0, 0).red == 205);
+		LinuxImageChecks.rendered(native, 205);
+		bool rejected = false; try { first.setImageHandle(handle); } catch (string error) { rejected = true; } assert(rejected);
+		LinuxImageChecks.rendered(native, 205);
+		rejected = false; try { var closed = handle.pixels(); assert(closed != null); } catch (string error) { rejected = true; } assert(rejected);
+		assert(window.detachRoot() == first); first.setImageHandle(null); window.attachRoot(second); LinuxImageChecks.rendered(native, 205);
+		assert(window.detachRoot() == second); LinuxImageChecks.race(application, window, native);
+		assert(window.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void race(LinuxApplication application, IWindow window, LinuxWindow native) {
+		var view = application.createImageView(); var previous = LinuxImageHandle.create(LinuxImageChecks.pixels(31), 4);
+		window.attachRoot(view);
+		int accepted = 0; int rejected = 0;
+		for (int iteration = 0; iteration < 200; iteration++) {
+			view.setImageHandle(previous); var handle = LinuxImageHandle.create(LinuxImageChecks.pixels(205), 4);
+			var body = ImageCloseWorker(handle); var worker = NativeWorker(); assert(worker.start(body) == NATIVE_WORKER_STARTED);
+			body.waitReady(); body.proceed.store(true, MemoryOrder.RELEASE);
+			bool published = false;
+			try { view.setImageHandle(handle); published = true; accepted++; } catch (string error) { rejected++; }
+			assert(worker.join() && !worker.workerFailed() && !handle.isOpen());
+			assert(view.fittingWidth() == 2.0 && view.fittingHeight() == 2.0);
+			LinuxImageChecks.rendered(native, published ? 205 : 31);
+		}
+		assert(accepted + rejected == 200); previous.close(); assert(window.detachRoot() == view); assert(view.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	var application = LinuxApplication(8); LinuxImageChecks.retained(application);
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	printf("PASS: UI2 Linux image capture close and independent presentation\n"); SDL_Quit(); return 0;
+}
