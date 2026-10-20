@@ -130,7 +130,8 @@ int main() {
 	var nativeFirst = nativeExecutor.schedule(nativeReceiver, 0.0, WORK_SUSPENSION_DEFER, 0LL);
 	var nativeSecond = nativeExecutor.schedule(nativeReceiver, 0.0, WORK_SUSPENSION_DEFER, 0LL);
 	failed = false; try { nativeExecutor.serviceTurn(); } catch (string error) { failed = error == "nested native failure"; }
-	assert(failed && nativeReceiver.calls == 1 && !nativeExecutor.servicing() && nativeExecutor.pendingWork() == 1);
+	assert(failed && nativeReceiver.calls == 1 && !nativeExecutor.servicing() && nativeExecutor.pendingWork() == 0);
+	assert(nativeSecond.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(nativeFirst.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(nativeExecutor.schedule(nativeReceiver, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_CLOSED);
 	assert(nativeExecutor.createPublisher(1, nativeReceiver, nativeOwner).kind == APPLICATION_PUBLISHER_CLOSED);
@@ -147,6 +148,7 @@ int main() {
 	assert(publishSecond.publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 2LL) == PUBLISH_ACCEPTED);
 	failed = false; try { publishExecutor.serviceTurn(); } catch (string error) { failed = error == "nested native failure"; }
 	assert(failed && publishReceiver.calls == 1 && !publishExecutor.servicing());
+	assert(publishFirst.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && publishSecond.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(publishExecutor.close() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(publishFirst.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && publishSecond.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
 	publishContext.close(); assert(publishOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && publishSignal.close());

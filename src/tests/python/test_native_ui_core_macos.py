@@ -66,6 +66,11 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
             marks=pytest.mark.macos_gui,
         ),
         pytest.param(
+            "UI2MacOSHostFailure",
+            "PASS: UI2 macOS host failure ownership drains without losing failure",
+            marks=pytest.mark.macos_gui,
+        ),
+        pytest.param(
             "UI2MacOSApplicationQuit",
             "PASS: UI2 macOS native application quit cancels and retries before shutdown",
             marks=pytest.mark.macos_gui,

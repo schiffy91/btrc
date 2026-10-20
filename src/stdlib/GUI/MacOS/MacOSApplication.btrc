@@ -48,8 +48,6 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 	public bool quitRequested = false;
 	private MacOSApplicationExecutor _executor;
 	private MacOSViewContext _viewContext;
-	private string _workFailure = "";
-	private bool _workFailed = false;
 	private MacOSActionQueue _actions;
 	private Vector<MacOSWindow> _windows;
 	private Vector<IView> _views;
@@ -121,11 +119,11 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 
 	public int pendingWork() { return self._executor.pendingWork(); }
 
-	public string workFailure() { return self._workFailure; }
+	public string workFailure() { return self._viewContext.nativeFailure(); }
 
-	public bool workFailed() { return self._workFailed; }
+	public bool workFailed() { return self._viewContext.nativeFailed(); }
 
-	public void recordFailure(string error) { if (!self._workFailed) { self._workFailure = error; self._workFailed = true; } }
+	public void recordFailure(string error) { self._viewContext.recordFailure(error); }
 
 	/* run() drains a pending subtree for at most 10 seconds from this call
 	 * (see shutdownExpired), then reports it and leaves the pending owners
@@ -268,16 +266,30 @@ class MacOSShutdownWork implements IAppKitDelayedWork {
 	public void invoke(NSTimer timer) { self._events.advanceShutdown(); }
 }
 
+/* The scope owns physical detach; the public attachment keeps the work result.
+ * FAILED is not proof that native sources and entered callbacks have drained. */
+class MacOSHostOwnerRegistration implements ICallbackRegistration {
+	private MacOSHostAttachment _attachment;
+	public MacOSHostOwnerRegistration(MacOSHostAttachment attachment) { self._attachment = attachment; }
+
+	public bool isOpen() { return self._attachment.isOpen(); }
+
+	public CallbackCancellation cancel() { self._attachment.cancel(); return self._attachment.ownerCompletion(); }
+
+	public CallbackCancellation pollCompletion() { return self._attachment.ownerCompletion(); }
+}
+
 /* A host runs bounded turns through the same AppKit source and work owner. */
 class MacOSHostAttachment implements IApplicationHostAttachment {
 	private MacOSApplication? _application;
 	private bool _closing = false;
 	private CallbackCancellation _result = CALLBACK_CANCELLATION_NOT_REQUESTED;
+	private bool _detached = false;
 	public MacOSHostAttachment(MacOSApplication application) { self._application = application; }
 
-	public void abort() { self._application = null; self._closing = true; self._result = CALLBACK_CANCELLATION_COMPLETE; }
+	public void abort() { self._application = null; self._closing = true; self._detached = true; self._result = CALLBACK_CANCELLATION_COMPLETE; }
 
-	public void applicationClosed(bool failed) { self._application = null; self._closing = true; self._result = failed ? CALLBACK_CANCELLATION_FAILED : CALLBACK_CANCELLATION_COMPLETE; }
+	public void applicationClosed(bool failed) { self._application = null; self._closing = true; self._detached = true; self._result = failed ? CALLBACK_CANCELLATION_FAILED : CALLBACK_CANCELLATION_COMPLETE; }
 
 	public bool isOpen() { return !self._closing && self._application != null; }
 
@@ -286,7 +298,11 @@ class MacOSHostAttachment implements IApplicationHostAttachment {
 		try {
 			application.serviceHostTurn();
 			if (self._closing || application.quitRequested()) { self._closing = true; self.pollCompletion(); }
-		} catch (string error) { application.recordHostFailure(error); self._closing = true; self._result = CALLBACK_CANCELLATION_FAILED; }
+		} catch (string error) {
+			application.recordHostFailure(error); self._closing = true;
+			try { self.pollCompletion(); }
+			catch (string shutdownError) { application.recordHostFailure(shutdownError); self._result = CALLBACK_CANCELLATION_FAILED; }
+		}
 	}
 
 	public void transition(ApplicationActivity activity) { var application = self._application; if (application == null || self._closing) { throw "Application host is detached"; } application.transition(activity); }
@@ -295,12 +311,12 @@ class MacOSHostAttachment implements IApplicationHostAttachment {
 
 	public CallbackCancellation pollCompletion() {
 		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
-		if (self._result == CALLBACK_CANCELLATION_FAILED) { return self._result; }
 		var application = self._application; if (application == null) { return self._result; }
 		self._result = application.finishHostClose();
-		if (self._result == CALLBACK_CANCELLATION_COMPLETE || self._result == CALLBACK_CANCELLATION_FAILED) { self._application = null; }
 		return self._result;
 	}
+
+	public CallbackCancellation ownerCompletion() { var result = self.pollCompletion(); return self._detached ? CALLBACK_CANCELLATION_COMPLETE : result; }
 }
 
 /* One application owner on the main thread. Desktop run() configures AppKit;
@@ -422,7 +438,7 @@ class MacOSApplication implements IApplication {
 		if (self._attachment != null) { result.kind = APPLICATION_HOST_ALREADY_ATTACHED; return result; }
 		if (self._running || self._events.eventsActive()) { result.kind = APPLICATION_HOST_APPLICATION_RUNNING; return result; }
 		var attachment = MacOSHostAttachment(self);
-		try { owner.track(attachment); }
+		try { owner.track(MacOSHostOwnerRegistration(attachment)); }
 		catch (string error) { attachment.abort(); result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = error; return result; }
 		if (!self._executor.installHost(host)) { attachment.abort(); result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = "Publisher wake transition is busy"; return result; }
 		self._attachment = attachment; result.kind = APPLICATION_HOST_ATTACHED; result.attachment = attachment;
@@ -441,6 +457,8 @@ class MacOSApplication implements IApplication {
 		for window in self._windows { window.applicationActivity(activity); }
 	}
 
+	public string workFailure() { self.requireMainThread(); return self._events.workFailure(); }
+
 	public void recordHostFailure(string error) {
 		self.requireMainThread(); self._events.recordFailure(error);
 		try { self._events.requestQuit(self._application); } catch (string shutdownError) { self._events.recordFailure(shutdownError); }
@@ -448,7 +466,7 @@ class MacOSApplication implements IApplication {
 
 	public void serviceHostTurn() {
 		self.requireMainThread(); if (self._closed || self._events.eventsActive()) { return; }
-		try { self._events.serviceTurn(); } catch (string error) { self._events.failWork(error); }
+		try { self._events.serviceTurn(); } catch (string error) { self.recordHostFailure(error); }
 	}
 
 	public CallbackCancellation finishHostClose() {

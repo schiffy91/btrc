@@ -23,6 +23,8 @@ class MacOSNativeFailure {
 
 	public bool failed() { self.requireMainThread(); return self._failed; }
 
+	public string error() { self.requireMainThread(); return self._error; }
+
 	public void check() { self.requireMainThread(); if (self._failed) { throw self._error; } }
 }
 
@@ -88,6 +90,7 @@ class MacOSViewContext {
 	private int _settlementCursor = 0;
 	private bool _nativeTurn = true;
 	private MacOSNativeFailure _failure;
+	private bool _failureSealed = false;
 	public MacOSViewContext(IControlEventWake wake, int capacity = 256, MacOSNativeFailure? failure = null) {
 		self.requireMainThread(); self._failure = failure == null ? MacOSNativeFailure() : failure; self._capacity = capacity; self._pool = ControlEventTerminalPool(65536);
 		self.wake = wake; self.detachedEvents = self.createQueue();
@@ -118,10 +121,18 @@ class MacOSViewContext {
 		return registration;
 	}
 
+	/* Shared failure recording seals semantic admission without notifying a host. */
+	public void recordFailure(string error) {
+		self.requireMainThread(); self._failure.record(error);
+		if (!self._failureSealed) { self._failureSealed = true; for queue in self._queues { queue.sealNativeSource(); } }
+	}
+
+	public string nativeFailure() { return self._failure.error(); }
+
 	/* Native callbacks catch their exception before calling this method. Wake
 	 * failure cannot replace the first error or escape back through the ABI. */
 	public void recordNativeFailure(string error) {
-		self.requireMainThread(); if (self._failure.record(error)) { for queue in self._queues { queue.sealNativeSource(); } }
+		self.recordFailure(error);
 		if (!self._closed) { try { self.wake.requestTurn(); } catch (string ignored) {} }
 	}
 

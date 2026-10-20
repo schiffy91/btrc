@@ -81,17 +81,35 @@ class MacOSApplicationExecutor implements IControlEventWake {
 		return true;
 	}
 
+	/* Publishers seal admission before checking their admitted notifications.
+	 * Their host route stays retained until finishCancellation proves drain. */
+	private void sealFailedWork() {
+		self._closing = true; self._scheduler.close();
+		for publisher in self._publishers { publisher.cancel(); }
+	}
+
+	private void recordFailure(string error) { self._failure.record(error); self.sealFailedWork(); }
+
 	public bool requestTurn() {
 		self.requireMainThread();
-		if (!self._signal.requestTurn()) { return false; }
-		return self._host == null || self._host.requestTurn();
+		if (self._failure.failed()) { self.sealFailedWork(); return self._signal.requestTurn(); }
+		if (!self._signal.requestTurn()) { self.recordFailure("Application native wake failed"); return false; }
+		var host = self._host; if (host == null) { return true; }
+		try { if (host.requestTurn()) { return true; } self.recordFailure("Application host wake failed"); }
+		catch (string error) { self.recordFailure(error); }
+		return false;
 	}
 
 	public void updateDeadline() {
 		self.requireMainThread();
 		unsigned long long deadline = self._scheduler.nextDeadline();
 		self._signal.scheduleDeadline(deadline);
-		if (self._host != null) { self._host.scheduleTurn(deadline); }
+		if (self._failure.failed()) { self.sealFailedWork(); return; }
+		var host = self._host;
+		if (host != null) {
+			try { host.scheduleTurn(deadline); }
+			catch (string error) { self.recordFailure(error); throw error; }
+		}
 	}
 
 	public void suspend(bool suspended) {
@@ -148,7 +166,8 @@ class MacOSApplicationExecutor implements IControlEventWake {
 		self.requireMainThread(); if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		self._closing = true; self._scheduler.close();
 		for publisher in self._publishers { publisher.cancel(); }
-		self.updateDeadline(); return self.pollClose();
+		try { self.updateDeadline(); } catch (string error) { self.recordFailure(error); }
+		return self.pollClose();
 	}
 
 	public CallbackCancellation pollClose() {
