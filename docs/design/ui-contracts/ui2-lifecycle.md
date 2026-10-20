@@ -102,6 +102,19 @@ drafts before the group commits. New windows/edits invalidate the affected
 authorization and force reconciliation before commit. Once final close starts,
 teardown failure is reported; it cannot resurrect windows already destroyed.
 
+For the macOS and Linux implementation, a group-held Authorized transaction
+remains pending. A fresh explicit Save starts a new attempt; a fresh Discard
+acknowledges that revision; Cancel retires the entire group. An edit without a
+new decision must cancel the held permission. The owner publishes the revision
+change on the UI executor before treating that edit as committed. Worker save
+results still return through that executor. Lower revisions change nothing.
+
+A change to window membership or close-handler generation cancels the group;
+a new native quit request obtains fresh decisions. Windows without handlers
+remain open while the group waits, including repeated native window-close
+requests. Cancellation retires every old attempt, while a successful final
+revalidation consumes all held authorizations before irreversible shutdown.
+
 Interactive Back preview does not mutate durable state or pop a route. A
 canceled gesture cancels the preview, not the draft. Android uses native Back
 integration, not an ordinary key binding. OS process death or forced termination

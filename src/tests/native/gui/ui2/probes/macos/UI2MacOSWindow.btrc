@@ -1,4 +1,5 @@
 import Library.Callback;
+import Library.Vector;
 import Library.GUI.ControlEventQueue;
 import Library.GUI.IWindow;
 import Library.GUI.IView;
@@ -12,11 +13,14 @@ class WindowWake implements IControlEventWake { public bool requestTurn() { retu
 class WindowStates implements IWindowStateHandler {
 	public int calls = 0;
 	public WindowState? latest;
+	public WindowState current() { var state = self.latest; if (state == null) { throw "No window state delivered"; } return state; }
+
 	public void stateChanged(WindowState state) { self.calls++; self.latest = state; }
 }
 class WindowDecision implements IWindowCloseRequestHandler {
 	public int calls = 0;
 	public IWindowCloseTransaction? transaction;
+	public IWindowCloseTransaction current() { var transaction = self.transaction; if (transaction == null) { throw "No close transaction delivered"; } return transaction; }
 	public MacOSWindow? alertWindow;
 	public bool discard = false;
 	public IView? ownedRoot;
@@ -28,6 +32,8 @@ class WindowDecision implements IWindowCloseRequestHandler {
 	}
 }
 
+IWindowCloseTransaction requiredTransaction(WindowCloseRequestOutcome request) { var transaction = request.transaction; if (transaction == null) { throw "No close transaction accepted"; } return transaction; }
+
 void drain(MacOSViewContext context) { int turns = 0; while (context.dispatchOne()) { assert(turns++ < 100); } }
 
 void verifyState() {
@@ -36,11 +42,11 @@ void verifyState() {
 	assert(!first.nativeVisible && !first.requestedVisible && !first.presentable && first.exposure == WINDOW_EXPOSURE_NOT_EXPOSED && first.notExposedReason == WINDOW_EXPOSURE_REASON_HIDDEN);
 	first.width = -10.0; assert(window.state().width == 120.0);
 	var owner = CallbackScope(); var states = WindowStates(); window.onStateChanged(states, owner); assert(states.calls == 0);
-	drain(context); assert(states.calls == 1 && states.latest != null); states.latest.width = -5.0; assert(window.state().width == 120.0);
+	drain(context); assert(states.calls == 1 && states.latest != null); states.current().width = -5.0; assert(window.state().width == 120.0);
 	long long revision = window.state().stateRevision;
 	window.setContentSize(150.0, 90.0); window.setContentSize(160.0, 100.0); assert(states.calls == 1);
 	assert(window.state().width == 160.0 && window.state().stateRevision > revision); drain(context);
-	assert(states.calls == 2 && states.latest != null && states.latest.width == 160.0 && states.latest.height == 100.0);
+	assert(states.calls == 2 && states.latest != null && states.current().width == 160.0 && states.current().height == 100.0);
 	revision = window.state().stateRevision; window.setContentSize(160.0, 100.0); drain(context); assert(states.calls == 2 && window.state().stateRevision == revision);
 	window.applicationActivity(APPLICATION_ACTIVITY_SUSPENDED); drain(context); assert(states.calls == 3 && !window.state().presentable && window.state().applicationActivity == APPLICATION_ACTIVITY_SUSPENDED);
 	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && window.close() == CALLBACK_CANCELLATION_COMPLETE);
@@ -53,7 +59,7 @@ void verifySaveAndCancel() {
 	var request = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); assert(request.kind == WINDOW_CLOSE_REQUEST_PENDING && request.transaction != null && handler.calls == 0);
 	var again = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); assert(again.kind == WINDOW_CLOSE_REQUEST_ALREADY_PENDING && again.transaction == request.transaction);
 	drain(context); assert(handler.calls == 1 && handler.transaction == request.transaction);
-	var transaction = request.transaction; assert(transaction != null); var saving = transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 3LL); assert(saving.state == WINDOW_CLOSE_SAVING && saving.attempt > 0LL);
+	var transaction = requiredTransaction(request); var saving = transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 3LL); assert(saving.state == WINDOW_CLOSE_SAVING && saving.attempt > 0LL);
 	assert(transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 4LL).attempt == saving.attempt);
 	assert(transaction.completeSave(saving.attempt, 3LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION && window.isOpen());
 	var retry = transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 4LL); assert(retry.attempt > saving.attempt);
@@ -62,7 +68,7 @@ void verifySaveAndCancel() {
 	assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 4LL).state == WINDOW_CLOSE_CANCELLED && window.isOpen());
 	assert(transaction.completeSave(retry.attempt, 4LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
 	var second = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); assert(second.transaction != null && second.transaction != transaction); owner.cancel();
-	assert(second.transaction.state() == WINDOW_CLOSE_CANCELLED); drain(context); assert(handler.calls == 1 && window.isOpen());
+	assert(requiredTransaction(second).state() == WINDOW_CLOSE_CANCELLED); drain(context); assert(handler.calls == 1 && window.isOpen());
 	assert(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER && window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_CLOSED); context.close();
 }
@@ -74,7 +80,7 @@ void verifyNativeAndEnteredClose() {
 	first.nativeWindow().performClose(null); first.nativeWindow().performClose(null);
 	assert(first.isOpen() && handler.calls == 0); first.dispatchPendingEvents(); assert(handler.calls == 0); drain(context);
 	assert(handler.calls == 1 && handler.modalRejected && handler.transaction != null && second.isOpen());
-	handler.transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL); assert(first.isOpen() && second.isOpen());
+	handler.current().decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL); assert(first.isOpen() && second.isOpen());
 	// The new request resolves from its entered callback. Native teardown must
 	// wait for that callback to leave instead of treating PENDING as failure.
 	handler.discard = true; first.nativeWindow().performClose(null); first.dispatchPendingEvents(); drain(context);
@@ -86,12 +92,63 @@ void verifyForcedClose() {
 	var context = MacOSViewContext(WindowWake()); var window = MacOSWindow("forced", 100.0, 100.0, null, context);
 	var scope = CallbackScope(); var handler = WindowDecision(); window.onCloseRequested(handler, scope);
 	var request = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); assert(request.transaction != null);
-	assert(window.close() == CALLBACK_CANCELLATION_COMPLETE && request.transaction.state() == WINDOW_CLOSE_OWNER_LOST); drain(context);
-	assert(handler.calls == 0 && request.transaction.decide(WINDOW_CLOSE_DECISION_DISCARD, 1LL).kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING); scope.cancel(); context.close();
+	assert(window.close() == CALLBACK_CANCELLATION_COMPLETE && requiredTransaction(request).state() == WINDOW_CLOSE_OWNER_LOST); drain(context);
+	assert(handler.calls == 0 && requiredTransaction(request).decide(WINDOW_CLOSE_DECISION_DISCARD, 1LL).kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING); scope.cancel(); context.close();
+}
+
+void verifyQuitGroup() {
+	var context = MacOSViewContext(WindowWake()); var first = MacOSWindow("quit first", 100.0, 100.0, null, context); var second = MacOSWindow("quit second", 100.0, 100.0, null, context); var clean = MacOSWindow("clean", 100.0, 100.0, null, context);
+	Vector<MacOSWindow> windows = [first, second, clean]; var scope = CallbackScope(); var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	var group = MacOSWindowQuitCoordinator(windows, context); assert(!group.advance()); drain(context); assert(a.calls == 1 && b.calls == 1 && a.transaction != null && b.transaction != null);
+	// Repeated native close on a no-handler member cannot close it early.
+	clean.nativeWindow().performClose(null); clean.dispatchPendingEvents(); assert(clean.isOpen());
+	assert(first.requestCoordinatedClose().transaction == a.transaction && !group.advance()); drain(context); assert(a.calls == 1);
+	var firstSave = a.current().decide(WINDOW_CLOSE_DECISION_SAVE, 1LL); var secondSave = b.current().decide(WINDOW_CLOSE_DECISION_SAVE, 8LL);
+	assert(a.current().completeSave(firstSave.attempt, 1LL, true, "").state == WINDOW_CLOSE_AUTHORIZED && first.isOpen());
+	assert(a.current().decide(WINDOW_CLOSE_DECISION_DISCARD, 0LL).kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+	var newSave = a.current().decide(WINDOW_CLOSE_DECISION_SAVE, 2LL); assert(newSave.attempt > firstSave.attempt && newSave.state == WINDOW_CLOSE_SAVING);
+	assert(b.current().completeSave(secondSave.attempt, 8LL, true, "").state == WINDOW_CLOSE_AUTHORIZED && !group.advance() && second.isOpen());
+	assert(a.current().completeSave(firstSave.attempt, 1LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT && !group.advance());
+	assert(a.current().completeSave(newSave.attempt, 2LL, true, "").state == WINDOW_CLOSE_AUTHORIZED && group.advance());
+	group.commit(); assert(first.isOpen() && second.isOpen() && clean.isOpen()); assert(a.current().state() == WINDOW_CLOSE_CLOSING && b.current().state() == WINDOW_CLOSE_CLOSING && !context.nativeQuitPending());
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE && clean.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel(); context.close();
+}
+
+void verifyQuitCancellation() {
+	var context = MacOSViewContext(WindowWake()); var first = MacOSWindow("cancel first", 100.0, 100.0, null, context); var second = MacOSWindow("cancel second", 100.0, 100.0, null, context);
+	Vector<MacOSWindow> windows = [first, second]; var scope = CallbackScope(); var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	var group = MacOSWindowQuitCoordinator(windows, context); assert(!group.advance()); drain(context); assert(a.transaction != null && b.transaction != null);
+	a.current().decide(WINDOW_CLOSE_DECISION_DISCARD, 3LL); var saving = b.current().decide(WINDOW_CLOSE_DECISION_SAVE, 2LL);
+	assert(a.current().decide(WINDOW_CLOSE_DECISION_CANCEL, 4LL).state == WINDOW_CLOSE_CANCELLED && !group.advance() && group.cancelled());
+	assert(first.isOpen() && second.isOpen() && b.current().state() == WINDOW_CLOSE_CANCELLED);
+	assert(b.current().completeSave(saving.attempt, 2LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	var old = a.transaction; var fresh = MacOSWindowQuitCoordinator(windows, context); assert(!fresh.advance()); drain(context); assert(a.calls == 2 && a.transaction != old); fresh.cancel();
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel(); context.close();
+}
+
+void verifyQuitMembership() {
+	var context = MacOSViewContext(WindowWake()); var first = MacOSWindow("member", 100.0, 100.0, null, context); var clean = MacOSWindow("initially clean", 100.0, 100.0, null, context);
+	Vector<MacOSWindow> windows = [first, clean]; var scope = CallbackScope(); var a = WindowDecision(); first.onCloseRequested(a, scope);
+	var group = MacOSWindowQuitCoordinator(windows, context); assert(!group.advance()); drain(context); assert(a.transaction != null); a.current().decide(WINDOW_CLOSE_DECISION_DISCARD, 1LL);
+	var b = WindowDecision(); var registration = clean.onCloseRequested(b, scope); assert(!group.advance() && group.cancelled() && a.current().state() == WINDOW_CLOSE_CANCELLED && first.isOpen() && clean.isOpen());
+	registration.cancel(); var fresh = MacOSWindowQuitCoordinator(windows, context); assert(!fresh.advance()); drain(context);
+	var added = MacOSWindow("new member", 100.0, 100.0, null, context); windows.push(added); assert(!fresh.advance() && fresh.cancelled() && first.isOpen() && clean.isOpen() && added.isOpen());
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && clean.close() == CALLBACK_CANCELLATION_COMPLETE && added.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel(); context.close();
+}
+
+void verifyQuitUndeliveredCancellation() {
+	var context = MacOSViewContext(WindowWake()); var first = MacOSWindow("queued first", 100.0, 100.0, null, context); var second = MacOSWindow("queued second", 100.0, 100.0, null, context);
+	Vector<MacOSWindow> windows = [first, second]; var scope = CallbackScope(); var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	var group = MacOSWindowQuitCoordinator(windows, context); assert(!group.advance() && a.calls == 0 && b.calls == 0);
+	var added = MacOSWindow("membership changed", 100.0, 100.0, null, context); windows.push(added); assert(!group.advance() && group.cancelled());
+	var fresh = MacOSWindowQuitCoordinator(windows, context); assert(!fresh.advance()); drain(context);
+	assert(a.calls == 1 && b.calls == 1 && a.current().state() == WINDOW_CLOSE_AWAITING_DECISION && b.current().state() == WINDOW_CLOSE_AWAITING_DECISION);
+	fresh.cancel(); assert(first.isOpen() && second.isOpen() && added.isOpen());
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE && added.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel(); context.close();
 }
 
 int main() {
 	NSApplication.sharedApplication();
-	verifyState(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose();
+	verifyState(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose(); verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation();
 	print("PASS: UI2 macOS window state and reversible close transactions"); return 0;
 }

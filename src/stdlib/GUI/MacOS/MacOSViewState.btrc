@@ -83,6 +83,7 @@ class MacOSViewContext {
 	private bool _dispatching = false;
 	private bool _treeMutation = false;
 	private int _closeDecisionDepth = 0;
+	private bool _nativeQuitPending = false;
 	private Vector<MacOSNativeSettlementRegistration> _settlements = [];
 	private int _settlementCursor = 0;
 	private bool _nativeTurn = true;
@@ -155,6 +156,10 @@ class MacOSViewContext {
 	}
 
 	public bool pending() { self.requireMainThread(); if (self._closed) { return false; } if (self._failure.failed()) { return true; } for registration in self._settlements { if (registration.pending()) { return true; } } for queue in self._queues { if (queue.pendingCount() > 0) { return true; } } return false; }
+
+	public bool nativeQuitPending() { self.requireMainThread(); return self._nativeQuitPending; }
+
+	public void setNativeQuitPending(bool pending) { self.requireMainThread(); self._nativeQuitPending = pending; }
 
 	public void requireUI() { self.requireMainThread(); }
 
