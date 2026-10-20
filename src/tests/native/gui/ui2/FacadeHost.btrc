@@ -1,5 +1,5 @@
 import Library.Callback;
-import Library.GUI.GUI;
+import Library.GUI;
 import Library.GUI.IApplication;
 
 #include "Executor.btrc"
