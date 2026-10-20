@@ -20,15 +20,16 @@ interface IMacOSNativeSettlement { void settleNative(); }
 class MacOSNativeSettlementRegistration implements ICallbackRegistration {
 	private IMacOSNativeSettlement? _receiver;
 	private IControlEventWake _wake;
+	private MacOSViewContext _context;
 	private bool _open = true;
 	private bool _pending = false;
 	private bool _entered = false;
-	public MacOSNativeSettlementRegistration(IMacOSNativeSettlement receiver, IControlEventWake wake) { self._receiver = receiver; self._wake = wake; }
+	public MacOSNativeSettlementRegistration(IMacOSNativeSettlement receiver, IControlEventWake wake, MacOSViewContext context) { self._receiver = receiver; self._wake = wake; self._context = context; }
 
 	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native settlement requires the main thread"; } }
 
 	public void request() {
-		self.requireMainThread(); if (!self._open) { throw "Native settlement is closed"; }
+		self.requireMainThread(); self._context.checkNativeFailure(); if (!self._open) { throw "Native settlement is closed"; }
 		if (self._pending) { return; }
 		self._pending = true;
 		try { if (!self._wake.requestTurn()) { throw "Native settlement wake failed"; } }
@@ -81,7 +82,7 @@ class MacOSViewContext {
 	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Native view state requires the main thread"; } }
 
 	public ControlEventQueue createQueue() {
-		self.requireMainThread(); if (self._closed) { throw "Native view context is closed"; }
+		self.requireMainThread(); self.checkNativeFailure(); if (self._closed) { throw "Native view context is closed"; }
 		var queue = ControlEventQueue(self._capacity, self._pool); queue.setWake(self.wake); self._queues.push(queue); return queue;
 	}
 
@@ -93,11 +94,11 @@ class MacOSViewContext {
 	}
 
 	public MacOSNativeSettlementRegistration registerNativeSettlement(IMacOSNativeSettlement receiver, CallbackScope owner) {
-		self.requireMainThread(); if (self._closed || receiver == null || owner == null) { throw "Native settlement owner is closed or missing"; }
+		self.requireMainThread(); self.checkNativeFailure(); if (self._closed || receiver == null || owner == null) { throw "Native settlement owner is closed or missing"; }
 		for (int index = self._settlements.len - 1; index >= 0; index--) {
 			if (self._settlements.get(index).pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) { self._settlements.remove(index); if (index < self._settlementCursor) { self._settlementCursor--; } }
 		}
-		var registration = MacOSNativeSettlementRegistration(receiver, self.wake);
+		var registration = MacOSNativeSettlementRegistration(receiver, self.wake, self);
 		try { owner.track(registration); self._settlements.push(registration); }
 		catch (string error) { registration.cancel(); throw error; }
 		return registration;
@@ -106,9 +107,13 @@ class MacOSViewContext {
 	/* Native callbacks catch their exception before calling this method. Wake
 	 * failure cannot replace the first error or escape back through the ABI. */
 	public void recordNativeFailure(string error) {
-		self.requireMainThread(); if (!self._nativeFailed) { self._nativeFailed = true; self._nativeFailure = error; }
+		self.requireMainThread(); if (!self._nativeFailed) { self._nativeFailed = true; self._nativeFailure = error; for queue in self._queues { queue.sealNativeSource(); } }
 		if (!self._closed) { try { self.wake.requestTurn(); } catch (string ignored) {} }
 	}
+
+	public bool nativeFailed() { self.requireMainThread(); return self._nativeFailed; }
+
+	public void checkNativeFailure() { self.requireMainThread(); if (self._nativeFailed) { throw self._nativeFailure; } }
 
 	private bool dispatchSettlement() {
 		for (int examined = 0; examined < self._settlements.len; examined++) {
@@ -122,7 +127,7 @@ class MacOSViewContext {
 
 	public bool dispatchOne() {
 		self.requireMainThread(); if (self._dispatching) { throw "Semantic delivery cannot re-enter"; } if (self._closed || self._treeMutation) { return false; }
-		if (self._nativeFailed) { throw self._nativeFailure; }
+		self.checkNativeFailure();
 		self._dispatching = true;
 		bool delivered = false;
 		try {
@@ -141,7 +146,7 @@ class MacOSViewContext {
 	public bool treeMutationActive() { self.requireMainThread(); return self._treeMutation; }
 
 	public void beginTreeMutation() {
-		self.requireMainThread();
+		self.requireMainThread(); self.checkNativeFailure();
 		if (self._closed) { throw "Native view context is closed"; }
 		if (self._treeMutation) { throw "Native tree mutation is already active"; }
 		self._treeMutation = true;
@@ -214,7 +219,7 @@ class MacOSViewState implements IControlEventTarget {
 
 	public long long generation() { return self._generation; }
 
-	public bool effectiveEligible() { return !self._closing && !self._closed && self._state.effectiveEligible; }
+	public bool effectiveEligible() { return !self._closing && !self._closed && (self._context == null || !self._context.nativeFailed()) && self._state.effectiveEligible; }
 
 	public ControlEventDisposition observationAdmission(long long generation) { return self._closing || self._closed ? CONTROL_EVENT_CLOSED : generation != self._generation ? CONTROL_EVENT_STALE_GENERATION : CONTROL_EVENT_DELIVERED; }
 
@@ -268,7 +273,7 @@ class MacOSViewState implements IControlEventTarget {
 		if (self._queue != self._nextQueue) {
 			if (self._generation == 9223372036854775807LL) { throw "Native view generations exhausted"; }
 			self._generation++; self._queue = self._nextQueue;
-			for channel in self._channels { if (channel.isOpen()) { channel.rebind(self.events()); } }
+			for channel in self._channels { if (channel.isOpen()) { if (self._context != null && self._context.nativeFailed()) { channel.cancel(); } else { channel.rebind(self.events()); } } }
 		}
 		for child in self._children { child.commitRoute(); }
 	}
@@ -276,7 +281,7 @@ class MacOSViewState implements IControlEventTarget {
 	private void publish() {
 		if (self._changed) {
 			self._changed = false; var channel = self._observation;
-			if (!self._closing && !self._closed && channel != null && channel.isOpen() && !channel.publish(self.snapshot(), self._generation, 0LL, 1LL)) { throw "Interaction state semantic source is unavailable"; }
+			if (!self._closing && !self._closed && (self._context == null || !self._context.nativeFailed()) && channel != null && channel.isOpen() && !channel.publish(self.snapshot(), self._generation, 0LL, 1LL)) { throw "Interaction state semantic source is unavailable"; }
 		}
 		for child in self._children { child.publish(); }
 	}
@@ -370,7 +375,7 @@ class MacOSViewState implements IControlEventTarget {
 
 	public CallbackCancellation close() {
 		self.requireMainThread(); if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
-		if (!self._closing) { self._closing = true; self.mark(false, self._state.exposure); self.settle(); self._callbacks.cancel(); }
+		if (!self._closing) { self._closing = true; try { self.mark(false, self._state.exposure); self.settle(); } finally { self._callbacks.cancel(); } }
 		return self.pollClose();
 	}
 

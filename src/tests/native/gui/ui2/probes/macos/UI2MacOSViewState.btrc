@@ -39,6 +39,29 @@ class ClosingViewObservation implements IViewInteractionStateHandler {
 		assert(self.registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
 	}
 }
+class FailedViewSettlement implements IMacOSViewEligibility {
+	public bool raises = false;
+	public void eligibilityLost() { if (self.raises) { throw "failed-source terminal settlement"; } }
+}
+
+void verifyFailedSourceCleanup(IControlEventWake wake) {
+	for (int mode = 0; mode < 2; mode++) {
+		var failedContext = MacOSViewContext(wake, 2); var queue = failedContext.createQueue();
+		var settlement = FailedViewSettlement(); var state = MacOSViewState(settlement); state.configure(failedContext);
+		state.attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED); var scope = CallbackScope(); var observer = ViewObservation();
+		var registration = state.observe(observer, scope); state.setLayoutParticipating(false); assert(queue.pendingCount() == 1);
+		failedContext.recordNativeFailure("native input failure"); assert(!state.effectiveEligible());
+		if (mode == 0) { state.detachWindow(); assert(state.close() == CALLBACK_CANCELLATION_COMPLETE); }
+		else {
+			settlement.raises = true; bool raised = false;
+			try { state.close(); } catch (string error) { raised = error == "failed-source terminal settlement"; }
+			assert(raised && state.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		}
+		assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(queue.pendingCount() == 0 && queue.retired(CONTROL_EVENT_CANCELLED) == 1LL && observer.states.isEmpty()); failedContext.close();
+	}
+}
+
 int main() {
 	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8); var windowEvents = context.createQueue();
 	var root = MacOSView(); var child = MacOSView(); root.stateNode().configure(context);
@@ -115,6 +138,7 @@ int main() {
 	context.endTreeMutation(); assert(context.dispatchOne() && heldObserver.states.len == 2 && !context.pending());
 	assert(heldObserver.states.get(1).stateRevision == beforeTreeRevision + 1LL);
 	assert(heldRegistration.cancel() == CALLBACK_CANCELLATION_COMPLETE && heldOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && held.close() == CALLBACK_CANCELLATION_COMPLETE);
+	verifyFailedSourceCleanup(MacOSSemanticWake(signal));
 	context.close(); assert(signal.close());
 	print("PASS: UI2 macOS native view state subtree eligibility and deferred observations"); return 0;
 }

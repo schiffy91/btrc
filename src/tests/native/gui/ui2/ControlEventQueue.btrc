@@ -51,6 +51,25 @@ class QueueWake implements IControlEventWake {
 }
 
 class QueueFailureChecks {
+	class void sealedNativeSource(bool cancel) {
+		var pool = ControlEventTerminalPool(3); var queue = ControlEventQueue(2, pool);
+		var target = QueueTarget(); var receiver = QueueReceiver(); var scope = CallbackScope();
+		var channel = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(queue, target, receiver, QueueReceiver.deliver, scope);
+		var accepted = channel.beginInteraction(); var unqueued = channel.beginInteraction(); assert(accepted != null && unqueued != null);
+		assert(channel.publish(QueueSnapshot(96), 1LL, 1LL, 0LL)); channel.publishTerminal(QueueSnapshot(97), 1LL, 1LL, accepted);
+		queue.sealNativeSource(); queue.sealNativeSource();
+		assert(queue.pendingCount() == 2 && !queue.canCapture(0) && channel.beginInteraction() == null);
+		assert(!channel.publish(QueueSnapshot(98), 1LL, 1LL, 0LL) && receiver.values.len == 0);
+		bool refused = false;
+		try { var other = new ControlEventChannel<IQueueReceiver, QueueSnapshot>(queue, target, receiver, QueueReceiver.deliver, scope); } catch (string error) { refused = true; }
+		assert(refused && pool.available() == 1);
+		refused = false; try { channel.publishTerminal(QueueSnapshot(99), 1LL, 2LL, unqueued); } catch (string error) { refused = true; }
+		assert(refused && !unqueued.isOpen() && pool.available() == 2 && queue.pendingCount() == 2);
+		if (cancel) { assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); assert(queue.retired(CONTROL_EVENT_CANCELLED) == 2LL); }
+		else { queue.close(); assert(queue.retired(CONTROL_EVENT_CLOSED) == 2LL); assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); }
+		assert(queue.pendingCount() == 0 && !accepted.isOpen() && pool.available() == 3 && receiver.values.len == 0); queue.close();
+	}
+
 	class void ineligibleTerminal() {
 		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(1, pool);
 		var target = QueueTarget(); var receiver = QueueReceiver(); var scope = CallbackScope();
@@ -144,6 +163,7 @@ class QueueFailureChecks {
 }
 
 int main() {
+	QueueFailureChecks.sealedNativeSource(false); QueueFailureChecks.sealedNativeSource(true);
 	QueueFailureChecks.ineligibleTerminal();
 	QueueFailureChecks.foreignQueueTicket(false); QueueFailureChecks.foreignQueueTicket(true);
 	QueueFailureChecks.cancelledOwner(); QueueFailureChecks.enteredTerminalCredit();

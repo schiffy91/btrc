@@ -123,9 +123,12 @@ class ControlEventQueue {
 
 	public void setWake(IControlEventWake wake) { if (wake == null || self._closed) { throw "Semantic queue requires a live wake"; } self._wake = wake; }
 
-	public long long registrationIdentity() { if (self._closed) { throw "Semantic queue is closed"; } return self._pool.registrationIdentity(); }
+	public long long registrationIdentity() { if (self._closed || self._wakeFailed) { throw "Semantic queue is closed"; } return self._pool.registrationIdentity(); }
 
 	public int pendingCount() { return self._records.len; }
+
+	/* Seal admission without discarding receipts owned by cancellation/close. */
+	public void sealNativeSource() { self._wakeFailed = true; }
 
 	public bool canCapture(int maximumRecords) { return !self._closed && !self._wakeFailed && maximumRecords >= 0 && maximumRecords <= self._capacity - self._normal; }
 
@@ -253,7 +256,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	}
 
 	public ControlEventTicket? beginInteraction() {
-		if (!self.isOpen()) { return null; }
+		if (!self.isOpen() || !self._queue.canCapture(0)) { return null; }
 		for (int index = self._tickets.len - 1; index >= 0; index--) { if (!self._tickets.get(index).isOpen()) { self._tickets.remove(index); } }
 		bool extra = self._baseTicket != null && self._baseTicket.isOpen();
 		if (extra && !self._queue.terminalPool().reserve()) { return null; }
