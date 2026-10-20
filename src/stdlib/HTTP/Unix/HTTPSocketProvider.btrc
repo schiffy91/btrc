@@ -1,0 +1,4 @@
+/* HTTPSocket's provider on linux, macOS, iOS and Android: selection only.
+ * Their BSD-socket bodies stay inline in HTTPSocket.btrc under
+ * `#if !defined(_WIN32)`, so these rows compile exactly the C they compiled
+ * before the Winsock provider (Windows/HTTPSocketProvider.btrc) existed. */

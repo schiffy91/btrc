@@ -1182,3 +1182,45 @@ Acceptance for this revision is source coverage, the explicit case design,
 owned-path check and docs-tier CI. None of its native, trust-store or provider
 fixtures has run in this docs-only revision. CL-P2-01 approval and PLAN entry
 remain pending; this does not unblock provider implementation on its own.
+
+
+## Winsock server and socket ownership
+
+The Windows `HTTPSocket` provider preserves the current HTTP server API. It
+uses an IPv4 loopback listener by default, exclusive port ownership, bounded
+nonblocking I/O, and the same absolute deadlines and framing limits as the
+Unix implementation. `localPort` reports the port assigned to a port-zero
+listener. Binding all interfaces emits the existing platform-adaptations
+warning. This server provider does not implement the proposed WinHTTP client;
+`HTTPClient` still uses its existing transport.
+
+`Windows/Win32Sockets.c` is a separate C11 native unit. It includes the SDK's
+`winsock2.h` declarations and the HTTP package declares `ws2_32` as a native
+library. Generated program units see only the private primitive header;
+Winsock headers, constants, structures and function signatures are not copied
+into generated C or a second ABI table. Both corpus runners preserve the
+compiler's native plan and use the existing native builder when that plan
+selects native sources, generated adapters or link dependencies.
+
+The primitive boundary owns native handles and concurrent access. An integer
+socket descriptor is a registry slot plus generation, never a truncated
+`SOCKET`. Close invalidates the token and signals cancellation immediately;
+existing borrowers keep the handle and its events alive until they finish.
+The last borrower performs the final close. Exhausted generations retire
+instead of wrapping. The registry keeps retired identities for the process
+lifetime. Winsock startup remains held while a live or borrowed closing socket
+exists, and the last release balances cleanup.
+
+Each socket owns network and cancellation events. Event creation preserves
+its first error before another native call can replace it. Accepted sockets
+are rejected if inheritance cannot be inspected or disabled. Every failed
+acquisition closes the socket and any events already acquired. BTRC owns
+HTTP framing, limits, deadlines and server policy above this boundary.
+
+Qualification requires both frontends, independent real Winsock loopback
+peers, deterministic event-allocation and handle-inheritance failures, and
+native execution on x64 and ARM64 Windows. The workflow retains stdout,
+stderr and process status even after a failed or timed-out native run.
+Cross-compilation alone is not Windows runtime evidence. The Unix-only
+socketpair/fork fixtures remain explicitly restricted on Windows; their
+Windows counterparts use real loopback sockets in `WindowsHttpCases.btrc`.

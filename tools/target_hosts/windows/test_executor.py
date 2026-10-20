@@ -310,6 +310,15 @@ def test_an_architecture_the_hardware_would_only_emulate_is_refused(bundle):
     WindowsNativeExecutor(machine=lambda: 0x8664).prepare(bundle, LABEL)
 
 
+def test_the_loopback_listener_capability_is_the_hosts_own_probe():
+    """A program that declares BTRC_TEST_REQUIRES: loopback-listener runs only
+    where this host opens an IPv4 loopback listener; the runner asks after
+    prepare, and the default probe opens a real one."""
+    assert WindowsNativeExecutor(loopback=lambda: True).granted_capabilities() == frozenset({"loopback-listener"})
+    assert WindowsNativeExecutor(loopback=lambda: False).granted_capabilities() == frozenset()
+    assert WindowsNativeExecutor.loopback_listener() in {True, False}
+
+
 def test_unbuilt_programs_are_never_staged(bundle):
     document = read_document(bundle)
     document["programs"]["selfhost-basics-Missing"] = {"source": "basics/Missing.btrc", "status": "missing"}

@@ -28,6 +28,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -35,6 +36,7 @@ from src.compiler.python import Compiler, CompilerOptions
 from src.tests.c_toolchains import configured_c_compiler
 from src.tests.c_toolchains import default_c_compiler as default_c_compiler  # re-exported for CI steps
 from src.tests.corpus_files import language_test_files
+from src.tests.native_build import NativeCorpusBuild
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.runner_capabilities import (
     TARGET_CAPABILITIES,
@@ -130,7 +132,7 @@ def _transpile_python(btrc_path, btrc_file):
     return _transpile_python_with_warnings(btrc_path, btrc_file)[0]
 
 
-def _transpile_python_with_warnings(btrc_path, btrc_file):
+def _transpile_python_with_warnings(btrc_path, btrc_file, native_directory=None):
     """The reference compiler's C for a .btrc file, and its sorted warning lines."""
     with open(btrc_path) as f:
         source = f.read()
@@ -142,7 +144,10 @@ def _transpile_python_with_warnings(btrc_path, btrc_file):
     assert result.failure is None, f"{btrc_file}: compile failed: {result.failure}"
     assert result.analyzed is None or not result.analyzed.errors, f"Analyzer errors: {result.analyzed.errors}"
     assert result.c_source is not None, f"{btrc_file}: the compiler emitted no C"
-    return result.c_source, _python_warnings(result, btrc_path)
+    source = (
+        result.c_source if native_directory is None else NativeCorpusBuild.from_result(result, Path(native_directory))
+    )
+    return source, _python_warnings(result, btrc_path)
 
 
 def _transpile_python_module_units(btrc_path, directory):
@@ -158,7 +163,10 @@ def _transpile_python_module_units(btrc_path, directory):
     )
     result = _PYTHON_COMPILER.compile(source, btrc_path, options)
     assert result.failure is None, f"module-unit compile failed: {result.failure}"
-    return (result.c_source, *result.c_units), _python_warnings(result, btrc_path)
+    artifact = NativeCorpusBuild.from_result(result, Path(directory))
+    return (
+        artifact if isinstance(artifact, NativeCorpusBuild) else (result.c_source, *result.c_units)
+    ), _python_warnings(result, btrc_path)
 
 
 def _transpile_btrc(btrcc, btrc_path):
@@ -166,22 +174,34 @@ def _transpile_btrc(btrcc, btrc_path):
     return _transpile_btrc_with_warnings(btrcc, btrc_path)[0]
 
 
-def _transpile_btrc_with_warnings(btrcc, btrc_path):
+def _transpile_btrc_with_warnings(btrcc, btrc_path, native_directory=None):
     """btrcc's C for a .btrc file, and its sorted warning lines.
 
     btrcc composes the stdlib + resolves includes itself (default mode) and
     writes the C to stdout. The shared fixture supplies an explicit runtime data
     root; the repository cwd keeps test paths and diagnostics deterministic.
     """
+    artifact = None
+    outputs = []
+    if native_directory is not None:
+        directory = Path(native_directory)
+        artifact = NativeCorpusBuild(directory / "program.c", directory / "program.json")
+        outputs = ["-o", str(artifact.primary), "--emit-link-plan", str(artifact.plan)]
     r = subprocess.run(
-        [btrcc, btrc_path],
+        [btrcc, btrc_path, *outputs],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
         timeout=BTRC_TRANSPILE_TIMEOUT,
     )
-    assert r.returncode == 0 and r.stdout.strip(), f"btrcc failed to transpile:\nstderr: {r.stderr[:2000]}"
-    return r.stdout, _selfhost_warnings(r.stderr)
+    assert r.returncode == 0, f"btrcc failed to transpile:\nstderr: {r.stderr[:2000]}"
+    source = (
+        artifact
+        if artifact is not None and artifact.required()
+        else (artifact.primary.read_text(encoding="utf-8") if artifact is not None else r.stdout)
+    )
+    assert source, "btrcc emitted no C"
+    return source, _selfhost_warnings(r.stderr)
 
 
 def _transpile_btrc_module_units(btrcc, btrc_path, directory):
@@ -216,10 +236,11 @@ def _transpile_btrc_module_units(btrcc, btrc_path, directory):
     for path in (primary, *units):
         with open(path) as unit_file:
             texts.append(unit_file.read())
-    return tuple(texts), _selfhost_warnings(r.stderr)
+    artifact = NativeCorpusBuild(Path(primary), Path(plan))
+    return (artifact if artifact.required() else tuple(texts)), _selfhost_warnings(r.stderr)
 
 
-def _gcc_flags(c_source, c_path, bin_path):
+def _gcc_flags(c_source, c_path, bin_path, *, native=False):
     """Build the emitted-C command, including the compiler-only compute runtime
     and any separately compiled runtime object the emitted C retains."""
     runtime_objects = RuntimeObjects.selected([c_source])
@@ -236,6 +257,7 @@ def _gcc_flags(c_source, c_path, bin_path):
     ]
     if "pthread.h" in c_source:
         gcc_flags.append("-lpthread")
+    dependency_start = len(gcc_flags)
     if "btrc_gpu_compute_internal.h" in c_source:
         if not os.path.isfile(os.path.join(_GPU_BUILD, "libbtrc_gpu.a")):
             pytest.skip("Compute runtime not built (run make gpu)")
@@ -256,6 +278,9 @@ def _gcc_flags(c_source, c_path, bin_path):
             gcc_flags.extend(["-lwgpu_native", "-lpthread"])
         else:
             pytest.skip(f"WebGPU toolchain is unavailable on {platform.system()}: set GPU_CFLAGS and GPU_LDFLAGS")
+    if native:
+        compile_flags, link_flags = NativeCorpusBuild.split_dependency_flags(gcc_flags[dependency_start:])
+        return [*BTRC_CFLAGS, *compile_flags], [*BTRC_CFLAGS, *link_flags]
     return gcc_flags
 
 
@@ -264,7 +289,8 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
 
     `c_source` is one translation unit, or a tuple whose first unit is the
     primary and whose others are linked with it."""
-    units = c_source if isinstance(c_source, tuple) else (c_source,)
+    native = c_source if isinstance(c_source, NativeCorpusBuild) else None
+    units = native.sources() if native is not None else (c_source if isinstance(c_source, tuple) else (c_source,))
     c_source = "\n".join(units)
     with tempfile.NamedTemporaryFile(suffix=".c", delete=False, mode="w") as f:
         f.write(units[0])
@@ -279,10 +305,14 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
         gcc_flags = _gcc_flags(c_source, c_path, bin_path)
         if unit_paths:
             gcc_flags[gcc_flags.index(c_path) + 1 : gcc_flags.index(c_path) + 1] = unit_paths
-        compile_result = subprocess.run(gcc_flags, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT)
-        assert compile_result.returncode == 0, (
-            f"gcc failed:\nstdout: {compile_result.stdout}\nstderr: {compile_result.stderr}"
-        )
+        if native is not None:
+            compile_flags, link_flags = _gcc_flags(c_source, c_path, bin_path, native=True)
+            native.build(Path(bin_path), cc=BTRC_CC, compile_flags=compile_flags, link_flags=link_flags)
+        else:
+            compile_result = subprocess.run(gcc_flags, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT)
+            assert compile_result.returncode == 0, (
+                f"gcc failed:\nstdout: {compile_result.stdout}\nstderr: {compile_result.stderr}"
+            )
         _require_test_capabilities(btrc_path)
         run_result = subprocess.run([bin_path], capture_output=True, text=True, timeout=BTRC_RUN_TIMEOUT)
         assert run_result.returncode == 0, (
@@ -323,12 +353,12 @@ def test_btrc_file(compiler, btrc_file, request, tmp_path):
     if compiler == "python" and MODULE_UNITS:
         c_source, warnings = _transpile_python_module_units(btrc_path, str(tmp_path))
     elif compiler == "python":
-        c_source, warnings = _transpile_python_with_warnings(btrc_path, btrc_file)
+        c_source, warnings = _transpile_python_with_warnings(btrc_path, btrc_file, tmp_path)
     elif MODULE_UNITS:
         btrcc = request.getfixturevalue("btrcc_bin")
         c_source, warnings = _transpile_btrc_module_units(btrcc, btrc_path, str(tmp_path))
     else:
         btrcc = request.getfixturevalue("btrcc_bin")
-        c_source, warnings = _transpile_btrc_with_warnings(btrcc, btrc_path)
+        c_source, warnings = _transpile_btrc_with_warnings(btrcc, btrc_path, tmp_path)
     assert warnings == expected_warnings(btrc_path), f"{compiler} warnings differ from the program's warning golden"
     _compile_run_check(c_source, btrc_path, btrc_file)

@@ -1,0 +1,23 @@
+/* Windows socket primitives own SDK handles, cancellation and borrower
+ * lifetimes. HTTPSocket owns HTTP framing and deadline policy. The package
+ * plan compiles Win32Sockets.c separately and links the SDK import library. */
+#include "Win32Sockets.h"
+
+extern int btrcWinSocketListen(void** registry, int port, int bindAny, int backlog, int* token);
+extern int btrcWinSocketAccept(void** registry, int listener, int* token);
+extern int btrcWinSocketWait(void** registry, int token, int events, int milliseconds);
+extern int btrcWinSocketReceive(void** registry, int token, char* buffer, int capacity, int* received);
+extern int btrcWinSocketSend(void** registry, int token, char* data, int length, int* sent);
+extern int btrcWinSocketShutdownSend(void** registry, int token);
+extern int btrcWinSocketClose(void** registry, int token);
+extern int btrcWinSocketLocalPort(void** registry, int token);
+extern int btrcWinSocketInheritable(void** registry, int token);
+extern int btrcWinSocketLive(void** registry);
+extern int btrcWinSocketStartups(void** registry);
+extern int btrcWinSocketCleanups(void** registry);
+
+/* One registry root for all generated module units. */
+void** httpWinsockRegistry() {
+	static void* registry;
+	return &registry;
+}

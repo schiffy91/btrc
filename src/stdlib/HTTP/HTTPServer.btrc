@@ -9,7 +9,6 @@ import Library.HTTP.HTTPResponse;
 import Library.Strings;
 import Library.Vector;
 
-#include <sys/socket.h>
 #include <string.h>
 
 class HTTPServer {
@@ -222,7 +221,7 @@ class HTTPServer {
 		} else if (sent && !body.isEmpty()) {
 			sent = HTTPSocket.sendAllUntil(c, body, deadline);
 		}
-		shutdown(c, SHUT_WR);
+		HTTPSocket.shutdownSend(c);
 		return sent;
 	}
 }
