@@ -75,8 +75,16 @@ int main() {
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(created.publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 0LL) == PUBLISH_CLOSED);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
-	var hosted = LinuxApplication(4); UI2ExecutorChecks.hosted(hosted);
-	assert(hosted.close() == CALLBACK_CANCELLATION_COMPLETE);
+	for (int cycle = 0; cycle < 100; cycle++) {
+		var hosted = LinuxApplication(4); int credits = hosted.context().terminalPool.available();
+		assert(hosted.context().actions.pendingCount() == 0);
+		UI2ExecutorChecks.hosted(hosted);
+		assert(hosted.close() == CALLBACK_CANCELLATION_COMPLETE && hosted.hostCloseComplete());
+		assert(hosted.context().terminalPool.available() == credits);
+		assert(hosted.context().detachedEvents.pendingCount() == 0);
+		printf("UI2_CYCLE hosted-suspension %d pending=0\n", cycle + 1); fflush(stdout);
+	}
+	printf("UI2_POLICY hosted-suspension work_capacity=4 delay_seconds=0 policies=CANCEL,DEFER,REPLACE replacement_key=1 stand_in=host-transition\n");
 	var scheduled = LinuxApplication(2); var callback = UI2LinuxScheduledCancel(scheduled);
 	callback.registration = scheduled.postAfter(0.0, callback); scheduled.run();
 	assert(callback.calls == 1 && callback.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);

@@ -8,6 +8,7 @@ import Library.GUI.Linux.LinuxTextField;
 
 import ./WindowCloseProbe.btrc;
 #include <assert.h>
+#include <stdio.h>
 
 class LinuxCloseRequests implements IWindowCloseRequestHandler {
 	public Vector<IWindowCloseTransaction> requests = [];
@@ -58,9 +59,8 @@ class LinuxCloseChecks {
 	}
 }
 
-int main() {
-	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
-	var context = LinuxContext(4); var scope = CallbackScope();
+void verifyWindowCloseCycle() {
+	var context = LinuxContext(4); int creditsBefore = context.terminalPool.available(); var scope = CallbackScope();
 	var first = LinuxWindow(context, "UI2 first", 320.0, 200.0);
 	var second = LinuxWindow(context, "UI2 second", 320.0, 200.0);
 	var field = LinuxTextField(context, "preserved draft", ""); first.attachRoot(field);
@@ -137,7 +137,19 @@ int main() {
 	assert(refused && context.terminalPool.available() == oldCredits);
 	assert(rejected.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER); LinuxCloseChecks.drain(rejected);
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
-	SDL_Quit();
-	print("PASS: UI2 Linux native close preserves transaction and save authority");
-	return 0;
+	assert(scope.pendingCount() == 0 && context.terminalPool.available() == creditsBefore);
+	assert(context.detachedEvents.pendingCount() == 0 && context.actions.pendingCount() == 0);
+	assert(first.semanticPending() == 0 && second.semanticPending() == 0 && pressure.semanticPending() == 0);
+	assert(ui2NativeWindowCount() == 0);
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	assert(ui2NativeWindowCount() == 0);
+	for (int cycle = 0; cycle < 100; cycle++) {
+		verifyWindowCloseCycle(); assert(ui2NativeWindowCount() == 0);
+		printf("UI2_CYCLE window-close %d windows=0\n", cycle + 1); fflush(stdout);
+	}
+	print("UI2_POLICY window-close work_capacity=4 pressure_capacity=1 entries=native,program,callback-close");
+	SDL_Quit(); print("PASS: UI2 Linux native close preserves transaction and save authority"); return 0;
 }

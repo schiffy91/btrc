@@ -13,6 +13,7 @@ import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.SDL;
 
+import ./WindowCloseProbe.btrc;
 #include <assert.h>
 #include <stdio.h>
 
@@ -180,9 +181,8 @@ class UI2LinuxMutationChecks {
 	}
 }
 
-int main() {
-	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
-	var application = LinuxApplication(16); var window = application.createWindow("UI2 eligibility", 240.0, 120.0);
+void verifyLifecycleCycle() {
+	var application = LinuxApplication(16); int credits = application.context().terminalPool.available(); var window = application.createWindow("UI2 eligibility", 240.0, 120.0);
 	var root = application.createContainer(); var button = application.createButton("retained preference");
 	var receiver = UI2LinuxStateReceiver(); var scope = CallbackScope();
 	var initial = button.interactionState();
@@ -214,6 +214,20 @@ int main() {
 	for (int turn = 0; turn < 100 && window.pollClose() == CALLBACK_CANCELLATION_PENDING; turn++) { application.pumpOnce(0); }
 	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !button.isOpen());
 	UI2LinuxButtonChecks.retirement(application); UI2LinuxWindowStateChecks.state(application); UI2LinuxImageChecks.retainedPixels(application); UI2LinuxMutationChecks.mutation(application);
+	assert(application.context().actions.pendingCount() == 0);
 	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(application.context().terminalPool.available() == credits);
+	assert(application.context().detachedEvents.pendingCount() == 0);
+	assert(scope.pendingCount() == 0 && ui2NativeWindowCount() == 0);
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	assert(ui2NativeWindowCount() == 0);
+	for (int cycle = 0; cycle < 100; cycle++) {
+		verifyLifecycleCycle(); assert(ui2NativeWindowCount() == 0);
+		printf("UI2_CYCLE lifecycle %d windows=0\n", cycle + 1); fflush(stdout);
+	}
+	printf("UI2_POLICY lifecycle work_capacity=16 fault_step=0 rollback_failures=1 quarantine_failures=2\n");
 	printf("PASS: UI2 Linux inherited eligibility and scoped observations\n"); SDL_Quit(); return 0;
 }
