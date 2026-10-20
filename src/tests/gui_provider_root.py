@@ -45,6 +45,7 @@ class GUIProviderRoot:
         for name in (
             "ControlEvents",
             "ControlEventQueue",
+            "ActionMailbox",
             "SliderValue",
             "SliderInteraction",
             "ApplicationPublisher",

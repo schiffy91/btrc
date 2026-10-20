@@ -9,24 +9,76 @@ interface IQueuedAction {
 	void deliver();
 }
 
+/* Preparations and queued clicks share one fixed capacity. The budget has no
+ * reference back to the mailbox, its actions, or a native callback scope. */
+class ActionMailboxBudget {
+	private int _capacity;
+	private int _prepared = 0;
+	private int _queued = 0;
+	public ActionMailboxBudget(int capacity) { if (capacity <= 0 || capacity > 65536) { throw "Native action capacity must be between 1 and 65536"; } self._capacity = capacity; }
+
+	public int preparedCount() { return self._prepared; }
+
+	public int available() { return self._capacity - self._prepared - self._queued; }
+
+	public bool reserve() { if (self.available() == 0) { return false; } self._prepared++; return true; }
+
+	public bool enqueue() { if (self.available() == 0) { return false; } self._queued++; return true; }
+
+	public void consume() { if (self._prepared <= 0) { throw "Native action preparation underflow"; } self._prepared--; self._queued++; }
+
+	public void retirePreparation() { if (self._prepared <= 0) { throw "Native action preparation underflow"; } self._prepared--; }
+
+	public void retireQueued(int count) { if (count < 0 || count > self._queued) { throw "Native action receipt underflow"; } self._queued -= count; }
+}
+
+/* Reserve before native tracking. Reservation order is not click order:
+ * consume appends only when the native action is actually captured. */
+class ActionMailboxReservation {
+	private ActionMailboxBudget _budget;
+	private IQueuedAction? _action;
+	private int _generation;
+	private bool _open = true;
+	public ActionMailboxReservation(ActionMailboxBudget budget, IQueuedAction action, int generation) { self._budget = budget; self._action = action; self._generation = generation; }
+
+	public bool isOpen() { return self._open; }
+
+	public void requireOwner(ActionMailboxBudget budget) { if (self._budget != budget) { throw "Native action reservation belongs to another mailbox"; } }
+
+	public IQueuedAction action() { if (!self._open || self._action == null) { throw "Native action reservation is already consumed or retired"; } return self._action; }
+
+	public int generation() { return self._generation; }
+
+	public void consume() { if (!self._open) { throw "Native action reservation is already consumed or retired"; } self._budget.consume(); self._open = false; self._action = null; }
+
+	/* Once consumed, the ring owns the charge. Native tracking cleanup may
+	 * retire its token again without releasing the queued click's storage. */
+	public void retire() { if (!self._open) { return; } self._open = false; self._action = null; self._budget.retirePreparation(); }
+
+	public void __del__() { self.retire(); }
+}
+
 /* Preallocated, ordered click storage a GUI provider confines to its UI
  * thread. Overflow is latched and reported by the consumer after dispatch,
  * never by throwing inside input handling. */
 class ActionMailbox {
 	private Vector<IQueuedAction?> _pending = [];
 	private Vector<int> _generations = [];
+	private Vector<bool> _accepted = [];
 	private int _capacity;
+	private ActionMailboxBudget _budget;
 	private int _head = 0;
 	private int _count = 0;
 	private bool _overflow = false;
 
 	public ActionMailbox(int capacity) {
-		if (capacity <= 0 || capacity > 65536) { throw "Native action capacity must be between 1 and 65536"; }
-		self._capacity = capacity;
-		for (int index = 0; index < capacity; index++) { self._pending.push(null); self._generations.push(0); }
+		self._capacity = capacity; self._budget = ActionMailboxBudget(capacity);
+		for (int index = 0; index < capacity; index++) { self._pending.push(null); self._generations.push(0); self._accepted.push(false); }
 	}
 
 	public int pendingCount() { self.requireCapacity(); return self._count; }
+
+	public int preparedCount() { return self._budget.preparedCount(); }
 
 	/* Whether entries remain queued. Unlike pendingCount it never reports
 	 * overflow, so a provider can decide to wake its consumer from callbacks. */
@@ -36,32 +88,61 @@ class ActionMailbox {
 
 	/* Drop entries their actions no longer accept, keeping click order. */
 	public void prune() {
+		/* Admission may fail. Keep the ring and its charges unchanged until
+		 * every original entry has been checked, then compact without calls. */
+		for (int offset = 0; offset < self._count; offset++) {
+			int index = (self._head + offset) % self._capacity;
+			var action = self._pending.get(index);
+			self._accepted.set(offset, action != null && action.accepts(self._generations.get(index)));
+		}
 		int retained = 0;
 		for (int offset = 0; offset < self._count; offset++) {
 			int index = (self._head + offset) % self._capacity;
 			var action = self._pending.get(index);
 			int generation = self._generations.get(index);
 			self._pending.set(index, null);
-			if (action != null && action.accepts(generation)) {
+			if (self._accepted.get(offset)) {
 				int destination = (self._head + retained) % self._capacity;
 				self._pending.set(destination, action);
 				self._generations.set(destination, generation);
 				retained++;
 			}
 		}
-		self._count = retained;
+		self._budget.retireQueued(self._count - retained); self._count = retained;
 	}
 
 	/* False when the click was not queued: the ring is full or already overflowed. */
 	public bool enqueue(IQueuedAction action, int generation) {
 		if (self._overflow) { return false; }
-		if (self._count == self._capacity) { self.prune(); }
-		if (self._count == self._capacity) { self._overflow = true; return false; }
+		if (self._budget.available() == 0) { self.prune(); }
+		if (!self._budget.enqueue()) { self._overflow = true; return false; }
+		self.append(action, generation); return true;
+	}
+
+	/* Refusal leaves the source free to decline a new interaction before any
+	 * native mutation, without poisoning the ordinary queue. */
+	public ActionMailboxReservation? reserve(IQueuedAction action, int generation) {
+		if (self._overflow) { return null; }
+		if (self._budget.available() == 0) { self.prune(); }
+		if (!self._budget.reserve()) { return null; }
+		return ActionMailboxReservation(self._budget, action, generation);
+	}
+
+	public bool enqueueReserved(ActionMailboxReservation reservation) {
+		reservation.requireOwner(self._budget);
+		var action = reservation.action(); int generation = reservation.generation();
+		bool accepted = false;
+		try { accepted = action.accepts(generation); }
+		catch (string error) { reservation.retire(); throw error; }
+		if (!accepted) { reservation.retire(); return false; }
+		reservation.consume(); self.append(action, generation); return true;
+	}
+
+	private void append(IQueuedAction action, int generation) {
 		int index = (self._head + self._count) % self._capacity;
 		self._pending.set(index, action);
 		self._generations.set(index, generation);
 		self._count++;
-		return true;
 	}
 
 	/* The oldest entry its action still accepts, or null. */
@@ -72,7 +153,7 @@ class ActionMailbox {
 			int generation = self._generations.get(self._head);
 			self._pending.set(self._head, null);
 			self._head = (self._head + 1) % self._capacity;
-			self._count--;
+			self._count--; self._budget.retireQueued(1);
 			if (action != null && action.accepts(generation)) { return action; }
 		}
 		return null;

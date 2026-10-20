@@ -1,0 +1,151 @@
+import Library.Vector;
+import Library.GUI.ActionMailbox;
+
+#include <assert.h>
+#include <stdio.h>
+
+class MailboxAction implements IQueuedAction {
+	public int generation = 1;
+	public bool open = true;
+	public bool failAdmission = false;
+	public bool failDelivery = false;
+	public int admissionCalls = 0;
+	private int _identity;
+	private Vector<int> _delivered;
+	public MailboxAction(int identity, Vector<int> delivered) { self._identity = identity; self._delivered = delivered; }
+
+	public bool accepts(int generation) {
+		self.admissionCalls++;
+		if (self.failAdmission) { throw "Action admission failed"; }
+		return self.open && generation == self.generation;
+	}
+
+	public void deliver() { self._delivered.push(self._identity); if (self.failDelivery) { throw "Action delivery failed"; } }
+}
+
+/* This is a model of the provider's pre-entry boundary. Actual SDK entry
+ * routes require separate native qualification before using the token. */
+class MailboxModel {
+	public int activations = 0;
+	public bool activate(ActionMailbox mailbox, MailboxAction action) {
+		var reservation = mailbox.reserve(action, action.generation);
+		if (reservation == null) { return false; }
+		try { self.activations++; assert(mailbox.enqueueReserved(reservation)); }
+		finally { reservation.retire(); }
+		return true;
+	}
+}
+
+class MailboxChecks {
+	class void deliverNext(ActionMailbox mailbox) { var action = mailbox.take(); assert(action != null); action.deliver(); }
+
+	class void captureOrder() {
+		var delivered = new Vector<int>(); var mailbox = ActionMailbox(3);
+		var first = MailboxAction(1, delivered); var second = MailboxAction(2, delivered); var third = MailboxAction(3, delivered);
+		var firstPreparation = mailbox.reserve(first, 1); var secondPreparation = mailbox.reserve(second, 1);
+		assert(firstPreparation != null && secondPreparation != null && mailbox.preparedCount() == 2);
+		assert(mailbox.enqueue(third, 1));
+		assert(mailbox.reserve(third, 1) == null && mailbox.pendingCount() == 1);
+		assert(mailbox.enqueueReserved(secondPreparation) && mailbox.enqueueReserved(firstPreparation));
+		assert(mailbox.preparedCount() == 0 && mailbox.pendingCount() == 3 && !firstPreparation.isOpen());
+		firstPreparation.retire(); secondPreparation.retire();
+		assert(mailbox.reserve(third, 1) == null && mailbox.pendingCount() == 3);
+		bool refused = false; try { mailbox.enqueueReserved(firstPreparation); } catch (string error) { refused = true; }
+		assert(refused && mailbox.pendingCount() == 3);
+		MailboxChecks.deliverNext(mailbox); MailboxChecks.deliverNext(mailbox); MailboxChecks.deliverNext(mailbox);
+		assert(mailbox.take() == null && mailbox.pendingCount() == 0);
+		assert(delivered.len == 3 && delivered.get(0) == 3 && delivered.get(1) == 2 && delivered.get(2) == 1);
+	}
+
+	class void abandon(ActionMailbox mailbox, MailboxAction action) {
+		var reservation = mailbox.reserve(action, 1); assert(reservation != null && mailbox.preparedCount() == 1);
+	}
+
+	class void preflightAndRetirement() {
+		var delivered = new Vector<int>(); var action = MailboxAction(1, delivered); var mailbox = ActionMailbox(1); var model = MailboxModel();
+		var reservation = mailbox.reserve(action, 1); assert(reservation != null);
+		assert(!model.activate(mailbox, action) && model.activations == 0 && mailbox.pendingCount() == 0);
+		reservation.retire(); reservation.retire(); assert(mailbox.preparedCount() == 0);
+		MailboxChecks.abandon(mailbox, action); assert(mailbox.preparedCount() == 0);
+		assert(model.activate(mailbox, action) && model.activations == 1 && mailbox.pendingCount() == 1);
+		assert(!model.activate(mailbox, action) && model.activations == 1);
+		MailboxChecks.deliverNext(mailbox);
+		assert(model.activate(mailbox, action) && model.activations == 2); MailboxChecks.deliverNext(mailbox);
+		assert(delivered.len == 2 && mailbox.preparedCount() == 0 && mailbox.pendingCount() == 0);
+	}
+
+	class void ownerAndFailure() {
+		var delivered = new Vector<int>(); var action = MailboxAction(1, delivered); var mailbox = ActionMailbox(1); var other = ActionMailbox(1);
+		var reservation = mailbox.reserve(action, 1); assert(reservation != null);
+		action.failAdmission = true;
+		bool foreign = false; try { other.enqueueReserved(reservation); } catch (string error) { foreign = error == "Native action reservation belongs to another mailbox"; }
+		assert(foreign && action.admissionCalls == 0 && reservation.isOpen() && mailbox.preparedCount() == 1 && other.preparedCount() == 0);
+		bool failed = false; try { mailbox.enqueueReserved(reservation); } catch (string error) { failed = error == "Action admission failed"; }
+		assert(failed && !reservation.isOpen() && mailbox.preparedCount() == 0 && mailbox.pendingCount() == 0);
+		reservation.retire(); action.failAdmission = false;
+		var stale = mailbox.reserve(action, 1); assert(stale != null); action.generation++;
+		assert(!mailbox.enqueueReserved(stale) && !stale.isOpen() && mailbox.preparedCount() == 0 && mailbox.pendingCount() == 0);
+		var fresh = mailbox.reserve(action, 2); assert(fresh != null && mailbox.enqueueReserved(fresh));
+		fresh.retire(); assert(mailbox.reserve(action, 2) == null && mailbox.pendingCount() == 1);
+		action.open = false; mailbox.prune(); mailbox.prune(); assert(mailbox.pendingCount() == 0 && mailbox.preparedCount() == 0);
+		action.open = true; var retry = mailbox.reserve(action, 2); assert(retry != null); retry.retire();
+	}
+
+	class void nestedAndWraparound() {
+		var delivered = new Vector<int>(); var action = MailboxAction(1, delivered); var mailbox = ActionMailbox(2);
+		var outer = mailbox.reserve(action, 1); var inner = mailbox.reserve(action, 1); assert(outer != null && inner != null);
+		assert(mailbox.enqueueReserved(inner)); outer.retire(); assert(mailbox.preparedCount() == 0 && mailbox.pendingCount() == 1);
+		MailboxChecks.deliverNext(mailbox);
+		for (int index = 0; index < 100; index++) {
+			var first = mailbox.reserve(action, 1); assert(first != null && mailbox.enqueueReserved(first));
+			assert(mailbox.enqueue(action, 1)); MailboxChecks.deliverNext(mailbox);
+			var second = mailbox.reserve(action, 1); assert(second != null); second.retire();
+			MailboxChecks.deliverNext(mailbox); first.retire();
+			assert(mailbox.pendingCount() == 0 && mailbox.preparedCount() == 0);
+		}
+		assert(delivered.len == 201);
+	}
+
+	class void pruningFailure() {
+		var delivered = new Vector<int>(); var mailbox = ActionMailbox(4);
+		var stale = MailboxAction(1, delivered); var first = MailboxAction(2, delivered);
+		var failing = MailboxAction(3, delivered); var last = MailboxAction(4, delivered);
+		/* Start at a wrapped ring position, then fail after both a stale and
+		 * surviving entry have been examined. No original click may move. */
+		assert(mailbox.enqueue(last, 1) && mailbox.take() != null);
+		assert(mailbox.enqueue(stale, 1) && mailbox.enqueue(first, 1) && mailbox.enqueue(failing, 1) && mailbox.enqueue(last, 1));
+		stale.open = false; failing.failAdmission = true;
+		bool failed = false; try { var refused = mailbox.reserve(last, 1); } catch (string error) { failed = error == "Action admission failed"; }
+		assert(failed && mailbox.pendingCount() == 4 && mailbox.preparedCount() == 0);
+		failing.failAdmission = false; mailbox.prune(); assert(mailbox.pendingCount() == 3);
+		var preparation = mailbox.reserve(last, 1); assert(preparation != null && mailbox.preparedCount() == 1);
+		MailboxChecks.deliverNext(mailbox); MailboxChecks.deliverNext(mailbox); MailboxChecks.deliverNext(mailbox);
+		preparation.retire(); assert(mailbox.pendingCount() == 0 && mailbox.preparedCount() == 0);
+		assert(delivered.len == 3 && delivered.get(0) == 2 && delivered.get(1) == 3 && delivered.get(2) == 4);
+	}
+
+	class void deliveryFailure() {
+		var delivered = new Vector<int>(); var action = MailboxAction(1, delivered); var mailbox = ActionMailbox(1);
+		var reservation = mailbox.reserve(action, 1); assert(reservation != null && mailbox.enqueueReserved(reservation)); action.failDelivery = true;
+		bool failed = false; try { MailboxChecks.deliverNext(mailbox); } catch (string error) { failed = error == "Action delivery failed"; }
+		assert(failed && mailbox.pendingCount() == 0 && mailbox.preparedCount() == 0 && delivered.len == 1);
+		var next = mailbox.reserve(action, 1); assert(next != null); next.retire(); reservation.retire();
+	}
+
+	class void legacyOverflow() {
+		var delivered = new Vector<int>(); var action = MailboxAction(1, delivered); var mailbox = ActionMailbox(1);
+		var reservation = mailbox.reserve(action, 1); assert(reservation != null);
+		assert(!mailbox.enqueue(action, 1) && mailbox.preparedCount() == 1);
+		assert(mailbox.enqueueReserved(reservation) && mailbox.preparedCount() == 0 && mailbox.hasPending());
+		reservation.retire(); assert(mailbox.hasPending() && mailbox.reserve(action, 1) == null);
+		bool failed = false; try { mailbox.pendingCount(); } catch (string error) { failed = error == "Native action capacity exceeded; close this action queue before continuing"; }
+		assert(failed); action.open = false; mailbox.prune(); assert(!mailbox.hasPending());
+		failed = false; try { mailbox.take(); } catch (string error) { failed = true; } assert(failed);
+	}
+}
+
+int main() {
+	MailboxChecks.captureOrder(); MailboxChecks.preflightAndRetirement(); MailboxChecks.ownerAndFailure();
+	MailboxChecks.nestedAndWraparound(); MailboxChecks.pruningFailure(); MailboxChecks.deliveryFailure(); MailboxChecks.legacyOverflow();
+	printf("PASS: UI2 action reservations preserve capacity and capture order\n"); return 0;
+}
