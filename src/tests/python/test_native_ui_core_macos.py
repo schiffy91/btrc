@@ -196,6 +196,22 @@ def test_macos_ui2_scoped_worker_signal(
             f'symbols = ["{symbol}"]\n'
             f'[[native.sources]]\npath = "{fixture}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
+    if fixture in {"UI2MacOSWindow", "UI2MacOSApplicationQuit"}:
+        cancel_probe = root / "src/tests/native/gui/ui2/probes/macos"
+        (source.parent / "UI2MacOSCancelState.btrc").write_text((cancel_probe / "UI2MacOSCancelState.btrc").read_text())
+        for suffix in ("h", "m"):
+            name = f"UI2MacOSCancelState.{suffix}"
+            (package / name).write_text((cancel_probe / name).read_text())
+        manifest.write_text(
+            manifest.read_text()
+            + '\n[[native.bindings]]\nmodule = "UI2MacOSCancelState"\nheader = "UI2MacOSCancelState.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["+[BTRCUI2CancelState prepareHost]", "+[BTRCUI2CancelState new]", '
+            '"-[BTRCUI2CancelState begin:field:scroll:child:]", "-[BTRCUI2CancelState unchanged]", '
+            '"-[BTRCUI2CancelState continueInput]", "-[BTRCUI2CancelState continued]", '
+            '"-[BTRCUI2CancelState finish]"]\n'
+            '[[native.sources]]\npath = "UI2MacOSCancelState.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        )
     (source.parent / "PublisherChecks.btrc").write_text(
         (root / "src/tests/native/gui/ui2/PublisherChecks.btrc").read_text()
     )
@@ -241,6 +257,12 @@ def test_macos_ui2_scoped_worker_signal(
     assert marker in ran.stdout
     if repeated:
         assert ran.stdout.splitlines().count(f"UI2 acceptance {fixture} cycles=100") == 1
+    cancel_routes = {
+        "UI2MacOSWindow": ("program-close", "native-close"),
+        "UI2MacOSApplicationQuit": ("native-quit",),
+    }
+    for route in cancel_routes.get(fixture, ()):
+        assert ran.stdout.splitlines().count(f"UI2 E46 {route} cancel state cycles=100") == 1
 
 
 @pytest.mark.parametrize("module", ["MacOSViewInput", "MacOSComposedCapture"])

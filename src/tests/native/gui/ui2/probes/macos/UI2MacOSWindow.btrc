@@ -7,6 +7,7 @@ import Library.GUI.MacOS.MacOSWindow;
 import Library.GUI.MacOS.MacOSView;
 import Library.GUI.MacOS.MacOSViewState;
 
+import "./UI2MacOSCancelState.btrc";
 #include <assert.h>
 
 class WindowWake implements IControlEventWake { public bool requestTurn() { return true; } }
@@ -75,7 +76,8 @@ void verifyResubscribeWithPendingState(int captureCapacity = 0) {
 }
 
 void verifySaveAndCancel() {
-	var context = MacOSViewContext(WindowWake()); var window = MacOSWindow("save", 100.0, 100.0, null, context);
+	var context = MacOSViewContext(WindowWake(), 256, null, 16384); var window = MacOSWindow("save", 100.0, 100.0, null, context);
+	var companion = MacOSWindow("save companion", 100.0, 100.0, null, context); var content = CancelStateContent(window); content.begin(); drain(context);
 	var owner = CallbackScope(); var handler = WindowDecision(); window.onCloseRequested(handler, owner);
 	var request = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); assert(request.kind == WINDOW_CLOSE_REQUEST_PENDING && request.transaction != null && handler.calls == 0);
 	var again = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); assert(again.kind == WINDOW_CLOSE_REQUEST_ALREADY_PENDING && again.transaction == request.transaction);
@@ -88,20 +90,22 @@ void verifySaveAndCancel() {
 	assert(transaction.completeSave(retry.attempt, 4LL, false, "disk failure").state == WINDOW_CLOSE_AWAITING_DECISION);
 	assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 4LL).state == WINDOW_CLOSE_CANCELLED && window.isOpen());
 	assert(transaction.completeSave(retry.attempt, 4LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	assert(companion.isOpen()); content.verifyUnchanged(); content.continueInput(); drain(context); content.verifyDelivered(); content.finish();
 	var second = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); assert(second.transaction != null && second.transaction != transaction); owner.cancel();
 	assert(requiredTransaction(second).state() == WINDOW_CLOSE_CANCELLED); drain(context); assert(handler.calls == 1 && window.isOpen());
 	assert(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER && window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
-	assert(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_CLOSED); context.close();
+	assert(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_CLOSED); assert(companion.isOpen() && companion.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
 }
 
 void verifyNativeAndEnteredClose() {
-	var context = MacOSViewContext(WindowWake()); var first = MacOSWindow("native", 100.0, 100.0, null, context); var second = MacOSWindow("other", 100.0, 100.0, null, context);
-	var root = MacOSView(); first.attachRoot(root);
+	var context = MacOSViewContext(WindowWake(), 256, null, 16384); var first = MacOSWindow("native", 100.0, 100.0, null, context); var second = MacOSWindow("other", 100.0, 100.0, null, context);
+	var content = CancelStateContent(first); var root = content.root; content.begin(); drain(context);
 	var scope = CallbackScope(); var handler = WindowDecision(); handler.alertWindow = second; handler.ownedRoot = root; first.onCloseRequested(handler, scope);
 	first.nativeWindow().performClose(null); first.nativeWindow().performClose(null);
 	assert(first.isOpen() && handler.calls == 0); first.dispatchPendingEvents(); assert(handler.calls == 0); drain(context);
 	assert(handler.calls == 1 && handler.modalRejected && handler.transaction != null && second.isOpen());
 	handler.current().decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL); assert(first.isOpen() && second.isOpen());
+	content.verifyUnchanged(); content.continueInput(); drain(context); content.verifyDelivered(); content.finish();
 	// The new request resolves from its entered callback. Native teardown must
 	// wait for that callback to leave instead of treating PENDING as failure.
 	handler.discard = true; first.nativeWindow().performClose(null); first.dispatchPendingEvents(); drain(context);
@@ -204,10 +208,11 @@ void verifyAcceptanceCycle() {
 }
 
 int main() {
-	NSApplication.sharedApplication();
+	NSApplication.sharedApplication(); prepareCancelStateHost();
 	int completed = 0;
 	for (int cycle = 0; cycle < 100; cycle++) { verifyAcceptanceCycle(); completed++; }
 	assert(completed == 100);
 	print("UI2 acceptance UI2MacOSWindow cycles=100");
+	print("UI2 E46 program-close cancel state cycles=100"); print("UI2 E46 native-close cancel state cycles=100");
 	print("PASS: UI2 macOS window state and reversible close transactions"); return 0;
 }
