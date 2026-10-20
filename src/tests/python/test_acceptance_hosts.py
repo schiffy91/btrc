@@ -264,7 +264,12 @@ def test_a_dry_run_embeds_the_selected_manifest_and_ingests(workspace, tmp_path,
     report = dry_run(workspace, tmp_path / "run", btrcc)
     embedded = report["provenance"]["host_manifest"]
     manifest = tmp_path / "hosts/this-host.toml"
-    assert embedded["id"] == "this-host" and embedded["file"] == str(manifest)
+    try:
+        manifest_name = manifest.resolve().relative_to(bench.REPO).as_posix()
+    except ValueError:
+        manifest_name = str(manifest)
+    assert embedded["id"] == "this-host" and embedded["file"] == manifest_name
+    assert (bench.REPO / embedded["file"]).resolve() == manifest.resolve()
     assert embedded["manifest"] == tomllib.loads(manifest.read_text())
     assert len(embedded["sha256"]) == 64
     counter = bench.TimeReport.instruction_counter()

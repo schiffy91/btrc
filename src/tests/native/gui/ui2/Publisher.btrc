@@ -1,3 +1,6 @@
+import Library.Callback;
+import Library.GUI.ApplicationPublisher;
+import Library.GUI.IApplication;
 import Library.GUI.IApplicationNativeWake;
 
 #include "PublisherChecks.btrc"

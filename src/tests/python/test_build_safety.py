@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -111,13 +112,21 @@ def test_perf_target_pairs_the_host_c_and_cxx_drivers():
 
 def test_memory_intensive_bootstrap_runs_after_the_parallel_suite():
     output = _make_dry_run("test", "NIX=").replace("\\\n", " ")
-    commands = [line for line in output.splitlines() if "python3 -m pytest" in line]
+    commands = [shlex.split(line) for line in output.splitlines() if "python3 -m pytest" in line]
 
-    assert len(commands) == 2
-    assert "--ignore=src/tests/btrc/test_bootstrap.py" in commands[0]
-    assert "src/tests/btrc/test_bootstrap.py" in commands[1]
-    assert " -n " in commands[0]
-    assert " -n " not in commands[1]
+    assert len(commands) == 3
+    parallel, e40, serial_bootstrap = commands
+    assert "src/tests/" in parallel
+    assert "--ignore=src/tests/btrc/test_bootstrap.py" in parallel
+    assert parallel[parallel.index("-m") + 1] == "not e40_qualification"
+    assert parallel[parallel.index("-n") + 1] == "8"
+    assert "src/tests/" in e40
+    assert e40[e40.index("-m") + 1] == "e40_qualification"
+    assert e40[e40.index("-n") + 1] == "0"
+    assert "src/tests/btrc/test_bootstrap.py" in serial_bootstrap
+    assert "src/tests/" not in serial_bootstrap
+    assert "-n" not in serial_bootstrap
+    assert "-m" not in serial_bootstrap
 
     bootstrap = _make_dry_run("bootstrap", "NIX=")
     bootstrap_command = next(line for line in bootstrap.splitlines() if "python3 -m pytest" in line)
