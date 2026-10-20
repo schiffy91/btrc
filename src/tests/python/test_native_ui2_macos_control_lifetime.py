@@ -49,8 +49,12 @@ def test_macos_ui2_control_lifetime(native_project, native_compile, gui_provider
 
     def runner(command, **kwargs):
         flags = []
+        # NativePlanBuilder enables ARC for generated adapters only. This
+        # fixture owns its host and census dictionaries with ARC as well.
+        if str(package / f"{fixture}.m") in command:
+            flags += ["-fobjc-arc", "-fobjc-exceptions", "-fobjc-arc-exceptions"]
         if sanitized and Path(command[0]).name in {"clang", "clang++"}:
-            flags = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
         return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
 
     NativePlanBuilder(runner=runner).build(
