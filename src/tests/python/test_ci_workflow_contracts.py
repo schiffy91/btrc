@@ -534,6 +534,7 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         ("ci.yml", "linux-e40"),
         ("macos.yml", "tests"),
         ("macos.yml", "native-gui"),
+        ("macos.yml", "macos-e40"),
         ("windows.yml", "windows"),
         ("windows.yml", "bootstrap"),
     } <= set(test_jobs)
@@ -1007,17 +1008,17 @@ LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui", "linux-e40"]
             LANE_LIGHT_LINUX,
             [],
         ),
-        (("tools/ui/codex-setup.sh",), LANE_LIGHT_LINUX, ["native-bundle", "native-gui"]),
-        (("src/stdlib/GUI/MacOS/Window.btrc",), LANE_HEAVY_LINUX, ["native-bundle", "native-gui"]),
-        (("src/stdlib/GUI/Linux/Window.btrc",), LANE_GUI_LINUX, ["native-bundle", "native-gui"]),
+        (("tools/ui/codex-setup.sh",), LANE_LIGHT_LINUX, ["native-bundle", "native-gui", "macos-e40"]),
+        (("src/stdlib/GUI/MacOS/Window.btrc",), LANE_HEAVY_LINUX, ["native-bundle", "native-gui", "macos-e40"]),
+        (("src/stdlib/GUI/Linux/Window.btrc",), LANE_GUI_LINUX, ["native-bundle", "native-gui", "macos-e40"]),
         (("src/stdlib/HTTP/Client.btrc",), LANE_HEAVY_LINUX, []),
         (
             ("src/tests/python/test_native_gui_target.py",),
             [*LANE_LIGHT_LINUX, "linux-gui", "linux-e40"],
-            ["native-bundle", "native-gui"],
+            ["native-bundle", "native-gui", "macos-e40"],
         ),
         # A pull request with no listed file plans the whole lane selection.
-        ((), LANE_GUI_LINUX, ["native-bundle", "native-gui"]),
+        ((), LANE_GUI_LINUX, ["native-bundle", "native-gui", "macos-e40"]),
     ],
 )
 def test_a_lane_pull_request_runs_the_jobs_its_paths_select(
@@ -1277,7 +1278,9 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
             }
         }, workflow
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
-        expected = {"ci.yml": ["native-gui", "linux-gui", "linux-e40"], "macos.yml": ["native-gui"]}.get(workflow, [])
+        expected = {"ci.yml": ["native-gui", "linux-gui", "linux-e40"], "macos.yml": ["native-gui", "macos-e40"]}.get(
+            workflow, []
+        )
         assert TIERS.plan(workflow, "native-gui")["jobs"] == expected, workflow
 
     linux = _job(_workflow("ci.yml"), "native-gui")
@@ -1846,3 +1849,59 @@ def test_e40_moves_from_parallel_stages_to_explicit_serial_full_test_stage() -> 
     assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in linux
     assert "python3 -m tools.ui.e40" in linux
     assert "test_native_ui_*.py src/tests/python/test_native_ui2_*.py" in makefile
+
+
+def test_macos_e40_runs_four_required_hosted_cells_with_retained_evidence() -> None:
+    job = _parsed("macos.yml")["jobs"]["macos-e40"]
+    assert job["runs-on"] == "macos-15"
+    assert job["name"] == "macos-e40 (${{ matrix.cell }})"
+    assert job["timeout-minutes"] == "90"
+    assert "continue-on-error" not in job
+    rows = [shard.row for shard in TIERS.shards if shard.job == "macos.yml/macos-e40"]
+    assert len(rows) == 4
+    assert {(row["frontend"], row["variant"], row["cell"]) for row in rows} == {
+        (frontend, variant, f"macos-{frontend}-{variant}")
+        for frontend in ("reference", "selfhost")
+        for variant in ("plain", "sanitized")
+    }
+    for tier in ("main", "extended", "release", "native-gui"):
+        assert TIERS.plan("macos.yml", tier)["matrix"]["macos-e40"]["include"] == rows
+    for tier in ("pr", "lane"):
+        assert "macos-e40" in TIERS.plan("macos.yml", tier, ["src/stdlib/GUI/MacOS/MacOSWindow.btrc"])["jobs"]
+        assert "macos-e40" not in TIERS.plan("macos.yml", tier, ["src/stdlib/HTTP/Client.btrc"])["jobs"]
+    assert "macos-e40" not in TIERS.plan("macos.yml", "docs")["jobs"]
+    executions = [command for command in _job_commands(job, "macos.yml", "macos-e40") if "test-e40-macos" in command]
+    assert len(executions) == 4
+    assert set(executions) == {
+        "nix develop --command make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 "
+        f"E40_FRONTEND={row['frontend']} E40_VARIANT={row['variant']} test-e40-macos"
+        for row in rows
+    }
+    execution = next(step for step in job["steps"] if "test-e40-macos" in step.get("run", ""))
+    assert execution["env"] == {"CI": "true", "BTRC_UI2_HOSTED_E40": "1"}
+    uploads = {step.get("name"): step for step in job["steps"] if step.get("uses") == UPLOAD_ARTIFACT}
+    for suffix in ("json", "csv", "txt"):
+        assert (
+            f"build/e40/${{{{ matrix.cell }}}}/**/*.{suffix}"
+            in uploads["Retain native evidence and provenance"]["with"]["path"]
+        )
+    assert uploads["Retain native evidence and provenance"]["with"]["if-no-files-found"] == "error"
+    assert uploads["Retain the JUnit results"]["with"]["path"] == "build/e40/${{ matrix.cell }}/junit.xml"
+    assert uploads["Retain the skip report"]["with"]["name"] == "skip-report-macos-macos-e40-${{ matrix.cell }}"
+
+
+def test_e40_hosted_admission_is_confined_to_its_dedicated_workflow_step() -> None:
+    document = _parsed("macos.yml")
+    assert "BTRC_UI2_HOSTED_E40" not in document["env"]
+    admitted = []
+    for name, job in document["jobs"].items():
+        assert "BTRC_UI2_HOSTED_E40" not in job.get("env", {})
+        for step in job.get("steps", []):
+            if "BTRC_UI2_HOSTED_E40" in step.get("env", {}):
+                admitted.append((name, step))
+    assert len(admitted) == 1 and admitted[0][0] == "macos-e40"
+    assert "test-e40-macos" in admitted[0][1]["run"]
+    recipe = _makefile_recipe((REPO / "Makefile").read_text(), "test-e40-macos")
+    assert "BTRC_UI2_HOSTED_E40" not in recipe and "CI=true" not in recipe
+    assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in recipe
+    assert "env $(E40_BTRCC) python3 -m tools.ui.e40 --provider macos" in recipe

@@ -6,7 +6,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer linux-ci clean \
-	test-e40 test-e40-linux test-shard-unit test-native-gui test-shard-gui test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
+	test-e40 test-e40-linux test-e40-macos test-shard-unit test-native-gui test-shard-gui test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
 
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
@@ -299,6 +299,12 @@ test-e40-linux: generated-check gpu-required $(if $(filter selfhost,$(E40_FRONTE
 	$(NIX) env $(E40_BTRCC) BTRC_VIRTUAL_DISPLAY=$(E40_SESSION) tools/virtual-display.sh \
 		python3 -m tools.ui.e40 --frontend $(E40_FRONTEND) --variant $(E40_VARIANT) --session $(E40_SESSION)
 	$(NIX) $(SKIP_GATE) build/skip-report-e40-$(E40_CELL).json
+
+# The hosted workflow supplies both admission variables. A local invocation
+# never acquires visibility merely by choosing this target.
+test-e40-macos: generated-check gpu-required $(if $(filter selfhost,$(E40_FRONTEND)),btrcc) ## Qualify one hosted AppKit E40 cell (E40_FRONTEND=reference|selfhost)
+	$(NIX) env $(E40_BTRCC) python3 -m tools.ui.e40 --provider macos --frontend $(E40_FRONTEND) --variant $(E40_VARIANT)
+	$(NIX) $(SKIP_GATE) build/skip-report-e40-macos-$(E40_FRONTEND)-$(E40_VARIANT).json
 
 test-lsp: generated-check ## Run the editor/LSP server tests (reuses the compiler)
 	$(NIX) $(PYTEST) src/tests/lsp/ $(PYTEST_ARGS)

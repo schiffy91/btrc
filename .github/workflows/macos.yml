@@ -449,3 +449,91 @@ jobs:
           path: build/skip-report*.json
           if-no-files-found: warn
           retention-days: 14
+
+  # Required E40 cells own one serial AppKit process at a time. Each cell
+  # includes desktop/host bursts, two 600-second loads and four tracking modes.
+  macos-e40:
+    needs: scope
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'macos-e40')
+    runs-on: macos-15
+    timeout-minutes: 90
+    name: macos-e40 (${{ matrix.cell }})
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['macos-e40'] }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+
+      # As in the tests shards: without its reader the dev shell would quietly
+      # skip every native import case.
+      - name: Build the native header reader
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+          reader="$(nix build .#btrc-native-header --out-link "$RUNNER_TEMP/btrc-native-header-root" --print-out-paths --print-build-logs)/bin/btrc-native-header"
+          test -x "$reader"
+          exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
+          test "$exported" = "$reader"
+          # Root the whole dev shell as well. Determinate Nix collects unrooted
+          # store paths when the runner's disk fills; one push run lost
+          # wgpu-native's pkg-config file two hours in, after earlier cases had used it.
+          nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true
+
+      - name: Record native reader prerequisites
+        timeout-minutes: 2
+        run: |
+          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
+
+      - run: nix develop --command make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 E40_FRONTEND=${{ matrix.frontend }} E40_VARIANT=${{ matrix.variant }} test-e40-macos
+        env:
+          CI: 'true'
+          BTRC_UI2_HOSTED_E40: '1'
+
+      - name: Recheck native reader prerequisites
+        if: always()
+        timeout-minutes: 2
+        run: |
+          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
+
+      - name: Retain native reader evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-reader-macos-macos-e40-${{ matrix.cell }}
+          path: build/native-reader/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Retain native evidence and provenance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e40-evidence-macos-macos-e40-${{ matrix.cell }}
+          path: |
+            build/e40/${{ matrix.cell }}/**/*.json
+            build/e40/${{ matrix.cell }}/**/*.csv
+            build/e40/${{ matrix.cell }}/**/*.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Retain the JUnit results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-macos-macos-e40-${{ matrix.cell }}
+          path: build/e40/${{ matrix.cell }}/junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-macos-macos-e40-${{ matrix.cell }}
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
