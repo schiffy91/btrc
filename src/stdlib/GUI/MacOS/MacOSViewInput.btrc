@@ -123,16 +123,17 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 		if (!self._terminalPending || self._entered != 0 || self._context.treeMutationActive()) { return; }
 		var handler = self._pointer;
 		var button = self._terminalButton; bool inside = self._terminalInside;
+		double x = self._terminalX; double y = self._terminalY; var modifiers = self._terminalModifiers;
 		self._terminalPending = false; self._terminalButton = APP_POINTER_BUTTON_NONE; self._terminalInside = false;
 		bool failed = false; string failure = "";
 		self._entered++;
 		try {
 			if (handler != null && button != APP_POINTER_BUTTON_NONE) {
-				try { handler.pointer(AppPointerEvent(APP_POINTER_CANCELLED, button, self._terminalX, self._terminalY, self._terminalModifiers, 0)); }
+				try { handler.pointer(AppPointerEvent(APP_POINTER_CANCELLED, button, x, y, modifiers, 0)); }
 				catch (string error) { failed = true; failure = error; self._context.recordNativeFailure(error); }
 			}
 			if (handler != null && inside) {
-				try { handler.pointer(AppPointerEvent(APP_POINTER_EXITED, APP_POINTER_BUTTON_NONE, self._terminalX, self._terminalY, self._terminalModifiers, 0)); }
+				try { handler.pointer(AppPointerEvent(APP_POINTER_EXITED, APP_POINTER_BUTTON_NONE, x, y, modifiers, 0)); }
 				catch (string error) { if (!failed) { failed = true; failure = error; } self._context.recordNativeFailure(error); }
 			}
 		} finally { self._entered--; }
