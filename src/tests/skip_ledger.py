@@ -16,6 +16,10 @@ for a test path while it determines the rootdir.
 Under xdist the controller receives every worker's reports, so only the
 controller collects and writes; a worker forwards its capability gates on
 each report's user properties.
+
+``--failure-report=PATH`` also appends each failed report immediately to JSONL
+and prints its traceback and captured sections. These partial diagnostics can
+survive an interrupted session; they never replace the final classified report.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ import os
 import platform
 import shutil
 import subprocess
+import uuid
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -159,6 +164,13 @@ class SkipLedger:
         self.config = config
         self.path = path
         self.started = datetime.datetime.now(datetime.UTC)
+        raw_failure_path = config.getoption("--failure-report")
+        self.failure_path = Path(raw_failure_path) if raw_failure_path else None
+        if self.failure_path is not None and not self.failure_path.is_absolute():
+            self.failure_path = Path(config.invocation_params.dir) / self.failure_path
+        self.failure_session = uuid.uuid4().hex if self.failure_path is not None else None
+        self.failure_revision = self._revision() if self.failure_path is not None else None
+        self.collection_failures: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
         # The environment the session was started with, before any fixture changes it.
         self.environment = {
             name: (os.environ[name] if name in _RECORDED_VALUES else "set")
@@ -177,6 +189,12 @@ class SkipLedger:
             default=None,
             help="where this session writes its skip report (default: build/skip-report.json)",
         )
+        parser.addoption(
+            "--failure-report",
+            action="store",
+            default=None,
+            help="append failed reports to diagnostic JSONL and print them immediately (controller only)",
+        )
 
     @classmethod
     def install(cls, config: pytest.Config) -> None:
@@ -190,6 +208,7 @@ class SkipLedger:
         config.pluginmanager.register(cls(config, path), "btrc-skip-ledger")
 
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        self._failure(report)
         self._gates(report)
         nodeid = report.nodeid
         current = self.tests.get(nodeid)
@@ -200,11 +219,50 @@ class SkipLedger:
             self._skip(nodeid, report.when, report.longrepr)
 
     def pytest_collectreport(self, report: pytest.CollectReport) -> None:
+        self._failure(report)
         if report.skipped:
             self.tests[report.nodeid] = "skipped"
             self._skip(report.nodeid, "collect", report.longrepr)
         elif report.failed:
             self.tests[report.nodeid] = "error"
+
+    def _failure(self, report: pytest.TestReport | pytest.CollectReport) -> None:
+        if self.failure_path is None or not report.failed:
+            return
+        phase = getattr(report, "when", "collect")
+        traceback = report.longreprtext
+        sections = list(report.sections)
+        if phase == "collect":
+            # Each xdist worker collects the suite. Equivalent deserialized
+            # longrepr objects do not necessarily compare equal in xdist.
+            identity = (report.nodeid, traceback, tuple(sections))
+            if identity in self.collection_failures:
+                return
+            self.collection_failures.add(identity)
+        # The controller receives canonical worker reports. Printing here also
+        # retains evidence when a job timeout prevents the artifact upload.
+        lines = [f"\nBTRC immediate failure [{phase}] {report.nodeid}", traceback]
+        for title, content in sections:
+            lines.extend((f"--- {title} ---", content))
+        print("\n".join(lines), flush=True)
+        record = {
+            "schema": "btrc.failure-report/1",
+            "session": self.failure_session,
+            "started_at": self.started.isoformat(),
+            "recorded_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "revision": self.failure_revision,
+            "pid": os.getpid(),
+            "nodeid": report.nodeid,
+            "phase": phase,
+            "longrepr": traceback,
+            "sections": sections,
+        }
+        self.failure_path.parent.mkdir(parents=True, exist_ok=True)
+        # Each record is self-contained, including its invocation identity.
+        # Append preserves earlier sessions when a matrix target reuses a path.
+        with self.failure_path.open("a", encoding="utf-8") as journal:
+            journal.write(json.dumps(record, ensure_ascii=True) + "\n")
+            journal.flush()
 
     @pytest.hookimpl(trylast=True)
     def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:

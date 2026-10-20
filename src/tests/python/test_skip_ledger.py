@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -764,6 +767,197 @@ def _run_inner(tmp_path: Path, *extra: str, runner: str = "macos") -> tuple[subp
     )
     assert report.is_file(), completed.stdout + completed.stderr
     return completed, json.loads(report.read_text())
+
+
+def _failure_suite(tmp_path: Path) -> Path:
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / "conftest.py").write_text(
+        _INNER_CONFTEST
+        + """
+import pytest
+
+def pytest_sessionstart(session):
+    session.config.addinivalue_line("markers", "macos_gui: canonical identity regression")
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = yield
+    if report.failed:
+        report.sections.append(("host compiler launch evidence", "retained compiler detail"))
+    return report
+"""
+    )
+    return suite
+
+
+@pytest.mark.parametrize("workers", [None, "2"])
+def test_failure_journal_preserves_phases_sections_and_consecutive_sessions(tmp_path, workers):
+    suite = _failure_suite(tmp_path)
+    (suite / "test_cases.py").write_text(
+        """
+import pytest
+pytestmark = [pytest.mark.macos_gui, pytest.mark.xdist_group(name="macos_gui")]
+
+@pytest.fixture
+def setup_error():
+    raise ValueError("setup diagnostic")
+
+@pytest.fixture
+def teardown_error():
+    yield
+    raise ValueError("teardown diagnostic")
+
+def test_setup(setup_error):
+    pass
+
+def test_call():
+    print("captured failure output")
+    assert False, "call diagnostic"
+
+def test_teardown(teardown_error):
+    pass
+
+def test_pass():
+    pass
+
+def test_skip():
+    pytest.skip("expected skip")
+
+@pytest.mark.xfail(reason="expected failure")
+def test_xfail():
+    assert False
+"""
+    )
+    options = ("-n", workers, "--dist=loadgroup") if workers else ("-p", "no:xdist")
+    journal = tmp_path / "out" / "failures.jsonl"
+    baseline, original = _run_inner(tmp_path, *options)
+    assert baseline.returncode == 1
+    assert "BTRC immediate failure" not in baseline.stdout
+    assert not journal.exists()
+    sessions = set()
+    for iteration in (1, 2):
+        completed, report = _run_inner(tmp_path, *options, f"--failure-report={journal}")
+        assert completed.returncode == baseline.returncode, completed.stdout + completed.stderr
+        assert report["counts"] == original["counts"]
+        assert report["tests"] == original["tests"]
+        assert completed.stdout.count("BTRC immediate failure") == 3
+        records = [json.loads(line) for line in journal.read_text().splitlines()]
+        assert len(records) == iteration * 3
+        current = records[-3:]
+        assert {(row["nodeid"], row["phase"]) for row in current} == {
+            ("test_cases.py::test_setup", "setup"),
+            ("test_cases.py::test_call", "call"),
+            ("test_cases.py::test_teardown", "teardown"),
+        }
+        for row in current:
+            assert row["schema"] == "btrc.failure-report/1"
+            assert f"{row['phase']} diagnostic" in row["longrepr"]
+            assert ["host compiler launch evidence", "retained compiler detail"] in row["sections"]
+            assert row["pid"] > 0 and row["revision"]
+        call = next(row for row in current if row["phase"] == "call")
+        assert any("captured failure output" in content for _, content in call["sections"])
+        assert len({row["session"] for row in current}) == 1
+        sessions.add(current[0]["session"])
+    assert len(sessions) == 2
+
+
+@pytest.mark.parametrize("workers", [None, "2"])
+def test_failure_journal_records_collection_error_once(tmp_path, workers):
+    suite = _failure_suite(tmp_path)
+    (suite / "test_broken.py").write_text('raise RuntimeError("collection diagnostic")\n')
+    journal = tmp_path / "out" / "failures.jsonl"
+    options = ("-n", workers) if workers else ("-p", "no:xdist")
+    completed, _ = _run_inner(tmp_path, *options, f"--failure-report={journal}")
+    assert completed.returncode != 0
+    records = [json.loads(line) for line in journal.read_text().splitlines()]
+    assert len(records) == 1
+    assert records[0]["nodeid"] == "test_broken.py"
+    assert records[0]["phase"] == "collect"
+    assert "collection diagnostic" in records[0]["longrepr"]
+    assert completed.stdout.count("BTRC immediate failure") == 1
+
+
+@pytest.mark.parametrize("workers", [None, "2"])
+def test_failure_journal_survives_controller_kill_before_sessionfinish(tmp_path, workers):
+    suite = _failure_suite(tmp_path)
+    (suite / "test_cases.py").write_text(
+        """
+import os
+import time
+from pathlib import Path
+import pytest
+pytestmark = [pytest.mark.macos_gui, pytest.mark.xdist_group(name="macos_gui")]
+
+def test_a_failure():
+    assert False, "failure before timeout"
+
+def test_b_wait():
+    Path("waiting").touch()
+    deadline = time.monotonic() + 30
+    while not Path("release").exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    # A worker outliving its killed controller must still terminate promptly.
+    os._exit(0)
+"""
+    )
+    journal = tmp_path / "failures.jsonl"
+    final_report = tmp_path / "skip-report.json"
+    console = tmp_path / "console.log"
+    environment = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join(filter(None, (str(REPO), os.environ.get("PYTHONPATH")))),
+        "BTRC_TEST_RUNNER": "macos",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    environment.pop("PYTEST_ADDOPTS", None)
+    options = ("-n", workers, "--dist=loadgroup") if workers else ("-p", "no:xdist")
+    with console.open("w") as output:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                *options,
+                f"--skip-report={final_report}",
+                f"--failure-report={journal}",
+                ".",
+            ],
+            cwd=suite,
+            env=environment,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=os.name != "nt",
+        )
+        try:
+            deadline = time.monotonic() + 20
+            while True:
+                text = console.read_text()
+                if (suite / "waiting").exists() and journal.exists() and "BTRC immediate failure" in text:
+                    break
+                assert process.poll() is None, text
+                assert time.monotonic() < deadline, text
+                time.sleep(0.01)
+            # Both sinks must be complete while pytest is still running.
+            records = [json.loads(line) for line in journal.read_text().splitlines()]
+            assert len(records) == 1
+            assert records[0]["nodeid"] == "test_cases.py::test_a_failure"
+            assert "failure before timeout" in records[0]["longrepr"]
+            assert "failure before timeout" in text and "retained compiler detail" in text
+            assert not final_report.exists()
+        finally:
+            if os.name != "nt":
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+            elif process.poll() is None:
+                process.kill()
+            (suite / "release").touch()
+            process.wait(timeout=10)
+    assert not final_report.exists()
+    assert len(journal.read_text().splitlines()) == 1
 
 
 def test_hosted_linux_collector_and_gate_require_every_selected_case(tmp_path):
