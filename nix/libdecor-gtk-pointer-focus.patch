@@ -1,0 +1,58 @@
+Clear GTK seat references before destroying decoration surfaces.
+
+Port the existing Cairo frame-free cleanup, including its NULL guard:
+https://gitlab.freedesktop.org/libdecor/libdecor/-/commit/1eb40f3b4cd841161ebc8a2904ad3a5c2cb36445
+https://gitlab.freedesktop.org/libdecor/libdecor/-/commit/6801a1c5e678bd23ae2c00efb27529d6f25a8750
+
+Also take only the GTK pointer_leave early-clear hunk from:
+https://gitlab.freedesktop.org/libdecor/libdecor/-/commit/c23c1f9351eece5150653d005c63892bfe8c8562
+
+Wayland replaces a destroyed surface argument with NULL. Clear pointer focus
+before that early return, and before frame destruction, so a later cursor
+surface leave cannot dereference the freed frame. Keep GTK decorations and
+all other libdecor 0.2.5 behavior unchanged.
+
+--- a/src/plugins/gtk/libdecor-gtk.c
++++ b/src/plugins/gtk/libdecor-gtk.c
+@@ -673,8 +673,17 @@
+ libdecor_plugin_gtk_frame_free(struct libdecor_plugin *plugin,
+ 				 struct libdecor_frame *frame)
+ {
++	struct libdecor_plugin_gtk *plugin_gtk =
++		(struct libdecor_plugin_gtk *) plugin;
+ 	struct libdecor_frame_gtk *frame_gtk =
+ 		(struct libdecor_frame_gtk *) frame;
++	struct seat *seat;
++
++	wl_list_for_each(seat, &plugin_gtk->seat_list, link) {
++		if (seat->pointer_focus != NULL &&
++		    wl_surface_get_user_data(seat->pointer_focus) == frame_gtk)
++			seat->pointer_focus = NULL;
++	}
+ 
+ 	g_clear_pointer (&frame_gtk->header, gtk_widget_destroy);
+ 	g_clear_pointer (&frame_gtk->window, gtk_widget_destroy);
+@@ -2115,18 +2124,19 @@
+ 	      uint32_t serial,
+ 	      struct wl_surface *surface)
+ {
+-	if (!surface)
+-		return;
+-
+ 	struct seat *seat = data;
+ 	struct libdecor_frame_gtk *frame_gtk;
+ 
++	seat->pointer_focus = NULL;
++
++	if (!surface)
++		return;
++
+ 	if (!own_surface(surface))
+ 		return;
+ 
+ 	frame_gtk = wl_surface_get_user_data(surface);
+ 
+-	seat->pointer_focus = NULL;
+ 	if (frame_gtk) {
+ 		frame_gtk->active = NULL;
+ 		frame_gtk->hdr_focus.widget = NULL;
