@@ -1685,7 +1685,14 @@ def test_the_android_corpus_lane_builds_on_linux_and_runs_on_a_kvm_emulator() ->
     final = run["steps"][-1]
     assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT
     assert final["with"]["name"] == "target-corpus-run-${{ matrix.target }}"
-    assert final["with"]["path"].split() == ["build/target-corpus/run/", "build/android-avds/*.log"]
+    assert final["with"]["path"].split() == [
+        "build/target-corpus/run/",
+        "build/android-avds/*.log",
+        "build/android-avds/*-process.json",
+    ]
+    fixture_evidence = next(step for step in jobs["emulator"]["steps"] if step.get("name") == "Retain the results")
+    assert fixture_evidence["if"] == "always()" and fixture_evidence["uses"] == UPLOAD_ARTIFACT
+    assert "build/android-avds/**/*-process.json" in fixture_evidence["with"]["path"].split()
     # The executor the lane names is the one the runner's registry resolves.
     from src.tests.target_runner import ExecutorRegistry
 

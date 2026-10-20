@@ -154,6 +154,7 @@ jobs:
             build/android-sdk-*.txt
             build/android-sdkmanager.log
             build/android-avds/**/*.log
+            build/android-avds/**/*-process.json
             build/android-host-*/load-segments.txt
             build/android-host-*/toolchain.json
           if-no-files-found: warn
@@ -519,5 +520,6 @@ jobs:
           path: |
             build/target-corpus/run/
             build/android-avds/*.log
+            build/android-avds/*-process.json
           if-no-files-found: warn
           retention-days: 30
