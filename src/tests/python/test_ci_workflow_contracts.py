@@ -604,15 +604,20 @@ def _scope_step(workflow: str, name: str = "Classify the change") -> dict[str, o
 
 
 def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
-    scope = _parsed("ci.yml")["jobs"]["scope"]
+    scope = dict(_parsed("ci.yml")["jobs"]["scope"])
+    assert scope.pop("if") == "${{ github.event_name != 'workflow_dispatch' || inputs.focus != 'unit-diagnostic' }}"
     for workflow in CORE_WORKFLOWS:
         document = _parsed(workflow)
-        assert document["jobs"]["scope"] == scope, workflow
+        actual_scope = dict(document["jobs"]["scope"])
+        if workflow == "ci.yml":
+            actual_scope.pop("if")
+        assert actual_scope == scope, workflow
         assert document["env"]["CI_WORKFLOW"] == workflow, workflow
         assert _job_names(document)[0] == "scope", workflow
         listed = {entry.job for entry in TIERS.jobs if entry.workflow == workflow}
         jobs = document["jobs"]
-        assert set(jobs) - {"scope", "skip-reports"} == listed, workflow
+        exceptions = {"unit-diagnostic"} if workflow == "ci.yml" else set()
+        assert set(jobs) - {"scope", "skip-reports"} - exceptions == listed, workflow
         for name in listed:
             job = jobs[name]
             assert job["if"] == f"contains({PLAN}.jobs, '{name}')", (workflow, name)
@@ -1290,7 +1295,8 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                 "focus": {
                     "description": "Which jobs to run",
                     "type": "choice",
-                    "options": ["full", "native-gui", "extended"],
+                    "options": ["full", "native-gui", "extended"]
+                    + (["unit-diagnostic"] if workflow == "ci.yml" else []),
                     "default": "full",
                 }
             }
@@ -1596,7 +1602,9 @@ def test_the_android_corpus_lane_is_tiered_beside_untiered_fixture_jobs() -> Non
     document = _parsed(workflow)
     jobs = document["jobs"]
     assert document["env"]["CI_WORKFLOW"] == workflow
-    assert jobs["scope"] == _parsed("ci.yml")["jobs"]["scope"]
+    ci_scope = dict(_parsed("ci.yml")["jobs"]["scope"])
+    assert ci_scope.pop("if") == "${{ github.event_name != 'workflow_dispatch' || inputs.focus != 'unit-diagnostic' }}"
+    assert jobs["scope"] == ci_scope
     tiered = [entry for entry in TIERS.jobs if entry.workflow == workflow]
     listed = {entry.job for entry in tiered}
     assert listed == {"target-corpus-build", "target-corpus-compile", "target-corpus"}
@@ -1994,3 +2002,45 @@ def test_e40_hosted_admission_is_confined_to_its_dedicated_workflow_step() -> No
     assert "BTRC_UI2_HOSTED_E40" not in recipe and "CI=true" not in recipe
     assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in recipe
     assert "env $(E40_BTRCC) python3 -m tools.ui.e40 --provider macos" in recipe
+
+
+def test_unit_diagnostic_preserves_the_complete_shard_and_runner_limits() -> None:
+    document = _parsed("ci.yml")
+    job = document["jobs"]["unit-diagnostic"]
+    assert job["if"] == "${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'unit-diagnostic' }}"
+    assert "needs" not in job and job["runs-on"] == "ubuntu-latest"
+    assert job["timeout-minutes"] == "90"
+    assert all(entry.job != "unit-diagnostic" for entry in TIERS.jobs)
+    run = next(step for step in job["steps"] if "test-shard-unit" in step.get("run", ""))
+    assert run["env"] == {
+        "PYTEST_ADDOPTS": "--maxfail=1 --tb=short -vv --junitxml=build/unit-diagnostic/junit.xml",
+        "PYTEST_DEBUG_TEMPROOT": "/workspace/build/unit-diagnostic/pytest",
+    }
+    assert "set -euo pipefail" in run["run"]
+    assert (
+        'podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS -e PYTEST_DEBUG_TEMPROOT '
+        "btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 "
+        "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit "
+        "2>&1 | tee build/unit-diagnostic/console.log"
+    ) in run["run"]
+    assert "-k " not in run["run"] and "--ignore" not in run["run"]
+    upload, skips = job["steps"][-2:]
+    assert skips["if"] == "always()" and skips["uses"] == UPLOAD_ARTIFACT
+    assert skips["with"]["name"] == "skip-report-ci-unit-diagnostic"
+    assert skips["with"]["path"] == SKIP_REPORTS
+    assert upload["if"] == "always()" and upload["uses"] == UPLOAD_ARTIFACT
+    paths = set(upload["with"]["path"].splitlines())
+    assert {
+        "build/skip-report-unit.json",
+        "build/unit-diagnostic/**/*.xml",
+        "build/unit-diagnostic/**/*.json",
+        "build/unit-diagnostic/**/*.stdout",
+        "build/unit-diagnostic/**/*.stderr",
+        "build/unit-diagnostic/**/*.log",
+    } <= paths
+    assert upload["with"]["if-no-files-found"] == "error"
+    recipe = _makefile_recipe((REPO / "Makefile").read_text(), "test-shard-unit")
+    assert "$(PYTEST) src/tests/" in recipe
+    assert "--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json" in recipe
+    assert '-m "not e40_qualification"' in recipe
+    assert "$(SKIP_GATE) build/skip-report-unit.json" in recipe
