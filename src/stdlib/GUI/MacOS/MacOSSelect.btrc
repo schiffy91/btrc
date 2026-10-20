@@ -10,8 +10,103 @@ import Library.Math;
 import Library.GUI.MacOS.AppKitText;
 import Library.GUI.MacOS.MacOSView;
 
+/* One interaction retains its prospective draft and both terminal outcomes.
+ * Completion transfers this owner out before a queue wake can reenter. */
+class MacOSSelectAdmission {
+	public ControlEventPublication<ISelectionControlEventHandler, SelectionControlEvent>? changed;
+	public ControlEventTicket? commit;
+	public ControlEventTicket? cancel;
+	public void retire() {
+		if (self.changed != null) { self.changed.abort(); self.changed = null; }
+		if (self.commit != null && !self.commit.queued()) { self.commit.retire(); }
+		if (self.cancel != null && !self.cancel.queued()) { self.cancel.retire(); }
+		self.commit = null; self.cancel = null;
+	}
+
+	public void __del__() { self.retire(); }
+}
+
+class MacOSSelectEntry {
+	public long long interaction = 0LL;
+	public long long revision = 0LL;
+	public long long generation = 0LL;
+	public bool started = false;
+	public bool opening = false;
+	public bool click = false;
+	public bool trackEntered = false;
+}
+
+/* Menu revisions are captured by each native adapter, including retained items. */
+class MacOSSelectMenu implements IAppKitSelectMenuAdmission {
+	private MacOSSelect _owner;
+	private long long _revision;
+	public MacOSSelectMenu(MacOSSelect owner, long long revision) { self._owner = owner; self._revision = revision; }
+
+	public bool beforeAction(long index) { return self._owner.beforeMenuAction(self._revision, index); }
+
+	public void afterAction(bool invokedSuper, bool nativeFailed) { self._owner.afterNative(nativeFailed); }
+
+	public bool beforeKey(NSEvent event) { return self._owner.beforeMenuKey(self._revision); }
+
+	public void afterKey(bool invokedSuper, bool nativeFailed) { self._owner.afterNative(nativeFailed); }
+}
+
+/* AppKit's default item AX action mutates the cell before its deferred menu
+ * action. This receiver admits synchronously and uses that public menu action. */
+class MacOSSelectItem implements IAppKitSelectItemAccessibility, ICallbackRegistration {
+	private MacOSSelect? _owner;
+	private long long _revision;
+	private int _index;
+	private bool _open = true;
+	private int _inFlight = 0;
+	public MacOSSelectItem(MacOSSelect owner, long long revision, int index) { self._owner = owner; self._revision = revision; self._index = index; }
+
+	private bool deliver(bool cancel) {
+		if (!NSThread.isMainThread()) { throw "Native selection accessibility requires the main thread"; }
+		if (!self._open || self._owner == null) { return false; }
+		if (self._inFlight == 2147483647) { throw "Selection accessibility entry count exhausted"; }
+		bool accepted = false; self._inFlight++;
+		try {
+			var owner = self._owner;
+			if (owner != null) {
+				if (cancel) { accepted = owner.cancelItem(self._revision); }
+				else { accepted = owner.activateItem(self._revision, self._index); }
+			}
+		} finally { self._inFlight--; if (!self._open && self._inFlight == 0) { self._owner = null; } }
+		return accepted;
+	}
+
+	public bool accessibilityPerformPress() { return self.deliver(false); }
+
+	public bool accessibilityPerformPick() { return self.deliver(false); }
+
+	public bool accessibilityPerformCancel() { return self.deliver(true); }
+
+	public void accessibilityPerformAction(NSString action) {
+		if (action.isEqualToString(NSAccessibilityPressAction) || action.isEqualToString(NSAccessibilityPickAction)) { self.deliver(false); }
+		else if (action.isEqualToString(NSAccessibilityCancelAction)) { self.deliver(true); }
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public CallbackCancellation cancel() { self._open = false; return self.pollCompletion(); }
+
+	public CallbackCancellation pollCompletion() {
+		if (self._open) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (self._inFlight > 0) { return CALLBACK_CANCELLATION_PENDING; }
+		self._owner = null; return CALLBACK_CANCELLATION_COMPLETE;
+	}
+}
+
+class MacOSSelectItemFactory implements IAppKitSelectItemAccessibilityFactory {
+	private MacOSSelectItem _receiver;
+	public MacOSSelectItemFactory(MacOSSelectItem receiver) { self._receiver = receiver; }
+
+	public IAppKitSelectItemAccessibility create() { return self._receiver; }
+}
+
 /* The owning keyed snapshot is authoritative; AppKit presents and tracks it. */
-class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKitButtonAction, IAppKitMenuEvents, IMacOSNativeSettlement {
+class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKitButtonAction, IAppKitMenuEvents, IMacOSNativeSettlement, IAppKitSelectCellAdmission {
 	private NSPopUpButton? _button;
 	private MacOSView _view;
 	private NSMenu? _menu;
@@ -42,18 +137,24 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _changed;
 	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _commit;
 	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _cancel;
-	private ControlEventTicket? _commitTicket;
-	private ControlEventTicket? _cancelTicket;
+	private MacOSSelectAdmission? _admission;
+	private Vector<MacOSSelectEntry> _entries = [];
+	private bool _publishingModel = false;
 
 	public MacOSSelect() {
 		if (!NSThread.isMainThread()) { throw "Native selections require the main thread"; }
-		var button = NSPopUpButton.new();
+		CGRect frame = {{0.0, 0.0}, {0.0, 0.0}};
+		var button = NSPopUpButton.initWithFrame(frame, false);
 		if (button == null) { throw "Cannot create native selection"; }
 		self._button = button;
 		self._view = MacOSView(button); self._view.bindEligibility(self);
 		button.setPullsDown(false);
 		button.setAutoenablesItems(false);
-		try { self.setItems(new Vector<string>(), -1); NSButton native = button; native.setTarget(self, self._native); }
+		try {
+			var cell = NSPopUpButtonCell.initTextCell(self, self._native, AppKitText.nativeValue(""), false);
+			if (cell == null) { throw "Cannot create native selection cell"; }
+			button.setCell(cell); self.setItems(new Vector<string>(), -1); NSButton native = button; native.setTarget(self, self._native);
+		}
 		catch (string error) { self._native.cancel(); self._menuCallbacks.cancel(); self._view.close(); self._button = null; throw error; }
 	}
 
@@ -86,39 +187,45 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 		if (presentation != null) { presentation.setTitle(AppKitText.nativeValue(self._selected < 0 ? self._statusText : self._titles.get(self._selected))); }
 	}
 
-	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent> subscribe(ISelectionControlEventHandler receiver, CallbackScope owner) {
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent> subscribe(ISelectionControlEventHandler receiver, CallbackScope owner, ControlEventCaptureRole role) {
 		self.stateNode().requireMutation(); self.control();
+		var context = self.stateNode().context(); if (context != null) { context.requireSemanticRegistration(); }
 		self.reserveSettlement();
-		var channel = new ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>(self.stateNode().events(), self.stateNode(), receiver, MacOSSelect.deliverSelection, owner);
+		var channel = new ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>(self.stateNode().events(), self.stateNode(), receiver, MacOSSelect.deliverSelection, owner, self.stateNode().events().captureEnabled() ? role : CONTROL_CAPTURE_LEGACY);
 		try { self.stateNode().ownChannel(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
 	}
 
 	public ICallbackRegistration onChanged(ISelectionControlEventHandler receiver, CallbackScope owner) {
 		if (self._changed != null && self._changed.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection change handler first"; }
-		self._changed = self.subscribe(receiver, owner); return self._changed;
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_KEYED);
+		try {
+			if (self._tracking && self.stateNode().events().captureEnabled()) {
+				self._admission.changed = channel.prepareKey(self._interactionGeneration, self._interaction, self._modelRevision);
+				if (self._admission.changed == null) { throw "Selection candidate reservation unavailable"; }
+			}
+		} catch (string error) { channel.cancel(); throw error; }
+		self._changed = channel; return channel;
 	}
 
 	public ICallbackRegistration onCommit(ISelectionControlEventHandler receiver, CallbackScope owner) {
 		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection commit handler first"; }
-		var channel = self.subscribe(receiver, owner);
-		try { if (self._tracking) { self._commitTicket = channel.beginInteraction(); if (self._commitTicket == null) { throw "Selection commit reservation unavailable"; } } }
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
+		try { if (self._tracking) { self._admission.commit = channel.beginInteraction(); if (self._admission.commit == null) { throw "Selection commit reservation unavailable"; } } }
 		catch (string error) { channel.cancel(); throw error; }
 		self._commit = channel; return channel;
 	}
 
 	public ICallbackRegistration onCancel(ISelectionControlEventHandler receiver, CallbackScope owner) {
 		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection cancel handler first"; }
-		var channel = self.subscribe(receiver, owner);
-		try { if (self._tracking) { self._cancelTicket = channel.beginInteraction(); if (self._cancelTicket == null) { throw "Selection cancel reservation unavailable"; } } }
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
+		try { if (self._tracking) { self._admission.cancel = channel.beginInteraction(); if (self._admission.cancel == null) { throw "Selection cancel reservation unavailable"; } } }
 		catch (string error) { channel.cancel(); throw error; }
 		self._cancel = channel; return channel;
 	}
 
-	private void releaseTickets() {
-		if (self._commitTicket != null && !self._commitTicket.queued()) { self._commitTicket.retire(); }
-		if (self._cancelTicket != null && !self._cancelTicket.queued()) { self._cancelTicket.retire(); }
-		self._commitTicket = null; self._cancelTicket = null;
-	}
+	private MacOSSelectAdmission? takeMenu() { var admission = self._admission; self._admission = null; self._tracking = false; self._pendingClose = 0LL; return admission; }
+
+	private void finishMenu() { var admission = self.takeMenu(); if (admission != null) { admission.retire(); } }
 
 	private string? keyAt(int index) { return index < 0 || index >= self._keys.len ? null : self._keys.get(index); }
 
@@ -132,52 +239,127 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 		event.previousKey = self._previousKey; event.candidateKey = self.keyAt(self._highlight); event.acceptedKey = self.keyAt(self._selected); return event;
 	}
 
-	private bool beginMenu() {
-		if (self._tracking) { return true; }
-		if (self._closing || self._nativeFailed || self._availability != SELECT_AVAILABILITY_READY || !self.stateNode().effectiveEligible()) { return false; }
+	private bool canBegin() { return !self._closing && !self._publishingModel && !self._nativeFailed && self._availability == SELECT_AVAILABILITY_READY && self.stateNode().effectiveEligible(); }
+
+	private MacOSSelectAdmission? prepareMenu() {
+		if (!self.canBegin()) { return null; }
 		self.reserveSettlement();
 		if (self._interaction == 9223372036854775807LL) { throw "Selection interaction identities exhausted"; }
-		bool admitted = true;
+		var admission = MacOSSelectAdmission();
 		try {
-			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); admitted = self._commitTicket != null; }
-			if (admitted && self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); admitted = self._cancelTicket != null; }
-		} catch (string error) { self.releaseTickets(); throw error; }
-		if (!admitted) { self.releaseTickets(); return false; }
-		self._tracking = true; self._interaction++; self._interactionGeneration = self.stateNode().generation();
-		self._previousKey = self.keyAt(self._selected); self._highlight = self._selected; self._pendingClose = 0LL; return true;
+			if (self._changed != null && self._changed.isOpen() && self.stateNode().events().captureEnabled()) {
+				admission.changed = self._changed.prepareKey(self.stateNode().generation(), self._interaction + 1LL, self._modelRevision);
+				if (admission.changed == null) { throw "Selection change reservation unavailable"; }
+			}
+			if (self._commit != null && self._commit.isOpen()) { admission.commit = self._commit.beginInteraction(); if (admission.commit == null) { throw "Selection commit reservation unavailable"; } }
+			if (self._cancel != null && self._cancel.isOpen()) { admission.cancel = self._cancel.beginInteraction(); if (admission.cancel == null) { throw "Selection cancel reservation unavailable"; } }
+		} catch (string error) { admission.retire(); throw error; }
+		return admission;
 	}
 
-	private void finishMenu() { self._tracking = false; self._pendingClose = 0LL; self.releaseTickets(); }
+	private void startMenu(MacOSSelectAdmission admission) {
+		self._admission = admission; self._tracking = true; self._interaction++; self._interactionGeneration = self.stateNode().generation();
+		self._previousKey = self.keyAt(self._selected); self._highlight = self._selected; self._pendingClose = 0LL;
+	}
+
+	private bool beginMenu() {
+		if (self._tracking) { return self.canBegin(); }
+		var admission = self.prepareMenu(); if (admission == null) { return false; } self.startMenu(admission); return true;
+	}
 
 	private void cancelMenu(ControlOrigin origin, ControlCancelReason reason) {
 		if (!self._tracking) { return; }
+		var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason); var channel = self._cancel; var admission = self.takeMenu();
 		try {
-			var channel = self._cancel; var ticket = self._cancelTicket;
-			if (channel != null && channel.isOpen() && ticket != null) {
-				var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason); channel.publishTerminal(event, self._interactionGeneration, self._interaction, ticket);
-			}
-		} finally {
-			self.finishMenu();
 			try { var menu = self._menu; if (menu != null) { menu.cancelTracking(); } }
 			finally { if (self._button != null) { self.projectSelection(); } }
-		}
+			if (channel != null && channel.isOpen() && admission.cancel != null) { channel.publishTerminal(event, event.context.generation, event.context.interaction, admission.cancel); }
+		} finally { admission.retire(); }
 	}
 
 	private void acceptSelection() {
 		if (self._closing) { return; }
-		if (self._nativeFailed || !self.stateNode().effectiveEligible() || self._availability != SELECT_AVAILABILITY_READY) { self.projectSelection(); return; }
+		if (!self.canBegin()) { self.projectSelection(); return; }
 		int index = (int)self.control().indexOfSelectedItem();
 		if (index < 0 || index >= self._keys.len || !self._enabledItems.get(index) || !self.beginMenu()) { self.projectSelection(); return; }
-		self._highlight = index;
+		self._highlight = index; bool changed = index != self._selected;
+		self._selected = index; self.projectSelection();
+		var event = changed ? self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE) : null;
+		var channel = self._commit; var admission = self.takeMenu();
+		try { if (event != null && channel != null && channel.isOpen() && admission.commit != null) { channel.publishTerminal(event, event.context.generation, event.context.interaction, admission.commit); } }
+		finally { admission.retire(); }
+	}
+
+	private bool beforeNative(long long revision, long index, bool opening, bool click = false) {
+		var entry = MacOSSelectEntry(); entry.opening = opening; entry.click = click; self._entries.push(entry);
 		try {
-			if (index != self._selected) {
-				self._selected = index; self.projectSelection(); var channel = self._commit; var ticket = self._commitTicket;
-				if (channel != null && channel.isOpen() && ticket != null) {
-					var event = self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
-					channel.publishTerminal(event, self._interactionGeneration, self._interaction, ticket);
-				}
+			if (revision != self._modelRevision || !self.canBegin() || (index >= 0L && (index >= self._keys.len || !self._enabledItems.get((int)index)))) { return false; }
+			bool active = self._tracking;
+			if (opening && active) {
+				var admission = self.prepareMenu(); if (admission == null) { return false; }
+				long long interaction = self._interaction; long long generation = self.stateNode().generation();
+				try {
+					self.cancelMenu(CONTROL_ORIGIN_USER, CONTROL_CANCEL_PLATFORM_INTERRUPTION);
+					if (!self.canBegin() || self._tracking || self._interaction != interaction || self._modelRevision != revision || self.stateNode().generation() != generation) { admission.retire(); return false; }
+					self.startMenu(admission);
+				} catch (string error) { admission.retire(); throw error; }
+			} else if (!self.beginMenu()) { return false; }
+			entry.interaction = self._interaction; entry.revision = self._modelRevision; entry.generation = self.stateNode().generation();
+			entry.started = opening || !active; return true;
+		} catch (string error) { self.nativeFailure(error); return false; }
+	}
+
+	public bool beforeClick(CGRect frame, NSView view) { return self.beforeNative(self._modelRevision, -1L, true, true); }
+
+	public void afterClick(bool invokedSuper, bool nativeFailed) { self.afterNative(nativeFailed); }
+
+	public bool beforeTrack() {
+		/* AppKit performClick enters trackMouse once before opening its menu.
+		 * Only that immediate continuation borrows the outer admission. */
+		if (!self._entries.isEmpty()) {
+			var outer = self._entries.get(self._entries.len - 1);
+			if (outer.click && outer.started && !outer.trackEntered) {
+				outer.trackEntered = true;
+				var entry = MacOSSelectEntry(); self._entries.push(entry);
+				try { return self.canBegin() && self._tracking && outer.interaction == self._interaction && outer.revision == self._modelRevision && outer.generation == self.stateNode().generation(); }
+				catch (string error) { self.nativeFailure(error); return false; }
 			}
-		} finally { self.finishMenu(); }
+		}
+		return self.beforeNative(self._modelRevision, -1L, true);
+	}
+
+	public void afterTrack(bool invokedSuper, bool nativeFailed) { self.afterNative(nativeFailed); }
+
+	public bool beforeMenuAction(long long revision, long index) { return self.beforeNative(index < 0L ? 0LL : revision, index, false); }
+
+	public bool beforeMenuKey(long long revision) { return self.beforeNative(revision, -1L, false); }
+
+	public void afterNative(bool failed) {
+		try {
+			if (self._entries.isEmpty()) { throw "Native selection entry is missing"; }
+			var entry = self._entries.get(self._entries.len - 1); self._entries.remove(self._entries.len - 1);
+			if (failed) { self.nativeFailure("Native selection activation failed"); }
+			if (entry.started && self._tracking && entry.interaction == self._interaction) {
+				if (self._pendingClose == entry.interaction) { self.settleNative(); }
+				else if (entry.opening || failed) { self.cancelMenu(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION); }
+				else { self.finishMenu(); }
+			}
+		} catch (string error) { self.nativeFailure(error); }
+	}
+
+	public bool activateItem(long long revision, int index) {
+		try {
+			if (revision != self._modelRevision || !self.canBegin() || index < 0 || index >= self._keys.len || !self._enabledItems.get(index)) { return false; }
+			bool active = self._tracking; if (!self.beginMenu()) { return false; } long long interaction = self._interaction;
+			try { self._menu.performActionForItemAtIndex((long)index); }
+			finally { if (!active && self._tracking && self._interaction == interaction) { self.finishMenu(); } }
+			return !self._nativeFailed;
+		} catch (string error) { self.nativeFailure(error); return false; }
+	}
+
+	public bool cancelItem(long long revision) {
+		try { if (revision != self._modelRevision || self._closing || self._publishingModel || !self._tracking) { return false; } self.cancelMenu(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); return true; }
+		catch (string error) { self.nativeFailure(error); return false; }
 	}
 
 	private void nativeFailure(string error) {
@@ -203,7 +385,9 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 					self._highlight = index; var channel = self._changed;
 					if (channel != null && channel.isOpen()) {
 						var event = self.snapshot(CONTROL_PHASE_CHANGE, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
-						if (!channel.publish(event, self._interactionGeneration, self._interaction, self._modelRevision)) { throw "Selection candidate queue cannot admit native input"; }
+						var preparation = self._admission.changed;
+						if (preparation != null) { self._admission.changed = null; preparation.commit(event); }
+						else if (!channel.publish(event, self._interactionGeneration, self._interaction, self._modelRevision)) { throw "Selection candidate queue cannot admit native input"; }
 					}
 				}
 			}
@@ -281,6 +465,7 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 
 	public void setOptions(SelectModel model) {
 		self.stateNode().requireMutation(); self.control();
+		if (self._publishingModel) { throw "Selection model publication is already active"; }
 		if (model == null || model.options == null || model.statusText == null) { throw "Selection model has missing required data"; }
 		if (model.availability != SELECT_AVAILABILITY_READY && model.availability != SELECT_AVAILABILITY_EMPTY && model.availability != SELECT_AVAILABILITY_LOADING && model.availability != SELECT_AVAILABILITY_ERROR) { throw "Unknown selection availability"; }
 		if ((model.availability == SELECT_AVAILABILITY_EMPTY && (model.options.len != 0 || model.selectedKey != null)) || (model.availability == SELECT_AVAILABILITY_READY && model.options.len == 0)) { throw "Selection availability conflicts with its options"; }
@@ -297,33 +482,38 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 		if (model.selectedKey != null && selected < 0) { throw "Selection key is missing from options"; }
 		if (identical) { return; }
 		if (self._modelRevision == 9223372036854775807LL) { throw "Selection model revisions exhausted"; }
-		var menu = NSMenu.new(); if (menu == null) { throw "Cannot create native selection menu"; }
+		var callbacks = CallbackScope();
+		var menu = NSMenu.initWithTitle(MacOSSelectMenu(self, self._modelRevision + 1LL), callbacks, AppKitText.nativeValue("")); if (menu == null) { throw "Cannot create native selection menu"; }
 		menu.setAutoenablesItems(false);
 		for (int itemIndex = 0; itemIndex < titles.len; itemIndex++) {
-			var item = NSMenuItem.new(); if (item == null) { throw "Cannot create native selection item"; }
-			item.setTitle(AppKitText.nativeValue(titles.get(itemIndex))); item.setEnabled(enabled.get(itemIndex) && model.availability == SELECT_AVAILABILITY_READY); menu.addItem(item);
+			var receiver = MacOSSelectItem(self, self._modelRevision + 1LL, itemIndex); callbacks.track(receiver);
+			var item = NSMenuItem.initWithTitle(MacOSSelectItemFactory(receiver), AppKitText.nativeValue(titles.get(itemIndex)), null, AppKitText.nativeValue("")); if (item == null) { throw "Cannot create native selection item"; }
+			item.setEnabled(enabled.get(itemIndex) && model.availability == SELECT_AVAILABILITY_READY); menu.addItem(item);
 		}
 		var presentation = NSMenuItem.new(); if (presentation == null) { throw "Cannot create selection status presentation"; }
 		presentation.setTitle(AppKitText.nativeValue(selected < 0 ? model.statusText : titles.get(selected)));
 		var cell = self.cell();
-		var callbacks = CallbackScope(); menu.setDelegate(self, callbacks);
+		menu.setDelegate(self, callbacks);
+		self._publishingModel = true;
 		try {
-			self.cancelMenu(CONTROL_ORIGIN_MODEL, CONTROL_CANCEL_MODEL_REPLACEMENT);
-			self.control().setMenu(menu); self.control().selectItemAtIndex(selected);
-			cell.setUsesItemFromMenu(false); cell.setMenuItem(presentation);
-		} catch (string error) {
-			bool restored = false;
-			try { self.control().setMenu(self._menu); self.control().selectItemAtIndex(self._selected); cell.setMenuItem(self._presentation); restored = true; }
-			catch (string rollback) {
-				self._failedMenu = menu; self._failedMenuCallbacks = callbacks;
-				self.stateNode().quarantine(); self.nativeFailure(rollback);
+			try {
+				self.cancelMenu(CONTROL_ORIGIN_MODEL, CONTROL_CANCEL_MODEL_REPLACEMENT);
+				self.control().setMenu(menu); self.control().selectItemAtIndex(selected);
+				cell.setUsesItemFromMenu(false); cell.setMenuItem(presentation);
+			} catch (string error) {
+				bool restored = false;
+				try { self.control().setMenu(self._menu); self.control().selectItemAtIndex(self._selected); cell.setMenuItem(self._presentation); restored = true; }
+				catch (string rollback) {
+					self._failedMenu = menu; self._failedMenuCallbacks = callbacks;
+					self.stateNode().quarantine(); self.nativeFailure(rollback);
+				}
+				if (restored) { callbacks.cancel(); }
+				throw error;
 			}
-			if (restored) { callbacks.cancel(); }
-			throw error;
-		}
-		self._menuCallbacks.cancel(); self._menuCallbacks = callbacks; self._menu = menu; self._presentation = presentation;
-		self._keys = keys; self._titles = titles; self._enabledItems = enabled; self._selected = selected;
-		self._availability = model.availability; self._statusText = model.statusText; self._modelRevision++; self._highlight = selected;
+			self._menuCallbacks.cancel(); self._menuCallbacks = callbacks; self._menu = menu; self._presentation = presentation;
+			self._keys = keys; self._titles = titles; self._enabledItems = enabled; self._selected = selected;
+			self._availability = model.availability; self._statusText = model.statusText; self._modelRevision++; self._highlight = selected;
+		} finally { self._publishingModel = false; }
 	}
 
 	public void setSelectedKey(string? key) {
