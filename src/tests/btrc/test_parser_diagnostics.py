@@ -160,6 +160,27 @@ def test_valid_program_still_crosses_both_boundaries(selfhost_drivers: dict[str,
     assert run_result.returncode == 0
 
 
+def test_floating_literal_values_match_reference_ast(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
+    """Values print at binary32 precision; past its overflow midpoint, as inf."""
+    program = tmp_path / "Floats.btrc"
+    program.write_text(
+        "void values() {\n"
+        "\tdouble huge = 1e300; double tiny = 1e-50; float half = .5f; double five = 5.;\n"
+        "\tdouble edge = 340282356779733661637539395458142568447.0;\n"
+        "\tdouble past = 340282356779733661637539395458142568448.0;\n"
+        "\tvar pair = (1, (2, 3)); int field = pair.1.0 + (pair).0;\n"
+        '\tstring text = f"{.5} {pair.1.0} {(pair).0}"; double pick = field?.5:1.;\n'
+        "}\n"
+    )
+    parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
+    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "dump-ast", str(program)], timeout=15)
+    assert parsed.returncode == 0, parsed.stderr
+    assert reference.returncode == 0, reference.stderr
+    assert parsed.stdout == reference.stdout
+    assert "value=inf\n" in reference.stdout
+    assert "value=0.500000\n" in reference.stdout
+
+
 def test_keyword_member_names_match_reference_ast(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
     program = tmp_path / "NativeMembers.btrc"
     members = (

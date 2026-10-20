@@ -67,7 +67,7 @@ class LosslessScanner:
             start = self._position
             line = self._line
             column = self._column
-            kind = self._scan_one()
+            kind = self._scan_one(self._ends_operand(result))
             result.append(
                 Lexeme(
                     kind=kind,
@@ -81,7 +81,24 @@ class LosslessScanner:
             )
         return tuple(result)
 
-    def _scan_one(self) -> LexemeKind:
+    # Symbols after which a "." selects a member or tuple field, as the
+    # compiler lexer reads them, or after which ".N" stays a postfix spelling
+    # whose layout is the selector's.
+    _OPERAND_SYMBOLS = frozenset({")", "]", "}", "++", "--", ".", "?.", "->"})
+    _VALUE_KEYWORDS = frozenset({"self", "super", "true", "false", "null"})
+
+    def _ends_operand(self, scanned: list[Lexeme]) -> bool:
+        """Whether the last code lexeme ends an operand a "." would select from."""
+        previous = next((lexeme for lexeme in reversed(scanned) if not lexeme.is_trivia), None)
+        if previous is None:
+            return False
+        if previous.kind is LexemeKind.WORD:
+            return previous.text not in self._vocabulary.keywords or previous.text in self._VALUE_KEYWORDS
+        if previous.kind is LexemeKind.SYMBOL:
+            return previous.text in self._OPERAND_SYMBOLS
+        return previous.kind in {LexemeKind.NUMBER, LexemeKind.STRING, LexemeKind.CHARACTER}
+
+    def _scan_one(self, after_operand: bool = False) -> LexemeKind:
         character = self.source[self._position]
         if character in " \t\f\v":
             while self._peek() in " \t\f\v":
@@ -119,6 +136,10 @@ class LosslessScanner:
                 self._advance()
             return LexemeKind.WORD
         if character.isascii() and character.isdigit():
+            self._scan_number()
+            return LexemeKind.NUMBER
+        # A leading-dot floating constant (C11 6.4.4.2): ".5" in "x = .5".
+        if character == "." and not after_operand and self._peek(1).isascii() and self._peek(1).isdigit():
             self._scan_number()
             return LexemeKind.NUMBER
 

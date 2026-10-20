@@ -1027,7 +1027,7 @@ class ExpressionLowerer {
 		}
 		if (node.kind == NK_FLOAT_LITERAL) {
 			string raw = node.raw;
-			if (raw == "") { raw = f"{node.valueFloat}"; }
+			if (raw == "") { raw = f"{node.valueDouble}"; }
 			if (self.gpuPipeline.cpuActive() && !raw.endsWith("f") && !raw.endsWith("F")) {
 				raw = raw + "f";
 			}

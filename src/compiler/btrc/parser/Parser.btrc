@@ -2434,7 +2434,18 @@ class Parser {
 		if (tt == "LPAREN" && self.isCast()) {
 			return self.parseCast();
 		}
+		if (tt == "LPAREN") { self.refuseMemberOfTypeName(); }
 		return self.parsePostfix();
+	}
+
+	/* A parenthesized keyword type followed by `.` names no value: `(long long).x`. */
+	private void refuseMemberOfTypeName() {
+		int typeStart = self.pos + 1;
+		if (!self.isTypeKeyword(self.tokenTypeAt(typeStart))) { return; }
+		int typeEnd = self.scanAbstractType(typeStart);
+		if (typeEnd < 0 || self.tokenTypeAt(typeEnd) != "RPAREN") { return; }
+		Token dot = self.peekAt(typeEnd + 1 - self.pos);
+		if (dot.type == "DOT") { self.failAt("Expected expression after a cast, got DOT '.'", dot); }
 	}
 
 	/* ---- Cast / sizeof ---- */
@@ -2456,6 +2467,8 @@ class Parser {
 		}
 		string follow = self.tokenTypeAt(typeEnd + 1);
 		bool bareIdent = self.tokenTypeAt(typeStart) == "IDENT" && typeEnd == typeStart + 1;
+		/* `(t).0` selects a tuple field of a grouped name. */
+		if (bareIdent && self.tupleFieldToken(self.peekAt(typeEnd + 1 - self.pos))) { return false; }
 		if (bareIdent) { return self.isBareIdentCastFollow(follow); }
 		return self.isCastFollow(follow);
 	}
@@ -2535,6 +2548,8 @@ class Parser {
 				expr = self.postfixIndex(expr);
 			} else if (tt == "DOT") {
 				expr = self.postfixDot(expr);
+			} else if (self.tupleFieldToken(self.peekAt(0))) {
+				expr = self.postfixTupleField(expr);
 			} else if (tt == "QUESTION_DOT") {
 				expr = self.postfixQuestionDot(expr);
 			} else if (tt == "ARROW") {
@@ -2586,14 +2601,50 @@ class Parser {
 		string fieldName = "";
 		if (self.check("INT_LIT")) {
 			Token idxTok = self.advance();
+			self.refuseNumericMember(expr, idxTok.value, idxTok);
 			fieldName = "_" + idxTok.value;
 		} else {
-			fieldName = self.memberName().value;
+			Token member = self.memberName();
+			self.refuseNumericMember(expr, member.value, member);
+			fieldName = member.value;
 		}
 		Node fa = Node();
 		fa.kind = NK_FIELD_ACCESS_EXPR;
 		fa.obj = expr;
 		fa.field = fieldName;
+		fa.arrow = false;
+		fa.line = expr.line;
+		fa.col = expr.col;
+		return fa;
+	}
+
+	/* Whether a floating token is a plain `.N`, the spelling of a tuple
+	 * field: after `)` or `}` the lexer reads `.0` as one floating token. */
+	public bool tupleFieldToken(Token token) {
+		if (token.type != "FLOAT_LIT" || token.value.length() < 2 || token.value[0] != '.') { return false; }
+		int index = 1;
+		while (index < token.value.length()) {
+			if (!Strings.isDigit(token.value[index])) { return false; }
+			index++;
+		}
+		return true;
+	}
+
+	/* `5.f` is a floating constant; spaced or grouped, a numeric literal has
+	 * no members. */
+	private void refuseNumericMember(Node operand, string member, Token site) {
+		if (operand.kind != NK_INT_LITERAL && operand.kind != NK_FLOAT_LITERAL) { return; }
+		Token at = Token(site.type, site.value, operand.line, operand.col);
+		self.failAt("Numeric literal '" + operand.raw + "' has no field '" + member + "'", at);
+	}
+
+	public Node postfixTupleField(Node expr) {
+		Token field = self.advance();
+		self.refuseNumericMember(expr, field.value.substring(1, field.value.length() - 1), field);
+		Node fa = Node();
+		fa.kind = NK_FIELD_ACCESS_EXPR;
+		fa.obj = expr;
+		fa.field = "_" + field.value.substring(1, field.value.length() - 1);
 		fa.arrow = false;
 		fa.line = expr.line;
 		fa.col = expr.col;
@@ -2686,7 +2737,7 @@ class Parser {
 			if (problem != "") { self.failAt(problem, tok); }
 			Node n = Node();
 			n.kind = NK_FLOAT_LITERAL;
-			n.valueFloat = (float)literal.doubleValue();
+			n.valueDouble = literal.doubleValue();
 			n.raw = tok.value;
 			n.line = tok.line;
 			n.col = tok.col;

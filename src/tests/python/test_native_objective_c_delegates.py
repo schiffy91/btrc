@@ -1172,3 +1172,189 @@ int main() {
     )
     assert completed.returncode == 0, completed.stderr
     assert not completed.stderr
+
+
+@pytest.fixture
+def text_delegate_alias_project(native_project):
+    source, _, _ = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text("""#import <AppKit/AppKit.h>
+@interface TextDelegateProbe : NSObject
++ (NSTextField * _Nonnull)makeField;
++ (int)exercise:(NSTextField * _Nonnull)field;
+@end
+""")
+    (root / "Selectors.h").write_text("#include <objc/objc.h>\n")
+    (root / "Probe.m").write_text("""#import "Foundation.h"
+#include <assert.h>
+@implementation TextDelegateProbe
++ (NSTextField *)makeField {
+    [[NSApplication sharedApplication] setActivationPolicy:NSApplicationActivationPolicyProhibited];
+    return [[[NSTextField alloc] init] autorelease];
+}
++ (int)exercise:(NSTextField *)field {
+    id<NSTextFieldDelegate> delegate = field.delegate;
+    if (!delegate) return 0;
+    NSTextView *editor = [[[NSTextView alloc] init] autorelease];
+    assert([delegate control:field textShouldBeginEditing:editor]);
+    assert(![delegate control:field textShouldBeginEditing:editor]);
+    assert([delegate control:field textView:editor doCommandBySelector:@selector(insertNewline:)]);
+    assert(![delegate control:field textView:editor doCommandBySelector:@selector(cancelOperation:)]);
+    [delegate controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:field]];
+    return 7;
+}
+@end
+""")
+    (root / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "textDelegateAliases"
+[[native.bindings]]
+module = "Foundation"
+header = "Foundation.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[TextDelegateProbe makeField]", "+[TextDelegateProbe exercise:]", "-[NSTextField setDelegate:]", "-[NSTextField delegate]", "-[NSTextFieldDelegate control:textShouldBeginEditing:]", "-[NSTextFieldDelegate control:textView:doCommandBySelector:]", "-[NSTextFieldDelegate controlTextDidChange:]"]
+[native.bindings.callbacks."-[NSTextField setDelegate:].delegate"]
+interface = "ITextDelegate"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSTextField setDelegate:]"
+slot-getter = "-[NSTextField delegate]"
+methods = ["-[NSTextFieldDelegate control:textShouldBeginEditing:]", "-[NSTextFieldDelegate control:textView:doCommandBySelector:]", "-[NSTextFieldDelegate controlTextDidChange:]"]
+activation-failure = "abort"
+cancellation = "entry-barrier"
+method-names = { "-[NSTextFieldDelegate control:textShouldBeginEditing:]" = "shouldBeginEditing", "-[NSTextFieldDelegate control:textView:doCommandBySelector:]" = "performTextCommand" }
+[[native.bindings]]
+module = "Selectors"
+header = "Selectors.h"
+language = "c"
+standard = "c11"
+symbols = ["SEL", "sel_registerName"]
+read-only-borrows = ["sel_registerName.str"]
+[[native.sources]]
+path = "Probe.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+[[native.frameworks]]
+name = "AppKit"
+os = ["macos"]
+""")
+    (source.parent / "Foundation.btrc").write_text("")
+    (source.parent / "Selectors.btrc").write_text("")
+    source.write_text("""import Library.Callback;
+import ./Foundation.btrc;
+import ./Selectors.btrc;
+#include <assert.h>
+class TextEvents implements ITextDelegate {
+	public int queries = 0;
+	public int commands = 0;
+	public int changes = 0;
+	public bool shouldBeginEditing(NSControl control, NSText editor) {
+		self.queries++;
+		return self.queries == 1;
+	}
+	public bool performTextCommand(NSControl control, NSTextView editor, SEL selector) {
+		self.commands++;
+		return selector == sel_registerName("insertNewline:");
+	}
+	public void controlTextDidChange(NSNotification notification) { self.changes++; }
+}
+int main() {
+	var field = TextDelegateProbe.makeField();
+	var events = TextEvents();
+	var scope = CallbackScope();
+	var registration = field.setDelegate(events, scope);
+	assert(TextDelegateProbe.exercise(field) == 7);
+	assert(events.queries == 2 && events.commands == 2 && events.changes == 1);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(TextDelegateProbe.exercise(field) == 0);
+	assert(events.queries == 2 && events.commands == 2 && events.changes == 1);
+	return 0;
+}
+""")
+    return source
+
+
+def _run_text_delegate_aliases(source, native_compile, sanitize=False):
+    root = source.parent.parent
+    plan = root / "Program.link.json"
+    compiled = native_compile(source, plan_path=plan)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+
+    def run(command, **kwargs):
+        flags = ["-O1", "-g", "-fsanitize=address,undefined"] if sanitize else ["-O2"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    executable = root / "Program"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.macos_gui
+@pytest.mark.parametrize("sanitize", [False, True])
+@pytest.mark.parametrize("table", [False, True])
+def test_text_delegate_selector_aliases(text_delegate_alias_project, native_compile, sanitize, table):
+    source = text_delegate_alias_project
+    if table:
+        manifest = source.parent.parent / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text().replace(
+                'method-names = { "-[NSTextFieldDelegate control:textShouldBeginEditing:]" = "shouldBeginEditing", "-[NSTextFieldDelegate control:textView:doCommandBySelector:]" = "performTextCommand" }',
+                '[native.bindings.callbacks."-[NSTextField setDelegate:].delegate".method-names]\n'
+                '"-[NSTextFieldDelegate control:textShouldBeginEditing:]" = "shouldBeginEditing"\n'
+                '"-[NSTextFieldDelegate control:textView:doCommandBySelector:]" = "performTextCommand"',
+            )
+        )
+    _run_text_delegate_aliases(source, native_compile, sanitize)
+
+
+@pytest.mark.parametrize(
+    "old,new,message",
+    [
+        ('"shouldBeginEditing"', '"performTextCommand"', "ambiguous delegate method projection"),
+        ('"shouldBeginEditing"', '"controlTextDidChange"', "ambiguous delegate method projection"),
+        ('"shouldBeginEditing"', '"class"', "nonreserved BTRC identifier"),
+        ('"shouldBeginEditing"', '"__del__"', "nonreserved BTRC identifier"),
+        ('"shouldBeginEditing"', '"_Reserved"', "nonreserved BTRC identifier"),
+        ('"shouldBeginEditing"', '"btrc_receiver"', "reserved"),
+        ('"shouldBeginEditing"', '"bad-name"', "ASCII identifier"),
+        ('"shouldBeginEditing"', "7", "method-names"),
+        (
+            '"-[NSTextFieldDelegate control:textShouldBeginEditing:]" =',
+            '"-[NSTextField delegate]" =',
+            "selected callback methods",
+        ),
+        ("method-names = {", "method-names = [", ""),
+    ],
+)
+def test_text_delegate_rejects_invalid_aliases(text_delegate_alias_project, native_compile, old, new, message):
+    source = text_delegate_alias_project
+    manifest = source.parent.parent / "btrc.toml"
+    manifest.write_text(manifest.read_text().replace(old, new))
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert message in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.macos_gui
+def test_text_delegate_alias_change_invalidates_cache(text_delegate_alias_project, native_compile):
+    source = text_delegate_alias_project
+    _run_text_delegate_aliases(source, native_compile)
+    manifest = source.parent.parent / "btrc.toml"
+    manifest.write_text(manifest.read_text().replace('"shouldBeginEditing"', '"allowEditing"'))
+    stale_source = native_compile(source)
+    assert not stale_source.successful
+    assert "allowEditing" in str(stale_source.failure) + str(stale_source.diagnostics)
+    source.write_text(source.read_text().replace("shouldBeginEditing", "allowEditing"))
+    _run_text_delegate_aliases(source, native_compile)

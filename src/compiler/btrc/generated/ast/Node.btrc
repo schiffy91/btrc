@@ -230,7 +230,7 @@ class Node {
 	public Vector<Node>? bodyNodeListStorage;
 	public int valueInt;
 	public string raw;
-	public float valueFloat;
+	public double valueDouble;
 	public string valueString;
 	public bool valueBool;
 	public Node left;
@@ -325,7 +325,7 @@ class Node {
 		self.catchVar = "";
 		self.valueInt = 0;
 		self.raw = "";
-		self.valueFloat = 0.0;
+		self.valueDouble = 0.0;
 		self.valueString = "";
 		self.valueBool = false;
 		self.op = "";

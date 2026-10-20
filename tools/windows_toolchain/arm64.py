@@ -20,7 +20,8 @@ from tools.windows_toolchain.process_runner import run as run_process
 
 ROOT = Path(__file__).resolve().parents[2]
 PINS = json.loads(Path(__file__).with_name("pins.json").read_text())
-TARGET, MACHINE = TARGETS["windows-aarch64"]
+TARGET_LABEL = "windows-aarch64"
+TARGET, MACHINE = TARGETS[TARGET_LABEL]
 FLAGS = compiler_flags(root=ROOT)
 
 
@@ -145,6 +146,8 @@ $report | ConvertTo-Json -Depth 6
                 "src.compiler.python.main",
                 ROOT / "src/compiler/btrc/cli/WindowsMain.btrc",
                 "--no-cache",
+                "--target",
+                TARGET_LABEL,
                 "-o",
                 source,
             ],

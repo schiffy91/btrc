@@ -140,7 +140,7 @@ class CompilerPipeline {
 		Vector<string> sources = resolved.dependencies.sourceIdentities();
 		packages.linkPlan.restrictToSources(sources);
 		packages.linkPlan.includeStdlib(self.stdlib.directory(), sources, self.sourceFiles);
-		var nativeImporter = FeNativeDeclarationImporter(self.nativeHeaderReader, self.sourceFiles);
+		var nativeImporter = FeNativeDeclarationImporter(self.grammar, self.nativeHeaderReader, self.sourceFiles);
 		nativeImporter.prepare(packages.linkPlan, options.useCache);
 		/* Imported once compileResolved runs: a stored generation needs only
 		 * the identity. */

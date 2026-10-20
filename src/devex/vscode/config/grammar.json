@@ -216,7 +216,11 @@
         },
         {
           "name": "constant.numeric.float.btrc",
-          "match": "\\b\\d+\\.\\d+(?:[eE][+-]?\\d+)?[fF]?\\b"
+          "match": "(?<![\\w.])\\d+\\.(?!\\.)\\d*(?:[eE][+-]?\\d+)?[fF]?(?![\\w.])"
+        },
+        {
+          "name": "constant.numeric.float.btrc",
+          "match": "(?<![\\w)\\].])\\.\\d+(?:[eE][+-]?\\d+)?[fF]?\\b"
         },
         {
           "name": "constant.numeric.float.btrc",

@@ -6,6 +6,7 @@ import Library.GUI.ControlEventQueue;
 import Library.GUI.ApplicationPublisher;
 import Library.GUI.ApplicationScheduler;
 import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSViewState;
 
 /* AppKit's main-thread work owner. The application calls one bounded turn
  * from its common-mode source; native input and window teardown stay with
@@ -13,6 +14,7 @@ import Library.GUI.MacOS.MacOSRunLoop;
 class MacOSApplicationExecutor implements IControlEventWake {
 	private ApplicationScheduler _scheduler;
 	private MacOSRunLoopSignal _signal;
+	private MacOSNativeFailure _failure;
 	private Vector<ApplicationPublisher> _publishers = [];
 	private int _publisherUsed = 0;
 	private int _publisherCursor = 0;
@@ -23,8 +25,8 @@ class MacOSApplicationExecutor implements IControlEventWake {
 	private bool _closed = false;
 	private IApplicationHost? _host;
 
-	public MacOSApplicationExecutor(int capacity, MacOSRunLoopSignal signal) {
-		self.requireMainThread(); self._scheduler = ApplicationScheduler(capacity); self._signal = signal;
+	public MacOSApplicationExecutor(int capacity, MacOSRunLoopSignal signal, MacOSNativeFailure? failure = null) {
+		self.requireMainThread(); self._scheduler = ApplicationScheduler(capacity); self._signal = signal; self._failure = failure == null ? MacOSNativeFailure() : failure;
 	}
 
 	private void requireMainThread() { if (!NSThread.isMainThread()) { throw "Application work requires the main thread"; } }
@@ -33,6 +35,7 @@ class MacOSApplicationExecutor implements IControlEventWake {
 
 	public ScheduleOutcome schedule(IApplicationWork work, double delaySeconds, WorkSuspensionPolicy policy, long long replacementKey) {
 		self.requireMainThread();
+		if (self._failure.failed()) { var closed = ScheduleOutcome(); closed.kind = SCHEDULE_CLOSED; closed.registration = null; return closed; }
 		var result = self._scheduler.schedule(work, MacOSApplicationExecutor.now(), delaySeconds, policy, replacementKey);
 		if (result.kind == SCHEDULE_ACCEPTED || result.kind == SCHEDULE_REPLACED) { self.updateDeadline(); if (!self.requestTurn()) { throw "Application wake failed"; } }
 		return result;
@@ -42,7 +45,7 @@ class MacOSApplicationExecutor implements IControlEventWake {
 		self.requireMainThread();
 		if (capacity <= 0 || capacity > 65536 || handler == null || owner == null) { throw "Publisher requires bounded capacity, receiver and owner"; }
 		var result = ApplicationPublisherOutcome(); result.publisher = null; result.registration = null;
-		if (self._closing) { result.kind = APPLICATION_PUBLISHER_CLOSED; return result; }
+		if (self._closing || self._failure.failed()) { result.kind = APPLICATION_PUBLISHER_CLOSED; return result; }
 		self.prunePublishers();
 		if (capacity > 65536 - self._publisherUsed) { result.kind = APPLICATION_PUBLISHER_BUDGET_EXHAUSTED; return result; }
 		var publisher = ApplicationPublisher(capacity, self._signal, self._host);
@@ -101,7 +104,8 @@ class MacOSApplicationExecutor implements IControlEventWake {
 	private void runScheduled() {
 		unsigned long long start = MacOSApplicationExecutor.now();
 		for (int count = 0; count < 64 && !self._closing && MacOSApplicationExecutor.now() - start < 2000000ULL; count++) {
-			if (!self._scheduler.runOne(MacOSApplicationExecutor.now())) { break; }
+			self._failure.check(); bool ran = self._scheduler.runOne(MacOSApplicationExecutor.now()); self._failure.check();
+			if (!ran) { break; }
 		}
 	}
 
@@ -110,7 +114,7 @@ class MacOSApplicationExecutor implements IControlEventWake {
 		unsigned long long start = MacOSApplicationExecutor.now();
 		for (int index = 0; index < count && index < 64 && !self._closing && MacOSApplicationExecutor.now() - start < 2000000ULL; index++) {
 			if (self._publisherCursor >= self._publishers.len) { self._publisherCursor = 0; }
-			self._publishers.get(self._publisherCursor++).deliverOne();
+			self._failure.check(); self._publishers.get(self._publisherCursor++).deliverOne(); self._failure.check();
 		}
 		self.prunePublishers();
 	}
@@ -119,7 +123,7 @@ class MacOSApplicationExecutor implements IControlEventWake {
 		self.requireMainThread();
 		if (self._servicing) { throw "Application work dispatch cannot re-enter"; }
 		if (self._closing) { return; }
-		self._servicing = true;
+		self._failure.check(); self._servicing = true;
 		try {
 			self._scheduler.beginRound();
 			if (self._publisherFirst) { self.runPublishers(); self.runScheduled(); }
@@ -130,7 +134,7 @@ class MacOSApplicationExecutor implements IControlEventWake {
 	}
 
 	public bool runnable() {
-		self.requireMainThread(); if (self._closing) { return false; }
+		self.requireMainThread(); if (self._closing || self._failure.failed()) { return false; }
 		if (self._scheduler.runnable(MacOSApplicationExecutor.now())) { return true; }
 		for publisher in self._publishers { if (publisher.pending()) { return true; } }
 		return false;

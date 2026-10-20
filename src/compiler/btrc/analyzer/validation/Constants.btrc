@@ -429,6 +429,17 @@ class ConstantValidator {
 		return self.unsupportedCastRange();
 	}
 
+	/* The bounds both compilers share for a static initializer's floating
+	 * conversion: the built-in integers and the exact-width typedefs, as
+	 * Python's NumericLiteralSemantics bounds them; an enum, a least- or
+	 * fast-width typedef and a hosted-ABI type have none there. */
+	public SemanticIntegralCastRange portableCastRange(Node target, Analyzed analyzed) {
+		if (analyzed.isEnum(target.base) || target.base.startsWith("enum ")) { return self.unsupportedCastRange(); }
+		SemanticIntegralCastRange range = self.builtinCastRange(target.base, analyzed);
+		if (range.supported || target.base.indexOf("least") >= 0) { return range; }
+		return self.fixedCastRange(target.base);
+	}
+
 	public SemanticIntegralCastRange integralCastRange(Node target, Analyzed analyzed) {
 		SemanticIntegralCastRange range = self.builtinCastRange(target.base, analyzed);
 		if (range.supported) { return range; }
@@ -464,12 +475,19 @@ class ConstantValidator {
 		return self.knownConstant((long long)converted);
 	}
 
+	/* Whether a floating value converts to the range's integer type: its
+	 * truncation is representable there (C11 6.3.1.4p1). */
+	public bool floatConvertible(double value, SemanticIntegralCastRange range) {
+		double truncated = trunc(value);
+		double lower = range.isUnsigned ? 0.0 : (double)range.minimum;
+		double upper = (double)range.maximum + 1.0;
+		return !(truncated < lower || truncated >= upper);
+	}
+
 	public SemanticIntegerConstant convertFloatLiteral(string raw, SemanticIntegralCastRange range) {
 		if (!range.supported) { return self.unknownConstant(); }
 		double value = trunc(FloatLiteral(raw).typedValue());
-		double lower = range.isUnsigned ? 0.0 : (double)range.minimum;
-		double upper = (double)range.maximum + 1.0;
-		if (value < lower || value >= upper) {
+		if (!self.floatConvertible(value, range)) {
 			return self.invalidConstant();
 		}
 		if (range.isUnsigned) {

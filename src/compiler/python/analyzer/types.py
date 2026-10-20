@@ -227,6 +227,10 @@ class NumericLiteralSemantics:
         try:
             narrowed = struct.unpack("=f", struct.pack("=f", value))[0]
         except OverflowError:
+            # The double reached the overflow midpoint; the exact decimal
+            # decides whether the binary32 rounding does.
+            if LiteralDecoder.exact_value(raw) < LiteralDecoder.FLOAT32_OVERFLOW_MIDPOINT:
+                return struct.unpack("=f", struct.pack("=I", 0x7F7FFFFF))[0]
             return math.inf
         if narrowed == value:
             return value

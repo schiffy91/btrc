@@ -51,6 +51,7 @@ from ..abi.native_generated import (
     NativeTypedef,
 )
 from ..syntax.ast import generated as ast
+from ..syntax.grammar import GrammarRepository
 from .packages import IncludeResolutionError, NativeLinkPlan, NativeResourceBinding
 
 
@@ -1098,6 +1099,7 @@ class NativeDeclarationImporter:
     )
 
     def __init__(self):
+        self._grammar = GrammarRepository.canonical()
         self._declarations = {}
         self._native_types = {}
         self._origin = None
@@ -3874,6 +3876,19 @@ class NativeDeclarationImporter:
             binding.interface, index, declaration, binding.activation_failure, getter, protocol, methods
         )
 
+    def _callback_method_name(self, binding, method):
+        """Choose the receiver method while retaining the SDK selector separately."""
+        name = dict(binding.method_names).get(method.name)
+        if name is None:
+            return method.selector.split(":", 1)[0]
+        if (
+            name in self._grammar.load().keywords
+            or name.startswith("__")
+            or (len(name) > 1 and name[0] == "_" and "A" <= name[1] <= "Z")
+        ):
+            raise NativeImportError(f"callback method-names requires a nonreserved BTRC identifier: {name}")
+        return name
+
     def _protocol_methods(self, binding, index, protocol, *, object_results=False, overrides=()):
         """Project the selected protocol methods into the binding's interface.
 
@@ -3909,7 +3924,7 @@ class NativeDeclarationImporter:
                 )
             selected.append(method)
         for method in (*selected, *overrides):
-            name = method.selector.split(":", 1)[0]
+            name = self._callback_method_name(binding, method)
             if name in names:
                 raise NativeImportError(f"ambiguous delegate method projection: {name}")
             names.add(name)
@@ -3931,7 +3946,7 @@ class NativeDeclarationImporter:
                     ],
                 )
             )
-            identities.append((name, self._type_identity(method.signature)))
+            identities.append((method.name, name, self._type_identity(method.signature)))
             methods.append(
                 NativeCallbackProjection(
                     binding.interface,
@@ -7039,13 +7054,13 @@ class NativeDeclarationImporter:
         identities = []
         class_methods = []
         for method in class_overrides:
-            name = method.selector
+            name = self._callback_method_name(binding, method)
             if name in names:
                 raise NativeImportError(f"ambiguous delegate method projection: {name}")
             names.add(name)
             text = ast.TypeExpr(base="string")
             signatures.append(ast.MethodSig(name=name, return_type=text, params=[]))
-            identities.append(name)
+            identities.append((method.name, name))
             class_methods.append(
                 NativeCallbackProjection(
                     factory,

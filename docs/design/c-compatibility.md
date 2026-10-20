@@ -1401,3 +1401,52 @@ Stage 18 exits when `c_compat/TwoDimensionalArrays.btrc` passes through both com
 | `IRDesignation` declares a non-default field after defaults | Accepted. `value: IRExpr = None`, with non-null enforced by the verifier. |
 | The boundary manifest count | 310 records (one draft said 309). |
 | The schema commit found that `IRStructField.record` as an `IRStructDef` makes `IRStructDef` and `IRStructField` retain each other, which `test_retained_collaborators_form_a_dag_without_composition_root_leaks` refuses | Accepted. The anonymous member's members sit on the field (`record_fields` / `recordFields`, a self-edge) and its keyword is the field's `c_type`, in both compilers; 0 bytes either way. |
+
+## Floating constants and binary32 edges (CL-REQ-12)
+
+Pre-existing defects the CL-REQ-09 and CL-P1-05 reviews found, fixed in both
+compilers in one commit; `src/tests/btrc/test_floating_constant_parity.py`
+pins every refusal's message, line and column in both.
+
+- **Bare-point constants (C11 6.4.4.2).** `.5`, `5.`, `1.e5` and their `f`
+  forms lex as `FLOAT_LIT` (`grammar.ebnf` @literals). A `.` after an operand
+  still selects: after an identifier, a literal, `]`, `++`, `--`, `self`,
+  `super`, `true`, `false`, `null`, `.`, `?.` or `->` it is a `DOT`, and the
+  digits after a `.` or `?.` are a field index alone, so `t.0.1` now selects
+  twice. After `)` or `}` a plain `.N` is one `FLOAT_LIT`; the parser takes it
+  as tuple field N after a postfix operand (`f().0`), and a grouped bare name
+  before one is not a cast (`(t).0`). `(int).5f`, `(int)5.f` and
+  `(long long).25` are casts; `(long long).x` is refused with `Expected
+  expression after a cast, got DOT '.'`. `1...5` keeps its dots, and `?.`
+  before a digit is `?` and a constant (`c?.5:1.0`), since optional chaining
+  never selects a numeric field. A typedef or class name grouped before a
+  plain `.N` (`(Real).5`) still reads as a tuple field in both compilers, as
+  before; `(Real).5f` and `(Real)0.5` cast.
+- **Members of a numeric literal.** `5 .f`, `5 .f()`, `(5).x` and `2.5 .y`
+  are parse errors in both parsers, `Numeric literal '5' has no field 'f'`,
+  so they come first in any declaration; unspaced, `5.x` is the invalid
+  pp-number `Invalid numeric literal '5.x'`, as in C.
+- **`f` range.** The overflow and underflow refusals compare the exact decimal
+  with the binary32 midpoints 2^128 - 2^103 and 2^-150 (Python `Fraction`;
+  btrc compares the normalized digit string), since a double first rounded
+  onto a midpoint ties away from the finite range. Python's `float_value` and
+  the canonical AST renderer use the same edge. Fuzzed against `strtof`.
+- **Double storage.** The btrc AST stores a floating literal's value as a C
+  `double` (`Node.valueDouble`, the btrc rendering of ASDL `float`), so a
+  literal below `FLT_MIN` such as `1e-50` is no longer a known zero
+  (`static double r = 1.0 / 1e-50;` was refused only by btrcc). The canonical
+  AST still prints binary32 precision; a value past the overflow midpoint
+  prints `inf` in both renderers (Python used to raise on `1e300`).
+- **Static float conversions.** A cast in a static initializer (global,
+  static local, untyped global `var`, static class field; through braces,
+  unary, binary and ternary operands) whose operand is a floating literal,
+  possibly signed, and whose integer target has known bounds is refused when
+  the truncated value is outside them (C11 6.3.1.4p1): `Floating constant
+  '1e30' is out of range for 'int' in a static initializer`, at the cast.
+  The bounds are the ones both compilers share: the built-in integers and
+  the exact-width typedefs (btrc `ConstantValidator.portableCastRange`,
+  Python `NumericLiteralSemantics`). `char` (signedness is CL-C-25's), enums,
+  least-, fast- and hosted-ABI typedefs (`size_t`), folded arithmetic and
+  run-time casts stay unchecked in both, so `static size_t g = (size_t)1e30;`
+  still reaches the C compiler. An untyped global's brace initializer reports
+  its inference refusal first.

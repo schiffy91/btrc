@@ -108,6 +108,12 @@ INVALID_INPUTS = [
     ("1f", "Invalid numeric literal '1f' at 1:1"),
     ("1.0ff", "Invalid numeric literal '1.0ff' at 1:1"),
     ("1e2L", "Invalid numeric literal '1e2L' at 1:1"),
+    ("5.x", "Invalid numeric literal '5.x' at 1:1"),
+    (".5x", "Invalid numeric literal '.5x' at 1:1"),
+    (".5ff", "Invalid numeric literal '.5ff' at 1:1"),
+    ("5.e", "Invalid float literal: no digits in exponent at 1:1"),
+    ("x = 1.e+;", "Invalid float literal: no digits in exponent at 1:5"),
+    ("t.0e1", "Invalid numeric literal '0e1' at 1:3"),
 ]
 
 
@@ -228,6 +234,48 @@ def test_valid_literal_tokens_remain_reference_identical(
     assert selfhost.returncode == reference.returncode == 0
     assert selfhost.stderr == reference.stderr == ""
     assert selfhost.stdout == reference.stdout
+
+
+def test_dotted_floating_constants_and_tuple_fields_lex_identically(
+    lexer_boundary_drivers: dict[str, Path],
+    tmp_path: Path,
+) -> None:
+    """C11's leading- and trailing-dot constants, beside the dots that select."""
+    program = tmp_path / "dotted.btrc"
+    program.write_text(
+        "int main() {\n"
+        "  float a = .5f; double b = 5.; float c = 5.f; float d = 1.e5f; double e = .5e-1;\n"
+        "  int f = (int).5f + (int)5.f; double g = 09. + 1.e1 - .25;\n"
+        "  var t = (1, (2, 3)); int h = t.0 + t.1.0 + (t).1.1 + pair().0;\n"
+        "  int i = values[0].1 + self.count.2 + x++ .3; double k = c?.5:1. + p?.q;\n"
+        "  return 0;\n"
+        "}\n"
+    )
+
+    selfhost = _run(
+        [str(lexer_boundary_drivers["lexer"]), str(program)],
+        timeout=15,
+    )
+    reference = _run(
+        [
+            sys.executable,
+            "-m",
+            "src.compiler.python.main",
+            str(program),
+            "--emit-tokens",
+            "--no-stdlib",
+        ],
+        timeout=30,
+    )
+
+    assert selfhost.returncode == reference.returncode == 0
+    assert selfhost.stderr == reference.stderr == ""
+    assert selfhost.stdout == reference.stdout
+    for token in ("FLOAT_LIT, '.5f'", "FLOAT_LIT, '5.'", "FLOAT_LIT, '1.e5f'", "FLOAT_LIT, '09.'"):
+        assert f"Token({token}," in reference.stdout
+    # "t.1.0" selects twice; "(t).1" reads ".1" as one token the parser selects with.
+    assert "Token(INT_LIT, '1', 4:40)\nToken(DOT, '.', 4:41)\nToken(INT_LIT, '0', 4:42)" in reference.stdout
+    assert "Token(RPAREN, ')', 4:48)\nToken(FLOAT_LIT, '.1', 4:49)" in reference.stdout
 
 
 def test_selfhost_successful_lexer_reuse_is_idempotent(tmp_path: Path) -> None:

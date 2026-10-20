@@ -306,10 +306,18 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 
 	private LinuxWindow? windowFor(unsigned int id) { for window in self._windows { if (window.isOpen() && window.nativeId() == id) { return window; } } return null; }
 
+	private bool canPollInput() {
+		if (!self._context.actions.canCapture() || !self._context.detachedEvents.canCapture(1)) { return false; }
+		for window in self._windows { if (window.isOpen() && !window.canCaptureInput()) { return false; } }
+		return true;
+	}
+
 	/* Leave input beyond this turn's budget queued while work and frames progress. */
 	private void pumpEvents(int timeoutMilliseconds) {
 		BtrcSdlEvent event;
-		bool received = (timeoutMilliseconds != 0 ? btrcSdlWaitEvent(&event, timeoutMilliseconds) : btrcSdlPollEvent(&event)) != 0;
+		bool received = false;
+		if (self.canPollInput()) { received = (timeoutMilliseconds != 0 ? btrcSdlWaitEvent(&event, timeoutMilliseconds) : btrcSdlPollEvent(&event)) != 0; }
+		else { self.signalTurn(); }
 		int dispatched = 0;
 		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
 		while (received && dispatched < 4096) {
@@ -319,7 +327,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 				var target = self.windowFor(event.window);
 				if (target != null) { target.dispatch(&event); }
 			}
-			if (dispatched == 4096 || SDL_GetTicksNS() >= deadline) { self.signalTurn(); break; }
+			if (dispatched == 4096 || SDL_GetTicksNS() >= deadline || !self.canPollInput()) { self.signalTurn(); break; }
 			received = btrcSdlPollEvent(&event) != 0;
 		}
 		for window in self._windows { if (window.isOpen()) { window.settle(); } }

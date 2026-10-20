@@ -57,6 +57,36 @@ class Arm64EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "PE optional header"):
             pe_arm64(self.image)
 
+    def test_cross_build_selects_windows_arm64_before_c_compilation(self):
+        probe = self.root / "TargetProbe.btrc"
+        probe.write_text(
+            "#if defined(_WIN32) && defined(__aarch64__)\n"
+            "int main() { return 314; }\n"
+            "#else\n"
+            "int main() { return 271; }\n"
+            "#endif\n"
+        )
+        evidence = Evidence(self.root / "output", "zig")
+
+        def execute(command, *, cwd, env, timeout):
+            if command[:3] == [sys.executable, "-m", "src.compiler.python.main"]:
+                # Exercise the real CLI and conditional frontend with a small
+                # source; compiling the complete compiler belongs to CI.
+                command = list(command)
+                command[command.index(str(ROOT / "src/compiler/btrc/cli/WindowsMain.btrc"))] = str(probe)
+                return run(command, cwd=cwd, env=env, timeout=timeout)
+            self.assertEqual(command[:2], ["zig", "cc"])
+            self.assertEqual(command[command.index("-target") + 1], TARGET)
+            Path(command[command.index("-o") + 1]).write_bytes(self.data)
+            return Result(0, b"", b"", False)
+
+        with patch("tools.windows_toolchain.arm64.run_process", side_effect=execute):
+            evidence.build()
+        generated = (evidence.output / "btrcc-windows.c").read_text()
+        self.assertIn("return 314;", generated)
+        self.assertNotIn("return 271;", generated)
+        self.assertEqual(evidence.report["native_execution"], "not-run")
+
     def test_native_refuses_linux_before_compilation(self):
         evidence = Evidence(self.root, "zig")
         with patch("platform.system", return_value="Linux"), patch.object(evidence, "build") as build:

@@ -69,6 +69,53 @@ class TestBasicTokens:
     def test_float_exponent_with_sign(self):
         assert types("2.5e-3") == [TokenKind.FLOAT_LIT, TokenKind.EOF]
 
+    @pytest.mark.parametrize("source", [".5", ".5f", "5.", "5.f", "1.e5", "1.e5f", ".5e-1", "09."])
+    def test_dotted_float_literal(self, source):
+        # C11 6.4.4.2: a fraction may omit the digits on either side of the point.
+        assert lex(source)[0].type == TokenKind.FLOAT_LIT
+        assert values(source)[:-1] == [source]
+
+    def test_dot_after_operand_selects_a_field(self):
+        assert types("t.0.1") == [
+            TokenKind.IDENT,
+            TokenKind.DOT,
+            TokenKind.INT_LIT,
+            TokenKind.DOT,
+            TokenKind.INT_LIT,
+            TokenKind.EOF,
+        ]
+        assert types("t.0.x") == [
+            TokenKind.IDENT,
+            TokenKind.DOT,
+            TokenKind.INT_LIT,
+            TokenKind.DOT,
+            TokenKind.IDENT,
+            TokenKind.EOF,
+        ]
+        assert values("f().0") == ["f", "(", ")", ".0", ""]
+
+    @pytest.mark.parametrize(
+        ("body", "problem"),
+        [
+            # Just below 2^128 - 2^103 and just above 2^-150: the double lands
+            # on the midpoint, but the decimal rounds once to a finite float.
+            ("340282356779733661637539395458142568447.0", None),
+            ("340282356779733661637539395458142568448.0", "outside the finite float range"),
+            (
+                "7.006492321624085354618647916449580656401309709382578858785341419448955413429303007433190941810607910156251e-46",
+                None,
+            ),
+            (
+                "7.00649232162408535461864791644958065640130970938257885878534141944895541342930300743319094181060791015625e-46",
+                "underflows to zero as float",
+            ),
+        ],
+    )
+    def test_float_suffix_range_is_decided_from_the_exact_decimal(self, body, problem):
+        found = LiteralDecoder.float_problem(f"{body}f", float(body))
+        assert (found is None) == (problem is None)
+        assert problem is None or problem in found
+
     def test_string_literal(self):
         assert types('"hello"') == [TokenKind.STRING_LIT, TokenKind.EOF]
         assert values('"hello"')[0] == '"hello"'

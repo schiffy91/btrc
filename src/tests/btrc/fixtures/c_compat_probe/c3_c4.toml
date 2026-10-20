@@ -630,10 +630,10 @@ id = "x-hex-float-without-exponent"
 row = "x-hex-float"
 construct = "0x1.8 needs a binary exponent"
 intent = "negative"
-status = "known-divergence"
-revision = "cf28fe7"
-python = { c = "rejected" }
-btrcc = { c = "rejected" }
+status = "rejected"
+revision = "855ae74"
+python = { diagnostic = "Numeric literal '0x1' has no field '8' at 2:17" }
+btrcc = { diagnostic = "Numeric literal '0x1' has no field '8' at 2:17" }
 source = '''
 int main() {
 	double value = 0x1.8;

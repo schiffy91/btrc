@@ -257,13 +257,73 @@ class FloatLiteral {
 		return length > 0 && (self.raw[length - 1] == 'f' || self.raw[length - 1] == 'F');
 	}
 
+	/* Compare the spelling's exact decimal magnitude with 0.`digits` x
+	 * 10^`exponent`, where `digits` starts with a nonzero digit: -1, 0 or 1.
+	 * The spelling's own value is nonzero. */
+	private int compareMagnitude(string digits, long long exponent) {
+		string significand = "";
+		long long integerDigits = 0;
+		bool seenPoint = false;
+		int index = 0;
+		int length = self.numericBody().length();
+		string body = self.numericBody();
+		while (index < length && body[index] != 'e' && body[index] != 'E') {
+			char value = body[index];
+			if (value == '.') {
+				seenPoint = true;
+			} else if (significand.length() > 0 || value != '0') {
+				significand = significand + f"{value}";
+				if (!seenPoint) { integerDigits++; }
+			} else if (seenPoint) {
+				integerDigits--;
+			}
+			index++;
+		}
+		long long scale = 0;
+		if (index < length) {
+			index++;
+			bool negative = index < length && body[index] == '-';
+			if (index < length && (body[index] == '-' || body[index] == '+')) { index++; }
+			while (index < length) {
+				/* Saturate: a finite nonzero double never needs more. */
+				if (scale < 100000000LL) { scale = scale * 10 + (long long)(body[index] - '0'); }
+				index++;
+			}
+			if (negative) { scale = -scale; }
+		}
+		long long magnitude = integerDigits + scale;
+		if (magnitude != exponent) { return magnitude < exponent ? -1 : 1; }
+		int position = 0;
+		while (position < significand.length() || position < digits.length()) {
+			char mine = position < significand.length() ? significand[position] : '0';
+			char theirs = position < digits.length() ? digits[position] : '0';
+			if (mine != theirs) { return mine < theirs ? -1 : 1; }
+			position++;
+		}
+		return 0;
+	}
+
+	/* The decimal spelling rounds once, to binary32 (C11 6.4.4.2p4), so its
+	 * exact value decides against the exact binary32 midpoints: rounding
+	 * through the double first would move a spelling just inside either edge
+	 * onto the midpoint, where ties-to-even leaves the range. */
 	public string narrowingProblem(double value) {
-		float narrowed = (float)value;
-		bool finite = narrowed == narrowed && narrowed <= FLT_MAX && narrowed >= -FLT_MAX;
+		bool finite = value == value && value <= DBL_MAX && value >= -DBL_MAX;
 		if (!finite) {
 			return "Floating literal '" + self.raw + "' is outside the finite float range";
 		}
-		if (narrowed == 0.0f && self.hasNonzeroSignificand()) {
+		if (value == 0.0) {
+			if (self.hasNonzeroSignificand()) {
+				return "Floating literal '" + self.raw + "' underflows to zero as float";
+			}
+			return "";
+		}
+		/* 2^128 - 2^103: the first magnitude that rounds to infinity. */
+		if (self.compareMagnitude("340282356779733661637539395458142568448", 39) >= 0) {
+			return "Floating literal '" + self.raw + "' is outside the finite float range";
+		}
+		/* 2^-150: the last magnitude that rounds to zero. */
+		if (self.compareMagnitude("700649232162408535461864791644958065640130970938257885878534141944895541342930300743319094181060791015625", -45) <= 0) {
 			return "Floating literal '" + self.raw + "' underflows to zero as float";
 		}
 		return "";

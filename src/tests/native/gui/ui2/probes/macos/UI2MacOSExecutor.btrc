@@ -3,6 +3,7 @@ import Library.BackgroundJobs.NativeWorker;
 import Library.GUI.IApplication;
 import Library.GUI.MacOS.MacOSApplicationExecutor;
 import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSViewState;
 
 import ./Foundation.btrc;
 #include <assert.h>
@@ -74,6 +75,15 @@ class ExecutorClosingReceiver implements IApplicationPublicationHandler {
 		assert(self.registration.pollCompletion() == CALLBACK_CANCELLATION_PENDING);
 	}
 }
+class ExecutorNativeFailure implements IApplicationWork, IApplicationPublicationHandler {
+	public MacOSViewContext context;
+	public int calls = 0;
+	public ExecutorNativeFailure(MacOSViewContext context) { self.context = context; }
+
+	public void run() { self.calls++; self.context.recordNativeFailure("nested native failure"); self.context.recordNativeFailure("later native failure"); }
+
+	public void deliver(ApplicationPublication publication) { self.run(); }
+}
 int main() {
 	var mode = CFStringCreateWithCString(null, "BTRC.UI2.ExecutorCommonMode", kCFStringEncodingUTF8);
 	CFRunLoopAddCommonMode(CFRunLoopGetMain(), mode);
@@ -111,6 +121,35 @@ int main() {
 	assert(closePublisher.publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 1LL) == PUBLISH_ACCEPTED);
 	closeExecutor.serviceTurn(); assert(closeReceiver.calls == 1 && closeExecutor.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(closeOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && closeSignal.close());
+	// A native callback may latch failure and return normally to entered work.
+	// That receipt finishes, but the next callback must remain unentered.
+	var nativeSignal = MacOSRunLoopSignal(); var nativeFailure = MacOSNativeFailure();
+	var nativeExecutor = MacOSApplicationExecutor(2, nativeSignal, nativeFailure);
+	var nativeContext = MacOSViewContext(nativeExecutor, 2, nativeFailure);
+	var nativeReceiver = ExecutorNativeFailure(nativeContext); var nativeOwner = CallbackScope();
+	var nativeFirst = nativeExecutor.schedule(nativeReceiver, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+	var nativeSecond = nativeExecutor.schedule(nativeReceiver, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+	failed = false; try { nativeExecutor.serviceTurn(); } catch (string error) { failed = error == "nested native failure"; }
+	assert(failed && nativeReceiver.calls == 1 && !nativeExecutor.servicing() && nativeExecutor.pendingWork() == 1);
+	assert(nativeFirst.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(nativeExecutor.schedule(nativeReceiver, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_CLOSED);
+	assert(nativeExecutor.createPublisher(1, nativeReceiver, nativeOwner).kind == APPLICATION_PUBLISHER_CLOSED);
+	assert(nativeExecutor.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(nativeSecond.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	nativeContext.close(); assert(nativeOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && nativeSignal.close());
+	var publishSignal = MacOSRunLoopSignal(); var publishFailure = MacOSNativeFailure();
+	var publishExecutor = MacOSApplicationExecutor(2, publishSignal, publishFailure);
+	var publishContext = MacOSViewContext(publishExecutor, 2, publishFailure);
+	var publishReceiver = ExecutorNativeFailure(publishContext); var publishOwner = CallbackScope();
+	var publishFirst = publishExecutor.createPublisher(1, publishReceiver, publishOwner);
+	var publishSecond = publishExecutor.createPublisher(1, publishReceiver, publishOwner);
+	assert(publishFirst.publisher.tryPublish(1LL, 1LL, WORK_SUSPENSION_DEFER, 0LL, 1LL) == PUBLISH_ACCEPTED);
+	assert(publishSecond.publisher.tryPublish(1LL, 2LL, WORK_SUSPENSION_DEFER, 0LL, 2LL) == PUBLISH_ACCEPTED);
+	failed = false; try { publishExecutor.serviceTurn(); } catch (string error) { failed = error == "nested native failure"; }
+	assert(failed && publishReceiver.calls == 1 && !publishExecutor.servicing());
+	assert(publishExecutor.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(publishFirst.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && publishSecond.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	publishContext.close(); assert(publishOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && publishSignal.close());
 	CFRelease(mode);
 	print("PASS: UI2 macOS executor worker delivery timers suspension and callback drain"); return 0;
 }

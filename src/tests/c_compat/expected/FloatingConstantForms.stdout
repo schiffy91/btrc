@@ -1,0 +1,4 @@
+PASS: leading- and trailing-dot constants
+PASS: casts and case labels of dotted constants
+PASS: float literals at the binary32 edges
+PASS: tuple fields after a dot
