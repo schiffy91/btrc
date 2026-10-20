@@ -13,7 +13,7 @@ on:
       focus:
         description: Which jobs to run
         type: choice
-        options: [full, native-gui, extended]
+        options: [full, native-gui, extended, wayland-diagnostic]
         default: full
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
@@ -45,6 +45,46 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Temporary diagnostic branch only. No tier or provider policy changes;
+  # this explicit dispatch bypasses scope and therefore all ordinary shards.
+  wayland-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.focus == 'wayland-diagnostic'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Build the original pinned devcontainer
+        run: make devcontainer
+      - run: chmod -R a+w .
+      - name: Diagnose the original 100-cycle plain Python shell case
+        run: |
+          set -euo pipefail
+          mkdir -p build/wayland93
+          podman run --rm --init --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
+            -v "$PWD:/workspace" btrc-devcontainer:latest \
+            bash tools/ui/wayland93.sh 2>&1 | tee build/wayland93/container.log
+      - name: Open retained diagnostic files to the runner
+        if: always()
+        run: sudo chmod -R a+rX build/wayland93 build/ui-shell
+        continue-on-error: true
+      - name: Retain debugger, source, executable and session evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wayland93-native-shell-diagnostic
+          path: |
+            build/wayland93/
+            build/ui-shell/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
   # Classifies the event into one tier, then reads ci/tiers.toml for the jobs
   # and matrix rows that tier runs in this workflow (CI_WORKFLOW). ci.yml,
   # macos.yml and windows.yml carry identical copies; ci/tiers.toml describes
@@ -63,6 +103,7 @@ jobs:
   # so "Re-run all jobs" sees a label added after the push ("Re-run failed
   # jobs" keeps this job's earlier result).
   scope:
+    if: inputs.focus != 'wayland-diagnostic'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

@@ -25,6 +25,7 @@ from src.tests.python.linux_provider_fixtures import provider_environment
 from src.tests.python.native_import_fixtures import apple_environment
 from tools.native_plan import NativePlanBuilder
 from tools.qualification.schema import LedgerDocument
+from tools.ui.wayland93 import WaylandShellDiagnostic
 
 ROOT = Path(__file__).resolve().parents[3]
 SHELL = ROOT / "src/tests/native/gui/shell"
@@ -106,6 +107,9 @@ def build_shell(tmp_path, frontend, sanitized, request):
     flags = (
         ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"] if sanitized else []
     )
+    if WaylandShellDiagnostic.enabled():
+        assert system == "linux" and frontend == "python" and not sanitized
+        flags.append("-g")
     compiler = "/usr/bin/clang" if system == "macos" else "cc"
     environment = shell_environment(sanitized)
     sdk_flags = (
@@ -132,6 +136,7 @@ def build_shell(tmp_path, frontend, sanitized, request):
             "-o",
             str(output),
         ]
+        WaylandShellDiagnostic.record_command(command)
         result = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=120)
         assert result.returncode == 0, result.stderr
         objects.append(str(output))
@@ -142,6 +147,7 @@ def build_shell(tmp_path, frontend, sanitized, request):
             command[1:1] = flags
         elif "-o" in command:
             command.extend([*objects, *flags])
+        WaylandShellDiagnostic.record_command(command)
         return subprocess.run(command, env=environment, **kwargs)
 
     executable = tmp_path / "NativeShell"
@@ -151,6 +157,7 @@ def build_shell(tmp_path, frontend, sanitized, request):
         output=executable,
         cc=compiler,
         cxx="/usr/bin/clang++" if system == "macos" else "c++",
+        debug_info=WaylandShellDiagnostic.enabled(),
     )
     return executable
 
@@ -202,7 +209,8 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
     environment = shell_environment(sanitized)
     command = [str(executable), str(cycles), str(state)]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=1200)
+        runner = WaylandShellDiagnostic.shell if WaylandShellDiagnostic.enabled() else subprocess.run
+        result = runner(command, capture_output=True, text=True, env=environment, timeout=1200)
     except subprocess.TimeoutExpired as error:
         stdout = error.stdout or b""
         stderr = error.stderr or b""
