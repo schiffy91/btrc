@@ -487,10 +487,64 @@ def assert_process_dead(pid):
         try:
             if status.read_text().split(") ", 1)[1].split()[0] == "Z":
                 return  # Exited, awaiting the host's reaper; cannot hold a pipe.
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             pass
         time.sleep(0.01)
     raise AssertionError(f"portable fixture process {pid} survived cleanup")
+
+
+@pytest.mark.parametrize("read_error", [FileNotFoundError, ProcessLookupError])
+def test_process_death_probe_handles_procfs_exit_race(monkeypatch, read_error):
+    probes = []
+    reads = []
+
+    def probe(pid, signal):
+        probes.append((pid, signal))
+        if len(probes) == 2:
+            raise ProcessLookupError("process was reaped")
+
+    def status(path):
+        reads.append(path)
+
+        def read():
+            raise read_error("process exited during stat read")
+
+        return SimpleNamespace(read_text=read)
+
+    monkeypatch.setattr(os, "kill", probe)
+    monkeypatch.setattr(sys.modules[__name__], "Path", status)
+    monkeypatch.setattr(time, "sleep", lambda delay: None)
+    assert_process_dead(12345)
+    assert probes == [(12345, 0), (12345, 0)]
+    assert reads == ["/proc/12345/stat"]
+
+
+@pytest.mark.parametrize("read_error", [PermissionError, OSError])
+def test_process_death_probe_preserves_other_procfs_errors(monkeypatch, read_error):
+    error = read_error("cannot inspect process")
+
+    def read():
+        raise error
+
+    monkeypatch.setattr(os, "kill", lambda pid, signal: None)
+    monkeypatch.setattr(sys.modules[__name__], "Path", lambda path: SimpleNamespace(read_text=read))
+    with pytest.raises(read_error) as caught:
+        assert_process_dead(12345)
+    assert caught.value is error
+
+
+def test_process_death_probe_missing_procfs_does_not_hide_live_process(monkeypatch):
+    clock = iter([0, 0, 3])
+
+    def read():
+        raise FileNotFoundError("procfs is unavailable")
+
+    monkeypatch.setattr(os, "kill", lambda pid, signal: None)
+    monkeypatch.setattr(sys.modules[__name__], "Path", lambda path: SimpleNamespace(read_text=read))
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(time, "sleep", lambda delay: None)
+    with pytest.raises(AssertionError, match="portable fixture process 12345 survived cleanup"):
+        assert_process_dead(12345)
 
 
 def test_success_inside_caller_exception_does_not_hide_cleanup_failure(bundle):
