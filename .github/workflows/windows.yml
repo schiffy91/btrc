@@ -438,6 +438,8 @@ jobs:
   # Winsock provider cases and the HTTP corpus run on the same native rows.
   win32-native-build:
     needs: scope
+    env:
+      BTRC_TEST_RUNNER: linux-hosted
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'win32-native-build')
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -451,6 +453,8 @@ jobs:
         run: nix develop --command make NIX= btrcc
       - name: Build the Win32, COM, matching, console, Process, FileSystem, HTTP and GUI shell programs with both compilers for x64 and ARM64
         run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py src/tests/python/test_windows_filesystem_handles.py src/tests/python/test_windows_http.py src/tests/python/test_native_ui_shell_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Enforce the Windows cross-build skip report
+        run: nix develop --command python3 -m tools.qualification skip-gate build/skip-report-windows-win32-native-build.json
       - name: Bundle the FileSystem corpus programs with both compilers for x64 and ARM64
         run: |
           set -euo pipefail
