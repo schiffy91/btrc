@@ -12,6 +12,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <commctrl.h>
+#include <tlhelp32.h>
 #include "ShellProbe.h"
 #include <assert.h>
 #include <stdio.h>
@@ -24,6 +25,7 @@
 static int drains;
 static int dumps;
 static void trackWglWorkers(void);
+static void resourcePhase(const char *phase, int cycle);
 
 static int isClass(HWND window, const WCHAR *name) {
     WCHAR actual[64];
@@ -73,6 +75,7 @@ static Controls controls(void) {
 }
 
 void shellProbeObserve(void) {
+    resourcePhase("observe", drains + 1);
     Controls found = controls();
     int labels = 0;
     for (HWND label = GetWindow(found.document, GW_CHILD); label; label = GetWindow(label, GW_HWNDNEXT)) {
@@ -84,6 +87,7 @@ void shellProbeObserve(void) {
 
 /* The deepest visible child under a content point, as Win32 hit-tests a click. */
 void shellProbeClick(double x, double y) {
+    resourcePhase("click-before-submit", drains + 1);
     HWND target = window();
     double factor = scale(target);
     POINT point = {(LONG)(x * factor + 0.5), (LONG)(y * factor + 0.5)};
@@ -97,31 +101,43 @@ void shellProbeClick(double x, double y) {
     assert(PostMessageW(target, WM_MOUSEMOVE, 0, where));
     assert(PostMessageW(target, WM_LBUTTONDOWN, MK_LBUTTON, where));
     assert(PostMessageW(target, WM_LBUTTONUP, 0, where));
+    resourcePhase("click-after-submit", drains + 1);
 }
 static void key(UINT code, WCHAR character) {
+    resourcePhase(code == VK_TAB ? "tab-before-submit" : "enter-before-submit", drains + 1);
     HWND focus = GetFocus();
     assert(focus && "no focused window for key input");
     UINT scan = MapVirtualKeyW(code, MAPVK_VK_TO_VSC);
     assert(PostMessageW(focus, WM_KEYDOWN, code, (LPARAM)(1u | (scan << 16))));
     if (character) assert(PostMessageW(focus, WM_CHAR, character, (LPARAM)(1u | (scan << 16))));
     assert(PostMessageW(focus, WM_KEYUP, code, (LPARAM)(1u | (scan << 16) | (1u << 30) | (1u << 31))));
+    resourcePhase(code == VK_TAB ? "tab-after-submit" : "enter-after-submit", drains + 1);
 }
 void shellProbeTab(void) { key(VK_TAB, L'\t'); }
 void shellProbeEnter(void) { key(VK_RETURN, L'\r'); }
 void shellProbeText(void) {
+    resourcePhase("text-before-submit", drains + 1);
     HWND focus = GetFocus();
     assert(focus && isClass(focus, L"Edit"));
     for (const WCHAR *character = L"draft"; *character; character++) assert(PostMessageW(focus, WM_CHAR, *character, 1));
+    resourcePhase("text-after-submit", drains + 1);
 }
 /* Three notches down over the viewport, in screen coordinates as Win32 sends them. */
 void shellProbeScroll(void) {
+    resourcePhase("scroll-before-submit", drains + 1);
     HWND scroll = controls().scroll;
     RECT bounds;
     assert(GetWindowRect(scroll, &bounds));
     LPARAM where = MAKELPARAM((bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2);
     assert(PostMessageW(scroll, WM_MOUSEWHEEL, MAKEWPARAM(0, (WORD)(SHORT)(-3 * WHEEL_DELTA)), where));
+    resourcePhase("scroll-after-submit", drains + 1);
 }
-void shellProbeClose(void) { trackWglWorkers(); assert(PostMessageW(window(), WM_CLOSE, 0, 0)); }
+void shellProbeClose(void) {
+    resourcePhase("close-before-submit", drains + 1);
+    trackWglWorkers();
+    assert(PostMessageW(window(), WM_CLOSE, 0, 0));
+    resourcePhase("close-after-submit", drains + 1);
+}
 int shellProbeFocus(void) {
     HWND focus = GetFocus();
     if (focus && isClass(focus, L"Edit")) return 1;
@@ -195,7 +211,9 @@ static BOOL CALLBACK resourceWindow(HWND target, LPARAM messageOnly) {
     DWORD thread = GetWindowThreadProcessId(target, &process);
     if (process != GetCurrentProcessId()) return TRUE;
     WCHAR name[128] = L"";
-    GetClassNameW(target, name, 128);
+    SetLastError(ERROR_SUCCESS);
+    int classLength = GetClassNameW(target, name, 128);
+    DWORD classError = GetLastError();
     char utf8[512] = {0};
     WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof utf8, NULL, NULL);
     HMODULE module = NULL;
@@ -207,6 +225,21 @@ static BOOL CALLBACK resourceWindow(HWND target, LPARAM messageOnly) {
     WideCharToMultiByte(CP_UTF8, 0, moduleName, -1, moduleUtf8, sizeof moduleUtf8, NULL, NULL);
     fprintf(stderr, "SHELL resource-window cycle=%d thread=%lu handle=%p message-only=%d class=%s module=%s\n",
         drains, (unsigned long)thread, (void *)target, messageOnly != 0, utf8, moduleUtf8);
+    SetLastError(ERROR_SUCCESS);
+    ULONG_PTR cursor = GetClassLongPtrW(target, GCLP_HCURSOR);
+    DWORD cursorError = GetLastError();
+    SetLastError(ERROR_SUCCESS);
+    ULONG_PTR icon = GetClassLongPtrW(target, GCLP_HICON);
+    DWORD iconError = GetLastError();
+    SetLastError(ERROR_SUCCESS);
+    ULONG_PTR smallIcon = GetClassLongPtrW(target, GCLP_HICONSM);
+    DWORD smallIconError = GetLastError();
+    /* GetMenu observes an existing menu; GetSystemMenu would create one. */
+    HMENU menu = GetMenu(target);
+    fprintf(stderr, "SHELL resource-window-handles handle=%p class-length=%d class-error=%lu menu=%p class-cursor=%p cursor-error=%lu class-icon=%p icon-error=%lu class-small-icon=%p small-icon-error=%lu\n",
+        (void *)target, classLength, (unsigned long)classError, (void *)menu,
+        (void *)(uintptr_t)cursor, (unsigned long)cursorError, (void *)(uintptr_t)icon, (unsigned long)iconError,
+        (void *)(uintptr_t)smallIcon, (unsigned long)smallIconError);
     return TRUE;
 }
 static BOOL CALLBACK resourceTop(HWND target, LPARAM ignored) {
@@ -234,12 +267,96 @@ static void resourceWindows(DWORD gdi, DWORD user) {
     }
 }
 
+/* Diagnostic observations only: no messages are sent and no USER/GDI objects
+ * are created. The Toolhelp kernel snapshot handle is closed before returning.
+ * Compare each phase with its preceding observation, so normal live/dead transitions
+ * do not bury a new retained object. These observations never change the strict
+ * post-drain census or its deadline. Thread exit races remain explicit errors. */
+static void observationError(const char *operation, DWORD error) {
+    fprintf(stderr, "SHELL observation-error operation=%s error=%lu\n", operation, (unsigned long)error);
+}
+static BOOL CALLBACK resourceThreadWindow(HWND target, LPARAM ignored) {
+    (void)ignored;
+    resourceWindow(target, 0);
+    EnumChildWindows(target, resourceWindow, 0);
+    return TRUE;
+}
+static void resourceThreads(void) {
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        observationError("CreateToolhelp32Snapshot", GetLastError());
+        return;
+    }
+    THREADENTRY32 entry = {0};
+    entry.dwSize = sizeof entry;
+    BOOL available = Thread32First(snapshot, &entry);
+    if (!available) observationError("Thread32First", GetLastError());
+    while (available) {
+        if (entry.th32OwnerProcessID == GetCurrentProcessId()) {
+            GUITHREADINFO info = {0};
+            info.cbSize = sizeof info;
+            SetLastError(ERROR_SUCCESS);
+            BOOL observed = GetGUIThreadInfo(entry.th32ThreadID, &info);
+            DWORD error = GetLastError();
+            fprintf(stderr, "SHELL resource-thread thread=%lu gui-info=%d error=%lu flags=%lu active=%p focus=%p capture=%p menu-owner=%p move-size=%p caret=%p caret-rect=%ld,%ld,%ld,%ld\n",
+                (unsigned long)entry.th32ThreadID, observed != 0, (unsigned long)error, (unsigned long)info.flags,
+                (void *)info.hwndActive, (void *)info.hwndFocus, (void *)info.hwndCapture, (void *)info.hwndMenuOwner,
+                (void *)info.hwndMoveSize, (void *)info.hwndCaret, info.rcCaret.left, info.rcCaret.top,
+                info.rcCaret.right, info.rcCaret.bottom);
+            SetLastError(ERROR_SUCCESS);
+            if (!EnumThreadWindows(entry.th32ThreadID, resourceThreadWindow, 0)) {
+                observationError("EnumThreadWindows", GetLastError());
+            }
+        }
+        entry.dwSize = sizeof entry;
+        available = Thread32Next(snapshot, &entry);
+        if (!available && GetLastError() != ERROR_NO_MORE_FILES) observationError("Thread32Next", GetLastError());
+    }
+    if (!CloseHandle(snapshot)) observationError("CloseHandle(snapshot)", GetLastError());
+}
+static void resourcePhase(const char *phase, int cycle) {
+    typedef struct PhaseCount { const char *name; DWORD gdi; DWORD user; } PhaseCount;
+    static PhaseCount counts[24];
+    static unsigned count;
+    unsigned index = 0;
+    while (index < count && strcmp(counts[index].name, phase) != 0) index++;
+    int first = index == count;
+    if (first) {
+        assert(count < sizeof counts / sizeof counts[0]);
+        counts[count++].name = phase;
+    }
+    SetLastError(ERROR_SUCCESS);
+    DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+    DWORD gdiError = GetLastError();
+    SetLastError(ERROR_SUCCESS);
+    DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    DWORD userError = GetLastError();
+    fprintf(stderr, "SHELL resource-phase cycle=%d phase=%s tick-ms=%llu gdi=%lu user=%lu gdi-error=%lu user-error=%lu changed=%d\n",
+        cycle, phase, (unsigned long long)GetTickCount64(), (unsigned long)gdi, (unsigned long)user,
+        (unsigned long)gdiError, (unsigned long)userError,
+        first || counts[index].gdi != gdi || counts[index].user != user);
+    if (first || counts[index].gdi != gdi || counts[index].user != user) {
+        SetLastError(ERROR_SUCCESS);
+        if (!EnumWindows(resourceTop, 0)) observationError("EnumWindows", GetLastError());
+        HWND message = NULL;
+        while ((message = FindWindowExW(HWND_MESSAGE, message, NULL, NULL)) != NULL) {
+            resourceWindow(message, 1);
+            EnumChildWindows(message, resourceWindow, 1);
+        }
+        resourceThreads();
+    }
+    counts[index].gdi = gdi;
+    counts[index].user = user;
+    fflush(stderr);
+}
+
 /* A bounded turn of the thread's queue after teardown, then the process's
  * GDI and USER object counts for the harness's leak check. */
 void shellProbeDrain(void) {
-    ULONGLONG started = GetTickCount64();
     MSG message;
     drains++;
+    resourcePhase("drain-before", drains);
+    ULONGLONG started = GetTickCount64();
     trackWglWorkers();
     for (;;) {
         for (unsigned dispatched = 0; dispatched < 256 && GetTickCount64() - started < 2000
@@ -269,6 +386,7 @@ void shellProbeDrain(void) {
     fprintf(stderr, "SHELL resources cycle=%d gdi=%lu user=%lu provider=%d private=%d\n", drains,
         (unsigned long)gdi, (unsigned long)user, counted.provider, counted.other);
     resourceWindows(gdi, user);
+    resourcePhase("drain-after", drains);
     fflush(stderr);
 }
 
@@ -444,11 +562,15 @@ void shellProbeDump(void) {
     printf("]");
     if (dumps++ == 0) {
         printf(",\"gpu_adapter\":");
+        resourcePhase("probe-gpu-before", drains + 1);
         gpuAdapter();
+        resourcePhase("probe-gpu-after-release", drains + 1);
     }
     printf(",\"accessibility\":");
     fflush(stdout);
+    resourcePhase("uia-before", drains + 1);
     accessibility(top);
+    resourcePhase("uia-after", drains + 1);
     printf("}\n");
     fflush(stdout);
 }
