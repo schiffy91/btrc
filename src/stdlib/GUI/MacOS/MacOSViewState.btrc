@@ -360,8 +360,10 @@ class MacOSViewState implements IControlEventTarget {
 	}
 
 	private void settle() {
-		if (self._lost) { self._lost = false; var owner = self._owner; if (owner != null) { owner.eligibilityLost(); } }
-		for child in self._children { child.settle(); }
+		string failure = "";
+		if (self._lost) { self._lost = false; var owner = self._owner; if (owner != null) { try { owner.eligibilityLost(); } catch (string error) { failure = error; } } }
+		for child in self._children { try { child.settle(); } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
+		if (!failure.isEmpty()) { throw failure; }
 	}
 
 	public bool routedTo(ControlEventQueue? queue) { return self._queue == queue; }
@@ -472,17 +474,21 @@ class MacOSViewState implements IControlEventTarget {
 		if (!failure.isEmpty()) { throw failure; }
 	}
 
+	/* Failed and closing forests have no usable destination stream. Retire
+	 * their callbacks on the old route without acquiring new capture credits. */
+	private void retireDetachment() {
+		self._parented = false; string failure = "";
+		try { self.mark(false, WINDOW_EXPOSURE_UNKNOWN); self.settle(); } catch (string error) { failure = error; }
+		try { self.cancelSemanticTree(); } catch (string error) { if (failure.isEmpty()) { failure = error; } }
+		if (!failure.isEmpty()) { throw failure; }
+	}
+
 	public void removeChild(MacOSViewState child) {
 		self.requireMainThread(); int found = -1;
 		for (int index = 0; index < self._children.len; index++) { if (self._children.get(index) == child) { found = index; break; } }
 		if (found < 0) { throw "View state does not belong to this parent"; }
-		if (self._closing || self._closed) {
-			// Physical teardown cannot require new destination credits. Settle
-			// reserved finals on the old route before sealing the closing forest.
-			self._children.remove(found); child._parented = false; string failure = "";
-			try { child.mark(false, WINDOW_EXPOSURE_UNKNOWN); child.settle(); } catch (string error) { failure = error; }
-			try { child.cancelSemanticTree(); } catch (string error) { if (failure.isEmpty()) { failure = error; } }
-			if (!failure.isEmpty()) { throw failure; } return;
+		if (self._closing || self._closed || (self._context != null && self._context.nativeFailed())) {
+			self._children.remove(found); child.retireDetachment(); return;
 		}
 		var children = self._children.copy(); children.remove(found); self.replaceChildren(children);
 	}
@@ -500,6 +506,7 @@ class MacOSViewState implements IControlEventTarget {
 	public void detachWindow(MacOSViewRoutes? prepared = null) {
 		self.requireMainThread(); if (!self._parented || self._context == null) { throw "View has no window attachment"; }
 		var context = self._context; if (context == null) { throw "View has no application context"; }
+		if (self._closing || self._closed || context.nativeFailed()) { self.retireDetachment(); return; }
 		var routes = prepared == null ? MacOSViewRoutes(self._context) : prepared; if (prepared == null) { routes.prepare(self, context.detachedEvents); } routes.select(self, context.detachedEvents); routes.validate();
 		self._parented = false; self.mark(false, WINDOW_EXPOSURE_UNKNOWN); self.settle(); routes.commitRoutes(); if (prepared == null) { routes.finish(); } self.publish();
 	}
