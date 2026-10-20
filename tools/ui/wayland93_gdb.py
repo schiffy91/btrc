@@ -1,5 +1,6 @@
 """Executed inside GDB, only by the temporary Wayland diagnostic branch."""
 
+import hashlib
 import json
 import os
 import signal
@@ -12,12 +13,35 @@ class InferiorEvidence:
     def __init__(self):
         self.directory = Path(os.environ["BTRC_WAYLAND93_CASE"])
         self.status = {"state": "starting"}
+        self.libraries = {"loaded": [], "errors": []}
+        self.write_libraries()
         self.write()
 
     def write(self):
         temporary = self.directory / "gdb-status.tmp"
         temporary.write_text(json.dumps(self.status, indent=2) + "\n")
         temporary.replace(self.directory / "gdb-status.json")
+
+    def write_libraries(self):
+        temporary = self.directory / "gdb-loaded-libraries.tmp"
+        temporary.write_text(json.dumps(self.libraries, indent=2) + "\n")
+        temporary.replace(self.directory / "gdb-loaded-libraries.json")
+
+    def loaded(self, event):
+        filename = event.new_objfile.filename
+        if not filename:
+            return
+        name = Path(filename).name
+        if not (name == "libdecor-gtk.so" or name.startswith("libdecor-0.so") or name.startswith("libSDL3.so")):
+            return
+        try:
+            path = Path(filename).resolve(strict=True)
+            record = {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            if record not in self.libraries["loaded"]:
+                self.libraries["loaded"].append(record)
+        except Exception as error:
+            self.libraries["errors"].append({"filename": filename, "error": str(error)})
+        self.write_libraries()
 
     def continued(self, _event):
         self.status = {"state": "running", "pid": gdb.selected_inferior().pid}
@@ -49,6 +73,7 @@ class InferiorEvidence:
         self.write()
 
     def exited(self, event):
+        self.write_libraries()
         # A signal receipt remains authoritative if shutdown follows capture.
         if self.status["state"] not in {"signal", "unexpected-stop"}:
             self.status = {
@@ -59,6 +84,7 @@ class InferiorEvidence:
             self.write()
 
     def run(self):
+        gdb.events.new_objfile.connect(self.loaded)
         gdb.events.cont.connect(self.continued)
         gdb.events.stop.connect(self.stopped)
         gdb.events.exited.connect(self.exited)

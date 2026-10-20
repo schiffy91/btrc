@@ -141,10 +141,25 @@ class WaylandShellDiagnostic:
             receipt["inferior"] = json.loads(status_path.read_text())
         except (OSError, ValueError) as error:
             receipt["status_error"] = str(error)
+        receipt["loaded_libraries_verified"] = False
+        try:
+            loaded = json.loads((output / "gdb-loaded-libraries.json").read_text())
+            expected = json.loads((Path(env["BTRC_WAYLAND93_OUTPUT"]) / "provenance.json").read_text())
+            expected_records = [item for group in expected["dependency_outputs"].values() for item in group]
+            receipt["loaded_libraries"] = loaded
+            expected_pairs = {(item["path"], item["sha256"]) for item in expected_records}
+            actual_pairs = {(item["path"], item["sha256"]) for item in loaded["loaded"]}
+            assert len(expected_pairs) == 3, "expected SDL, libdecor and GTK plugin identities"
+            assert not loaded["errors"], loaded["errors"]
+            assert actual_pairs == expected_pairs, {"expected": sorted(expected_pairs), "actual": sorted(actual_pairs)}
+            receipt["loaded_libraries_verified"] = True
+        except (OSError, ValueError, KeyError, TypeError, AssertionError) as error:
+            receipt["loaded_libraries_error"] = str(error)
         (output / "gdb-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
         inferior = receipt.get("inferior", {})
         passed = (
             not timed_out
+            and receipt["loaded_libraries_verified"]
             and process.returncode == 0
             and inferior.get("state") == "exited"
             and inferior.get("exit_code") == 0
@@ -172,17 +187,27 @@ class WaylandShellDiagnostic:
             "tools/ui/wayland93.sh",
             "tools/ui/wayland93_gdb.py",
         }
+        dependency_paths = {"flake.nix", "nix/libdecor-gtk-pointer-focus.patch"}
+        allowed |= dependency_paths
         changed = subprocess.check_output(
             ["git", "diff", "--name-only", BASE, "HEAD"], cwd=ROOT, text=True
         ).splitlines()
         assert set(changed) <= allowed, changed
+        assert dependency_paths <= set(changed), "dependency repair is missing"
         assert not subprocess.check_output(
             ["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True
         ).strip(), "tracked source changed after diagnostic checkout"
         provenance = {
             "production_revision": BASE,
+            "application_sources": "unchanged from production_revision; dependency repair recorded separately",
+            "dependency_paths": sorted(dependency_paths),
+            "dependency_source_sha256": {
+                path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for path in sorted(dependency_paths)
+            },
+            "dependency_repair": "libdecor 0.2.5 GTK pointer-focus lifetime; SDL uses the same patched libdecor",
+            "flake_lock_sha256": hashlib.sha256((ROOT / "flake.lock").read_bytes()).hexdigest(),
             "diagnostic_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-            "diagnostic_paths": changed,
+            "diagnostic_paths": sorted(set(changed) - dependency_paths),
             "node": NODE,
             "cycles": 100,
             "optimization": 2,
@@ -212,6 +237,21 @@ class WaylandShellDiagnostic:
         ):
             result = cls.command(command, output / f"{name}.txt")
             provenance[name] = {"command": command, "returncode": result.returncode}
+        provenance["dependency_outputs"] = {}
+        for package in ("sdl3", "libdecor-0"):
+            result = cls.command(["pkg-config", "--variable=libdir", package], output / f"{package}-libdir.txt")
+            assert result.returncode == 0 and result.stdout.strip(), result.stderr
+            directory = Path(result.stdout.strip())
+            libraries = (
+                ("libSDL3.so.0",) if package == "sdl3" else ("libdecor-0.so.0", "libdecor/plugins-1/libdecor-gtk.so")
+            )
+            provenance["dependency_outputs"][package] = [
+                {
+                    "path": str((directory / name).resolve()),
+                    "sha256": hashlib.sha256((directory / name).read_bytes()).hexdigest(),
+                }
+                for name in libraries
+            ]
         reader = Path(os.environ["BTRC_NATIVE_HEADER_READER"])
         provenance["reader_sha256"] = hashlib.sha256(reader.read_bytes()).hexdigest()
         (output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
