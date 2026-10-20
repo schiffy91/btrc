@@ -938,6 +938,26 @@ def test_a_skip_report_becomes_test_slots_with_their_coverage():
     assert records["a.py::t1"].subject.platform.value == "macos"
 
 
+def test_android_skip_evidence_identifies_the_hosted_linux_test_host():
+    from tools.qualification.adapters import SkipReportAdapter
+    from tools.qualification.schema import Provenance
+
+    node = "src/tests/python/test_native_jni_android.py::test_checked_jni_round_trip_on_android[python]"
+    report = {
+        "runner": "linux-hosted",
+        "host": {"system": "Linux", "release": "hosted"},
+        "tests": {node: "passed"},
+        "skips": [],
+    }
+    records = SkipReportAdapter(Provenance()).records(report)
+    assert len(records) == 1
+    assert records[0].subject.platform.value == "linux"
+    assert records[0].subject.id == node
+    assert records[0].provenance.runner == "linux-hosted"
+    assert records[0].provenance.os_build == "Linux hosted"
+    assert records[0].evidence.observed == "passed"
+
+
 def _boundary_report(tmp_path: Path) -> dict:
     from types import SimpleNamespace
 
