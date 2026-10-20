@@ -740,3 +740,30 @@ types that still exist; a removed type takes its members with it.
 
 
 _347 provider-internal rows omitted (owners prefixed Linux, MacOS, Alsa, CoreAudio, Btrc/btrc, GUIProvider, DBus, ProcessWorker, Forked, and the removed Unix PAM/passwd helpers); they were never consumer API._
+
+
+## 4. UI2 consumer changes (CX-UIA-21 / CL-UIA-14)
+
+Apply these rows when updating the BTRSmith pin to the atomic UI2 landing.
+The [approved interface record](ui-contracts/ui2-approved.md) lists the complete
+signatures and provider scope. Import event snapshots from
+`Library.GUI.ControlEvents`; receiver interfaces remain in each control's module.
+
+| Existing API or usage | UI2 migration |
+| --- | --- |
+| `ISelect.setItems`, `itemCount`, `selectedIndex`, `setSelectedIndex`, `selectedTitle`, `setItemEnabled`, `isItemEnabled` | These index operations remain the D24 shim over the owning selection model. For stable identity across reordering, use `setOptions(SelectModel)`, `optionsState`, `selectedKey` and `setSelectedKey`; titles need not be unique. Subscribe through `onChanged`, `onCommit` and `onCancel`, with `ISelectionControlEventHandler.selectionEvent`. Replacing the model during an interaction produces one MODEL cancel. |
+| `IScrollView.scrollOffset`, `scrollTo` | These remain the D24 vertical-axis shim; `scrollTo` preserves the horizontal offset. Use `offset`, `scrollToOffset(ScrollOffset)` and `visibleRect` for both axes, and `onOffsetChanged` with `IScrollControlEventHandler.scrollEvent` for owned event snapshots. |
+| `IButton.onAction` | The name and `IButtonAction.invoke` receiver stay unchanged. Delivery is queued after the native callback and rechecks effective eligibility. A queued action whose target is no longer eligible has the `ineligible` disposition; it is neither replayed nor converted into a cancel event. Cancel the old registration before replacing it. |
+| `IButton.setEnabled` | The name stays unchanged. Disabling changes input eligibility without synthesizing a user action; it also affects the eligibility check for already queued actions. |
+| `ITextField.text`, `setText` | `text` returns the live draft, including composition. Setting the accepted baseline is a no-op; replacing it cancels an active interaction as MODEL. Use `onDraftChanged`, `onCommit` and `onCancel` with `ITextControlEventHandler.textEvent`. Eligibility loss retains the draft and produces one SYSTEM cancel. |
+| `ISlider.value`, `setValue` | The provider's double value is authoritative. Use `range`, `setRange` and `setRangeValue` for the range and step, and `onPreview`, `onCommit` and `onCancel` with `ISliderControlEventHandler.sliderEvent`. A changed model value cancels an active interaction; an unchanged value is a no-op. Preserve the event's relative-adjustment count. |
+| `IView.isVisible`, `setVisible` | Visibility remains a local flag. Use `interactionState` and `onInteractionStateChanged` to observe effective eligibility, layout participation and exposure; the receiver method is `interactionChanged`. |
+| `IContainer.attach`, `detach` and child order | Existing operations remain. `insert`, `move`, `treeRevision` and `applyBatch` add ordered edits with explicit committed, rejected, rollback and failure outcomes. Preserve the result's detached and retained owners through cleanup. |
+| `IWindow.close`, native close and quit handling | `close` remains prompt-free teardown. Subscribe with `onCloseRequested` and use `requestClose` for Save/Discard/Cancel transactions. Pass the current document revision to `decide`; match both attempt and revision in `completeSave`. `state` and `onStateChanged` expose window snapshots through `IWindowStateHandler.stateChanged`. |
+| `IApplication.post`, `postAfter`, `run`, `isRunning`, `close` | `post` stays UI-thread-only and defers during suspension. `postAfter` uses a monotonic deadline. Worker producers use `createPublisher` and `IApplicationPublisher.tryPublish`; inspect admission outcomes. `schedule` declares suspension policy. A host-attached application counts as running and rejects `run`; the `attachHost` contract remains provisional. `close` seals admission without joining workers or nesting a pump. The `GUI` facade mirrors the new application operations. |
+| Polling background-job completion | `BackgroundJobExecutor.subscribeCompletionReady` supplies the current completion-ready level to a native wake endpoint, including on registration; the consumer still drains results through the existing job API. See its [completion contract](../../src/stdlib/BackgroundJobs/README.md). |
+
+Control and state subscriptions take a `CallbackScope`, have no initial replay
+and return an `ICallbackRegistration`. Cancel an existing channel subscription before replacing
+it, and retain pending cleanup until completion. Apply the same ownership rule
+to window state, view state, publisher and close-request registrations.
