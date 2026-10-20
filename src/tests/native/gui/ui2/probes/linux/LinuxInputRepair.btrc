@@ -31,8 +31,7 @@ void chord(unsigned int window, unsigned int scan, unsigned int key) {
 void cutFailure(LinuxApplication owner, IWindow window, LinuxWindow native) {
 	var field = owner.createTextField("alpha", "");
 	window.attachRoot(field);
-	window.show();
-	assert(window.isVisible() && field.interactionState().effectiveEligible);
+	assert(field.interactionState().effectiveEligible);
 	unsigned int id = native.nativeId();
 	click(id, 12.0, 12.0);
 	owner.pumpOnce(0);
@@ -68,6 +67,7 @@ void popupPosition(LinuxApplication owner, IWindow window, LinuxWindow native, b
 	root.attach(nested);
 	nested.attach(select);
 	window.attachRoot(root);
+	assert(root.interactionState().effectiveEligible && nested.interactionState().effectiveEligible && select.interactionState().effectiveEligible);
 	nested.arrange(20.0, 20.0, 260.0, 210.0);
 	double controlY = above ? 160.0 : 10.0;
 	select.arrange(20.0, controlY, 140.0, select.fittingHeight());
@@ -95,11 +95,13 @@ void popupPosition(LinuxApplication owner, IWindow window, LinuxWindow native, b
 }
 
 void externalVisibility(LinuxApplication owner, IWindow window, LinuxWindow native) {
+	int initialFrames = inputFrames();
 	var field = owner.createTextField("visible", "");
 	window.attachRoot(field);
-	window.show();
+	assert(field.interactionState().effectiveEligible);
 	unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
-	while (inputFrames() == 0 && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); }
+	while (inputFrames() == initialFrames && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); }
+	assert(inputFrames() > initialFrames);
 	assert(inputFrames() > 0);
 	inputVisibility(native.nativeId(), 0);
 	deadline = SDL_GetTicksNS() + 1000000000ULL;
@@ -138,6 +140,9 @@ int main(int argc, char** argv) {
 	unsigned long long ready = SDL_GetTicksNS() + 10000000000ULL;
 	while (!native.pollDevice() && SDL_GetTicksNS() < ready) { owner.pumpOnce(10); }
 	assert(native.pollDevice());
+	window.show();
+	owner.pumpOnce(0);
+	assert(window.isVisible());
 	if (mode == 0) { cutFailure(owner, window, native); }
 	else if (mode == 1 || mode == 2) { popupPosition(owner, window, native, mode == 2); }
 	else { externalVisibility(owner, window, native); }
