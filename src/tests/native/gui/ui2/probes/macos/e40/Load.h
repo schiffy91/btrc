@@ -2,7 +2,13 @@
 #define BTRC_TEST_MACOS_E40_LOAD_H
 #include <stdbool.h>
 void e40LoadRequireHosted(void);
-void e40LoadSetup(const char *output);
+int e40LoadTrial(const char *name);
+void e40LoadSetup(const char *output, int trial);
+void e40TrackingStart(void);
+void e40TrackingTick(void);
+bool e40TrackingDone(void);
+void e40TrackingSemantic(int phase, long long generation, long long interaction, long long sequence, long long revision, double value);
+bool e40TrackingPointer(void);
 bool e40LoadReady(void);
 void e40LoadObserveSurfaces(void);
 unsigned long long e40LoadNow(void);
