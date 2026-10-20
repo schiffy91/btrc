@@ -41,11 +41,25 @@ import Library.GUI.Linux.LinuxIndicators;
 import Library.GUI.Linux.LinuxGPUView;
 import Library.GUI.Linux.LinuxDirectoryPicker;
 
+/* The public attachment retains the work result. Its scope registration owns
+ * physical detach, so a drained work failure does not strand the owning scope. */
+class LinuxHostOwnerRegistration implements ICallbackRegistration {
+	private LinuxHostAttachment _attachment;
+	public LinuxHostOwnerRegistration(LinuxHostAttachment attachment) { self._attachment = attachment; }
+
+	public bool isOpen() { return self._attachment.isOpen(); }
+
+	public CallbackCancellation cancel() { self._attachment.cancel(); return self._attachment.ownerCompletion(); }
+
+	public CallbackCancellation pollCompletion() { return self._attachment.ownerCompletion(); }
+}
+
 /* The scoped host link delegates to the same scheduler as desktop run(). */
 class LinuxHostAttachment implements IApplicationHostAttachment {
 	private LinuxApplication? _application;
 	private bool _closing = false;
 	private CallbackCancellation _result = CALLBACK_CANCELLATION_NOT_REQUESTED;
+	private bool _detached = false;
 	public LinuxHostAttachment(LinuxApplication application) { self._application = application; }
 
 	public bool isOpen() { return !self._closing && self._application != null; }
@@ -53,8 +67,14 @@ class LinuxHostAttachment implements IApplicationHostAttachment {
 	public void serviceTurn() {
 		var application = self._application;
 		if (application == null) { return; }
-		application.serviceHostTurn();
-		if (self._closing || application.quitRequested()) { self._closing = true; self.pollCompletion(); }
+		try {
+			application.serviceHostTurn();
+			if (self._closing || application.quitRequested()) { self._closing = true; self.pollCompletion(); }
+		} catch (string error) {
+			application.recordHostFailure(error); self._closing = true;
+			try { self.pollCompletion(); }
+			catch (string shutdownError) { application.recordHostFailure(shutdownError); self._result = CALLBACK_CANCELLATION_FAILED; }
+		}
 	}
 
 	public void transition(ApplicationActivity activity) { var application = self._application; if (application == null || self._closing) { throw "Application host is detached"; } application.transition(activity); }
@@ -66,8 +86,13 @@ class LinuxHostAttachment implements IApplicationHostAttachment {
 		var application = self._application;
 		if (application == null) { return self._result; }
 		self._result = application.finishHostClose();
-		if (self._result == CALLBACK_CANCELLATION_COMPLETE || self._result == CALLBACK_CANCELLATION_FAILED) { self._application = null; }
+		if (application.hostCloseComplete()) { self._detached = true; self._application = null; }
 		return self._result;
+	}
+
+	public CallbackCancellation ownerCompletion() {
+		var result = self.pollCompletion();
+		return self._detached ? CALLBACK_CANCELLATION_COMPLETE : result;
 	}
 }
 
@@ -101,6 +126,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private int _rotation = 0;
 	private int _windowCursor = 0;
 	private bool _quitRequested = false;
+	private LinuxWindowQuitCoordinator? _quitCoordinator;
 	private bool _running = false;
 	private bool _dispatching = false;
 	private bool _closing = false;
@@ -149,10 +175,9 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		btrcSdlPushWake();
 	}
 
-	private void failWork(string error) {
-		if (!self._workFailed) { self._workFailure = error; self._workFailed = true; }
-		self.requestQuit();
-	}
+	private void recordWorkFailure(string error) { if (!self._workFailed) { self._workFailure = error; self._workFailed = true; } }
+
+	private void failWork(string error) { self.recordWorkFailure(error); self.requestQuit(); }
 
 	private void signalTurn() {
 		if (!btrcSdlPushWake()) { self.failWork("Application native wake failed"); return; }
@@ -212,7 +237,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = "Publisher wake transition is busy"; return result;
 		}
 		var attachment = LinuxHostAttachment(self);
-		try { owner.track(attachment); }
+		try { owner.track(LinuxHostOwnerRegistration(attachment)); }
 		catch (string error) {
 			for (int index = 0; index < locked; index++) { self._publishers.get(index).endHostChange(); }
 			result.kind = APPLICATION_HOST_ATTACH_FAILED; result.error = error; return result;
@@ -234,12 +259,21 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		self.signalTurn(); self.updateHostDeadline();
 	}
 
+	public string workFailure() { self.requireUIThread(); return self._workFailure; }
+
+	public void recordHostFailure(string error) {
+		self.requireUIThread(); self.recordWorkFailure(error);
+		try { self.requestQuit(); } catch (string shutdownError) { self.recordWorkFailure(shutdownError); }
+	}
+
 	public void serviceHostTurn() {
 		self.requireUIThread();
 		if (self._closed || self._turnActive) { return; }
-		try { self.pumpOnce(0); } catch (string error) { self.failWork(error); }
-		self.updateHostDeadline();
+		// pumpOnce updates the host deadline inside this failure boundary.
+		try { self.pumpOnce(0); } catch (string error) { self.recordHostFailure(error); }
 	}
+
+	public bool hostCloseComplete() { self.requireUIThread(); return self._closed && self._attachment == null && self._host == null; }
 
 	public CallbackCancellation finishHostClose() {
 		self.requireUIThread();
@@ -322,7 +356,10 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		unsigned long long deadline = SDL_GetTicksNS() + 2000000ULL;
 		while (received && dispatched < 4096) {
 			dispatched++;
-			if (event.type == (unsigned int)SDL_EVENT_QUIT) { for window in self._windows { if (window.isOpen()) { window.requestNativeClose(); } } }
+			if (event.type == (unsigned int)SDL_EVENT_QUIT) {
+				// Promote existing close transactions before another native callback.
+				self._context.setNativeQuitPending(true); break;
+			}
 			else if (event.window != 0u) {
 				var target = self.windowFor(event.window);
 				if (target != null) { target.dispatch(&event); }
@@ -330,7 +367,6 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			if (dispatched == 4096 || SDL_GetTicksNS() >= deadline || !self.canPollInput()) { self.signalTurn(); break; }
 			received = btrcSdlPollEvent(&event) != 0;
 		}
-		for window in self._windows { if (window.isOpen()) { window.settle(); } }
 	}
 
 	private void runDelayed() {
@@ -389,6 +425,15 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		return false;
 	}
 
+	private void serviceNativeQuit() {
+		if (self._quitRequested || !self._context.nativeQuitPending()) { return; }
+		if (self._quitCoordinator == null) { self._quitCoordinator = LinuxWindowQuitCoordinator(self._windows, self._context); }
+		var coordinator = self._quitCoordinator;
+		if (coordinator == null) { throw "Native quit coordinator is unavailable"; }
+		if (coordinator.advance()) { coordinator.commit(); self._quitCoordinator = null; self.requestQuit(); }
+		else if (coordinator.cancelled()) { self._quitCoordinator = null; }
+	}
+
 	private int waitMilliseconds() {
 		if (self.runnable()) { return 0; }
 		unsigned long long now = SDL_GetTicksNS();
@@ -435,6 +480,8 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 			 * gets its own count/time slice and cleanup always gets a turn. */
 			self._dispatching = true;
 			try { self.pumpEvents(timeoutMilliseconds); } finally { self._dispatching = false; }
+			self.serviceNativeQuit();
+			for window in self._windows { if (window.isOpen()) { window.settle(); } }
 			for (int offset = 0; offset < 5; offset++) {
 				int phase = (self._rotation + offset) % 5;
 				if (phase == 0) { self.runDelayed(); }
@@ -442,6 +489,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 				else if (phase == 2) { self.dispatchActions(); }
 				else if (phase == 3) { self.dispatchSemantic(); }
 				else { self.renderWindows(); }
+				self.serviceNativeQuit();
 			}
 			self._rotation = (self._rotation + 1) % 5;
 		} finally { self._turnActive = false; }
@@ -529,6 +577,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		self.prunePublishers();
 		var views = self.closeViews();
 		if (views != CALLBACK_CANCELLATION_COMPLETE) { return views; }
+		self._quitCoordinator = null; self._context.setNativeQuitPending(false);
 		try {
 			self._context.actions.close(); self._context.detachedEvents.close(); self._context.semanticWake.host = null;
 		} catch (string error) { self._closeFailure = error; throw error; }

@@ -19,7 +19,9 @@ pytestmark = pytest.mark.linux_gui
     [
         ("UI2LinuxSlider.btrc", "PASS: UI2 Linux slider drag cancellation and keyboard intents"),
         ("UI2LinuxWindowClose.btrc", "PASS: UI2 Linux native close preserves transaction and save authority"),
+        ("UI2LinuxWindowQuit.btrc", "PASS: UI2 Linux native quit holds and revalidates all windows"),
         ("UI2LinuxExecutor.btrc", "PASS: UI2 Linux worker native wake and hosted suspension"),
+        ("UI2LinuxHostFailure.btrc", "PASS: UI2 Linux host failures stay contained through drain"),
         ("UI2LinuxLifecycle.btrc", "PASS: UI2 Linux inherited eligibility and scoped observations"),
         ("UI2LinuxControls.btrc", "PASS: UI2 Linux two-axis geometry and native wheel observations"),
     ],
@@ -30,7 +32,7 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
         pytest.skip(error)
     root = Path(__file__).resolve().parents[3]
     source = root / "src/tests/native/gui/ui2/probes/linux" / fixture
-    if fixture == "UI2LinuxWindowClose.btrc":
+    if fixture in ("UI2LinuxWindowClose.btrc", "UI2LinuxWindowQuit.btrc"):
         package = tmp_path / "fixture"
         package.mkdir()
         for name in (fixture, "WindowCloseProbe.btrc", "WindowCloseProbe.h", "WindowCloseProbe.c"):
@@ -38,7 +40,7 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
         (package / "btrc.toml").write_text(
             'manifest-version = 1\n[package]\nname = "ui2LinuxWindowClose"\n'
             '[[native.bindings]]\nmodule = "WindowCloseProbe"\nheader = "WindowCloseProbe.h"\n'
-            'language = "c"\nstandard = "c11"\nsymbols = ["ui2PushWindowClose"]\n'
+            'language = "c"\nstandard = "c11"\nsymbols = ["ui2PushWindowClose", "ui2PushQuit", "ui2PushPointerMotion"]\n'
             '[[native.sources]]\npath = "WindowCloseProbe.c"\nlanguage = "c"\n'
             'standard = "c11"\nmodules = ["WindowCloseProbe"]\n'
             '[[native.pkg-config]]\nname = "sdl3"\nmodules = ["WindowCloseProbe"]\n'

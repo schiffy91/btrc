@@ -1,0 +1,111 @@
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+
+class ThrowingHost implements IApplicationHost {
+	public bool failSchedule = false;
+	public bool failWake = false;
+	public int failures = 0;
+	public bool requestTurn() { if (self.failWake) { self.failures++; throw "controlled Linux host wake failure"; } return true; }
+
+	public void scheduleTurn(unsigned long long deadline) { if (self.failSchedule) { self.failures++; throw "controlled Linux host schedule failure"; } }
+}
+
+class HostCounter implements IApplicationWork {
+	public int calls = 0;
+	public void run() { self.calls++; }
+}
+
+class ArmHostFailure implements IApplicationWork {
+	public LinuxApplication application;
+	public ThrowingHost host;
+	public HostCounter child;
+	public bool failWake = false;
+	public int calls = 0;
+	public ICallbackRegistration? childRegistration;
+	public void run() {
+		self.calls++;
+		// Admitted this round, the child remains queued for the next fair turn.
+		var outcome = self.application.schedule(self.child, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+		assert(outcome.kind == SCHEDULE_ACCEPTED && outcome.registration != null); self.childRegistration = outcome.registration;
+		self.host.failWake = self.failWake; self.host.failSchedule = !self.failWake;
+	}
+}
+
+void verifyHostFailure(bool failWake) {
+	var application = LinuxApplication(4); var scope = CallbackScope(); var host = ThrowingHost();
+	var window = application.createWindow("host failure", 140.0, 100.0); var field = application.createTextField("owned", ""); window.attachRoot(field);
+	var attached = application.attachHost(host, scope); assert(attached.kind == APPLICATION_HOST_ATTACHED);
+	var attachment = attached.attachment; if (attachment == null) { throw "Missing host attachment"; }
+	var child = HostCounter(); var work = ArmHostFailure(); work.application = application; work.host = host; work.child = child; work.failWake = failWake;
+	var registration = application.postAfter(0.0, work);
+	bool escaped = false;
+	try { attachment.serviceTurn(); } catch (string error) { escaped = true; }
+	assert(!escaped && work.calls == 1 && child.calls == 0 && host.failures == 1);
+	for (int turn = 0; turn < 100 && attachment.pollCompletion() == CALLBACK_CANCELLATION_PENDING; turn++) { attachment.serviceTurn(); }
+	assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_FAILED && !attachment.isOpen());
+	assert(!window.isOpen() && window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && !field.isOpen());
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	var childRegistration = work.childRegistration; assert(childRegistration != null && childRegistration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	string expected = failWake ? "controlled Linux host wake failure" : "controlled Linux host schedule failure";
+	assert(application.workFailure() == expected);
+	application.recordHostFailure("later failure"); assert(application.workFailure() == expected);
+	attachment.serviceTurn(); assert(host.failures == 1 && child.calls == 0);
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE); assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && scope.pendingCount() == 0);
+	assert(attachment.cancel() == CALLBACK_CANCELLATION_FAILED && attachment.pollCompletion() == CALLBACK_CANCELLATION_FAILED);
+}
+
+class EnteredHostFailure implements IApplicationWork {
+	public LinuxApplication application;
+	public IApplicationHostAttachment attachment;
+	public CallbackScope scope;
+	public IWindow window;
+	public bool pendingObserved = false;
+	public void run() {
+		self.application.recordHostFailure("entered host work failure");
+		assert(self.attachment.cancel() == CALLBACK_CANCELLATION_PENDING);
+		assert(self.scope.cancel() == CALLBACK_CANCELLATION_PENDING && self.scope.pendingCount() == 1);
+		self.pendingObserved = self.window.isOpen();
+	}
+}
+
+void verifyEnteredFailureDrain() {
+	var application = LinuxApplication(4); var scope = CallbackScope(); var window = application.createWindow("entered failure", 140.0, 100.0);
+	var attached = application.attachHost(ThrowingHost(), scope); var attachment = attached.attachment;
+	if (attachment == null) { throw "Missing entered host attachment"; }
+	var work = EnteredHostFailure(); work.application = application; work.attachment = attachment; work.scope = scope; work.window = window;
+	var registration = application.postAfter(0.0, work); attachment.serviceTurn();
+	assert(work.pendingObserved && registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_FAILED && window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && scope.pendingCount() == 0);
+	assert(application.workFailure() == "entered host work failure" && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+void verifyRetainedCloseRetry() {
+	var application = LinuxApplication(4); var scope = CallbackScope(); var window = application.createWindow("retry close precondition", 140.0, 100.0);
+	var attached = application.attachHost(ThrowingHost(), scope); var attachment = attached.attachment;
+	if (attachment == null) { throw "Missing retry host attachment"; }
+	application.requestQuit();
+	// White-box precondition injection: no native cleanup has been attempted.
+	application.context().mutationDepth = 1;
+	bool escaped = false;
+	try { attachment.serviceTurn(); } catch (string error) { escaped = true; }
+	assert(!escaped && window.isOpen() && !application.hostCloseComplete());
+	string firstFailure = application.workFailure(); assert(firstFailure != "");
+	application.context().mutationDepth = 0;
+	assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_FAILED && application.hostCloseComplete());
+	assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE && application.workFailure() == firstFailure);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && scope.pendingCount() == 0);
+	assert(attachment.pollCompletion() == CALLBACK_CANCELLATION_FAILED && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	verifyHostFailure(false); verifyHostFailure(true); verifyEnteredFailureDrain(); verifyRetainedCloseRetry();
+	SDL_Quit(); print("PASS: UI2 Linux host failures stay contained through drain"); return 0;
+}
