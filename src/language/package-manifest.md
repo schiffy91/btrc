@@ -1161,7 +1161,19 @@ result, including its signed-char representation on x86_64; void selectors
 reject either value. The resolved value is part of the interface identity.
 
 For each selector, `before` returns bool and takes that selector's projected
-arguments. `after` has signature `void after(bool invokedSuper, bool nativeFailed)`.
+arguments by default. `before-arguments = "all"` makes that default explicit;
+`before-arguments = "none"` instead gives the managed before hook no parameters.
+Only these two string values are accepted, and the resolved mode is part of
+the interface identity. Payload-free hooks perform no managed argument
+conversion, including no nonnull managed-object construction. This supports
+admission based entirely on receiver state when a native implementation
+internally supplies an argument outside its annotated value domain.
+
+The native override signature, original arguments sent to super, outbound BTRC
+call checks, and native argument lifetime pins are unchanged in either mode.
+Native object pins are nil-safe. This option does not make an SDK parameter
+nullable or permit a payload-free hook to access an omitted argument.
+`after` has signature `void after(bool invokedSuper, bool nativeFailed)`.
 One successful callback entry holds the native object, its managed native
 arguments, and the BTRC receiver through both hooks and any nested native tracking. False skips super and returns void
 or the configured refusal result without native mutation. True calls super exactly once with the original

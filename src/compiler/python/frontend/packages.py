@@ -516,7 +516,7 @@ class NativeCallbackBinding:
     superclass: str = ""
     overrides: tuple[str, ...] = ()
     method_names: tuple[tuple[str, str], ...] = ()
-    super_admission: tuple[tuple[str, str, str, bool | None], ...] = ()
+    super_admission: tuple[tuple[str, str, str, bool | None, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1776,11 +1776,13 @@ class PackageManifestValidator:
                     if (
                         not isinstance(hooks, dict)
                         or not {"before", "after"} <= set(hooks)
-                        or set(hooks) - {"before", "after", "refused-result"}
+                        or set(hooks) - {"before", "after", "refused-result", "before-arguments"}
                     ):
                         raise ValueError(f"{location}.super-admission requires before and after names")
                     if "refused-result" in hooks and type(hooks["refused-result"]) is not bool:
                         raise ValueError(f"{location}.super-admission refused-result must be a bool")
+                    if hooks.get("before-arguments", "all") not in ("all", "none"):
+                        raise ValueError(f"{location}.super-admission before-arguments must be all or none")
                     for name in (hooks["before"], hooks["after"]):
                         self._identifier(name, f"{location}.super-admission")
                         if name in names:
@@ -2023,7 +2025,13 @@ class PackageManifestValidator:
                     tuple(sorted(overrides)) if isinstance(overrides, list) else (),
                     tuple(sorted(method_names.items())),
                     tuple(
-                        (symbol, hooks["before"], hooks["after"], hooks.get("refused-result"))
+                        (
+                            symbol,
+                            hooks["before"],
+                            hooks["after"],
+                            hooks.get("refused-result"),
+                            hooks.get("before-arguments", "all"),
+                        )
                         for symbol, hooks in sorted(admission.items())
                     ),
                 )

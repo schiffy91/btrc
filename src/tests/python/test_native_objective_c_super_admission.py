@@ -154,12 +154,21 @@ HOOKS = {
 }
 
 
-def manifest(hooks=HOOKS, *, nested=False, initializer="-[AdmissionBase initWithMode:]", refused_results=None):
+def manifest(
+    hooks=HOOKS,
+    *,
+    nested=False,
+    initializer="-[AdmissionBase initWithMode:]",
+    refused_results=None,
+    before_arguments=None,
+):
     fields = {}
     for symbol, (before, after) in hooks.items():
         fields[symbol] = [f'before = "{before}"', f'after = "{after}"']
         if refused_results is not None and symbol in refused_results:
             fields[symbol].append(f"refused-result = {json.dumps(refused_results[symbol])}")
+        if before_arguments is not None and symbol in before_arguments:
+            fields[symbol].append(f"before-arguments = {json.dumps(before_arguments[symbol])}")
     entries = [f'"{symbol}" = {{ {", ".join(values)} }}' for symbol, values in fields.items()]
     mapping = (
         f'[native.bindings.callbacks."{initializer}.self".super-admission]\n' + "\n".join(entries)
@@ -501,6 +510,226 @@ int main() {
     return 0;
 }
 """
+
+
+PAYLOAD_FREE_PROGRAM = """import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+int mode = 0;
+int beforeCount = 0;
+int afterCount = 0;
+AdmissionArgument? argument = null;
+class Receiver implements IAdmission {
+    public bool beforeUse() {
+        beforeCount++;
+        argument = null;
+        assert(AdmissionArgument.live() == (mode == 2 ? 1 : 0));
+        return mode != 0;
+    }
+    public void afterUse(bool invokedSuper, bool nativeFailed) {
+        assert(invokedSuper == (mode != 0) && !nativeFailed);
+        assert(AdmissionArgument.live() == (mode == 2 ? 1 : 0));
+        assert(AdmissionBase.presses() == mode);
+        afterCount++;
+    }
+    public bool beforeRecord() { beforeCount++; return true; }
+    public void afterRecord(bool invokedSuper, bool nativeFailed) {
+        assert(invokedSuper && !nativeFailed && AdmissionBase.presses() == 3);
+        afterCount++;
+    }
+}
+int main() {
+    var scope = CallbackScope();
+    var receiver = Receiver();
+    AdmissionBase? object = AdmissionBase.initWithMode(receiver, scope, 0);
+    assert(object != null);
+    AdmissionHost.borrow((AdmissionBase)object);
+    bool rejected = false;
+    try { ((AdmissionBase)object).use((AdmissionArgument)null); }
+    catch (string error) { rejected = error.contains("null argument"); }
+    assert(rejected && beforeCount == 0 && afterCount == 0 && AdmissionBase.presses() == 0);
+    rejected = false;
+    try { AdmissionHost.borrow((AdmissionBase)null); }
+    catch (string error) { rejected = error.contains("null argument"); }
+    assert(rejected);
+    rejected = false;
+    try { AdmissionHost.borrowArgument((AdmissionArgument)null); }
+    catch (string error) { rejected = error.contains("null argument"); }
+    assert(rejected && AdmissionHost.acceptNullable(null));
+    // The native host starts with a nil argument. No nonnull BTRC value
+    // is constructed: the receiver observes only its own admission state.
+    assert(!AdmissionHost.fireArgument());
+    mode = 1;
+    assert(AdmissionHost.fireArgument());
+    mode = 2;
+    argument = AdmissionArgument.new();
+    AdmissionHost.borrowArgument((AdmissionArgument)argument);
+    // before drops the last BTRC owner; the native extent must still pin it.
+    assert(!AdmissionHost.fireArgument());
+    assert(AdmissionArgument.live() == 0);
+    assert(beforeCount == 3 && afterCount == 3 && AdmissionBase.presses() == 2);
+    assert(AdmissionHost.fireRecord());
+    assert(beforeCount == 4 && afterCount == 4 && AdmissionBase.presses() == 3);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+    object = null;
+    assert(AdmissionBase.live() == 0);
+    return 0;
+}
+"""
+
+
+@pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
+@pytest.mark.parametrize("nested", [False, True, "selectors"], ids=["inline", "table", "selector"])
+def test_scoped_super_payload_free(admission_project, native_compile, sanitize, nested):
+    hooks = {OVERRIDES[3]: HOOKS[OVERRIDES[3]], "-[AdmissionBase record:]": ("beforeRecord", "afterRecord")}
+    package = admission_project.parent.parent
+    (package / "btrc.toml").write_text(
+        manifest(hooks, nested=nested, before_arguments=dict.fromkeys(hooks, "none")).replace(
+            "symbols = [", 'symbols = ["+[AdmissionHost fireRecord]", "+[AdmissionHost acceptNullable:]", ', 1
+        )
+    )
+    header = package / "Foundation.h"
+    header.write_text(
+        header.read_text()
+        .replace("- (BOOL)use:", "- (BOOL)record:(NSRange)value;\n- (BOOL)use:", 1)
+        .replace(
+            "+ (BOOL)fireArgument;",
+            "+ (BOOL)fireArgument;\n+ (BOOL)fireRecord;\n+ (BOOL)acceptNullable:(AdmissionArgument * _Nullable)value;",
+            1,
+        )
+    )
+    probe = package / "Probe.m"
+    probe.write_text(
+        probe.read_text()
+        .replace(
+            "- (BOOL)use:(AdmissionArgument *)value { return [value value] == 42; }",
+            "- (BOOL)use:(AdmissionArgument *)value { "
+            'presses++; if (value) NSCAssert([value value] == 42, @"argument lifetime"); '
+            "return value == nil; }\n"
+            "- (BOOL)record:(NSRange)value { presses++; "
+            'NSCAssert(value.location == 7 && value.length == 3, @"record forwarding"); return YES; }',
+        )
+        .replace(
+            "+ (BOOL)fireArgument { return [borrowed use:borrowedArgument]; }",
+            "+ (BOOL)fireArgument { return [borrowed use:borrowedArgument]; }\n"
+            "+ (BOOL)fireRecord { return [borrowed record:NSMakeRange(7, 3)]; }\n"
+            "+ (BOOL)acceptNullable:(AdmissionArgument *)value { return value == nil; }",
+        )
+    )
+    admission_project.write_text(PAYLOAD_FREE_PROGRAM)
+    completed = _build_and_run(admission_project, native_compile, sanitize)
+    assert completed.returncode == 0, (completed.returncode, completed.stdout, completed.stderr)
+    assert completed.stdout.count("argument released") == 1
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
+def test_scoped_super_explicit_all_rejects_null(admission_project, native_compile, sanitize):
+    (admission_project.parent.parent / "btrc.toml").write_text(manifest(before_arguments={OVERRIDES[3]: "all"}))
+    admission_project.write_text(PROGRAM.replace("MODE", "26"))
+    completed = _build_and_run(admission_project, native_compile, sanitize)
+    assert completed.returncode == -6, (completed.returncode, completed.stdout, completed.stderr)
+    assert "after null argument\nreceiver released\nnative released\n" in completed.stdout
+    assert "super-admission: null argument" in completed.stderr
+
+
+LEGACY_INITIALIZER_PROGRAM = """import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+int created = 0;
+class Receiver implements IAdmission {
+    public bool query() { return true; }
+}
+class Factory implements IAdmissionFactory {
+    public IAdmission create() { created++; return Receiver(); }
+}
+int main() {
+    var factory = Factory();
+    AdmissionBase? object = null;
+    bool rejected = false;
+    try { object = AdmissionBase.initWithObject(factory, (AdmissionArgument)null); }
+    catch (string error) { rejected = error.contains("null argument"); }
+    if (REQUIRED) {
+        assert(rejected && object == null && created == 0 && AdmissionBase.live() == 0);
+    } else {
+        assert(!rejected && object != null && created == 1 && AdmissionBase.live() == 1);
+    }
+    object = null;
+    assert(AdmissionBase.live() == 0);
+    int previous = created;
+    AdmissionArgument? argument = AdmissionArgument.new();
+    object = AdmissionBase.initWithObject(factory, (AdmissionArgument)argument);
+    assert(object != null && created == previous + 1 && AdmissionBase.live() == 1);
+    argument = null;
+    assert(AdmissionArgument.live() == 0);
+    object = null;
+    assert(AdmissionBase.live() == 0);
+    return 0;
+}
+"""
+
+
+@pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
+@pytest.mark.parametrize("nullable", [False, True], ids=["required", "nullable"])
+def test_legacy_subclass_initializer_argument(admission_project, native_compile, sanitize, nullable):
+    package = admission_project.parent.parent
+    selected = manifest(
+        {OVERRIDES[2]: HOOKS[OVERRIDES[2]]},
+        initializer="-[AdmissionBase initWithObject:]",
+    )
+    # The legacy factory form has no scoped before/after hooks or entry barrier.
+    selected = "\n".join(
+        line for line in selected.splitlines() if not line.startswith(("super-admission =", "cancellation ="))
+    )
+    (package / "btrc.toml").write_text(selected + "\n")
+    if nullable:
+        header = package / "Foundation.h"
+        header.write_text(
+            header.read_text().replace(
+                "initWithObject:(AdmissionArgument * _Nonnull)value",
+                "initWithObject:(AdmissionArgument * _Nullable)value",
+            )
+        )
+    admission_project.write_text(LEGACY_INITIALIZER_PROGRAM.replace("REQUIRED", str(not nullable).lower()))
+    completed = _build_and_run(admission_project, native_compile, sanitize)
+    assert completed.returncode == 0, (completed.returncode, completed.stdout, completed.stderr)
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.parametrize("value", ["some", "", True, 0, [], {}], ids=["unknown", "empty", "bool", "int", "list", "map"])
+def test_scoped_super_before_arguments_rejects_metadata(admission_project, native_compile, value):
+    (admission_project.parent.parent / "btrc.toml").write_text(manifest(before_arguments={OVERRIDES[3]: value}))
+    admission_project.write_text(PROGRAM.replace("MODE", "0"))
+    completed = native_compile(admission_project)
+    assert not completed.successful
+    assert "before-arguments must be all or none" in str(completed.failure), completed.failure
+
+
+@pytest.mark.parametrize("mode", ["all", "none"])
+def test_scoped_super_before_arguments_identity(admission_project, native_compile, mode):
+    # query has no native parameters. Both modes produce identical managed
+    # method signatures, so only the semantic identity distinguishes them.
+    hooks = {OVERRIDES[2]: HOOKS[OVERRIDES[2]]}
+    first = manifest(hooks)
+    second = manifest(
+        hooks,
+        initializer="-[AdmissionBase initWithObject:]",
+        before_arguments={OVERRIDES[2]: mode},
+    )
+    extra = "[native.bindings.callbacks." + second.split("[native.bindings.callbacks.", 1)[1]
+    extra = extra.split("[[native.sources]]", 1)[0]
+    (admission_project.parent.parent / "btrc.toml").write_text(
+        first.replace("[[native.sources]]", extra + "[[native.sources]]", 1)
+    )
+    admission_project.write_text("import Library.Callback;\nimport ./Foundation.btrc;\nint main() { return 0; }\n")
+    completed = native_compile(admission_project)
+    if mode == "all":
+        assert completed.successful, (completed.failure, completed.diagnostics)
+    else:
+        assert not completed.successful
+        assert "conflicting native declaration" in str(completed.failure), completed.failure
 
 
 @pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
