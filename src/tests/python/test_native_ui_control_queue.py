@@ -52,6 +52,19 @@ def test_ui2_capture_credits(tmp_path, request, frontend, sanitized):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_ui2_capture_channels(tmp_path, request, frontend, sanitized):
+    _run_fixture(
+        tmp_path,
+        request,
+        frontend,
+        sanitized,
+        "ControlEventChannelCapture",
+        "PASS: UI2 typed capture intents and atomic forest routes",
+    )
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 def test_ui2_slider_value(tmp_path, request, frontend, sanitized):
     _run_fixture(
         tmp_path,

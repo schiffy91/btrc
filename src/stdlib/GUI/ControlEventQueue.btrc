@@ -48,7 +48,9 @@ class ControlEventTicket {
 	private bool _extra;
 	private bool _open = true;
 	private bool _queued = false;
-	public ControlEventTicket(ControlEventTerminalPool pool, long long registration, bool extra) { self._pool = pool; self._registration = registration; self._extra = extra; }
+	private ControlEventCaptureLease? _continuation;
+	private ControlEventCaptureBarrier? _capture = null;
+	public ControlEventTicket(ControlEventTerminalPool pool, long long registration, bool extra, ControlEventCaptureLease? continuation = null) { self._pool = pool; self._registration = registration; self._extra = extra; self._continuation = continuation; }
 
 	public bool isOpen() { return self._open; }
 
@@ -56,7 +58,9 @@ class ControlEventTicket {
 
 	public void validate(long long registration) { if (!self._open || self._queued || self._registration != registration) { throw "Control terminal ticket is stale or belongs to another registration"; } }
 
-	public void commit() { if (!self._open || self._queued) { throw "Control terminal ticket is already consumed"; } self._queued = true; }
+	public void commit() { if (!self._open || self._queued) { throw "Control terminal ticket is already consumed"; } self._queued = true; self._capture = null; self._continuation = null; }
+
+	public ControlEventCaptureBarrier? prepareCapture() { if (!self._open || self._queued || self._capture != null) { throw "Control terminal capture is already consumed"; } if (self._continuation != null) { self._capture = self._continuation.commit(); } return self._capture; }
 
 	public void requireOwner(ControlEventTerminalPool pool, long long registration) { if (self._pool != pool || self._registration != registration) { throw "Control terminal ticket belongs to another registration"; } }
 
@@ -64,7 +68,7 @@ class ControlEventTicket {
 	 * credit belongs to the record through callback return and retirement. */
 	public void retire() { if (self._queued && self._open) { throw "Queued terminal credit belongs to its record"; } self.complete(); }
 
-	public void complete() { if (!self._open) { return; } self._open = false; if (self._extra) { self._pool.retire(); } }
+	public void complete() { if (!self._open) { return; } self._open = false; if (!self._queued) { if (self._capture != null) { self._capture.retired(); self._capture = null; } else if (self._continuation != null) { self._continuation.cancel(); } self._continuation = null; } if (self._extra) { self._pool.retire(); } }
 }
 
 /* admitted must leave accounting unchanged when it throws. A successful
@@ -563,6 +567,10 @@ class ControlEventQueue {
 		for (int index = 0; index < 7; index++) { self._retired.push(0LL); }
 	}
 
+	public ControlEventCaptureOwner captureOwner() { if (self._capture == null) { throw "Semantic queue has no capture owner"; } return self._capture; }
+
+	public void requireOpen() { if (self._closed || self._wakeFailed) { throw "Semantic queue is closed"; } }
+
 	public ControlEventTerminalPool terminalPool() { return self._pool; }
 
 	public void setWake(IControlEventWake wake) { if (wake == null || self._closed) { throw "Semantic queue requires a live wake"; } self._wake = wake; }
@@ -645,6 +653,7 @@ class ControlEventQueue {
 	 * native dequeue before exhausting their configured held budget. */
 	public bool enqueue(ControlEventRecord record, bool captured = false, ControlEventPreparation? prepared = null) {
 		record.requireOwner(self._pool, self._capture);
+		if (self._capture != null && !record.captured() && !record.replaceable()) { throw "Capture queue requires an ordered continuation lease"; }
 		var preparation = prepared;
 		if (preparation != null) { self.requirePreparation(preparation, record.registration); preparation.validate(); }
 		if (self._closed || self._wakeFailed) { if (preparation != null) { preparation.retire(); self.prunePreparations(); } return false; }
@@ -665,6 +674,17 @@ class ControlEventQueue {
 		}
 		if (!self._wakeFailed) { self.wake(); } return true;
 	}
+
+	/* Rebind quarantines records until every route and generation is coherent.
+	 * Their storage and pending charges remain owned through final retirement. */
+	public Vector<ControlEventRecord> takeRegistration(long long registration) {
+		for preparation in self._preparations { if (preparation.belongsTo(registration)) { preparation.retire(); } } self.prunePreparations();
+		Vector<ControlEventRecord> records = [];
+		for (int index = 0; index < self._records.len;) { var record = self._records.get(index); if (record.registration == registration) { records.push(record); self._records.remove(index); } else { index++; } }
+		return records;
+	}
+
+	public void retireRebound(ControlEventRecord record) { self.retireRecord(record, CONTROL_EVENT_INELIGIBLE); }
 
 	public void cancelRegistration(long long registration, ControlEventDisposition disposition = CONTROL_EVENT_CANCELLED) {
 		for preparation in self._preparations { if (preparation.belongsTo(registration)) { preparation.retire(); } }
@@ -713,7 +733,104 @@ class ControlEventInvocation<Receiver, Snapshot> implements IControlEventInvocat
  * CallbackScope owns this registration, which uses the existing entry gate.
  * Cancellation removes queued snapshots and waits only through polling for an
  * already-entered receiver. It never pumps, joins or blocks the UI executor. */
-interface IControlEventChannel extends ICallbackRegistration { void rebind(ControlEventQueue queue); }
+enum ControlEventCaptureRole { CONTROL_CAPTURE_LEGACY, CONTROL_CAPTURE_OBSERVER, CONTROL_CAPTURE_KEYED, CONTROL_CAPTURE_TERMINAL };
+interface IControlEventRebind { bool isOpen(); void validate(); void commit(); void finish(); void abort(); }
+interface IControlEventChannel extends ICallbackRegistration { void rebind(ControlEventQueue queue); IControlEventRebind? prepareRebind(ControlEventQueue queue); }
+
+/* A prospective keyed intent owns its continuation until the first snapshot.
+ * The channel does not retain this token; abandoning it leaves the old key. */
+class ControlEventPublication<Receiver, Snapshot> {
+	private ControlEventChannel<Receiver, Snapshot> _channel;
+	private long long _identity;
+	private ControlEventCaptureLease? _lease;
+	private bool _open = true;
+	public long long generation;
+	public long long interaction;
+	public long long key;
+	public ControlEventPublication(ControlEventChannel<Receiver, Snapshot> channel, long long identity, long long generation, long long interaction, long long key, ControlEventCaptureLease lease) { self._channel = channel; self._identity = identity; self.generation = generation; self.interaction = interaction; self.key = key; self._lease = lease; }
+
+	public bool isOpen() { return self._open && self._channel.matchesRoute(self._identity); }
+
+	public void validate() { if (!self.isOpen()) { throw "Key publication belongs to a retired route"; } self._channel.requireRoute(self._identity); }
+
+	public void requireOwner(ControlEventChannel<Receiver, Snapshot> channel) { if (channel != self._channel) { throw "Key publication belongs to another channel"; } self.validate(); }
+
+	public void rotate() { self.validate(); var lease = self._lease; if (lease == null) { throw "Key publication is consumed"; } var barrier = lease.commit(); self._lease = null; self._open = false; barrier.retired(); }
+
+	public bool commit(Snapshot snapshot) { self.validate(); return self._channel.publishKey(self, snapshot); }
+
+	public void abort() { if (!self._open) { return; } self._open = false; var lease = self._lease; self._lease = null; if (lease != null) { lease.cancel(); } }
+
+	public void __del__() { self.abort(); }
+}
+
+/* A forest first acquires every destination and validates every token, then
+ * commits without callbacks. Source routes remain authoritative until commit. */
+class ControlEventRebind<Receiver, Snapshot> implements IControlEventRebind {
+	private ControlEventChannel<Receiver, Snapshot> _channel;
+	private long long _source;
+	private bool _open = true;
+	private bool _committed = false;
+	private bool _finished = false;
+	private ControlEventQueue? _sourceQueue = null;
+	private Vector<ControlEventRecord> _retirees = [];
+	public ControlEventQueue queue;
+	public long long identity;
+	public ControlEventCaptureRegistration? capture;
+	public bool unchanged;
+	public ControlEventRebind(ControlEventChannel<Receiver, Snapshot> channel, long long source, ControlEventQueue queue, long long identity, ControlEventCaptureRegistration? capture, bool unchanged) { self._channel = channel; self._source = source; self.queue = queue; self.identity = identity; self.capture = capture; self.unchanged = unchanged; }
+
+	public bool isOpen() { return self._open; }
+
+	public void validate() { if (!self._open) { throw "Rebind preparation is consumed"; } if (!self._channel.isOpen()) { return; } self._channel.requireRoute(self._source); self.queue.requireOpen(); }
+
+	public void requireOwner(ControlEventChannel<Receiver, Snapshot> channel) { if (channel != self._channel) { throw "Rebind preparation belongs to another channel"; } self.validate(); }
+
+	public void retainRecords(ControlEventQueue queue, Vector<ControlEventRecord> records) { self._sourceQueue = queue; self._retirees = records; }
+
+	public void commit() { self.validate(); if (!self._channel.isOpen()) { self.abort(); return; } self._channel.commitRebind(self); self.capture = null; self._open = false; self._committed = true; }
+
+	public void finish() {
+		if (!self._committed || self._finished) { return; } self._finished = true; string failure = "";
+		while (!self._retirees.isEmpty()) { ControlEventRecord? record = self._retirees.get(0); self._retirees.remove(0); try { self._sourceQueue.retireRebound(record); record = null; } catch (string error) { if (failure == "") { failure = error; } } }
+		self._sourceQueue = null; if (failure != "") { throw failure; }
+	}
+
+	public void abort() { if (!self._open) { return; } self._open = false; if (self.capture != null) { self.capture.cancel(); self.capture = null; } }
+
+	public void __del__() { if (self._committed) { self.finish(); } else { self.abort(); } }
+}
+
+/* Retain the entire batch across route swaps and generation updates. finish
+ * may run snapshot destructors; it sweeps all tokens before reporting failure. */
+class ControlEventRebindEntry {
+	public IControlEventChannel channel;
+	public ControlEventQueue queue;
+	public IControlEventRebind preparation;
+	public ControlEventRebindEntry(IControlEventChannel channel, ControlEventQueue queue, IControlEventRebind preparation) { self.channel = channel; self.queue = queue; self.preparation = preparation; }
+}
+
+class ControlEventRebindBatch {
+	private Vector<ControlEventRebindEntry> _preparations = [];
+	private bool _open = true;
+	private bool _committed = false;
+	private bool _finished = false;
+	public bool prepare(IControlEventChannel channel, ControlEventQueue queue) {
+		if (!self._open) { throw "Rebind batch is closed"; }
+		try { for entry in self._preparations { if (entry.channel == channel) { if (entry.queue != queue) { throw "Channel has conflicting rebind destinations"; } return true; } } var preparation = channel.prepareRebind(queue); if (preparation == null) { self.abort(); return false; } self._preparations.push(ControlEventRebindEntry(channel, queue, preparation)); return true; }
+		catch (string error) { self.abort(); throw error; }
+	}
+
+	public void validate() { if (!self._open) { throw "Rebind batch is closed"; } for entry in self._preparations { entry.preparation.validate(); } }
+
+	public void commitRoutes() { self.validate(); self._open = false; self._committed = true; for entry in self._preparations { entry.preparation.commit(); } }
+
+	public void finish() { if (!self._committed || self._finished) { return; } self._finished = true; string failure = ""; for entry in self._preparations { try { entry.preparation.finish(); } catch (string error) { if (failure == "") { failure = error; } } } self._preparations.clear(); if (failure != "") { throw failure; } }
+
+	public void abort() { if (self._committed) { throw "Committed routes cannot be rolled back"; } if (!self._open) { return; } self._open = false; for entry in self._preparations { entry.preparation.abort(); } self._preparations.clear(); }
+
+	public void __del__() { if (self._committed) { self.finish(); } else { self.abort(); } }
+}
 
 class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	private ControlEventQueue _queue;
@@ -723,17 +840,24 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	private CFunction<void, Receiver, Snapshot> _deliver;
 	private long long _identity;
 	private bool _reserved = false;
+	private ControlEventCaptureRole _role;
+	private ControlEventCaptureRegistration? _capture = null;
+	private bool _hasKey = false;
+	private long long _keyGeneration = 0LL;
+	private long long _keyInteraction = 0LL;
+	private long long _key = 0LL;
 	private bool _cancelling = false;
 	private int _pending = 0;
 	private ControlEventTicket? _baseTicket = null;
 	private Vector<ControlEventTicket> _tickets = [];
 	private CallbackCancellation _cancellation = CALLBACK_CANCELLATION_NOT_REQUESTED;
 
-	public ControlEventChannel(ControlEventQueue queue, IControlEventTarget target, Receiver receiver, CFunction<void, Receiver, Snapshot> deliver, CallbackScope owner) {
+	public ControlEventChannel(ControlEventQueue queue, IControlEventTarget target, Receiver receiver, CFunction<void, Receiver, Snapshot> deliver, CallbackScope owner, ControlEventCaptureRole role = CONTROL_CAPTURE_LEGACY) {
 		if (queue == null || target == null || receiver == (Receiver)null || deliver == null || owner == null) { throw "Semantic subscription requires queue, target, receiver and owner"; }
-		self._queue = queue; self._target = target; self._deliver = deliver; self._identity = queue.registrationIdentity();
-		if (!queue.terminalPool().reserve()) { throw "Control terminal reservation capacity exceeded"; }
-		self._reserved = true;
+		self._queue = queue; self._target = target; self._deliver = deliver; self._role = role; queue.requireOpen();
+		if (role == CONTROL_CAPTURE_LEGACY) { self._identity = queue.registrationIdentity(); }
+		else { self._capture = queue.captureOwner().reserveRegistration(role != CONTROL_CAPTURE_TERMINAL, role == CONTROL_CAPTURE_TERMINAL); if (self._capture == null) { throw "Control capture registration capacity exceeded"; } self._identity = self._capture.identity(); }
+		if (role == CONTROL_CAPTURE_LEGACY || role == CONTROL_CAPTURE_TERMINAL) { if (!queue.terminalPool().reserve()) { if (self._capture != null) { self._capture.cancel(); self._capture = null; } throw "Control terminal reservation capacity exceeded"; } self._reserved = true; }
 		var handler = new CallbackContext<Receiver, ControlEventTerminalPool>(receiver, ControlEventTerminalPool.unregister);
 		handler.activate(self._scope); self._handler = handler;
 		try { owner.track(self); handler.publish(queue.terminalPool()); }
@@ -749,22 +873,53 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	/* Same-window reorder preserves interaction state. Detach/reattach uses
 	 * the application's detached queue, with the same terminal pool. Native
 	 * owners settle eligibility loss before moving their channel route. */
-	public void rebind(ControlEventQueue queue) {
+	public bool matchesRoute(long long identity) { return self.isOpen() && self._identity == identity; }
+
+	public void requireRoute(long long identity) { if (!self.matchesRoute(identity)) { throw "Semantic channel route is retired"; } self._queue.requireOpen(); }
+
+	public IControlEventRebind? prepareRebind(ControlEventQueue queue) {
 		if (queue == null || queue.terminalPool() != self._queue.terminalPool()) { throw "Semantic channel cannot cross application terminal pools"; }
-		if (queue == self._queue) { return; }
-		if (!self.isOpen()) { throw "Semantic channel is cancelled"; }
-		long long identity = queue.registrationIdentity();
-		self._queue.cancelRegistration(self._identity, CONTROL_EVENT_INELIGIBLE);
+		if (!self.isOpen()) { throw "Semantic channel is cancelled"; } queue.requireOpen();
+		if (queue == self._queue) { return new ControlEventRebind<Receiver, Snapshot>(self, self._identity, queue, self._identity, null, true); }
+		ControlEventCaptureRegistration? capture = null;
+		long long identity = 0LL;
+		if (self._role == CONTROL_CAPTURE_LEGACY) { identity = queue.registrationIdentity(); }
+		else { capture = queue.captureOwner().reserveRegistration(self._role != CONTROL_CAPTURE_TERMINAL, self._role == CONTROL_CAPTURE_TERMINAL); if (capture == null) { return null; } identity = capture.identity(); }
+		return new ControlEventRebind<Receiver, Snapshot>(self, self._identity, queue, identity, capture, false);
+	}
+
+	public void commitRebind(ControlEventRebind<Receiver, Snapshot> preparation) {
+		preparation.requireOwner(self); if (preparation.unchanged) { return; }
+		preparation.retainRecords(self._queue, self._queue.takeRegistration(self._identity));
 		for ticket in self._tickets { if (!ticket.queued()) { ticket.retire(); } }
-		self._queue = queue; self._identity = identity;
+		if (self._capture != null) { self._capture.cancel(); }
+		self._queue = preparation.queue; self._identity = preparation.identity; self._capture = preparation.capture; self._hasKey = false;
+	}
+
+	public void rebind(ControlEventQueue queue) { var preparation = self.prepareRebind(queue); if (preparation == null) { throw "Control capture rebind capacity exceeded"; } preparation.validate(); preparation.commit(); preparation.finish(); }
+
+	public ControlEventPublication<Receiver, Snapshot>? prepareKey(long long generation, long long interaction, long long key) {
+		if (self._role != CONTROL_CAPTURE_KEYED || generation <= 0LL || interaction < 0LL || key <= 0LL) { throw "Key preparation requires a keyed channel and valid tuple"; }
+		if (!self.isOpen() || !self._queue.canCapture(0)) { return null; }
+		var lease = self._queue.captureOwner().reserveKeyChange(self._capture); if (lease == null) { return null; }
+		return new ControlEventPublication<Receiver, Snapshot>(self, self._identity, generation, interaction, key, lease);
+	}
+
+	public bool publishKey(ControlEventPublication<Receiver, Snapshot> preparation, Snapshot snapshot) {
+		preparation.requireOwner(self); if (snapshot == (Snapshot)null) { throw "Invalid semantic snapshot"; }
+		preparation.rotate(); self._hasKey = true; self._keyGeneration = preparation.generation; self._keyInteraction = preparation.interaction; self._key = preparation.key;
+		return self.publish(snapshot, preparation.generation, preparation.interaction, preparation.key);
 	}
 
 	public ControlEventTicket? beginInteraction() {
+		if (self._role != CONTROL_CAPTURE_LEGACY && self._role != CONTROL_CAPTURE_TERMINAL) { throw "Observer and keyed channels do not publish terminals"; }
 		if (!self.isOpen() || !self._queue.canCapture(0)) { return null; }
 		for (int index = self._tickets.len - 1; index >= 0; index--) { if (!self._tickets.get(index).isOpen()) { self._tickets.remove(index); } }
+		ControlEventCaptureLease? continuation = null;
+		if (self._role == CONTROL_CAPTURE_TERMINAL) { continuation = self._queue.captureOwner().reserveBarrier(self._capture); if (continuation == null) { return null; } }
 		bool extra = self._baseTicket != null && self._baseTicket.isOpen();
-		if (extra && !self._queue.terminalPool().reserve()) { return null; }
-		var ticket = ControlEventTicket(self._queue.terminalPool(), self._identity, extra);
+		if (extra && !self._queue.terminalPool().reserve()) { if (continuation != null) { continuation.cancel(); } return null; }
+		var ticket = ControlEventTicket(self._queue.terminalPool(), self._identity, extra, continuation);
 		if (!extra) { self._baseTicket = ticket; }
 		self._tickets.push(ticket); return ticket;
 	}
@@ -775,15 +930,23 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 		if (!self.isOpen()) { return false; }
 		if (snapshot == (Snapshot)null || generation <= 0LL || interaction < 0LL || replacementKey < 0LL) { throw "Invalid semantic snapshot identity"; }
 		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
-		return self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, replacementKey, invocation, null));
+		if (self._role == CONTROL_CAPTURE_LEGACY) { return self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, replacementKey, invocation, null)); }
+		if (self._role == CONTROL_CAPTURE_TERMINAL || replacementKey <= 0LL) { throw "Capture publication requires a replaceable channel"; }
+		if (self._hasKey && (generation != self._keyGeneration || interaction != self._keyInteraction || replacementKey != self._key)) { throw "Capture tuple requires a prepared key transition"; }
+		if (!self._hasKey) { if (self._role == CONTROL_CAPTURE_KEYED) { throw "Keyed capture requires its first publication preparation"; } self._hasKey = true; self._keyGeneration = generation; self._keyInteraction = interaction; self._key = replacementKey; }
+		if (!self._queue.canCapture(0)) { return false; }
+		var receipt = self._queue.captureOwner().capture(self._capture);
+		try { bool accepted = self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, replacementKey, invocation, null, receipt)); if (!accepted) { receipt.retired(); } return accepted; }
+		catch (string error) { receipt.retired(); throw error; }
 	}
 
 	/* Refusal happens before a model operation changes observable state. The
 	 * caller retires an unused preparation, including a failed/no-op mutation.
 	 * Cancel, close and rebind also invalidate outstanding preparations. */
-	public ControlEventPreparation? prepareSnapshot() { if (!self.isOpen()) { return null; } return self._queue.prepare(self._identity); }
+	public ControlEventPreparation? prepareSnapshot() { if (self._role != CONTROL_CAPTURE_LEGACY) { throw "Capture channels use their prepaid epoch or key preparation"; } if (!self.isOpen()) { return null; } return self._queue.prepare(self._identity); }
 
 	public bool publishPrepared(Snapshot snapshot, long long generation, long long interaction, long long replacementKey, ControlEventPreparation preparation) {
+		if (self._role != CONTROL_CAPTURE_LEGACY) { throw "Capture channels do not consume held preparations"; }
 		if (preparation == null) { throw "Semantic model publication requires a preparation"; }
 		self._queue.requirePreparation(preparation, self._identity);
 		if (!self.isOpen()) { preparation.retire(); return false; }
@@ -793,6 +956,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	}
 
 	public bool publishCaptured(Snapshot snapshot, long long generation, long long interaction, long long replacementKey) {
+		if (self._role != CONTROL_CAPTURE_LEGACY) { return self.publish(snapshot, generation, interaction, replacementKey); }
 		if (!self.isOpen()) { return false; }
 		if (snapshot == (Snapshot)null || generation <= 0LL || interaction < 0LL || replacementKey < 0LL) { throw "Invalid semantic snapshot identity"; }
 		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
@@ -800,16 +964,18 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	}
 
 	public void publishTerminal(Snapshot snapshot, long long generation, long long interaction, ControlEventTicket ticket) {
+		if (self._role != CONTROL_CAPTURE_LEGACY && self._role != CONTROL_CAPTURE_TERMINAL) { throw "Capture channel does not publish terminals"; }
 		if (ticket != null) { ticket.requireOwner(self._queue.terminalPool(), self._identity); }
 		if (!self.isOpen()) { if (ticket != null) { ticket.retire(); } return; }
 		if (snapshot == (Snapshot)null || ticket == null || generation <= 0LL || interaction <= 0LL) { throw "Invalid semantic terminal snapshot"; }
 		ticket.validate(self._identity);
 		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
-		if (!self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, 0LL, invocation, ticket))) {
-			/* Only a sealed/failed queue can reject a pre-reserved terminal;
-			 * no ordinary pressure path reaches this branch. */
-			ticket.retire(); throw "Control terminal queue is closed or its native source failed";
-		}
+		if (!self._queue.canCapture(0)) { ticket.retire(); throw "Control terminal queue is closed or its native source failed"; }
+		var storage = ticket.prepareCapture();
+		bool accepted = false;
+		try { accepted = self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, 0LL, invocation, ticket, storage)); }
+		catch (string error) { ticket.retire(); throw error; }
+		if (!accepted) { ticket.retire(); throw "Control terminal queue is closed or its native source failed"; }
 	}
 
 	public ControlEventDisposition deliver(Snapshot snapshot, long long generation) {
@@ -825,6 +991,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	}
 
 	private void releaseReservation() {
+		if (self._capture != null) { self._capture.cancel(); self._capture = null; }
 		if (self._reserved) { self._reserved = false; self._queue.terminalPool().retire(); }
 	}
 

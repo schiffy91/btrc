@@ -1,0 +1,160 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEventQueue;
+
+#include <assert.h>
+#include <stdio.h>
+
+class BridgeWatch {
+	public int generation = 1;
+	public int calls = 0;
+	public string failure = "";
+	public ControlEventChannel<BridgeReceiver, BridgeSnapshot>? other = null;
+	public void observe() { self.calls++; assert(self.generation == 2 && self.other != null); assert(self.other.publish(BridgeSnapshot(99), 2LL, 0LL, 1LL)); if (self.failure != "") { throw self.failure; } }
+}
+class BridgeSnapshot {
+	public int value;
+	private BridgeWatch? _watch;
+	public BridgeSnapshot(int value, BridgeWatch? watch = null) { self.value = value; self._watch = watch; }
+
+	public void __del__() { if (self._watch != null) { self._watch.observe(); } }
+}
+class BridgeReceiver {
+	public Vector<int> values = [];
+	class void deliver(BridgeReceiver receiver, BridgeSnapshot snapshot) { receiver.values.push(snapshot.value); }
+}
+class BridgeTarget implements IControlEventTarget { public ControlEventDisposition admission(long long generation) { return CONTROL_EVENT_DELIVERED; } }
+class BridgeWake implements IControlEventWake { public bool requestTurn() { return false; } }
+
+class BridgeChecks {
+	class ControlEventChannel<BridgeReceiver, BridgeSnapshot> channel(ControlEventQueue queue, BridgeReceiver receiver, CallbackScope scope, ControlEventCaptureRole role) { return new ControlEventChannel<BridgeReceiver, BridgeSnapshot> (queue, BridgeTarget(), receiver, BridgeReceiver.deliver, scope, role); }
+
+	class void drain(ControlEventQueue queue) { while (queue.dispatchOne()) {} }
+
+	class void keyedIntent() {
+		var pool = ControlEventTerminalPool(2); var owner = ControlEventCaptureOwner(3, pool); var queue = ControlEventQueue(1, pool, 0, owner); var scope = CallbackScope(); var receiver = BridgeReceiver();
+		var keyed = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_KEYED); assert(owner.used() == 1 && pool.available() == 2);
+		var first = keyed.prepareKey(1LL, 1LL, 1LL); var next = keyed.prepareKey(1LL, 2LL, 1LL); assert(first != null && next != null && owner.used() == 3);
+		int model = 0; var refused = keyed.prepareKey(1LL, 3LL, 1LL); if (refused != null) { model = 1; } assert(refused == null && model == 0);
+		first.abort(); assert(owner.used() == 2); next.validate(); assert(next.commit(BridgeSnapshot(20)) && owner.used() == 1);
+		assert(keyed.publish(BridgeSnapshot(21), 1LL, 2LL, 1LL));
+		var newer = keyed.prepareKey(1LL, 3LL, 1LL); assert(newer != null && newer.commit(BridgeSnapshot(30)));
+		assert(queue.pendingCount() == 2); BridgeChecks.drain(queue);
+		assert(receiver.values.len == 2 && receiver.values.get(0) == 21 && receiver.values.get(1) == 30 && owner.used() == 1);
+		var cancelled = keyed.prepareKey(1LL, 4LL, 1LL); assert(cancelled != null); assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!cancelled.isOpen()); cancelled.abort(); assert(owner.used() == 0 && pool.available() == 2); queue.close();
+	}
+
+	class void terminalEpochs() {
+		var pool = ControlEventTerminalPool(2); var owner = ControlEventCaptureOwner(2, pool); var queue = ControlEventQueue(1, pool, 0, owner); var scope = CallbackScope(); var receiver = BridgeReceiver();
+		var observer = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_OBSERVER);
+		var terminal = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_TERMINAL); assert(owner.used() == 2 && pool.available() == 1);
+		var ticket = terminal.beginInteraction(); assert(ticket != null); assert(observer.publish(BridgeSnapshot(1), 1LL, 0LL, 1LL));
+		terminal.publishTerminal(BridgeSnapshot(2), 1LL, 1LL, ticket); assert(observer.publish(BridgeSnapshot(3), 1LL, 0LL, 1LL));
+		assert(terminal.beginInteraction() == null && queue.pendingCount() == 3 && pool.available() == 1);
+		BridgeChecks.drain(queue); assert(receiver.values.len == 3 && receiver.values.get(0) == 1 && receiver.values.get(1) == 2 && receiver.values.get(2) == 3);
+		var again = terminal.beginInteraction(); assert(again != null); again.retire(); assert(owner.used() == 2);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && owner.used() == 0 && pool.available() == 2); queue.close();
+	}
+
+	class void subscriptionDuringIntent() {
+		var pool = ControlEventTerminalPool(2); var owner = ControlEventCaptureOwner(3, pool); var queue = ControlEventQueue(1, pool, 0, owner); var scope = CallbackScope(); var receiver = BridgeReceiver();
+		var terminal = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_TERMINAL); var ticket = terminal.beginInteraction(); assert(ticket != null && owner.used() == 0);
+		var late = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_KEYED); var key = late.prepareKey(1LL, 1LL, 1LL); assert(key != null && owner.used() == 3);
+		bool refused = false; try { var extra = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_OBSERVER); } catch (string error) { refused = true; } assert(refused && owner.used() == 3);
+		assert(key.commit(BridgeSnapshot(1))); terminal.publishTerminal(BridgeSnapshot(2), 1LL, 1LL, ticket); assert(late.publish(BridgeSnapshot(3), 1LL, 1LL, 1LL));
+		BridgeChecks.drain(queue); assert(receiver.values.len == 3 && receiver.values.get(0) == 1 && receiver.values.get(1) == 2 && receiver.values.get(2) == 3);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && owner.used() == 0); queue.close();
+	}
+
+	class void forestRollbackAndCommit() {
+		var pool = ControlEventTerminalPool(4); var source = ControlEventCaptureOwner(4, pool); var destination = ControlEventCaptureOwner(2, pool);
+		var before = ControlEventQueue(1, pool, 0, source); var after = ControlEventQueue(1, pool, 0, destination); var scope = CallbackScope(); var receiver = BridgeReceiver();
+		var first = BridgeChecks.channel(before, receiver, scope, CONTROL_CAPTURE_OBSERVER); var second = BridgeChecks.channel(before, receiver, scope, CONTROL_CAPTURE_OBSERVER);
+		var blocker = destination.reserveRegistration(true, false); assert(blocker != null);
+		assert(first.publish(BridgeSnapshot(1), 1LL, 0LL, 1LL) && second.publish(BridgeSnapshot(2), 1LL, 0LL, 1LL));
+		var refused = ControlEventRebindBatch(); assert(refused.prepare(first, after)); assert(!refused.prepare(second, after));
+		assert(source.used() == 2 && destination.used() == 1 && before.pendingCount() == 2); BridgeChecks.drain(before); assert(receiver.values.len == 2);
+		blocker.cancel(); var aborted = ControlEventRebindBatch(); assert(aborted.prepare(first, after) && aborted.prepare(second, after)); aborted.abort(); assert(destination.used() == 0 && source.used() == 2);
+		var watch = BridgeWatch(); watch.other = second;
+		assert(first.publish(BridgeSnapshot(3, watch), 1LL, 0LL, 1LL) && second.publish(BridgeSnapshot(4), 1LL, 0LL, 1LL));
+		var batch = ControlEventRebindBatch(); assert(batch.prepare(first, after) && batch.prepare(second, after)); batch.validate(); batch.commitRoutes();
+		assert(watch.calls == 0 && before.pendingCount() == 0 && source.used() == 2 && after.pendingCount() == 0);
+		watch.generation = 2; batch.finish(); assert(watch.calls == 1 && source.used() == 0 && destination.used() == 2 && after.pendingCount() == 1);
+		BridgeChecks.drain(after); assert(receiver.values.get(receiver.values.len - 1) == 99);
+		watch.other = null; assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && destination.used() == 0); before.close(); after.close();
+	}
+
+	class void forestFinishFailure() {
+		var pool = ControlEventTerminalPool(4); var source = ControlEventCaptureOwner(2, pool); var destination = ControlEventCaptureOwner(2, pool);
+		var before = ControlEventQueue(1, pool, 0, source); var after = ControlEventQueue(1, pool, 0, destination); var scope = CallbackScope(); var receiver = BridgeReceiver();
+		var first = BridgeChecks.channel(before, receiver, scope, CONTROL_CAPTURE_OBSERVER); var second = BridgeChecks.channel(before, receiver, scope, CONTROL_CAPTURE_OBSERVER);
+		var firstWatch = BridgeWatch(); firstWatch.other = second; firstWatch.failure = "first cleanup failure";
+		var secondWatch = BridgeWatch(); secondWatch.other = first; secondWatch.failure = "second cleanup failure";
+		assert(first.publish(BridgeSnapshot(1, firstWatch), 1LL, 0LL, 1LL)); assert(second.publish(BridgeSnapshot(2, secondWatch), 1LL, 0LL, 1LL));
+		var batch = ControlEventRebindBatch(); assert(batch.prepare(first, after) && batch.prepare(second, after)); batch.commitRoutes(); firstWatch.generation = 2; secondWatch.generation = 2;
+		bool failed = false; try { batch.finish(); } catch (string error) { failed = error == "first cleanup failure"; }
+		assert(failed && firstWatch.calls == 1 && secondWatch.calls == 1 && source.used() == 0 && after.pendingCount() == 2);
+		batch.finish(); BridgeChecks.drain(after); assert(receiver.values.len == 2);
+		firstWatch.other = null; secondWatch.other = null; assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); before.close(); after.close();
+	}
+
+	class void cancelledAndSealedRebind() {
+		var pool = ControlEventTerminalPool(3); var source = ControlEventCaptureOwner(3, pool); var destination = ControlEventCaptureOwner(3, pool);
+		var before = ControlEventQueue(1, pool, 0, source); var after = ControlEventQueue(1, pool, 0, destination); var scope = CallbackScope(); var receiver = BridgeReceiver();
+		var first = BridgeChecks.channel(before, receiver, scope, CONTROL_CAPTURE_KEYED); var key = first.prepareKey(1LL, 1LL, 1LL); assert(key != null);
+		var batch = ControlEventRebindBatch(); assert(batch.prepare(first, after)); assert(first.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		batch.validate(); batch.commitRoutes(); batch.finish(); key.abort(); assert(source.used() == 0 && destination.used() == 0);
+		var second = BridgeChecks.channel(before, receiver, scope, CONTROL_CAPTURE_OBSERVER); assert(second.publish(BridgeSnapshot(5), 1LL, 0LL, 1LL));
+		var sealed = ControlEventRebindBatch(); assert(sealed.prepare(second, after)); after.close(); bool failed = false;
+		try { sealed.validate(); } catch (string error) { failed = true; } assert(failed && before.pendingCount() == 1); sealed.abort(); BridgeChecks.drain(before);
+		assert(receiver.values.len == 1 && receiver.values.get(0) == 5); assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); before.close();
+	}
+
+	class void preparationIdentity() {
+		var pool = ControlEventTerminalPool(3); var source = ControlEventCaptureOwner(2, pool); var destination = ControlEventCaptureOwner(1, pool); var another = ControlEventCaptureOwner(1, pool);
+		var before = ControlEventQueue(1, pool, 0, source); var after = ControlEventQueue(1, pool, 0, destination); var third = ControlEventQueue(1, pool, 0, another); var scope = CallbackScope(); var receiver = BridgeReceiver();
+		var channel = BridgeChecks.channel(before, receiver, scope, CONTROL_CAPTURE_OBSERVER); assert(channel.publish(BridgeSnapshot(1), 1LL, 0LL, 1LL));
+		var same = ControlEventRebindBatch(); assert(same.prepare(channel, before) && same.prepare(channel, before)); same.commitRoutes(); same.finish();
+		assert(channel.publish(BridgeSnapshot(2), 1LL, 0LL, 1LL) && before.pendingCount() == 1); BridgeChecks.drain(before); assert(receiver.values.get(0) == 2);
+		bool failed = false; try { channel.publish(BridgeSnapshot(3), 2LL, 0LL, 1LL); } catch (string error) { failed = true; } assert(failed && before.pendingCount() == 0);
+		var conflict = ControlEventRebindBatch(); assert(conflict.prepare(channel, after));
+		failed = false; try { conflict.prepare(channel, third); } catch (string error) { failed = error == "Channel has conflicting rebind destinations"; }
+		assert(failed && destination.used() == 0 && another.used() == 0 && source.used() == 1);
+		var duplicate = ControlEventRebindBatch(); assert(duplicate.prepare(channel, after)); assert(duplicate.prepare(channel, after) && destination.used() == 1); duplicate.commitRoutes(); duplicate.finish();
+		assert(channel.publish(BridgeSnapshot(4), 2LL, 0LL, 1LL)); BridgeChecks.drain(after); assert(receiver.values.get(1) == 4 && source.used() == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); before.close(); after.close(); third.close();
+	}
+
+	class void constructorRollback() {
+		var pool = ControlEventTerminalPool(1); var owner = ControlEventCaptureOwner(3, pool); var queue = ControlEventQueue(1, pool, 0, owner); var scope = CallbackScope(); var receiver = BridgeReceiver();
+		var legacy = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_LEGACY); var observer = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_OBSERVER);
+		assert(owner.used() == 1 && pool.available() == 0); bool failed = false;
+		try { var terminal = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_TERMINAL); } catch (string error) { failed = error == "Control terminal reservation capacity exceeded"; }
+		assert(failed && owner.used() == 1 && pool.available() == 0);
+		assert(legacy.cancel() == CALLBACK_CANCELLATION_COMPLETE); var terminal = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_TERMINAL); assert(owner.used() == 2);
+		var ticket = terminal.beginInteraction(); assert(ticket != null); ticket.retire(); assert(observer.publish(BridgeSnapshot(1), 1LL, 0LL, 1LL)); BridgeChecks.drain(queue);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && owner.used() == 0 && pool.available() == 1); queue.close();
+	}
+
+	class void mixedModeAndWakeFailure() {
+		var pool = ControlEventTerminalPool(4); var owner = ControlEventCaptureOwner(2, pool); var queue = ControlEventQueue(2, pool, 0, owner); var scope = CallbackScope(); var receiver = BridgeReceiver();
+		var legacy = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_LEGACY); bool failed = false;
+		try { legacy.publish(BridgeSnapshot(1), 1LL, 0LL, 0LL); } catch (string error) { failed = error == "Capture queue requires an ordered continuation lease"; }
+		assert(failed && queue.pendingCount() == 0 && queue.normalCount() == 0);
+		var invalid = legacy.beginInteraction(); assert(invalid != null); failed = false;
+		try { legacy.publishTerminal(BridgeSnapshot(2), 1LL, 1LL, invalid); } catch (string error) { failed = error == "Capture queue requires an ordered continuation lease"; }
+		assert(failed && !invalid.isOpen() && queue.pendingCount() == 0);
+		assert(legacy.publish(BridgeSnapshot(3), 1LL, 0LL, 1LL)); BridgeChecks.drain(queue); assert(receiver.values.get(0) == 3);
+		var terminal = BridgeChecks.channel(queue, receiver, scope, CONTROL_CAPTURE_TERMINAL); var ticket = terminal.beginInteraction(); assert(ticket != null); queue.setWake(BridgeWake());
+		terminal.publishTerminal(BridgeSnapshot(4), 1LL, 1LL, ticket); assert(ticket.queued() && ticket.isOpen() && queue.pendingCount() == 1);
+		failed = false; try { queue.dispatchOne(); } catch (string error) { failed = true; } assert(failed && receiver.values.len == 1);
+		queue.close(); assert(!ticket.isOpen()); assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && owner.used() == 0 && pool.available() == 4);
+	}
+}
+
+int main() {
+	BridgeChecks.keyedIntent(); BridgeChecks.terminalEpochs(); BridgeChecks.subscriptionDuringIntent();
+	BridgeChecks.forestRollbackAndCommit(); BridgeChecks.forestFinishFailure(); BridgeChecks.cancelledAndSealedRebind(); BridgeChecks.preparationIdentity(); BridgeChecks.constructorRollback(); BridgeChecks.mixedModeAndWakeFailure();
+	printf("PASS: UI2 typed capture intents and atomic forest routes\n"); return 0;
+}
