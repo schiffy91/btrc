@@ -33,6 +33,7 @@ extern int btrcTestSpawnRestricted(string arguments, void** process);
 extern int btrcTestWaitProcess(void* process, int milliseconds);
 extern int btrcTestRemoveDirectory(string path);
 extern int btrcTestRename(string from, string to);
+extern int btrcTestRenameWithin(string from, string to, int milliseconds);
 extern void btrcTestSleep(int milliseconds);
 extern int btrcTestHoldOpen(string path, void** handle);
 extern int btrcTestClose(void* handle);
@@ -241,72 +242,160 @@ void caseReparsePoints(string root) {
 	print("case=reparse-points ok");
 }
 
-/* A second thread keeps swapping tree\a for a junction to an outside
- * directory while this one lists, opens private children under, and removes
- * subtrees of tree\a. Nothing may ever reach the outside directory. */
+/* The junction is complete before it can become visible at `real`. Creating
+ * it there exposed an ordinary directory between CreateDirectory and FSCTL;
+ * a concurrent private child could make FSCTL and cleanup fail, leaving the
+ * restore rename blocked forever by its destination. */
+class JunctionSwap {
+	private string _real;
+	private string _parked;
+	private string _staged;
+	private int _milliseconds;
+	private bool _parkedReal;
+	private bool _published;
+	public string failure;
+	public string recoveryFailure;
+
+	public JunctionSwap(string real, string parked, string staged, int milliseconds) {
+		self._real = real; self._parked = parked; self._staged = staged;
+		self._milliseconds = milliseconds; self._parkedReal = false; self._published = false;
+		self.failure = ""; self.recoveryFailure = "";
+	}
+
+	private bool move(string from, string to, string phase, bool recovering) {
+		int status = btrcTestRenameWithin(from, to, self._milliseconds);
+		if (status != 0) {
+			string message = phase + " Win32=" + Strings.fromInt(status);
+			if (recovering) { self.recoveryFailure = message; }
+			else if (self.failure.isEmpty()) { self.failure = message; }
+		}
+		return status == 0;
+	}
+
+	public bool park() {
+		if (!self.move(self._real, self._parked, "park", false)) { return false; }
+		self._parkedReal = true; return true;
+	}
+
+	public bool publish() {
+		if (!self.move(self._staged, self._real, "publish", false)) { return false; }
+		self._published = true; return true;
+	}
+
+	public bool restore() {
+		if (self._published) {
+			if (!self.move(self._real, self._staged, "unpublish", true)) { return false; }
+			self._published = false;
+		}
+		if (self._parkedReal) {
+			if (!self.move(self._parked, self._real, "restore", true)) { return false; }
+			self._parkedReal = false;
+		}
+		return true;
+	}
+}
+
+/* Real Win32 phase checks, before starting the contended reader journey. They
+ * exercise the absent-name boundary and a persistent publication collision
+ * without relying on scheduler timing or entering an unbounded retry loop. */
+void verifyJunctionSwapProtocol(string root, string outside) {
+	string real = join(root, "protocol-real");
+	string parked = join(root, "protocol-parked");
+	string staged = join(root, "protocol-junction");
+	check(FileSystem.mkdir(real, 448) == 0, "create protocol real directory");
+	writeFile(join(real, "identity.txt"), "real");
+	check(btrcTestCreateJunction(staged, outside) == 0, "prepare protocol junction");
+	JunctionSwap protocol = JunctionSwap(real, parked, staged, 0);
+	check(protocol.park(), "protocol park");
+	check(!FileSystem.openPrivateDirectory(join(real, "private")).ok() && !FileSystem.exists(real), "absent ancestor stays absent");
+	check(protocol.publish(), "protocol publish");
+	check(!FileSystem.openDirectoryExact(real).ok(), "published junction refuses exact directory open");
+	check(!FileSystem.openPrivateDirectory(join(real, "private")).ok(), "published junction refuses private child");
+	check(protocol.restore(), "protocol restore");
+	check(FileSystem.readText(join(real, "identity.txt")).equals("real"), "restored original directory identity");
+	check(protocol.park(), "collision park");
+	check(FileSystem.mkdir(real, 448) == 0, "occupy publication destination");
+	check(!protocol.publish() && protocol.failure.startsWith("publish Win32="), "publication collision reports native phase/error");
+	check(!protocol.restore() && protocol.recoveryFailure.startsWith("restore Win32="), "blocked restore reports native phase/error");
+	check(btrcTestRemoveDirectory(real) == 0, "remove collision directory");
+	check(protocol.restore(), "restore after collision is removed");
+	check(FileSystem.readText(join(real, "identity.txt")).equals("real"), "collision preserves original directory");
+	check(btrcTestRemoveDirectory(staged) == 0 && FileSystem.removeRecursive(real) == 0, "remove protocol owners");
+}
+
+/* A second thread keeps swapping tree\a for a fully formed junction to an
+ * outside directory while this one lists, opens private children under, and
+ * removes subtrees of tree\a. Nothing may ever reach the outside directory. */
 void caseJunctionSwap(string root) {
 	string outside = join(root, "swap-outside");
 	check(FileSystem.mkdir(outside, 448) == 0, "create the swap target");
 	writeFile(join(outside, "must-survive.txt"), "safe");
+	verifyJunctionSwapProtocol(root, outside);
 	string tree = join(root, "swap-tree");
 	string real = join(tree, "a");
 	string parked = join(tree, "a-parked");
 	check(FileSystem.mkdirp(join(real, "b")) == 0, "create the swapped tree");
+	string staged = join(root, "swap-junction");
+	check(btrcTestCreateJunction(staged, outside) == 0, "prepare the swap junction before publication");
+	JunctionSwap protocol = JunctionSwap(real, parked, staged, 5000);
 	racerStop.store(0, MemoryOrder.RELEASE);
 	Thread<int> racer = spawn(() => {
 			int swaps = 0;
 			while (racerStop.load(MemoryOrder.ACQUIRE) == 0) {
-				if (btrcTestRename(real, parked) != 0) {
-					btrcTestSleep(0);
-					continue;
-				}
-				if (btrcTestCreateJunction(real, outside) == 0) {
-					swaps++;
-					btrcTestSleep(0);
-					while (btrcTestRemoveDirectory(real) != 0 && racerStop.load(MemoryOrder.ACQUIRE) == 0) { btrcTestSleep(0); }
-					btrcTestRemoveDirectory(real);
-				}
-				while (btrcTestRename(parked, real) != 0) { btrcTestSleep(1); }
+				if (!protocol.park()) { break; }
+				if (!protocol.publish()) { break; }
+				swaps++;
+				btrcTestSleep(0);
+				if (!protocol.restore()) { break; }
 			}
+			protocol.restore();
 			return swaps;
 		});
-	/* Nothing inside the loop throws, so the racer is always stopped. */
 	bool entered = false;
-	for (int round = 0; round < 300; round++) {
-		var opened = FileSystem.openDirectoryExact(tree);
-		if (opened.ok()) {
-			DirectoryHandle directory = opened.value();
-			while (true) {
-				DirectoryStepOutcome step = directory.next();
-				if (!step.ok() || step.kind() == DIRECTORY_STEP_END) { break; }
-				DirectoryEntry entry = step.entry();
-				if (entry.snapshot().kind() != FILE_DIRECTORY) { continue; }
-				var child = directory.openDirectory(entry);
-				if (!child.ok()) { continue; }
-				DirectoryHandle inner = child.value();
+	string readerFailure = "";
+	int swaps = 0;
+	try {
+		for (int round = 0; round < 300; round++) {
+			var opened = FileSystem.openDirectoryExact(tree);
+			if (opened.ok()) {
+				DirectoryHandle directory = opened.value();
 				while (true) {
-					DirectoryStepOutcome innerStep = inner.next();
-					if (!innerStep.ok() || innerStep.kind() == DIRECTORY_STEP_END) { break; }
-					if (innerStep.entry().name().equals("must-survive.txt")) { entered = true; }
+					DirectoryStepOutcome step = directory.next();
+					if (!step.ok() || step.kind() == DIRECTORY_STEP_END) { break; }
+					DirectoryEntry entry = step.entry();
+					if (entry.snapshot().kind() != FILE_DIRECTORY) { continue; }
+					var child = directory.openDirectory(entry);
+					if (!child.ok()) { continue; }
+					DirectoryHandle inner = child.value();
+					while (true) {
+						DirectoryStepOutcome innerStep = inner.next();
+						if (!innerStep.ok() || innerStep.kind() == DIRECTORY_STEP_END) { break; }
+						if (innerStep.entry().name().equals("must-survive.txt")) { entered = true; }
+					}
+					inner.close();
 				}
-				inner.close();
+				directory.close();
 			}
-			directory.close();
+			var placed = FileSystem.openPrivateDirectory(join(real, "private"));
+			if (placed.ok()) { placed.value().close(); }
+			string doomed = join(join(real, "b"), "doomed");
+			if (FileSystem.mkdir(doomed, 448) == 0) { FileSystem.writeText(join(doomed, "file.txt"), "x"); }
+			FileSystem.removeRecursive(doomed);
+			FileSystem.removeRecursive(join(real, "private"));
 		}
-		var placed = FileSystem.openPrivateDirectory(join(real, "private"));
-		if (placed.ok()) { placed.value().close(); }
-		string doomed = join(join(real, "b"), "doomed");
-		if (FileSystem.mkdir(doomed, 448) == 0) { FileSystem.writeText(join(doomed, "file.txt"), "x"); }
-		FileSystem.removeRecursive(doomed);
-		FileSystem.removeRecursive(join(real, "private"));
+	} catch (string failure) { readerFailure = failure; }
+	finally {
+		racerStop.store(1, MemoryOrder.RELEASE);
+		swaps = racer.join();
 	}
-	racerStop.store(1, MemoryOrder.RELEASE);
-	int swaps = racer.join();
+	check(readerFailure.isEmpty(), "reader failure after worker joined: " + readerFailure);
+	check(protocol.failure.isEmpty() && protocol.recoveryFailure.isEmpty(), "swap protocol: " + protocol.failure + "; recovery: " + protocol.recoveryFailure);
 	check(!entered, "a listing entered the junction");
 	check(swaps > 0, "the racer swapped the junction in");
 	check(FileSystem.readText(join(outside, "must-survive.txt")).equals("safe"), "the outside file survives");
 	Vector<string> outsideNames = entryNames(outside);
 	check(outsideNames.len == 1 && outsideNames.contains("must-survive.txt"), "nothing was created or removed outside");
+	check(btrcTestRemoveDirectory(staged) == 0, "remove the staged junction");
 	check(FileSystem.removeRecursive(tree) == 0, "remove the swapped tree");
 	check(FileSystem.removeRecursive(outside) == 0, "remove the swap target");
 	print("case=junction-swap ok");
