@@ -17,7 +17,49 @@ class SliderReceiver implements ISliderControlEventHandler {
 	public void sliderEvent(SliderControlEvent event) { self.events.push(event); }
 }
 
+void captureAdmissionChecks() {
+	var pool = ControlEventTerminalPool(8); var credits = ControlEventCaptureOwner(4, pool); var queue = ControlEventQueue(1, pool, 0, credits);
+	assert(queue.captureEnabled());
+	var scope = CallbackScope(); var target = SliderTarget(); var receiver = SliderReceiver(); var slider = SliderInteraction(0.0, 10.0, 10);
+	slider.onPreview(queue, target, receiver, scope); slider.onCommit(queue, target, receiver, scope); slider.onCancel(queue, target, receiver, scope);
+	assert(credits.used() == 3 && credits.canReserveKeyChange());
+	assert(slider.begin(1LL) && credits.used() == 4 && !credits.canReserveKeyChange());
+	assert(!slider.adjust(1LL, UI_RANGE_ADJUST_SMALL_INCREMENT, 1) && slider.active() && slider.value() == 0.0 && queue.pendingCount() == 0);
+	assert(slider.preview(4.0) && slider.preview(6.0));
+	assert(!slider.assistiveValue(1LL, 9.0) && slider.active() && slider.value() == 6.0 && queue.pendingCount() == 1);
+	slider.commitValue(7.0); assert(!slider.active());
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 2 && receiver.events.get(0).value == 6.0 && receiver.events.get(1).value == 7.0);
+	assert(slider.begin(1LL)); slider.cancel(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE);
+	while (queue.dispatchOne()) {}
+	assert(credits.used() == 3 && receiver.events.len == 3);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && credits.used() == 0 && pool.available() == 8); queue.close();
+	/* A late terminal subscription cannot consume the held draft-only key.
+	 * Once that subscription fails, the original first preview still works. */
+	pool = ControlEventTerminalPool(2); credits = ControlEventCaptureOwner(2, pool); queue = ControlEventQueue(1, pool, 0, credits);
+	scope = CallbackScope(); receiver = SliderReceiver(); slider = SliderInteraction(0.0, 10.0, 10);
+	slider.onPreview(queue, target, receiver, scope); assert(slider.begin(1LL));
+	bool failed = false; try { slider.onCommit(queue, target, receiver, scope); } catch (string error) { failed = true; }
+	assert(failed && slider.active() && credits.used() == 2 && pool.available() == 2);
+	assert(slider.preview(3.0)); slider.commit(); assert(queue.dispatchOne() && receiver.events.len == 1 && !queue.dispatchOne());
+	assert(slider.begin(1LL)); slider.commit(); assert(credits.used() == 1);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && credits.used() == 0); queue.close();
+	/* Replacing an admitted intent preserves the queued first-to-final order. */
+	pool = ControlEventTerminalPool(8); credits = ControlEventCaptureOwner(16, pool); queue = ControlEventQueue(1, pool, 0, credits);
+	scope = CallbackScope(); receiver = SliderReceiver(); slider = SliderInteraction(0.0, 10.0, 10);
+	slider.onPreview(queue, target, receiver, scope); slider.onCommit(queue, target, receiver, scope); slider.onCancel(queue, target, receiver, scope);
+	assert(slider.begin(1LL) && slider.preview(4.0)); assert(slider.adjust(1LL, UI_RANGE_ADJUST_SMALL_INCREMENT, 1) && slider.value() == 1.0);
+	while (queue.dispatchOne()) {}
+	assert(receiver.events.len == 3 && receiver.events.get(0).phase == CONTROL_PHASE_PREVIEW && receiver.events.get(1).phase == CONTROL_PHASE_CANCEL && receiver.events.get(2).phase == CONTROL_PHASE_COMMIT);
+	assert(receiver.events.get(0).context.interaction == receiver.events.get(1).context.interaction && receiver.events.get(2).context.interaction == receiver.events.get(1).context.interaction + 1LL);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && credits.used() == 0); queue.close();
+	/* Zero-width promises consume metadata even with every numeric credit free. */
+	pool = ControlEventTerminalPool(2); credits = ControlEventCaptureOwner(1, pool); queue = ControlEventQueue(1, pool, 0, credits);
+	var terminal = credits.reserveRegistration(false, true); assert(terminal != null && credits.available() == 1 && !credits.canReserveKeyChange()); terminal.cancel(); queue.close();
+}
+
 int main() {
+	captureAdmissionChecks();
 	var pool = ControlEventTerminalPool(6); var queue = ControlEventQueue(1, pool);
 	var target = SliderTarget(); var receiver = SliderReceiver(); var scope = CallbackScope();
 	var slider = SliderInteraction(0.0, 10.0, 10);
