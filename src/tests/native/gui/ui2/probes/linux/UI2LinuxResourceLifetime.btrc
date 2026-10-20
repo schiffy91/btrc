@@ -1,0 +1,79 @@
+import Library.Callback;
+import Library.Image;
+import Library.GUI.IButton;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.IContainer;
+import Library.GUI.IImageView;
+import Library.GUI.ITextField;
+import Library.GUI.ILabel;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxImageView;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+
+class ResourceButtonReceiver implements IButtonAction {
+	public void invoke() { assert(false); }
+}
+
+class LinuxResourceChecks {
+	class void cursor(LinuxApplication application, LinuxWindow window, float x, float y, int text) {
+		ui2ResourcePointer(window.nativeId(), x, y);
+		unsigned long long deadline = SDL_GetTicksNS() + 5000000000ULL;
+		while (ui2ResourceCursorCount(text) < 1 && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); }
+		assert(ui2ResourceCursorCount(text) == 1);
+	}
+
+	class void cycle(int cycle) {
+		ui2ResourceBegin(cycle);
+		var application = LinuxApplication(16);
+		var window = application.createWindow("UI2 resource lifetime", 160.0, 120.0);
+		var native = application.firstWindow(); assert(native != null && (IWindow)native == window);
+		var root = application.createContainer();
+		var field = application.createTextField("Glyph atlas", "");
+		var label = application.createLabel("Painter");
+		var image = application.createImageView();
+		var button = application.createButton("Closed alias");
+		root.attach(field); root.attach(label); root.attach(image); root.attach(button);
+		window.attachRoot(root); window.show();
+		field.arrange(0.0, 0.0, 160.0, 30.0);
+		label.arrange(85.0, 40.0, 70.0, 25.0);
+		image.arrange(5.0, 40.0, 60.0, 60.0);
+		button.arrange(85.0, 75.0, 70.0, 30.0);
+		var pixels = Image(2, 2);
+		for (int index = 0; index < 4; index++) { pixels.data[index * 4] = 12; pixels.data[index * 4 + 1] = 210; pixels.data[index * 4 + 2] = 34; pixels.data[index * 4 + 3] = 255; }
+		var handle = LinuxImageHandle.create(pixels, 4); image.setImageHandle(handle);
+		var receiver = ResourceButtonReceiver(); var scope = CallbackScope();
+		var registration = button.onAction(receiver, scope);
+		unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
+		while (!native.pollDevice() && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); }
+		assert(native.pollDevice());
+		// Real SDL delivery selects both lazy cursor owners. Rendering includes
+		// glyphs, an image-cache entry, and the offscreen readback path.
+		LinuxResourceChecks.cursor(application, native, 10.0f, 10.0f, 1);
+		LinuxResourceChecks.cursor(application, native, 75.0f, 110.0f, 0);
+		var captured = native.render(true); assert(captured != null);
+		var sample = captured.pixel(captured.width * 35 / 160, captured.height * 70 / 120);
+		assert(sample.green > 190 && sample.red < 30 && sample.blue < 50);
+		handle.close();
+		var closing = window.close(); deadline = SDL_GetTicksNS() + 10000000000ULL;
+		while (closing == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { application.pumpOnce(1); closing = window.pollClose(); }
+		assert(closing == CALLBACK_CANCELLATION_COMPLETE);
+		assert(!window.isOpen() && !root.isOpen() && !field.isOpen() && !image.isOpen() && !label.isOpen() && !button.isOpen());
+		assert(!registration.isOpen() && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		// Every alias above remains alive. COMPLETE, not its later destructor or
+		// SDL_Quit, must have released the executable's native resource claims.
+		ui2ResourceEnd(cycle);
+		assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	for (int cycle = 1; cycle <= 100; cycle++) { LinuxResourceChecks.cycle(cycle); }
+	printf("PASS: UI2 Linux owned native resources balanced through 100 closes\n");
+	SDL_Quit(); return 0;
+}
