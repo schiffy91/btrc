@@ -864,7 +864,18 @@ cancellation = "entry-barrier"
 ```
 
 The interface methods use the selected selectors' first segments and their SDK
-signatures. Colliding names fail; signatures are never supplied in the manifest.
+signatures. An optional `method-names` table maps selected `methods` or `overrides`
+to BTRC names when selectors share a first segment:
+
+```toml
+method-names = { "-[NSTextFieldDelegate control:textShouldBeginEditing:]" = "shouldBeginEditing", "-[NSTextFieldDelegate control:textView:doCommandBySelector:]" = "performTextCommand" }
+```
+
+Keys must name this callback's selected methods or overrides. Values must be
+nonreserved BTRC identifiers. Unmapped methods keep their default names; aliases
+and defaults must be unique within each projected interface, including the
+factory's `create` method. Native selectors, signatures and lifetime contracts
+stay unchanged. Signatures are never supplied in the manifest.
 Optional protocol methods are valid implementations, not unchecked outbound
 calls. Required inherited methods and native signature mismatches must also pass
 strict native compilation. Unsupported object results and consuming arguments

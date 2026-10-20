@@ -486,6 +486,7 @@ class FeManifestBlock {
 	private Map<string, bool> resourceNames;
 	private Map<string, bool> callbackNames = {};
 	private Map<string, bool> callbackOperationNames = {};
+	private Map<string, bool> callbackMethodNameTables = {};
 	private Map<string, bool> stringViewNames = {};
 	private Map<string, bool> unmanagedHandleNames = {};
 	private Map<string, bool> ownedOutputNames = {};
@@ -530,6 +531,11 @@ class FeManifestBlock {
 	public void declareCallbackOperations(string name) {
 		if (!self.callbackNames.has(name) || self.callbackOperationNames.has(name)) { FePackageFailure.fail("callback operations requires one preceding callback table"); }
 		self.callbackOperationNames.put(name, true);
+	}
+
+	public void declareCallbackMethodNames(string name) {
+		if (!self.callbackNames.has(name) || self.callbackMethodNameTables.has(name) || self.fields.has("callbacks." + name + ".method-names")) { FePackageFailure.fail("callback method-names requires one preceding callback table and may not be duplicated"); }
+		self.callbackMethodNameTables.put(name, true);
 	}
 
 	public void declareOwnedOutput(string name) {
@@ -900,10 +906,11 @@ class FeManifestBlock {
 		for key in self.fields.keys() {
 			if (!key.startsWith("callbacks.")) { continue; }
 			var parts = Strings.split(key, ".");
+			if (parts.len == 5 && parts.get(3) == "method-names" && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len == 5 && parts.get(3) == "operations" && self.identifier(parts.get(4)) && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string field = parts.get(3);
-			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "action-parameter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles" && field != "terminal" && field != "superclass" && field != "overrides") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "method-names" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "action-parameter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles" && field != "terminal" && field != "superclass" && field != "overrides") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
 			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
 		}
 		for name in self.callbackNames.keys() {
@@ -1074,9 +1081,52 @@ class FeManifestBlock {
 				if (!binding.symbols.contains(callback.slotGetter)) { FePackageFailure.fail("slot-getter must name a selected native method"); }
 				if (unregister != parts.get(0) || activationFailure != "abort") { FePackageFailure.fail("delegate cancellation requires its setter and activation-failure abort"); }
 			}
+			self.finishCallbackMethodNames(binding, callback, name);
 			binding.callbacks.put(name, callback);
 		}
 		if (binding.callbacks.len > 0 && binding.language != "c" && binding.language != "objective-c") { FePackageFailure.fail("callback mappings currently require C or Objective-C"); }
+	}
+
+	private void callbackMethodName(FeNativeCallbackBinding callback, string symbol, string name) {
+		if (!callback.methods.contains(symbol) && !callback.overrides.contains(symbol)) { FePackageFailure.fail("callback method-names must name selected callback methods or overrides"); }
+		if (!self.identifier(name)) { FePackageFailure.fail("callback method-names must be an ASCII identifier"); }
+		if (callback.methodNames.has(symbol)) { FePackageFailure.fail("callback method-names contains a duplicate method"); }
+		callback.methodNames.put(symbol, name);
+	}
+
+	private void finishCallbackMethodNames(FeNativeBinding binding, FeNativeCallbackBinding callback, string name) {
+		string prefix = "callbacks." + name + ".method-names";
+		bool table = self.callbackMethodNameTables.has(name);
+		for key in self.fields.keys() { if (key.startsWith(prefix + ".")) { table = true; } }
+		if (!table && !self.fields.has(prefix)) { return; }
+		if (binding.language != "objective-c" || (callback.methods.len == 0 && callback.overrides.len == 0)) { FePackageFailure.fail("callback method-names requires Objective-C methods or overrides"); }
+		if (self.fields.has(prefix)) {
+			if (table) { FePackageFailure.fail("callback method-names table is duplicated"); }
+			string raw = self.fields.get(prefix).trim();
+			if (!raw.startsWith("{") || !raw.endsWith("}")) { FePackageFailure.fail("callback method-names must be a table"); }
+			string body = raw.substring(1, raw.length() - 2).trim();
+			while (!body.isEmpty()) {
+				int comma = TOML.unquotedPosition(body, ',');
+				string entry = comma < 0 ? body : body.substring(0, comma);
+				int separator = TOML.unquotedPosition(entry, '=');
+				if (separator < 0) { FePackageFailure.fail("callback method-names requires string entries"); }
+				string key = entry.substring(0, separator).trim();
+				int keyLength = key.length();
+				if (keyLength < 2 || !((key[0] == '"' && key[keyLength - 1] == '"') || (key[0] == '\'' && key[keyLength - 1] == '\''))) { FePackageFailure.fail("callback method-names requires quoted method symbols"); }
+				string symbol = TOML.unquote(key);
+				string value = entry.substring(separator + 1, entry.length() - separator - 1).trim();
+				int length = value.length();
+				if (length < 2 || !((value[0] == '"' && value[length - 1] == '"') || (value[0] == '\'' && value[length - 1] == '\''))) { FePackageFailure.fail("callback method-names requires string entries"); }
+				self.callbackMethodName(callback, symbol, TOML.unquote(value));
+				body = comma < 0 ? "" : body.substring(comma + 1, body.length() - comma - 1).trim();
+				if (comma >= 0 && body.isEmpty()) { FePackageFailure.fail("callback method-names inline table has a trailing comma"); }
+			}
+		}
+		for key in self.fields.keys() {
+			if (!key.startsWith(prefix + ".")) { continue; }
+			string symbol = key.substring(prefix.length() + 1, key.length() - prefix.length() - 1);
+			self.callbackMethodName(callback, symbol, self.requiredText(key));
+		}
 	}
 
 	private FeNativeRealtimeCallbackBinding? realtimeCallback(FeNativeBinding binding, string prefix, string lifetime, string interfaceName) {
@@ -2487,6 +2537,10 @@ class FePackageManifestParser {
 				if (table.startsWith(callbackPrefix)) {
 					if (block == null || !block.isBinding()) { FePackageFailure.fail("callbacks requires a preceding native binding"); }
 					string suffix = table.substring(callbackPrefix.length(), table.length() - callbackPrefix.length());
+					if (suffix.endsWith(".method-names")) {
+						string name = TOML.unquote(suffix.substring(0, suffix.length() - 13));
+						block.declareCallbackMethodNames(name); section = callbackPrefix + name + ".method-names"; continue;
+					}
 					if (suffix.endsWith(".operations")) {
 						string name = TOML.unquote(suffix.substring(0, suffix.length() - 11));
 						block.declareCallbackOperations(name); section = callbackPrefix + name + ".operations"; continue;

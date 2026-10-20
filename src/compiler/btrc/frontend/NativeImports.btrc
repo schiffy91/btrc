@@ -14,6 +14,7 @@ import Library.Vector;
 import ../generated/hosted_abi/Tables.btrc;
 import ../generated/native_abi/Models.btrc;
 import ../generated/ast/Node.btrc;
+import ../syntax/Grammar.btrc;
 import ../syntax/Literals.btrc;
 import ../syntax/Identity.btrc;
 import ./Models.btrc;
@@ -106,6 +107,7 @@ class FeNativeSysroot {
 }
 
 class FeNativeDeclarationImporter {
+	private GrammarInfo grammar;
 	private SHA256 resolvedIdentity = SHA256();
 	private FeSourceFileReader sourceFiles;
 	private bool cacheable = true;
@@ -178,7 +180,8 @@ class FeNativeDeclarationImporter {
 	private Map<string, FeNativeStringView> stringViews = {};
 	private Map<string, bool> usedStringViews = {};
 
-	public FeNativeDeclarationImporter(FeNativeHeaderReader headerReader = (FeNativeHeaderReader)null, FeSourceFileReader? sourceFiles = null) {
+	public FeNativeDeclarationImporter(GrammarInfo grammar, FeNativeHeaderReader headerReader = (FeNativeHeaderReader)null, FeSourceFileReader? sourceFiles = null) {
+		self.grammar = grammar;
 		self.sourceFiles = sourceFiles == null ? FeSourceFileReader() : sourceFiles;
 		self.nativeInterfaces = {};
 		self.interfaceNames = {};
@@ -1659,6 +1662,13 @@ class FeNativeDeclarationImporter {
 		return projection;
 	}
 
+	private string callbackMethodName(FeNativeCallbackBinding binding, NativeNode method) {
+		if (!binding.methodNames.has(method.name)) { return Strings.split(method.selector, ":").get(0); }
+		string name = binding.methodNames.get(method.name);
+		if (!self.grammar.vocabulary.keywordToken(name).isEmpty() || name.startsWith("__") || (name.length() > 1 && name[0] == '_' && name[1] >= 'A' && name[1] <= 'Z')) { self.fail(f"callback method-names requires a nonreserved BTRC identifier: {name}"); }
+		return name;
+	}
+
 	/* Project the selected protocol methods into the binding's interface. Each
 	 * is a non-consuming instance requirement of the projection's protocol; an
 	 * empty protocol takes the first method's. Instantiated adapters may also
@@ -1681,7 +1691,7 @@ class FeNativeDeclarationImporter {
 		}
 		selected.extend(overrides);
 		for method in selected {
-			string name = Strings.split(method.selector, ":").get(0);
+			string name = self.callbackMethodName(binding, method);
 			if (names.has(name)) { self.fail(f"ambiguous delegate method projection: {name}"); }
 			names.put(name, true);
 			Node returnType = objectResults && self.unqualifiedNative(method.signature.returnType).kind == NNK_NATIVE_OBJECTIVE_C_OBJECT ? self.objectiveCType(method.signature.returnType) : self.objectiveCScalar(method.signature.returnType);
@@ -1708,7 +1718,7 @@ class FeNativeDeclarationImporter {
 			callback.parameters.push(context);
 			projectedInterface.methodsMut().push(signature);
 			projection.delegateMethods.push(callback);
-			identity = identity + ":" + name + ":" + self.typeIdentity(method.signature);
+			identity = identity + ":" + method.name + ":" + name + ":" + self.typeIdentity(method.signature);
 		}
 		self.add(binding.interfaceName, projectedInterface, identity);
 	}
@@ -3540,7 +3550,7 @@ class FeNativeDeclarationImporter {
 		Map<string, bool> names = {"create": true};
 		string identity = "instantiated-factory:" + binding.interfaceName;
 		for method in classOverrides {
-			string name = method.selector;
+			string name = self.callbackMethodName(binding, method);
 			if (names.has(name)) { self.fail(f"ambiguous delegate method projection: {name}"); }
 			names.put(name, true);
 			Node text = self.node(NK_TYPE_EXPR);
@@ -3558,7 +3568,7 @@ class FeNativeDeclarationImporter {
 			context.pointerDepth = 1;
 			classMethod.parameters.push(context);
 			projection.classMethods.push(classMethod);
-			identity = identity + ":" + name;
+			identity = identity + ":" + method.name + ":" + name;
 		}
 		self.add(projection.factoryInterface, factory, identity);
 	}

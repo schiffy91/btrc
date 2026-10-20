@@ -836,3 +836,39 @@ def test_sdk_instantiated_subclass_rejects_unchecked_mapping(responder_project, 
     compiled = native_compile(source)
     assert not compiled.successful
     assert message in str(compiled.failure) + str(compiled.diagnostics)
+
+
+@pytest.mark.parametrize("sanitize", [False, True])
+def test_subclass_override_selector_aliases(subclass_project, native_compile, sanitize):
+    source = subclass_project
+    manifest = source.parent.parent / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text().replace(
+            OVERRIDES,
+            OVERRIDES
+            + '\nmethod-names = { "-[NativeView hitCount:]" = "countHits", "+[NativeView layerClass]" = "backingClass" }',
+        )
+    )
+    source.write_text(
+        PROGRAM.replace("MODE", "0")
+        .replace("int hitCount(", "int countHits(")
+        .replace("string layerClass(", "string backingClass(")
+    )
+    completed = _build_and_run(source, native_compile, sanitize)
+    assert completed.returncode == 0, completed.stderr
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+def test_subclass_alias_cannot_replace_factory_create(subclass_project, native_compile):
+    source = subclass_project
+    manifest = source.parent.parent / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text().replace(
+            OVERRIDES, OVERRIDES + '\nmethod-names = { "+[NativeView layerClass]" = "create" }'
+        )
+    )
+    source.write_text(PROGRAM.replace("MODE", "0"))
+    compiled = native_compile(source)
+    assert not compiled.successful
+    assert "ambiguous delegate method projection: create" in str(compiled.failure) + str(compiled.diagnostics)

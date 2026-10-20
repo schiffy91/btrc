@@ -486,6 +486,7 @@ class FeNativeCallbackBinding {
 	public string field = "";
 	public Vector<int> ownedArguments = [];
 	public Vector<string> methods = [];
+	public Map<string, string> methodNames = {};
 	public string slotGetter = "";
 	public string actionSetter = "";
 	public string actionGetter = "";
