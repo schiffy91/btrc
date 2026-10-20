@@ -1,0 +1,155 @@
+import Library.App;
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.ILabel;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdlib.h>
+
+/* UI ownership retains the producer and publisher until done/join. Only the
+ * native publisher capability, atomic flags and C telemetry cross threads. */
+class FairnessProducer implements INativeWorkerBody {
+	private IApplicationPublisher _publisher;
+	public Atomic<bool> stop;
+	public Atomic<bool> done;
+	public Atomic<bool> ready;
+	public int failure = 0;
+	public FairnessProducer(IApplicationPublisher publisher) {
+		self._publisher = publisher; self.stop.init(false); self.done.init(false); self.ready.init(true);
+	}
+
+	public int workLoop() {
+		long long sequence = 0LL;
+		while (!self.stop.load(MemoryOrder.ACQUIRE)) {
+			for (int index = 0; index < 4; index++) { e40PushInput(index % 2); }
+			if (self.ready.load(MemoryOrder.ACQUIRE)) {
+				self.ready.store(false, MemoryOrder.RELEASE);
+				e40Begin(1, sequence + 1LL, 0ULL, 8);
+				PublishOutcome outcome = self._publisher.tryPublish(1LL, sequence + 1LL, WORK_SUSPENSION_DEFER, 0LL, sequence + 1LL);
+				if (outcome == PUBLISH_ACCEPTED) { sequence++; }
+				else {
+					e40Reject(1, sequence + 1LL); self.ready.store(true, MemoryOrder.RELEASE);
+					if (outcome != PUBLISH_FULL) { self.failure = 1; break; }
+				}
+			}
+			SDL_Delay(5u);
+		}
+		self.done.store(true, MemoryOrder.RELEASE); return self.failure;
+	}
+}
+class FairnessReceiver implements IApplicationPublicationHandler, IWindowKeyHandler, IWindowCloseRequestHandler {
+	public FairnessProducer? producer;
+	public int closes = 0;
+	public void deliver(ApplicationPublication publication) {
+		unsigned long long began = SDL_GetTicksNS(); assert(SDL_IsMainThread());
+		assert(publication.generation == 1LL && publication.sequence == publication.payload);
+		e40Deliver(1, publication.sequence);
+		var producer = self.producer; assert(producer != null); producer.ready.store(true, MemoryOrder.RELEASE);
+		e40Handler(1, began);
+	}
+
+	public bool key(AppKeyboardEvent event) {
+		unsigned long long began = SDL_GetTicksNS(); assert(SDL_IsMainThread());
+		e40InputDelivery(); e40Handler(0, began); return true;
+	}
+
+	public void closeRequested(IWindowCloseTransaction transaction) {
+		unsigned long long began = SDL_GetTicksNS(); assert(SDL_IsMainThread());
+		e40Deliver(7, 1LL); self.closes++;
+		assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL).state == WINDOW_CLOSE_CANCELLED);
+		e40Handler(7, began);
+	}
+}
+class FairnessWork implements IApplicationWork {
+	private LinuxApplication _application;
+	private int _kind;
+	private long long _sequence = 0LL;
+	public bool running = true;
+	public FairnessWork(LinuxApplication application, int kind) { self._application = application; self._kind = kind; }
+
+	public void arm() {
+		double delay = self._kind == 2 ? 0.005 : (self._kind == 4 ? 0.001 : 0.0);
+		unsigned long long due = SDL_GetTicksNS() + (unsigned long long)(delay * 1000000000.0);
+		long long next = self._sequence + 1LL; e40Begin(self._kind, next, due, (int)sizeof(void*));
+		try {
+			if (self._kind == 3) { self._application.post(self); }
+			else if (self._kind == 4) { self._application.postAfter(delay, self); }
+			else { assert(self._application.schedule(self, delay, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_ACCEPTED); }
+		} catch (string error) { e40Reject(self._kind, next); throw error; }
+		self._sequence = next;
+	}
+
+	public void run() {
+		unsigned long long began = SDL_GetTicksNS(); assert(SDL_IsMainThread());
+		e40Deliver(self._kind, self._sequence);
+		if (self.running) { self.arm(); }
+		e40Handler(self._kind, began);
+	}
+}
+class FairnessPresentation {
+	private ILabel _first;
+	private ILabel _second;
+	private int _firstFrame = 0;
+	private int _secondFrame = 0;
+	public FairnessPresentation(ILabel first, ILabel second) { self._first = first; self._second = second; }
+
+	public void invalidate() {
+		if (e40Pending(5) == 0) { e40Frame(0); self._first.setText(self._firstFrame++ % 2 == 0 ? "first even" : "first odd"); }
+		if (e40Pending(6) == 0) { e40Frame(1); self._second.setText(self._secondFrame++ % 2 == 0 ? "second even" : "second odd"); }
+	}
+}
+class FairnessChecks {
+	class void ready(LinuxApplication application, int window) {
+		unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
+		while (e40Frames(window) == 0 && SDL_GetTicksNS() < deadline) { application.pumpOnce(10); }
+		assert(e40Frames(window) > 0);
+	}
+
+	class bool pending() { for (int kind = 0; kind < 8; kind++) { if (e40Pending(kind) != 0) { return true; } } return false; }
+}
+int main(int argc, char** argv) {
+	assert(argc == 4); int seconds = atoi(argv[1]); int sanitized = atoi(argv[2]);
+	assert(seconds == 10 || seconds == 600); assert(sanitized == 0 || sanitized == 1);
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	var application = LinuxApplication(128); var first = application.createWindow("E40 first", 200.0, 100.0);
+	var second = application.createWindow("E40 second", 200.0, 100.0);
+	var firstLabel = application.createLabel("first"); var secondLabel = application.createLabel("second");
+	first.attachRoot(firstLabel); second.attachRoot(secondLabel);
+	// Only one surface is visible during each warmup, establishing the native
+	// surface-to-window association before the presentation observer measures.
+	first.show(); FairnessChecks.ready(application, 0); second.show(); FairnessChecks.ready(application, 1);
+	var firstNative = (ILinuxWindow?)first; var secondNative = (ILinuxWindow?)second;
+	assert(firstNative != null && secondNative != null);
+	e40Start(firstNative.nativeId(), secondNative.nativeId(), argv[3]);
+	var receiver = FairnessReceiver(); var scope = CallbackScope();
+	first.onKey(receiver, scope); second.onKey(receiver, scope); first.onCloseRequested(receiver, scope);
+	var created = application.createPublisher(64, receiver, scope); var publisher = created.publisher;
+	assert(created.kind == APPLICATION_PUBLISHER_CREATED && publisher != null);
+	var producer = FairnessProducer(publisher); receiver.producer = producer; var worker = NativeWorker();
+	var timer = FairnessWork(application, 2); var immediate = FairnessWork(application, 3); var delayed = FairnessWork(application, 4);
+	timer.arm(); immediate.arm(); delayed.arm();
+	unsigned long long began = SDL_GetTicksNS(); unsigned long long until = began + (unsigned long long)seconds * 1000000000ULL;
+	assert(worker.start(producer) == NATIVE_WORKER_STARTED);
+	var presentation = FairnessPresentation(firstLabel, secondLabel);
+	while (SDL_GetTicksNS() < until) { presentation.invalidate(); application.pumpOnce(0); }
+	unsigned long long duration = SDL_GetTicksNS() - began;
+	// Close begins under the same live input/completion/timer/presentation load.
+	assert(e40PushClose() == 1); unsigned long long closeDeadline = SDL_GetTicksNS() + 5000000000ULL;
+	while (receiver.closes == 0 && SDL_GetTicksNS() < closeDeadline) { presentation.invalidate(); application.pumpOnce(0); }
+	assert(receiver.closes == 1 && first.isOpen() && second.isOpen());
+	producer.stop.store(true, MemoryOrder.RELEASE); timer.running = false; immediate.running = false; delayed.running = false;
+	unsigned long long drainDeadline = SDL_GetTicksNS() + 10000000000ULL;
+	while ((!producer.done.load(MemoryOrder.ACQUIRE) || FairnessChecks.pending()) && SDL_GetTicksNS() < drainDeadline) { application.pumpOnce(0); }
+	assert(producer.done.load(MemoryOrder.ACQUIRE) && !FairnessChecks.pending());
+	assert(worker.join() && !worker.workerFailed() && producer.failure == 0);
+	e40Report(duration, seconds == 600 ? 1 : 0, sanitized);
+	receiver.producer = null; assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	var closing = application.close(); unsigned long long cleanupDeadline = SDL_GetTicksNS() + 10000000000ULL;
+	while (closing == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < cleanupDeadline) { application.pumpOnce(0); closing = application.pollClose(); }
+	assert(closing == CALLBACK_CANCELLATION_COMPLETE); SDL_Quit(); return 0;
+}
