@@ -123,8 +123,52 @@ interface ILinuxView extends IView {
 	void focus(bool focused);
 }
 
+/* Route reservations cover a complete affected forest before attachment or
+ * layout changes. Removed snapshots stay pinned until every generation and
+ * route is coherent, since releasing a snapshot may re-enter application code. */
+class LinuxAttachmentRoute {
+	public LinuxViewNode node;
+	public LinuxViewHost? destination;
+	public long long generation;
+	public LinuxAttachmentRoute(LinuxViewNode node, LinuxViewHost? destination) { self.node = node; self.destination = destination; self.generation = node.generation(); }
+
+	public void validate() { if (self.node.host != self.destination || self.node.generation() != self.generation) { throw "Native attachment changed during route preparation"; } }
+}
+
+class LinuxAttachmentTransition {
+	private ControlEventRebindBatch _channels = ControlEventRebindBatch();
+	private Vector<LinuxAttachmentRoute> _routes = [];
+	private bool _committed = false;
+	private LinuxContext? _context = null;
+	private void releasePreparation() { var context = self._context; self._context = null; if (context != null) { context.leaveRoutePreparation(); } }
+
+	public bool prepare(LinuxViewNode node, LinuxViewHost? destination) {
+		if (self._context == null) { node.context.enterRoutePreparation(); self._context = node.context; }
+		else if (self._context != node.context) { throw "Native route preparation spans applications"; }
+		for route in self._routes { if (route.node == node) { if (route.destination != destination) { self.abort(); throw "Native attachment has conflicting destinations"; } return true; } }
+		try {
+			if (!node.prepareAttachment(self._channels, destination)) { self.abort(); return false; }
+			self._routes.push(LinuxAttachmentRoute(node, destination));
+			for child in node.children { if (!self.prepare(child.node(), destination)) { return false; } }
+			return true;
+		} catch (string error) { self.abort(); throw error; }
+	}
+
+	public void validate() { for route in self._routes { route.validate(); } self._channels.validate(); }
+
+	public void commit() { self.validate(); self._channels.commitRoutes(); self._committed = true; for route in self._routes { route.node.commitAttachment(); } }
+
+	public void finish() { self.releasePreparation(); self._channels.finish(); }
+
+	public void abort() { self._channels.abort(); self._routes.clear(); }
+
+	public void __del__() { try { if (self._committed) { self.finish(); } else { self.abort(); } } finally { self.releasePreparation(); } }
+}
+
 /* A focused control that hosts an input-method composition. */
 interface ILinuxTextTarget {
+	void prepareFocus();
+	void discardFocusPreparation();
 	void textEditing(string value, int start, int length);
 	void textInputArea(LinuxViewHost host, double x, double y);
 }
@@ -267,6 +311,7 @@ class LinuxViewNode implements IControlEventTarget, ILinuxActionTarget {
 	}
 
 	public void ownSemantic(IControlEventChannel channel) {
+		try { self.context.requireSemanticRegistration(); } catch (string error) { channel.cancel(); throw error; }
 		self.pruneSemantic(); self.ownCallback(channel); self._channels.push(channel);
 	}
 
@@ -296,9 +341,9 @@ class LinuxViewNode implements IControlEventTarget, ILinuxActionTarget {
 	class void deliverState(IViewInteractionStateHandler receiver, ViewInteractionState state) { receiver.interactionChanged(state); }
 
 	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler receiver, CallbackScope owner) {
-		self.requireOpen(); self.pruneSemantic();
+		self.requireOpen(); self.context.requireSemanticRegistration(); self.pruneSemantic();
 		if (self._stateChannel != null && self._stateChannel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing interaction state handler first"; }
-		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self.events(), LinuxViewObservationTarget(self), receiver, LinuxViewNode.deliverState, self._input);
+		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self.events(), LinuxViewObservationTarget(self), receiver, LinuxViewNode.deliverState, self._input, self.context.eventRole(CONTROL_CAPTURE_OBSERVER));
 		try { owner.track(channel); } catch (string error) { channel.cancel(); throw error; }
 		self._stateChannel = channel; self._channels.push(channel); return channel;
 	}
@@ -343,7 +388,7 @@ class LinuxViewNode implements IControlEventTarget, ILinuxActionTarget {
 
 	/* Routing changes retire old records only after active interactions have
 	 * emitted their one terminal using the old registration and reservation. */
-	public void refreshInteraction(bool inherited) { self.markInteraction(inherited); self.settleInteraction(); self.finishAttachment(); self.publishInteraction(); }
+	public void refreshInteraction(bool inherited) { self.markInteraction(inherited); self.settleInteraction(); self.publishInteraction(); }
 
 	public void markLocalInteraction() { self.markInteraction(self._inherited); }
 
@@ -400,13 +445,15 @@ class LinuxViewNode implements IControlEventTarget, ILinuxActionTarget {
 	}
 
 	/* Attach a child subtree: lifecycle responsibility moves here. */
-	public void attachChild(ILinuxView child) {
+	public void attachChild(ILinuxView child, LinuxAttachmentTransition? prepared = null) {
 		self.validateChild(child);
 		var childNode = child.node();
-		self.children.push(child);
-		childNode.attached = true;
+		var transition = prepared == null ? LinuxAttachmentTransition() : prepared;
+		if (prepared == null && !transition.prepare(childNode, self.host)) { throw "Native attachment capture capacity unavailable"; }
+		self.children.push(child); childNode.attached = true;
 		child.attachTo(self.host);
-		childNode.refreshInteraction(self._state.effectiveEligible);
+		childNode.markInteraction(self._state.effectiveEligible); childNode.settleInteraction();
+		if (prepared == null) { transition.commit(); childNode.publishInteraction(); transition.finish(); }
 		self.invalidate();
 	}
 
@@ -420,26 +467,38 @@ class LinuxViewNode implements IControlEventTarget, ILinuxActionTarget {
 		return -1;
 	}
 
-	public ILinuxView detachChild(ILinuxView child) {
+	public ILinuxView detachChild(ILinuxView child, LinuxAttachmentTransition? prepared = null) {
 		self.requireOpen();
 		int index = self.childIndex(child);
 		if (index < 0) { throw "View does not belong to this container"; }
 		var childNode = child.node();
+		var transition = prepared == null ? LinuxAttachmentTransition() : prepared;
+		if (prepared == null && !transition.prepare(childNode, null)) { throw "Native attachment capture capacity unavailable"; }
 		childNode.attached = false;
 		childNode.markInteraction(false); childNode.settleInteraction();
 		self.children.remove(index);
-		child.attachTo(null); childNode.markInteraction(false); childNode.finishAttachment(); childNode.publishInteraction();
+		child.attachTo(null); childNode.markInteraction(false);
+		if (prepared == null) { transition.commit(); childNode.publishInteraction(); transition.finish(); }
 		self.invalidate();
 		return child;
 	}
 
-	public void finishAttachment() {
-		if (self._routedHost != self.host) {
-			if (self._generation == 9223372036854775807LL) { throw "Native view generations exhausted"; }
-			self._generation++; self._routedHost = self.host;
-			for channel in self._channels { if (channel.isOpen()) { channel.rebind(self.events()); } }
-		}
-		for child in self.children { child.node().finishAttachment(); }
+	public bool prepareAttachment(ControlEventRebindBatch batch, LinuxViewHost? destination) {
+		self.requireOpen();
+		if (self._routedHost == destination) { return true; }
+		if (self._generation == 9223372036854775807LL) { throw "Native view generations exhausted"; }
+		var queue = destination == null ? self.context.detachedEvents : destination.events;
+		for channel in self._channels { if (channel.isOpen() && !batch.prepare(channel, queue)) { return false; } }
+		return true;
+	}
+
+	public void commitAttachment() { if (self._routedHost != self.host) { self._generation++; self._routedHost = self.host; } }
+
+	public void cancelSemanticForest() {
+		string failure = "";
+		for channel in self._channels { try { channel.cancel(); } catch (string error) { if (failure == "") { failure = error; } } }
+		for child in self.children { try { child.node().cancelSemanticForest(); } catch (string error) { if (failure == "") { failure = error; } } }
+		if (failure != "") { throw failure; }
 	}
 
 	public void setHost(LinuxViewHost? host) {

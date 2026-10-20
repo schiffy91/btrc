@@ -26,6 +26,7 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _changed;
 	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _commit;
 	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>? _cancel;
+	private ControlEventPublication<ISelectionControlEventHandler, SelectionControlEvent>? _publication;
 	private ControlEventTicket? _commitTicket;
 	private ControlEventTicket? _cancelTicket;
 	private Vector<bool> _enabledItems = [];
@@ -51,20 +52,27 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 
 	class void deliverSelection(ISelectionControlEventHandler receiver, SelectionControlEvent event) { receiver.selectionEvent(event); }
 
-	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent> subscribe(ISelectionControlEventHandler receiver, CallbackScope owner) {
-		self.node().requireOpen();
-		var channel = new ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>(self.node().events(), self.node(), receiver, LinuxSelect.deliverSelection, owner);
+	private ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent> subscribe(ISelectionControlEventHandler receiver, CallbackScope owner, ControlEventCaptureRole role) {
+		self.node().requireOpen(); self.node().context.requireSemanticRegistration();
+		var channel = new ControlEventChannel<ISelectionControlEventHandler, SelectionControlEvent>(self.node().events(), self.node(), receiver, LinuxSelect.deliverSelection, owner, self.node().context.eventRole(role));
 		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
 	}
 
 	public ICallbackRegistration onChanged(ISelectionControlEventHandler receiver, CallbackScope owner) {
 		if (self._changed != null && self._changed.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection change handler first"; }
-		self._changed = self.subscribe(receiver, owner); return self._changed;
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_KEYED);
+		try {
+			if (self._open && self.node().context.captureEnabled()) {
+				self._publication = channel.prepareKey(self.node().generation(), self._interaction, self._modelRevision);
+				if (self._publication == null) { throw "Control key reservation unavailable"; }
+			}
+		} catch (string error) { channel.cancel(); throw error; }
+		self._changed = channel; return channel;
 	}
 
 	public ICallbackRegistration onCommit(ISelectionControlEventHandler receiver, CallbackScope owner) {
 		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection commit handler first"; }
-		var channel = self.subscribe(receiver, owner);
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
 		try { if (self._open) { self._commitTicket = channel.beginInteraction(); if (self._commitTicket == null) { throw "Selection commit reservation unavailable"; } } }
 		catch (string error) { channel.cancel(); throw error; }
 		self._commit = channel; return channel;
@@ -72,13 +80,14 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 
 	public ICallbackRegistration onCancel(ISelectionControlEventHandler receiver, CallbackScope owner) {
 		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection cancel handler first"; }
-		var channel = self.subscribe(receiver, owner);
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
 		try { if (self._open) { self._cancelTicket = channel.beginInteraction(); if (self._cancelTicket == null) { throw "Selection cancel reservation unavailable"; } } }
 		catch (string error) { channel.cancel(); throw error; }
 		self._cancel = channel; return channel;
 	}
 
 	private void releaseTickets() {
+		var publication = self._publication; self._publication = null; if (publication != null) { publication.abort(); }
 		if (self._commitTicket != null && !self._commitTicket.queued()) { self._commitTicket.retire(); }
 		if (self._cancelTicket != null && !self._cancelTicket.queued()) { self._cancelTicket.retire(); }
 		self._commitTicket = null; self._cancelTicket = null;
@@ -100,7 +109,14 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 		if (!self._open || index == self._highlight || index < 0 || index >= self._keys.len || !self._enabledItems.get(index)) { return; }
 		self._highlight = index; self.node().invalidate();
 		var channel = self._changed;
-		if (channel != null && channel.isOpen()) { var event = self.snapshot(CONTROL_PHASE_CHANGE, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE); if (!channel.publish(event, event.context.generation, self._interaction, self._modelRevision)) { throw "Selection change queue cannot admit native input"; } }
+		if (channel != null && channel.isOpen()) {
+			var event = self.snapshot(CONTROL_PHASE_CHANGE, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE); var publication = self._publication;
+			bool accepted = false;
+			if (publication != null) { accepted = publication.commit(event); }
+			else { accepted = channel.publish(event, event.context.generation, self._interaction, self._modelRevision); }
+			self._publication = null;
+			if (!accepted) { throw "Selection change queue cannot admit native input"; }
+		}
 	}
 
 	private void openMenu() {
@@ -108,6 +124,8 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 		if (host == null || self._open || self._availability != SELECT_AVAILABILITY_READY || self._titles.isEmpty() || !self.node().effectiveEligible()) { return; }
 		if (self._interaction == 9223372036854775807LL) { throw "Selection interaction identities exhausted"; }
 		try {
+			var changed = self._changed;
+			if (changed != null && changed.isOpen() && self.node().context.captureEnabled()) { self._publication = changed.prepareKey(self.node().generation(), self._interaction + 1LL, self._modelRevision); if (self._publication == null) { throw "Selection key reservation unavailable"; } }
 			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); if (self._commitTicket == null) { throw "Selection commit reservation unavailable"; } }
 			if (self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Selection cancel reservation unavailable"; } }
 		} catch (string error) { self.releaseTickets(); throw error; }

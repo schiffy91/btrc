@@ -71,7 +71,8 @@ class LinuxSlider extends LinuxNodeView implements ISlider {
 		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self.node().invalidate(); return false; }
 		if (!self._enabled || !self.node().effectiveEligible()) { return false; }
 		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
-			if (!self._interaction.begin(self.node().generation())) { return false; }
+			if (self._interaction.active() || self._interaction.inert()) { return false; }
+			if (!self._interaction.begin(self.node().generation())) { throw "Slider interaction admission unavailable"; }
 			self.node().requestFocus(); self.previewFromX(event.logicalX); return true;
 		}
 		if (event.action == APP_POINTER_DRAGGED && self._interaction.active()) { self.previewFromX(event.logicalX); return true; }
@@ -89,24 +90,25 @@ class LinuxSlider extends LinuxNodeView implements ISlider {
 		else if (event.key == APP_KEY_HOME) { adjustment = UI_RANGE_ADJUST_MINIMUM; }
 		else if (event.key == APP_KEY_END) { adjustment = UI_RANGE_ADJUST_MAXIMUM; }
 		if (adjustment == UI_RANGE_ADJUST_NONE) { return false; }
-		bool accepted = self._interaction.adjust(self.node().generation(), adjustment, 1);
-		self.node().cancelOwnPointerCapture(); self.node().invalidate(); return accepted;
+		if (self._interaction.inert()) { return false; }
+		if (!self._interaction.adjust(self.node().generation(), adjustment, 1)) { throw "Slider adjustment admission unavailable"; }
+		self.node().cancelOwnPointerCapture(); self.node().invalidate(); return true;
 	}
 
 	public void focus(bool focused) { if (!focused) { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION); self.node().cancelOwnPointerCapture(); self.node().invalidate(); } }
 
 	public ICallbackRegistration onPreview(ISliderControlEventHandler receiver, CallbackScope owner) {
-		self.node().requireOpen(); var channel = self._interaction.onPreview(self.node().events(), self.node(), receiver, owner);
+		self.node().requireOpen(); self.node().context.requireSemanticRegistration(); var channel = self._interaction.onPreview(self.node().events(), self.node(), receiver, owner);
 		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
 	}
 
 	public ICallbackRegistration onCommit(ISliderControlEventHandler receiver, CallbackScope owner) {
-		self.node().requireOpen(); var channel = self._interaction.onCommit(self.node().events(), self.node(), receiver, owner);
+		self.node().requireOpen(); self.node().context.requireSemanticRegistration(); var channel = self._interaction.onCommit(self.node().events(), self.node(), receiver, owner);
 		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
 	}
 
 	public ICallbackRegistration onCancel(ISliderControlEventHandler receiver, CallbackScope owner) {
-		self.node().requireOpen(); var channel = self._interaction.onCancel(self.node().events(), self.node(), receiver, owner);
+		self.node().requireOpen(); self.node().context.requireSemanticRegistration(); var channel = self._interaction.onCancel(self.node().events(), self.node(), receiver, owner);
 		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
 	}
 

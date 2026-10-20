@@ -45,9 +45,10 @@ class LinuxScrollView extends LinuxContainerView implements IScrollView {
 	class void deliverOffset(IScrollControlEventHandler receiver, ScrollControlEvent event) { receiver.scrollEvent(event); }
 
 	public ICallbackRegistration onOffsetChanged(IScrollControlEventHandler receiver, CallbackScope owner) {
+		self.node().context.requireSemanticRegistration();
 		self.node().requireOpen();
 		if (self._changes != null && self._changes.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing scroll observer first"; }
-		var channel = new ControlEventChannel<IScrollControlEventHandler, ScrollControlEvent>(self.node().events(), LinuxViewObservationTarget(self.node()), receiver, LinuxScrollView.deliverOffset, owner);
+		var channel = new ControlEventChannel<IScrollControlEventHandler, ScrollControlEvent>(self.node().events(), LinuxViewObservationTarget(self.node()), receiver, LinuxScrollView.deliverOffset, owner, self.node().context.eventRole(CONTROL_CAPTURE_OBSERVER));
 		self.node().ownSemantic(channel); self._changes = channel; return channel;
 	}
 

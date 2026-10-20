@@ -150,11 +150,41 @@ class LinuxGrid extends LinuxNodeView implements IGrid {
 		if (previous == child) { return; }
 		ILinuxView? native = child == null ? null : LinuxComposite.projection(child);
 		if (native != null) { self.node().validateChild(native); }
-		if (previous != null) { self.node().detachChild(previous); self._cells.set(index, null); self._gridHidden.set(index, false); }
-		if (native == null) { return; }
-		self.node().attachChild(native);
-		self._cells.set(index, native);
-		self.relayout();
+		var transition = LinuxAttachmentTransition();
+		if (previous != null && !transition.prepare(previous.node(), null)) { throw "Native grid detach capture capacity unavailable"; }
+		if (native != null && !transition.prepare(native.node(), self.node().host)) { throw "Native grid attach capture capacity unavailable"; }
+		var original = self.node().children.copy(); bool wasHidden = self._gridHidden.get(index);
+		Vector<LinuxChildState> saved = [];
+		if (previous != null) { saved.push(LinuxChildState(previous)); }
+		if (native != null) { saved.push(LinuxChildState(native)); }
+		try {
+			if (previous != null) { self.node().detachChild(previous, transition); self._cells.set(index, null); self._gridHidden.set(index, false); }
+			if (native != null) { self.node().attachChild(native, transition); self._cells.set(index, native); }
+			self.relayout();
+		} catch (string error) {
+			transition.abort(); self._cells.set(index, previous); self._gridHidden.set(index, wasHidden); self.node().children = original;
+			string inverseFailure = "";
+			for state in saved {
+				try { state.child.node().attached = state.attached; state.child.attachTo(state.host); state.child.arrange(state.x, state.y, state.width, state.height); }
+				catch (string inverse) { if (inverseFailure == "") { inverseFailure = inverse; } }
+			}
+			if (inverseFailure != "") {
+				Vector<ILinuxView> retained = []; for state in saved { retained.push(state.child); } self.node().quarantine(retained);
+				self.node().markInteraction(false); for state in saved { state.child.node().markInteraction(false); }
+				try { self.node().settleInteraction(); } catch (string cleanup) { inverseFailure = inverseFailure + "; settle: " + cleanup; }
+				for state in saved { try { state.child.node().settleInteraction(); } catch (string cleanup) { inverseFailure = inverseFailure + "; settle: " + cleanup; } }
+				try { self.node().cancelSemanticForest(); } catch (string cleanup) { inverseFailure = inverseFailure + "; cancel: " + cleanup; }
+				for state in saved { try { state.child.node().cancelSemanticForest(); } catch (string cleanup) { inverseFailure = inverseFailure + "; cancel: " + cleanup; } }
+				throw error + "; inverse: " + inverseFailure;
+			}
+			self.node().markLocalInteraction(); self.node().settleInteraction(); self.node().publishInteraction();
+			if (native != null) { native.node().markInteraction(false); native.node().settleInteraction(); native.node().publishInteraction(); }
+			throw error;
+		}
+		transition.commit();
+		if (previous != null) { previous.node().publishInteraction(); }
+		if (native != null) { native.node().publishInteraction(); }
+		transition.finish();
 	}
 
 	public void setSpacing(double columnSpacing, double rowSpacing) {

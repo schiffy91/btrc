@@ -228,22 +228,22 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	public WindowState state() { self.refreshWindowState(); var state = self._state; if (state == null) { throw "Window state unavailable"; } return LinuxWindow.copyState(state); }
 
 	public ICallbackRegistration onStateChanged(IWindowStateHandler receiver, CallbackScope owner) {
-		self.requireOpen();
+		self.requireOpen(); self._context.requireSemanticRegistration();
 		if (self._stateChannel != null && self._stateChannel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing window state handler first"; }
 		self.refreshWindowState();
-		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._host.events, self, receiver, LinuxWindow.deliverState, owner);
+		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._host.events, self, receiver, LinuxWindow.deliverState, owner, self._context.eventRole(CONTROL_CAPTURE_OBSERVER));
 		try { self._callbacks.track(channel); } catch (string error) { channel.cancel(); throw error; }
 		self._stateChannel = channel; return channel;
 	}
 
 	public ICallbackRegistration onCloseRequested(IWindowCloseRequestHandler handler, CallbackScope owner) {
 		if (handler == null || owner == null) { throw "Window close handler and owner are required"; }
-		self.requireOpen(); self._context.requireMutationAllowed();
+		self.requireOpen(); self._context.requireMutationAllowed(); self._context.requireSemanticRegistration();
 		var previous = self._closeRegistration;
 		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing close handler first"; }
 		if (self._closeHandlerGeneration == 9223372036854775807LL) { throw "Window close handler generations exhausted"; }
 		var receiver = LinuxWindowCloseReceiver(self, handler);
-		var channel = new ControlEventChannel<LinuxWindowCloseReceiver, IWindowCloseTransaction>(self._host.events, self, receiver, LinuxWindowCloseReceiver.deliver, self._callbacks);
+		var channel = new ControlEventChannel<LinuxWindowCloseReceiver, IWindowCloseTransaction>(self._host.events, self, receiver, LinuxWindowCloseReceiver.deliver, self._callbacks, self._context.eventRole(CONTROL_CAPTURE_TERMINAL));
 		var registration = LinuxWindowCloseRegistration(self, channel);
 		try { owner.track(registration); self._callbacks.track(registration); }
 		catch (string error) { registration.cancel(); throw error; }
@@ -357,7 +357,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 
 	public SDL_Window* nativeWindow() { self.requireOpen(); return self._window; }
 
-	public bool canCaptureInput() { return self._host.events.canCapture(1); }
+	public bool canCaptureInput() { return self._context.canCaptureInput(self._host.events); }
 
 	public int semanticPending() { return self._host.events.pendingCount() + (self._closeRequested ? 1 : 0); }
 
@@ -740,22 +740,23 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	private void moveFocus(int id) {
 		if (id != 0) { var candidate = self.locate(id); if (candidate == null || !candidate.view.node().effectiveEligible()) { id = 0; } }
 		int previous = self._host.focusedId;
-		self._host.focusedId = id;
-		if (previous != 0) {
-			var old = self.locate(previous);
-			if (old != null) { old.view.focus(false); }
-		}
-		self._host.requestTextInput(false, 0.0, 0.0, 0.0, 0.0);
-		if (id != 0) {
-			var next = self.locate(id);
-			if (next != null) {
-				next.view.focus(true);
-				ILinuxTextTarget? field = (ILinuxTextTarget?)next.view;
-				if (field != null) { field.textInputArea(self._host, next.originX, next.originY); }
+		if (previous == id) { return; }
+		ILinuxTextTarget? prepared = null;
+		if (id != 0) { var candidate = self.locate(id); if (candidate != null) { prepared = (ILinuxTextTarget?)candidate.view; if (prepared != null) { prepared.prepareFocus(); } } }
+		try {
+			self._host.focusedId = id;
+			if (previous != 0) { var old = self.locate(previous); if (old != null) { old.view.focus(false); } }
+			self._host.requestTextInput(false, 0.0, 0.0, 0.0, 0.0);
+			if (id != 0) {
+				var next = self.locate(id);
+				if (next != null) {
+					next.view.focus(true);
+					ILinuxTextTarget? field = (ILinuxTextTarget?)next.view;
+					if (field != null) { field.textInputArea(self._host, next.originX, next.originY); }
+				}
 			}
-		}
-		self.syncTextInput();
-		self._host.invalidation.mark();
+			self.syncTextInput(); self._host.invalidation.mark();
+		} finally { if (prepared != null) { prepared.discardFocusPreparation(); } }
 	}
 
 	private void syncTextInput() {
@@ -898,12 +899,18 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		var node = native.node();
 		node.requireOpen();
 		if (node.attached) { throw "View already belongs to a container"; }
-		node.attached = true;
-		self._root = native;
-		native.attachTo(self._host);
-		self.refreshInteraction();
-		self.layoutRoot();
-		self._host.invalidation.mark();
+		var transition = LinuxAttachmentTransition();
+		if (!transition.prepare(node, self._host)) { throw "Native root attachment capture capacity unavailable"; }
+		node.attached = true; self._root = native;
+		try {
+			native.attachTo(self._host); self.layoutRoot();
+			node.markInteraction(self._host.eligible); node.settleInteraction();
+		} catch (string error) {
+			try { native.attachTo(null); node.attached = false; self._root = null; node.markInteraction(false); node.settleInteraction(); }
+			catch (string inverse) { node.faulted = true; node.markInteraction(false); try { node.settleInteraction(); } catch (string cleanup) { } try { node.cancelSemanticForest(); } catch (string cleanup) { } throw error + "; inverse: " + inverse; }
+			throw error;
+		}
+		transition.commit(); self.refreshInteraction(); self._host.invalidation.mark(); transition.finish();
 	}
 
 	public IView? detachRoot() {
@@ -911,6 +918,8 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		var root = self._root;
 		if (root == null) { return null; }
 		ILinuxView detaching = root;
+		var transition = LinuxAttachmentTransition();
+		if (!transition.prepare(detaching.node(), null)) { throw "Native root detach capture capacity unavailable"; }
 		/* End editing while the old route and native composition host remain
 		 * valid, before focus departure can authorize an ordinary blur commit. */
 		detaching.node().attached = false;
@@ -919,9 +928,15 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		self.clearHover();
 		if (self._host.focusedId != 0) { self.moveFocus(0); }
 		self._host.overlayId = 0;
-		detaching.attachTo(null); detaching.node().markInteraction(false); detaching.node().finishAttachment(); detaching.node().publishInteraction();
-		self._root = null;
-		self._host.invalidation.mark();
+		try { detaching.attachTo(null); detaching.node().markInteraction(false); }
+		catch (string error) {
+			transition.abort();
+			try { detaching.attachTo(self._host); detaching.node().attached = true; detaching.node().markInteraction(self._host.eligible); detaching.node().settleInteraction(); detaching.node().publishInteraction(); }
+			catch (string inverse) { detaching.node().faulted = true; detaching.node().markInteraction(false); try { detaching.node().settleInteraction(); } catch (string cleanup) { } try { detaching.node().cancelSemanticForest(); } catch (string cleanup) { } throw error + "; inverse: " + inverse; }
+			throw error;
+		}
+		transition.commit(); self._root = null;
+		detaching.node().publishInteraction(); self._host.invalidation.mark(); transition.finish();
 		return root;
 	}
 
