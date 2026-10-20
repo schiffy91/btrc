@@ -76,6 +76,7 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
     [
         ("UI2MacOSSignal", "PASS: UI2 macOS scoped common-mode wake and worker signal"),
         ("UI2MacOSFinalRelease", "UI2 final release worker entered"),
+        ("UI2MacOSClosedRelease", "PASS: UI2 closed native owner final release on worker"),
         ("UI2MacOSViewInput", "PASS: UI2 macOS pointer admission follows effective eligibility"),
         ("UI2MacOSButtonState", "PASS: UI2 macOS eligibility loss retires pending native button actions"),
         ("UI2MacOSButtonCloseFailure", "PASS: native button cleanup completed around button receiver cleanup failed"),
@@ -120,7 +121,13 @@ def test_macos_ui2_scoped_worker_signal(
     manifest = package / "btrc.toml"
     root = Path(__file__).resolve().parents[3]
     source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
-    if fixture in {"UI2MacOSButtonState", "UI2MacOSButtonCloseFailure", "UI2MacOSViewInput", "UI2MacOSFinalRelease"}:
+    if fixture in {
+        "UI2MacOSButtonState",
+        "UI2MacOSButtonCloseFailure",
+        "UI2MacOSViewInput",
+        "UI2MacOSFinalRelease",
+        "UI2MacOSClosedRelease",
+    }:
         (package / "Application.h").write_text("#import <AppKit/AppKit.h>\n")
         manifest.write_text(
             manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "Application.h"\n'

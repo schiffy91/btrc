@@ -1,0 +1,34 @@
+import Library.Callback;
+import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.MacOS.MacOSStack;
+
+#include <assert.h>
+#include <stdio.h>
+
+class ClosedReleaseWorker implements INativeWorkerBody {
+	private MacOSStack? _owner;
+	public ClosedReleaseWorker(MacOSStack owner) { self._owner = owner; }
+
+	public int workLoop() {
+		assert(!NSThread.isMainThread());
+		printf("UI2 closed final release worker entered\n"); fflush(stdout);
+		self._owner = null;
+		return 0;
+	}
+}
+
+ClosedReleaseWorker makeClosedOwner() {
+	var owner = MacOSStack(true, 0.0);
+	assert(owner.close() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(owner.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	return ClosedReleaseWorker(owner);
+}
+
+int main() {
+	NSApplication.sharedApplication();
+	var body = makeClosedOwner(); var worker = NativeWorker();
+	assert(worker.start(body) == NATIVE_WORKER_STARTED);
+	assert(worker.join() && !worker.workerFailed());
+	print("PASS: UI2 closed native owner final release on worker");
+	return 0;
+}
