@@ -166,11 +166,12 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	}
 
 	public void eligibilityLost() {
-		self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); self.project();
+		try { self.cancelTracking(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); }
+		catch (string error) { var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); } }
 	}
 
 	private void cancelTracking(ControlOrigin origin, ControlCancelReason reason) {
-		self._interaction.cancel(origin, reason); self.project();
+		try { self._interaction.cancel(origin, reason); } finally { self.project(); }
 	}
 
 	public void focusLost(NSNotification notification) {
@@ -268,7 +269,9 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	public CallbackCancellation close() {
 		self._view.requireDetached();
 		if (!self._closing) {
-			self._closing = true; self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING);
+			self._closing = true;
+			try { self.cancelTracking(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING); }
+			catch (string error) { var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); } }
 			self._native.cancel(); self._view.close();
 		}
 		return self.pollClose();
