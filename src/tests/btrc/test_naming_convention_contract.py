@@ -309,11 +309,13 @@ def test_stdlib_package_directories_and_modules_use_pascal_case_acronyms() -> No
     library = REPO / "src/stdlib"
     acronyms = re.compile(r"(?:MacOs|Gui|Gpu|Ui|Http|Html|Jsonx?|Toml|Cli|Io|Dds|Spsc|Sha)(?=[A-Z0-9]|$)")
     offenders = []
+    package_directories: set[Path] = set()
     for relative in _tracked("src/stdlib/*"):
         source = Path(relative).relative_to("src/stdlib")
         for directory in source.parents:
             if directory == Path("."):
                 continue
+            package_directories.add(directory)
             if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", directory.name) or acronyms.search(directory.name):
                 offenders.append(str(directory))
         if source.suffix == ".btrc" and acronyms.search(source.stem):
@@ -325,11 +327,15 @@ def test_stdlib_package_directories_and_modules_use_pascal_case_acronyms() -> No
                 re.MULTILINE,
             )
             offenders.extend(f"{source}: {name}" for name in declarations if acronyms.search(name))
-        # Inspect the actual directory spelling too: APFS lookup alone hides a bad rename.
         assert (library / source).is_file(), f"missing stdlib file: {source}"
-    for directory in library.rglob("*"):
-        if directory.is_dir():
-            assert re.fullmatch(r"[A-Z][A-Za-z0-9]*", directory.name), directory
+    # Only tracked files define packages. Inspect each expected directory's
+    # actual entry name: APFS lookup alone hides a case-only rename.
+    disk_directories: dict[Path, set[str]] = {}
+    for directory in sorted(package_directories):
+        parent = library / directory.parent
+        if parent not in disk_directories:
+            disk_directories[parent] = {entry.name for entry in parent.iterdir() if entry.is_dir()}
+        assert directory.name in disk_directories[parent], f"missing exact-case stdlib directory: {directory}"
     assert not offenders, "stdlib package/module spelling: " + ", ".join(sorted(set(offenders)))
 
 
