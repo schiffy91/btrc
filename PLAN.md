@@ -64,18 +64,19 @@ Historical heads remain useful provenance after their branches are deleted.
 | `codex/cx-p2-01-r2`, [#52](https://github.com/schiffy91/btrc/pull/52), `6866eb3d` | Specifies Windows service supervision and process containment. | G08: this branch is a specification; implementation and native acceptance are still absent. |
 | `codex/cx-p1-04`, [#34](https://github.com/schiffy91/btrc/pull/34), `f49c5fe1` | Adds standalone iPhone and iPad simulator test-host tooling. | Later host work supersedes this head's launch-identity failure; qualify the combined tooling under G07 rather than claiming the historical head passed. |
 | `codex/ui2-completion-20261019`, published `a7611638`, local `7bcf11cf` before these merges | Accumulates integration repairs, Android process snapshots and isolated nested GUI reports. | G01–G07; nested report isolation passed 26 portable tests, but the full unit run remains incomplete. |
-| `codex/e40-loop-diagnostic-20261020`, `3a5aba9f` | Captures bounded loop counters and stacks for two failing macOS tracking routes. | G03; static checks and compile/link passed, but diagnostic runtime and a demonstrated production repair remain pending. |
+| `codex/e40-loop-diagnostic-20261020`, `3a5aba9f` | Captures bounded loop counters and stacks for two failing macOS tracking routes. | G03; the completed diagnostic proves native-loop starvation. The transport repair and hosted acceptance remain open. |
 | `codex/bench-memory-diagnostic-20261020`, `5e7e5fea` | Compares pinned baseline/candidate compiler memory on one hosted Linux environment. | G06; image metadata collection failed before any measurements; the command is now repaired and hosted attribution remains pending. |
 | `codex/windows-user-observer-20261020`, `16b3cc2f` | Compares count-only and instrumented Windows USER-resource observations. | G04; initial observer intrusion is demonstrated, while a later count increase remains unexplained. The merged repair removes the foreign WNDPROC query from the current observer. |
-| Local `codex/linux-unit-diagnostic-20261020`, `02b22eaa` | Retains the first failure from the complete Linux unit selection. | G01; 108 workflow contracts passed, but this diagnostic was not dispatched before consolidation and cannot establish a full passing unit gate. |
-| Local `codex/linux-gui-sharding-20261020`, `1ebaefa7` | Splits each Linux GUI session into four deterministic partitions and checks exact combined coverage. | G02; portable/workflow tests and hosted execution were not run before landing. Existing qualification-bundle expectations may still omit E40 rows; the synthetic skip test covers call-time, not setup-time skips. |
-| Local `codex/windows-observer-repair-20261020`, `970ce901` | Removes the intrusive foreign WNDPROC query and adds a hidden ANSI-window observer regression. | G04; all new cross-build/link and native execution variants remain unqualified at landing. |
+| Local `codex/linux-unit-diagnostic-20261020`, `02b22eaa` | Retains the first failure from the complete Linux unit selection. | G01; the post-merge diagnostic identified three failures, now repaired with 100 focused checks passing. The complete unit gate remains open. |
+| Local `codex/linux-gui-sharding-20261020`, `1ebaefa7` | Splits each Linux GUI session into four deterministic partitions and checks exact combined coverage. | G02; inventory and setup-time skip checks now pass. Hosted partition execution and complete coverage remain open. |
+| Local `codex/windows-observer-repair-20261020`, `970ce901` | Removes the intrusive foreign WNDPROC query and adds a hidden ANSI-window observer regression. | G04; all eight cross-build/link variants now pass. Native execution and strict resource qualification remain open. |
 
 ### Repairs landed after consolidation
 
 All 16 PRs were recorded as merged when `b0317191` reached main. There are
-zero open PRs. Eighteen more inactive branches were retired, bringing the
-retirement total to 270; `main` and two branches serving live macOS runs remain.
+zero open PRs. After the final diagnostic runs ended, their two branches were
+retired as well. All 272 stale remote branches have recovery records, and
+`main` is the only remaining remote branch.
 
 The first repair batch passed 246 portable tests on `c8c4feb4`, with no skips,
 and passed targeted Ruff lint/format checks. It fixes the benchmark image
@@ -85,7 +86,21 @@ and composes Windows diagnostic mocks with the observer regression. The first
 attempt exposed an undeclared PyYAML test dependency; the regression now uses
 the existing workflow parser. The declared development dependencies also require
 Pluggy 1.2 or newer, matching the hook wrapper API already used by the skip ledger
-and GUI collection plugin. Native execution and the full gate matrix remain open.
+and GUI collection plugin.
+
+On `c9db9e1e`, lint, formatting, generated sources, package and extension builds
+passed, followed by 173 structure/hygiene tests with no skips. Eight Windows
+shell/observer cross-builds also passed; those checks did not execute Windows
+programs. Local bootstrap was stopped after detecting an existing iOS simulator,
+as the host policy requires bootstrap to run without a guest. The simulator was
+left untouched. Bootstrap remains open in the hosted matrix.
+
+The next unit repair batch on `0320e738` passed all 100 build-safety, host-manifest
+and strict-import tests, with no skips, plus targeted lint/format checks. It
+checks the parallel, serial E40 and bootstrap phases separately, preserves host
+manifest identity when a diagnostic temp directory is inside the repository,
+and supplies the Publisher fixture's three missing direct imports. The complete
+hosted unit selection still needs to finish.
 
 Android run `39446987361` on `a7611638` completed successfully: both API levels
 passed all 28 host fixtures and both compilers' CheckJNI-enabled round trips and
@@ -101,9 +116,13 @@ qualification still pending.
   unit job `118624440926` hit its 90-minute limit at about 92% with 57 failure
   and two error progress markers. The aborted run did not retain failing node
   identities or terminal JUnit. Nested GUI tests overwrote the default report;
-  `7bcf11cf` isolates those reports and passed 26 portable checks. Run the
-  retained fail-fast diagnostic on main to obtain actual failing nodes, repair
-  them, then finish the complete unit gate. Do not count synthetic nested-test
+  `7bcf11cf` isolates those reports and passed 26 portable checks. Main diagnostic
+  [39453105197](https://github.com/schiffy91/btrc/actions/runs/39453105197) stopped
+  with 2,271 passes, 32 skips and three failures: stale two-phase test assumptions,
+  manifest-path spelling under a repository-local temp root, and the Publisher
+  fixture's missing direct imports. Those defects are repaired in `0320e738`
+  and covered by the 100 passing local checks above. Rerun the full hosted unit
+  selection to expose any later failures. Do not count synthetic nested-test
   artifacts as the parent unit suite.
 - **G02: finish Linux GUI execution and prove complete coverage.** The same
   run's X11 job `118624440733` and Wayland job `118624440379` hit 90 minutes
@@ -116,12 +135,15 @@ qualification still pending.
   frontend/sanitizer cells in
   [run 39421612565](https://github.com/schiffy91/btrc/actions/runs/39421612565)
   failed. Tracking journeys lacked native entry/service and load cases lacked
-  positive presentation. Continuous source rearming is established in source;
-  starvation as the cause is not established. Focused
+  positive presentation. Focused
   [run 39435082788](https://github.com/schiffy91/btrc/actions/runs/39435082788)
-  was still queued at the last observation. Inspect its existing result before
-  submitting another run, fix the demonstrated cause, then run the full E40 and
-  lifecycle matrix. Local Mac work remains compile/link only; use hosted native
+  confirmed native-loop starvation in both desktop and host routes. The posted
+  tracking event was never dequeued while the traces recorded 131,823 and
+  106,996 source rounds, respectively; all four sampled stacks remained inside
+  native event retrieval and the provider's wake delivery. Both cases aborted
+  at the original tracking-completion assertion. Repair wake transport fairness
+  and callback lifetime, then prove tracking, presentation and the full E40 and
+  lifecycle matrix on the repaired source. Local Mac work remains compile/link only; use hosted native
   execution for visible GUI evidence.
 - **G04: finish Windows observer repair and strict resource qualification.**
   Reference UBSan in
@@ -133,8 +155,9 @@ qualification still pending.
   and a separate USER 7 to 8 increase at cycle 66 before that cycle's queries.
   A returned opaque procedure handle also cannot support the old module-address
   inference. The merged repair removes that query and exercises the actual
-  observer around a hidden ANSI window. Cross-build/link and run every
-  frontend × x64/ARM64 × plain/UBSan variant, then resolve any remaining drift.
+  observer around a hidden ANSI window. All eight frontend × x64/ARM64 ×
+  plain/UBSan cross-build/link variants passed on `c9db9e1e` in 106.37 seconds.
+  Native execution and any remaining resource drift still need qualification.
   Keep the original 102 cycles, 100 restores and exact USER/GDI assertions.
 - **G05: resolve Android API 36 transport loss.** In
   [run 39421612552](https://github.com/schiffy91/btrc/actions/runs/39421612552),
@@ -142,7 +165,7 @@ qualification still pending.
   API 29 and target corpus results do not explain the disconnect. Snapshot
   commits `fecba284`/`a7611638` retain owned process state before shutdown;
   their 110 portable checks passed. The successful
-  [run 39446987361](https://github.com/schiffy91/btrc/actions/runs/39446987361),
+  [run 39446987361](https://github.com/schiffy91/btrc/actions/runs/39446987361)
   now supplies the fixture and corpus evidence recorded above. Repair a
   demonstrated transport cause if it recurs, and retain
   complete final-revision host/corpus evidence. No transport fix is claimed.
@@ -161,17 +184,24 @@ qualification still pending.
   generated-source, extension and repository-hygiene gates, plus the affected
   platform/native/E40/corpus and memory checks. Keep exact revisions, selections,
   skips and provenance. Earlier focused passes and compile-only checks cover
-  only their recorded scope. Preserve missing provider/device evidence as open
-  coverage in the existing roadmap.
+  only their recorded scope. The earlier macOS btrc job finished with 6,149
+  passes, 57 skips and one naming failure in `FacadeHost.btrc`; `5210b4d5`
+  already repaired that import and the current naming gate passes. Host Android
+  [39451973769](https://github.com/schiffy91/btrc/actions/runs/39451973769) and
+  Host Windows [39451973958](https://github.com/schiffy91/btrc/actions/runs/39451973958)
+  completed successfully on consolidated main `b0317191`; detailed retained
+  counts and final-source applicability must remain explicit. Preserve missing
+  provider/device evidence as open coverage in the existing roadmap.
 - **G08: implement the separately scoped Windows service design.** PR #52
   lands its specification only. The existing service-supervision/containment
   roadmap items still need implementation and native acceptance; merging that
   document does not create those capabilities or expand the Process provider's
   current claim.
-- **G09: reconcile PRs and retire merged branches.** Verify every audited head
-  is an ancestor of published main, reconcile all 16 PRs, preserve any branch
-  still needed by a running diagnostic, and delete completed stale remote
-  branches only at their verified tips. Keep recovery references and receipts.
+- **G09: PR and remote-branch reconciliation complete.** All 16 PRs merged;
+  there are zero open PRs and `main` is the only remote branch. All audited heads
+  are integrated. The 272 stale branches were retired with recovery references,
+  bundles and receipts; the final two were deleted at their verified tips after
+  their diagnostic runs ended. Existing local recovery clones remain available.
 
 The consolidation's local audit and retained artifacts are under
 `~/.cache/btrc/consolidation-20261019/`, beginning with
