@@ -83,7 +83,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 			for (int count = 0; count < 64 && !self.quitRequested && MacOSApplicationExecutor.now() - semanticStart < 2000000ULL; count++) { if (!self._viewContext.dispatchOne()) { break; } }
 			unsigned long long started = MacOSApplicationExecutor.now();
 			int count = self._actions.pendingCount();
-			for (int index = 0; index < count && index < 64 && !self.quitRequested && MacOSApplicationExecutor.now() - started < 2000000ULL; index++) { self._actions.dispatchOne(); }
+			for (int index = 0; index < count && index < 64 && !self.quitRequested && MacOSApplicationExecutor.now() - started < 2000000ULL; index++) { self._viewContext.checkNativeFailure(); self._actions.dispatchOne(); self._viewContext.checkNativeFailure(); }
 			self.dispatchWindowEvents();
 		} catch (string error) { self.failWork(error); }
 		finally {
@@ -99,7 +99,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 		bool pending = false;
 		for (int index = self._windows.len - 1; index >= 0; index--) {
 			var window = self._windows.get(index);
-			window.dispatchPendingEvents();
+			self._viewContext.checkNativeFailure(); window.dispatchPendingEvents(); self._viewContext.checkNativeFailure();
 			if (!window.isOpen()) {
 				if (window.pollClose() == CALLBACK_CANCELLATION_COMPLETE) { self._windows.remove(index); }
 				else { pending = true; }
@@ -311,8 +311,9 @@ class MacOSApplication implements IApplication {
 		self._signal = MacOSRunLoopSignal();
 		self._actions = MacOSActionQueue(workCapacity, self._signal);
 		self._shutdown = CallbackScope();
-		self._executor = MacOSApplicationExecutor(workCapacity, self._signal);
-		self._viewContext = MacOSViewContext(self._executor, workCapacity);
+		var failure = MacOSNativeFailure();
+		self._executor = MacOSApplicationExecutor(workCapacity, self._signal, failure);
+		self._viewContext = MacOSViewContext(self._executor, workCapacity, failure);
 		self._events = MacOSApplicationEvents(self._executor, self._viewContext, self._actions, self._windows, self._views, self._shutdown);
 		self._callbacks = CallbackScope();
 		try {
