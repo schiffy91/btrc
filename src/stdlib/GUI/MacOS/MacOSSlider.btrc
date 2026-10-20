@@ -24,6 +24,60 @@ class MacOSSliderAction implements IAppKitSliderAction {
 	public void invoke() { self._slider.acceptAssistive(); }
 }
 
+/* The instantiated native adapter can outlive the public control. Its scoped
+ * receiver drops the owner after admitted accessibility calls have returned. */
+class MacOSSliderAccessibility implements IAppKitSliderAccessibility, ICallbackRegistration {
+	private MacOSSlider? _owner;
+	private bool _open = true;
+	private int _inFlight = 0;
+	public void bind(MacOSSlider owner) {
+		if (!self._open || self._owner != null) { throw "Slider accessibility receiver is already bound or closed"; }
+		self._owner = owner;
+	}
+
+	private bool adjust(UIRangeAdjustment adjustment) {
+		if (!NSThread.isMainThread()) { throw "Native slider accessibility requires the main thread"; }
+		if (!self._open || self._owner == null) { return false; }
+		if (self._inFlight == 2147483647) { throw "Slider accessibility entry count exhausted"; }
+		bool accepted = false; self._inFlight++;
+		try { var owner = self._owner; if (owner != null) { accepted = owner.adjustAccessibility(adjustment); } }
+		finally { self._inFlight--; if (!self._open && self._inFlight == 0) { self._owner = null; } }
+		return accepted;
+	}
+
+	public void setAccessibilityValue(id? value) {
+		if (!NSThread.isMainThread()) { throw "Native slider accessibility requires the main thread"; }
+		if (!self._open || self._owner == null) { return; }
+		var number = (NSNumber?)value; if (number == null) { return; }
+		double absolute = number.doubleValue(); if (!Math.isFinite(absolute)) { return; }
+		if (self._inFlight == 2147483647) { throw "Slider accessibility entry count exhausted"; }
+		self._inFlight++;
+		try { var owner = self._owner; if (owner != null) { owner.setAccessibilityValue(absolute); } }
+		finally { self._inFlight--; if (!self._open && self._inFlight == 0) { self._owner = null; } }
+	}
+
+	public bool accessibilityPerformIncrement() { return self.adjust(UI_RANGE_ADJUST_SMALL_INCREMENT); }
+
+	public bool accessibilityPerformDecrement() { return self.adjust(UI_RANGE_ADJUST_SMALL_DECREMENT); }
+
+	public bool isOpen() { return self._open; }
+
+	public CallbackCancellation cancel() { self._open = false; return self.pollCompletion(); }
+
+	public CallbackCancellation pollCompletion() {
+		if (self._open) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		if (self._inFlight > 0) { return CALLBACK_CANCELLATION_PENDING; }
+		self._owner = null; return CALLBACK_CANCELLATION_COMPLETE;
+	}
+}
+
+class MacOSSliderAccessibilityFactory implements IAppKitSliderAccessibilityFactory {
+	private MacOSSliderAccessibility _receiver;
+	public MacOSSliderAccessibilityFactory(MacOSSliderAccessibility receiver) { self._receiver = receiver; }
+
+	public IAppKitSliderAccessibility create() { return self._receiver; }
+}
+
 /* AppKit draws the native control; the shared model owns value and tracking.
  * Consuming slider presses prevents NSSliderCell from entering a nested loop. */
 class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKitEventMonitor, IMacOSNativeSettlement {
@@ -40,7 +94,8 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	public MacOSSlider(double minimum, double maximum, int intervals = 0) {
 		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
 		self._interaction = SliderInteraction(minimum, maximum, intervals);
-		var slider = NSSlider.new();
+		var accessibility = MacOSSliderAccessibility(); CGRect frame = {{0.0, 0.0}, {0.0, 0.0}};
+		var slider = NSSlider.initWithFrame(MacOSSliderAccessibilityFactory(accessibility), frame);
 		if (slider == null) { throw "Cannot create native slider"; }
 		self._slider = slider;
 		self._view = MacOSView(slider);
@@ -49,6 +104,7 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 		slider.setContinuous(false);
 		self.project();
 		try {
+			self._native.track(accessibility); accessibility.bind(self);
 			slider.setTarget(MacOSSliderAction(self), self._native);
 			NSEvent.addLocalMonitorForEventsMatchingMask(NSEventMaskLeftMouseDown | NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp | NSEventMaskKeyDown, self, self._native);
 			var focus = MacOSSliderFocus(self);
@@ -148,6 +204,27 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 		} catch (string error) {
 			var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); }
 		}
+	}
+
+	public void setAccessibilityValue(double value) {
+		try {
+			var state = self.stateNode(); var context = state.context();
+			if (!self._closing && state.effectiveEligible() && context != null && !context.treeMutationActive()) {
+				var range = self._interaction.range();
+				if (value >= range.minimum && value <= range.maximum) { self.reserveSettlement(); self._interaction.assistiveValue(state.generation(), value); self.project(); }
+			}
+		} catch (string error) { var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); } }
+	}
+
+	public bool adjustAccessibility(UIRangeAdjustment adjustment) {
+		bool accepted = false;
+		try {
+			var state = self.stateNode(); var context = state.context();
+			if (!self._closing && state.effectiveEligible() && context != null && !context.treeMutationActive()) {
+				self.reserveSettlement(); accepted = self._interaction.adjust(state.generation(), adjustment, 1); self.project();
+			}
+		} catch (string error) { var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); } }
+		return accepted;
 	}
 
 	public ICallbackRegistration onPreview(ISliderControlEventHandler receiver, CallbackScope owner) {

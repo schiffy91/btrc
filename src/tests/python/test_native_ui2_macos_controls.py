@@ -32,7 +32,7 @@ def test_macos_ui2_controls(native_project, native_compile, gui_provider_root, s
         name = f"{fixture}.{suffix}"
         (package / name).write_text((root / "src/tests/native/gui/ui2/probes/macos" / name).read_text())
     symbols = (
-        '["+[BTRCUI2SliderProbe choose:value:]"]'
+        '["+[BTRCUI2SliderProbe choose:value:]", "+[BTRCUI2SliderProbe increment:]", "+[BTRCUI2SliderProbe rejectInvalid:]", "+[BTRCUI2SliderProbe decrement:]"]'
         if fixture == "UI2MacOSSlider"
         else '["+[BTRCUI2SelectProbe begin:]", "+[BTRCUI2SelectProbe highlight:index:]", '
         '"+[BTRCUI2SelectProbe choose:index:]", "+[BTRCUI2SelectProbe end:]", '

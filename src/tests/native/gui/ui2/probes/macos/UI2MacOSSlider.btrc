@@ -39,14 +39,14 @@ int main() {
 	assert(slider.value() == 0.0 && slider.range().step == 0.001);
 	slider.setRange(0.0, 10.0, 2.0); slider.setValue(3.0); assert(slider.value() == 4.0);
 	var snapshot = slider.range(); snapshot.maximum = 999.0; assert(slider.range().maximum == 10.0);
-	var native = (NSSlider?)slider.nativeView(); assert(native != null);
+	var native = (NSSlider?)slider.nativeView(); if (native == null) { throw "Missing native slider"; }
 	assert(native.doubleValue() == 4.0); native.setDoubleValue(8.0); assert(slider.value() == 4.0);
 	var range = SliderRange(); range.minimum = 3.0; range.maximum = 3.0; range.step = 0.0;
 	slider.setRangeValue(range, 3.0); assert(slider.value() == 3.0 && native.doubleValue() == 3.0);
 	bool invalid = false; try { slider.setRange(8.0, 7.0, 0.0); } catch (string error) { invalid = true; }
 	assert(invalid && slider.range().minimum == 3.0 && slider.range().maximum == 3.0);
 	assert(!context.dispatchOne() && receiver.events.isEmpty());
-	var window = NSWindow.new(); window.setReleasedWhenClosed(false);
+	var window = NSWindow.new(); if (window == null) { throw "Cannot create slider test window"; } window.setReleasedWhenClosed(false);
 	var frame = slider.nativeView().frame(); frame.size.width = 200.0; frame.size.height = 40.0;
 	window.setContentSize(frame.size); window.setContentView(slider.nativeView());
 	slider.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);
@@ -93,6 +93,22 @@ int main() {
 	while (context.dispatchOne()) {}
 	assert(receiver.events.len == 1 && receiver.events.get(0).phase == CONTROL_PHASE_COMMIT);
 	assert(receiver.events.get(0).input == SLIDER_INPUT_ABSOLUTE_ASSISTIVE && receiver.events.get(0).value == 5.0);
+	receiver.events.clear(); BTRCUI2SliderProbe.rejectInvalid(native);
+	assert(slider.value() == 5.0 && native.doubleValue() == 5.0 && !context.dispatchOne());
+	assert(BTRCUI2SliderProbe.increment(native) && BTRCUI2SliderProbe.increment(native) && BTRCUI2SliderProbe.decrement(native));
+	assert(slider.value() == 6.0 && receiver.events.isEmpty());
+	while (context.dispatchOne()) {}
+	assert(receiver.events.len == 3);
+	for (int index = 0; index < 3; index++) {
+		var event = receiver.events.get(index); assert(event.phase == CONTROL_PHASE_COMMIT && event.input == SLIDER_INPUT_RELATIVE_ADJUSTMENT && event.count == 1);
+		assert(event.adjustment == (index == 2 ? UI_RANGE_ADJUST_SMALL_DECREMENT : UI_RANGE_ADJUST_SMALL_INCREMENT));
+	}
+	receiver.events.clear(); slider.setValue(10.0);
+	assert(BTRCUI2SliderProbe.increment(native) && slider.value() == 10.0 && BTRCUI2SliderProbe.decrement(native) && slider.value() == 9.0);
+	while (context.dispatchOne()) {} assert(receiver.events.len == 2 && receiver.events.get(0).value == 10.0 && receiver.events.get(1).value == 9.0);
+	receiver.events.clear(); context.beginTreeMutation(); BTRCUI2SliderProbe.choose(native, 2.0); assert(!BTRCUI2SliderProbe.increment(native) && slider.value() == 9.0); context.endTreeMutation();
+	slider.setEnabled(false); BTRCUI2SliderProbe.choose(native, 2.0); assert(!BTRCUI2SliderProbe.decrement(native) && slider.value() == 9.0); slider.setEnabled(true);
+	while (context.dispatchOne()) {} assert(receiver.events.isEmpty());
 	receiver.events.clear(); slider.setValue(7.0); assert(slider.invoke(down) == null);
 	context.beginTreeMutation();
 	NSNotificationCenter.defaultCenter().postNotificationName(NSWindowDidResignKeyNotification, window);
@@ -127,8 +143,11 @@ int main() {
 		assert(next.invoke(SliderInput.key(next, window, kVK_Escape)) == null);
 		while (context.dispatchOne()) {}
 		assert(observed.events.len == 2 && observed.events.get(1).phase == CONTROL_PHASE_CANCEL && next.value() == 10.0);
+		var retainedNative = (NSSlider?)next.nativeView(); if (retainedNative == null) { throw "Missing retained native slider"; }
 		next.stateNode().detachWindow(); window.setContentView(null);
 		assert(next.close() == CALLBACK_CANCELLATION_COMPLETE && next.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		BTRCUI2SliderProbe.choose(retainedNative, 2.0); assert(retainedNative.doubleValue() == 10.0);
+		assert(!BTRCUI2SliderProbe.increment(retainedNative) && !BTRCUI2SliderProbe.decrement(retainedNative));
 		assert(lifetime.cancel() == CALLBACK_CANCELLATION_COMPLETE); context.retireQueue(queue);
 	}
 	var failed = MacOSSlider(0.0, 10.0, 10); failed.stateNode().configure(context);
