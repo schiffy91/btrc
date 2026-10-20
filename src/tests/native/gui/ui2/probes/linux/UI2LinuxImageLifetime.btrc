@@ -36,13 +36,13 @@ class LinuxImageLifetime {
 	}
 
 	class void sample(LinuxWindow window, IImageView first, IImageView second, int cycle, int stage, int firstRed, int secondRed) {
-		var image = window.render(true); assert(image != null);
+		var image = window.render(true); if (image == null) { throw "Image lifetime capture failed"; }
 		for (int slot = 0; slot < 2; slot++) {
 			int red = slot == 0 ? firstRed : secondRed;
 			var pixel = image.pixel(image.width * (slot * 2 + 1) / 4, image.height / 2);
 			bool present = pixel.green == 17 && pixel.blue == 39 && (pixel.red == 205 || pixel.red == 31);
 			if (red != 0) { assert(present && pixel.red == red); } else { assert(!present); }
-			bool open = slot == 0 ? first.isOpen() : second.isOpen();
+			bool open = first.isOpen(); if (slot == 1) { open = second.isOpen(); }
 			printf("UI2_IMAGE_PIXEL {\"cycle\":%d,\"stage\":%d,\"slot\":%d,\"expected_red\":%d,\"open\":%s,\"image_present\":%s,\"rgba\":[%d,%d,%d,%d]}\n", cycle, stage, slot, red, open ? "true" : "false", present ? "true" : "false", (int)pixel.red, (int)pixel.green, (int)pixel.blue, (int)pixel.alpha);
 		}
 	}
@@ -52,7 +52,7 @@ class LinuxImageLifetime {
 	class void cycle(int cycle) {
 		ui2ImageBegin(cycle);
 		var application = LinuxApplication(8); var window = application.createWindow("UI2 image lifetime", 80.0, 40.0);
-		var native = application.firstWindow(); assert(native != null);
+		var native = application.firstWindow(); if (native == null) { throw "Image lifetime window missing"; }
 		var root = application.createContainer(); var first = application.createImageView(); var second = application.createImageView();
 		root.attach(first); root.attach(second); window.attachRoot(root); window.show();
 		first.arrange(0.0, 0.0, 40.0, 40.0); second.arrange(40.0, 0.0, 40.0, 40.0);

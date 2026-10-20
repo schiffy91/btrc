@@ -113,7 +113,7 @@ def _macos_image_publication(native_project, native_compile, gui_provider_root, 
     executable = package / "Images"
 
     def runner(command, **kwargs):
-        flags = []
+        flags = ["-O1"] if Path(command[0]).name in {"clang", "clang++"} else []
         if str(package / "UI2MacOSImages.m") in command:
             flags += ["-fobjc-arc", "-fobjc-exceptions", "-fobjc-arc-exceptions"]
         if Path(command[0]).name in {"clang", "clang++"} and sanitizer:
