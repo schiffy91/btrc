@@ -198,15 +198,11 @@ static BOOL CALLBACK resourceWindow(HWND target, LPARAM messageOnly) {
     GetClassNameW(target, name, 128);
     char utf8[512] = {0};
     WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof utf8, NULL, NULL);
-    HMODULE module = NULL;
-    WCHAR moduleName[512] = L"";
-    LONG_PTR procedure = GetClassLongPtrW(target, GCLP_WNDPROC);
-    if (procedure && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            (LPCWSTR)(uintptr_t)procedure, &module)) { GetModuleFileNameW(module, moduleName, 512); }
-    char moduleUtf8[2048] = {0};
-    WideCharToMultiByte(CP_UTF8, 0, moduleName, -1, moduleUtf8, sizeof moduleUtf8, NULL, NULL);
-    fprintf(stderr, "SHELL resource-window cycle=%d thread=%lu handle=%p message-only=%d class=%s module=%s\n",
-        drains, (unsigned long)thread, (void *)target, messageOnly != 0, utf8, moduleUtf8);
+    /* A foreign WNDPROC getter can allocate an encoding thunk and return an
+     * opaque handle, not a code address. Keep this census observational: class,
+     * HWND and owning thread are sufficient identity without querying it. */
+    fprintf(stderr, "SHELL resource-window cycle=%d thread=%lu handle=%p message-only=%d class=%s\n",
+        drains, (unsigned long)thread, (void *)target, messageOnly != 0, utf8);
     return TRUE;
 }
 static BOOL CALLBACK resourceTop(HWND target, LPARAM ignored) {

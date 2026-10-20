@@ -346,6 +346,36 @@ def build_shell(tmp_path, frontend, target, request, monkeypatch, sanitized):
     return executable, dll
 
 
+def build_observer(tmp_path, frontend, target, dll, sanitized):
+    """Link the actual census implementation once, without starting a GUI provider."""
+    flags = UBSAN if sanitized else []
+    directory = tmp_path / "observer"
+    directory.mkdir()
+    objects = compile_probe_units(
+        target, directory, [PROBE / "Observer.c"], [dll.parent.parent / "include/webgpu"], flags
+    )
+    library = dll.parent / ("libwgpu_native.dll.a" if target == "windows-x64" else "wgpu_native.dll.lib")
+    output = directory / ("observer-" + shell_name(frontend, target, sanitized))
+    command = [
+        shutil.which("zig"),
+        "cc",
+        "-target",
+        f"{TARGETS[target][2]}-windows-gnu",
+        *flags,
+        *objects,
+        str(library),
+        "-luser32",
+        "-lgdi32",
+        "-lcomctl32",
+        "-o",
+        str(output),
+    ]
+    built = subprocess.run(command, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT, check=False)
+    assert built.returncode == 0, built.stderr
+    assert output.read_bytes()[:2] == b"MZ"
+    return output
+
+
 def shell_name(frontend, target, sanitized):
     return f"native-shell-{FRONTENDS[frontend]}-{target}{'-ubsan' if sanitized else ''}.exe"
 
@@ -418,6 +448,7 @@ def test_windows_native_shell_builds(tmp_path, request, monkeypatch, frontend, t
     published = (
         [executable, dll] if sanitized else [executable, build_uia_client(tmp_path, frontend, target, request), dll]
     )
+    published.append(build_observer(tmp_path, frontend, target, dll, sanitized))
     publish(target, published)
 
 
@@ -510,9 +541,20 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     client = directory / f"uia-probe-{FRONTENDS[frontend]}-{target}.exe"
     if client.is_file():
         environment["BTRC_UI_SHELL_UIA_PROBE"] = str(client)
-    result = run_shell([str(executable), str(cycles), str(state)], environment, 1200)
     artifacts = REPO / "build/ui-shell" / shell_name(frontend, target, sanitized).removesuffix(".exe")
     artifacts.mkdir(parents=True, exist_ok=True)
+    observer = directory / ("observer-" + shell_name(frontend, target, sanitized))
+    assert observer.is_file(), observer
+    observed = run_shell([str(observer)], environment, 60)
+    (artifacts / "observer.stdout").write_text(observed.stdout, encoding="utf-8")
+    (artifacts / "observer.stderr").write_text(observed.stderr, encoding="utf-8")
+    assert observed.returncode == 0, observed.stderr + observed.stdout
+    assert "OBSERVER passed" in observed.stdout.splitlines(), observed.stdout
+    assert re.search(
+        r"SHELL resource-window cycle=0 thread=\d+ handle=\S+ message-only=0 class=BtrcObserverForeignAnsi",
+        observed.stderr,
+    ), observed.stderr
+    result = run_shell([str(executable), str(cycles), str(state)], environment, 1200)
     (artifacts / "shell.stdout").write_text(result.stdout, encoding="utf-8")
     (artifacts / "shell.stderr").write_text(result.stderr, encoding="utf-8")
     message = f"Shell returncode={result.returncode}\n{result.stderr[-6000:]}\n{result.stdout[-6000:]}"
