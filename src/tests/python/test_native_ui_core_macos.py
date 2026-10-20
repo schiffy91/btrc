@@ -76,7 +76,7 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
     [
         ("UI2MacOSSignal", "PASS: UI2 macOS scoped common-mode wake and worker signal"),
         ("UI2MacOSFinalRelease", "UI2 final release worker entered"),
-        ("UI2MacOSClosedRelease", "PASS: UI2 closed native owner final release on worker"),
+        ("UI2MacOSClosedRelease", "UI2 closed final release worker entered"),
         ("UI2MacOSViewInput", "PASS: UI2 macOS pointer admission follows effective eligibility"),
         ("UI2MacOSButtonState", "PASS: UI2 macOS eligibility loss retires pending native button actions"),
         ("UI2MacOSButtonCloseFailure", "PASS: native button cleanup completed around button receiver cleanup failed"),
@@ -215,7 +215,13 @@ def test_macos_ui2_scoped_worker_signal(
     NativePlanBuilder(runner=runner).build(
         plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
     )
-    repeated = fixture in {"UI2MacOSContainer", "UI2MacOSWindow", "UI2MacOSApplicationQuit", "UI2MacOSExecutor"}
+    repeated = fixture in {
+        "UI2MacOSContainer",
+        "UI2MacOSWindow",
+        "UI2MacOSApplicationQuit",
+        "UI2MacOSExecutor",
+        "UI2MacOSApplicationHost",
+    }
     ran = subprocess.run(
         [str(executable)],
         env=apple_environment() | {"BTRC_GUI_BACKGROUND": "1"},
@@ -223,9 +229,10 @@ def test_macos_ui2_scoped_worker_signal(
         text=True,
         timeout=180 if repeated else 30,
     )
-    if fixture == "UI2MacOSFinalRelease":
+    if fixture in {"UI2MacOSFinalRelease", "UI2MacOSClosedRelease"}:
         assert ran.returncode == -6, ran.stdout + ran.stderr
-        assert "Native stack destroyed before subtree cleanup completed" in ran.stderr
+        assert "Callback scope destruction requires its creating thread" in ran.stderr
+        assert "UI2 final release unexpectedly returned" not in ran.stdout
     elif fixture == "UI2MacOSButtonCloseFailure":
         assert ran.returncode == -6, ran.stdout + ran.stderr
         assert "Callback scope released before cancellation completed" in ran.stderr
