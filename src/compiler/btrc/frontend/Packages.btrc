@@ -1179,7 +1179,12 @@ class FeManifestBlock {
 		for symbol in entries.keys() {
 			if (!callback.overrides.contains(symbol)) { FePackageFailure.fail("super-admission must map every override exactly once"); }
 			var hooks = entries.get(symbol);
-			if (hooks.len != 2 || !hooks.has("before") || !hooks.has("after")) { FePackageFailure.fail("super-admission requires before and after names"); }
+			if (!hooks.has("before") || !hooks.has("after") || hooks.len != (hooks.has("refused-result") ? 3 : 2)) { FePackageFailure.fail("super-admission requires before and after names"); }
+			if (hooks.has("refused-result")) {
+				string value = hooks.get("refused-result");
+				if (value != "true" && value != "false") { FePackageFailure.fail("super-admission refused-result must be a bool"); }
+				callback.superRefusedResult.put(symbol, value == "true");
+			}
 			for hook in ["before", "after"] {
 				string value = hooks.get(hook);
 				if (value.length() < 2 || !((value[0] == '"' && value[value.length()-1] == '"') || (value[0] == (char)39 && value[value.length()-1] == (char)39))) { FePackageFailure.fail("super-admission hook names must be strings"); }

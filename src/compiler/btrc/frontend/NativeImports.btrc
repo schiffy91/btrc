@@ -3519,11 +3519,14 @@ class FeNativeDeclarationImporter {
 			if (method.requiresSuper || (result.base != "void" && result.base != "bool") || result.pointerDepth != 0) { self.fail(f"super-admission requires void or BOOL without requires-super: {method.name}"); }
 			string before = binding.superBefore.get(method.name);
 			string after = binding.superAfter.get(method.name);
+			if (binding.superRefusedResult.has(method.name) && !sdkBool) { self.fail(f"super-admission refused-result requires BOOL: {method.name}"); }
+			bool refusedResult = binding.superRefusedResult.has(method.name) && binding.superRefusedResult.get(method.name);
 			for name in [before, after] {
 				if (!self.grammar.vocabulary.keywordToken(name).isEmpty() || name.startsWith("__") || (name.length() > 1 && name[0] == '_' && name[1] >= 'A' && name[1] <= 'Z')) { self.fail(f"super-admission requires a nonreserved BTRC identifier: {name}"); }
 			}
 			var callback = FeNativeCallbackProjection(binding.interfaceName, 0, -1, method.signature.parameters.len, result);
 			callback.methodName = before; callback.superAfter = after; callback.nativeMethod = method;
+			callback.superRefusedResult = refusedResult;
 			callback.nativeReturn = self.blockTypeSpelling(method.signature.returnType);
 			Node signature = self.node(NK_METHOD_SIG); signature.name = before;
 			signature.returnType = self.node(NK_TYPE_EXPR); signature.returnType.base = "bool";
@@ -3544,7 +3547,7 @@ class FeNativeDeclarationImporter {
 				finish.paramsMut().push(argument);
 			}
 			projectedInterface.methodsMut().push(finish); projection.delegateMethods.push(callback);
-			identity = identity + ":" + method.name + ":" + before + ":" + after + ":" + self.typeIdentity(method.signature);
+			identity = identity + ":" + method.name + ":" + before + ":" + after + ":" + (refusedResult ? "true" : "false") + ":" + self.typeIdentity(method.signature);
 		}
 		self.add(binding.interfaceName, projectedInterface, identity);
 	}

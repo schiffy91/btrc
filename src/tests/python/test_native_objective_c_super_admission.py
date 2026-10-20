@@ -1,5 +1,6 @@
 """Scoped superclass admission uses real NSObject dispatch without a window."""
 
+import json
 import os
 import subprocess
 
@@ -35,6 +36,7 @@ HEADER = """#import <Foundation/Foundation.h>
 + (int)presses;
 + (int)pulses;
 + (int)queries;
++ (BOOL)unconfiguredResult;
 @end
 @interface AdmissionHost : NSObject
 + (void)borrow:(AdmissionBase * _Nonnull)value;
@@ -49,6 +51,7 @@ PROBE = """#import "Foundation.h"
 #include <pthread.h>
 #include <stdio.h>
 static int living, presses, pulses, queries;
+static BOOL unconfiguredResult;
 /* Deliberately unretained: fire has no owning argument, so dropping the final
  * BTRC owner inside before tests the generated native-self pin. */
 static AdmissionBase *borrowed;
@@ -68,6 +71,7 @@ static int livingArguments;
     _mode = mode;
     living++;
     [self pulse]; /* No configured receiver exists during super init. */
+    if (mode == 30) unconfiguredResult = [self query];
     if (mode == 13 || mode == 14) {
         [self release];
         if (mode == 14) [NSException raise:@"AdmissionInit" format:@"failed"];
@@ -91,7 +95,7 @@ static int livingArguments;
     return YES;
 }
 - (void)pulse { pulses++; }
-- (BOOL)query { queries++; return _mode != 20; }
+- (BOOL)query { queries++; return _mode != 20 && _mode != 30; }
 - (int)unsupported { return 1; }
 - (signed char)legacyChar { return 1; }
 - (void)required {}
@@ -100,6 +104,7 @@ static int livingArguments;
 + (int)presses { return presses; }
 + (int)pulses { return pulses; }
 + (int)queries { return queries; }
++ (BOOL)unconfiguredResult { return unconfiguredResult; }
 - (void)dealloc { living--; puts("native released"); fflush(stdout); [super dealloc]; }
 @end
 static void *wrong(void *unused) { (void)unused; @autoreleasepool { [borrowed press:0]; } return NULL; }
@@ -136,6 +141,7 @@ SYMBOLS = [
     "+[AdmissionBase presses]",
     "+[AdmissionBase pulses]",
     "+[AdmissionBase queries]",
+    "+[AdmissionBase unconfiguredResult]",
     "+[AdmissionHost borrow:]",
     "+[AdmissionHost fire:]",
     "+[AdmissionHost wrongThread]",
@@ -148,10 +154,13 @@ HOOKS = {
 }
 
 
-def manifest(hooks=HOOKS, *, nested=False, initializer="-[AdmissionBase initWithMode:]"):
-    entries = [
-        f'"{symbol}" = {{ before = "{before}", after = "{after}" }}' for symbol, (before, after) in hooks.items()
-    ]
+def manifest(hooks=HOOKS, *, nested=False, initializer="-[AdmissionBase initWithMode:]", refused_results=None):
+    fields = {}
+    for symbol, (before, after) in hooks.items():
+        fields[symbol] = [f'before = "{before}"', f'after = "{after}"']
+        if refused_results is not None and symbol in refused_results:
+            fields[symbol].append(f"refused-result = {json.dumps(refused_results[symbol])}")
+    entries = [f'"{symbol}" = {{ {", ".join(values)} }}' for symbol, values in fields.items()]
     mapping = (
         f'[native.bindings.callbacks."{initializer}.self".super-admission]\n' + "\n".join(entries)
         if nested
@@ -160,10 +169,7 @@ def manifest(hooks=HOOKS, *, nested=False, initializer="-[AdmissionBase initWith
     if nested == "selectors":
         parent = f'[native.bindings.callbacks."{initializer}.self".super-admission]'
         mapping = (
-            "\n".join(
-                f'{parent[:-1]}."{symbol}"]\nbefore = "{before}"\nafter = "{after}"'
-                for symbol, (before, after) in hooks.items()
-            )
+            "\n".join(f'{parent[:-1]}."{symbol}"]\n' + "\n".join(values) for symbol, values in fields.items())
             + "\n"
             + parent
         )
@@ -444,6 +450,95 @@ def test_scoped_super_admission_nested_metadata(admission_project, native_compil
     assert completed.returncode == 0, (completed.returncode, completed.stderr)
 
 
+REFUSED_RESULT_PROGRAM = """import Library.Callback;
+import ./Foundation.btrc;
+#include <assert.h>
+int beforeCount = 0;
+int afterCount = 0;
+int failures = 0;
+int destroyed = 0;
+class Receiver implements IAdmission {
+    public bool beforePress(int mode) { beforeCount++; return mode != 1; }
+    public void afterPress(bool invokedSuper, bool nativeFailed) {
+        assert(invokedSuper == (afterCount != 1));
+        assert(nativeFailed == (afterCount == 3));
+        afterCount++;
+        if (nativeFailed) { failures++; }
+    }
+    public bool beforeQuery() { beforeCount++; return true; }
+    public void afterQuery(bool invokedSuper, bool nativeFailed) {
+        assert(invokedSuper && !nativeFailed && afterCount == 0);
+        afterCount++;
+    }
+    public void __del__() { destroyed++; }
+}
+int main() {
+    CallbackScope scope = CallbackScope();
+    Receiver? receiver = Receiver();
+    AdmissionBase? object = AdmissionBase.initWithMode((Receiver)receiver, scope, 30);
+    assert(AdmissionBase.unconfiguredResult() == FALLBACK);
+    assert(beforeCount == 0 && afterCount == 0 && AdmissionBase.queries() == 0);
+    AdmissionHost.borrow((AdmissionBase)object);
+    // A successful superclass NO must survive a YES refusal policy.
+    assert(!AdmissionHost.fire(20));
+    assert(AdmissionBase.queries() == 1);
+    assert(AdmissionHost.fire(1) == FALLBACK);
+    assert(AdmissionBase.presses() == 0);
+    assert(AdmissionHost.fire(0));
+    assert(AdmissionBase.presses() == 1);
+    assert(AdmissionHost.fire(7) == FALLBACK);
+    assert(AdmissionBase.presses() == 2 && failures == 1);
+    assert(beforeCount == 4 && afterCount == 4);
+    assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+    receiver = null;
+    assert(destroyed == 1 && AdmissionBase.live() == 1);
+    assert(AdmissionHost.fire(0) == FALLBACK);
+    assert(AdmissionHost.fire(20) == FALLBACK);
+    assert(beforeCount == 4 && afterCount == 4);
+    assert(AdmissionBase.presses() == 2 && AdmissionBase.queries() == 1);
+    object = null;
+    assert(AdmissionBase.live() == 0);
+    return 0;
+}
+"""
+
+
+@pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
+@pytest.mark.parametrize(
+    ("nested", "refused_result"),
+    [(False, True), (True, False), ("selectors", True)],
+    ids=["inline-true", "table-false", "selector-true"],
+)
+def test_scoped_super_refused_result(admission_project, native_compile, sanitize, nested, refused_result):
+    hooks = {symbol: HOOKS[symbol] for symbol in (OVERRIDES[0], OVERRIDES[2])}
+    (admission_project.parent.parent / "btrc.toml").write_text(
+        manifest(hooks, nested=nested, refused_results=dict.fromkeys(hooks, refused_result))
+    )
+    admission_project.write_text(REFUSED_RESULT_PROGRAM.replace("FALLBACK", str(refused_result).lower()))
+    completed = _build_and_run(admission_project, native_compile, sanitize)
+    assert completed.returncode == 0, (completed.returncode, completed.stdout, completed.stderr)
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+
+
+@pytest.mark.parametrize(
+    ("symbol", "value", "message"),
+    [
+        (OVERRIDES[0], "true", "refused-result must be a bool"),
+        (OVERRIDES[0], 1, "refused-result must be a bool"),
+        (OVERRIDES[1], True, "refused-result requires BOOL"),
+        (OVERRIDES[1], False, "refused-result requires BOOL"),
+    ],
+    ids=["string", "integer", "void-true", "void-false"],
+)
+def test_scoped_super_refused_result_rejects_metadata(admission_project, native_compile, symbol, value, message):
+    (admission_project.parent.parent / "btrc.toml").write_text(manifest(refused_results={symbol: value}))
+    admission_project.write_text(PROGRAM.replace("MODE", "0"))
+    completed = native_compile(admission_project)
+    assert not completed.successful
+    assert message in str(completed.failure), completed.failure
+
+
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
@@ -495,11 +590,17 @@ def test_scoped_super_admission_rejects_method_forms(admission_project, native_c
 
 @pytest.mark.parametrize("frontend", ["reference", "selfhost"])
 @pytest.mark.parametrize("sdk_bool", [True, False], ids=["sdk-bool", "plain-signed-char"])
-def test_scoped_super_admission_x86_bool(admission_project, frontend, sdk_bool, request, monkeypatch):
+@pytest.mark.parametrize("refused_result", [None, True], ids=["default", "refused-yes"])
+def test_scoped_super_admission_x86_bool(admission_project, frontend, sdk_bool, refused_result, request, monkeypatch):
     source = admission_project
     monkeypatch.setenv("BTRC_NATIVE_TARGET", "x86_64-apple-macosx14.0.0")
     symbol = "-[AdmissionBase query]" if sdk_bool else "-[AdmissionBase legacyChar]"
-    (source.parent.parent / "btrc.toml").write_text(manifest({symbol: ("beforeQuery", "afterQuery")}))
+    (source.parent.parent / "btrc.toml").write_text(
+        manifest(
+            {symbol: ("beforeQuery", "afterQuery")},
+            refused_results=None if refused_result is None else {symbol: refused_result},
+        )
+    )
     source.write_text("""import Library.Callback;
 import ./Foundation.btrc;
 class Receiver implements IAdmission {

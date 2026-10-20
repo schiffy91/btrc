@@ -559,6 +559,7 @@ class NativeCallbackProjection:
     # it registers there, and its holder posts a final release made elsewhere.
     main_executor: bool = False
     super_after: str = ""
+    super_refused_result: bool = False
 
     def is_context(self, index):
         return index == self.callback_context_index or index in self.callback_context_indices
@@ -7011,7 +7012,7 @@ class NativeDeclarationImporter:
         """Checked before/after hooks for one scoped native superclass extent."""
         if class_methods:
             raise NativeImportError("super-admission requires instance overrides")
-        hooks = {symbol: (before, after) for symbol, before, after in binding.super_admission}
+        hooks = {symbol: (before, after, refused) for symbol, before, after, refused in binding.super_admission}
         signatures, projections, identities = [], [], []
         for method in methods:
             if method.selector == "btrcUnregister" or method.selector.startswith("btrcConfigure:"):
@@ -7028,7 +7029,10 @@ class NativeDeclarationImporter:
                 result = replace(result, base="bool")
             if method.requires_super or result.base not in {"void", "bool"} or result.pointer_depth:
                 raise NativeImportError(f"super-admission requires void or BOOL without requires-super: {method.name}")
-            before, after = hooks[method.name]
+            before, after, refused = hooks[method.name]
+            if refused is not None and not sdk_bool:
+                raise NativeImportError(f"super-admission refused-result requires BOOL: {method.name}")
+            refused_result = refused is True
             for name in (before, after):
                 if (
                     name in self._grammar.load().keywords
@@ -7069,9 +7073,10 @@ class NativeDeclarationImporter:
                     method_name=before,
                     native_method=method,
                     super_after=after,
+                    super_refused_result=refused_result,
                 )
             )
-            identities.append((method.name, before, after, self._type_identity(method.signature)))
+            identities.append((method.name, before, after, refused_result, self._type_identity(method.signature)))
         self._add(
             binding.interface,
             ast.InterfaceDecl(name=binding.interface, methods=signatures),

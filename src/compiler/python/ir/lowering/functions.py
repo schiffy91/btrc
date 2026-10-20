@@ -7240,7 +7240,8 @@ class FunctionLowerer:
                 projection, [*values[index], TypeExpr(base="void", pointer_depth=1)]
             )
             returns = projection.return_type.base != "void"
-            early = IRReturn(IRLiteral("NO")) if returns else IRReturn()
+            refused_result = "YES" if projection.super_refused_result else "NO"
+            early = IRReturn(IRLiteral(refused_result)) if returns else IRReturn()
             entry = IRAddressOf(IRVar("entry"))
             body = [
                 IRIf(IRUnaryOp("!", IRVar("_configured")), IRBlock([early])),
@@ -7273,7 +7274,7 @@ class FunctionLowerer:
                 )
                 argument_releases.insert(0, IRExprStmt(IRCall(release_name, [pin])))
             if returns:
-                body.append(IRVarDecl(CType(projection.native_return), "result", init=IRLiteral("NO")))
+                body.append(IRVarDecl(CType(projection.native_return), "result", init=IRLiteral(refused_result)))
             super_call = IRObjectiveCMessage(
                 IRVar("super"), projection.native_method.selector, [IRVar(parameter.name) for parameter in parameters]
             )

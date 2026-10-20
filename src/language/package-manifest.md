@@ -1155,14 +1155,19 @@ methods, `terminal`, protocol `methods`, and `method-names`. Selectors reserved
 for the generated configure/unregister operations are also rejected. The selected
 initializer must be a designated initializer of the selected superclass.
 
+Each BOOL selector may also specify `refused-result = true` or `false` beside
+`before` and `after`. The default is false. This option requires an SDK BOOL
+result, including its signed-char representation on x86_64; void selectors
+reject either value. The resolved value is part of the interface identity.
+
 For each selector, `before` returns bool and takes that selector's projected
 arguments. `after` has signature `void after(bool invokedSuper, bool nativeFailed)`.
 One successful callback entry holds the native object, its managed native
 arguments, and the BTRC receiver through both hooks and any nested native tracking. False skips super and returns void
-or NO without native mutation. True calls super exactly once with the original
+or the configured refusal result without native mutation. True calls super exactly once with the original
 arguments and preserves its BOOL result. After runs once for every admitted
 entry, including refusal. Before configuration and after cancellation, the
-native override returns void or NO without entering a receiver.
+native override returns void or the configured refusal result without entering a receiver.
 
 Cancellation closes later admission. An already entered invocation may finish
 before/super/after; cancellation inside either hook returns PENDING until it
@@ -1172,7 +1177,7 @@ scope cancellation breaks a receiver/native-object cycle. Every native entry,
 unregister, and destruction must use the creating executor.
 
 A superclass Objective-C exception is contained and passed to after as
-`nativeFailed=true`; a BOOL result is NO. The receiver owns translating that
+`nativeFailed=true`; a BOOL result is the configured refusal result. The receiver owns translating that
 failure into its application error channel. BTRC exceptions in either hook are
 contained inside the C thunk before they can cross an Objective-C frame. After
 and common cleanup still run; the first error is retained, failed-entry
