@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-#import "ShellProbe.h"
+#import "MacOSShellProbe.h"
 
 typedef NS_ENUM(NSInteger, BaselineReadiness) {
     BaselineReady,

@@ -537,7 +537,7 @@ def test_macos_shell_requires_equivalent_caret_lifecycle(side, defect):
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 def test_macos_control_readiness_without_application(tmp_path, sanitized):
     if sys.platform != "darwin":
-        pytest.skip("requires the AppKit native control compiler")
+        pytest.skip("requires macOS AppKit native shell")
     executable, environment, _, _ = build_macos_control(tmp_path, sanitized)
     result = subprocess.run(
         [str(executable), "--test-readiness"], capture_output=True, text=True, env=environment, timeout=30

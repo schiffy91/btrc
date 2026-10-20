@@ -1,0 +1,505 @@
+/* The Windows HTTPSocket provider's own cases: what the POSIX-only corpus
+ * programs HttpSocketIo and HttpBytesResponse check with socketpair ends and
+ * forked writers, here against real Winsock loopback peers (WinsockPeer.c),
+ * plus what only the Winsock provider has: Winsock started with the first
+ * socket and cleaned up after the last, SO_EXCLUSIVEADDRUSE, sockets no child
+ * process inherits, descriptors that never resolve again once closed, a
+ * close that wakes a read waiting on it, platform adaptations row 6's
+ * warning for an all-interfaces listener, and HTTPClient's System32 curl.exe
+ * against the provider's own server. test_windows_http.py builds it with
+ * both compilers for x64 and ARM64, and windows.yml runs each build on its
+ * own architecture. Every case prints one `case=<name> ok` line (or
+ * `case=curl-client skipped <reason>` where no curl.exe is on PATH); the
+ * last line is PASS. A case that fails prints `case=<name> FAIL: <check>`
+ * and the remaining cases still run; the program then exits 1. The only
+ * stderr line of a passing run is the all-interfaces warning. */
+import Library.Bytes;
+import Library.HTTP.HTTPClient;
+import Library.HTTP.HTTPRequest;
+import Library.HTTP.HTTPResponse;
+import Library.HTTP.HTTPServer;
+import Library.HTTP.HTTPSocket;
+import Library.Process;
+import Library.Strings;
+import Library.Timer;
+import Library.Vector;
+
+#include <errno.h>
+#include <stdio.h>
+
+extern void* btrcTestPeerStart(int port, string payload, int length, int firstPiece, int pieceSize, int pauseMs, int mode, int holdMs, int receiveBuffer);
+extern int btrcTestPeerJoin(void* peer, int milliseconds);
+extern int btrcTestPeerError(void* peer);
+extern int btrcTestPeerReceivedLength(void* peer);
+extern char* btrcTestPeerReceived(void* peer);
+extern void btrcTestPeerFree(void* peer);
+extern int btrcTestBindTaken(int port);
+extern void btrcTestSleep(int milliseconds);
+
+void check(bool condition, string message) {
+	if (!condition) { throw message; }
+}
+
+/* WinsockPeer.c's modes, combined by addition. */
+class PeerMode {
+	/* Neither read nor close for the hold time after sending. */
+	class int holding() { return 1; }
+
+	/* End the send side after sending. */
+	class int ending() { return 2; }
+
+	/* Then read until the server ends its side. */
+	class int reading() { return 4; }
+
+	/* Close with a reset instead of a graceful close. */
+	class int resetting() { return 8; }
+}
+
+/* One loopback peer of a listener, run on its own thread. */
+class Peer {
+	private void* handle;
+
+	public Peer(int port, string payload, int firstPiece, int pieceSize, int pauseMs, int mode, int holdMs, int receiveBuffer) {
+		self.handle = btrcTestPeerStart(port, payload, payload.len(), firstPiece, pieceSize, pauseMs, mode, holdMs, receiveBuffer);
+		check(self.handle != null, "start a Winsock peer");
+	}
+
+	class Peer sending(int port, string payload) { return Peer(port, payload, 0, 0, 0, PeerMode.ending(), 0, 0); }
+
+	class Peer idle(int port, int holdMs) { return Peer(port, "", 0, 0, 0, PeerMode.holding(), holdMs, 0); }
+
+	class Peer reader(int port) { return Peer(port, "", 0, 0, 0, PeerMode.reading(), 0, 0); }
+
+	/* True once the peer's thread finished within `milliseconds`. */
+	public bool finished(int milliseconds) { return btrcTestPeerJoin(self.handle, milliseconds) == 1; }
+
+	public int error() { return btrcTestPeerError(self.handle); }
+
+	/* Everything the peer read; call after finished(). */
+	public Bytes received() {
+		Bytes data = Bytes();
+		int length = btrcTestPeerReceivedLength(self.handle);
+		if (length > 0) { data.appendRaw(btrcTestPeerReceived(self.handle), length); }
+		return data;
+	}
+
+	public void __del__() { btrcTestPeerFree(self.handle); }
+}
+
+HTTPServer listening() {
+	HTTPServer server = HTTPServer(0);
+	check(server.start(), "start a loopback listener");
+	return server;
+}
+
+int portOf(HTTPServer server) {
+	int port = HTTPSocket.localPort(server.fd);
+	check(port > 0 && port <= 65535, "the listener reports the port the system chose");
+	return port;
+}
+
+int accepted(HTTPServer server) {
+	int connection = server.acceptConn();
+	check(connection >= 0, "accept the peer's connection");
+	check(!WinsockDiagnostics.inheritable(connection), "an accepted connection is not inheritable");
+	return connection;
+}
+
+void checkElapsed(Timer timer, string what) {
+	check(timer.elapsedMillis() >= 700.0f, what + " waited out its one-second deadline");
+	check(timer.elapsedMillis() < 5000.0f, what + " ended within its deadline");
+}
+
+/* Winsock starts with the first socket and is cleaned up after the last; a
+ * listener is never inheritable and a restart gets a new descriptor. */
+void caseLifecycle() {
+	int startups = WinsockDiagnostics.startups();
+	int cleanups = WinsockDiagnostics.cleanups();
+	check(WinsockDiagnostics.openSockets() == 0, "no socket is open before the first case");
+	HTTPServer server = listening();
+	check(server.fd >= 0, "the listener has a descriptor");
+	check(!server.start(), "a started server does not start again");
+	check(WinsockDiagnostics.openSockets() == 1, "one socket is open");
+	check(WinsockDiagnostics.startups() == startups + 1, "the first socket starts Winsock");
+	check(!WinsockDiagnostics.inheritable(server.fd), "the listener is not inheritable");
+	int stale = server.fd;
+	server.stop();
+	check(server.fd == -1, "stop forgets the descriptor");
+	check(WinsockDiagnostics.openSockets() == 0, "stop closes the listener");
+	check(WinsockDiagnostics.cleanups() == cleanups + 1, "the last socket cleans Winsock up");
+	server.stop();
+	server.closeConn(stale);
+	check(WinsockDiagnostics.cleanups() == cleanups + 1, "closing a closed descriptor again does nothing");
+	check(server.start(), "the server starts again");
+	check(server.fd != stale, "a restarted listener gets a new descriptor");
+	check(WinsockDiagnostics.startups() == startups + 2, "a restart starts Winsock again");
+	server.stop();
+	check(WinsockDiagnostics.cleanups() == cleanups + 2, "and cleans it up again");
+	print("case=lifecycle ok");
+}
+
+/* SO_EXCLUSIVEADDRUSE: no other socket takes the port while it listens, not
+ * even one asking for SO_REUSEADDR; the refusal is EADDRINUSE in errno. */
+void caseExclusivePort() {
+	HTTPServer first = listening();
+	int port = portOf(first);
+	HTTPServer rival = HTTPServer(port);
+	errno = 0;
+	check(!rival.start(), "a second listener cannot take the port");
+	check(errno == EADDRINUSE, "the refusal leaves EADDRINUSE in errno, not " + Strings.fromInt(errno));
+	check(rival.fd == -1, "the refused listener has no descriptor");
+	check(btrcTestBindTaken(port) != 0, "an SO_REUSEADDR socket cannot bind the port either");
+	first.stop();
+	HTTPServer again = HTTPServer(port);
+	check(again.start(), "the port is free once the listener stops");
+	again.stop();
+	print("case=exclusive-port ok");
+}
+
+/* bindAny listens on every interface, which is a warning, not a failure. */
+void caseBindAnyWarning() {
+	HTTPServer any = HTTPServer(0);
+	any.bindAny = true;
+	check(any.start(), "an all-interfaces listener starts");
+	check(HTTPSocket.localPort(any.fd) > 0, "the all-interfaces listener reports its port");
+	any.stop();
+	print("case=bind-any-warning ok");
+}
+
+void caseAcceptTimeout() {
+	HTTPServer server = listening();
+	server.timeoutSecs = 1;
+	Timer timer = Timer();
+	timer.start();
+	check(server.acceptConn() == -1, "no connection arrives");
+	timer.stop();
+	checkElapsed(timer, "the accept");
+	server.stop();
+	print("case=accept-timeout ok");
+}
+
+/* The header delimiter and the body span many receives, sent in pieces. */
+void caseSplitRequest() {
+	HTTPServer server = listening();
+	string filler = "h".repeat(9000);
+	string body = "b".repeat(20000);
+	string request = "POST /large HTTP/1.1\r\nHost: local\r\nX-Fill: " + filler + "\r\nContent-Length: " + Strings.fromInt(body.len()) + "\r\n\r\n" + body;
+	Peer peer = Peer(portOf(server), request, 0, 4096, 5, PeerMode.ending(), 0, 0);
+	int connection = accepted(server);
+	Bytes raw = server.readRequestRawBytes(connection);
+	check(raw.length() == request.len(), "the whole request arrives, " + Strings.fromInt(raw.length()) + " of " + Strings.fromInt(request.len()) + " bytes");
+	HTTPRequest parsed = server.parseBytes(raw);
+	check(parsed.valid && parsed.bodyBytes.length() == 20000, "the split request parses with its body");
+	server.closeConn(connection);
+	check(peer.finished(10000), "the peer finishes");
+	server.stop();
+	print("case=split-request ok");
+}
+
+/* A chunk payload holding a false terminator, its second half sent later:
+ * the read honors the chunk size. */
+void caseChunkedSplit() {
+	HTTPServer server = listening();
+	string prefix = "POST /chunk HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\nF\r\nAA\r\n0\r\n\r\n";
+	Peer peer = Peer(portOf(server), prefix + "BBBBBB\r\n0\r\n\r\n", prefix.len(), 65536, 50, PeerMode.ending(), 0, 0);
+	int connection = accepted(server);
+	HTTPRequest parsed = server.parseBytes(server.readRequestRawBytes(connection));
+	check(parsed.valid, "the chunked request parses");
+	check(parsed.body.equals("AA\r\n0\r\n\r\nBBBBBB"), "the chunk size, not the false terminator, ends the body");
+	server.closeConn(connection);
+	check(peer.finished(10000), "the peer finishes");
+	server.stop();
+	print("case=chunked-split ok");
+}
+
+void caseBodyLimit() {
+	HTTPServer server = listening();
+	server.maxBodyBytes = 2;
+	Peer peer = Peer.sending(portOf(server), "POST / HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\n");
+	int connection = accepted(server);
+	check(server.readRequestRawBytes(connection).isEmpty(), "a declared body over the limit is refused");
+	server.closeConn(connection);
+	check(peer.finished(10000), "the peer finishes");
+	server.stop();
+	print("case=body-limit ok");
+}
+
+/* A peer dribbling one byte every 200 ms cannot extend the read past its one
+ * absolute deadline. */
+void caseSlowPeer() {
+	HTTPServer server = listening();
+	server.timeoutSecs = 1;
+	Peer peer = Peer(portOf(server), "G".repeat(20), 0, 1, 200, PeerMode.ending(), 0, 0);
+	int connection = accepted(server);
+	Timer timer = Timer();
+	timer.start();
+	check(server.readRequestRawBytes(connection).isEmpty(), "the dribbled request is refused");
+	timer.stop();
+	checkElapsed(timer, "the read");
+	server.closeConn(connection);
+	check(peer.finished(10000), "the peer finishes");
+	server.stop();
+	print("case=slow-peer ok");
+}
+
+/* A peer that never reads, with a 1 KiB receive buffer: the send blocks and
+ * fails at its deadline. */
+void caseSendBackpressure() {
+	HTTPServer server = listening();
+	Peer peer = Peer(portOf(server), "", 0, 0, 0, PeerMode.holding(), 4000, 1024);
+	int connection = accepted(server);
+	Timer timer = Timer();
+	timer.start();
+	check(!HTTPSocket.sendAll(connection, "x".repeat(33554432), 1), "32 MiB to a peer that never reads cannot be sent");
+	timer.stop();
+	checkElapsed(timer, "the send");
+	server.closeConn(connection);
+	check(peer.finished(10000), "the peer finishes");
+	server.stop();
+	print("case=send-backpressure ok");
+}
+
+/* A peer that resets the connection: the next send fails with ECONNRESET
+ * (Windows has no SIGPIPE to suppress), and a read sees no request. */
+void caseResetPeer() {
+	HTTPServer server = listening();
+	Peer peer = Peer(portOf(server), "", 0, 0, 0, PeerMode.holding() + PeerMode.resetting(), 300, 0);
+	int connection = accepted(server);
+	check(peer.finished(10000), "the peer resets its connection");
+	btrcTestSleep(200);
+	char single[1];
+	single[0] = 'x';
+	bool refused = false;
+	int error = 0;
+	for (int attempt = 0; attempt < 20 && !refused; attempt++) {
+		errno = 0;
+		refused = !HTTPSocket.sendRawUntil(connection, single, (size_t)1, HTTPSocket.deadlineAfter(1));
+		error = errno;
+		if (!refused) { btrcTestSleep(50); }
+	}
+	check(refused, "a send to a reset peer fails");
+	check(error == ECONNRESET || error == ECONNABORTED, "the failure is ECONNRESET in errno, not " + Strings.fromInt(error));
+	check(server.readRequestRawBytes(connection).isEmpty(), "a reset connection yields no request");
+	server.closeConn(connection);
+	server.stop();
+	print("case=reset-peer ok");
+}
+
+/* A large response through short writes, with every reserved or malformed
+ * extra header dropped; the peer reads to its end before the connection is
+ * closed, so respond() ended the send side. */
+void caseResponseFraming() {
+	HTTPServer server = listening();
+	Peer peer = Peer.reader(portOf(server));
+	int connection = accepted(server);
+	HTTPResponse response = HTTPResponse.text("z".repeat(200000));
+	response.contentType = "text/plain\r\nType-Injection: yes";
+	response.addHeader("X-Good: yes");
+	response.addHeader("Content-Length: 1");
+	response.addHeader("cOnTeNt-TyPe: application/x-duplicate");
+	response.addHeader("CACHE-control: max-age=3600");
+	response.addHeader("CoNnEcTiOn: keep-alive-marker");
+	response.addHeader("Keep-Alive: keep-alive-marker");
+	response.addHeader("Proxy-Authenticate: proxy-authenticate-marker");
+	response.addHeader("Proxy-Authorization: proxy-authorization-marker");
+	response.addHeader("Proxy-Connection: proxy-connection-marker");
+	response.addHeader("TE: te-marker");
+	response.addHeader("Trailer: trailer-marker");
+	response.addHeader("Transfer-Encoding: transfer-marker");
+	response.addHeader("Upgrade: upgrade-marker");
+	response.addHeader("Bad\r\nInjected: yes");
+	check(server.respond(connection, response), "the response is sent");
+	check(peer.finished(10000), "the peer reads to the end before the connection closes");
+	Bytes wire = peer.received();
+	string text = wire.toStringLossy();
+	int headerEnd = Strings.find(text, "\r\n\r\n", 0);
+	check(headerEnd >= 0 && wire.length() == headerEnd + 4 + 200000, "the body is exactly 200000 bytes");
+	check(text.contains("Content-Length: 200000\r\n") && text.contains("Content-Type: application/octet-stream\r\n"), "the framing headers are the server's own");
+	check(text.contains("Cache-Control: no-store\r\n") && text.contains("Connection: close\r\n") && text.contains("X-Good: yes\r\n"), "the fixed and the valid extra headers are sent");
+	check(!text.contains("Injected") && !text.contains("Type-Injection") && !text.contains("application/x-duplicate") && !text.contains("max-age=3600") && !text.contains("keep-alive-marker") && !text.contains("proxy-authenticate-marker") && !text.contains("proxy-authorization-marker") && !text.contains("proxy-connection-marker") && !text.contains("te-marker") && !text.contains("trailer-marker") && !text.contains("transfer-marker") && !text.contains("upgrade-marker"), "no reserved or malformed header is sent");
+	server.closeConn(connection);
+	server.stop();
+	print("case=response-framing ok");
+}
+
+/* Statuses that forbid a payload are sent with a zero-length body. */
+void caseBodylessStatus() {
+	HTTPServer server = listening();
+	Peer peer = Peer.reader(portOf(server));
+	int connection = accepted(server);
+	check(server.respond(connection, HTTPResponse(204, "text/plain", "must-not-send")), "the 204 is sent");
+	check(!server.respond(-1, HTTPResponse(200, "text/plain", "unsent")), "no response goes to an invalid descriptor");
+	check(peer.finished(10000), "the peer reads to the end");
+	string text = peer.received().toStringLossy();
+	check(text.contains("HTTP/1.1 204 No Content\r\n") && text.contains("Content-Length: 0\r\n"), "the status line and an empty length");
+	check(!text.contains("must-not-send"), "no body is sent");
+	server.closeConn(connection);
+	server.stop();
+	print("case=bodyless-status ok");
+}
+
+/* A binary body keeps every byte, NUL included, with its own length. */
+void caseBinaryBody() {
+	HTTPServer server = listening();
+	Peer peer = Peer.reader(portOf(server));
+	int connection = accepted(server);
+	Bytes payload = Bytes();
+	payload.append(137);
+	payload.append(80);
+	payload.append(0);
+	payload.append(0);
+	payload.append(71);
+	check(server.respond(connection, HTTPResponse.bytes(200, "image/png", payload)), "the binary response is sent");
+	check(peer.finished(10000), "the peer reads to the end");
+	Bytes wire = peer.received();
+	string head = wire.toString();
+	check(head.startsWith("HTTP/1.1 200 OK\r\n") && head.contains("Content-Type: image/png\r\n") && head.contains("Content-Length: 5\r\n"), "the binary response's head");
+	int headerEnd = Strings.find(head, "\r\n\r\n", 0);
+	check(headerEnd > 0 && wire.slice(headerEnd + 4, wire.len).equals(payload), "the body arrives byte for byte");
+	server.closeConn(connection);
+	server.stop();
+	print("case=binary-body ok");
+}
+
+/* A closed descriptor never resolves again: every operation on it fails,
+ * and the next connection gets a different descriptor. */
+void caseStaleDescriptor() {
+	HTTPServer server = listening();
+	int port = portOf(server);
+	Peer firstPeer = Peer.idle(port, 1000);
+	int first = accepted(server);
+	server.closeConn(first);
+	check(server.readRequestRawBytes(first).isEmpty(), "a closed descriptor reads nothing");
+	check(!server.respond(first, HTTPResponse.text("late")), "a closed descriptor sends no response");
+	check(!HTTPSocket.sendAll(first, "late", 1), "a closed descriptor sends nothing");
+	check(HTTPSocket.localPort(first) == -1, "a closed descriptor has no port");
+	check(!WinsockDiagnostics.inheritable(first), "a closed descriptor names no socket");
+	server.closeConn(first);
+	Peer secondPeer = Peer.idle(port, 1000);
+	int second = accepted(server);
+	check(second != first, "a new connection never reuses a closed descriptor");
+	check(HTTPSocket.localPort(second) == port, "an accepted connection reports the listener's port");
+	server.closeConn(second);
+	check(firstPeer.finished(10000) && secondPeer.finished(10000), "both peers finish");
+	server.stop();
+	print("case=stale-descriptor ok");
+}
+
+/* Closing a descriptor wakes a read waiting on it on another thread, long
+ * before its deadline, and the socket closes once that read lets go of it. */
+void caseCloseWakesWait() {
+	HTTPServer server = listening();
+	server.timeoutSecs = 15;
+	Peer peer = Peer.idle(portOf(server), 3000);
+	int connection = accepted(server);
+	int open = WinsockDiagnostics.openSockets();
+	Thread<int> reader = spawn(() => {
+			Timer timer = Timer();
+			timer.start();
+			Bytes raw = server.readRequestRawBytes(connection);
+			timer.stop();
+			return raw.isEmpty() ? (int)timer.elapsedMillis() : -1;
+		});
+	btrcTestSleep(300);
+	server.closeConn(connection);
+	int waited = reader.join();
+	check(waited >= 0, "the woken read returns no request");
+	check(waited < 3000, "the close woke the read after " + Strings.fromInt(waited) + " ms, long before its 15 s deadline");
+	check(WinsockDiagnostics.openSockets() == open - 1, "the socket closes once the woken read lets go");
+	check(peer.finished(10000), "the peer finishes");
+	server.stop();
+	print("case=close-wakes-wait ok");
+}
+
+/* The server side of the curl-client case: three requests, answered by path. */
+int serveThree(HTTPServer server) {
+	int served = 0;
+	for (int index = 0; index < 3; index++) {
+		int connection = server.acceptConn();
+		if (connection < 0) { return served; }
+		HTTPRequest request = server.readRequest(connection);
+		HTTPResponse response = HTTPResponse.error(404, "nothing here");
+		if (request.valid && request.isGet() && request.path.equals("/hello") && request.header("X-Test").equals("windows")) {
+			response = HTTPResponse.text("hello from winsock");
+		} else if (request.valid && request.isPost() && request.path.equals("/echo")) {
+			response = HTTPResponse.text(request.body);
+		}
+		if (server.respond(connection, response)) { served++; }
+		server.closeConn(connection);
+	}
+	return served;
+}
+
+/* HTTPClient on Windows: System32 curl.exe, started through the CreateProcessW
+ * provider, against this provider's server on loopback. */
+void caseCurlClient() {
+	ExecResult probe = ChildProcess.run("curl", ["--version"], timeoutMilliseconds=10000, maxStdoutBytes=65536, maxStderrBytes=65536);
+	if (probe.code != 0) {
+		print("case=curl-client skipped no curl.exe on PATH");
+		return;
+	}
+	HTTPServer server = listening();
+	server.timeoutSecs = 30;
+	string base = "http://127.0.0.1:" + Strings.fromInt(portOf(server));
+	Thread<int> serving = spawn(() => { return serveThree(server); });
+	HTTPClient client = HTTPClient().timeout(30);
+	Vector<string> headers = ["X-Test: windows"];
+	HTTPClientResponse hello = client.get(base + "/hello", headers);
+	check(hello.status == 200 && hello.ok() && hello.body.equals("hello from winsock") && hello.error.isEmpty(), "GET /hello: status " + Strings.fromInt(hello.status) + ", error '" + hello.error + "'");
+	HTTPClientResponse echoed = client.post(base + "/echo", headers, "posted body");
+	check(echoed.status == 200 && echoed.body.equals("posted body"), "POST /echo: status " + Strings.fromInt(echoed.status) + ", error '" + echoed.error + "'");
+	HTTPClientResponse missing = client.get(base + "/missing", headers);
+	check(missing.status == 404 && !missing.ok() && missing.body.equals("nothing here") && missing.error.isEmpty(), "GET /missing: status " + Strings.fromInt(missing.status));
+	check(serving.join() == 3, "the server answered all three requests");
+	server.stop();
+	print("case=curl-client ok");
+}
+
+/* After every case: no socket is left open and Winsock is cleaned up as
+ * often as it was started. */
+void caseReleased() {
+	check(WinsockDiagnostics.openSockets() == 0, "no socket is left open");
+	check(WinsockDiagnostics.startups() > 0 && WinsockDiagnostics.startups() == WinsockDiagnostics.cleanups(), "every WSAStartup has its WSACleanup");
+	print("case=released ok");
+}
+
+void runCase(int index) {
+	if (index == 0) { caseLifecycle(); }
+	if (index == 1) { caseExclusivePort(); }
+	if (index == 2) { caseBindAnyWarning(); }
+	if (index == 3) { caseAcceptTimeout(); }
+	if (index == 4) { caseSplitRequest(); }
+	if (index == 5) { caseChunkedSplit(); }
+	if (index == 6) { caseBodyLimit(); }
+	if (index == 7) { caseSlowPeer(); }
+	if (index == 8) { caseSendBackpressure(); }
+	if (index == 9) { caseResetPeer(); }
+	if (index == 10) { caseResponseFraming(); }
+	if (index == 11) { caseBodylessStatus(); }
+	if (index == 12) { caseBinaryBody(); }
+	if (index == 13) { caseStaleDescriptor(); }
+	if (index == 14) { caseCloseWakesWait(); }
+	if (index == 15) { caseCurlClient(); }
+	if (index == 16) { caseReleased(); }
+}
+
+int main() {
+	/* Each case runs to its first failed check, which is reported as that
+	 * case's verdict; later cases still run, so one run reports them all. */
+	Vector<string> names = ["lifecycle", "exclusive-port", "bind-any-warning", "accept-timeout", "split-request", "chunked-split", "body-limit", "slow-peer", "send-backpressure", "reset-peer", "response-framing", "bodyless-status", "binary-body", "stale-descriptor", "close-wakes-wait", "curl-client", "released"];
+	int failures = 0;
+	for (int index = 0; index < names.len; index++) {
+		try {
+			runCase(index);
+		} catch (string failure) {
+			print("case=" + names.get(index) + " FAIL: " + failure);
+			failures++;
+		}
+	}
+	if (failures > 0) {
+		fprintf(stderr, "FAIL: %d windows http cases\n", failures);
+		return 1;
+	}
+	print("PASS: windows http cases");
+	return 0;
+}

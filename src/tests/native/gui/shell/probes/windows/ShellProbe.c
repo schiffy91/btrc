@@ -15,6 +15,7 @@
 #include "ShellProbe.h"
 #include <assert.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
@@ -22,6 +23,7 @@
 
 static int drains;
 static int dumps;
+static void trackWglWorkers(void);
 
 static int isClass(HWND window, const WCHAR *name) {
     WCHAR actual[64];
@@ -119,7 +121,7 @@ void shellProbeScroll(void) {
     LPARAM where = MAKELPARAM((bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2);
     assert(PostMessageW(scroll, WM_MOUSEWHEEL, MAKEWPARAM(0, (WORD)(SHORT)(-3 * WHEEL_DELTA)), where));
 }
-void shellProbeClose(void) { assert(PostMessageW(window(), WM_CLOSE, 0, 0)); }
+void shellProbeClose(void) { trackWglWorkers(); assert(PostMessageW(window(), WM_CLOSE, 0, 0)); }
 int shellProbeFocus(void) {
     HWND focus = GetFocus();
     if (focus && isClass(focus, L"Edit")) return 1;
@@ -149,6 +151,41 @@ static Census census(void) {
 int shellProbeNativeCount(void) { return census().provider; }
 int shellProbePrivateCount(void) { return census().other; }
 
+/* wgpu-hal 27.0.4's WGL backend owns a hidden window on a detached worker.
+ * Releasing the last instance signals that worker; it destroys the window and
+ * exits asynchronously. Observe those exact threads before requesting close,
+ * and require completion without mistaking the UIA process worker for a leak. */
+typedef struct WglWorker { DWORD id; HANDLE thread; } WglWorker;
+static WglWorker wglWorkers[32];
+static unsigned wglWorkerCount;
+static BOOL CALLBACK trackWglWindow(HWND target, LPARAM ignored) {
+    (void)ignored;
+    DWORD process = 0;
+    DWORD thread = GetWindowThreadProcessId(target, &process);
+    if (process != GetCurrentProcessId()) return TRUE;
+    WCHAR name[128] = L"";
+    if (GetClassNameW(target, name, 128) <= 0 || wcsncmp(name, L"wgpu Device Class ", 18) != 0) return TRUE;
+    for (unsigned index = 0; index < wglWorkerCount; index++) {
+        if (wglWorkers[index].id == thread && WaitForSingleObject(wglWorkers[index].thread, 0) == WAIT_TIMEOUT) return TRUE;
+    }
+    HANDLE handle = OpenThread(SYNCHRONIZE, FALSE, thread);
+    if (!handle && GetLastError() == ERROR_INVALID_PARAMETER) return TRUE; /* It exited during enumeration. */
+    assert(handle && "Cannot observe WGL worker lifetime");
+    assert(wglWorkerCount < sizeof wglWorkers / sizeof wglWorkers[0]);
+    wglWorkers[wglWorkerCount++] = (WglWorker){thread, handle};
+    return TRUE;
+}
+static void trackWglWorkers(void) { assert(EnumWindows(trackWglWindow, 0)); }
+static unsigned pendingWglWorkers(void) {
+    unsigned pending = 0;
+    for (unsigned index = 0; index < wglWorkerCount; index++) {
+        DWORD result = WaitForSingleObject(wglWorkers[index].thread, 0);
+        assert(result == WAIT_TIMEOUT || result == WAIT_OBJECT_0);
+        if (result == WAIT_TIMEOUT) pending++;
+    }
+    return pending;
+}
+
 /* A process USER count can change on a system worker thread even when the
  * UI thread owns no windows. Record all process windows, including message-only
  * windows, when the census changes so a retained object cannot be dismissed as
@@ -161,8 +198,15 @@ static BOOL CALLBACK resourceWindow(HWND target, LPARAM messageOnly) {
     GetClassNameW(target, name, 128);
     char utf8[512] = {0};
     WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof utf8, NULL, NULL);
-    fprintf(stderr, "SHELL resource-window cycle=%d thread=%lu handle=%p message-only=%d class=%s\n",
-        drains, (unsigned long)thread, (void *)target, messageOnly != 0, utf8);
+    HMODULE module = NULL;
+    WCHAR moduleName[512] = L"";
+    LONG_PTR procedure = GetClassLongPtrW(target, GCLP_WNDPROC);
+    if (procedure && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            (LPCWSTR)(uintptr_t)procedure, &module)) { GetModuleFileNameW(module, moduleName, 512); }
+    char moduleUtf8[2048] = {0};
+    WideCharToMultiByte(CP_UTF8, 0, moduleName, -1, moduleUtf8, sizeof moduleUtf8, NULL, NULL);
+    fprintf(stderr, "SHELL resource-window cycle=%d thread=%lu handle=%p message-only=%d class=%s module=%s\n",
+        drains, (unsigned long)thread, (void *)target, messageOnly != 0, utf8, moduleUtf8);
     return TRUE;
 }
 static BOOL CALLBACK resourceTop(HWND target, LPARAM ignored) {
@@ -195,15 +239,31 @@ static void resourceWindows(DWORD gdi, DWORD user) {
 void shellProbeDrain(void) {
     ULONGLONG started = GetTickCount64();
     MSG message;
-    while (GetTickCount64() - started < 200) {
-        while (PeekMessageW(&message, NULL, 0, 0, PM_REMOVE)) {
+    drains++;
+    trackWglWorkers();
+    for (;;) {
+        for (unsigned dispatched = 0; dispatched < 256 && GetTickCount64() - started < 2000
+                && PeekMessageW(&message, NULL, 0, 0, PM_REMOVE); dispatched++) {
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
+        trackWglWorkers();
+        unsigned pending = pendingWglWorkers();
+        ULONGLONG elapsed = GetTickCount64() - started;
+        if (elapsed >= 200 && pending == 0) break;
+        if (elapsed >= 2000) {
+            fprintf(stderr, "SHELL WGL shutdown timed out cycle=%d pending=%u\n", drains, pending);
+            resourceWindows(GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS), GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS));
+            assert(!pending && "GPU shutdown retained a WGL instance worker");
+            break;
+        }
         MsgWaitForMultipleObjectsEx(0, NULL, 10, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     }
+    fprintf(stderr, "SHELL WGL drained cycle=%d workers=%u milliseconds=%llu\n", drains, wglWorkerCount,
+        (unsigned long long)(GetTickCount64() - started));
+    for (unsigned index = 0; index < wglWorkerCount; index++) { assert(CloseHandle(wglWorkers[index].thread)); }
+    wglWorkerCount = 0;
     Census counted = census();
-    drains++;
     DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
     DWORD user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
     fprintf(stderr, "SHELL resources cycle=%d gdi=%lu user=%lu provider=%d private=%d\n", drains,

@@ -28,7 +28,7 @@ schema = "btrc.target-applicability/1"
 [[capabilities]]
 name = "loopback-listener"
 executors = []
-reason = "no target executor has proven an IPv4 loopback listener inside its sandbox yet"
+reason = "no target executor without its own probe has proven an IPv4 loopback listener inside its sandbox yet (the local and windows-native executors probe their host)"
 cites = "src/tests/runner_capabilities.py#loopback_listener_error"
 
 # The @gpu compute runtime: emitted C that includes btrc_gpu_compute_internal.h
@@ -125,67 +125,26 @@ scope = "build"
 reason = "DaemonControlFiles checks uid_t ownership and the supervisor is a /bin/sh script; the native Windows supervisor is CX-P2-08 (platform adaptations, Windows row 4)"
 cites = "corpus.stdlib@windows-arm64"
 
+# Library.HTTP's HTTPSocket has its Winsock provider (CX-P2-10 step 1), so
+# HTTPServer and the codecs build and run on both Windows rows. What stays out
+# is a POSIX test fixture; each one's checks run natively in windows.yml's
+# win32-native job instead.
+
+[[programs]]
+paths = ["stdlib/HttpBytesResponse.btrc", "stdlib/HttpSocketIo.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "POSIX fixtures: their peers are socketpair(AF_UNIX) ends, forked writers and a SIGPIPE handler, none of which Windows has; their split-read, deadline, backpressure, short-write, response-framing and binary-body checks run against real Winsock loopback peers in src/tests/native/http_windows/WindowsHttpCases.btrc (test_windows_http.py, windows.yml win32-native) on x64 and ARM64"
+cites = "docs/design/http-transport.md#winsock-server-and-socket-ownership"
+
 [[programs]]
 paths = ["stdlib/HttpClientLocal.btrc"]
-targets = ["windows-x86_64"]
-status = "missing"
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
 scope = "run"
-reason = "its curl stand-in is a /bin/sh script on PATH; the Windows HTTP transport is WinHTTP (platforms-p3-sockets-http, platform adaptations, Windows rows 6 and 10)"
-cites = "corpus.stdlib@windows-x64"
-
-[[programs]]
-paths = ["stdlib/HttpClientLocal.btrc"]
-targets = ["windows-aarch64"]
-status = "missing"
-scope = "run"
-reason = "its curl stand-in is a /bin/sh script on PATH; the Windows HTTP transport is WinHTTP (platforms-p3-sockets-http, platform adaptations, Windows rows 6 and 10)"
-cites = "corpus.stdlib@windows-arm64"
-
-[[programs]]
-paths = ["stdlib/HttpFramingSafety.btrc"]
-targets = ["windows-x86_64"]
-status = "missing"
-scope = "build"
-reason = "DescriptorFlags.closeOnExec calls fcntl(F_GETFD) on a BSD socket; the Winsock provider is platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
-cites = "corpus.stdlib@windows-x64"
-
-[[programs]]
-paths = ["stdlib/HttpFramingSafety.btrc"]
-targets = ["windows-aarch64"]
-status = "missing"
-scope = "build"
-reason = "DescriptorFlags.closeOnExec calls fcntl(F_GETFD) on a BSD socket; the Winsock provider is platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
-cites = "corpus.stdlib@windows-arm64"
-
-[[programs]]
-paths = [
-    "stdlib/Http.btrc",
-    "stdlib/HttpBytesResponse.btrc",
-    "stdlib/HttpParseBytes.btrc",
-    "stdlib/HttpParseEdges.btrc",
-    "stdlib/HttpSocketIo.btrc",
-    "stdlib/HttpUtil.btrc",
-]
-targets = ["windows-x86_64"]
-status = "missing"
-scope = "build"
-reason = "the HTTP stack uses BSD sockets (SHUT_RDWR, fcntl on a socket); the Winsock and WinHTTP providers are platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
-cites = "corpus.stdlib@windows-x64"
-
-[[programs]]
-paths = [
-    "stdlib/Http.btrc",
-    "stdlib/HttpBytesResponse.btrc",
-    "stdlib/HttpParseBytes.btrc",
-    "stdlib/HttpParseEdges.btrc",
-    "stdlib/HttpSocketIo.btrc",
-    "stdlib/HttpUtil.btrc",
-]
-targets = ["windows-aarch64"]
-status = "missing"
-scope = "build"
-reason = "the HTTP stack uses BSD sockets (SHUT_RDWR, fcntl on a socket); the Winsock and WinHTTP providers are platforms-p3-sockets-http (platform adaptations, Windows rows 6 and 10)"
-cites = "corpus.stdlib@windows-arm64"
+reason = "its curl stand-in is a /bin/sh script found on PATH, and Windows launches only .exe and .com programs; on Windows HTTPClient runs System32 curl.exe through the CreateProcessW provider, which WindowsHttpCases.btrc's curl-client case checks against a loopback HTTPServer (test_windows_http.py, windows.yml win32-native)"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
 
 [[programs]]
 paths = ["stdlib/TerminalPty.btrc"]

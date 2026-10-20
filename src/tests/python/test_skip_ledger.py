@@ -938,7 +938,8 @@ def test_every_windows_pytest_step_writes_its_own_skip_report_and_gates_it():
         if line.startswith("python -m tools.qualification skip-gate")
     ]
 
-    assert len(sessions) == 4 and len(set(reports)) == len(reports)
+    assert len(sessions) == 5 and len(set(reports)) == len(reports)
+    assert any("src/tests/python/test_windows_http.py" in session for session in sessions)
     assert all(report.startswith("build/skip-report-windows-") for report in reports)
     assert gated == reports
     for report in reports:

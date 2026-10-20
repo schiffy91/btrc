@@ -258,6 +258,34 @@ def test_native_gpu_child_renders_and_reads_pixels(
         assert "portable GPU view renders, resizes and drains through native application shutdown" in completed.stdout
 
 
+@pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
+def test_closed_gpu_aliases_release_native_claims(native_project, native_compile, gui_provider_root, sanitize):
+    source, _sdk, _triple = native_project
+    root = source.parent.parent / "ownership"
+    shutil.copytree(REPO / "src/tests/native/gui/webgpu_child", root)
+    plan = root / "Ownership.link.json"
+    compiled = native_compile(root / "Ownership.btrc", data_root=gui_provider_root, plan_path=plan)
+    assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
+    generated = root / "Ownership.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "Ownership"
+
+    def runner(command, **kwargs):
+        flags = ["-O1"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if flags and sanitize:
+            flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
+        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    completed = subprocess.run(
+        [str(executable)], cwd=root, env=apple_environment(), capture_output=True, text=True, timeout=30
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "PASS: closed GPU aliases release native claims after completion drain" in completed.stdout
+
+
 def test_packaged_webgpu_dependency_uses_typed_headers_and_link_plan(native_project, native_compile):
     source, _sdk, _triple = native_project
     root = source.parent.parent

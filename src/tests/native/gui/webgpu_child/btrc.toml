@@ -22,7 +22,7 @@ module = "CompletionProbe"
 header = "CompletionProbe.h"
 language = "c"
 standard = "c11"
-symbols = ["probeDelayCompletions", "probeDeliverCompletion", "probePendingCompletions", "probeAdapterClaims", "probeDeviceClaims", "probeBufferClaims"]
+symbols = ["probeDelayCompletions", "probeDeliverCompletion", "probePendingCompletions", "probeAdapterClaims", "probeDeviceClaims", "probeBufferClaims", "probeInstanceClaims", "probeSurfaceClaims"]
 
 [[native.sources]]
 path = "CompletionProbe.c"

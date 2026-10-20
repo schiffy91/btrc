@@ -1029,7 +1029,8 @@ def test_a_lane_pull_request_runs_the_jobs_its_paths_select(
     shards = [row["shard"] for row in ci["matrix"]["tests"]["include"]]
     assert shards == ([name for name, _ in _tier_shards("ci.yml", "main")] if "bench" in linux else ["unit"])
     assert _plan(tmp_path, "macos.yml", tier)["jobs"] == macos
-    assert _plan(tmp_path, "windows.yml", tier)["jobs"] == []
+    expected_windows = ["win32-native-build", "win32-native"] if files == ("src/stdlib/HTTP/Client.btrc",) else []
+    assert _plan(tmp_path, "windows.yml", tier)["jobs"] == expected_windows
 
 
 def test_a_lane_pull_request_too_large_to_list_fails_safe_to_the_main_tier(tmp_path: Path) -> None:

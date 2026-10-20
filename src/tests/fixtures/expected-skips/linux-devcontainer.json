@@ -317,7 +317,7 @@
       "reason": "^Mac-bound: requires macOS with xcrun and Xcode 27A266a \\(MAC-P1-05\\)",
       "category": "platform",
       "covered_by": [],
-      "note": "Apple clang's TARGET_OS_* predefines and the iOS SDK's <TargetConditionals.h> exist only on macOS, and platform-target-contract.md §1.3 pins both checks to the acceptance Mac's Xcode 27A266a, which no CI image carries. MAC-P1-05 runs them there; covered_by cannot name the acceptance Mac, whose reports CI does not upload, so they are uncovered in CI. clang 21 checks the same rows' TARGET_OS_* values here."
+      "note": "Apple clang's TARGET_OS_* predefines and the iOS SDK's <TargetConditionals.h> exist only on macOS, and platform-target-contract.md \u00a71.3 pins both checks to the acceptance Mac's Xcode 27A266a, which no CI image carries. MAC-P1-05 runs them there; covered_by cannot name the acceptance Mac, whose reports CI does not upload, so they are uncovered in CI. clang 21 checks the same rows' TARGET_OS_* values here."
     },
     {
       "id": "ui-shell-windows-only",
@@ -446,6 +446,21 @@
       },
       "covered_by": [],
       "note": "Interop step 4's exit, the checked JNI round trip, runs inside app_process on an Android device. host-android.yml runs it on its API 29 and 36 x86_64 emulators with BTRC_ANDROID_JNI_REQUIRED=1, where a missing prerequisite fails; its evidence is that workflow's artifact, not a skip report. The 16 KiB-page arm64 image stays MAC-P1-03."
+    },
+    {
+      "id": "windows-http-native-only",
+      "files": [
+        "src/tests/python/test_windows_http.py"
+      ],
+      "nodes": [
+        "*::test_preserved_native_executables_run*"
+      ],
+      "reason": "^requires the real Windows native runner$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "Windows x64 and ARM64 CI execute the cross-built HTTP fixtures and retain native stdout, stderr and process status."
     }
   ]
 }

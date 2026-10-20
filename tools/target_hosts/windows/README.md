@@ -50,6 +50,12 @@ failed, restricted or missing are not staged. Admission is atomic: any
 refusal removes the new staging directory and keeps the previously admitted
 bundle, if any.
 
+After admission the runner asks `granted_capabilities()` which
+`BTRC_TEST_REQUIRES` host capabilities the programs get here. The executor
+answers `loopback-listener` when this host opens an IPv4 loopback listener,
+probed as the runner's local executor probes its own host; a Job Object does
+not restrict sockets, so the answer holds for every run.
+
 ## Launch and outcome (`run`)
 
 Each request creates a Job Object with
