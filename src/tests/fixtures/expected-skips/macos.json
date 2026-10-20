@@ -410,6 +410,21 @@
       },
       "covered_by": [],
       "note": "Interop step 4's exit, the checked JNI round trip, runs inside app_process on an Android device. host-android.yml runs it on its API 29 and 36 x86_64 emulators with BTRC_ANDROID_JNI_REQUIRED=1, where a missing prerequisite fails; its evidence is that workflow's artifact, not a skip report. This Mac has no Android SDK; the 16 KiB-page arm64 image it could run stays MAC-P1-03."
+    },
+    {
+      "id": "windows-http-native-only",
+      "files": [
+        "src/tests/python/test_windows_http.py"
+      ],
+      "nodes": [
+        "*::test_preserved_native_executables_run*"
+      ],
+      "reason": "^requires the real Windows native runner$",
+      "category": "platform",
+      "covered_by": [
+        "windows"
+      ],
+      "note": "Windows x64 and ARM64 CI execute the cross-built HTTP fixtures and retain native stdout, stderr and process status."
     }
   ]
 }

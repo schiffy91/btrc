@@ -453,9 +453,9 @@ reports = ["skip-report"]
 # registry-free server DLL with a BTRC sink, an ole32 stream), the overlay's
 # regex, fnmatch and glob, the console terminal, Library.Process's
 # CreateProcessW provider (the runtime seam's harness, the Process fixture and
-# the Process corpus bundle), the Windows FileSystem provider and corpus,
-# and the Win32 GUI shell with its UI Automation client (CX-UIA-15).
-# The native rows retain a skip report. A Linux runner builds both
+# the Process corpus bundle), Windows FileSystem and HTTP provider cases and
+# corpus bundles, and the Win32 GUI shell with its UI Automation client
+# (CX-UIA-15). The native rows retain a skip report. A Linux runner builds both
 # compilers' executables and the server (win32-native-build), then each
 # Windows runner executes those of its architecture (win32-native). A job
 # that waits on another must run on exactly the same events
@@ -500,6 +500,10 @@ changed_paths = [
   "src/stdlib/IO.btrc",
   "src/tests/native/filesystem_windows/**",
   "src/tests/python/test_windows_filesystem_handles.py",
+  "src/stdlib/HTTP/**",
+  "src/tests/stdlib/Http*.btrc",
+  "src/tests/native/http_windows/**",
+  "src/tests/python/test_windows_http.py",
   "src/tests/target_runner.py",
   "tools/target_hosts/windows/**",
   "src/tests/python/test_native_ui_shell_windows.py",
@@ -561,6 +565,10 @@ changed_paths = [
   "src/stdlib/IO.btrc",
   "src/tests/native/filesystem_windows/**",
   "src/tests/python/test_windows_filesystem_handles.py",
+  "src/stdlib/HTTP/**",
+  "src/tests/stdlib/Http*.btrc",
+  "src/tests/native/http_windows/**",
+  "src/tests/python/test_windows_http.py",
   "src/tests/target_runner.py",
   "tools/target_hosts/windows/**",
   "src/tests/python/test_native_ui_shell_windows.py",
@@ -615,6 +623,10 @@ changed_paths = [
   "src/stdlib/IO.btrc",
   "src/tests/native/filesystem_windows/**",
   "src/tests/python/test_windows_filesystem_handles.py",
+  "src/stdlib/HTTP/**",
+  "src/tests/stdlib/Http*.btrc",
+  "src/tests/native/http_windows/**",
+  "src/tests/python/test_windows_http.py",
   "src/tests/target_runner.py",
   "tools/target_hosts/windows/**",
   "src/tests/python/test_native_ui_shell_windows.py",
