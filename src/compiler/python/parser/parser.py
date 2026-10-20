@@ -2242,8 +2242,22 @@ class Parser:
             return self._parse_sizeof()
         if tok.type == TokenKind.LPAREN and self._is_cast():
             return self._parse_cast()
+        if tok.type == TokenKind.LPAREN:
+            self._refuse_member_of_type_name()
 
         return self._parse_postfix()
+
+    def _refuse_member_of_type_name(self) -> None:
+        """A parenthesized keyword type followed by "." names no value: "(long long).x"."""
+        type_start = self.pos + 1
+        if type_start >= len(self.tokens) or self.tokens[type_start].type not in TYPE_KEYWORDS:
+            return
+        type_end = self._scan_abstract_type(type_start)
+        if type_end is None or type_end + 1 >= len(self.tokens) or self.tokens[type_end].type != TokenKind.RPAREN:
+            return
+        dot = self.tokens[type_end + 1]
+        if dot.type == TokenKind.DOT:
+            raise ParseError("Expected expression after a cast, got DOT '.'", dot.line, dot.col)
 
     _CAST_FOLLOW_TOKENS = (
         TokenKind.IDENT,
@@ -2291,7 +2305,22 @@ class Parser:
             return False
         bare_ident = self.tokens[type_start].type == TokenKind.IDENT and type_end == type_start + 1
         follow = self._BARE_IDENT_CAST_FOLLOW if bare_ident else self._CAST_FOLLOW_TOKENS
+        if bare_ident and self._tuple_field_token(self.tokens[follow_pos]):
+            # "(t).0" selects a tuple field of a grouped name.
+            return False
         return self.tokens[follow_pos].type in follow
+
+    @staticmethod
+    def _refuse_numeric_member(operand, member: str) -> None:
+        """ "5.f" is a floating constant; spaced or grouped, a numeric literal has no members."""
+        if isinstance(operand, (IntLiteral, FloatLiteral)):
+            raise ParseError(f"Numeric literal '{operand.raw}' has no field '{member}'", operand.line, operand.col)
+
+    @staticmethod
+    def _tuple_field_token(token: Token) -> bool:
+        """Whether a floating token is a plain ".N", the spelling of a tuple field."""
+        value = token.value
+        return token.type == TokenKind.FLOAT_LIT and len(value) > 1 and value[0] == "." and value[1:].isdigit()
 
     def _parse_cast(self) -> CastExpr:
         tok = self._expect(TokenKind.LPAREN)
@@ -2337,10 +2366,19 @@ class Parser:
                 self._advance()
                 if self._check(TokenKind.INT_LIT):
                     idx_tok = self._advance()
+                    self._refuse_numeric_member(expr, idx_tok.value)
                     field_name = f"_{idx_tok.value}"
                 else:
                     field_name = self._member_name().value
+                    self._refuse_numeric_member(expr, field_name)
                 expr = FieldAccessExpr(obj=expr, field=field_name, arrow=False, line=expr.line, col=expr.col)
+
+            elif self._tuple_field_token(tok):
+                # After ")" or "}" the lexer reads ".0" as one floating token;
+                # its plain digits select a tuple field, as "t.0" does.
+                self._advance()
+                self._refuse_numeric_member(expr, tok.value[1:])
+                expr = FieldAccessExpr(obj=expr, field=f"_{tok.value[1:]}", arrow=False, line=expr.line, col=expr.col)
 
             elif tok.type == TokenKind.QUESTION_DOT:
                 self._advance()

@@ -85,7 +85,7 @@ class ExpressionValidator {
 			return info.valid && info.magnitude == 0ULL;
 		}
 		if (expression.kind == NK_FLOAT_LITERAL) {
-			return expression.valueFloat == 0.0;
+			return expression.valueDouble == 0.0;
 		}
 		if (expression.kind == NK_BOOL_LITERAL) {
 			return !expression.valueBool;
