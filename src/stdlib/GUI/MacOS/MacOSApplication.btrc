@@ -348,7 +348,7 @@ class MacOSApplication implements IApplication {
 		self._shutdown = CallbackScope();
 		var failure = MacOSNativeFailure();
 		self._executor = MacOSApplicationExecutor(workCapacity, self._signal, failure);
-		self._viewContext = MacOSViewContext(self._executor, workCapacity, failure);
+		self._viewContext = MacOSViewContext(self._executor, workCapacity, failure, 16384);
 		self._events = MacOSApplicationEvents(self._executor, self._viewContext, self._actions, self._windows, self._views, self._shutdown);
 		self._callbacks = CallbackScope();
 		try {

@@ -194,7 +194,7 @@ void verifyActions() {
 		if (mode == 1) { registration.cancel(); }
 		bool rejected = false;
 		try { GUI.run(); } catch (string error) {
-			assert(error.equals("Native action capacity exceeded; close this action queue before continuing"));
+			assert(error.equals("Native action capacity exceeded before button activation"));
 			rejected = true;
 		}
 		assert(rejected && state.values.len == 0 && !button.isOpen());
