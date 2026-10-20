@@ -1110,9 +1110,11 @@ The key's method must be an Objective-C instance initializer of the
 superclass whose reader fact `designated_initializer` holds: one of the
 designated initializers of that class, or of its nearest ancestor when it
 introduces none. `superclass` must be the initializer's class and `scope` must
-be `instance`. Each override must be a selected, non-protocol method of the
-superclass (named on the superclass, inherited methods included) outside the
-init, alloc, new, copy and dealloc families, non-variadic and non-consuming.
+be `instance`. Each override must be selected on the superclass. Clang resolves
+that class's inherited methods, categories and adopted protocol requirements;
+selecting the method on the protocol itself does not name the superclass.
+Overrides must be outside the init, alloc, new, copy and dealloc families,
+non-variadic and non-consuming.
 Names may not collide across `methods`, instance overrides, `create` and class
 overrides.
 

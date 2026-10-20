@@ -3495,8 +3495,8 @@ class FeNativeDeclarationImporter {
 
 	/* The checked instance and class overrides of an adapter that extends
 	 * `binding.superclass`. The superclass needs a complete interface. Each
-	 * override is a selected, non-protocol method of the superclass (named on
-	 * it, inherited methods included) outside the init, alloc, new, copy and
+	 * override is selected on the superclass (including inherited methods and
+	 * adopted protocol requirements) outside the init, alloc, new, copy and
 	 * dealloc families, non-variadic and non-consuming. A class override
 	 * returns Class and takes no parameters; an override the SDK marks
 	 * NS_REQUIRES_SUPER returns void. */
@@ -3506,7 +3506,9 @@ class FeNativeDeclarationImporter {
 		for symbol in binding.overrides {
 			if (!self.callbackExports.has(symbol)) { self.fail(f"overrides require a method of the superclass {superclass}: {symbol}"); }
 			NativeNode method = self.callbackExports.get(symbol);
-			if (method.kind != NNK_NATIVE_OBJECTIVE_C_METHOD || method.protocolOwner || method.receiver != superclass) { self.fail(f"overrides require a method of the superclass {superclass}: {symbol}"); }
+			// Clang checks the selected class receiver through its superclass,
+			// categories and adopted protocols; the declaration keeps its owner.
+			if (method.kind != NNK_NATIVE_OBJECTIVE_C_METHOD || method.receiver != superclass) { self.fail(f"overrides require a method of the superclass {superclass}: {symbol}"); }
 			if (method.methodFamily != "none") { self.fail(f"overrides cannot name an initializer, allocator, copy or dealloc method: {symbol}"); }
 			bool consuming = method.signature.variadic || method.consumesSelf || method.returnsInnerPointer || method.returnedOwnership != "unspecified";
 			for parameter in method.parameterSemantics { if (parameter.cfConsumed || parameter.nsConsumed) { consuming = true; } }
