@@ -273,26 +273,11 @@ static BOOL CALLBACK resourceWindow(HWND target, LPARAM messageOnly) {
     queryEnd(classQuery, (uintptr_t)classLength, classError);
     char utf8[512] = {0};
     WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof utf8, NULL, NULL);
-    HMODULE module = NULL;
-    WCHAR moduleName[512] = L"";
-    QueryObservation *procedureQuery = queryBegin("GetClassLongPtrW.GCLP_WNDPROC", (uintptr_t)target);
-    LONG_PTR procedure = GetClassLongPtrW(target, GCLP_WNDPROC);
-    DWORD procedureError = GetLastError(); queryEnd(procedureQuery, (uintptr_t)procedure, procedureError);
-    if (procedure) {
-        QueryObservation *moduleQuery = queryBegin("GetModuleHandleExW", (uintptr_t)procedure);
-        BOOL found = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            (LPCWSTR)(uintptr_t)procedure, &module);
-        DWORD moduleError = GetLastError(); queryEnd(moduleQuery, (uintptr_t)module, moduleError);
-        if (found) {
-            moduleQuery = queryBegin("GetModuleFileNameW", (uintptr_t)module);
-            DWORD length = GetModuleFileNameW(module, moduleName, 512);
-            moduleError = GetLastError(); queryEnd(moduleQuery, (uintptr_t)length, moduleError);
-        }
-    }
-    char moduleUtf8[2048] = {0};
-    WideCharToMultiByte(CP_UTF8, 0, moduleName, -1, moduleUtf8, sizeof moduleUtf8, NULL, NULL);
-    fprintf(stderr, "SHELL resource-window cycle=%d thread=%lu handle=%p message-only=%d class=%s module=%s\n",
-        drains, (unsigned long)thread, (void *)target, messageOnly != 0, utf8, moduleUtf8);
+    /* A foreign WNDPROC getter can allocate an encoding thunk and return an
+     * opaque handle, not a code address. Keep this census observational: class,
+     * HWND and owning thread are sufficient identity without querying it. */
+    fprintf(stderr, "SHELL resource-window cycle=%d thread=%lu handle=%p message-only=%d class=%s\n",
+        drains, (unsigned long)thread, (void *)target, messageOnly != 0, utf8);
     if (observeQueries) {
         QueryObservation *query = queryBegin("GetClassLongPtrW.GCLP_HCURSOR", (uintptr_t)target);
         ULONG_PTR cursor = GetClassLongPtrW(target, GCLP_HCURSOR);
