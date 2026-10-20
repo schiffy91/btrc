@@ -26,6 +26,19 @@ def test_ui2_semantic_queue(tmp_path, request, frontend, sanitized):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_ui2_held_receipts(tmp_path, request, frontend, sanitized):
+    _run_fixture(
+        tmp_path,
+        request,
+        frontend,
+        sanitized,
+        "ControlEventHeld",
+        "PASS: UI2 bounded held receipts model preflight and ordering epochs",
+    )
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 def test_ui2_slider_value(tmp_path, request, frontend, sanitized):
     _run_fixture(
         tmp_path,

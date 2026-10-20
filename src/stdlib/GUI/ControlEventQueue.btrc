@@ -73,6 +73,63 @@ interface IControlEventInvocation {
 	void retired();
 }
 
+/* Opt-in storage for observations waiting for ordinary capacity. Unpublished
+ * preparations and queued held records share this fixed budget. The budget
+ * outlives cancelled handles without retaining the queue or its receivers. */
+class ControlEventHeldBudget {
+	private int _capacity;
+	private int _prepared = 0;
+	private int _queued = 0;
+	public ControlEventHeldBudget(int capacity) { if (capacity < 0 || capacity > 65536) { throw "Invalid held receipt capacity"; } self._capacity = capacity; }
+
+	public int preparedCount() { return self._prepared; }
+
+	public int queuedCount() { return self._queued; }
+
+	public bool reserve() { if (self._prepared + self._queued == self._capacity) { return false; } self._prepared++; return true; }
+
+	public void commit() { if (self._prepared <= 0) { throw "Held preparation underflow"; } self._prepared--; self._queued++; }
+
+	public void retire(bool queued) { if (queued) { if (self._queued <= 0) { throw "Held receipt underflow"; } self._queued--; } else { if (self._prepared <= 0) { throw "Held preparation underflow"; } self._prepared--; } }
+}
+
+/* Only the admitting record receives this token. A retained preparation has
+ * no operation that can release the record's storage after consumption. */
+class ControlEventHeldReceipt {
+	private ControlEventHeldBudget _budget;
+	private bool _open = true;
+	public ControlEventHeldReceipt(ControlEventHeldBudget budget) { self._budget = budget; budget.commit(); }
+
+	public bool isOpen() { return self._open; }
+
+	public void retire() { if (!self._open) { return; } self._open = false; self._budget.retire(true); }
+}
+
+/* Reserve before a model mutation. The reservation owns independent storage,
+ * not an earlier snapshot or ordering position. Publication resolves the
+ * current replacement epoch and transfers this credit exactly once. */
+class ControlEventPreparation {
+	private ControlEventHeldBudget _budget;
+	private long long _registration;
+	private bool _open = true;
+	private ControlEventHeldReceipt? _receipt = null;
+	public ControlEventPreparation(ControlEventHeldBudget budget, long long registration) { self._budget = budget; self._registration = registration; }
+
+	public bool isOpen() { var receipt = self._receipt; if (receipt != null) { return receipt.isOpen(); } return self._open; }
+
+	public bool queued() { return self._receipt != null; }
+
+	public bool belongsTo(long long registration) { return self._registration == registration; }
+
+	public void requireOwner(ControlEventHeldBudget budget, long long registration) { if (self._budget != budget || self._registration != registration) { throw "Held preparation belongs to another registration"; } }
+
+	public void validate() { if (!self._open || self._receipt != null) { throw "Held preparation is stale or already consumed"; } }
+
+	public ControlEventHeldReceipt consume() { self.validate(); var receipt = ControlEventHeldReceipt(self._budget); self._receipt = receipt; return receipt; }
+
+	public void retire() { if (self._receipt != null) { if (self.isOpen()) { throw "Queued held credit belongs to its record"; } return; } if (!self._open) { return; } self._open = false; self._budget.retire(false); }
+}
+
 class ControlEventRecord {
 	public long long registration;
 	public long long generation;
@@ -80,6 +137,7 @@ class ControlEventRecord {
 	public long long key;
 	private IControlEventInvocation _invocation;
 	private ControlEventTicket? _terminal;
+	private ControlEventHeldReceipt? _held = null;
 	private bool _admitted = false;
 	private bool _retired = false;
 	public ControlEventRecord(long long registration, long long generation, long long interaction, long long key, IControlEventInvocation invocation, ControlEventTicket? terminal) {
@@ -87,6 +145,12 @@ class ControlEventRecord {
 	}
 
 	public bool terminal() { return self._terminal != null; }
+
+	public bool held() { return self._held != null; }
+
+	public void hold(ControlEventPreparation preparation) { if (self._admitted || self._held != null || self.terminal()) { throw "Semantic record cannot acquire held credit"; } self._held = preparation.consume(); }
+
+	public void promote() { var held = self._held; if (held == null) { throw "Semantic record has no held credit"; } self._held = null; held.retire(); }
 
 	public bool replaces(ControlEventRecord previous) { return !self.terminal() && self.key > 0LL && self.registration == previous.registration && self.generation == previous.generation && self.interaction == previous.interaction && self.key == previous.key; }
 
@@ -96,7 +160,14 @@ class ControlEventRecord {
 
 	public ControlEventDisposition invoke() { return self._invocation.invoke(); }
 
-	public void retire() { if (!self._admitted || self._retired) { throw "Semantic record retired without unique admission"; } self._retired = true; if (self._terminal != null) { self._terminal.complete(); } self._invocation.retired(); }
+	/* Preserve the original queue position and storage charge. The fresh
+	 * invocation owns its snapshot; the superseded invocation drains now. */
+	public void replaceWith(ControlEventRecord next) {
+		if (!self._admitted || self._retired || next._admitted || !next.replaces(self)) { throw "Invalid semantic replacement"; }
+		self._invocation.retired(); self._invocation = next._invocation; self._invocation.admitted();
+	}
+
+	public void retire() { if (!self._admitted || self._retired) { throw "Semantic record retired without unique admission"; } self._retired = true; if (self._terminal != null) { self._terminal.complete(); } if (self._held != null) { self._held.retire(); self._held = null; } self._invocation.retired(); }
 }
 
 /* One ordered semantic stream per window/scene. Replacement never crosses an
@@ -109,13 +180,15 @@ class ControlEventQueue {
 	private bool _dispatching = false;
 	private bool _wakeFailed = false;
 	private ControlEventTerminalPool _pool;
+	private ControlEventHeldBudget _held;
+	private Vector<ControlEventPreparation> _preparations = [];
 	private IControlEventWake? _wake = null;
 	private Vector<ControlEventRecord> _records = [];
 	private Vector<long long> _retired = [];
 
-	public ControlEventQueue(int normalCapacity, ControlEventTerminalPool pool) {
+	public ControlEventQueue(int normalCapacity, ControlEventTerminalPool pool, int heldCapacity = 0) {
 		if (normalCapacity <= 0 || normalCapacity > 65536 || pool == null) { throw "Invalid semantic queue capacity"; }
-		self._capacity = normalCapacity; self._pool = pool;
+		self._capacity = normalCapacity; self._pool = pool; self._held = ControlEventHeldBudget(heldCapacity);
 		for (int index = 0; index < 7; index++) { self._retired.push(0LL); }
 	}
 
@@ -127,10 +200,16 @@ class ControlEventQueue {
 
 	public int pendingCount() { return self._records.len; }
 
+	public int normalCount() { return self._normal; }
+
+	public int heldCount() { return self._held.queuedCount(); }
+
+	public int preparedCount() { return self._held.preparedCount(); }
+
 	/* Seal admission without discarding receipts owned by cancellation/close. */
 	public void sealNativeSource() { self._wakeFailed = true; }
 
-	public bool canCapture(int maximumRecords) { return !self._closed && !self._wakeFailed && maximumRecords >= 0 && maximumRecords <= self._capacity - self._normal; }
+	public bool canCapture(int maximumRecords) { return !self._closed && !self._wakeFailed && maximumRecords >= 0 && (maximumRecords == 0 || (self.heldCount() == 0 && maximumRecords <= self._capacity - self._normal)); }
 
 	public long long retired(ControlEventDisposition disposition) { return self._retired.get((int)disposition); }
 
@@ -142,16 +221,32 @@ class ControlEventQueue {
 		catch (string error) { self._wakeFailed = true; }
 	}
 
-	private void retireRecord(ControlEventRecord record, ControlEventDisposition disposition) {
+	private void countRetirement(ControlEventDisposition disposition) {
 		long long count = self._retired.get((int)disposition);
 		if (count == 9223372036854775807LL) { throw "Semantic receipt counters exhausted"; }
 		self._retired.set((int)disposition, count + 1LL);
-		if (!record.terminal()) { self._normal--; }
+	}
+
+	private void retireRecord(ControlEventRecord record, ControlEventDisposition disposition) {
+		self.countRetirement(disposition);
+		if (!record.terminal() && !record.held()) { self._normal--; }
 		record.retire();
 	}
 
-	public bool enqueue(ControlEventRecord record) {
-		if (self._closed || self._wakeFailed) { return false; }
+	private void prunePreparations() {
+		for (int index = self._preparations.len - 1; index >= 0; index--) { var preparation = self._preparations.get(index); if (!preparation.isOpen() || preparation.queued()) { self._preparations.remove(index); } }
+	}
+
+	public ControlEventPreparation? prepare(long long registration) {
+		if (self._closed || self._wakeFailed) { return null; }
+		self.prunePreparations();
+		if (!self._held.reserve()) { return null; }
+		var preparation = ControlEventPreparation(self._held, registration); self._preparations.push(preparation); return preparation;
+	}
+
+	public void requirePreparation(ControlEventPreparation preparation, long long registration) { preparation.requireOwner(self._held, registration); }
+
+	private int replacementIndex(ControlEventRecord record) {
 		int replacement = -1;
 		if (record.replaceable()) {
 			for (int index = self._records.len - 1; index >= 0; index--) {
@@ -160,14 +255,36 @@ class ControlEventQueue {
 				if (record.replaces(previous)) { replacement = index; break; }
 			}
 		}
-		if (!record.terminal() && replacement < 0 && self._normal == self._capacity) { return false; }
-		if (replacement >= 0) { self.retireRecord(self._records.get(replacement), CONTROL_EVENT_SUPERSEDED); }
-		record.admit(); if (!record.terminal()) { self._normal++; }
-		if (replacement >= 0) { self._records.set(replacement, record); } else { self._records.push(record); }
+		return replacement;
+	}
+
+	/* A held record is already ordered. Later normal producers must not spend
+	 * the free capacity it needs to promote, even when a callback is executing.
+	 * Captured admission remains fallible: providers must separately stop
+	 * native dequeue before exhausting their configured held budget. */
+	public bool enqueue(ControlEventRecord record, bool captured = false, ControlEventPreparation? prepared = null) {
+		var preparation = prepared;
+		if (preparation != null) { self.requirePreparation(preparation, record.registration); preparation.validate(); }
+		if (self._closed || self._wakeFailed) { if (preparation != null) { preparation.retire(); self.prunePreparations(); } return false; }
+		int replacement = self.replacementIndex(record);
+		if (replacement >= 0) {
+			self._records.get(replacement).replaceWith(record); self.countRetirement(CONTROL_EVENT_SUPERSEDED);
+			if (preparation != null) { preparation.retire(); self.prunePreparations(); }
+		} else {
+			if (!record.terminal() && (self._normal == self._capacity || self.heldCount() != 0)) {
+				if (preparation == null && captured) { preparation = self.prepare(record.registration); }
+				if (preparation == null) { return false; }
+				record.hold(preparation);
+			} else if (preparation != null) { preparation.retire(); }
+			record.admit(); if (!record.terminal() && !record.held()) { self._normal++; }
+			self._records.push(record); self.prunePreparations();
+		}
 		self.wake(); return true;
 	}
 
 	public void cancelRegistration(long long registration, ControlEventDisposition disposition = CONTROL_EVENT_CANCELLED) {
+		for preparation in self._preparations { if (preparation.belongsTo(registration)) { preparation.retire(); } }
+		self.prunePreparations();
 		for (int index = self._records.len - 1; index >= 0; index--) {
 			var record = self._records.get(index);
 			if (record.registration == registration) { self._records.remove(index); self.retireRecord(record, disposition); }
@@ -178,7 +295,9 @@ class ControlEventQueue {
 		if (self._wakeFailed) { throw "Semantic queue native wake failed"; }
 		if (self._dispatching) { throw "Semantic delivery cannot re-enter"; }
 		if (self._records.isEmpty()) { return false; }
-		var record = self._records.get(0); self._records.remove(0);
+		var record = self._records.get(0);
+		if (record.held()) { if (self._normal == self._capacity) { return false; } record.promote(); self._normal++; }
+		self._records.remove(0);
 		self._dispatching = true;
 		ControlEventDisposition disposition = CONTROL_EVENT_FAILED;
 		try { disposition = record.invoke(); }
@@ -188,6 +307,7 @@ class ControlEventQueue {
 
 	public void close() {
 		self._closed = true; self._wake = null;
+		for preparation in self._preparations { preparation.retire(); } self._preparations.clear();
 		while (!self._records.isEmpty()) { var record = self._records.get(0); self._records.remove(0); self.retireRecord(record, CONTROL_EVENT_CLOSED); }
 	}
 }
@@ -272,6 +392,27 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 		if (snapshot == (Snapshot)null || generation <= 0LL || interaction < 0LL || replacementKey < 0LL) { throw "Invalid semantic snapshot identity"; }
 		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
 		return self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, replacementKey, invocation, null));
+	}
+
+	/* Refusal happens before a model operation changes observable state. The
+	 * caller retires an unused preparation, including a failed/no-op mutation.
+	 * Cancel, close and rebind also invalidate outstanding preparations. */
+	public ControlEventPreparation? prepareSnapshot() { if (!self.isOpen()) { return null; } return self._queue.prepare(self._identity); }
+
+	public bool publishPrepared(Snapshot snapshot, long long generation, long long interaction, long long replacementKey, ControlEventPreparation preparation) {
+		if (preparation == null) { throw "Semantic model publication requires a preparation"; }
+		self._queue.requirePreparation(preparation, self._identity);
+		if (!self.isOpen()) { preparation.retire(); return false; }
+		if (snapshot == (Snapshot)null || generation <= 0LL || interaction < 0LL || replacementKey < 0LL) { throw "Invalid semantic snapshot identity"; }
+		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
+		return self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, replacementKey, invocation, null), false, preparation);
+	}
+
+	public bool publishCaptured(Snapshot snapshot, long long generation, long long interaction, long long replacementKey) {
+		if (!self.isOpen()) { return false; }
+		if (snapshot == (Snapshot)null || generation <= 0LL || interaction < 0LL || replacementKey < 0LL) { throw "Invalid semantic snapshot identity"; }
+		var invocation = new ControlEventInvocation<Receiver, Snapshot>(self, snapshot, generation);
+		return self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, replacementKey, invocation, null), true);
 	}
 
 	public void publishTerminal(Snapshot snapshot, long long generation, long long interaction, ControlEventTicket ticket) {
