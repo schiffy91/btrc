@@ -1,0 +1,236 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEventQueue;
+
+#include <assert.h>
+#include <stdio.h>
+
+class HeldSnapshot { public int value; public HeldSnapshot(int value) { self.value = value; } }
+class HeldTarget implements IControlEventTarget {
+	public ControlEventDisposition admission(long long generation) { return CONTROL_EVENT_DELIVERED; }
+}
+class HeldReceiver {
+	public Vector<int> values = [];
+	public ControlEventQueue? queue = null;
+	public ControlEventChannel<HeldReceiver, HeldSnapshot>? terminalChannel = null;
+	public ControlEventTicket? ticket = null;
+	public bool fail = false;
+	public void receive(HeldSnapshot snapshot) {
+		self.values.push(snapshot.value);
+		if (snapshot.value == 1 && self.terminalChannel != null) {
+			var channel = self.terminalChannel; var ticket = self.ticket; var queue = self.queue;
+			assert(channel != null && ticket != null && queue != null);
+			assert(queue.normalCount() == 1 && queue.heldCount() == 1 && queue.canCapture(0) && !queue.canCapture(1));
+			assert(!channel.publish(HeldSnapshot(99), 1LL, 9LL, 0LL));
+			channel.publishTerminal(HeldSnapshot(3), 1LL, 1LL, ticket);
+			self.terminalChannel = null; self.ticket = null; self.queue = null;
+		}
+		if (self.fail) { throw "Held receiver failure"; }
+	}
+
+	class void deliver(HeldReceiver receiver, HeldSnapshot snapshot) { receiver.receive(snapshot); }
+}
+class HeldWake implements IControlEventWake {
+	public bool fail = false;
+	public bool requestTurn() { return !self.fail; }
+}
+
+/* The observable model changes only after storage is reserved. Failure in
+ * the mutation itself retires the unpublished preparation in the same scope. */
+class HeldModel {
+	private ControlEventChannel<HeldReceiver, HeldSnapshot> _channel;
+	public int value = 10;
+	public HeldModel(ControlEventChannel<HeldReceiver, HeldSnapshot> channel) { self._channel = channel; }
+
+	public bool setValue(int next, bool fail = false) {
+		var preparation = self._channel.prepareSnapshot();
+		if (preparation == null) { return false; }
+		try {
+			if (fail) { throw "Model mutation refused"; }
+			self.value = next;
+			assert(self._channel.publishPrepared(HeldSnapshot(next), 1LL, 1LL, 1LL, preparation));
+		} finally { if (!preparation.queued()) { preparation.retire(); } }
+		return true;
+	}
+}
+
+class HeldChecks {
+	class void orderDuringCallback() {
+		var pool = ControlEventTerminalPool(2); var queue = ControlEventQueue(1, pool, 1);
+		var target = HeldTarget(); var receiver = HeldReceiver(); var scope = CallbackScope();
+		var first = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		var second = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		assert(first.publish(HeldSnapshot(1), 1LL, 1LL, 0LL));
+		assert(second.publishCaptured(HeldSnapshot(2), 1LL, 1LL, 1LL));
+		assert(queue.normalCount() == 1 && queue.heldCount() == 1 && queue.preparedCount() == 0);
+		receiver.queue = queue; receiver.terminalChannel = first; receiver.ticket = first.beginInteraction();
+		assert(receiver.ticket != null && first.beginInteraction() == null);
+		assert(queue.dispatchOne());
+		assert(queue.normalCount() == 0 && queue.heldCount() == 1 && !queue.canCapture(1));
+		assert(!first.publish(HeldSnapshot(98), 1LL, 2LL, 0LL));
+		assert(!first.publishCaptured(HeldSnapshot(97), 1LL, 2LL, 0LL));
+		assert(queue.dispatchOne() && queue.normalCount() == 0 && queue.heldCount() == 0 && queue.canCapture(1));
+		assert(queue.dispatchOne() && !queue.dispatchOne());
+		assert(receiver.values.len == 3 && receiver.values.get(0) == 1 && receiver.values.get(1) == 2 && receiver.values.get(2) == 3);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && pool.available() == 2); queue.close();
+	}
+
+	class void replacementEpochs() {
+		var pool = ControlEventTerminalPool(2); var queue = ControlEventQueue(1, pool, 2);
+		var target = HeldTarget(); var receiver = HeldReceiver(); var scope = CallbackScope();
+		var first = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		var second = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		assert(first.publish(HeldSnapshot(1), 1LL, 1LL, 0LL));
+		assert(second.publishCaptured(HeldSnapshot(2), 1LL, 1LL, 1LL));
+		assert(second.publishCaptured(HeldSnapshot(3), 1LL, 1LL, 1LL));
+		var preparation = second.prepareSnapshot(); assert(preparation != null);
+		assert(queue.heldCount() == 1 && queue.preparedCount() == 1 && second.prepareSnapshot() == null);
+		var ticket = first.beginInteraction(); assert(ticket != null);
+		first.publishTerminal(HeldSnapshot(4), 1LL, 1LL, ticket);
+		/* The reservation predates the terminal, but its snapshot does not. */
+		assert(second.publishPrepared(HeldSnapshot(5), 1LL, 1LL, 1LL, preparation));
+		assert(queue.heldCount() == 2 && queue.preparedCount() == 0 && queue.pendingCount() == 4);
+		assert(!second.publishCaptured(HeldSnapshot(96), 2LL, 1LL, 1LL));
+		assert(!second.publishCaptured(HeldSnapshot(97), 1LL, 2LL, 1LL));
+		assert(!second.publishCaptured(HeldSnapshot(98), 1LL, 1LL, 2LL));
+		assert(second.publishCaptured(HeldSnapshot(6), 1LL, 1LL, 1LL));
+		bool refused = false; try { preparation.retire(); } catch (string error) { refused = true; }
+		assert(refused && preparation.isOpen() && queue.heldCount() == 2);
+		while (queue.dispatchOne()) {}
+		assert(receiver.values.len == 4 && receiver.values.get(0) == 1 && receiver.values.get(1) == 3 && receiver.values.get(2) == 4 && receiver.values.get(3) == 6);
+		assert(queue.retired(CONTROL_EVENT_SUPERSEDED) == 2LL && !preparation.isOpen());
+		preparation.retire(); assert(queue.normalCount() == 0 && queue.heldCount() == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); queue.close();
+	}
+
+	class void modelPreflight() {
+		var pool = ControlEventTerminalPool(2); var queue = ControlEventQueue(1, pool, 1);
+		var target = HeldTarget(); var receiver = HeldReceiver(); var scope = CallbackScope();
+		var blocker = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		var changes = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		var model = HeldModel(changes);
+		assert(blocker.publish(HeldSnapshot(1), 1LL, 1LL, 0LL));
+		var preparation = blocker.prepareSnapshot(); assert(preparation != null);
+		assert(!model.setValue(20) && model.value == 10 && queue.pendingCount() == 1 && queue.preparedCount() == 1);
+		preparation.retire(); preparation.retire(); assert(queue.preparedCount() == 0);
+		bool failed = false; try { model.setValue(30, true); } catch (string error) { failed = true; }
+		assert(failed && model.value == 10 && queue.preparedCount() == 0);
+		assert(model.setValue(40) && model.value == 40 && queue.heldCount() == 1);
+		assert(!model.setValue(50) && model.value == 40 && queue.heldCount() == 1);
+		while (queue.dispatchOne()) {}
+		assert(receiver.values.len == 2 && receiver.values.get(0) == 1 && receiver.values.get(1) == 40);
+		assert(model.setValue(60) && queue.normalCount() == 1 && queue.preparedCount() == 0 && queue.heldCount() == 0);
+		assert(queue.dispatchOne() && receiver.values.get(2) == 60);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); queue.close();
+	}
+
+	class void preparedReplacement(bool retireOriginal) {
+		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(1, pool, 1);
+		var target = HeldTarget(); var receiver = HeldReceiver(); var scope = CallbackScope();
+		var channel = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		assert(channel.publish(HeldSnapshot(10), 1LL, 1LL, 1LL));
+		var preparation = channel.prepareSnapshot(); assert(preparation != null);
+		if (retireOriginal) { assert(queue.dispatchOne()); }
+		assert(channel.publishPrepared(HeldSnapshot(20), 1LL, 1LL, 1LL, preparation));
+		assert(!preparation.isOpen() && queue.preparedCount() == 0 && queue.heldCount() == 0 && queue.normalCount() == 1);
+		assert(queue.retired(CONTROL_EVENT_SUPERSEDED) == (retireOriginal ? 0LL : 1LL));
+		assert(queue.dispatchOne() && receiver.values.get(receiver.values.len - 1) == 20);
+		bool refused = false; try { channel.publishPrepared(HeldSnapshot(30), 1LL, 1LL, 1LL, preparation); } catch (string error) { refused = true; }
+		assert(refused && queue.preparedCount() == 0 && queue.pendingCount() == 0);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); queue.close();
+	}
+
+	class void cancellation(bool closeQueue) {
+		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(1, pool, 2);
+		var target = HeldTarget(); var receiver = HeldReceiver(); var scope = CallbackScope();
+		var channel = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		assert(channel.publish(HeldSnapshot(10), 1LL, 1LL, 0LL));
+		var queued = channel.prepareSnapshot(); var unused = channel.prepareSnapshot(); assert(queued != null && unused != null);
+		assert(channel.publishPrepared(HeldSnapshot(20), 1LL, 1LL, 1LL, queued));
+		assert(queue.heldCount() == 1 && queue.preparedCount() == 1);
+		if (closeQueue) { queue.close(); } else { assert(channel.cancel() == CALLBACK_CANCELLATION_COMPLETE); }
+		assert(!queued.isOpen() && !unused.isOpen() && queue.heldCount() == 0 && queue.preparedCount() == 0 && queue.normalCount() == 0 && queue.pendingCount() == 0);
+		queued.retire(); unused.retire(); queue.close();
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && pool.available() == 1 && receiver.values.len == 0);
+	}
+
+	class void preparedHeldReplacement() {
+		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(1, pool, 2);
+		var target = HeldTarget(); var receiver = HeldReceiver(); var scope = CallbackScope();
+		var channel = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		assert(channel.publish(HeldSnapshot(10), 1LL, 1LL, 0LL));
+		var original = channel.prepareSnapshot(); assert(original != null);
+		assert(channel.publishPrepared(HeldSnapshot(20), 1LL, 1LL, 1LL, original));
+		var replacement = channel.prepareSnapshot(); assert(replacement != null);
+		assert(queue.heldCount() == 1 && queue.preparedCount() == 1 && channel.prepareSnapshot() == null);
+		assert(channel.publishPrepared(HeldSnapshot(30), 1LL, 1LL, 1LL, replacement));
+		assert(original.isOpen() && original.queued() && !replacement.isOpen());
+		bool refused = false; try { var stolen = original.consume(); stolen.retire(); } catch (string error) { refused = true; }
+		assert(refused && original.isOpen());
+		assert(queue.heldCount() == 1 && queue.preparedCount() == 0 && queue.normalCount() == 1 && queue.pendingCount() == 2);
+		var available = channel.prepareSnapshot(); assert(available != null);
+		while (queue.dispatchOne()) {}
+		assert(!original.isOpen() && available.isOpen() && queue.preparedCount() == 1 && queue.heldCount() == 0);
+		assert(receiver.values.len == 2 && receiver.values.get(0) == 10 && receiver.values.get(1) == 30);
+		assert(queue.retired(CONTROL_EVENT_SUPERSEDED) == 1LL);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && !available.isOpen() && queue.preparedCount() == 0); queue.close();
+	}
+
+	class void registrationOwnership() {
+		var pool = ControlEventTerminalPool(3); var queue = ControlEventQueue(1, pool, 2); var destination = ControlEventQueue(1, pool, 2);
+		var target = HeldTarget(); var receiver = HeldReceiver(); var scope = CallbackScope();
+		var first = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		var second = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		var otherQueue = new ControlEventChannel<HeldReceiver, HeldSnapshot>(destination, target, receiver, HeldReceiver.deliver, scope);
+		var preparation = first.prepareSnapshot(); assert(preparation != null);
+		bool refused = false; try { second.publishPrepared(HeldSnapshot(1), 1LL, 1LL, 1LL, preparation); } catch (string error) { refused = true; }
+		assert(refused && preparation.isOpen() && queue.preparedCount() == 1);
+		refused = false; try { otherQueue.publishPrepared(HeldSnapshot(2), 1LL, 1LL, 1LL, preparation); } catch (string error) { refused = true; }
+		assert(refused && preparation.isOpen() && queue.preparedCount() == 1 && destination.preparedCount() == 0);
+		first.rebind(queue); assert(preparation.isOpen());
+		first.rebind(destination); assert(!preparation.isOpen() && queue.preparedCount() == 0);
+		var fresh = first.prepareSnapshot(); assert(fresh != null && destination.preparedCount() == 1);
+		refused = false; try { first.publishPrepared(HeldSnapshot(3), 1LL, 1LL, 1LL, preparation); } catch (string error) { refused = true; }
+		assert(refused && fresh.isOpen() && destination.preparedCount() == 1);
+		assert(first.publishPrepared(HeldSnapshot(4), 1LL, 1LL, 1LL, fresh));
+		assert(destination.dispatchOne() && receiver.values.len == 1 && receiver.values.get(0) == 4);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && pool.available() == 3); queue.close(); destination.close();
+	}
+
+	class void failures(bool wakeFailure) {
+		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(1, pool, 1);
+		var target = HeldTarget(); var receiver = HeldReceiver(); var scope = CallbackScope(); var wake = HeldWake(); queue.setWake(wake);
+		var channel = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		assert(channel.publish(HeldSnapshot(10), 1LL, 1LL, 0LL));
+		wake.fail = wakeFailure;
+		assert(channel.publishCaptured(HeldSnapshot(20), 1LL, 1LL, 1LL));
+		if (!wakeFailure) { assert(queue.dispatchOne()); receiver.fail = true; }
+		bool failed = false; try { queue.dispatchOne(); } catch (string error) { failed = true; }
+		assert(failed);
+		if (wakeFailure) { assert(queue.heldCount() == 1 && queue.normalCount() == 1 && receiver.values.len == 0); }
+		else { assert(queue.heldCount() == 0 && queue.normalCount() == 0 && queue.retired(CONTROL_EVENT_FAILED) == 1LL && receiver.values.len == 2); }
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && queue.heldCount() == 0 && queue.normalCount() == 0 && pool.available() == 1); queue.close();
+	}
+
+	class void defaultBudget() {
+		var pool = ControlEventTerminalPool(1); var queue = ControlEventQueue(1, pool);
+		var target = HeldTarget(); var receiver = HeldReceiver(); var scope = CallbackScope();
+		var channel = new ControlEventChannel<HeldReceiver, HeldSnapshot>(queue, target, receiver, HeldReceiver.deliver, scope);
+		assert(channel.prepareSnapshot() == null);
+		assert(channel.publishCaptured(HeldSnapshot(10), 1LL, 1LL, 1LL));
+		assert(channel.publishCaptured(HeldSnapshot(20), 1LL, 1LL, 1LL));
+		assert(!channel.publishCaptured(HeldSnapshot(30), 1LL, 2LL, 1LL));
+		assert(queue.heldCount() == 0 && queue.preparedCount() == 0 && queue.normalCount() == 1);
+		assert(queue.dispatchOne() && receiver.values.len == 1 && receiver.values.get(0) == 20);
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE); queue.close();
+	}
+}
+
+int main() {
+	HeldChecks.orderDuringCallback(); HeldChecks.replacementEpochs(); HeldChecks.modelPreflight();
+	HeldChecks.preparedReplacement(false); HeldChecks.preparedReplacement(true);
+	HeldChecks.cancellation(false); HeldChecks.cancellation(true); HeldChecks.preparedHeldReplacement(); HeldChecks.registrationOwnership();
+	HeldChecks.failures(false); HeldChecks.failures(true); HeldChecks.defaultBudget();
+	printf("PASS: UI2 bounded held receipts model preflight and ordering epochs\n");
+	return 0;
+}
