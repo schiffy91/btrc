@@ -141,7 +141,7 @@ def test_macos_ui2_scoped_worker_signal(
         manifest.write_text(
             manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "UI2MacOSButtonState.h"\n'
             'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
-            'symbols = ["+[BTRCUI2ButtonProbe exercise:mode:]"]\n'
+            'symbols = ["+[BTRCUI2ButtonProbe exercise:mode:]", "+[BTRCUI2ButtonProbe newManualButton]", "+[BTRCUI2ButtonProbe manualLiveCount]", "+[BTRCUI2ButtonProbe hasTarget:]", "+[BTRCUI2ButtonProbe fire:]"]\n'
             '[[native.sources]]\npath = "UI2MacOSButtonState.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     if fixture in {"UI2MacOSDetachFault", "UI2MacOSViewOrder", "UI2MacOSContainer"}:

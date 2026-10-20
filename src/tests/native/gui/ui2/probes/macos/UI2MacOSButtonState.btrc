@@ -95,6 +95,37 @@ class NativeButtonAdmissionChecks {
 	class void run() { NativeButtonAdmissionChecks.accepted(0); NativeButtonAdmissionChecks.accepted(1); NativeButtonAdmissionChecks.accepted(8); NativeButtonAdmissionChecks.accepted(3); for (int mode = 0; mode <= 4; mode++) { NativeButtonAdmissionChecks.pressure(mode); } NativeButtonAdmissionChecks.nested(); NativeButtonAdmissionChecks.closeDuringTracking(); }
 }
 
+/* A manually bound existing NSButton retains the raw target/action contract;
+ * it has no provider-owned subclass admission hooks. */
+class ManualButtonChecks {
+	class void abandon(NSButton control) {
+		var actions = MacOSActionQueue(2); var action = actions.bind(control);
+		BTRCUI2ButtonProbe.fire(control); assert(actions.take() == action);
+		BTRCUI2ButtonProbe.fire(control);
+	}
+
+	class void run() {
+		assert(BTRCUI2ButtonProbe.manualLiveCount() == 0L); IMacOSAction? retired = null;
+		{
+			var control = BTRCUI2ButtonProbe.newManualButton(); assert(BTRCUI2ButtonProbe.manualLiveCount() == 1L);
+			ManualButtonChecks.abandon(control); assert(!BTRCUI2ButtonProbe.hasTarget(control));
+			var actions = MacOSActionQueue(3); var other = MacOSActionQueue(3); var action = actions.bind(control); retired = action;
+			bool duplicate = false; try { other.bind(control); } catch (string error) { duplicate = true; }
+			assert(duplicate);
+			for (int index = 0; index < 1000; index++) {
+				BTRCUI2ButtonProbe.fire(control); BTRCUI2ButtonProbe.fire(control); assert(actions.take() == action);
+				BTRCUI2ButtonProbe.fire(control); assert(actions.take() == action && actions.take() == action);
+			}
+			BTRCUI2ButtonProbe.fire(control); actions.unbind(control);
+			assert(actions.take() == null && !BTRCUI2ButtonProbe.hasTarget(control));
+			var rebound = other.bind(control); assert(rebound != action);
+			BTRCUI2ButtonProbe.fire(control); assert(other.take() == rebound && actions.take() == null);
+			other.unbind(control); assert(!BTRCUI2ButtonProbe.hasTarget(control)); actions.close(); other.close();
+		}
+		assert(retired != null && BTRCUI2ButtonProbe.manualLiveCount() == 0L);
+	}
+}
+
 int main() {
 	NSApplication.sharedApplication();
 	var signal = MacOSRunLoopSignal(); var actions = MacOSActionQueue(8, signal);
@@ -115,6 +146,6 @@ int main() {
 	button.stateNode().windowChanged(false, WINDOW_EXPOSURE_NOT_EXPOSED); assert(actions.pendingCount() == 0 && receiver.calls == 1);
 	button.stateNode().detachWindow(); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(button.close() == CALLBACK_CANCELLATION_COMPLETE); actions.close(); context.close(); assert(signal.close());
-	PressureButtonChecks.run(); NativeButtonAdmissionChecks.run();
+	PressureButtonChecks.run(); NativeButtonAdmissionChecks.run(); ManualButtonChecks.run();
 	print("PASS: UI2 macOS eligibility loss retires pending native button actions"); return 0;
 }

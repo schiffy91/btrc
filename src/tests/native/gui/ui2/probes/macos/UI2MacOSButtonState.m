@@ -1,8 +1,25 @@
 #import "UI2MacOSButtonState.h"
 
+static NSInteger manualButtons;
+@interface BTRCUI2ManualButton : NSButton
+@end
+@implementation BTRCUI2ManualButton
+- (id)init { self = [super init]; if (self) { manualButtons++; } return self; }
+- (void)dealloc {
+    manualButtons--;
+#if !__has_feature(objc_arc)
+    [super dealloc];
+#endif
+}
+@end
+
 /* Real AppKit selector dispatch in an unshown offscreen window. The probe
  * never activates the application or changes the user's keyboard focus. */
 @implementation BTRCUI2ButtonProbe
++ (NSButton *)newManualButton { return [BTRCUI2ManualButton new]; }
++ (NSInteger)manualLiveCount { return manualButtons; }
++ (BOOL)hasTarget:(NSButton *)button { return button.target != nil || button.action != NULL; }
++ (void)fire:(NSButton *)button { [button sendAction:button.action to:button.target]; }
 + (BOOL)exercise:(NSView *)view mode:(int)mode {
     NSButton *button = (NSButton *)view;
     NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(-10000, -10000, 200, 120)
