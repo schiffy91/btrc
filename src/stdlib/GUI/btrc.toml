@@ -477,7 +477,8 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
-	"-[NSWindow isMiniaturized]",
+	"-[NSWindow isMiniaturized]", "-[NSWindow backingScaleFactor]", "-[NSWindow occlusionState]", "NSWindowOcclusionStateVisible",
+	"-[NSWindowDelegate windowDidResize:]", "-[NSWindowDelegate windowDidBecomeKey:]", "-[NSWindowDelegate windowDidResignKey:]", "-[NSWindowDelegate windowDidMiniaturize:]", "-[NSWindowDelegate windowDidDeminiaturize:]", "-[NSWindowDelegate windowDidChangeBackingProperties:]", "-[NSWindowDelegate windowDidChangeOcclusionState:]", "-[NSWindowDelegate windowDidChangeScreen:]",
 	"+[NSThread isMainThread]", "+[NSWindow new]", "-[NSWindow setReleasedWhenClosed:]",
 	"-[NSWindow setDelegate:]", "-[NSWindow delegate]", "-[NSWindowDelegate windowShouldClose:]", "-[NSWindowDelegate windowWillClose:]", "-[NSWindow endEditingFor:]",
 	"-[NSWindow setStyleMask:]", "NSWindowStyleMaskTitled", "NSWindowStyleMaskClosable", "NSWindowStyleMaskMiniaturizable", "NSWindowStyleMaskResizable",
@@ -495,7 +496,7 @@ failure = "abort"
 executor = "caller"
 unregister = "-[NSWindow setDelegate:]"
 slot-getter = "-[NSWindow delegate]"
-methods = ["-[NSWindowDelegate windowShouldClose:]", "-[NSWindowDelegate windowWillClose:]"]
+methods = ["-[NSWindowDelegate windowShouldClose:]", "-[NSWindowDelegate windowWillClose:]", "-[NSWindowDelegate windowDidResize:]", "-[NSWindowDelegate windowDidBecomeKey:]", "-[NSWindowDelegate windowDidResignKey:]", "-[NSWindowDelegate windowDidMiniaturize:]", "-[NSWindowDelegate windowDidDeminiaturize:]", "-[NSWindowDelegate windowDidChangeBackingProperties:]", "-[NSWindowDelegate windowDidChangeOcclusionState:]", "-[NSWindowDelegate windowDidChangeScreen:]"]
 activation-failure = "abort"
 cancellation = "entry-barrier"
 
@@ -755,6 +756,7 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
+	"-[NSSlider initWithFrame:]", "-[NSSlider accessibilityPerformIncrement]", "-[NSSlider accessibilityPerformDecrement]",
 	"-[NSSlider setTarget:]", "-[NSSlider target]", "-[NSSlider setAction:]", "-[NSSlider action]",
 	"+[NSSlider new]", "-[NSSlider setMinValue:]", "-[NSSlider setMaxValue:]", "-[NSSlider setNumberOfTickMarks:]",
 	"-[NSSlider setAllowsTickMarkValuesOnly:]", "-[NSSlider closestTickMarkValueToValue:]", "-[NSSlider setContinuous:]",
@@ -774,6 +776,15 @@ action-setter = "-[NSSlider setAction:]"
 action-getter = "-[NSSlider action]"
 activation-failure = "abort"
 cancellation = "entry-barrier"
+
+[native.bindings.callbacks."-[NSSlider initWithFrame:].self"]
+interface = "IAppKitSliderAccessibility"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+superclass = "NSSlider"
+overrides = ["-[NSSlider accessibilityPerformIncrement]", "-[NSSlider accessibilityPerformDecrement]"]
 
 # The Windows provider: Win32 windows and Common Controls 6 EDIT, BUTTON and
 # STATIC controls (user32, gdi32, comctl32). Every provider window's messages
