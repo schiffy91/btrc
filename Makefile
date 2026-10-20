@@ -335,13 +335,13 @@ test-shard-unit: generated-check gpu-required ## CI shard: everything but the se
 
 # The focused native-GUI gate (PLAN Stage 30, ui-0-focused-gate): the GUI,
 # tray and provider suites alone, for Codex lanes and CI's focus=native-gui
-# dispatch. Later UI suites join through the test_native_ui_*.py glob, so they
-# never edit this list. On Linux it runs under tools/virtual-display.sh, which
+# dispatch. UI and UI2 suites join through the filename globs below, so new
+# fixtures do not need individual entries. On Linux it runs under tools/virtual-display.sh, which
 # keeps an existing display.
 NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui_runtime.py test_native_gui_appkit.py \
 	test_native_pointer_runtime.py test_native_control_sizing_runtime.py test_native_font_runtime.py \
 	test_native_app_runtime.py test_native_tray_runtime.py test_native_linux_providers.py \
-	test_native_linux_call_shapes.py test_native_webgpu_imports.py) $(sort $(wildcard src/tests/python/test_native_ui_*.py))
+	test_native_linux_call_shapes.py test_native_webgpu_imports.py) $(sort $(wildcard src/tests/python/test_native_ui_*.py src/tests/python/test_native_ui2_*.py))
 
 test-native-gui: generated-check ## Focused gate: the native GUI, tray and provider suites only
 	$(NIX) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS)
