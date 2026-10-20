@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.process_limits import C_COMPILE_TIMEOUT
+from src.tests.native_bindings import NativeBindingPackage
+from src.tests.process_limits import C_COMPILE_TIMEOUT, TOOL_TIMEOUT
+from src.tests.runner_capabilities import linux_display_error
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -121,3 +124,58 @@ def provider_environment(sanitized: bool, **extra: str) -> dict[str, str]:
     if sanitized and driver.is_dir():
         environment["LD_LIBRARY_PATH"] = ":".join(filter(None, [os.environ.get("LD_LIBRARY_PATH"), str(driver)]))
     return environment
+
+
+def build_observed_provider_program(
+    tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers
+):
+    require_linux_reader()
+    if error := linux_display_error():
+        pytest.skip(error)
+    # Request expensive fixtures only after the platform/reader/display guards.
+    data_root = request.getfixturevalue("gui_provider_root")
+    root = Path(__file__).resolve().parents[3]
+    directory = tmp_path_factory.mktemp(f"{Path(program).stem}-{frontend}-{'sanitized' if sanitized else 'plain'}")
+    probe = root / probe_name
+    source = NativeBindingPackage.write(root / program, directory / "package", probe.with_suffix(".h"), symbols)
+    generated, plan = directory / "Program.c", directory / "Program.json"
+    transpile_provider_program(source, generated, plan, frontend, request, data_root=data_root)
+    flags = shlex.split(
+        subprocess.check_output(["pkg-config", "--cflags", "sdl3", "wgpu-native"], text=True, timeout=TOOL_TIMEOUT)
+    )
+    sanitizers = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
+    observer = directory / f"{probe.name}.o"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            *sanitizers,
+            *flags,
+            "-c",
+            str(probe.with_suffix(".c")),
+            "-o",
+            str(observer),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=C_COMPILE_TIMEOUT,
+    )
+
+    def run(command, **kwargs):
+        command = list(command)
+        if "-c" in command:
+            command[1:1] = sanitizers
+        elif "-o" in command:
+            command.extend([str(observer), *(f"-Wl,--wrap={symbol}" for symbol in wrappers), *sanitizers])
+        kwargs.setdefault("timeout", C_COMPILE_TIMEOUT)
+        return subprocess.run(command, **kwargs)
+
+    executable = directory / "Program"
+    NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+    return executable

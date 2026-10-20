@@ -6,6 +6,9 @@
 static unsigned int target;
 static int latest;
 static int frames;
+static int admitted;
+static int rejected;
+static bool armed;
 
 /* Observe successful native presentation without changing the GPU result. */
 WGPUStatus __real_wgpuSurfacePresent(WGPUSurface surface);
@@ -42,8 +45,20 @@ static bool accepted(void *unused, SDL_Event *event) {
     return event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event->window.windowID == target;
 }
 
+bool __real_SDL_PushEvent(SDL_Event *event);
+bool __wrap_SDL_PushEvent(SDL_Event *event) {
+    bool relevant = armed && accepted(NULL, event);
+    bool result = __real_SDL_PushEvent(event);
+    if (relevant) { if (result) { admitted++; } else { rejected++; } }
+    return result;
+}
+int eventBoundaryAccepted(void) { return admitted; }
+int eventBoundaryRejected(void) { return rejected; }
+
 void eventBoundaryArm(unsigned int window) {
     target = window;
+    admitted = rejected = 0;
+    armed = true;
     SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
     SDL_SetEventFilter(accepted, NULL);
 }
@@ -60,4 +75,4 @@ void eventBoundaryClose(unsigned int window) {
     if (!pushed) { abort(); }
 }
 
-void eventBoundaryDisarm(void) { SDL_SetEventFilter(NULL, NULL); }
+void eventBoundaryDisarm(void) { armed = false; SDL_SetEventFilter(NULL, NULL); }

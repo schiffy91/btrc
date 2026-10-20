@@ -6,4 +6,6 @@ int eventBoundaryLatest(void);
 int eventBoundaryFrames(void);
 void eventBoundaryClose(unsigned int window);
 void eventBoundaryDisarm(void);
+int eventBoundaryAccepted(void);
+int eventBoundaryRejected(void);
 #endif
