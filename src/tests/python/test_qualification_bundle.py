@@ -28,6 +28,8 @@ def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
         "native-bundle": "target",
         "linux-gui": "cell",
         "linux-gui-coverage": "session",
+        "linux-e40": "cell",
+        "macos-e40": "cell",
         "win32-native": "target",
         "target-corpus": "target",
     }.get(job, "shard")
@@ -158,12 +160,31 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
             for job, matrix in main["matrix"].items():
                 assert all(row in plan["matrix"][job]["include"] for row in matrix["include"]), (workflow, wider, job)
     ci = manifest.plan("ci.yml", "main")
-    assert ci["jobs"] == ["release", "tests", "bench", "linux-arm64-bundle", "linux-gui", "linux-gui-coverage"]
+    assert ci["jobs"] == [
+        "release",
+        "tests",
+        "bench",
+        "linux-arm64-bundle",
+        "linux-gui",
+        "linux-gui-coverage",
+        "linux-e40",
+    ]
     assert len(ci["matrix"]["tests"]["include"]) == 13
     assert list(_rows(ci, "linux-gui")) == [
         f"{session}-{index}" for session in ("x11", "wayland") for index in range(4)
     ]
+    assert list(_rows(ci, "linux-gui-coverage")) == ["x11", "wayland"]
+    assert list(_rows(ci, "linux-e40")) == [
+        f"{session}-{frontend}-{variant}"
+        for session in ("x11", "wayland")
+        for frontend in ("python", "selfhost")
+        for variant in ("plain", "sanitized")
+    ]
     macos = manifest.plan("macos.yml", "main")
+    assert macos["jobs"] == ["native-bundle", "tests", "macos-e40"]
+    assert list(_rows(macos, "macos-e40")) == [
+        f"macos-{frontend}-{variant}" for frontend in ("reference", "selfhost") for variant in ("plain", "sanitized")
+    ]
     assert list(_rows(macos, "tests")) == [
         "unit",
         "btrc",
@@ -264,7 +285,7 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
     assert manifest.plan("windows.yml", "pr", plain)["jobs"] == []
 
     macos = manifest.plan("macos.yml", "pr", ["src/stdlib/GUI/MacOS/Window.btrc"])
-    assert macos["jobs"] == ["native-bundle", "tests"]
+    assert macos["jobs"] == ["native-bundle", "tests", "macos-e40"]
     assert list(_rows(macos, "native-bundle")) == ["macos-arm64"]
     assert list(_rows(macos, "tests")) == ["unit"]
 
@@ -347,19 +368,20 @@ def test_a_lane_keeps_the_linux_matrix_and_the_macos_lane_jobs() -> None:
         "linux-arm64-bundle",
         "linux-gui",
         "linux-gui-coverage",
+        "linux-e40",
     ]
     assert ci["matrix"] == manifest.plan("ci.yml", "main")["matrix"]
     macos = manifest.plan("macos.yml", "lane", ["src/stdlib/GUI/Linux/Window.btrc"])
-    assert macos["jobs"] == ["native-bundle", "native-gui"]
+    assert macos["jobs"] == ["native-bundle", "native-gui", "macos-e40"]
     assert list(_rows(macos, "native-bundle")) == ["macos-arm64"]
 
 
 LANE_LINUX = ["static", "release", "tests", "bench", "linux-arm64-bundle"]
 LANE_LIGHT = ["static", "release", "tests"]
 # The Linux GUI and audio shard joins when a Linux GUI, audio or native path changes.
-LANE_LINUX_GUI = [*LANE_LINUX, "linux-gui", "linux-gui-coverage"]
-LANE_LIGHT_GUI = [*LANE_LIGHT, "linux-gui", "linux-gui-coverage"]
-LANE_MACOS = ["native-bundle", "native-gui"]
+LANE_LINUX_GUI = [*LANE_LINUX, "linux-gui", "linux-gui-coverage", "linux-e40"]
+LANE_LIGHT_GUI = [*LANE_LIGHT, "linux-gui", "linux-gui-coverage", "linux-e40"]
+LANE_MACOS = ["native-bundle", "native-gui", "macos-e40"]
 # Windows runs only its own paths. The Win32 GUI shell rows build from the
 # shared shell fixtures and link Library.GPU (CX-UIA-15).
 LANE_WINDOWS = {
@@ -455,12 +477,12 @@ def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(
     assert windows == (manifest.plan("windows.yml", "pr", changed)["jobs"] if changed is not None else [])
 
 
-def test_lane_path_selection_leaves_every_other_tier_alone() -> None:
-    """Only the lane tier is path-selected; the tiers that run without a change list ignore paths."""
+def test_path_selection_leaves_unconditional_full_tiers_alone() -> None:
+    """Lane/PR path selection cannot narrow the unconditional full-tier matrix."""
 
     manifest = _manifest()
     selected = {tier for entry in (*manifest.jobs, *manifest.shards) for tier in entry.condition.selected_tiers()}
-    assert selected == {"lane"}
+    assert selected == {"lane", "pr"}
     samples = [
         ["docs/design/native-ui-catalog/families.toml"],
         ["tools/ui/codex-setup.sh"],
@@ -484,6 +506,19 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
         for index in range(4)
         for kind in ("skip-report", "junit")
     ]
+    assert expected["ci.yml/linux-e40"] == [
+        f"{kind}-ci-linux-e40-{session}-{frontend}-{variant}"
+        for session in ("x11", "wayland")
+        for frontend in ("python", "selfhost")
+        for variant in ("plain", "sanitized")
+        for kind in ("skip-report", "junit")
+    ]
+    assert expected["macos.yml/macos-e40"] == [
+        f"{kind}-macos-macos-e40-macos-{frontend}-{variant}"
+        for frontend in ("reference", "selfhost")
+        for variant in ("plain", "sanitized")
+        for kind in ("skip-report", "junit")
+    ]
     assert "boundary-report-ci-tests-bootstrap" in expected["ci.yml/tests"]
     assert "boundary-report-macos-tests-bootstrap" in expected["macos.yml/tests"]
     assert len([name for name in expected["ci.yml/tests"] if name.startswith("skip-report-")]) == 13
@@ -502,7 +537,7 @@ def test_the_tiers_command_prints_one_line_of_json(tmp_path: Path, capsys: pytes
     assert code == 0 and out.count("\n") == 1
     assert json.loads(out) == _manifest().plan("ci.yml", "pr", ["src/tests/strings/Foo.btrc"])
     assert QualificationCommand().run(["tiers"]) == 0
-    assert "ci.yml main: 5 job(s), 15 matrix row(s)" in capsys.readouterr().out
+    assert "ci.yml main: 7 job(s), 31 matrix row(s)" in capsys.readouterr().out
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml"]) == 2
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml", "--tier", "nightly"]) == 2
 

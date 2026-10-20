@@ -158,8 +158,11 @@ def test_collection_cannot_silently_lose_nodes(tmp_path, problem):
 def test_actual_pytest_plugin_retains_exact_parameter_ids_and_setup_skips(tmp_path, workers):
     (tmp_path / "pytest.ini").write_text("[pytest]\n")
     (tmp_path / "test_sample.py").write_text(
-        "import pytest\n@pytest.mark.parametrize('value', ['a::b', 'c.d'])\n"
-        "def test_sample(value):\n    if value == 'c.d': pytest.skip('fixture skip')\n"
+        "import pytest\n@pytest.fixture\ndef value(request):\n"
+        "    if request.param == 'c.d': pytest.skip('setup fixture skip')\n"
+        "    return request.param\n"
+        "@pytest.mark.parametrize('value', ['a::b', 'c.d'], indirect=True)\n"
+        "def test_sample(value):\n    assert value == 'a::b'\n"
     )
     env = dict(os.environ, PYTHONPATH=str(ROOT), PYTEST_ADDOPTS="")
     common = [sys.executable, "-m", "pytest", "-p", "tools.ui.gui_collection", "-c", "pytest.ini", "test_sample.py"]
@@ -193,7 +196,8 @@ def test_actual_pytest_plugin_retains_exact_parameter_ids_and_setup_skips(tmp_pa
         )
         == nodes
     )
-    assert sum(case.find("skipped") is not None for case in cases) == 1
+    skipped = [case.find("skipped") for case in cases if case.find("skipped") is not None]
+    assert len(skipped) == 1 and skipped[0].get("message") == "setup fixture skip"
 
 
 @pytest.mark.parametrize("failure", [False, True])
