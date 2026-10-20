@@ -445,9 +445,9 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	}
 
 	private void updateHostDeadline() {
-		if (self._host == null) { return; }
-		self._host.scheduleTurn(self.nextDeadline());
-		if (self.runnable() && !self._host.requestTurn()) { self.failWork("Application host wake failed"); }
+		var host = self._host; if (host == null) { return; }
+		host.scheduleTurn(self.nextDeadline());
+		if (self.runnable() && !host.requestTurn()) { self.failWork("Application host wake failed"); }
 	}
 
 	private void renderWindows() {

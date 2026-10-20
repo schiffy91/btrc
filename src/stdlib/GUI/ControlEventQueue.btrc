@@ -158,9 +158,10 @@ class ControlEventCaptureReceipt implements IControlEventStorage {
 	public bool replaces(IControlEventStorage previous) { var slot = self._slot; if (self._retired || self._owns || slot == null) { return false; } self._owner.validateRecord(slot); return previous.ownsEpoch(self._owner, slot); }
 
 	public void entered() {
-		if (self._retired || !self._admitted || !self._owns || self._slot == null || self._entered) { throw "Capture receipt cannot enter twice"; }
+		var slot = self._slot;
+		if (self._retired || !self._admitted || !self._owns || slot == null || self._entered) { throw "Capture receipt cannot enter twice"; }
 		self._owner.enter(); self._entered = true;
-		var slot = self._slot; self._slot = null; self._owner.releaseRecord(slot);
+		self._slot = null; self._owner.releaseRecord(slot);
 	}
 
 	public void retired() {
@@ -340,7 +341,10 @@ class ControlEventCaptureOwner {
 			if (participant.removed || registration == null || !registration.open || registration.current == null || participant.slot.occupied) { throw "Capture lease has an invalid participant"; }
 		}
 		for participant in lease.participants {
-			var registration = self.findRegistration(participant.registration); var previous = registration.current;
+			var registration = self.findRegistration(participant.registration);
+			if (registration == null) { throw "Capture lease has an invalid participant"; }
+			var previous = registration.current;
+			if (previous == null) { throw "Capture lease has an invalid participant"; }
 			registration.current = participant.slot; participant.slot = previous;
 		}
 		lease.consumed = true; var ordered = lease.ordered; if (ordered != null) { ordered.occupied = true; }
@@ -796,7 +800,11 @@ class ControlEventRebind<Receiver, Snapshot> implements IControlEventRebind {
 
 	public void finish() {
 		if (!self._committed || self._finished) { return; } self._finished = true; string failure = "";
-		while (!self._retirees.isEmpty()) { ControlEventRecord? record = self._retirees.get(0); self._retirees.remove(0); try { self._sourceQueue.retireRebound(record); record = null; } catch (string error) { if (failure == "") { failure = error; } } }
+		if (!self._retirees.isEmpty()) {
+			var queue = self._sourceQueue;
+			if (queue == null) { throw "Rebound records have no source queue"; }
+			while (!self._retirees.isEmpty()) { ControlEventRecord? record = self._retirees.get(0); self._retirees.remove(0); try { queue.retireRebound(record); record = null; } catch (string error) { if (failure == "") { failure = error; } } }
+		}
 		self._sourceQueue = null; if (failure != "") { throw failure; }
 	}
 
@@ -905,7 +913,8 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 	public ControlEventPublication<Receiver, Snapshot>? prepareKey(long long generation, long long interaction, long long key) {
 		if (self._role != CONTROL_CAPTURE_KEYED || generation <= 0LL || interaction < 0LL || key <= 0LL) { throw "Key preparation requires a keyed channel and valid tuple"; }
 		if (!self.isOpen() || !self._queue.canCapture(0)) { return null; }
-		var lease = self._queue.captureOwner().reserveKeyChange(self._capture); if (lease == null) { return null; }
+		var capture = self._capture; if (capture == null) { throw "Keyed channel has no capture registration"; }
+		var lease = self._queue.captureOwner().reserveKeyChange(capture); if (lease == null) { return null; }
 		return new ControlEventPublication<Receiver, Snapshot>(self, self._identity, generation, interaction, key, lease);
 	}
 
@@ -920,7 +929,7 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 		if (!self.isOpen() || !self._queue.canCapture(0)) { return null; }
 		for (int index = self._tickets.len - 1; index >= 0; index--) { if (!self._tickets.get(index).isOpen()) { self._tickets.remove(index); } }
 		ControlEventCaptureLease? continuation = null;
-		if (self._role == CONTROL_CAPTURE_TERMINAL) { continuation = self._queue.captureOwner().reserveBarrier(self._capture); if (continuation == null) { return null; } }
+		if (self._role == CONTROL_CAPTURE_TERMINAL) { var capture = self._capture; if (capture == null) { throw "Terminal channel has no capture registration"; } continuation = self._queue.captureOwner().reserveBarrier(capture); if (continuation == null) { return null; } }
 		bool extra = self._baseTicket != null && self._baseTicket.isOpen();
 		if (extra && !self._queue.terminalPool().reserve()) { if (continuation != null) { continuation.cancel(); } return null; }
 		var ticket = ControlEventTicket(self._queue.terminalPool(), self._identity, extra, continuation);
@@ -939,7 +948,8 @@ class ControlEventChannel<Receiver, Snapshot> implements IControlEventChannel {
 		if (self._hasKey && (generation != self._keyGeneration || interaction != self._keyInteraction || replacementKey != self._key)) { throw "Capture tuple requires a prepared key transition"; }
 		if (!self._hasKey) { if (self._role == CONTROL_CAPTURE_KEYED) { throw "Keyed capture requires its first publication preparation"; } self._hasKey = true; self._keyGeneration = generation; self._keyInteraction = interaction; self._key = replacementKey; }
 		if (!self._queue.canCapture(0)) { return false; }
-		var receipt = self._queue.captureOwner().capture(self._capture);
+		var capture = self._capture; if (capture == null) { throw "Replaceable channel has no capture registration"; }
+		var receipt = self._queue.captureOwner().capture(capture);
 		try { bool accepted = self._queue.enqueue(ControlEventRecord(self._identity, generation, interaction, replacementKey, invocation, null, receipt)); if (!accepted) { receipt.retired(); } return accepted; }
 		catch (string error) { receipt.retired(); throw error; }
 	}

@@ -16,8 +16,8 @@ class SliderInteractionAdmission {
 	public ControlEventTicket? cancel;
 	public void retire() {
 		if (self.preview != null) { self.preview.abort(); self.preview = null; }
-		if (self.commit != null && !self.commit.queued()) { self.commit.retire(); }
-		if (self.cancel != null && !self.cancel.queued()) { self.cancel.retire(); }
+		var commit = self.commit; if (commit != null && !commit.queued()) { commit.retire(); }
+		var cancel = self.cancel; if (cancel != null && !cancel.queued()) { cancel.retire(); }
 		self.commit = null; self.cancel = null;
 	}
 
@@ -53,7 +53,7 @@ class SliderInteraction {
 	public ControlEventChannel<ISliderControlEventHandler, SliderControlEvent> onPreview(ControlEventQueue queue, IControlEventTarget target, ISliderControlEventHandler receiver, CallbackScope owner) {
 		if (self._preview != null && self._preview.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing slider preview handler first"; }
 		var channel = new ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>(queue, target, receiver, SliderInteraction.deliver, owner, queue.captureEnabled() ? CONTROL_CAPTURE_KEYED : CONTROL_CAPTURE_LEGACY);
-		try { if (self._active && queue.captureEnabled()) { var key = channel.prepareKey(self._generation, self._interaction, self._model.rangeRevision()); if (key == null) { throw "Slider preview reservation unavailable"; } self._admission.preview = key; } }
+		try { if (self._active && queue.captureEnabled()) { var admission = self.requireAdmission(); var key = channel.prepareKey(self._generation, self._interaction, self._model.rangeRevision()); if (key == null) { throw "Slider preview reservation unavailable"; } admission.preview = key; } }
 		catch (string error) { channel.cancel(); throw error; }
 		self._previewCaptured = queue.captureEnabled(); self._preview = channel; return channel;
 	}
@@ -61,7 +61,7 @@ class SliderInteraction {
 	public ControlEventChannel<ISliderControlEventHandler, SliderControlEvent> onCommit(ControlEventQueue queue, IControlEventTarget target, ISliderControlEventHandler receiver, CallbackScope owner) {
 		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing slider commit handler first"; }
 		var channel = new ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>(queue, target, receiver, SliderInteraction.deliver, owner, queue.captureEnabled() ? CONTROL_CAPTURE_TERMINAL : CONTROL_CAPTURE_LEGACY);
-		try { if (self._active) { self._admission.commit = channel.beginInteraction(); if (self._admission.commit == null) { throw "Slider commit reservation unavailable"; } } }
+		try { if (self._active) { var admission = self.requireAdmission(); admission.commit = channel.beginInteraction(); if (admission.commit == null) { throw "Slider commit reservation unavailable"; } } }
 		catch (string error) { channel.cancel(); throw error; }
 		self._commit = channel; return channel;
 	}
@@ -69,10 +69,12 @@ class SliderInteraction {
 	public ControlEventChannel<ISliderControlEventHandler, SliderControlEvent> onCancel(ControlEventQueue queue, IControlEventTarget target, ISliderControlEventHandler receiver, CallbackScope owner) {
 		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing slider cancel handler first"; }
 		var channel = new ControlEventChannel<ISliderControlEventHandler, SliderControlEvent>(queue, target, receiver, SliderInteraction.deliver, owner, queue.captureEnabled() ? CONTROL_CAPTURE_TERMINAL : CONTROL_CAPTURE_LEGACY);
-		try { if (self._active) { self._admission.cancel = channel.beginInteraction(); if (self._admission.cancel == null) { throw "Slider cancel reservation unavailable"; } } }
+		try { if (self._active) { var admission = self.requireAdmission(); admission.cancel = channel.beginInteraction(); if (admission.cancel == null) { throw "Slider cancel reservation unavailable"; } } }
 		catch (string error) { channel.cancel(); throw error; }
 		self._cancel = channel; return channel;
 	}
+
+	private SliderInteractionAdmission requireAdmission() { var admission = self._admission; if (admission == null) { throw "Active slider interaction has no admission"; } return admission; }
 
 	private void releaseTickets() { var admission = self._admission; self._admission = null; if (admission != null) { admission.retire(); } }
 
@@ -116,15 +118,15 @@ class SliderInteraction {
 	 * owner must service queue pressure before consuming more pointer input. */
 	public bool preview(double value) {
 		if (!self._active) { return false; }
-		double previous = self._model.value();
+		var admission = self.requireAdmission(); double previous = self._model.value();
 		if (!self._model.setUserValue(value)) { return true; }
 		try {
 			var channel = self._preview;
 			if (channel != null && channel.isOpen()) {
 				var event = self.snapshot(CONTROL_PHASE_PREVIEW, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE, SLIDER_INPUT_ABSOLUTE_POINTER, UI_RANGE_ADJUST_NONE, 0);
-				var key = self._admission.preview;
+				var key = admission.preview;
 				bool accepted;
-				if (key != null) { accepted = key.commit(event); self._admission.preview = null; }
+				if (key != null) { accepted = key.commit(event); admission.preview = null; }
 				else { accepted = channel.publish(event, self._generation, self._interaction, self._model.rangeRevision()); }
 				if (!accepted) { self._model.setUserValue(previous); return false; }
 			}
@@ -135,7 +137,7 @@ class SliderInteraction {
 	private void finish(SliderInputKind input, UIRangeAdjustment adjustment, int count) {
 		if (!self._active) { return; }
 		try {
-			var channel = self._commit; var ticket = self._admission.commit;
+			var admission = self.requireAdmission(); var channel = self._commit; var ticket = admission.commit;
 			if (channel != null && channel.isOpen() && ticket != null) { var event = self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE, input, adjustment, count); channel.publishTerminal(event, self._generation, self._interaction, ticket); }
 		} finally { self._active = false; self.releaseTickets(); }
 	}
@@ -153,7 +155,7 @@ class SliderInteraction {
 		if (!self._active) { return; }
 		try {
 			if (restore && self._model.modelRevision() == self._startRevision) { self._model.setUserValue(self._start); }
-			var channel = self._cancel; var ticket = self._admission.cancel;
+			var admission = self.requireAdmission(); var channel = self._cancel; var ticket = admission.cancel;
 			if (channel != null && channel.isOpen() && ticket != null) { var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason, SLIDER_INPUT_ABSOLUTE_POINTER, UI_RANGE_ADJUST_NONE, 0); channel.publishTerminal(event, self._generation, self._interaction, ticket); }
 		} finally { self._active = false; self.releaseTickets(); }
 	}

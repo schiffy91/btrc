@@ -88,8 +88,8 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 
 	private void releaseTickets() {
 		var publication = self._publication; self._publication = null; if (publication != null) { publication.abort(); }
-		if (self._commitTicket != null && !self._commitTicket.queued()) { self._commitTicket.retire(); }
-		if (self._cancelTicket != null && !self._cancelTicket.queued()) { self._cancelTicket.retire(); }
+		var commit = self._commitTicket; if (commit != null && !commit.queued()) { commit.retire(); }
+		var cancel = self._cancelTicket; if (cancel != null && !cancel.queued()) { cancel.retire(); }
 		self._commitTicket = null; self._cancelTicket = null;
 	}
 
@@ -126,8 +126,8 @@ class LinuxSelect extends LinuxNodeView implements ISelect {
 		try {
 			var changed = self._changed;
 			if (changed != null && changed.isOpen() && self.node().context.captureEnabled()) { self._publication = changed.prepareKey(self.node().generation(), self._interaction + 1LL, self._modelRevision); if (self._publication == null) { throw "Selection key reservation unavailable"; } }
-			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); if (self._commitTicket == null) { throw "Selection commit reservation unavailable"; } }
-			if (self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Selection cancel reservation unavailable"; } }
+			var commit = self._commit; if (commit != null && commit.isOpen()) { self._commitTicket = commit.beginInteraction(); if (self._commitTicket == null) { throw "Selection commit reservation unavailable"; } }
+			var cancel = self._cancel; if (cancel != null && cancel.isOpen()) { self._cancelTicket = cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Selection cancel reservation unavailable"; } }
 		} catch (string error) { self.releaseTickets(); throw error; }
 		self._interaction++; self._previousKey = self.keyAt(self._selected); self._open = true; self._highlight = self._selected;
 		self._menuOffsetY = self.node().height + 2.0; host.overlayId = self.node().id; self.node().requestFocus(); self.node().invalidate();
