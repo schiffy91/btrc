@@ -22,7 +22,7 @@ void drainText(MacOSViewContext context) { while (context.dispatchOne()) {} }
 
 int main() {
 	BTRCUI2TextProbe.prepare();
-	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8);
+	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8, null, 16384);
 	var field = MacOSTextField("accepted"); field.stateNode().configure(context);
 	var native = field.nativeControl(); var window = BTRCUI2TextProbe.host(native);
 	field.stateNode().attachWindow(context.createQueue(), true, WINDOW_EXPOSURE_EXPOSED);

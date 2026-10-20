@@ -11,7 +11,7 @@ import Library.GUI.MacOS.MacOSView;
  * MacOSView owns attachment, input and teardown; this owner adds editing and
  * ends any active field-editor session before the view closes. AppKit owns
  * selection, IME and field editing. */
-class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, IAppKitTextEvents, IAppKitNotificationObserver {
+class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, IAppKitTextEvents, IAppKitNotificationObserver, IAppKitTextAdmission {
 	private NSTextField? _control;
 	private MacOSView _view;
 	private CallbackScope _native = CallbackScope();
@@ -22,6 +22,10 @@ class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, I
 	private bool _changingNative = false;
 	private bool _interacting = false;
 	private bool _composing = false;
+	private int _focusDepth = 0;
+	private bool _focusEnding = false;
+	private bool _focusCancelled = false;
+	private string _focusFailure = "";
 	private string _accepted;
 	private string _plainDraft;
 	private string _compositionOriginal = "";
@@ -39,22 +43,28 @@ class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, I
 	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _cancel;
 	private ControlEventTicket? _commitTicket;
 	private ControlEventTicket? _cancelTicket;
+	private ControlEventPublication<ITextControlEventHandler, TextControlEvent>? _draftPreparation;
+	private long long _reservedGeneration = 0LL;
 
 	public MacOSTextField(string text = "", string placeholder = "") {
 		self._control = null;
 		self.requireMainThread();
 		if (text == null || placeholder == null) { throw "Native text field text is missing"; }
 		self._accepted = text; self._plainDraft = text;
-		var control = NSTextField.textFieldWithString(AppKitText.nativeValue(text));
+		CGRect frame = {{0.0, 0.0}, {0.0, 0.0}};
+		var control = NSTextField.initWithFrame(self, self._native, frame);
 		if (control == null) { throw "Cannot create native text field"; }
-		self._control = control;
-		self._view = MacOSView(control); self._view.bindEligibility(self);
-		/* Rounded bezels center their text vertically and share the native
-		 * control heights buttons use, so mixed toolbars align without padding hacks. */
-		control.setBezelStyle(NSTextFieldRoundedBezel);
-		self.setPlaceholder(placeholder);
-		try { control.setDelegate(self, self._native); }
-		catch (string error) { self._native.cancel(); self._view.close(); self._control = null; throw error; }
+		self._control = control; MacOSView? view = null;
+		try {
+			view = MacOSView(control); self._view = view; self._view.bindEligibility(self);
+			control.setStringValue(AppKitText.nativeValue(text));
+			var cell = (NSTextFieldCell?)control.cell(); if (cell == null) { throw "Native text field cell is unavailable"; }
+			cell.setWraps(false); cell.setScrollable(true);
+			/* Preserve the convenience factory's single-line editable cell and
+			 * rounded bezel while constructing the scoped native subclass. */
+			control.setBezelStyle(NSTextFieldRoundedBezel);
+			self.setPlaceholder(placeholder); control.setDelegate(self, self._native);
+		} catch (string error) { self._native.cancel(); if (view != null) { view.close(); } self._control = null; throw error; }
 	}
 
 	private void requireMainThread() {
@@ -125,29 +135,40 @@ class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, I
 
 	class void deliverText(ITextControlEventHandler receiver, TextControlEvent event) { receiver.textEvent(event); }
 
-	private ControlEventChannel<ITextControlEventHandler, TextControlEvent> subscribe(ITextControlEventHandler receiver, CallbackScope owner) {
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent> subscribe(ITextControlEventHandler receiver, CallbackScope owner, ControlEventCaptureRole role) {
 		self.stateNode().requireMutation(); self.nativeControl();
-		var channel = new ControlEventChannel<ITextControlEventHandler, TextControlEvent>(self.stateNode().events(), self.stateNode(), receiver, MacOSTextField.deliverText, owner);
+		var context = self.stateNode().context(); if (context != null) { context.requireSemanticRegistration(); }
+		var channel = new ControlEventChannel<ITextControlEventHandler, TextControlEvent>(self.stateNode().events(), self.stateNode(), receiver, MacOSTextField.deliverText, owner, role);
 		try { self.stateNode().ownChannel(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
 	}
 
 	public ICallbackRegistration onDraftChanged(ITextControlEventHandler receiver, CallbackScope owner) {
 		if (self._draft != null && self._draft.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing text draft handler first"; }
-		self._draft = self.subscribe(receiver, owner); return self._draft;
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_KEYED);
+		try {
+			if (self._editing || self._focusDepth > 0) {
+				if (!self._interacting && self._interaction == 9223372036854775807LL) { throw "Text interaction identities exhausted"; }
+				long long interaction = self._interacting ? self._interaction : self._interaction + 1LL;
+				if (interaction <= 0LL) { throw "Text interaction identities exhausted"; }
+				self._draftPreparation = channel.prepareKey(self.stateNode().generation(), interaction, self._modelRevision);
+				if (self._draftPreparation == null) { throw "Text draft reservation unavailable"; }
+			}
+		} catch (string error) { channel.cancel(); throw error; }
+		self._draft = channel; return channel;
 	}
 
 	public ICallbackRegistration onCommit(ITextControlEventHandler receiver, CallbackScope owner) {
 		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing text commit handler first"; }
-		var channel = self.subscribe(receiver, owner);
-		try { if (self._editing) { self._commitTicket = channel.beginInteraction(); if (self._commitTicket == null) { throw "Text commit reservation unavailable"; } } }
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
+		try { if (self._editing || self._focusDepth > 0) { self._commitTicket = channel.beginInteraction(); if (self._commitTicket == null) { throw "Text commit reservation unavailable"; } } }
 		catch (string error) { channel.cancel(); throw error; }
 		self._commit = channel; return channel;
 	}
 
 	public ICallbackRegistration onCancel(ITextControlEventHandler receiver, CallbackScope owner) {
 		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing text cancel handler first"; }
-		var channel = self.subscribe(receiver, owner);
-		try { if (self._editing) { self._cancelTicket = channel.beginInteraction(); if (self._cancelTicket == null) { throw "Text cancel reservation unavailable"; } } }
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
+		try { if (self._editing || self._focusDepth > 0) { self._cancelTicket = channel.beginInteraction(); if (self._cancelTicket == null) { throw "Text cancel reservation unavailable"; } } }
 		catch (string error) { channel.cancel(); throw error; }
 		self._cancel = channel; return channel;
 	}
@@ -157,6 +178,9 @@ class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, I
 		if (commit != null && !commit.queued()) { commit.retire(); }
 		if (cancel != null && !cancel.queued()) { cancel.retire(); }
 		self._commitTicket = null; self._cancelTicket = null;
+		var preparation = self._draftPreparation; self._draftPreparation = null;
+		if (preparation != null) { preparation.abort(); }
+		self._reservedGeneration = 0LL;
 	}
 
 	private bool reserveTickets() {
@@ -168,11 +192,25 @@ class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, I
 		if (!admitted) { self.releaseTickets(); } return admitted;
 	}
 
+	private bool reserveIntent() {
+		if (self._interacting) { return true; }
+		if (self._interaction == 9223372036854775807LL) { throw "Text interaction identities exhausted"; }
+		if (!self.reserveTickets()) { return false; }
+		try {
+			var draft = self._draft;
+			if (draft != null && draft.isOpen() && self._draftPreparation == null) {
+				self._draftPreparation = draft.prepareKey(self.stateNode().generation(), self._interaction + 1LL, self._modelRevision);
+				if (self._draftPreparation == null) { self.releaseTickets(); return false; }
+			}
+			self._reservedGeneration = self.stateNode().generation();
+		} catch (string error) { self.releaseTickets(); throw error; }
+		return true;
+	}
+
 	private void beginInteraction() {
 		if (self._interacting) { return; }
-		if (self._interaction == 9223372036854775807LL) { throw "Text interaction identities exhausted"; }
-		if (!self.reserveTickets()) { throw "Text interaction reservation unavailable"; }
-		self._interaction++; self._interactionGeneration = self.stateNode().generation(); self._interacting = true;
+		if (self._reservedGeneration != self.stateNode().generation()) { throw "Text interaction has no admitted native intent"; }
+		self._interaction++; self._interactionGeneration = self._reservedGeneration; self._interacting = true;
 		self._lastDraft = null;
 	}
 
@@ -190,7 +228,10 @@ class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, I
 		var channel = self._draft;
 		if (channel != null && channel.isOpen()) {
 			var event = self.snapshot(CONTROL_PHASE_DRAFT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
-			if (!channel.publish(event, self._interactionGeneration, self._interaction, self._modelRevision)) { throw "Text draft queue cannot admit native input"; }
+			var preparation = self._draftPreparation; bool published = false;
+			if (preparation != null) { published = preparation.commit(event); self._draftPreparation = null; }
+			else { published = channel.publish(event, self._interactionGeneration, self._interaction, self._modelRevision); }
+			if (!published && channel.isOpen()) { throw "Admitted text draft publication failed"; }
 		}
 		self._lastDraft = text; self._lastComposing = self._composing; self._lastDraftRevision = self._modelRevision;
 	}
@@ -236,6 +277,7 @@ class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, I
 	}
 
 	private void finishEditing() {
+		if (self._focusDepth > 0) { self._focusCancelled = true; }
 		self._editing = false; self._interacting = false; self._composing = false; self.releaseTickets();
 		if (self._editorCallbacks.cancel() == CALLBACK_CANCELLATION_COMPLETE) { self._editor = null; }
 	}
@@ -293,21 +335,89 @@ class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, I
 
 	private void nativeFailure(string error) { var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); } }
 
+	private void observeEditor(NSTextView editor) {
+		if (self._editing && self._editor == editor) { return; }
+		if (self._editorCallbacks.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Previous text editor observation is still entered"; }
+		var storage = editor.textStorage(); if (storage == null) { throw "Native text storage is unavailable"; }
+		var callbacks = CallbackScope(); self._editor = editor; self._editing = true;
+		self._plainDraft = AppKitText.ownedValue(editor.string()); self._editorCallbacks = callbacks;
+		var center = NSNotificationCenter.defaultCenter();
+		center.addObserverForName(NSTextStorageDidProcessEditingNotification, storage, null, self, callbacks);
+		center.addObserverForName(NSTextViewDidChangeSelectionNotification, editor, null, self, callbacks);
+		self.rememberSelection();
+		if (!self._interacting && !self._plainDraft.equals(self._accepted)) {
+			self.beginInteraction();
+			// Refocusing a retained draft starts a new interaction without changing it.
+			self._lastDraft = self._plainDraft; self._lastComposing = self._composing; self._lastDraftRevision = self._modelRevision;
+		}
+	}
+
+	/* AppKit can install a field editor without consulting textShouldBeginEditing.
+	 * The native entry keeps the prospective key and terminals through nested
+	 * responder setup, including AppKit's transient editor-end notification. */
+	private bool beginFocus() {
+		if (self._focusDepth == 0) { self._focusEnding = false; self._focusCancelled = false; self._focusFailure = ""; }
+		self._focusDepth++;
+		bool admitted = false;
+		try {
+			var context = self.stateNode().context();
+			if (!self._closing && !self._focusCancelled && self.stateNode().effectiveEligible() && (context == null || (!context.treeMutationActive() && !context.nativeFailed()))) {
+				admitted = self.reserveIntent();
+				if (!admitted) { self.nativeFailure("Native text focus admission unavailable"); }
+			}
+		} catch (string error) { self.nativeFailure(error); }
+		return admitted;
+	}
+
+	private string abandonFocus(string failure) {
+		string first = failure; self._changingNative = true;
+		try { var control = self._control; if (control != null) { control.abortEditing(); } }
+		catch (string error) { if (first == "") { first = error; } }
+		self._changingNative = false;
+		try { self.finishEditing(); } catch (string error) { if (first == "") { first = error; } }
+		return first;
+	}
+
+	private void endFocus(bool nativeFailed) {
+		if (self._focusDepth <= 0) { self.nativeFailure("Native text focus entry is missing"); return; }
+		if (nativeFailed) { self._focusCancelled = true; if (self._focusFailure == "") { self._focusFailure = "Native text focus failed"; } }
+		self._focusDepth--;
+		if (self._focusDepth > 0) { return; }
+		string failure = self._focusFailure; self._focusFailure = "";
+		bool cancelled = failure != "";
+		try {
+			var control = self._control; var context = self.stateNode().context();
+			cancelled = cancelled || self._focusCancelled || self._closing || !self.stateNode().effectiveEligible() || (context != null && context.nativeFailed());
+			if (!cancelled) {
+				var editor = control == null ? null : (NSTextView?)control.currentEditor();
+				if (editor != null) { self.observeEditor(editor); }
+				else { if (self._focusEnding) { self.captureDraft(); self.commitInteraction(); } self.finishEditing(); }
+			}
+		} catch (string error) { if (failure == "") { failure = error; } }
+		// Nested native failures settle at the outer entry while its receiver is pinned.
+		if (cancelled || failure != "") { failure = self.abandonFocus(failure); }
+		if (failure != "") { self.nativeFailure(failure); }
+	}
+
+	public bool beforeBecomeFirstResponder() { return self.beginFocus(); }
+
+	public void afterBecomeFirstResponder(bool invokedSuper, bool nativeFailed) { self.endFocus(nativeFailed); }
+
+	public bool beforeSelectText(id? sender) { return self.beginFocus(); }
+
+	public void afterSelectText(bool invokedSuper, bool nativeFailed) { self.endFocus(nativeFailed); }
+
+	public bool beforeMouseDown(NSEvent event) { return self.beginFocus(); }
+
+	public void afterMouseDown(bool invokedSuper, bool nativeFailed) { self.endFocus(nativeFailed); }
+
 	public bool shouldBeginEditing(NSControl control, NSText fieldEditor) {
 		bool admitted = false;
 		try {
 			var context = self.stateNode().context(); var editor = (NSTextView?)fieldEditor;
-			if (!self._closing && editor != null && self.stateNode().effectiveEligible() && (context == null || !context.treeMutationActive())) {
+			if (!self._closing && editor != null && !self._focusCancelled && self.stateNode().effectiveEligible() && (context == null || (!context.treeMutationActive() && !context.nativeFailed()))) {
 				if (self._editing && self._editor == editor) { admitted = true; }
-				else if (self._editorCallbacks.cancel() == CALLBACK_CANCELLATION_COMPLETE && self.reserveTickets()) {
-					var storage = editor.textStorage(); if (storage == null) { throw "Native text storage is unavailable"; }
-					var callbacks = CallbackScope(); self._editor = editor; self._editing = true; self._plainDraft = AppKitText.ownedValue(control.stringValue());
-					self._editorCallbacks = callbacks;
-					var center = NSNotificationCenter.defaultCenter();
-					center.addObserverForName(NSTextStorageDidProcessEditingNotification, storage, null, self, callbacks);
-					center.addObserverForName(NSTextViewDidChangeSelectionNotification, editor, null, self, callbacks);
-					self.rememberSelection(); if (!self._plainDraft.equals(self._accepted)) { self.beginInteraction(); } admitted = true;
-				}
+				else if (self.reserveIntent()) { self.observeEditor(editor); admitted = true; }
 				if (!admitted) { throw "Native text editing admission unavailable"; }
 			}
 		} catch (string error) { self.finishEditing(); self.nativeFailure(error); }
@@ -325,6 +435,7 @@ class MacOSTextField implements ITextField, IMacOSView, IMacOSViewEligibility, I
 
 	public void controlTextDidEndEditing(NSNotification notification) {
 		if (self._changingNative) { return; }
+		if (self._focusDepth > 0) { self._focusEnding = true; return; }
 		try {
 			// AppKit also ends focus-only sessions without asking to begin editing.
 			if (!self._editing && !self.draftText().equals(self._accepted)) { self.beginInteraction(); }
