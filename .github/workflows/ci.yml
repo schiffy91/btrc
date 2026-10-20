@@ -13,7 +13,7 @@ on:
       focus:
         description: Which jobs to run
         type: choice
-        options: [full, native-gui, extended, bench-diagnostic]
+        options: [full, native-gui, extended, bench-diagnostic, unit-diagnostic]
         default: full
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
@@ -63,7 +63,7 @@ jobs:
   # so "Re-run all jobs" sees a label added after the push ("Re-run failed
   # jobs" keeps this job's earlier result).
   scope:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.focus != 'bench-diagnostic' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.focus != 'bench-diagnostic' && inputs.focus != 'unit-diagnostic') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -352,6 +352,58 @@ jobs:
           name: bench-diagnostic-${{ github.sha }}
           path: build/bench-diagnostic/
           if-no-files-found: error
+
+  # Identify the first failure in the complete unit selection. This stops
+  # early and is diagnostic evidence, not completion of the unit gate.
+  unit-diagnostic:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'unit-diagnostic' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - run: make devcontainer
+      - name: Run the original unit shard with immediate failure details
+        env:
+          PYTEST_ADDOPTS: --maxfail=1 --tb=short -vv --junitxml=build/unit-diagnostic/junit.xml
+          PYTEST_DEBUG_TEMPROOT: /workspace/build/unit-diagnostic/pytest
+        run: |
+          set -euo pipefail
+          mkdir -p build/unit-diagnostic/pytest
+          chmod -R a+w .
+          git rev-parse HEAD > build/unit-diagnostic/revision.txt
+          podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS -e PYTEST_DEBUG_TEMPROOT btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit 2>&1 | tee build/unit-diagnostic/console.log
+      - name: Open diagnostic artifacts to the runner
+        if: always()
+        run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest chmod -R a+rX build/unit-diagnostic
+        continue-on-error: true
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unit-diagnostic-${{ github.sha }}
+          path: |
+            build/unit-diagnostic/**/*.log
+            build/unit-diagnostic/**/*.txt
+            build/unit-diagnostic/**/*.xml
+            build/unit-diagnostic/**/*.json
+            build/unit-diagnostic/**/*.stdout
+            build/unit-diagnostic/**/*.stderr
+            build/unit-diagnostic/**/*.btrc
+            build/unit-diagnostic/**/*.c
+            build/skip-report-unit.json
+            build/ui-shell/
+          if-no-files-found: error
+          retention-days: 14
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-ci-unit-diagnostic
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
 
   bench:
     needs: scope
