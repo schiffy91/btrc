@@ -1,0 +1,72 @@
+import Library.Callback;
+import Library.Image;
+import Library.GUI.ControlEvents;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.IScrollView;
+import Library.GUI.MacOS.MacOSPanel;
+import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.MacOSScrollView;
+import Library.GUI.MacOS.MacOSView;
+
+#include <assert.h>
+
+void prepareCancelStateHost() { BTRCUI2CancelState.prepareHost(); }
+
+class CancelStateEvents implements ITextControlEventHandler, IScrollControlEventHandler {
+	public int drafts = 0;
+	public string latest = "";
+	public int nativeScrolls = 0;
+	public void textEvent(TextControlEvent event) { assert(event.phase == CONTROL_PHASE_DRAFT && event.context.origin == CONTROL_ORIGIN_USER); self.drafts++; self.latest = event.text; }
+
+	public void scrollEvent(ScrollControlEvent event) { if (event.context.origin == CONTROL_ORIGIN_USER) { self.nativeScrolls++; } }
+}
+
+class CancelStateContent {
+	public MacOSPanel root = MacOSPanel(RGBA(240, 240, 240));
+	private MacOSTextField _field = MacOSTextField("accepted");
+	private MacOSScrollView _scroll = MacOSScrollView();
+	private MacOSView _child = MacOSView();
+	private CallbackScope _owner = CallbackScope();
+	private CancelStateEvents _events = CancelStateEvents();
+	private BTRCUI2CancelState _native;
+	private IWindow _window;
+	private long long _rootRevision = 0LL;
+	private long long _scrollRevision = 0LL;
+	public CancelStateContent(IWindow window) {
+		self._window = window;
+		var native = BTRCUI2CancelState.new(); if (native == null) { throw "Cannot allocate cancellation state observation"; } self._native = native;
+		self.root.attach(self._field); self.root.attach(self._scroll); self._scroll.attach(self._child);
+		window.setContentSize(260.0, 180.0); window.attachRoot(self.root);
+		self._field.onDraftChanged(self._events, self._owner); self._field.onCommit(self._events, self._owner); self._field.onCancel(self._events, self._owner);
+		self._scroll.onOffsetChanged(self._events, self._owner);
+	}
+
+	public void begin() {
+		self._window.show();
+		self._field.arrange(10.0, 10.0, 200.0, 28.0); self._scroll.arrange(10.0, 50.0, 200.0, 100.0);
+		self._scroll.setContentSize(400.0, 400.0); self._child.arrange(20.0, 20.0, 40.0, 40.0);
+		var offset = ScrollOffset(); offset.x = 50.0; offset.y = 60.0; self._scroll.scrollToOffset(offset);
+		self._native.begin(self.root.nativeView(), self._field.nativeView(), self._scroll.nativeView(), self._child.nativeView());
+		self._rootRevision = self.root.treeRevision(); self._scrollRevision = self._scroll.treeRevision(); self.verifyUnchanged();
+	}
+
+	private void verifyIdentity() {
+		assert(self._window.isOpen() && self._window.root() == self.root && self.root.isOpen());
+		assert(self.root.treeRevision() == self._rootRevision && self.root.childCount() == 2 && self.root.childAt(0) == self._field && self.root.childAt(1) == self._scroll);
+		assert(self._scroll.treeRevision() == self._scrollRevision && self._scroll.childCount() == 1 && self._scroll.childAt(0) == self._child);
+	}
+
+	public void verifyUnchanged() {
+		self.verifyIdentity(); assert(self._field.text() == "draft" && self._scroll.offset().x == 50.0 && self._scroll.offset().y == 60.0); assert(self._native.unchanged());
+	}
+
+	public void continueInput() {
+		self.verifyUnchanged(); self._native.continueInput(); self.verifyIdentity();
+		assert(self._field.text() == "dZt" && self._scroll.offset().x == 50.0 && self._scroll.offset().y == 70.0 && self._native.continued());
+	}
+
+	public void verifyDelivered() { assert(self._events.drafts > 0 && self._events.latest == "dZt" && self._events.nativeScrolls == 1); }
+
+	public void finish() { self._native.finish(); assert(self._owner.cancel() == CALLBACK_CANCELLATION_COMPLETE); }
+}

@@ -3,6 +3,7 @@ import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.MacOS.MacOSApplication;
 
+import "./UI2MacOSCancelState.btrc";
 #include <assert.h>
 
 class NativeQuitStep implements IApplicationWork {
@@ -31,12 +32,14 @@ class NativeQuitScenario {
 	public int secondCalls = 0;
 	private IWindowCloseTransaction? _firstTransaction;
 	private IWindowCloseTransaction? _secondTransaction;
+	private CancelStateContent _content;
 	private long long _firstSaveAttempt = 0LL;
 	private long long _saveAttempt = 0LL;
 	public NativeQuitScenario() {
 		self.first = self.application.createWindow("native quit first", 100.0, 100.0);
 		self.second = self.application.createWindow("native quit second", 100.0, 100.0);
 		self.clean = self.application.createWindow("native quit clean", 100.0, 100.0);
+		self._content = CancelStateContent(self.first);
 		self.first.onCloseRequested(NativeQuitDecision(self, true), self.owner);
 		self.second.onCloseRequested(NativeQuitDecision(self, false), self.owner);
 	}
@@ -49,6 +52,7 @@ class NativeQuitScenario {
 
 	public void runStep(int step) {
 		self.requireWindowsOpen();
+		if (step == -1) { self._content.begin(); self.first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); self.second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); return; }
 		assert(self.firstCalls == 1 && self.secondCalls == 1);
 		if (step == 0) {
 			assert(self.firstTransaction().state() == WINDOW_CLOSE_SAVING && self.secondTransaction().state() == WINDOW_CLOSE_SAVING);
@@ -61,9 +65,12 @@ class NativeQuitScenario {
 			btrcUI2RequestNativeQuit();
 			assert(self.firstCalls == 1 && self.secondCalls == 1);
 			self.requireWindowsOpen(); self.application.post(NativeQuitStep(self, 1));
-		} else {
-			assert(step == 1 && self.firstTransaction().state() == WINDOW_CLOSE_CANCELLED);
+		} else if (step == 1) {
+			assert(self.firstTransaction().state() == WINDOW_CLOSE_CANCELLED);
 			assert(self.secondTransaction().completeSave(self._saveAttempt, 2LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+			self._content.verifyUnchanged(); self._content.continueInput(); self.application.post(NativeQuitStep(self, 2));
+		} else {
+			assert(step == 2); self._content.verifyDelivered(); self._content.finish();
 			btrcUI2RequestNativeQuit(); btrcUI2RequestNativeQuit();
 			assert(self.firstCalls == 1 && self.secondCalls == 1);
 			self.requireWindowsOpen();
@@ -96,7 +103,7 @@ class NativeQuitScenario {
 
 void verifyAcceptanceCycle() {
 	var scenario = NativeQuitScenario();
-	scenario.first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); scenario.second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST);
+	scenario.application.post(NativeQuitStep(scenario, -1));
 	scenario.application.run();
 	assert(scenario.firstCalls == 2 && scenario.secondCalls == 2);
 	assert(!scenario.first.isOpen() && !scenario.second.isOpen() && !scenario.clean.isOpen());
@@ -109,5 +116,6 @@ int main() {
 	for (int cycle = 0; cycle < 100; cycle++) { verifyAcceptanceCycle(); completed++; }
 	assert(completed == 100);
 	print("UI2 acceptance UI2MacOSApplicationQuit cycles=100");
+	print("UI2 E46 native-quit cancel state cycles=100");
 	print("PASS: UI2 macOS native application quit cancels and retries before shutdown"); return 0;
 }

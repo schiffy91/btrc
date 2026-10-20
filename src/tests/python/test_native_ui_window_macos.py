@@ -11,7 +11,11 @@ from src.tests.python.test_native_ui_core_macos import ui2_native_project as ui2
 @pytest.mark.parametrize(
     ("fixture", "expected"),
     [
-        ("UI2MacOSWindow", "PASS: UI2 macOS window state and reversible close transactions"),
+        pytest.param(
+            "UI2MacOSWindow",
+            "PASS: UI2 macOS window state and reversible close transactions",
+            marks=pytest.mark.macos_gui,
+        ),
         ("UI2MacOSWindowKeys", "PASS: UI2 macOS window key failures stay inside native callback boundary"),
     ],
 )
