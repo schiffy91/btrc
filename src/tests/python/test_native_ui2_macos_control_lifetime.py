@@ -28,7 +28,7 @@ def test_macos_ui2_control_lifetime(native_project, native_compile, gui_provider
         "+[BTRCUI2ControlLifetimeProbe observe:slider:generation:]",
         "+[BTRCUI2ControlLifetimeProbe choose:]",
         "+[BTRCUI2ControlLifetimeProbe increment:]",
-        "+[BTRCUI2ControlLifetimeProbe finish:]",
+        "+[BTRCUI2ControlLifetimeProbe finish]",
     ]
     manifest = package / "btrc.toml"
     manifest.write_text(

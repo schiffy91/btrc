@@ -7,6 +7,7 @@
 static NSMutableDictionary<NSString *, NSHashTable *> *owned;
 static NSMutableDictionary<NSString *, NSNumber *> *counts;
 static NSMutableDictionary<NSString *, NSMutableDictionary *> *classes;
+static NSWindow *cycleWindow;
 static long lastCycle;
 static long lastGeneration;
 
@@ -39,7 +40,7 @@ static NSUInteger survivors(BOOL report) {
     [NSApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
     if (!owned) owned = [NSMutableDictionary dictionary];
-    assert(survivors(NO) == 0);
+    assert(cycleWindow == nil && survivors(NO) == 0);
     lastCycle = cycle; lastGeneration = 0;
     counts = [NSMutableDictionary dictionary]; classes = [NSMutableDictionary dictionary];
     @autoreleasepool { callback(); }
@@ -66,7 +67,7 @@ static NSUInteger survivors(BOOL report) {
     }
     assert(remaining == 0);
 }
-+ (NSWindow *)host:(NSView *)select slider:(NSView *)slider {
++ (void)host:(NSView *)select slider:(NSView *)slider {
     assert([select isKindOfClass:NSPopUpButton.class] && [slider isKindOfClass:NSSlider.class]);
     NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(-10000, -10000, 300, 120)
         styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
@@ -74,7 +75,7 @@ static NSUInteger survivors(BOOL report) {
     [window.contentView addSubview:select]; [window.contentView addSubview:slider];
     select.frame = NSMakeRect(0, 0, 200, 40); slider.frame = NSMakeRect(0, 50, 200, 40);
     assert(!window.visible && !window.keyWindow && NSApp.activationPolicy == NSApplicationActivationPolicyProhibited);
-    observe(@"host", window); return window;
+    assert(cycleWindow == nil); cycleWindow = window; observe(@"host", window);
 }
 + (void)observe:(NSView *)select slider:(NSView *)slider generation:(long)generation {
     assert(generation == lastGeneration + 1); lastGeneration = generation;
@@ -95,8 +96,9 @@ static NSUInteger survivors(BOOL report) {
 + (BOOL)increment:(NSView *)slider {
     assert([slider isKindOfClass:NSSlider.class]); return [slider accessibilityPerformIncrement];
 }
-+ (void)finish:(NSWindow *)window {
++ (void)finish {
+    NSWindow *window = cycleWindow; assert(window != nil);
     assert(!window.visible && !window.keyWindow && NSApp.activationPolicy == NSApplicationActivationPolicyProhibited);
-    window.contentView = nil; [window close];
+    window.contentView = nil; [window close]; cycleWindow = nil;
 }
 @end

@@ -35,7 +35,7 @@ class ControlLifetimeCycle implements IControlLifetimeCycle {
 		var queue = context.createQueue(); var capture = queue.captureOwner();
 		var select = MacOSSelect(); var slider = MacOSSlider(0.0, 10.0, 10);
 		select.stateNode().configure(context); slider.stateNode().configure(context);
-		var window = BTRCUI2ControlLifetimeProbe.host(select.nativeView(), slider.nativeView());
+		BTRCUI2ControlLifetimeProbe.host(select.nativeView(), slider.nativeView());
 		select.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
 		slider.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
 		var owner = CallbackScope(); var selection = ControlLifetimeSelection(); var adjustment = ControlLifetimeSlider();
@@ -62,7 +62,7 @@ class ControlLifetimeCycle implements IControlLifetimeCycle {
 		assert(queue.pendingCount() == 0 && capture.used() == 0);
 		assert(context.detachedEvents.captureOwner().used() == 0 && queue.terminalPool().available() == 65536);
 		context.close(); assert(capture.available() == 64);
-		BTRCUI2ControlLifetimeProbe.finish(window);
+		BTRCUI2ControlLifetimeProbe.finish();
 		// All handles leave this callback before its native autorelease pool drains.
 	}
 }
