@@ -147,6 +147,7 @@ def run_observed(command, sanitized, timeout, directory):
 
 @pytest.mark.parametrize("count", [4095, 4096, 4097, 8193])
 @pytest.mark.parametrize("terminal", [0, 1, 2, 3], ids=["keys", "release", "text", "close"])
+@pytest.mark.e40_qualification
 def test_linux_e40_repeated_bursts(burst_program, frontend, sanitized, count, terminal, tmp_path):
     result = run_observed(
         [str(burst_program), str(count), str(terminal), "100"],
@@ -292,6 +293,7 @@ def exercise_load(program, frontend, sanitized, seconds, tmp_path):
     (tmp_path / "e40-load.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
+@pytest.mark.e40_qualification
 def test_linux_e40_sustained_load(load_program, frontend, sanitized, tmp_path):
     exercise_load(load_program, frontend, sanitized, 600, tmp_path)
 
