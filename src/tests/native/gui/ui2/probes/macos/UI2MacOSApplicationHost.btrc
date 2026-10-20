@@ -40,10 +40,13 @@ int main() {
 	var deferred = application.schedule(HostedApplicationWork(application, trace, 2), 0.0, WORK_SUSPENSION_DEFER, 0LL);
 	var replaced = application.schedule(HostedApplicationWork(application, trace, 3), 0.0, WORK_SUSPENSION_REPLACE, 7LL);
 	attached.attachment.transition(APPLICATION_ACTIVITY_SUSPENDED);
+	var suspendedWindow = application.createWindow("created while suspended", 100.0, 100.0);
+	assert(suspendedWindow.state().applicationActivity == APPLICATION_ACTIVITY_SUSPENDED && !suspendedWindow.state().presentable);
 	assert(application.schedule(HostedApplicationWork(application, trace, 4), 0.0, WORK_SUSPENSION_REPLACE, 7LL).kind == SCHEDULE_REPLACED);
 	attached.attachment.serviceTurn(); assert(trace.isEmpty() && host.deadline == 0ULL);
 	assert(cancelled.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && replaced.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
-	attached.attachment.transition(APPLICATION_ACTIVITY_ACTIVE); attached.attachment.serviceTurn();
+	attached.attachment.transition(APPLICATION_ACTIVITY_ACTIVE);
+	assert(suspendedWindow.state().applicationActivity == APPLICATION_ACTIVITY_ACTIVE); attached.attachment.serviceTurn();
 	assert(trace.len == 2 && trace.get(0) == 2 && trace.get(1) == 4);
 	assert(attached.attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && !application.isRunning());
 	assert(deferred.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);

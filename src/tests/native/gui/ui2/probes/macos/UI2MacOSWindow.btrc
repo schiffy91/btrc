@@ -12,10 +12,12 @@ import Library.GUI.MacOS.MacOSViewState;
 class WindowWake implements IControlEventWake { public bool requestTurn() { return true; } }
 class WindowStates implements IWindowStateHandler {
 	public int calls = 0;
+	public int ignored = 0;
+	public long long floorRevision = 0LL;
 	public WindowState? latest;
 	public WindowState current() { var state = self.latest; if (state == null) { throw "No window state delivered"; } return state; }
 
-	public void stateChanged(WindowState state) { self.calls++; self.latest = state; }
+	public void stateChanged(WindowState state) { self.calls++; if (state.stateRevision <= self.floorRevision) { self.ignored++; return; } self.latest = state; }
 }
 class WindowDecision implements IWindowCloseRequestHandler {
 	public int calls = 0;
@@ -42,15 +44,34 @@ void verifyState() {
 	assert(!first.nativeVisible && !first.requestedVisible && !first.presentable && first.exposure == WINDOW_EXPOSURE_NOT_EXPOSED && first.notExposedReason == WINDOW_EXPOSURE_REASON_HIDDEN);
 	first.width = -10.0; assert(window.state().width == 120.0);
 	var owner = CallbackScope(); var states = WindowStates(); window.onStateChanged(states, owner); assert(states.calls == 0);
-	drain(context); assert(states.calls == 1 && states.latest != null); states.current().width = -5.0; assert(window.state().width == 120.0);
-	long long revision = window.state().stateRevision;
-	window.setContentSize(150.0, 90.0); window.setContentSize(160.0, 100.0); assert(states.calls == 1);
-	assert(window.state().width == 160.0 && window.state().stateRevision > revision); drain(context);
-	assert(states.calls == 2 && states.latest != null && states.current().width == 160.0 && states.current().height == 100.0);
-	revision = window.state().stateRevision; window.setContentSize(160.0, 100.0); drain(context); assert(states.calls == 2 && window.state().stateRevision == revision);
+	states.floorRevision = window.state().stateRevision; drain(context); assert(states.calls == 0 && states.latest == null);
+	long long revision = states.floorRevision;
+	window.setContentSize(150.0, 90.0); window.setContentSize(160.0, 100.0); assert(states.calls == 0);
+	var observed = window.state(); assert(observed.width == 160.0 && observed.stateRevision > revision);
+	states.floorRevision = observed.stateRevision; drain(context); assert(states.calls == 1 && states.ignored == 1 && states.latest == null);
+	window.setContentSize(170.0, 110.0); drain(context);
+	assert(states.calls == 2 && states.latest != null && states.current().stateRevision > states.floorRevision && states.current().width == 170.0 && states.current().height == 110.0);
+	states.current().width = -5.0; assert(window.state().width == 170.0);
+	revision = window.state().stateRevision; window.setContentSize(170.0, 110.0); drain(context); assert(states.calls == 2 && window.state().stateRevision == revision);
 	window.applicationActivity(APPLICATION_ACTIVITY_SUSPENDED); drain(context); assert(states.calls == 3 && !window.state().presentable && window.state().applicationActivity == APPLICATION_ACTIVITY_SUSPENDED);
 	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && window.close() == CALLBACK_CANCELLATION_COMPLETE);
-	assert(!window.state().nativeVisible && !window.state().presentable && window.state().width == 160.0); context.close();
+	assert(!window.state().nativeVisible && !window.state().presentable && window.state().width == 170.0); context.close();
+}
+
+void verifyResubscribeWithPendingState() {
+	var context = MacOSViewContext(WindowWake(), 1); var window = MacOSWindow("resubscribe", 100.0, 100.0, null, context);
+	var previousOwner = CallbackScope(); var previous = WindowStates(); window.onStateChanged(previous, previousOwner);
+	var closeOwner = CallbackScope(); var closeHandler = WindowDecision(); window.onCloseRequested(closeHandler, closeOwner);
+	window.setContentSize(110.0, 100.0);
+	var transaction = requiredTransaction(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST));
+	window.setContentSize(120.0, 100.0);
+	assert(previousOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	var nextOwner = CallbackScope(); var next = WindowStates(); window.onStateChanged(next, nextOwner);
+	drain(context); assert(previous.calls == 0 && next.calls == 0 && window.state().width == 120.0);
+	transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL);
+	window.setContentSize(130.0, 100.0); drain(context); assert(next.calls == 1 && next.current().width == 130.0);
+	assert(nextOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE && closeOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(window.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
 }
 
 void verifySaveAndCancel() {
@@ -164,6 +185,6 @@ void verifyQuitCapturedCancellation() {
 
 int main() {
 	NSApplication.sharedApplication();
-	verifyState(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose(); verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation(); verifyQuitCapturedCancellation();
+	verifyState(); verifyResubscribeWithPendingState(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose(); verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation(); verifyQuitCapturedCancellation();
 	print("PASS: UI2 macOS window state and reversible close transactions"); return 0;
 }

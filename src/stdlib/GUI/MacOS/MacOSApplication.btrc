@@ -306,6 +306,7 @@ class MacOSHostAttachment implements IApplicationHostAttachment {
 /* One application owner on the main thread. Desktop run() configures AppKit;
  * attachHost() preserves the host's delegate and existing native loop. */
 class MacOSApplication implements IApplication {
+	private ApplicationActivity _activity = APPLICATION_ACTIVITY_UNKNOWN;
 	private NSApplication _application;
 	private bool _running = false;
 	private bool _desktopConfigured = false;
@@ -435,6 +436,7 @@ class MacOSApplication implements IApplication {
 	public void transition(ApplicationActivity activity) {
 		self.requireMainThread();
 		if (activity < APPLICATION_ACTIVITY_ACTIVE || activity > APPLICATION_ACTIVITY_UNKNOWN) { throw "Invalid application activity"; }
+		self._activity = activity;
 		self._executor.suspend(activity == APPLICATION_ACTIVITY_SUSPENDED);
 		for window in self._windows { window.applicationActivity(activity); }
 	}
@@ -465,6 +467,7 @@ class MacOSApplication implements IApplication {
 	public IWindow createWindow(string title, double width, double height) {
 		self.requireCreation();
 		var window = MacOSWindow(title, width, height, self._signal, self._viewContext);
+		window.applicationActivity(self._activity);
 		self._windows.push(window);
 		return window;
 	}

@@ -1,0 +1,28 @@
+import Library.Callback;
+import Library.App;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.IWindow;
+import Library.GUI.MacOS.MacOSWindow;
+import Library.GUI.MacOS.MacOSViewState;
+
+#include <assert.h>
+
+class KeyFailureWake implements IControlEventWake { public bool requestTurn() { return true; } }
+class FailingWindowKeys implements IWindowKeyHandler {
+	public int calls = 0;
+	public bool key(AppKeyboardEvent event) { self.calls++; assert(event.key == APP_KEY_SPACE); throw "window key failure"; }
+}
+
+int main() {
+	var application = NSApplication.sharedApplication(); var context = MacOSViewContext(KeyFailureWake());
+	var window = MacOSWindow("key failure", 100.0, 100.0, null, context); var owner = CallbackScope(); var handler = FailingWindowKeys();
+	var registration = window.onKey(handler, owner); var native = window.nativeWindow(); var location = native.frame().origin;
+	var characters = NSString.stringWithUTF8String(" "); assert(characters != null);
+	var event = NSEvent.keyEventWithType(NSEventTypeKeyDown, location, 0UL, 0.0, native.windowNumber(), null, characters, characters, false, (unsigned short)49);
+	assert(event != null); application.sendEvent(event); assert(handler.calls == 1);
+	bool recorded = false; try { context.checkNativeFailure(); } catch (string error) { recorded = error == "window key failure"; }
+	assert(recorded && window.isOpen()); application.sendEvent(event); assert(handler.calls == 1);
+	assert(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE && owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	assert(window.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+	print("PASS: UI2 macOS window key failures stay inside native callback boundary"); return 0;
+}

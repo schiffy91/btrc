@@ -22,7 +22,16 @@ class MacOSWindowEvents implements IAppKitWindowEvents {
 	private string _failure = "";
 	public MacOSWindowEvents(MacOSRunLoopSignal? signal, MacOSViewContext? context) { self._signal = signal; self._context = context; }
 
-	public void check() { if (self._failure != "") { throw self._failure; } }
+	public void check() {
+		if (self._failure != "") { throw self._failure; }
+		if (self._context != null) { self._context.checkNativeFailure(); }
+	}
+
+	public void recordFailure(string error) {
+		if (self._failure == "") { self._failure = error; }
+		if (self._context != null) { self._context.recordNativeFailure(self._failure); }
+		else if (self._signal != null) { try { self._signal.wake(); } catch (string ignored) {} }
+	}
 
 	public void wake() {
 		if (self._context != null) { if (!self._context.wake.requestTurn()) { throw "Window semantic wake failed"; } }
@@ -31,7 +40,7 @@ class MacOSWindowEvents implements IAppKitWindowEvents {
 
 	private void captured() {
 		try { self.wake(); }
-		catch (string error) { if (self._failure == "") { self._failure = error; } if (self._context != null) { self._context.recordNativeFailure(error); } }
+		catch (string error) { self.recordFailure(error); }
 	}
 
 	public bool windowShouldClose(NSWindow sender) {
@@ -61,8 +70,9 @@ class MacOSWindowEvents implements IAppKitWindowEvents {
 class MacOSWindowKeys implements IAppKitEventMonitor {
 	private NSWindow _window;
 	private IWindowKeyHandler _handler;
+	private MacOSWindowEvents _events;
 
-	public MacOSWindowKeys(NSWindow window, IWindowKeyHandler handler) { self._window = window; self._handler = handler; }
+	public MacOSWindowKeys(NSWindow window, IWindowKeyHandler handler, MacOSWindowEvents events) { self._window = window; self._handler = handler; self._events = events; }
 
 	private AppKeyCode keyCode(unsigned short code) {
 		if (code == kVK_Space) { return APP_KEY_SPACE; }
@@ -97,6 +107,13 @@ class MacOSWindowKeys implements IAppKitEventMonitor {
 
 	public NSEvent? invoke(NSEvent native) {
 		if (native.window() != self._window) { return native; }
+		NSEvent? result = null;
+		try { self._events.check(); result = self.dispatchNative(native); }
+		catch (string error) { self._events.recordFailure(error); }
+		return result;
+	}
+
+	private NSEvent? dispatchNative(NSEvent native) {
 		var key = self.keyCode(native.keyCode());
 		if (key == APP_KEY_UNKNOWN) { return native; }
 		var type = native.type();
@@ -257,13 +274,11 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 	public ICallbackRegistration onStateChanged(IWindowStateHandler receiver, CallbackScope owner) {
 		self.nativeWindow(); var context = self.semanticContext(); context.requireMutationAllowed();
 		if (self._stateChannel != null && self._stateChannel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing window state handler first"; }
-		self.refreshWindowState();
+		self.refreshWindowState(); self._pendingState = null;
 		if (self._stateSettlement == null) { self._stateSettlement = context.registerNativeSettlement(self, self._callbacks); }
 		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._semantic, self, receiver, MacOSWindow.deliverState, owner);
 		try {
 			self._callbacks.track(channel); self._stateChannel = channel;
-			// Initial delivery closes the read-then-subscribe revision gap.
-			self._pendingState = self._state; self.publishState();
 		} catch (string error) { channel.cancel(); throw error; }
 		return channel;
 	}
@@ -495,7 +510,7 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 	public bool isFocused() { return self.isOpen() && self.nativeWindow().isKeyWindow(); }
 
 	public ICallbackRegistration onKey(IWindowKeyHandler handler, CallbackScope owner) {
-		var receiver = MacOSWindowKeys(self.nativeWindow(), handler);
+		var receiver = MacOSWindowKeys(self.nativeWindow(), handler, self._events);
 		var registration = NSEvent.addLocalMonitorForEventsMatchingMask(NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged, receiver, self._callbacks);
 		try { owner.track(registration); } catch (string error) { registration.cancel(); throw error; }
 		return registration;
