@@ -4,6 +4,11 @@ import Library.BackgroundJobs.NativeWorker;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.IGPUView;
+import Library.GUI.IContainer;
+import Library.GUI.IView;
+import Library.GUI.ISelect;
+import Library.GUI.ISlider;
+import Library.GUI.ControlEvents;
 import Library.GPU.GPUSurfaceRenderer;
 import Library.GUI.MacOS.MacOSApplication;
 
@@ -18,6 +23,7 @@ class E40LoadProducer implements INativeWorkerBody {
 	public Atomic<bool> done;
 	public Atomic<bool> ready;
 	public int failure = 0;
+	public bool tracking = false;
 	public E40LoadProducer(IApplicationPublisher publisher) {
 		self._publisher = publisher; self.stop.init(false); self.done.init(false); self.ready.init(true);
 	}
@@ -25,8 +31,8 @@ class E40LoadProducer implements INativeWorkerBody {
 	public int workLoop() {
 		long long sequence = 0LL;
 		while (!self.stop.load(MemoryOrder.ACQUIRE)) {
-			e40LoadProducerTick();
-			for (int index = 0; index < 4; index++) { e40LoadPushInput(0); }
+			e40LoadProducerTick(); e40TrackingTick();
+			if (!self.tracking) { for (int index = 0; index < 4; index++) { e40LoadPushInput(0); } }
 			if (self.ready.load(MemoryOrder.ACQUIRE)) {
 				self.ready.store(false, MemoryOrder.RELEASE); e40LoadReceipt(1, sequence + 1LL, 0ULL, 8);
 				var outcome = self._publisher.tryPublish(1LL, sequence + 1LL, WORK_SUSPENSION_DEFER, 0LL, sequence + 1LL);
@@ -41,9 +47,22 @@ class E40LoadProducer implements INativeWorkerBody {
 		self.done.store(true, MemoryOrder.RELEASE); return self.failure;
 	}
 }
-class E40LoadReceiver implements IApplicationPublicationHandler, IWindowKeyHandler, IWindowCloseRequestHandler {
+class E40LoadReceiver implements IApplicationPublicationHandler, IWindowKeyHandler, IWindowCloseRequestHandler, ISliderControlEventHandler, ISelectionControlEventHandler, IViewPointerHandler {
 	public E40LoadProducer? producer;
 	public int closes = 0;
+	public void sliderEvent(SliderControlEvent event) { assert(event.context.origin == CONTROL_ORIGIN_USER && event.input == SLIDER_INPUT_ABSOLUTE_POINTER); e40TrackingSemantic((int)event.phase, event.context.generation, event.context.interaction, event.context.sequence, event.context.modelRevision, event.value); }
+
+	public void selectionEvent(SelectionControlEvent event) {
+		assert(event.context.origin == CONTROL_ORIGIN_USER);
+		string? key = event.phase == CONTROL_PHASE_COMMIT ? event.acceptedKey : event.candidateKey;
+		int candidate = -1;
+		for (int index = 0; index <= 20; index++) { if (key == f"item-{index}") { candidate = index; break; } }
+		assert(candidate >= 0);
+		e40TrackingSemantic((int)event.phase, event.context.generation, event.context.interaction, event.context.sequence, event.context.modelRevision, (double)candidate);
+	}
+
+	public bool pointer(AppPointerEvent event) { if (event.action != APP_POINTER_PRESSED && event.action != APP_POINTER_RELEASED) { return false; } unsigned long long began = e40LoadNow(); bool accepted = e40TrackingPointer(); e40LoadHandler(0, began); return accepted; }
+
 	public void deliver(ApplicationPublication publication) {
 		unsigned long long began = e40LoadNow();
 		assert(publication.generation == 1LL && publication.sequence == publication.payload);
@@ -96,10 +115,11 @@ class E40LoadRun implements IApplicationWork {
 	private E40LoadWork _immediate;
 	private E40LoadWork _delayed;
 	private bool _hosted;
+	private int _trial;
 	private int _stage = 0;
 	private unsigned long long _deadline;
-	public E40LoadRun(IApplication application, IGPUView first, IGPUView second, E40LoadReceiver receiver, E40LoadProducer producer, bool hosted) {
-		self._application = application; self._first = first; self._second = second; self._receiver = receiver; self._producer = producer; self._hosted = hosted;
+	public E40LoadRun(IApplication application, IGPUView first, IGPUView second, E40LoadReceiver receiver, E40LoadProducer producer, bool hosted, int trial) {
+		self._application = application; self._first = first; self._second = second; self._receiver = receiver; self._producer = producer; self._hosted = hosted; self._trial = trial;
 		self._timer = E40LoadWork(application, 2); self._immediate = E40LoadWork(application, 3); self._delayed = E40LoadWork(application, 4);
 		self._deadline = e40LoadNow() + 20000000000ULL;
 	}
@@ -121,14 +141,14 @@ class E40LoadRun implements IApplicationWork {
 			bool first = self._first.poll(); bool second = self._second.poll();
 			assert(self._first.error().isEmpty() && self._second.error().isEmpty());
 			if (first && second && e40LoadReady()) {
-				e40LoadObserveSurfaces(); self._deadline = e40LoadBegin() + 600000000000ULL;
+				e40LoadObserveSurfaces(); self._deadline = e40LoadBegin() + (self._trial == 0 ? 600000000000ULL : 10000000000ULL);
 				self._timer.arm(); self._immediate.arm(); self._delayed.arm();
-				assert(self._worker.start(self._producer) == NATIVE_WORKER_STARTED); self._stage = 1;
+				assert(self._worker.start(self._producer) == NATIVE_WORKER_STARTED); self._stage = 1; e40TrackingStart();
 			}
 		}
 		if (self._stage == 1 || self._stage == 2) {
 			self.frame(self._first, 0); self.frame(self._second, 1);
-			if (self._stage == 1 && now >= self._deadline) { e40LoadPushClose(); self._stage = 2; self._deadline = now + 5000000000ULL; }
+			if (self._stage == 1 && now >= self._deadline) { assert(e40TrackingDone()); e40LoadPushClose(); self._stage = 2; self._deadline = now + 5000000000ULL; }
 			if (self._stage == 2) {
 				assert(now < self._deadline);
 				if (self._receiver.closes == 1) {
@@ -148,21 +168,33 @@ class E40LoadRun implements IApplicationWork {
 	}
 }
 int main(int argc, char** argv) {
-	assert(argc == 3); e40LoadRequireHosted();
+	assert(argc == 4); e40LoadRequireHosted(); int trial = e40LoadTrial(argv[2]);
 	bool hosted = strcmp(argv[1], "host") == 0; assert(hosted || strcmp(argv[1], "desktop") == 0);
 	var application = MacOSApplication(256); var first = application.createWindow("E40 load first", 320.0, 200.0); var second = application.createWindow("E40 load second", 320.0, 200.0);
 	var firstView = application.createGPUView(false); var secondView = application.createGPUView(false);
-	first.attachRoot(firstView); second.attachRoot(secondView); first.show(); second.show(); e40LoadSetup(argv[2]);
+	var root = application.createContainer(); root.attach(firstView); firstView.arrange(0.0, 50.0, 320.0, 140.0);
+	ISlider? slider = null; ISelect? selection = null;
+	if (trial == 1) {
+		var select = application.createSelect(); selection = select;
+		var model = SelectModel(); model.options = []; model.selectedKey = "item-0"; model.availability = SELECT_AVAILABILITY_READY; model.statusText = "";
+		for (int index = 0; index <= 20; index++) { var option = SelectOption(); option.key = f"item-{index}"; option.title = f"Item {index}"; option.enabled = true; model.options.push(option); }
+		select.setOptions(model); root.attach(select); select.arrange(20.0, 10.0, 280.0, 30.0);
+	}
+	if (trial == 2) { var range = application.createSlider(0.0, 100.0, 0); slider = range; root.attach(range); range.arrange(20.0, 10.0, 280.0, 30.0); }
+	first.attachRoot(root); second.attachRoot(secondView); first.show(); second.show(); e40LoadSetup(argv[3], trial);
 	var owner = CallbackScope(); var receiver = E40LoadReceiver(); first.onKey(receiver, owner); second.onKey(receiver, owner); first.onCloseRequested(receiver, owner);
+	if (slider != null) { slider.onPreview(receiver, owner); slider.onCommit(receiver, owner); }
+	if (selection != null) { selection.onChanged(receiver, owner); selection.onCommit(receiver, owner); selection.onCancel(receiver, owner); }
+	if (trial == 4) { secondView.onPointer(receiver, owner); }
 	var created = application.createPublisher(64, receiver, owner); var publisher = created.publisher;
 	assert(created.kind == APPLICATION_PUBLISHER_CREATED); if (publisher == null) { throw "Load publisher was not created"; }
-	var producer = E40LoadProducer(publisher); receiver.producer = producer;
-	var run = E40LoadRun(application, firstView, secondView, receiver, producer, hosted); application.post(run);
+	var producer = E40LoadProducer(publisher); producer.tracking = trial != 0; receiver.producer = producer;
+	var run = E40LoadRun(application, firstView, secondView, receiver, producer, hosted, trial); application.post(run);
 	if (hosted) {
 		var host = E40ApplicationHost(); var hostOwner = CallbackScope(); var attached = application.attachHost(host, hostOwner);
 		assert(attached.kind == APPLICATION_HOST_ATTACHED && attached.attachment != null); host.attachment = attached.attachment;
 		e40LoadRunHost(); assert(application.close() == CALLBACK_CANCELLATION_COMPLETE); assert(hostOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE); host.close();
 	} else { application.run(); }
 	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && application.close() == CALLBACK_CANCELLATION_COMPLETE);
-	e40LoadCleanup(); print("PASS: E40 macOS 600-second declared load"); return 0;
+	e40LoadCleanup(); print(trial == 0 ? "PASS: E40 macOS 600-second declared load" : "PASS: E40 macOS native tracking load"); return 0;
 }

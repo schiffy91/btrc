@@ -71,6 +71,18 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
             "e40LoadCleanup",
             "e40LoadRunHost",
         ]
+    if stem == "Load":
+        symbols += [
+            "e40LoadTrial",
+            "e40TrackingStart",
+            "e40TrackingTick",
+            "e40TrackingDone",
+            "e40TrackingSemantic",
+            "e40TrackingPointer",
+        ]
+        for suffix in ("h", "m"):
+            name = f"Tracking.{suffix}"
+            (package / name).write_text((FIXTURES / name).read_text())
     language = "objective-c" if stem == "Boundary" else "c"
     manifest = package / "btrc.toml"
     manifest.write_text(
@@ -81,6 +93,12 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         '[[native.frameworks]]\nname = "QuartzCore"\nmodules = ["Main"]\nos = ["macos"]\n'
         '[[native.frameworks]]\nname = "Metal"\nmodules = ["Main"]\nos = ["macos"]\n'
     )
+    if stem == "Load":
+        with manifest.open("a") as stream:
+            stream.write(
+                '[[native.sources]]\npath = "Tracking.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+                '[[native.frameworks]]\nname = "CoreGraphics"\nmodules = ["Main"]\nos = ["macos"]\n'
+            )
     (source.parent / "Host.btrc").write_text((FIXTURES / "Host.btrc").read_text())
     source.write_text((FIXTURES / f"{stem}.btrc").read_text())
     plan = package / f"{stem}.link.json"
@@ -90,18 +108,29 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
     generated.write_text(compiled.c_source)
     executable = package / stem
 
+    native_build_commands = []
+
     def runner(command, **kwargs):
-        flags = ["-O1"] if Path(command[0]).name in {"clang", "clang++"} else []
-        if flags and sanitized:
+        flags = []
+        if Path(command[0]).name in {"clang", "clang++"} and sanitized:
             flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
-        return subprocess.run([command[0], *flags, *command[1:]], env=apple_environment(), **kwargs)
+        executed = [str(command[0]), *flags, *(str(argument) for argument in command[1:])]
+        native_build_commands.append(executed)
+        return subprocess.run(executed, env=apple_environment(), **kwargs)
 
     NativePlanBuilder(runner=runner).build(
-        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+        plan_path=plan,
+        generated_c=generated,
+        output=executable,
+        cc="/usr/bin/clang",
+        cxx="/usr/bin/clang++",
+        optimization=2,
     )
     frontend = request.node.callspec.params["native_compile"]
     provenance = {
         "frontend": frontend,
+        "native_build_commands": native_build_commands,
+        "native_optimization": 2,
         "sanitized": sanitized,
         "target": triple,
         "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
@@ -111,7 +140,7 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
         "selfhost_binary": os.environ.get("BTRC_TEST_BTRCC") if frontend == "selfhost" else None,
         "physical_device_latency": "not measured",
-        "input": "synthetic queued AppKit events",
+        "input": "synthetic queued AppKit events; popup/resize use CGEventPost with permission preflight",
     }
     return executable, provenance
 
@@ -129,12 +158,13 @@ def test_macos_ui2_e40_load_compile(e40_program, trial):
     assert executable.is_file()
 
 
+@pytest.mark.e40_qualification
 @pytest.mark.macos_gui
 @pytest.mark.skipif(
     sys.platform == "darwin" and (os.environ.get("BTRC_UI2_HOSTED_E40") != "1" or os.environ.get("CI") != "true"),
     reason="E40 visible native execution requires explicit hosted CI opt-in",
 )
-@pytest.mark.parametrize("trial", ["bursts", "load"])
+@pytest.mark.parametrize("trial", ["bursts", "load", "popup", "slider", "resize", "sheet"])
 @pytest.mark.parametrize("entry", ["desktop", "host"])
 def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path):
     executable, provenance = e40_program
@@ -145,13 +175,16 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path):
     (directory / "provenance.json").write_text(json.dumps(provenance, indent=2))
     environment = apple_environment() | {"UBSAN_OPTIONS": "halt_on_error=1"}
     environment.pop("BTRC_GUI_BACKGROUND", None)
-    command = [str(executable), entry, str(report.resolve())]
+    command = [str(executable), entry, *([] if trial == "bursts" else [trial]), str(report.resolve())]
+    timeout = 1800 if trial == "bursts" else 900 if trial == "load" else 60
     try:
-        result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=1800)
+        result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as error:
         stdout = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout or ""
         stderr = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else error.stderr or ""
-        result = subprocess.CompletedProcess(command, -124, stdout, stderr + "\nE40 timed out after 1800 seconds.\n")
+        result = subprocess.CompletedProcess(
+            command, -124, stdout, stderr + f"\nE40 timed out after {timeout} seconds.\n"
+        )
     (directory / "stdout.txt").write_text(result.stdout)
     (directory / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -160,7 +193,12 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path):
     if trial == "bursts":
         evidence.bursts()
         assert "PASS: E40 macOS native boundary bursts" in result.stdout
-    else:
+    elif trial == "load":
         evidence.load()
         evidence.presentations(Path(str(report) + ".presentations.csv"))
         assert "PASS: E40 macOS 600-second declared load" in result.stdout
+
+    else:
+        evidence.tracking(trial)
+        evidence.presentations(Path(str(report) + ".presentations.csv"))
+        assert "PASS: E40 macOS native tracking load" in result.stdout

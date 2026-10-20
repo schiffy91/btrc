@@ -3,6 +3,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #include "Load.h"
+#import "Tracking.h"
 #include <assert.h>
 #include <mach/mach_time.h>
 #include <pthread.h>
@@ -39,7 +40,7 @@ static FILE *presentationFile;
 static long long frameSequence[2], inputSequence;
 static uint64_t frameCounts[2], loadStarted, loadEnds, producerLastTick, producerMaximumGap;
 static uint64_t producerIterations, producerBySecond[ACTIVITY_SECONDS], inputPauses, nativeEnqueueErrors;
-static int loadSeconds;
+static int loadSeconds, trialKind;
 static int64_t presentationClockOffset;
 static uint64_t presentationClockUncertainty;
 static Class drawableClass;
@@ -81,6 +82,7 @@ static void delivered(int kind, long long sequence, uint64_t now) {
     uint64_t serviceGap = now - ready;
     if (serviceGap > m->maximumGap) { m->maximumGap = serviceGap; }
     m->lastService = now;
+    e40TrackingSample(kind, now);
     m->delivered++; m->lastSequence = sequence; m->pending--; m->bytes -= r->bytes;
     int second = activitySecond(now);
     if (second >= 0) { m->deliveredBySecond[second]++; }
@@ -142,8 +144,13 @@ void e40LoadRequireHosted(void) {
         fprintf(stderr, "E40 visible load requires explicit hosted CI opt-in\n"); exit(78);
     }
 }
-void e40LoadSetup(const char *output) {
-    assert(NSThread.isMainThread && !closeMonitor);
+int e40LoadTrial(const char *name) {
+    const char *names[] = {"load", "popup", "slider", "resize", "sheet"};
+    for (int index = 0; index < 5; index++) { if (strcmp(name, names[index]) == 0) { return index; } }
+    assert(false); return -1;
+}
+void e40LoadSetup(const char *output, int trial) {
+    assert(NSThread.isMainThread && !closeMonitor && trial >= 0 && trial <= 4); trialKind = trial;
     outputPath = [[NSString alloc] initWithUTF8String:output];
     for (NSWindow *window in NSApp.windows) {
         if ([window.title isEqualToString:@"E40 load first"]) { assert(!windows[0]); windows[0] = [window retain]; }
@@ -162,6 +169,7 @@ void e40LoadSetup(const char *output) {
     NSString *csv = [outputPath stringByAppendingString:@".presentations.csv"];
     presentationFile = fopen(csv.UTF8String, "w"); assert(presentationFile);
     assert(fputs("window,presented_continuous_ns,native_presented_seconds,callback_continuous_ns\n", presentationFile) >= 0);
+    e40TrackingSetup(trial, windows[0], windows[1], outputPath);
 }
 bool e40LoadReady(void) {
     if (!NSApp.active) { [NSApp activateIgnoringOtherApps:YES]; }
@@ -206,7 +214,7 @@ void e40LoadObserveSurfaces(void) {
 }
 unsigned long long e40LoadBegin(void) {
     assert(NSThread.isMainThread && loadStarted == 0 && originalNextDrawable);
-    loadSeconds = ACTIVITY_SECONDS; loadStarted = e40LoadNow(); loadEnds = loadStarted + 600000000000ULL;
+    loadSeconds = trialKind == 0 ? ACTIVITY_SECONDS : 10; loadStarted = e40LoadNow(); loadEnds = loadStarted + (uint64_t)loadSeconds * 1000000000ULL;
     measuring = true; return loadStarted;
 }
 void e40LoadProducerTick(void) {
@@ -266,10 +274,10 @@ void e40LoadReport(bool hosted) {
         struct Metrics *m = &metrics[kind]; assert(m->accepted == m->delivered && m->pending == 0 && m->bytes == 0 && m->delivered > 0);
         if (kind == 7) { continue; }
         NSMutableArray *accepted = [NSMutableArray array], *deliveredCounts = [NSMutableArray array], *runnable = [NSMutableArray array];
-        for (int second = 0; second < ACTIVITY_SECONDS; second++) {
+        for (int second = 0; second < loadSeconds; second++) {
             [accepted addObject:@(m->acceptedBySecond[second])]; [deliveredCounts addObject:@(m->deliveredBySecond[second])]; [runnable addObject:@(m->runnableBySecond[second])];
         }
-        [classes addObject:@{@"name":names[kind], @"accepted":@(m->accepted), @"rejected":@(m->rejected), @"delivered":@(m->delivered),
+        [classes addObject:@{@"name":names[kind], @"delivery_kind":kind >= 5 ? @"presentation" : kind == 0 && trialKind == 1 ? @"native-effect" : kind == 0 && trialKind > 0 && trialKind != 4 ? @"native-dequeue" : @"semantic-callback", @"accepted":@(m->accepted), @"rejected":@(m->rejected), @"delivered":@(m->delivered),
             @"cancelled":@0, @"stale":@0, @"pending":@(m->pending), @"duplicates":@0, @"ordered_reordered":@0,
             @"latency_histogram":counterArray(m->latency, BINS), @"latency_bin_ns":@100000, @"maximum_latency_ns":@(m->maximumLatency),
             @"runnable_service_gaps_ns":@[@(m->maximumGap)], @"handler_ns":@[@(m->handlerMaximum)],
@@ -277,23 +285,25 @@ void e40LoadReport(bool hosted) {
             @"accepted_by_second":accepted, @"delivered_by_second":deliveredCounts, @"runnable_by_second":runnable}];
     }
     assert(fclose(presentationFile) == 0); presentationFile = NULL;
-    NSDictionary *report = @{@"schema":@"btrc.ui2.macos-e40/1", @"trial":@"load", @"entry":hosted ? @"host" : @"desktop",
+    NSMutableDictionary *report = [@{@"schema":@"btrc.ui2.macos-e40/1", @"trial":@[@"load", @"popup", @"slider", @"resize", @"sheet"][trialKind], @"entry":hosted ? @"host" : @"desktop",
         @"native_backend":@"AppKit", @"clock":@"mach_continuous_time nanoseconds", @"elapsed_ns":@(loadEnds - loadStarted),
         @"load_started_ns":@(loadStarted), @"load_ended_ns":@(loadEnds), @"visible_windows":@(windows[0].visible + windows[1].visible),
-        @"application_active":@(NSApp.active), @"window_key":@(windows[0].keyWindow), @"native_failure":NSNull.null, @"trace_overflow":@0, @"classes":classes,
+        @"application_active":@(NSApp.active), @"window_key":@(NSApp.keyWindow != nil), @"key_window_number":@(NSApp.keyWindow.windowNumber), @"native_failure":NSNull.null, @"trace_overflow":@0, @"classes":classes,
         @"close_start_ns":@[@(metrics[7].maximumLatency)], @"native_enqueue_errors":@(nativeEnqueueErrors),
         @"accounted_storage":@"retained payload/reference credits; excludes native and driver allocations",
+        @"input_receipt_admission":@"probe ledger before native submission; not an SDK admission acknowledgment",
         @"native_submission_api":@"NSApplication.postEvent (void); exceptions reported separately", @"source_backpressure_pauses":@(inputPauses),
-        @"producer_iterations":@(producerIterations), @"producer_max_gap_ns":@(producerMaximumGap), @"producer_by_second":counterArray(producerBySecond, ACTIVITY_SECONDS),
+        @"producer_iterations":@(producerIterations), @"producer_max_gap_ns":@(producerMaximumGap), @"producer_by_second":counterArray(producerBySecond, loadSeconds),
         @"presentation_source":@"MTLDrawable.addPresentedHandler/presentedTime", @"presentation_clock_offset_ns":@(presentationClockOffset),
         @"presentation_clock_uncertainty_ns":@(presentationClockUncertainty), @"presented_counts":@[@(frameCounts[0]), @(frameCounts[1])],
-        @"presentation_file":[outputPath stringByAppendingString:@".presentations.csv"], @"physical_input":@NO};
+        @"presentation_file":[outputPath stringByAppendingString:@".presentations.csv"], @"physical_input":@NO} mutableCopy];
+    if (trialKind != 0) { report[@"tracking"] = e40TrackingReport(); }
     NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:report options:0 error:&error];
     assert(data && !error && [data writeToFile:outputPath options:NSDataWritingAtomic error:&error] && !error);
-    pthread_mutex_unlock(&mutex);
+    [report release]; pthread_mutex_unlock(&mutex);
 }
 void e40LoadCleanup(void) {
-    assert(!measuring && presentationFile == NULL);
+    assert(!measuring && presentationFile == NULL); e40TrackingCleanup();
     if (originalNextDrawable) { Method method = class_getInstanceMethod(drawableClass, @selector(nextDrawable)); method_setImplementation(method, originalNextDrawable); originalNextDrawable = NULL; }
     if (closeMonitor) { [NSEvent removeMonitor:closeMonitor]; [closeMonitor release]; closeMonitor = nil; }
     for (int index = 0; index < 2; index++) { [layers[index] release]; layers[index] = nil; [windows[index] release]; windows[index] = nil; }

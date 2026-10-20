@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
-from itertools import pairwise
 
 
 @dataclass(frozen=True)
@@ -63,7 +62,7 @@ class E40Evidence:
             assert row["pending"] == 0 and row["window_key"] is True, row
         assert seen == expected
 
-    def _class(self, row):
+    def _class(self, row, seconds=600, *, continuous=True):
         counts = {
             name: self._integer(row[name])
             for name in ("accepted", "rejected", "delivered", "cancelled", "stale", "pending")
@@ -85,9 +84,10 @@ class E40Evidence:
                 break
         for name in ("accepted_by_second", "delivered_by_second"):
             buckets = self._samples(row[name])
-            assert len(buckets) == 600
+            assert len(buckets) == seconds
         runnable = row["runnable_by_second"]
-        assert len(runnable) == 600 and all(value is True for value in runnable)
+        assert len(runnable) == seconds and all(type(value) is bool for value in runnable)
+        assert all(runnable) if continuous else any(runnable)
         gaps = self._samples(row["runnable_service_gaps_ns"])
         self._samples(row["handler_ns"])
         depths = self._samples(row["queue_depth"])
@@ -95,7 +95,10 @@ class E40Evidence:
         assert max(depths) <= self._integer(row["capacity"], minimum=1)
         assert max(byte_depths) <= self._integer(row["byte_limit"], minimum=1)
         if not self.sanitized:
-            if not row["name"].startswith("presentation_"):
+            if not row["name"].startswith("presentation_") and row.get("delivery_kind") not in {
+                "native-dequeue",
+                "native-effect",
+            }:
                 assert percentile is not None and percentile <= 100_000_000, row["name"]
             assert max(gaps) <= 250_000_000, row["name"]
 
@@ -155,7 +158,7 @@ class E40Evidence:
         for window, name in enumerate(("presentation_first", "presentation_second")):
             assert counts[window] == by_name[name]["delivered"]
             if not self.sanitized:
-                assert active[window] == set(range(600))
+                assert active[window] == set(range((ended - began) // 1_000_000_000))
 
     def tracking(self, trial):
         assert trial in self.TRACKING
@@ -165,18 +168,140 @@ class E40Evidence:
         exited = self._integer(interval["exited_ns"], minimum=entered + 1)
         assert interval["native_entry_observed"] is interval["native_exit_observed"] is True
         assert interval["run_modal_used"] is False
+        assert interval["forced_cleanup"] is False
+        assert self.report["load_started_ns"] <= entered < exited <= self.report["load_ended_ns"]
+        assert interval["unavailable"] is None
+        assert self.report["elapsed_ns"] == 10_000_000_000
+        assert self.report["load_ended_ns"] - self.report["load_started_ns"] == self.report["elapsed_ns"]
+        assert self.report["native_enqueue_errors"] == 0
+        closes = self._samples(self.report["close_start_ns"])
+        if not self.sanitized:
+            assert max(closes) <= 250_000_000
+        assert interval["service_run_loop_modes"]
+        observed = self.report["classes"]
+        assert len(observed) == len(self.CLASSES) and {row["name"] for row in observed} == set(self.CLASSES)
+        for row in observed:
+            self._class(row, seconds=10, continuous=row["name"] != "input")
         classes = interval["service"]
         assert set(classes) == set(self.CLASSES)
-        for name, samples in classes.items():
-            self._samples(samples)
-            assert any(entered < stamp < exited for stamp in samples), name
-            in_interval = [entered, *(stamp for stamp in samples if entered < stamp < exited), exited]
+        for name, row in classes.items():
+            self._integer(row["count"], minimum=1)
+            first = self._integer(row["first_ns"], minimum=entered)
+            last = self._integer(row["last_ns"], minimum=first)
+            assert first <= last <= exited, name
+            gap = self._integer(row["maximum_gap_ns"])
             if not self.sanitized:
-                assert max(b - a for a, b in pairwise(in_interval)) <= 250_000_000, name
+                assert gap <= 250_000_000, name
+        native = interval["native_input"]
+        assert len(native) >= 2
+        previous = 0
+        event_identities = set()
+        target = self._integer(interval["target_window_number"], minimum=1)
+        independent = self._integer(interval["independent_window_number"], minimum=1)
+        assert target != independent
+        for identity, row in enumerate(native, 1):
+            assert row["identity"] == identity
+            submitted = self._integer(row["submitted_ns"], minimum=self.report["load_started_ns"])
+            ids = row["posted_event_identities"]
+            assert len(ids) == (2 if trial == "popup" else 1)
+            for event_id in ids:
+                self._integer(event_id, minimum=1)
+                assert event_id not in event_identities
+                event_identities.add(event_id)
+            if trial == "popup":
+                assert row["dequeued_ns"] is None
+                assert row["disposition"] == "native-effect-observed"
+                posted = self._integer(row["post_returned_ns"], minimum=submitted)
+                observed_at = self._integer(row["effect_observed_ns"], minimum=max(posted, previous))
+                assert row["window_key"] is True and row["type"] == 10
+            else:
+                assert row["disposition"] == "native-dequeued"
+                observed_at = self._integer(row["dequeued_ns"], minimum=max(submitted, previous))
+                assert row["window_number"] == (independent if trial == "sheet" else target)
+            assert observed_at <= exited and row["application_active"] is True
+            previous = observed_at
+            if trial == "sheet":
+                assert observed_at <= row["semantic_delivered_ns"] <= exited
+        by_name = {row["name"]: row for row in observed}
+        assert by_name["input"]["accepted"] == by_name["input"]["delivered"] == len(native)
+        expected_delivery = (
+            "semantic-callback" if trial == "sheet" else "native-effect" if trial == "popup" else "native-dequeue"
+        )
+        assert by_name["input"]["delivery_kind"] == expected_delivery
+        receipts = interval["semantic_receipts"]
+        if trial in {"popup", "slider"}:
+            assert receipts and sum(row["phase"] == 3 for row in receipts) == 1
+            sequence = 0
+            identity = None
+            latencies = []
+            previous_trigger = 0
+            for row in receipts:
+                assert row["disposition"] == "semantic-delivered"
+                assert row["phase"] in ({1, 3} if trial == "popup" else {2, 3})
+                current = (self._integer(row["generation"], minimum=1), self._integer(row["interaction"], minimum=1))
+                assert identity is None or current == identity
+                identity = current
+                sequence = self._integer(row["sequence"], minimum=sequence + 1)
+                trigger = self._integer(row["trigger_identity"], minimum=1)
+                assert trigger <= len(native)
+                source = native[trigger - 1]
+                if trial == "popup":
+                    assert trigger > previous_trigger
+                    previous_trigger = trigger
+                    candidate = self._integer(row["candidate_index"])
+                    if row["phase"] == 1:
+                        assert trigger < len(native)
+                        assert candidate == source["resulting_highlight"]
+                        observed_at = source["effect_observed_ns"]
+                    else:
+                        assert trigger == len(native) and candidate == 20
+                        # Native action may precede the menu-exit notification.
+                        # Its key and Return source prove selection independently.
+                        observed_at = source["post_returned_ns"]
+                else:
+                    observed_at = source["dequeued_ns"]
+                assert row["delivered_ns"] >= observed_at
+                assert row["latency_ns"] == row["delivered_ns"] - source["submitted_ns"]
+                latencies.append(self._integer(row["latency_ns"]))
+            if not self.sanitized:
+                assert sorted(latencies)[(len(latencies) * 95 + 99) // 100 - 1] <= 100_000_000
+        else:
+            assert receipts == []
+        if trial == "popup":
+            assert interval["input_route"] == "menu-arrow-highlight-return"
+            assert interval["highlight_changes"] == len(native) - 1 >= 20
+            assert any(row["phase"] == 1 for row in receipts)
+            assert receipts[-1]["phase"] == 3
+            assert interval["tracking_model"] == "native tracking loop"
+            assert native[-1]["effect_observed_ns"] == exited
+            previous_highlight = None
+            for row in native[:-1]:
+                before, after = row["previous_highlight"], row["resulting_highlight"]
+                assert type(before) is int and -1 <= before < 20
+                assert type(after) is int and 0 <= after <= 20
+                assert after in {0, 1} if before == -1 else after == before + 1
+                assert previous_highlight is None or before == previous_highlight
+                previous_highlight = after
+            assert previous_highlight == 20
+            assert native[-1]["previous_highlight"] == 20 and native[-1]["resulting_highlight"] == -1
         if trial == "resize":
+            assert interval["input_route"] == "native-window-edge-drag"
             assert interval["in_live_resize_observed"] is True
+            assert interval["resize_changes"] >= 2
+        if trial in {"slider", "resize"}:
+            assert len(native) == 22
+            assert native[0]["type"] == 1 and native[-1]["type"] == 2
+            assert all(row["type"] == 6 for row in native[1:-1])
         if trial == "slider":
+            assert interval["input_route"] == "slider-drag-release"
+            assert interval["tracking_model"] == "provider-owned slider drag"
+            assert len({row["native_value"] for row in native}) > 2
+            for row in native:
+                assert row["dequeued_ns"] <= row["effect_observed_ns"] <= exited
             assert interval["pointer_down"] == interval["pointer_up"] == interval["commits"] == 1
             assert interval["previews"] > 0
         if trial == "sheet":
+            assert interval["input_route"] == "independent-public-view-pointer"
             assert interval["attached_sheet_observed"] is True
+            assert len(native) == 40
+            assert [row["type"] for row in native] == [1, 2] * (len(native) // 2)
