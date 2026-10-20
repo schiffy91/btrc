@@ -77,6 +77,7 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
         ("UI2MacOSSignal", "PASS: UI2 macOS scoped common-mode wake and worker signal"),
         ("UI2MacOSViewInput", "PASS: UI2 macOS pointer admission follows effective eligibility"),
         ("UI2MacOSButtonState", "PASS: UI2 macOS eligibility loss retires pending native button actions"),
+        ("UI2MacOSButtonCloseFailure", "PASS: native button cleanup completed around button receiver cleanup failed"),
         ("UI2MacOSViewState", "PASS: UI2 macOS native view state subtree eligibility and deferred observations"),
         (
             "UI2MacOSNativeSettlement",
@@ -118,7 +119,7 @@ def test_macos_ui2_scoped_worker_signal(
     manifest = package / "btrc.toml"
     root = Path(__file__).resolve().parents[3]
     source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
-    if fixture in {"UI2MacOSButtonState", "UI2MacOSViewInput"}:
+    if fixture in {"UI2MacOSButtonState", "UI2MacOSButtonCloseFailure", "UI2MacOSViewInput"}:
         (package / "Application.h").write_text("#import <AppKit/AppKit.h>\n")
         manifest.write_text(
             manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "Application.h"\n'
@@ -132,6 +133,16 @@ def test_macos_ui2_scoped_worker_signal(
                 else ""
             )
             + "]\n"
+        )
+    if fixture in {"UI2MacOSButtonState", "UI2MacOSButtonCloseFailure"}:
+        for suffix in ("h", "m"):
+            name = f"UI2MacOSButtonState.{suffix}"
+            (package / name).write_text((root / "src/tests/native/gui/ui2/probes/macos" / name).read_text())
+        manifest.write_text(
+            manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "UI2MacOSButtonState.h"\n'
+            'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+            'symbols = ["+[BTRCUI2ButtonProbe exercise:mode:]"]\n'
+            '[[native.sources]]\npath = "UI2MacOSButtonState.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         )
     if fixture in {"UI2MacOSDetachFault", "UI2MacOSViewOrder", "UI2MacOSContainer"}:
         for suffix in ("h", "m"):
@@ -203,7 +214,11 @@ def test_macos_ui2_scoped_worker_signal(
         text=True,
         timeout=30,
     )
-    assert ran.returncode == 0, ran.stdout + ran.stderr
+    if fixture == "UI2MacOSButtonCloseFailure":
+        assert ran.returncode == -6, ran.stdout + ran.stderr
+        assert "Callback scope released before cancellation completed" in ran.stderr
+    else:
+        assert ran.returncode == 0, ran.stdout + ran.stderr
     assert marker in ran.stdout
 
 

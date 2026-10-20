@@ -12,6 +12,89 @@ class StateButtonAction implements IButtonAction {
 	public int calls = 0;
 	public void invoke() { self.calls++; }
 }
+/* Refusing another native press must precede AppKit's toggle mutation.
+ * The first accepted click keeps its receipt until cancellation or delivery. */
+class PressureButtonChecks {
+	class void run() {
+		var signal = MacOSRunLoopSignal(); var actions = MacOSActionQueue(1, signal);
+		var context = MacOSViewContext(MacOSSemanticWake(signal), 1); var events = context.createQueue();
+		var button = MacOSButton("Pressure", actions); button.stateNode().configure(context);
+		button.stateNode().attachWindow(events, true, WINDOW_EXPOSURE_EXPOSED);
+		var receiver = StateButtonAction(); var owner = CallbackScope(); button.onAction(receiver, owner);
+		button.setSelected(false);
+		assert(button.activate() && button.isSelected() && actions.pendingCount() == 1);
+		button.activate();
+		assert(button.isSelected());
+		assert(actions.pendingCount() == 1 && receiver.calls == 0);
+		string failure = context.nativeFailure(); assert(failure != "");
+		bool reported = false;
+		try { context.checkNativeFailure(); } catch (string error) { reported = error == failure; }
+		assert(reported);
+		button.stateNode().detachWindow(); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(button.close() == CALLBACK_CANCELLATION_COMPLETE);
+		actions.close(); context.close(); assert(signal.close());
+	}
+}
+class TrackingButtonClose implements IAppKitNotificationObserver {
+	private MacOSButton _button;
+	public bool entered = false;
+	public CallbackCancellation closed = CALLBACK_CANCELLATION_NOT_REQUESTED;
+	public TrackingButtonClose(MacOSButton button) { self._button = button; }
+
+	public void invoke(NSNotification notification) {
+		if (self.entered) { return; }
+		self.entered = true; self.closed = self._button.close();
+	}
+}
+
+class NativeButtonAdmissionChecks {
+	class void accepted(int mode) {
+		var actions = MacOSActionQueue(1); var button = MacOSButton("Native accepted", actions); button.setSelected(false);
+		assert(BTRCUI2ButtonProbe.exercise(button.nativeView(), mode));
+		assert(button.isSelected() && actions.pendingCount() == 1);
+		assert(button.matches(actions.take()) && actions.take() == null);
+		assert(button.close() == CALLBACK_CANCELLATION_COMPLETE); actions.close();
+	}
+
+	class void pressure(int mode) {
+		var signal = MacOSRunLoopSignal(); var actions = MacOSActionQueue(1, signal);
+		var context = MacOSViewContext(MacOSSemanticWake(signal), 1); var events = context.createQueue();
+		var button = MacOSButton("Native pressure", actions); button.stateNode().configure(context);
+		button.stateNode().attachWindow(events, true, WINDOW_EXPOSURE_EXPOSED);
+		var owner = CallbackScope(); button.onAction(StateButtonAction(), owner); button.setSelected(false);
+		assert(button.activate() && button.isSelected() && actions.pendingCount() == 1);
+		assert(BTRCUI2ButtonProbe.exercise(button.nativeView(), mode));
+		assert(button.isSelected() && actions.pendingCount() == 1);
+		if (mode == 4) {
+			/* An unrelated key must not consume capacity or poison admission. */
+			assert(!context.nativeFailed()); actions.dispatchOne(); assert(actions.pendingCount() == 0);
+			assert(button.activate() && !button.isSelected() && actions.pendingCount() == 1);
+		} else { assert(context.nativeFailed()); }
+		button.stateNode().detachWindow(); owner.cancel(); assert(button.close() == CALLBACK_CANCELLATION_COMPLETE);
+		actions.close(); context.close(); assert(signal.close());
+	}
+
+	class void nested() {
+		var actions = MacOSActionQueue(2); var button = MacOSButton("Nested", actions); button.setSelected(false);
+		assert(BTRCUI2ButtonProbe.exercise(button.nativeView(), 5));
+		assert(!button.isSelected() && actions.pendingCount() == 2);
+		assert(button.matches(actions.take()) && button.matches(actions.take()) && actions.take() == null);
+		assert(button.close() == CALLBACK_CANCELLATION_COMPLETE); actions.close();
+	}
+
+	class void closeDuringTracking() {
+		var signal = MacOSRunLoopSignal(); var actions = MacOSActionQueue(1);
+		var button = MacOSButton("Close tracking", actions); var receiver = TrackingButtonClose(button); var owner = CallbackScope();
+		signal.subscribe(receiver, owner); signal.wake();
+		assert(BTRCUI2ButtonProbe.exercise(button.nativeView(), 6));
+		assert(receiver.entered && receiver.closed == CALLBACK_CANCELLATION_PENDING && !button.isOpen());
+		assert(button.pollClose() == CALLBACK_CANCELLATION_COMPLETE && actions.pendingCount() == 0);
+		owner.cancel(); actions.close(); assert(signal.close());
+	}
+
+	class void run() { NativeButtonAdmissionChecks.accepted(0); NativeButtonAdmissionChecks.accepted(1); NativeButtonAdmissionChecks.accepted(8); NativeButtonAdmissionChecks.accepted(3); for (int mode = 0; mode <= 4; mode++) { NativeButtonAdmissionChecks.pressure(mode); } NativeButtonAdmissionChecks.nested(); NativeButtonAdmissionChecks.closeDuringTracking(); }
+}
+
 int main() {
 	NSApplication.sharedApplication();
 	var signal = MacOSRunLoopSignal(); var actions = MacOSActionQueue(8, signal);
@@ -32,5 +115,6 @@ int main() {
 	button.stateNode().windowChanged(false, WINDOW_EXPOSURE_NOT_EXPOSED); assert(actions.pendingCount() == 0 && receiver.calls == 1);
 	button.stateNode().detachWindow(); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(button.close() == CALLBACK_CANCELLATION_COMPLETE); actions.close(); context.close(); assert(signal.close());
+	PressureButtonChecks.run(); NativeButtonAdmissionChecks.run();
 	print("PASS: UI2 macOS eligibility loss retires pending native button actions"); return 0;
 }

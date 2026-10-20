@@ -1,4 +1,5 @@
 import Library.Callback;
+import Library.Console;
 import Library.Vector;
 import Library.GUI.IButton;
 import Library.GUI.ActionMailbox;
@@ -8,17 +9,69 @@ import Library.GUI.MacOS.MacOSRunLoop;
 /* The provider's projection of a queued action, compared by identity. */
 interface IMacOSAction extends IQueuedAction { void discard(); long long ineligibleCount(); }
 
-/* Stable BTRC identity, not a native sender. It has no path back to the scope
- * that owns its subscription. Each queued entry snapshots its generation. */
-class MacOSAction implements IMacOSAction, IAppKitButtonAction, IMacOSViewEligibility {
+/* Every entered activation owns one reservation until its native target
+ * captures the action. Nested clicks during mouse tracking reserve separately. */
+class MacOSButtonEntry {
+	public ActionMailboxReservation? reservation;
+	public void retire() { if (self.reservation != null) { self.reservation.retire(); } }
+
+	public void __del__() { self.retire(); }
+}
+
+class MacOSAction implements IMacOSAction, IAppKitButtonAction, IAppKitButtonAdmission, IMacOSViewEligibility {
 	private MacOSActionMailbox _mailbox;
 	private int _generation = 0;
 	private bool _open = true;
 	private MacOSViewState? _state;
 	private long long _ineligible = 0LL;
 	private CallbackContext<IButtonAction, MacOSAction>? _handler;
+	private CallbackContext<IButtonAction, MacOSAction>? _closingHandler;
+	private bool _admitted = false;
+	private Vector<MacOSButtonEntry> _entries = [];
 
-	public MacOSAction(MacOSActionMailbox mailbox, MacOSViewState? state = null) { mailbox.requireMainThread(); self._mailbox = mailbox; self._state = state; }
+	public MacOSAction(MacOSActionMailbox mailbox, MacOSViewState? state = null, bool admitted = false) { mailbox.requireMainThread(); self._mailbox = mailbox; self._state = state; self._admitted = admitted; }
+
+	public void attachState(MacOSViewState state) { self._mailbox.requireMainThread(); if (self._state != null || state == null) { throw "Native action state is already bound or missing"; } self._state = state; }
+
+	private void failed(string error) {
+		self._mailbox.recordFailure(error);
+		var state = self._state; if (state != null) { var context = state.context(); if (context != null) { context.recordNativeFailure(error); } }
+	}
+
+	private bool beginNative() {
+		self._mailbox.requireMainThread();
+		var entry = MacOSButtonEntry(); self._entries.push(entry);
+		bool admitted = false;
+		try {
+			var state = self._state; var context = state == null ? null : state.context();
+			if (self._open && !self._mailbox.failed() && (context == null || !context.nativeFailed())) {
+				entry.reservation = self._mailbox.reserve(self, self._generation);
+				admitted = entry.reservation != null;
+				if (!admitted) { self.failed("Native action capacity exceeded before button activation"); }
+			}
+		} catch (string error) { self.failed(error); }
+		return admitted;
+	}
+
+	private void endNative(bool nativeFailed) {
+		try {
+			if (self._entries.len == 0) { throw "Native button admission entry is missing"; }
+			var entry = self._entries.get(self._entries.len - 1); self._entries.remove(self._entries.len - 1); entry.retire();
+			if (nativeFailed) { self.failed("Native button activation failed"); }
+		} catch (string error) { self.failed(error); }
+	}
+
+	public bool beforePerformClick(id? sender) { return self.beginNative(); }
+
+	public void afterPerformClick(bool invokedSuper, bool nativeFailed) { self.endNative(nativeFailed); }
+
+	public bool beforeAccessibilityPress() { return self.beginNative(); }
+
+	public void afterAccessibilityPress(bool invokedSuper, bool nativeFailed) { self.endNative(nativeFailed); }
+
+	public bool beforeMouseDown(NSEvent event) { return self.beginNative(); }
+
+	public void afterMouseDown(bool invokedSuper, bool nativeFailed) { self.endNative(nativeFailed); }
 
 	/* Manual provider queues expose action identities without a domain receiver.
 	 * A subscribed action always rechecks its view before user delivery. */
@@ -35,7 +88,16 @@ class MacOSAction implements IMacOSAction, IAppKitButtonAction, IMacOSViewEligib
 		return true;
 	}
 
-	public void invoke() { self._mailbox.requireMainThread(); if (self._open) { self._mailbox.enqueue(self, self._generation); } }
+	public void invoke() {
+		self._mailbox.requireMainThread(); if (!self._open) { return; }
+		if (!self._admitted) { self._mailbox.enqueue(self, self._generation); return; }
+		try {
+			if (self._entries.len == 0) { throw "Native button action has no admitted activation"; }
+			var entry = self._entries.get(self._entries.len - 1); var reservation = entry.reservation;
+			if (reservation == null || !reservation.isOpen()) { throw "Native button activation has no action reservation"; }
+			self._mailbox.enqueueReserved(reservation);
+		} catch (string error) { self.failed(error); }
+	}
 
 	public ICallbackRegistration onAction(IButtonAction receiver, CallbackScope scope) {
 		self._mailbox.requireMainThread();
@@ -77,8 +139,18 @@ class MacOSAction implements IMacOSAction, IAppKitButtonAction, IMacOSViewEligib
 	public void close() {
 		self._mailbox.requireMainThread();
 		self._open = false;
-		self._mailbox.prune();
-		if (self._handler != null) { self._handler.cancel(); }
+		string failure = "";
+		try { self._mailbox.prune(); } catch (string error) { failure = error; }
+		for entry in self._entries { try { entry.retire(); } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
+		var handler = self._handler;
+		if (handler != null) { self._closingHandler = handler; try { handler.cancel(); } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
+		if (!failure.isEmpty()) { throw failure; }
+	}
+
+	public CallbackCancellation pollClose() {
+		self._mailbox.requireMainThread(); if (self._open) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var handler = self._closingHandler; if (handler == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		var result = handler.pollCompletion(); if (result == CALLBACK_CANCELLATION_COMPLETE) { self._closingHandler = null; } return result;
 	}
 }
 
@@ -89,6 +161,7 @@ class MacOSAction implements IMacOSAction, IAppKitButtonAction, IMacOSViewEligib
 class MacOSActionMailbox {
 	private ActionMailbox _ring;
 	private MacOSRunLoopSignal? _signal;
+	private MacOSNativeFailure _failure = MacOSNativeFailure();
 
 	public MacOSActionMailbox(int capacity, MacOSRunLoopSignal? signal) {
 		self.requireMainThread();
@@ -112,6 +185,14 @@ class MacOSActionMailbox {
 
 	public void prune() { self.requireMainThread(); self._ring.prune(); }
 
+	public void recordFailure(string error) { self.requireMainThread(); self._failure.record(error); try { self.wake(); } catch (string ignored) {} }
+
+	public bool failed() { self.requireMainThread(); return self._failure.failed(); }
+
+	public ActionMailboxReservation? reserve(MacOSAction action, int generation) { self.requireMainThread(); return self._failure.failed() ? null : self._ring.reserve(action, generation); }
+
+	public void enqueueReserved(ActionMailboxReservation reservation) { self.requireMainThread(); if (self._ring.enqueueReserved(reservation)) { self.wake(); } }
+
 	public void enqueue(MacOSAction action, int generation) {
 		self.requireMainThread();
 		// Only the wakeup coalesces. Every ordered click stays in the ring.
@@ -120,7 +201,7 @@ class MacOSActionMailbox {
 
 	public IMacOSAction? take() {
 		self.requireMainThread();
-		var action = self._ring.take();
+		self._failure.check(); var action = self._ring.take();
 		if (action == null) { return null; }
 		return (IMacOSAction?)action;
 	}
@@ -129,31 +210,48 @@ class MacOSActionMailbox {
 /* Cancellation is owned independently of the callback receiver. Native holders
  * retain the action/mailbox, never this binding or its scope. */
 class MacOSActionBinding {
-	private NSButton _control;
+	private NSButton? _control;
 	private MacOSAction _action;
 	private CallbackScope _scope;
-	private bool _closed = false;
+	private bool _closing = false;
 
-	public MacOSActionBinding(NSButton control, MacOSActionMailbox mailbox, MacOSViewState? state) {
-		self._control = control;
-		self._action = MacOSAction(mailbox, state);
+	public MacOSActionBinding(NSButton? existing, MacOSActionMailbox mailbox, MacOSViewState? state) {
+		NSButton? control = existing;
+		self._action = MacOSAction(mailbox, state, control == null);
 		self._scope = CallbackScope();
-		try { control.setTarget(self._action, self._scope); }
-		catch (string error) { self.close(); throw error; }
+		try {
+			if (control == null) { CGRect frame = {{0.0, 0.0}, {0.0, 0.0}}; control = NSButton.initWithFrame(self._action, self._scope, frame); }
+			if (control == null) { throw "Cannot create native button"; }
+			self._control = control; control.setTarget(self._action, self._scope);
+		} catch (string error) { self.close(); throw error; }
 	}
 
 	public bool matches(NSButton control) { return self._control == control; }
 
+	public NSButton control() { var control = self._control; if (control == null || self._closing) { throw "Native action binding is closed"; } return control; }
+
 	public MacOSAction action() { return self._action; }
 
-	public void close() {
-		if (self._closed) { return; }
-		if (self._scope.cancel() != CALLBACK_CANCELLATION_COMPLETE) { throw "Native actions must drain before closing their binding"; }
-		self._action.close();
-		self._closed = true;
+	public CallbackCancellation pollClose() {
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var native = self._scope.pollCompletion(); var action = self._action.pollClose();
+		if (native == CALLBACK_CANCELLATION_FAILED || action == CALLBACK_CANCELLATION_FAILED) { return CALLBACK_CANCELLATION_FAILED; }
+		if (native == CALLBACK_CANCELLATION_RETRYABLE_FAILURE || action == CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		if (native != CALLBACK_CANCELLATION_COMPLETE || action != CALLBACK_CANCELLATION_COMPLETE) { return CALLBACK_CANCELLATION_PENDING; }
+		self._control = null; return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
-	public void __del__() { self.close(); }
+	public CallbackCancellation close() {
+		string failure = "";
+		if (!self._closing) {
+			self._closing = true;
+			try { self._action.close(); } catch (string error) { failure = error; }
+			try { self._scope.cancel(); } catch (string error) { if (failure.isEmpty()) { failure = error; } }
+		}
+		var result = self.pollClose(); if (!failure.isEmpty()) { throw failure; } return result;
+	}
+
+	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native action binding destroyed before callback drain"); } }
 }
 
 class MacOSActionQueue {
@@ -176,6 +274,10 @@ class MacOSActionQueue {
 	private int indexOf(NSButton control) {
 		for (int index = 0; index < self._bindings.len; index++) { if (self._bindings.get(index).matches(control)) { return index; } }
 		return -1;
+	}
+
+	public MacOSActionBinding createButton() {
+		self.requireOpen(); var binding = MacOSActionBinding(null, self._mailbox, null); self._bindings.push(binding); return binding;
 	}
 
 	public MacOSAction bind(NSButton control, MacOSViewState? state = null) {
@@ -204,12 +306,15 @@ class MacOSActionQueue {
 		if (action != null) { action.deliver(); }
 	}
 
-	public void unbind(NSButton control) {
+	public CallbackCancellation unbind(NSButton control) {
 		self.requireOpen();
 		int index = self.indexOf(control);
-		if (index < 0) { throw "Native control is not bound"; }
-		self._bindings.get(index).close();
-		self._bindings.remove(index);
+		if (index < 0) { return CALLBACK_CANCELLATION_COMPLETE; }
+		var binding = self._bindings.get(index); CallbackCancellation result = CALLBACK_CANCELLATION_PENDING;
+		bool raised = false; string failure = "";
+		try { result = binding.close(); } catch (string error) { raised = true; failure = error; result = binding.pollClose(); }
+		if (result == CALLBACK_CANCELLATION_COMPLETE) { self._bindings.remove(index); }
+		if (raised) { throw failure; } return result;
 	}
 
 	public IMacOSAction? take() { self.requireOpen(); return self._mailbox.take(); }

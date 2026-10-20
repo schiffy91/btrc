@@ -1,0 +1,33 @@
+import Library.Callback;
+import Library.GUI.IButton;
+import Library.GUI.MacOS.MacOSButton;
+import Library.GUI.MacOS.MacOSRunLoop;
+import Library.GUI.MacOS.MacOSActionQueue;
+
+#include <assert.h>
+#include <stdio.h>
+
+class ThrowingButtonAction implements IButtonAction {
+	public void invoke() {}
+
+	public void __del__() { throw "button receiver cleanup failed"; }
+}
+
+int main() {
+	NSApplication.sharedApplication();
+	var signal = MacOSRunLoopSignal(); var actions = MacOSActionQueue(1, signal);
+	var button = MacOSButton("Failed close", actions); button.setSelected(false);
+	var native = button.nativeView(); CallbackScope? owner = CallbackScope();
+	var registration = button.onAction(ThrowingButtonAction(), owner);
+	string failure = "";
+	try { button.close(); } catch (string error) { failure = error; }
+	assert(failure == "button receiver cleanup failed");
+	assert(registration.pollCompletion() == CALLBACK_CANCELLATION_FAILED);
+	assert(button.pollClose() == CALLBACK_CANCELLATION_FAILED && !button.isOpen());
+	assert(BTRCUI2ButtonProbe.exercise(native, 7) && actions.pendingCount() == 0);
+	/* A failed domain destructor stays failed. All native cancellation and view
+	 * shutdown must already have happened before the scope's fatal policy. */
+	printf("PASS: native button cleanup completed around %s\n", failure); fflush(stdout);
+	owner = null;
+	assert(false); return 1;
+}

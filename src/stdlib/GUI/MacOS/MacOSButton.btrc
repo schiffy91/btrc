@@ -10,7 +10,8 @@ class MacOSButton implements IButton, IMacOSView {
 	private NSButton? _button;
 	private MacOSView _view;
 	private MacOSActionQueue? _actions;
-	private IMacOSAction? _action;
+	private MacOSAction? _action;
+	private bool _closing = false;
 	private bool _selectable = false;
 	private bool _bordered = true;
 	private bool _symbol = false;
@@ -20,16 +21,20 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public MacOSButton(string title, MacOSActionQueue? actions = null) {
 		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
-		var button = NSButton.new();
+		MacOSActionBinding? binding = actions == null ? null : actions.createButton();
+		var button = binding == null ? NSButton.new() : binding.control();
 		if (button == null) { throw "Cannot create native button"; }
-		self._button = button;
-		self._view = MacOSView(button);
-		self._actions = actions;
-		button.setTitle(AppKitText.nativeValue(title));
-		button.setButtonType(NSButtonTypeMomentaryPushIn);
-		button.setBezelStyle(NSBezelStyleRounded);
-		button.setContinuous(false);
-		if (actions != null) { var action = actions.bind(button, self._view.stateNode()); self._action = action; self._view.bindEligibility(action); }
+		self._button = button; self._actions = actions;
+		try {
+			self._view = MacOSView(button);
+			button.setTitle(AppKitText.nativeValue(title));
+			button.setButtonType(NSButtonTypeMomentaryPushIn);
+			button.setBezelStyle(NSBezelStyleRounded);
+			button.setContinuous(false);
+			if (binding != null) {
+				var action = binding.action(); action.attachState(self._view.stateNode()); self._action = action; self._view.bindEligibility(action);
+			}
+		} catch (string error) { if (actions != null) { actions.unbind(button); } throw error; }
 	}
 
 	private NSButton control() {
@@ -164,16 +169,28 @@ class MacOSButton implements IButton, IMacOSView {
 		return self._actions.onAction(control, action, scope);
 	}
 
-	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+	public CallbackCancellation pollClose() {
+		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var button = self._button; if (button == null) { return CALLBACK_CANCELLATION_COMPLETE; }
+		var native = self._actions == null ? CALLBACK_CANCELLATION_COMPLETE : self._actions.unbind(button);
+		var view = self._view.pollClose();
+		if (native == CALLBACK_CANCELLATION_FAILED || view == CALLBACK_CANCELLATION_FAILED) { return CALLBACK_CANCELLATION_FAILED; }
+		if (native == CALLBACK_CANCELLATION_RETRYABLE_FAILURE || view == CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { return CALLBACK_CANCELLATION_RETRYABLE_FAILURE; }
+		if (native != CALLBACK_CANCELLATION_COMPLETE || view != CALLBACK_CANCELLATION_COMPLETE) { return CALLBACK_CANCELLATION_PENDING; }
+		self._button = null; self._action = null; return CALLBACK_CANCELLATION_COMPLETE;
+	}
 
 	public CallbackCancellation close() {
 		if (!NSThread.isMainThread()) { throw "Native buttons require the main thread"; }
-		var button = self._button;
-		if (button == null) { return self._view.pollClose(); }
+		var button = self._button; if (button == null) { return CALLBACK_CANCELLATION_COMPLETE; }
 		self._view.requireDetached();
-		if (self._actions != null) { self._actions.unbind(button); }
-		var state = self._view.close();
-		self._button = null;
-		return state;
+		string failure = "";
+		if (!self._closing) {
+			self._closing = true;
+			try { if (self._actions != null) { self._actions.unbind(button); } } catch (string error) { failure = error; }
+			try { self._view.close(); } catch (string error) { if (failure.isEmpty()) { failure = error; } }
+		}
+		var result = self.pollClose(); if (!failure.isEmpty()) { throw failure; } return result;
 	}
 }
