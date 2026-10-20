@@ -73,7 +73,7 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 	public void invoke(NSNotification notification) { self.serviceTurn(); }
 
 	public void serviceTurn() {
-		if (self.quitRequested || self._dispatchingEvents) { return; }
+		if (self.quitRequested || self._dispatchingEvents || self._viewContext.treeMutationActive()) { return; }
 		self._dispatchingEvents = true;
 		try {
 			self.dispatchWindowEvents();
