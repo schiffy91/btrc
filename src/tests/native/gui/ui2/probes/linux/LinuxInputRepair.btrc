@@ -31,6 +31,8 @@ void chord(unsigned int window, unsigned int scan, unsigned int key) {
 void cutFailure(LinuxApplication owner, IWindow window, LinuxWindow native) {
 	var field = owner.createTextField("alpha", "");
 	window.attachRoot(field);
+	window.show();
+	assert(window.isVisible() && field.interactionState().effectiveEligible);
 	unsigned int id = native.nativeId();
 	click(id, 12.0, 12.0);
 	owner.pumpOnce(0);
