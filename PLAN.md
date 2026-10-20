@@ -65,11 +65,11 @@ Historical heads remain useful provenance after their branches are deleted.
 | `codex/cx-p1-04`, [#34](https://github.com/schiffy91/btrc/pull/34), `f49c5fe1` | Adds standalone iPhone and iPad simulator test-host tooling. | Later host work supersedes this head's launch-identity failure; qualify the combined tooling under G07 rather than claiming the historical head passed. |
 | `codex/ui2-completion-20261019`, published `a7611638`, local `7bcf11cf` before these merges | Accumulates integration repairs, Android process snapshots and isolated nested GUI reports. | G01–G07; nested report isolation passed 26 portable tests, but the full unit run remains incomplete. |
 | `codex/e40-loop-diagnostic-20261020`, `3a5aba9f` | Captures bounded loop counters and stacks for two failing macOS tracking routes. | G03; starvation is confirmed and the transport repair now passes compile/link checks. Hosted tracking, presentation and lifecycle acceptance remain open. |
-| `codex/bench-memory-diagnostic-20261020`, `5e7e5fea` | Compares pinned baseline/candidate compiler memory on one hosted Linux environment. | G06; image metadata collection failed before any measurements; the command is now repaired and hosted attribution remains pending. |
+| `codex/bench-memory-diagnostic-20261020`, `5e7e5fea` | Compares pinned baseline/candidate compiler memory on one hosted Linux environment. | G06; metadata collection is repaired. The focused run exceeded the unchanged BenchArc allowance by 61,440 bytes; an ordinary run passed. Retain both outcomes and qualify the allocation repair. |
 | `codex/windows-user-observer-20261020`, `16b3cc2f` | Compares count-only and instrumented Windows USER-resource observations. | G04; initial observer intrusion is demonstrated, while a later count increase remains unexplained. The merged repair removes the foreign WNDPROC query from the current observer. |
 | Local `codex/linux-unit-diagnostic-20261020`, `02b22eaa` | Retains the first failure from the complete Linux unit selection. | G01; the post-merge diagnostic identified three failures, now repaired with 100 focused checks passing. The complete unit gate remains open. |
 | Local `codex/linux-gui-sharding-20261020`, `1ebaefa7` | Splits each Linux GUI session into four deterministic partitions and checks exact combined coverage. | G02; inventory and setup-time skip checks now pass. Hosted partition execution and complete coverage remain open. |
-| Local `codex/windows-observer-repair-20261020`, `970ce901` | Removes the intrusive foreign WNDPROC query and adds a hidden ANSI-window observer regression. | G04; all eight cross-build/link variants now pass. Native execution and strict resource qualification remain open. |
+| Local `codex/windows-observer-repair-20261020`, `970ce901` | Removes the intrusive foreign WNDPROC query and adds a hidden ANSI-window observer regression. | G04; all eight cross-build/link variants and all four native x64 variants pass. ARM64 execution and final-revision qualification remain open. |
 
 ### Repairs landed after consolidation
 
@@ -162,8 +162,13 @@ qualification still pending.
   inference. The merged repair removes that query and exercises the actual
   observer around a hidden ANSI window. All eight frontend × x64/ARM64 ×
   plain/UBSan cross-build/link variants passed on `c9db9e1e` in 106.37 seconds.
-  Native execution and any remaining resource drift still need qualification.
-  Keep the original 102 cycles, 100 restores and exact USER/GDI assertions.
+  The four x64 native variants then passed in
+  [39452977983](https://github.com/schiffy91/btrc/actions/runs/39452977983):
+  each held GDI 13 and USER 6 through all 102 cycles and completed 100 restores.
+  The hidden ANSI observer held USER 3 and GDI 0 before and after observation,
+  then destroyed its window and unregistered its class. These successful runs
+  do not attribute the earlier intermittent late increase. ARM64 execution
+  and final-revision qualification remain open. Keep the original assertions.
 - **G05: resolve Android API 36 transport loss.** In
   [run 39421612552](https://github.com/schiffy91/btrc/actions/runs/39421612552),
   API 36 went offline during the ninth of 28 host fixture cases; ADB exited 255.
@@ -188,11 +193,23 @@ qualification still pending.
   the unchanged allowance by 61,440 bytes. RunStrings passed, so its earlier
   failure did not reproduce. Cross runs show contributions from both compiler
   and data-root changes; they do not identify one allocation owner by themselves.
-  `FeManifestBlock` eagerly constructs 20 optional name maps for every block,
-  including absent metadata, before package selection. Make those inventories
-  lazy within their existing owner, preserve validation and parity, then rerun
-  the same hosted guard. Do not rebaseline, subtract a reporter floor or relax
-  limits. No local compiler performance measurements are authorized.
+  The ordinary benchmark job in
+  [39452977956](https://github.com/schiffy91/btrc/actions/runs/39452977956)
+  passed on the same `c9db9e1e` source: BenchArc used 15,659,008 bytes,
+  655,360 below the same limit. Its 44 size, line-count and parity metrics
+  match the diagnostic. The diagnostic's peaks were higher for all 11
+  programs; differing host kernels and missing ordinary-run binary hashes
+  and raw samples prevent attributing that variation. Retain both outcomes.
+  Repair `9e23e9a3` replaces 20 eager optional name maps in each
+  `FeManifestBlock` with per-block storage allocated only for declared metadata.
+  A fresh strict-C11 compiler build passed, followed by all 148 package tests
+  with no skips, failures or errors. BenchArc and RunStrings emitted byte-identical
+  C before and after the repair with the same current data root and strict imports.
+  The first build exposed five nullable-access warnings; direct local guards
+  repaired those warnings before the successful fresh build. Actual memory
+  savings remain unmeasured. Run the unchanged hosted guard on this repair.
+  Do not rebaseline, subtract a reporter floor or relax limits. No local compiler
+  performance measurements are authorized.
 - **G07: qualify the final combined revision.** Run and reconcile `make test`,
   `make bootstrap`, all eight `make test-c11` configurations, lint, formatting,
   generated-source, extension and repository-hygiene gates, plus the affected
@@ -210,8 +227,12 @@ qualification still pending.
   The 22 audited host dependency groups are unchanged through `b119cd37`;
   these remain `b0317191` executions and do not qualify Windows GUI behavior.
   The `c9db9e1e` Windows native bootstrap also passed in
-  [39452977983](https://github.com/schiffy91/btrc/actions/runs/39452977983). Preserve missing
-  provider/device evidence as open coverage in the existing roadmap.
+  [39452977983](https://github.com/schiffy91/btrc/actions/runs/39452977983).
+  Its x64 corpus passed 2,020 cases with 30 declared skips: each frontend had
+  four missing-provider and 11 restricted cases. These results precede the
+  compiler allocation repair; retain renewed compiler provenance and final
+  qualification. Preserve missing provider/device evidence as open coverage
+  in the existing roadmap.
 - **G08: implement the separately scoped Windows service design.** PR #52
   lands its specification only. The existing service-supervision/containment
   roadmap items still need implementation and native acceptance; merging that
@@ -221,7 +242,10 @@ qualification still pending.
   there are zero open PRs and `main` is the only remote branch. All audited heads
   are integrated. The 272 stale branches were retired with recovery references,
   bundles and receipts; the final two were deleted at their verified tips after
-  their diagnostic runs ended. Existing local recovery clones remain available.
+  their diagnostic runs ended. Another 86 local branch references were retired
+  into recovery refs and verified bundles. Branches attached to retained
+  worktrees and active repair clones remain protected. Two managed-worktree
+  archive requests are queued; their completion is not yet confirmed.
 
 The consolidation's local audit and retained artifacts are under
 `~/.cache/btrc/consolidation-20261019/`, beginning with
