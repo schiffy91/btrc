@@ -188,15 +188,43 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
+	"-[NSTextField setDelegate:]", "-[NSTextField delegate]", "-[NSControl stringValue]", "-[NSControl abortEditing]",
+	"-[NSTextFieldDelegate control:textShouldBeginEditing:]", "-[NSTextFieldDelegate control:textView:doCommandBySelector:]",
+	"-[NSTextFieldDelegate controlTextDidChange:]", "-[NSTextFieldDelegate controlTextDidEndEditing:]",
+	"-[NSTextView string]", "-[NSTextView hasMarkedText]", "-[NSTextView markedRange]", "-[NSTextView selectedRange]", "-[NSTextView setSelectedRange:]",
+	"-[NSTextView textStorage]", "-[NSTextView inputContext]", "-[NSTextView insertText:replacementRange:]", "-[NSTextView unmarkText]",
+	"-[NSTextInputContext discardMarkedText]", "-[NSString substringWithRange:]", "-[NSTextField window]", "-[NSWindow makeFirstResponder:]",
+	"NSTextStorageDidProcessEditingNotification", "NSTextViewDidChangeSelectionNotification",
 	"+[NSThread isMainThread]",
 	"+[NSTextField textFieldWithString:]", "-[NSTextField stringValue]", "-[NSTextField setStringValue:]",
 	"-[NSTextField setPlaceholderString:]", "-[NSTextField setEnabled:]", "-[NSTextField isEnabled]",
 	"-[NSTextField setFont:]", "+[NSFont systemFontOfSize:]",
 	"-[NSTextField setBezelStyle:]", "NSTextFieldRoundedBezel", "-[NSTextField setControlSize:]", "NSControlSizeRegular", "NSControlSizeLarge",
-	"-[NSTextField validateEditing]", "-[NSTextField abortEditing]", "-[NSTextField removeFromSuperview]",
+	"-[NSTextField abortEditing]", "-[NSTextField removeFromSuperview]",
 	"-[NSTextField frame]", "-[NSTextField setFrame:]"
 ]
 os = ["macos"]
+
+[native.bindings.callbacks."-[NSTextField setDelegate:].delegate"]
+interface = "IAppKitTextEvents"
+lifetime = "stored"
+failure = "abort"
+executor = "caller"
+unregister = "-[NSTextField setDelegate:]"
+slot-getter = "-[NSTextField delegate]"
+methods = ["-[NSTextFieldDelegate control:textShouldBeginEditing:]", "-[NSTextFieldDelegate control:textView:doCommandBySelector:]", "-[NSTextFieldDelegate controlTextDidChange:]", "-[NSTextFieldDelegate controlTextDidEndEditing:]"]
+method-names = { "-[NSTextFieldDelegate control:textShouldBeginEditing:]" = "shouldBeginEditing", "-[NSTextFieldDelegate control:textView:doCommandBySelector:]" = "performTextCommand" }
+activation-failure = "abort"
+cancellation = "entry-barrier"
+
+[[native.bindings]]
+module = "MacOS.MacOSTextField"
+header = "MacOS/ObjectiveCRuntime.h"
+language = "c"
+standard = "c11"
+os = ["macos"]
+symbols = ["SEL", "sel_registerName"]
+read-only-borrows = ["sel_registerName.str"]
 
 [[native.frameworks]]
 name = "AppKit"
@@ -329,7 +357,7 @@ module = "MacOS.MacOSContainer"
 header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
-symbols = ["-[NSView translatesAutoresizingMaskIntoConstraints]", "-[NSView setTranslatesAutoresizingMaskIntoConstraints:]", "-[NSView autoresizingMask]", "-[NSView setAutoresizingMask:]", "-[NSView isFlipped]", "NSViewMinYMargin", "NSViewMaxYMargin", "NSViewHeightSizable"]
+symbols = ["-[NSView translatesAutoresizingMaskIntoConstraints]", "-[NSView setTranslatesAutoresizingMaskIntoConstraints:]", "-[NSView autoresizingMask]", "-[NSView setAutoresizingMask:]", "-[NSView isFlipped]", "NSViewMinYMargin", "NSViewMaxYMargin", "NSViewHeightSizable", "-[NSView subviews]", "-[NSArray count]", "-[NSArray indexOfObjectIdenticalTo:]"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -344,7 +372,7 @@ symbols = [
 	"-[NSStackView setAlignment:]", "NSLayoutAttributeLeading", "NSLayoutAttributeTop",
 	"NSLayoutAttributeCenterX", "NSLayoutAttributeCenterY", "NSLayoutAttributeTrailing", "NSLayoutAttributeBottom",
 	"-[NSStackView edgeInsets]", "-[NSStackView setEdgeInsets:]",
-	"-[NSStackView addArrangedSubview:]", "-[NSStackView removeArrangedSubview:]", "-[NSView layoutSubtreeIfNeeded]"
+	"-[NSStackView addArrangedSubview:]", "-[NSStackView removeArrangedSubview:]", "-[NSStackView arrangedSubviews]", "-[NSStackView insertArrangedSubview:atIndex:]", "-[NSArray count]", "-[NSArray indexOfObjectIdenticalTo:]", "-[NSView layoutSubtreeIfNeeded]"
 ]
 os = ["macos"]
 
