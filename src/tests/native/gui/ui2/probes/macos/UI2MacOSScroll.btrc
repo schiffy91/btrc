@@ -108,8 +108,8 @@ void verifyGeometry() {
 	assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE && scroll.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
 }
 
-void verifyPressureAndMutation() {
-	var context = MacOSViewContext(ScrollWake(), 1); var first = MacOSScrollView(); var second = MacOSScrollView();
+void verifyPressureAndMutation(int captureCapacity = 0) {
+	var context = MacOSViewContext(ScrollWake(), 1, null, captureCapacity); var first = MacOSScrollView(); var second = MacOSScrollView();
 	first.stateNode().configure(context); second.stateNode().configure(context);
 	sizeViewport(first, 100.0, 80.0); sizeViewport(second, 100.0, 80.0); first.setContentSize(300.0, 300.0); second.setContentSize(300.0, 300.0);
 	var firstOwner = CallbackScope(); var secondOwner = CallbackScope(); var firstReceiver = ScrollObserver(context); var secondReceiver = ScrollObserver(context);
@@ -141,6 +141,6 @@ void verifyNestedAndFailedClose() {
 }
 
 int main() {
-	NSApplication.sharedApplication(); verifyPreContextFailure(); verifyUnsubscribedResize(); verifyGeometry(); verifyPressureAndMutation(); verifyNestedAndFailedClose();
+	NSApplication.sharedApplication(); verifyPreContextFailure(); verifyUnsubscribedResize(); verifyGeometry(); verifyPressureAndMutation(); verifyPressureAndMutation(4); verifyNestedAndFailedClose();
 	print("PASS: UI2 macOS scroll geometry origins pressure and scoped shutdown"); return 0;
 }

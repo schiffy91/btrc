@@ -166,7 +166,7 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 	}
 
 	private ContainerBatchResult applyEdits(NSView parent, long long expectedRevision, Vector<ContainerEdit> edits) {
-		Vector<MacOSContainerJournal> saved = []; Vector<MacOSContainerStep> steps = [];
+		Vector<MacOSContainerJournal> saved = []; Vector<MacOSContainerStep> steps = []; var routes = MacOSViewRoutes(self._state.context());
 		if (expectedRevision != self._treeRevision) { return self.batchResult(CONTAINER_BATCH_REJECTED, -1, "Container tree revision is stale", saved); }
 		if (edits == null) { return self.batchResult(CONTAINER_BATCH_REJECTED, -1, "Container edit sequence is missing", saved); }
 		if (self._treeRevision == 9223372036854775807LL) { return self.batchResult(CONTAINER_BATCH_REJECTED, -1, "Container tree revisions exhausted", saved); }
@@ -198,24 +198,33 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 				var placement = self._layout == null ? MacOSContainerPlacement() : self._layout.insertionPlacement(edit.index);
 				steps.push(MacOSContainerStep(edit.kind, value, edit.index, placement)); step++;
 			}
-		} catch (string error) { return self.batchResult(CONTAINER_BATCH_REJECTED, step, error, saved); }
+			// Native failure can leave any attempted insertion attached or any
+			// attempted detachment removed. Reserve those outcomes before entry.
+			for edit in steps {
+				var child = self.projection(edit.saved.entry.view).stateNode();
+				if (edit.saved.parent == childParent && edit.kind == CONTAINER_EDIT_DETACH) { self._state.prepareDetachment(child, routes); }
+				else if (edit.saved.parent == null && edit.kind == CONTAINER_EDIT_INSERT) { self._state.prepareAttachment(child, routes); }
+			}
+		} catch (string error) { routes.finish(); return self.batchResult(CONTAINER_BATCH_REJECTED, step, error, saved); }
 		var context = self._state.context();
 		if (context != null) { context.beginTreeMutation(); }
 		ContainerBatchResult result;
-		try { result = self.executeBatch(childParent, original, saved, steps); }
+		try { result = self.executeBatch(childParent, original, saved, steps, routes); }
 		finally {
+			string cleanupFailure = "";
+			try { routes.finish(); } catch (string error) { cleanupFailure = error; }
 			if (context != null) {
 				try { context.endTreeMutation(); }
-				catch (string error) {
-					context.recordNativeFailure(error);
-					// Ownership already has a coherent result. A failed wake must
-					// never hide those retained/detached lists from the caller.
-					if (result != null) {
-						if (result.kind == CONTAINER_BATCH_ROLLED_BACK) { self._treeRevision++; }
-						if (result.kind != CONTAINER_BATCH_FAILED_QUARANTINED) { result.kind = CONTAINER_BATCH_FAILED_CONSISTENT; }
-						result.treeRevision = self._treeRevision; result.failedStep = result.failedStep < 0 ? steps.len : result.failedStep;
-						result.error = self.quarantineState(result.error.isEmpty() ? error : result.error + "; resume: " + error);
-					}
+				catch (string error) { if (cleanupFailure.isEmpty()) { cleanupFailure = error; } }
+			}
+			if (!cleanupFailure.isEmpty()) {
+				if (context != null) { context.recordNativeFailure(cleanupFailure); }
+				// Ownership is coherent even when retirement or a resume wake fails.
+				if (result != null) {
+					if (result.kind == CONTAINER_BATCH_ROLLED_BACK) { self._treeRevision++; }
+					if (result.kind != CONTAINER_BATCH_FAILED_QUARANTINED) { result.kind = CONTAINER_BATCH_FAILED_CONSISTENT; }
+					result.treeRevision = self._treeRevision; result.failedStep = result.failedStep < 0 ? steps.len : result.failedStep;
+					result.error = self.quarantineState(result.error.isEmpty() ? cleanupFailure : result.error + "; cleanup: " + cleanupFailure);
 				}
 			}
 		}
@@ -298,7 +307,7 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 		Vector<MacOSViewState> states = []; for entry in entries { states.push(self.projection(entry.view).stateNode()); } return states;
 	}
 
-	private ContainerBatchResult executeBatch(NSView parent, Vector<MacOSContainerChild> original, Vector<MacOSContainerJournal> saved, Vector<MacOSContainerStep> steps) {
+	private ContainerBatchResult executeBatch(NSView parent, Vector<MacOSContainerChild> original, Vector<MacOSContainerJournal> saved, Vector<MacOSContainerStep> steps, MacOSViewRoutes routes) {
 		var actual = original.copy(); int step = 0; int failedStep = -1; string failure = ""; ContainerBatchResultKind kind = CONTAINER_BATCH_COMMITTED; bool detachedFromWindow = false;
 		try {
 			for edit in steps {
@@ -328,7 +337,7 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 		if (kind == CONTAINER_BATCH_ROLLED_BACK) { return self.batchResult(kind, failedStep, failure, saved); }
 		if (kind != CONTAINER_BATCH_FAILED_QUARANTINED) {
 			var states = self.childStates(actual);
-			try { self._state.replaceChildren(states); self._children = actual; }
+			try { self._state.replaceChildren(states, routes); self._children = actual; }
 			catch (string error) {
 				failure = failure.isEmpty() ? error : failure + "; settlement: " + error; failedStep = failedStep < 0 ? steps.len : failedStep;
 				if (self._state.hasChildrenInOrder(states)) { self._children = actual; kind = CONTAINER_BATCH_FAILED_CONSISTENT; }

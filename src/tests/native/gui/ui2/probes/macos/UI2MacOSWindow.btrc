@@ -58,8 +58,8 @@ void verifyState() {
 	assert(!window.state().nativeVisible && !window.state().presentable && window.state().width == 170.0); context.close();
 }
 
-void verifyResubscribeWithPendingState() {
-	var context = MacOSViewContext(WindowWake(), 1); var window = MacOSWindow("resubscribe", 100.0, 100.0, null, context);
+void verifyResubscribeWithPendingState(int captureCapacity = 0) {
+	var context = MacOSViewContext(WindowWake(), 1, null, captureCapacity); var window = MacOSWindow("resubscribe", 100.0, 100.0, null, context);
 	var previousOwner = CallbackScope(); var previous = WindowStates(); window.onStateChanged(previous, previousOwner);
 	var closeOwner = CallbackScope(); var closeHandler = WindowDecision(); window.onCloseRequested(closeHandler, closeOwner);
 	window.setContentSize(110.0, 100.0);
@@ -183,8 +183,24 @@ void verifyQuitCapturedCancellation() {
 	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel(); context.close();
 }
 
+class WindowRootObservation implements IViewInteractionStateHandler { public void interactionChanged(ViewInteractionState state) {} }
+
+void verifyCapturedRootPressure() {
+	var context = MacOSViewContext(WindowWake(), 1, null, 1); var window = MacOSWindow("capture root", 120.0, 80.0, null, context);
+	var root = MacOSView(); root.stateNode().configure(context); var scope = CallbackScope(); root.onInteractionStateChanged(WindowRootObservation(), scope);
+	var windowScope = CallbackScope(); window.onStateChanged(WindowStates(), windowScope); long long generation = root.stateNode().generation();
+	bool rejected = false; try { window.attachRoot(root); } catch (string error) { rejected = true; }
+	assert(rejected && window.root() == null && root.nativeView().superview() == null && root.stateNode().generation() == generation);
+	windowScope.cancel(); window.attachRoot(root); assert(window.root() == root && root.stateNode().generation() == generation + 1LL);
+	var blocker = context.detachedEvents.captureOwner().reserveRegistration(true, false); assert(blocker != null);
+	generation = root.stateNode().generation(); rejected = false; try { window.detachRoot(); } catch (string error) { rejected = true; }
+	assert(rejected && window.root() == root && root.nativeView().superview() != null && root.stateNode().generation() == generation && window.isOpen());
+	blocker.cancel(); assert(window.detachRoot() == root && root.nativeView().superview() == null);
+	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && root.close() == CALLBACK_CANCELLATION_COMPLETE && window.close() == CALLBACK_CANCELLATION_COMPLETE); context.close();
+}
+
 int main() {
 	NSApplication.sharedApplication();
-	verifyState(); verifyResubscribeWithPendingState(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose(); verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation(); verifyQuitCapturedCancellation();
+	verifyState(); verifyResubscribeWithPendingState(); verifyResubscribeWithPendingState(8); verifyCapturedRootPressure(); verifySaveAndCancel(); verifyNativeAndEnteredClose(); verifyForcedClose(); verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation(); verifyQuitCapturedCancellation();
 	print("PASS: UI2 macOS window state and reversible close transactions"); return 0;
 }

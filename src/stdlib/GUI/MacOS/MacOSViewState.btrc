@@ -80,10 +80,12 @@ class MacOSViewContext {
 	private ControlEventTerminalPool _pool;
 	private Vector<ControlEventQueue> _queues = [];
 	private int _capacity;
+	private int _captureCapacity;
 	private int _cursor = 0;
 	private bool _closed = false;
 	private bool _dispatching = false;
 	private bool _treeMutation = false;
+	private int _routePreparations = 0;
 	private int _closeDecisionDepth = 0;
 	private bool _nativeQuitPending = false;
 	private Vector<MacOSNativeSettlementRegistration> _settlements = [];
@@ -91,8 +93,8 @@ class MacOSViewContext {
 	private bool _nativeTurn = true;
 	private MacOSNativeFailure _failure;
 	private bool _failureSealed = false;
-	public MacOSViewContext(IControlEventWake wake, int capacity = 256, MacOSNativeFailure? failure = null) {
-		self.requireMainThread(); self._failure = failure == null ? MacOSNativeFailure() : failure; self._capacity = capacity; self._pool = ControlEventTerminalPool(65536);
+	public MacOSViewContext(IControlEventWake wake, int capacity = 256, MacOSNativeFailure? failure = null, int captureCapacity = 0) {
+		self.requireMainThread(); if (captureCapacity < 0 || captureCapacity > 65536) { throw "Invalid native capture capacity"; } self._captureCapacity = captureCapacity; self._failure = failure == null ? MacOSNativeFailure() : failure; self._capacity = capacity; self._pool = ControlEventTerminalPool(65536);
 		self.wake = wake; self.detachedEvents = self.createQueue();
 	}
 
@@ -100,7 +102,10 @@ class MacOSViewContext {
 
 	public ControlEventQueue createQueue() {
 		self.requireMainThread(); self.checkNativeFailure(); if (self._closed) { throw "Native view context is closed"; }
-		var queue = ControlEventQueue(self._capacity, self._pool); queue.setWake(self.wake); self._queues.push(queue); return queue;
+		// Zero keeps legacy providers disabled. Adoption uses an explicit 16,384
+		// credit policy independent of native work capacity, not a measured limit.
+		ControlEventCaptureOwner? capture = self._captureCapacity == 0 ? null : ControlEventCaptureOwner(self._captureCapacity, self._pool);
+		var queue = ControlEventQueue(self._capacity, self._pool, 0, capture); queue.setWake(self.wake); self._queues.push(queue); return queue;
 	}
 
 	public void retireQueue(ControlEventQueue queue) {
@@ -176,6 +181,12 @@ class MacOSViewContext {
 
 	public void requireMutationAllowed() { self.requireMainThread(); self.checkNativeFailure(); if (self._treeMutation) { throw "Native tree mutation is already active"; } }
 
+	public void requireSemanticRegistration() { self.requireMutationAllowed(); if (self._routePreparations != 0) { throw "Native route preparation excludes new semantic registrations"; } }
+
+	public void beginRoutePreparation() { self.requireMainThread(); if (self._routePreparations == 2147483647) { throw "Native route preparation depth exhausted"; } self._routePreparations++; }
+
+	public void endRoutePreparation() { self.requireMainThread(); if (self._routePreparations <= 0) { throw "Native route preparation depth underflow"; } self._routePreparations--; }
+
 	public void enterCloseDecision() { self.requireMainThread(); self._closeDecisionDepth++; }
 
 	public void leaveCloseDecision() { self.requireMainThread(); if (self._closeDecisionDepth <= 0) { throw "Close decision entry underflow"; } self._closeDecisionDepth--; }
@@ -199,7 +210,7 @@ class MacOSViewContext {
 		if (!self.wake.requestTurn()) { throw "Native tree mutation cannot resume delivery"; }
 	}
 
-	public void close() { self.requireMainThread(); if (self._treeMutation) { throw "Native tree mutation is already active"; } if (self._closed) { return; } self._closed = true; for registration in self._settlements { registration.cancel(); } self._settlements.clear(); for queue in self._queues { queue.close(); } self._queues.clear(); }
+	public void close() { self.requireMainThread(); if (self._treeMutation || self._routePreparations != 0) { throw "Native tree mutation is already active"; } if (self._closed) { return; } self._closed = true; for registration in self._settlements { registration.cancel(); } self._settlements.clear(); for queue in self._queues { queue.close(); } self._queues.clear(); }
 }
 
 interface IMacOSViewEligibility { void eligibilityLost(); }
@@ -212,10 +223,57 @@ class MacOSViewObservation implements IControlEventTarget {
 
 /* The native owners supply visibility, enabled preferences and window facts.
  * Marking reaches the whole subtree before any cancellation callback runs. */
+/* Alternative subtree destinations stay unexposed through native rollback.
+ * Only reconciled destinations commit; snapshots retire after every generation. */
+class MacOSViewRoute {
+	public MacOSViewState root;
+	public ControlEventQueue? destination;
+	public ControlEventRebindBatch batch = ControlEventRebindBatch();
+	public bool selected = false;
+	public MacOSViewRoute(MacOSViewState root, ControlEventQueue? destination) { self.root = root; self.destination = destination; root.prepareRouteInto(self.batch, destination); }
+}
+
+class MacOSViewRoutes {
+	private MacOSViewContext? _context;
+	private Vector<MacOSViewRoute> _routes = [];
+	private bool _committed = false;
+	private bool _finished = false;
+	public MacOSViewRoutes(MacOSViewContext? context) { self._context = context; if (context != null) { context.beginRoutePreparation(); } }
+
+	public void prepare(MacOSViewState root, ControlEventQueue? destination) {
+		for route in self._routes { if (route.root == root && route.destination == destination) { return; } }
+		self._routes.push(MacOSViewRoute(root, destination));
+	}
+
+	public void select(MacOSViewState root, ControlEventQueue? destination) {
+		if (root.routedTo(destination)) { return; }
+		for route in self._routes { if (route.root == root && route.destination == destination) { route.selected = true; return; } }
+		throw "Native route was not prepared before mutation";
+	}
+
+	public void validate() { for route in self._routes { if (route.selected) { route.batch.validate(); } } }
+
+	public void commitRoutes() {
+		self.validate();
+		for route in self._routes { if (!route.selected) { route.batch.abort(); } }
+		self._committed = true;
+		for route in self._routes { if (route.selected) { route.batch.commitRoutes(); } }
+		for route in self._routes { if (route.selected) { route.root.commitRouteMetadata(route.destination); } }
+	}
+
+	public void finish() {
+		if (self._finished) { return; } self._finished = true; string failure = "";
+		var context = self._context; self._context = null; if (context != null) { context.endRoutePreparation(); }
+		for route in self._routes { try { if (self._committed && route.selected) { route.batch.finish(); } else { route.batch.abort(); } } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
+		self._routes.clear(); if (!failure.isEmpty()) { throw failure; }
+	}
+
+	public void __del__() { self.finish(); }
+}
+
 class MacOSViewState implements IControlEventTarget {
 	private MacOSViewContext? _context;
 	private ControlEventQueue? _queue;
-	private ControlEventQueue? _nextQueue;
 	private IMacOSViewEligibility? _owner;
 	private Vector<MacOSViewState> _children = [];
 	private CallbackScope _callbacks = CallbackScope();
@@ -246,7 +304,7 @@ class MacOSViewState implements IControlEventTarget {
 
 	public void configure(MacOSViewContext context) {
 		self.requireOpen(); self.validateContext(context); self._context = context;
-		if (self._queue == null) { self._queue = context.detachedEvents; self._nextQueue = self._queue; }
+		if (self._queue == null) { self._queue = context.detachedEvents; }
 		for child in self._children { child.configure(context); }
 	}
 
@@ -275,17 +333,17 @@ class MacOSViewState implements IControlEventTarget {
 	class void deliverState(IViewInteractionStateHandler receiver, ViewInteractionState state) { receiver.interactionChanged(state); }
 
 	public ICallbackRegistration observe(IViewInteractionStateHandler receiver, CallbackScope owner) {
-		self.requireOpen(); self._callbacks.pollCompletion();
+		self.requireOpen(); if (self._context != null) { self._context.requireSemanticRegistration(); } self._callbacks.pollCompletion();
 		for (int index = self._channels.len - 1; index >= 0; index--) { if (self._channels.get(index).pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) { self._channels.remove(index); } }
 		if (self._observation != null && self._observation.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing interaction state handler first"; }
-		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self.events(), MacOSViewObservation(self), receiver, MacOSViewState.deliverState, self._callbacks);
+		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self.events(), MacOSViewObservation(self), receiver, MacOSViewState.deliverState, self._callbacks, self.events().captureEnabled() ? CONTROL_CAPTURE_OBSERVER : CONTROL_CAPTURE_LEGACY);
 		try { owner.track(channel); } catch (string error) { channel.cancel(); throw error; }
 		self._observation = channel; self._channels.push(channel); return channel;
 	}
 
 	public void ownChannel(IControlEventChannel channel) {
-		self.requireOpen(); self._callbacks.pollCompletion();
-		try { self._callbacks.track(channel); } catch (string error) { channel.cancel(); throw error; }
+		try { self.requireOpen(); if (self._context != null) { self._context.requireSemanticRegistration(); } self._callbacks.pollCompletion(); self._callbacks.track(channel); }
+		catch (string error) { channel.cancel(); throw error; }
 		self._channels.push(channel);
 	}
 
@@ -306,16 +364,28 @@ class MacOSViewState implements IControlEventTarget {
 		for child in self._children { child.settle(); }
 	}
 
-	private void route(ControlEventQueue? queue) { self._nextQueue = queue; for child in self._children { child.route(queue); } }
+	public bool routedTo(ControlEventQueue? queue) { return self._queue == queue; }
 
-	private void commitRoute() {
-		if (self._queue != self._nextQueue) {
+	public void prepareRouteInto(ControlEventRebindBatch batch, ControlEventQueue? queue) {
+		self.requireMainThread();
+		if (self._queue != queue) {
 			if (self._generation == 9223372036854775807LL) { throw "Native view generations exhausted"; }
-			self._generation++; self._queue = self._nextQueue;
-			for channel in self._channels { if (channel.isOpen()) { if (self._context != null && self._context.nativeFailed()) { channel.cancel(); } else { channel.rebind(self.events()); } } }
+			for channel in self._channels { if (channel.isOpen()) { if (queue == null || !batch.prepare(channel, queue)) { throw "Native subtree capture capacity unavailable"; } } }
 		}
-		for child in self._children { child.commitRoute(); }
+		for child in self._children { child.prepareRouteInto(batch, queue); }
 	}
+
+	public void commitRouteMetadata(ControlEventQueue? queue) {
+		if (self._queue != queue) { self._generation++; self._queue = queue; }
+		for child in self._children { child.commitRouteMetadata(queue); }
+	}
+
+	public void prepareAttachment(MacOSViewState child, MacOSViewRoutes routes) {
+		var context = self._context; if (context != null && child._context == null) { child.configure(context); }
+		routes.prepare(child, self._queue);
+	}
+
+	public void prepareDetachment(MacOSViewState child, MacOSViewRoutes routes) { routes.prepare(child, child._context == null ? null : child._context.detachedEvents); }
 
 	private void publish() {
 		if (self._changed) {
@@ -325,7 +395,7 @@ class MacOSViewState implements IControlEventTarget {
 		for child in self._children { child.publish(); }
 	}
 
-	private void refresh() { self.mark(self._inherited, self._state.exposure); self.settle(); self.commitRoute(); self.publish(); }
+	private void refresh() { self.mark(self._inherited, self._state.exposure); self.settle(); self.publish(); }
 
 	public void setVisible(bool visible) { self.requireOpen(); if (self._state.localVisible == visible) { return; } self.revision(); self._state.localVisible = visible; self.refresh(); }
 
@@ -354,17 +424,11 @@ class MacOSViewState implements IControlEventTarget {
 		else if (child._context != null) { throw "Native views cannot cross application contexts"; }
 	}
 
-	public void addChild(MacOSViewState child) {
-		self.validateChild(child);
-		var context = self._context;
-		if (context != null && child._context == null) { child.configure(context); }
-		self._children.push(child); child._parented = true;
-		child.route(self._queue); child.mark(self.effectiveEligible(), self._state.exposure); child.settle(); child.commitRoute(); child.publish();
-	}
+	public void addChild(MacOSViewState child) { self.validateChild(child); var children = self._children.copy(); children.push(child); self.replaceChildren(children); }
 
 	/* Commit membership before any settlement callback. Reordering retained
 	 * children preserves their route, generation and interaction revision. */
-	public void replaceChildren(Vector<MacOSViewState> children) {
+	public void replaceChildren(Vector<MacOSViewState> children, MacOSViewRoutes? prepared = null) {
 		self.requireOpen();
 		Vector<MacOSViewState> next = []; Vector<MacOSViewState> removed = [];
 		for child in children {
@@ -378,19 +442,33 @@ class MacOSViewState implements IControlEventTarget {
 			bool retained = false; for candidate in next { if (candidate == child) { retained = true; break; } }
 			if (!retained) { removed.push(child); }
 		}
+		var routes = prepared == null ? MacOSViewRoutes(self._context) : prepared;
+		if (prepared == null) { for child in removed { self.prepareDetachment(child, routes); } for child in next { self.prepareAttachment(child, routes); } }
+		for child in removed { routes.select(child, child._context == null ? null : child._context.detachedEvents); }
+		for child in next { routes.select(child, self._queue); }
+		routes.validate();
 		var context = self._context;
 		for child in next { if (context != null && child._context == null) { child.configure(context); } }
 		self._children = next;
 		for child in removed {
-			child._parented = false; child.route(child._context == null ? null : child._context.detachedEvents);
+			child._parented = false;
 			child.mark(false, WINDOW_EXPOSURE_UNKNOWN);
 		}
-		for child in next { child._parented = true; child.route(self._queue); child.mark(self.effectiveEligible(), self._state.exposure); }
+		for child in next { child._parented = true; child.mark(self.effectiveEligible(), self._state.exposure); }
 		string failure = "";
 		for child in removed { try { child.settle(); } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
 		for child in next { try { child.settle(); } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
-		for child in removed { child.commitRoute(); child.publish(); }
-		for child in next { child.commitRoute(); child.publish(); }
+		routes.commitRoutes();
+		if (prepared == null) { try { routes.finish(); } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
+		for child in removed { child.publish(); }
+		for child in next { child.publish(); }
+		if (!failure.isEmpty()) { throw failure; }
+	}
+
+	private void cancelSemanticTree() {
+		string failure = "";
+		try { self._callbacks.cancel(); } catch (string error) { failure = error; }
+		for child in self._children { try { child.cancelSemanticTree(); } catch (string error) { if (failure.isEmpty()) { failure = error; } } }
 		if (!failure.isEmpty()) { throw failure; }
 	}
 
@@ -398,23 +476,32 @@ class MacOSViewState implements IControlEventTarget {
 		self.requireMainThread(); int found = -1;
 		for (int index = 0; index < self._children.len; index++) { if (self._children.get(index) == child) { found = index; break; } }
 		if (found < 0) { throw "View state does not belong to this parent"; }
-		self._children.remove(found); child._parented = false; child.route(child._context == null ? null : child._context.detachedEvents);
-		child.mark(false, WINDOW_EXPOSURE_UNKNOWN); child.settle(); child.commitRoute(); child.publish();
+		if (self._closing || self._closed) {
+			// Physical teardown cannot require new destination credits. Settle
+			// reserved finals on the old route before sealing the closing forest.
+			self._children.remove(found); child._parented = false; string failure = "";
+			try { child.mark(false, WINDOW_EXPOSURE_UNKNOWN); child.settle(); } catch (string error) { failure = error; }
+			try { child.cancelSemanticTree(); } catch (string error) { if (failure.isEmpty()) { failure = error; } }
+			if (!failure.isEmpty()) { throw failure; } return;
+		}
+		var children = self._children.copy(); children.remove(found); self.replaceChildren(children);
 	}
 
 	public void validateWindow(ControlEventQueue queue) { self.requireOpen(); if (self._parented || self._context == null || queue.terminalPool() != self._context.detachedEvents.terminalPool()) { throw "Window root has no matching application context or is already attached"; } }
 
-	public void attachWindow(ControlEventQueue queue, bool eligible, WindowExposure exposure) {
+	public void attachWindow(ControlEventQueue queue, bool eligible, WindowExposure exposure, MacOSViewRoutes? prepared = null) {
 		self.validateWindow(queue);
-		self._parented = true; self.route(queue); self.mark(eligible, exposure); self.settle(); self.commitRoute(); self.publish();
+		var routes = prepared == null ? MacOSViewRoutes(self._context) : prepared; if (prepared == null) { routes.prepare(self, queue); } routes.select(self, queue); routes.validate();
+		self._parented = true; self.mark(eligible, exposure); self.settle(); routes.commitRoutes(); if (prepared == null) { routes.finish(); } self.publish();
 	}
 
 	public void windowChanged(bool eligible, WindowExposure exposure) { self.requireOpen(); self.mark(eligible, exposure); self.settle(); self.publish(); }
 
-	public void detachWindow() {
+	public void detachWindow(MacOSViewRoutes? prepared = null) {
 		self.requireMainThread(); if (!self._parented || self._context == null) { throw "View has no window attachment"; }
 		var context = self._context; if (context == null) { throw "View has no application context"; }
-		self._parented = false; self.route(context.detachedEvents); self.mark(false, WINDOW_EXPOSURE_UNKNOWN); self.settle(); self.commitRoute(); self.publish();
+		var routes = prepared == null ? MacOSViewRoutes(self._context) : prepared; if (prepared == null) { routes.prepare(self, context.detachedEvents); } routes.select(self, context.detachedEvents); routes.validate();
+		self._parented = false; self.mark(false, WINDOW_EXPOSURE_UNKNOWN); self.settle(); routes.commitRoutes(); if (prepared == null) { routes.finish(); } self.publish();
 	}
 
 	public CallbackCancellation close() {

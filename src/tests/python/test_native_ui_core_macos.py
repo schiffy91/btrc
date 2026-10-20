@@ -1,6 +1,7 @@
 """UI2 CoreFoundation source behavior through both compilers and the real SDK."""
 
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,33 @@ from src.tests.python.native_import_fixtures import apple_environment, run_nativ
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
 from tools.native_plan import NativePlanBuilder
+
+
+@pytest.fixture
+def ui2_native_project(native_project):
+    source, _sdk, _triple = native_project
+    manifest = source.parent.parent / "btrc.toml"
+    original = manifest.read_text()
+    bindings = tomllib.loads(original)["native"]["bindings"]
+    assert len(bindings) == 1 and bindings[0]["module"] == "Foundation"
+    package_header = original.split("[[native.bindings]]", 1)[0]
+    manifest.write_text(
+        package_header + '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "c"\nstandard = "c11"\nos = ["macos"]\n'
+        'symbols = ["CFStringRef", "CFTypeRef", "CFStringCreateWithCString", "kCFStringEncodingUTF8", '
+        '"CFRetain", "CFRelease", "CFGetTypeID", "CFStringGetTypeID", "CFRunLoopGetMain", '
+        '"CFRunLoopAddCommonMode", "CFRunLoopRunInMode", "kCFRunLoopDefaultMode"]\n'
+        'owned-results = ["CFStringCreateWithCString"]\n'
+        'borrowed-parameters = ["CFGetTypeID.cf", "CFRunLoopAddCommonMode.mode", "CFRunLoopRunInMode.mode"]\n'
+        'static-globals = ["kCFRunLoopDefaultMode"]\n'
+        '[native.bindings.resources.CFTypeRef]\nownership = "reference-counted"\n'
+        'retain = "CFRetain"\nrelease = "CFRelease"\n'
+        '[native.bindings.resources.CFStringRef]\nownership = "reference-counted"\n'
+        'retain = "CFRetain"\nrelease = "CFRelease"\n'
+        'type-query = "CFGetTypeID"\ntype-tag = "CFStringGetTypeID"\n'
+    )
+    (source.parent / "Foundation.btrc").write_text("")
+    return native_project
 
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
@@ -82,27 +110,12 @@ def test_macos_ui2_common_mode_source(native_project, native_compile, sanitized)
         ),
     ],
 )
-def test_macos_ui2_scoped_worker_signal(native_project, native_compile, gui_provider_root, sanitized, fixture, marker):
-    source, _sdk, _triple = native_project
+def test_macos_ui2_scoped_worker_signal(
+    ui2_native_project, native_compile, gui_provider_root, sanitized, fixture, marker
+):
+    source, _sdk, _triple = ui2_native_project
     package = source.parent.parent
     manifest = package / "btrc.toml"
-    manifest.write_text(
-        'manifest-version = 1\n[package]\nname = "ui2Worker"\n'
-        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
-        'language = "c"\nstandard = "c11"\nos = ["macos"]\n'
-        'symbols = ["CFStringRef", "CFTypeRef", "CFStringCreateWithCString", "kCFStringEncodingUTF8", '
-        '"CFRetain", "CFRelease", "CFGetTypeID", "CFStringGetTypeID", "CFRunLoopGetMain", '
-        '"CFRunLoopAddCommonMode", "CFRunLoopRunInMode", "kCFRunLoopDefaultMode"]\n'
-        'owned-results = ["CFStringCreateWithCString"]\n'
-        'borrowed-parameters = ["CFGetTypeID.cf", "CFRunLoopAddCommonMode.mode", "CFRunLoopRunInMode.mode"]\n'
-        'static-globals = ["kCFRunLoopDefaultMode"]\n'
-        '[native.bindings.resources.CFTypeRef]\nownership = "reference-counted"\n'
-        'retain = "CFRetain"\nrelease = "CFRelease"\n'
-        '[native.bindings.resources.CFStringRef]\nownership = "reference-counted"\n'
-        'retain = "CFRetain"\nrelease = "CFRelease"\n'
-        'type-query = "CFGetTypeID"\ntype-tag = "CFStringGetTypeID"\n'
-    )
-    (source.parent / "Foundation.btrc").write_text("")
     root = Path(__file__).resolve().parents[3]
     source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
     if fixture in {"UI2MacOSButtonState", "UI2MacOSViewInput"}:

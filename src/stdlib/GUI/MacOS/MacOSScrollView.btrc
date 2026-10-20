@@ -179,7 +179,7 @@ class MacOSScrollObservation implements IAppKitNotificationObserver, IMacOSNativ
 	public ICallbackRegistration subscribe(IScrollControlEventHandler receiver, CallbackScope owner) {
 		self._state.requireMutation(); self.check(); if (self._context == null) { throw "Scroll observation requires an application context"; } if (self._closed) { throw "Scroll observation is closed"; }
 		if (self._changes != null && self._changes.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing scroll observer first"; }
-		var channel = new ControlEventChannel<IScrollControlEventHandler, ScrollControlEvent>(self._state.events(), MacOSViewObservation(self._state), receiver, MacOSScrollObservation.deliver, owner);
+		var channel = new ControlEventChannel<IScrollControlEventHandler, ScrollControlEvent>(self._state.events(), MacOSViewObservation(self._state), receiver, MacOSScrollObservation.deliver, owner, self._state.events().captureEnabled() ? CONTROL_CAPTURE_OBSERVER : CONTROL_CAPTURE_LEGACY);
 		self._state.ownChannel(channel); self._changes = channel; self.readBaseline(); self._pending = null; self._deferred = false; return channel;
 	}
 

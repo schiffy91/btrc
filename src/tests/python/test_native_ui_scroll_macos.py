@@ -7,11 +7,12 @@ import pytest
 from src.tests.python import test_native_ui_core_macos as core
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
+from src.tests.python.test_native_ui_core_macos import ui2_native_project as ui2_native_project
 
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
-def test_macos_ui2_scroll(native_project, native_compile, gui_provider_root, sanitized):
-    source, _sdk, _triple = native_project
+def test_macos_ui2_scroll(ui2_native_project, native_compile, gui_provider_root, sanitized):
+    source, _sdk, _triple = ui2_native_project
     package = source.parent.parent
     root = Path(__file__).resolve().parents[3]
     for fixture in ("UI2MacOSDetachFault", "UI2MacOSScroll"):
@@ -31,7 +32,7 @@ def test_macos_ui2_scroll(native_project, native_compile, gui_provider_root, san
         '[[native.sources]]\npath = "UI2MacOSScroll.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
     core.test_macos_ui2_scoped_worker_signal(
-        native_project,
+        ui2_native_project,
         native_compile,
         gui_provider_root,
         sanitized,
