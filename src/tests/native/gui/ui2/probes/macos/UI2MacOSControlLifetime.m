@@ -37,8 +37,16 @@ static NSUInteger survivors(BOOL report) {
 @implementation BTRCUI2ControlLifetimeProbe
 + (void)runCycle:(long)cycle callback:(void (^)(void))callback {
     assert([NSThread isMainThread] && cycle == lastCycle + 1 && cycle <= 100);
-    [NSApplication sharedApplication];
-    [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
+    if (cycle == 1) {
+        // Complete AppKit launch bookkeeping before the cycle's ownership pool,
+        // as the native shell control does, without permitting activation.
+        @autoreleasepool {
+            [NSApplication sharedApplication];
+            [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
+            [NSApp finishLaunching];
+        }
+    }
+    assert(NSApp.activationPolicy == NSApplicationActivationPolicyProhibited);
     if (!owned) owned = [NSMutableDictionary dictionary];
     assert(cycleWindow == nil && survivors(NO) == 0);
     lastCycle = cycle; lastGeneration = 0;
