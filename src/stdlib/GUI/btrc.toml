@@ -241,9 +241,21 @@ language = "objective-c"
 standard = "c11"
 symbols = [
 	"+[NSThread isMainThread]",
-	"-[NSButton setAction:]", "-[NSButton setTarget:]", "-[NSButton action]", "-[NSButton target]"
+	"-[NSButton setAction:]", "-[NSButton setTarget:]", "-[NSButton action]", "-[NSButton target]",
+	"-[NSButton initWithFrame:]", "-[NSButton performClick:]", "-[NSButton accessibilityPerformPress]", "-[NSButton mouseDown:]"
 ]
 os = ["macos"]
+
+[native.bindings.callbacks."-[NSButton initWithFrame:].self"]
+interface = "IAppKitButtonAdmission"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+superclass = "NSButton"
+overrides = ["-[NSButton performClick:]", "-[NSButton accessibilityPerformPress]", "-[NSButton mouseDown:]"]
+cancellation = "entry-barrier"
+super-admission = { "-[NSButton performClick:]" = { before = "beforePerformClick", after = "afterPerformClick" }, "-[NSButton accessibilityPerformPress]" = { before = "beforeAccessibilityPress", after = "afterAccessibilityPress" }, "-[NSButton mouseDown:]" = { before = "beforeMouseDown", after = "afterMouseDown" } }
 
 [native.bindings.callbacks."-[NSButton setTarget:].target"]
 interface = "IAppKitButtonAction"
