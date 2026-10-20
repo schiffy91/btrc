@@ -604,15 +604,20 @@ def _scope_step(workflow: str, name: str = "Classify the change") -> dict[str, o
 
 
 def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
-    scope = _parsed("ci.yml")["jobs"]["scope"]
+    scope = dict(_parsed("ci.yml")["jobs"]["scope"])
+    assert scope.pop("if") == "${{ github.event_name != 'workflow_dispatch' || inputs.focus != 'bench-diagnostic' }}"
     for workflow in CORE_WORKFLOWS:
         document = _parsed(workflow)
-        assert document["jobs"]["scope"] == scope, workflow
+        actual_scope = dict(document["jobs"]["scope"])
+        if workflow == "ci.yml":
+            actual_scope.pop("if")
+        assert actual_scope == scope, workflow
         assert document["env"]["CI_WORKFLOW"] == workflow, workflow
         assert _job_names(document)[0] == "scope", workflow
         listed = {entry.job for entry in TIERS.jobs if entry.workflow == workflow}
         jobs = document["jobs"]
-        assert set(jobs) - {"scope", "skip-reports"} == listed, workflow
+        exceptions = {"bench-diagnostic"} if workflow == "ci.yml" else set()
+        assert set(jobs) - {"scope", "skip-reports"} - exceptions == listed, workflow
         for name in listed:
             job = jobs[name]
             assert job["if"] == f"contains({PLAN}.jobs, '{name}')", (workflow, name)
@@ -1290,7 +1295,8 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                 "focus": {
                     "description": "Which jobs to run",
                     "type": "choice",
-                    "options": ["full", "native-gui", "extended"],
+                    "options": ["full", "native-gui", "extended"]
+                    + (["bench-diagnostic"] if workflow == "ci.yml" else []),
                     "default": "full",
                 }
             }
@@ -1596,7 +1602,9 @@ def test_the_android_corpus_lane_is_tiered_beside_untiered_fixture_jobs() -> Non
     document = _parsed(workflow)
     jobs = document["jobs"]
     assert document["env"]["CI_WORKFLOW"] == workflow
-    assert jobs["scope"] == _parsed("ci.yml")["jobs"]["scope"]
+    ci_scope = dict(_parsed("ci.yml")["jobs"]["scope"])
+    assert ci_scope.pop("if") == "${{ github.event_name != 'workflow_dispatch' || inputs.focus != 'bench-diagnostic' }}"
+    assert jobs["scope"] == ci_scope
     tiered = [entry for entry in TIERS.jobs if entry.workflow == workflow]
     listed = {entry.job for entry in tiered}
     assert listed == {"target-corpus-build", "target-corpus-compile", "target-corpus"}
@@ -1994,3 +2002,25 @@ def test_e40_hosted_admission_is_confined_to_its_dedicated_workflow_step() -> No
     assert "BTRC_UI2_HOSTED_E40" not in recipe and "CI=true" not in recipe
     assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in recipe
     assert "env $(E40_BTRCC) python3 -m tools.ui.e40 --provider macos" in recipe
+
+
+def test_bench_diagnostic_is_manual_only_and_preserves_the_ordinary_guard() -> None:
+    document = _parsed("ci.yml")
+    job = document["jobs"]["bench-diagnostic"]
+    assert job["if"] == "${{ github.event_name == 'workflow_dispatch' && inputs.focus == 'bench-diagnostic' }}"
+    assert "needs" not in job
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["steps"][0]["with"]["fetch-depth"] == "0"
+    assert all(entry.job != "bench-diagnostic" for entry in TIERS.jobs)
+    run = next(step for step in job["steps"] if "tools.bench.diagnostic" in step.get("run", ""))
+    assert run["env"] == {"CANDIDATE": "${{ github.sha }}"}
+    assert 'python3 -m tools.bench.diagnostic --candidate "$CANDIDATE"' in run["run"]
+    assert 'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest' in run["run"]
+    assert "podman image inspect" in run["run"]
+    assert not re.search(r"(?:printenv|env >|--peak-tolerance|bench-baseline)", run["run"])
+    upload = job["steps"][-1]
+    assert upload["if"] == "always()"
+    assert upload["with"]["path"] == "build/bench-diagnostic/"
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert document["jobs"]["bench"]["if"] == f"contains({PLAN}.jobs, 'bench')"
+    assert 'BENCH_ARGS="--repeat 3 --strict --timings report"' in _job(_workflow("ci.yml"), "bench")
