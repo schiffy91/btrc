@@ -23,6 +23,7 @@ from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.linux_provider_fixtures import provider_environment
 from src.tests.python.native_import_fixtures import apple_environment
+from src.tests.python.native_ui_shell_diagnostics import MacOSShellDiagnostic
 from tools.native_plan import NativePlanBuilder
 from tools.qualification.schema import LedgerDocument
 
@@ -77,7 +78,7 @@ def transpile(source, generated, plan, frontend, request, target):
         if frontend == "python"
         else [str(request.getfixturevalue("immutable_btrcc")), *arguments]
     )
-    result = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=600)
+    result = MacOSShellDiagnostic.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=600)
     if result.returncode == 0 and frontend == "selfhost":
         generated.write_text(result.stdout)
     return result
@@ -108,6 +109,7 @@ def build_shell(tmp_path, frontend, sanitized, request):
     )
     compiler = "/usr/bin/clang" if system == "macos" else "cc"
     environment = shell_environment(sanitized)
+    flags.extend(MacOSShellDiagnostic.debug_flags(environment))
     sdk_flags = (
         []
         if system == "macos"
@@ -132,7 +134,7 @@ def build_shell(tmp_path, frontend, sanitized, request):
             "-o",
             str(output),
         ]
-        result = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=120)
+        result = MacOSShellDiagnostic.run(command, capture_output=True, text=True, env=environment, timeout=120)
         assert result.returncode == 0, result.stderr
         objects.append(str(output))
 
@@ -142,7 +144,14 @@ def build_shell(tmp_path, frontend, sanitized, request):
             command[1:1] = flags
         elif "-o" in command:
             command.extend([*objects, *flags])
-        return subprocess.run(command, env=environment, **kwargs)
+        result = MacOSShellDiagnostic.run(command, env=environment, **kwargs)
+        if result.returncode == 0 and "-c" not in command and "-###" not in command and "-o" in command:
+            linked = Path(command[command.index("-o") + 1])
+            if linked.name == "NativeShell":
+                # Capture the linked image while the builder still owns every
+                # temporary object. Keep the bundle outside its cleanup tree.
+                MacOSShellDiagnostic.symbols(linked, environment, tmp_path / "NativeShell.dSYM")
+        return result
 
     executable = tmp_path / "NativeShell"
     NativePlanBuilder(runner=run).build(
@@ -151,6 +160,7 @@ def build_shell(tmp_path, frontend, sanitized, request):
         output=executable,
         cc=compiler,
         cxx="/usr/bin/clang++" if system == "macos" else "c++",
+        debug_info=MacOSShellDiagnostic.directory(environment) is not None,
     )
     return executable
 
@@ -202,7 +212,7 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
     environment = shell_environment(sanitized)
     command = [str(executable), str(cycles), str(state)]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=1200)
+        result = MacOSShellDiagnostic.run(command, capture_output=True, text=True, env=environment, timeout=1200)
     except subprocess.TimeoutExpired as error:
         stdout = error.stdout or b""
         stderr = error.stderr or b""
@@ -252,7 +262,7 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
     assert checkpoint[0] == "draft" and int(checkpoint[1]) > 0 and int(checkpoint[2]) == cycles
     expected = f"RESTORE draft=draft anchor={checkpoint[1]} commits={cycles} actions=0"
     for restart in range(100):
-        restored = subprocess.run(
+        restored = MacOSShellDiagnostic.run(
             [str(executable), str(state), "restore"], env=environment, capture_output=True, text=True, timeout=30
         )
         (tmp_path / f"restore-{restart}.stdout").write_text(restored.stdout)
@@ -308,6 +318,7 @@ def build_macos_control(tmp_path, sanitized):
     flags = (
         ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"] if sanitized else []
     )
+    flags.extend(MacOSShellDiagnostic.debug_flags(environment))
     command = [
         "/usr/bin/clang",
         "-std=c11",
@@ -324,9 +335,10 @@ def build_macos_control(tmp_path, sanitized):
         "-o",
         str(executable),
     ]
-    built = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=120)
+    built = MacOSShellDiagnostic.run(command, capture_output=True, text=True, env=environment, timeout=120)
     (tmp_path / "appkit-control-build.log").write_text(built.stdout + built.stderr)
     assert built.returncode == 0, built.stderr
+    MacOSShellDiagnostic.symbols(executable, environment)
     return executable, environment, sources, command
 
 
@@ -334,7 +346,9 @@ def exercise_macos_control(tmp_path, sanitized):
     """Measure toolkit retention independently with the same host, probe and C flags."""
     executable, environment, sources, command = build_macos_control(tmp_path, sanitized)
     try:
-        result = subprocess.run([str(executable)], capture_output=True, text=True, env=environment, timeout=1200)
+        result = MacOSShellDiagnostic.run(
+            [str(executable)], capture_output=True, text=True, env=environment, timeout=1200
+        )
     except subprocess.TimeoutExpired as error:
         (tmp_path / "appkit-control.stdout").write_bytes(error.stdout or b"")
         (tmp_path / "appkit-control.stderr").write_bytes(error.stderr or b"")
@@ -354,7 +368,7 @@ def exercise_macos_control(tmp_path, sanitized):
     # A real strong reference must exhaust the probe deadline, remain visible,
     # and disappear only after the independent control releases it.
     try:
-        retained = subprocess.run(
+        retained = MacOSShellDiagnostic.run(
             [str(executable), "--retain-provider"], capture_output=True, text=True, env=environment, timeout=30
         )
     except subprocess.TimeoutExpired as error:
@@ -403,7 +417,7 @@ def diagnose_macos_retention(executable, tmp_path, environment):
         try:
             # One cycle, whose ten steps each have 15 s of their own: a slow
             # journey reports its own deadline before this bound kills it.
-            result = subprocess.run(
+            result = MacOSShellDiagnostic.run(
                 [str(executable), "1", str(state)], env=configured, capture_output=True, text=True, timeout=240
             )
             stdout, stderr, code = result.stdout, result.stderr, result.returncode
