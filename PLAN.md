@@ -64,7 +64,7 @@ Historical heads remain useful provenance after their branches are deleted.
 | `codex/cx-p2-01-r2`, [#52](https://github.com/schiffy91/btrc/pull/52), `6866eb3d` | Specifies Windows service supervision and process containment. | G08: this branch is a specification; implementation and native acceptance are still absent. |
 | `codex/cx-p1-04`, [#34](https://github.com/schiffy91/btrc/pull/34), `f49c5fe1` | Adds standalone iPhone and iPad simulator test-host tooling. | Later host work supersedes this head's launch-identity failure; qualify the combined tooling under G07 rather than claiming the historical head passed. |
 | `codex/ui2-completion-20261019`, published `a7611638`, local `7bcf11cf` before these merges | Accumulates integration repairs, Android process snapshots and isolated nested GUI reports. | G01–G07; nested report isolation passed 26 portable tests, but the full unit run remains incomplete. |
-| `codex/e40-loop-diagnostic-20261020`, `3a5aba9f` | Captures bounded loop counters and stacks for two failing macOS tracking routes. | G03; the completed diagnostic proves native-loop starvation. The transport repair and hosted acceptance remain open. |
+| `codex/e40-loop-diagnostic-20261020`, `3a5aba9f` | Captures bounded loop counters and stacks for two failing macOS tracking routes. | G03; starvation is confirmed and the transport repair now passes compile/link checks. Hosted tracking, presentation and lifecycle acceptance remain open. |
 | `codex/bench-memory-diagnostic-20261020`, `5e7e5fea` | Compares pinned baseline/candidate compiler memory on one hosted Linux environment. | G06; image metadata collection failed before any measurements; the command is now repaired and hosted attribution remains pending. |
 | `codex/windows-user-observer-20261020`, `16b3cc2f` | Compares count-only and instrumented Windows USER-resource observations. | G04; initial observer intrusion is demonstrated, while a later count increase remains unexplained. The merged repair removes the foreign WNDPROC query from the current observer. |
 | Local `codex/linux-unit-diagnostic-20261020`, `02b22eaa` | Retains the first failure from the complete Linux unit selection. | G01; the post-merge diagnostic identified three failures, now repaired with 100 focused checks passing. The complete unit gate remains open. |
@@ -141,10 +141,15 @@ qualification still pending.
   tracking event was never dequeued while the traces recorded 131,823 and
   106,996 source rounds, respectively; all four sampled stacks remained inside
   native event retrieval and the provider's wake delivery. Both cases aborted
-  at the original tracking-completion assertion. Repair wake transport fairness
-  and callback lifetime, then prove tracking, presentation and the full E40 and
-  lifecycle matrix on the repaired source. Local Mac work remains compile/link only; use hosted native
-  execution for visible GUI evidence.
+  at the original tracking-completion assertion. Repair `b82910e8` coalesces
+  requests during delivery and defers the next delivery through a one-millisecond
+  common-mode timer. Each entered callback retains its state through reentrant
+  close. New Signal cases cover repeated requests, worker requests during the
+  pause, a fresh request after an idle turn, and callback-close races.
+  All ten affected reference/selfhost Signal, Executor, ApplicationHost,
+  E40 Boundary and E40 Load builds compiled and linked; none executed locally.
+  Prove tracking, presentation, lifetime and the original timing budgets in
+  hosted native runs. The full E40 and lifecycle matrix remains open.
 - **G04: finish Windows observer repair and strict resource qualification.**
   Reference UBSan in
   [run 39421612635](https://github.com/schiffy91/btrc/actions/runs/39421612635)
@@ -175,10 +180,19 @@ qualification still pending.
   [run 39446272710](https://github.com/schiffy91/btrc/actions/runs/39446272710)
   failed on the Podman image-inspect `.Id` template before measuring anything.
   Raw structured metadata capture and its success/failure workflow regressions
-  now pass. Run the pinned baseline/candidate comparison on the hosted Linux runner.
-  Attribute and repair the regression with the original guards. The 136 portable
-  diagnostic checks do not constitute measurements; two real-measurement tests
-  were intentionally excluded on the Mac. Do not rebaseline or relax limits.
+  now pass. Completed main diagnostic
+  [39453110378](https://github.com/schiffy91/btrc/actions/runs/39453110378)
+  built both pinned compilers and completed all 24 compiler/data-root samples.
+  Old main passed the original guard on that host. Candidate `c9db9e1e` failed
+  only BenchArc: peak 16,375,808 bytes against baseline 15,265,792, exceeding
+  the unchanged allowance by 61,440 bytes. RunStrings passed, so its earlier
+  failure did not reproduce. Cross runs show contributions from both compiler
+  and data-root changes; they do not identify one allocation owner by themselves.
+  `FeManifestBlock` eagerly constructs 20 optional name maps for every block,
+  including absent metadata, before package selection. Make those inventories
+  lazy within their existing owner, preserve validation and parity, then rerun
+  the same hosted guard. Do not rebaseline, subtract a reporter floor or relax
+  limits. No local compiler performance measurements are authorized.
 - **G07: qualify the final combined revision.** Run and reconcile `make test`,
   `make bootstrap`, all eight `make test-c11` configurations, lint, formatting,
   generated-source, extension and repository-hygiene gates, plus the affected
@@ -189,8 +203,14 @@ qualification still pending.
   already repaired that import and the current naming gate passes. Host Android
   [39451973769](https://github.com/schiffy91/btrc/actions/runs/39451973769) and
   Host Windows [39451973958](https://github.com/schiffy91/btrc/actions/runs/39451973958)
-  completed successfully on consolidated main `b0317191`; detailed retained
-  counts and final-source applicability must remain explicit. Preserve missing
+  completed successfully on consolidated main `b0317191`. Android API 29 and
+  36 each passed 28 host checks, both JNI frontends and 2,044 corpus cases with
+  six classified GPU dependency skips. Windows passed 111 portable checks and
+  16 native host checks on each architecture, without skips or cleanup warnings.
+  The 22 audited host dependency groups are unchanged through `b119cd37`;
+  these remain `b0317191` executions and do not qualify Windows GUI behavior.
+  The `c9db9e1e` Windows native bootstrap also passed in
+  [39452977983](https://github.com/schiffy91/btrc/actions/runs/39452977983). Preserve missing
   provider/device evidence as open coverage in the existing roadmap.
 - **G08: implement the separately scoped Windows service design.** PR #52
   lands its specification only. The existing service-supervision/containment
