@@ -81,6 +81,8 @@ class UI2LinuxWindowStateChecks {
 		var receiver = UI2LinuxWindowStateReceiver(); var scope = CallbackScope(); window.onStateChanged(receiver, scope);
 		var initial = window.state(); assert(!initial.requestedVisible && !initial.nativeVisible && !initial.presentable);
 		assert(receiver.states.len == 0 && initial.width == 140.0 && initial.height == 90.0 && initial.backingScale > 0.0);
+		for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
+		assert(receiver.states.len == 0 && window.state().stateRevision == initial.stateRevision);
 		window.show(); var shown = window.state(); assert(shown.requestedVisible && shown.nativeVisible && shown.presentable && shown.stateRevision > initial.stateRevision);
 		window.setContentSize(180.0, 120.0); var resized = window.state();
 		unsigned long long resizeDeadline = SDL_GetTicksNS() + 5000000000ULL;
@@ -88,6 +90,10 @@ class UI2LinuxWindowStateChecks {
 		assert(resized.width == 180.0 && resized.height == 120.0 && resized.stateRevision > shown.stateRevision);
 		for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }
 		assert(receiver.states.len > 0 && receiver.states.get(receiver.states.len - 1).width == 180.0);
+		var delivered = receiver.states.get(receiver.states.len - 1); var beforeMutation = window.state();
+		assert(delivered.stateRevision > initial.stateRevision && delivered.stateRevision == beforeMutation.stateRevision);
+		delivered.width = -1.0; delivered.requestedVisible = false; delivered.stateRevision = -1LL;
+		var preserved = window.state(); assert(preserved.width == beforeMutation.width && preserved.requestedVisible && preserved.stateRevision == beforeMutation.stateRevision);
 		long long revision = window.state().stateRevision; window.setContentSize(180.0, 120.0); assert(window.state().stateRevision == revision);
 		window.hide(); var hidden = window.state(); assert(!hidden.requestedVisible && !hidden.nativeVisible && !hidden.presentable && hidden.notExposedReason == WINDOW_EXPOSURE_REASON_HIDDEN);
 		for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); }

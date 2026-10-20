@@ -1,0 +1,147 @@
+import Library.Callback;
+import Library.App;
+import Library.GUI.IView;
+import Library.Vector;
+import Library.GUI.IWindow;
+import Library.GUI.ITextField;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.SDL;
+
+import ./WindowCloseProbe.btrc;
+#include <assert.h>
+
+class WindowDecision implements IWindowCloseRequestHandler {
+	public int calls = 0;
+	public IWindowCloseTransaction? transaction;
+	public IWindowCloseTransaction current() { var transaction = self.transaction; if (transaction == null) { throw "No close transaction delivered"; } return transaction; }
+
+	public void closeRequested(IWindowCloseTransaction transaction) { assert(SDL_IsMainThread()); self.calls++; self.transaction = transaction; }
+}
+
+void drain(Vector<LinuxWindow> windows) {
+	for window in windows { int turns = 0; while (window.dispatchSemantic()) { assert(turns++ < 100); } }
+}
+
+void pump(LinuxApplication application) { for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); } }
+
+void verifyQuitGroup() {
+	var context = LinuxContext(8); var first = LinuxWindow(context, "quit first", 100.0, 100.0); var second = LinuxWindow(context, "quit second", 100.0, 100.0); var clean = LinuxWindow(context, "clean", 100.0, 100.0);
+	Vector<LinuxWindow> windows = [first, second, clean]; var scope = CallbackScope(); var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	var group = LinuxWindowQuitCoordinator(windows, context); assert(!group.advance()); drain(windows); assert(a.calls == 1 && b.calls == 1 && a.transaction != null && b.transaction != null);
+	// Repeated native close on a no-handler member cannot close it early.
+	clean.requestNativeClose(); clean.serviceNativeClose(); assert(clean.isOpen());
+	assert(first.requestCoordinatedClose().transaction == a.transaction && !group.advance()); drain(windows); assert(a.calls == 1);
+	var firstSave = a.current().decide(WINDOW_CLOSE_DECISION_SAVE, 1LL); var secondSave = b.current().decide(WINDOW_CLOSE_DECISION_SAVE, 8LL);
+	assert(a.current().completeSave(firstSave.attempt, 1LL, true, "").state == WINDOW_CLOSE_AUTHORIZED && first.isOpen());
+	assert(a.current().decide(WINDOW_CLOSE_DECISION_DISCARD, 0LL).kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION);
+	var newSave = a.current().decide(WINDOW_CLOSE_DECISION_SAVE, 2LL); assert(newSave.attempt > firstSave.attempt && newSave.state == WINDOW_CLOSE_SAVING);
+	assert(b.current().completeSave(secondSave.attempt, 8LL, true, "").state == WINDOW_CLOSE_AUTHORIZED && !group.advance() && second.isOpen());
+	assert(a.current().completeSave(firstSave.attempt, 1LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT && !group.advance());
+	assert(a.current().completeSave(newSave.attempt, 2LL, true, "").state == WINDOW_CLOSE_AUTHORIZED && group.advance());
+	group.commit(); assert(first.isOpen() && second.isOpen() && clean.isOpen()); assert(a.current().state() == WINDOW_CLOSE_CLOSING && b.current().state() == WINDOW_CLOSE_CLOSING && !context.nativeQuitPending());
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE && clean.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel();
+}
+
+void verifyQuitCancellation() {
+	var context = LinuxContext(8); var first = LinuxWindow(context, "cancel first", 100.0, 100.0); var second = LinuxWindow(context, "cancel second", 100.0, 100.0);
+	Vector<LinuxWindow> windows = [first, second]; var scope = CallbackScope(); var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	var group = LinuxWindowQuitCoordinator(windows, context); assert(!group.advance()); drain(windows); assert(a.transaction != null && b.transaction != null);
+	a.current().decide(WINDOW_CLOSE_DECISION_DISCARD, 3LL); var saving = b.current().decide(WINDOW_CLOSE_DECISION_SAVE, 2LL);
+	assert(a.current().decide(WINDOW_CLOSE_DECISION_CANCEL, 4LL).state == WINDOW_CLOSE_CANCELLED && !group.advance() && group.cancelled());
+	assert(first.isOpen() && second.isOpen() && b.current().state() == WINDOW_CLOSE_CANCELLED);
+	assert(b.current().completeSave(saving.attempt, 2LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	var old = a.transaction; var fresh = LinuxWindowQuitCoordinator(windows, context); assert(!fresh.advance()); drain(windows); assert(a.calls == 2 && a.transaction != old); fresh.cancel();
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel();
+}
+
+void verifyQuitMembership() {
+	var context = LinuxContext(8); var first = LinuxWindow(context, "member", 100.0, 100.0); var clean = LinuxWindow(context, "initially clean", 100.0, 100.0);
+	Vector<LinuxWindow> windows = [first, clean]; var scope = CallbackScope(); var a = WindowDecision(); first.onCloseRequested(a, scope);
+	var group = LinuxWindowQuitCoordinator(windows, context); assert(!group.advance()); drain(windows); assert(a.transaction != null); a.current().decide(WINDOW_CLOSE_DECISION_DISCARD, 1LL);
+	var b = WindowDecision(); var registration = clean.onCloseRequested(b, scope); assert(!group.advance() && group.cancelled() && a.current().state() == WINDOW_CLOSE_CANCELLED && first.isOpen() && clean.isOpen());
+	registration.cancel(); var fresh = LinuxWindowQuitCoordinator(windows, context); assert(!fresh.advance()); drain(windows);
+	var added = LinuxWindow(context, "new member", 100.0, 100.0); windows.push(added); assert(!fresh.advance() && fresh.cancelled() && first.isOpen() && clean.isOpen() && added.isOpen());
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && clean.close() == CALLBACK_CANCELLATION_COMPLETE && added.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel();
+}
+
+void verifyQuitUndeliveredCancellation() {
+	var context = LinuxContext(8); var first = LinuxWindow(context, "queued first", 100.0, 100.0); var second = LinuxWindow(context, "queued second", 100.0, 100.0);
+	Vector<LinuxWindow> windows = [first, second]; var scope = CallbackScope(); var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	var group = LinuxWindowQuitCoordinator(windows, context); assert(!group.advance() && a.calls == 0 && b.calls == 0);
+	var added = LinuxWindow(context, "membership changed", 100.0, 100.0); windows.push(added); assert(!group.advance() && group.cancelled());
+	var fresh = LinuxWindowQuitCoordinator(windows, context); assert(!fresh.advance()); drain(windows);
+	assert(a.calls == 1 && b.calls == 1 && a.current().state() == WINDOW_CLOSE_AWAITING_DECISION && b.current().state() == WINDOW_CLOSE_AWAITING_DECISION);
+	fresh.cancel(); assert(first.isOpen() && second.isOpen() && added.isOpen());
+	assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE && added.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel();
+}
+
+void verifyNativeApplicationQuit() {
+	var application = LinuxApplication(8); var scope = CallbackScope();
+	var clean = application.createWindow("native clean", 140.0, 100.0);
+	var first = application.createWindow("native first", 140.0, 100.0); var second = application.createWindow("native second", 140.0, 100.0);
+	var field = application.createTextField("preserved draft", ""); first.attachRoot(field);
+	var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	var nativeClean = application.firstWindow(); if (nativeClean == null) { throw "Missing native clean window"; }
+	// The close following quit stays queued until every member is held.
+	assert(ui2PushQuit() == 1 && ui2PushWindowClose(nativeClean.nativeId()) == 1); pump(application);
+	assert(a.calls == 1 && b.calls == 1 && !application.quitRequested() && clean.isOpen());
+	var original = a.current(); var savingTransaction = b.current(); var saving = savingTransaction.decide(WINDOW_CLOSE_DECISION_SAVE, 4LL);
+	assert(ui2PushQuit() == 1); pump(application);
+	assert(a.calls == 1 && b.calls == 1 && a.current() == original && b.current() == savingTransaction && savingTransaction.state() == WINDOW_CLOSE_SAVING);
+	// A newer edit updates the active save without issuing another attempt.
+	assert(savingTransaction.decide(WINDOW_CLOSE_DECISION_SAVE, 5LL).attempt == saving.attempt);
+	a.current().decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL); pump(application);
+	assert(!application.context().nativeQuitPending() && !application.quitRequested() && first.isOpen() && second.isOpen() && clean.isOpen());
+	assert(field.text() == "preserved draft" && b.current().state() == WINDOW_CLOSE_CANCELLED);
+	assert(b.current().completeSave(saving.attempt, 4LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	assert(ui2PushQuit() == 1); pump(application); assert(a.calls == 2 && b.calls == 2 && a.current() != original);
+	var attempt = a.current().decide(WINDOW_CLOSE_DECISION_SAVE, 2LL); a.current().completeSave(attempt.attempt, 2LL, true, "");
+	b.current().decide(WINDOW_CLOSE_DECISION_DISCARD, 4LL); pump(application);
+	assert(application.quitRequested() && !application.context().nativeQuitPending());
+	assert(a.current().state() == WINDOW_CLOSE_CLOSING && b.current().state() == WINDOW_CLOSE_CLOSING);
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE && !field.isOpen()); scope.cancel();
+}
+
+void verifyForcedApplicationClose() {
+	var application = LinuxApplication(8); var scope = CallbackScope(); var window = application.createWindow("forced group", 140.0, 100.0);
+	var decision = WindowDecision(); window.onCloseRequested(decision, scope);
+	assert(ui2PushQuit() == 1); pump(application); assert(decision.calls == 1 && application.context().nativeQuitPending());
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE && decision.current().state() == WINDOW_CLOSE_OWNER_LOST);
+	assert(!application.context().nativeQuitPending()); scope.cancel();
+}
+
+class PointerDecision implements IViewPointerHandler {
+	public IWindowCloseTransaction transaction;
+	public bool cancel = false;
+	public int calls = 0;
+	public bool pointer(AppPointerEvent event) {
+		if (event.action == APP_POINTER_MOVED && self.calls == 0) {
+			self.calls++; self.transaction.decide(self.cancel ? WINDOW_CLOSE_DECISION_CANCEL : WINDOW_CLOSE_DECISION_DISCARD, 1LL);
+		}
+		return false;
+	}
+}
+
+void verifyQuitBeforePointerDecision(bool cancel) {
+	var application = LinuxApplication(8); var scope = CallbackScope();
+	var first = application.createWindow("queued pointer first", 140.0, 100.0); var second = application.createWindow("queued pointer second", 140.0, 100.0);
+	var field = application.createTextField("kept", ""); first.attachRoot(field); first.show(); pump(application);
+	var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
+	first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST); pump(application); assert(a.calls == 1 && b.calls == 0);
+	var original = a.current(); var pointer = PointerDecision(); pointer.transaction = original; pointer.cancel = cancel; field.onPointer(pointer, scope);
+	var native = application.firstWindow(); if (native == null) { throw "Missing pointer window"; }
+	assert(ui2PushQuit() == 1 && ui2PushPointerMotion(native.nativeId()) == 1); pump(application);
+	assert(pointer.calls == 1 && a.calls == 1 && b.calls == 1 && a.current() == original);
+	assert(first.isOpen() && second.isOpen() && !application.quitRequested() && field.text() == "kept");
+	if (cancel) { assert(original.state() == WINDOW_CLOSE_CANCELLED && b.current().state() == WINDOW_CLOSE_CANCELLED && !application.context().nativeQuitPending()); }
+	else { assert(original.state() == WINDOW_CLOSE_AUTHORIZED && application.context().nativeQuitPending()); b.current().decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL); pump(application); }
+	assert(application.close() == CALLBACK_CANCELLATION_COMPLETE); scope.cancel();
+}
+
+int main() {
+	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation(); verifyNativeApplicationQuit(); verifyForcedApplicationClose(); verifyQuitBeforePointerDecision(false); verifyQuitBeforePointerDecision(true);
+	SDL_Quit(); print("PASS: UI2 Linux native quit holds and revalidates all windows"); return 0;
+}

@@ -121,6 +121,11 @@ class LinuxSemanticWake implements IControlEventWake {
 class LinuxContext implements IApplicationNativeWake {
 	public bool requestTurn() { return btrcSdlPushWake(); }
 
+	private bool _nativeQuitPending = false;
+	public bool nativeQuitPending() { self.requireUI(); return self._nativeQuitPending; }
+
+	public void setNativeQuitPending(bool pending) { self.requireUI(); self._nativeQuitPending = pending; }
+
 	public int mutationDepth = 0;
 	private int _closeDecisions = 0;
 
