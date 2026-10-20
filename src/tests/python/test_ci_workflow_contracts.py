@@ -543,7 +543,11 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         assert final.get("if") == "always()", (workflow, name)
         assert final.get("uses") == UPLOAD_ARTIFACT, (workflow, name)
         upload = final["with"]
-        assert upload["path"] == SKIP_REPORTS, (workflow, name)
+        assert upload["path"] == (
+            "build/skip-report-gui-${{ matrix.cell }}.json"
+            if (workflow, name) == ("ci.yml", "linux-gui")
+            else SKIP_REPORTS
+        ), (workflow, name)
         assert upload["if-no-files-found"] == "warn", (workflow, name)
         base = f"skip-report-{workflow.rsplit('.', 1)[0]}-{name}"
         assert upload["name"].startswith(base), (workflow, name, upload["name"])
@@ -638,7 +642,10 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         assert set(jobs) - untiered == listed, workflow
         for name in listed:
             job = jobs[name]
-            assert job["if"] == f"contains({PLAN}.jobs, '{name}')", (workflow, name)
+            expected_condition = f"contains({PLAN}.jobs, '{name}')"
+            if (workflow, name) == ("ci.yml", "linux-gui-coverage"):
+                expected_condition = "${{ always() && " + expected_condition + " }}"
+            assert job["if"] == expected_condition, (workflow, name)
             tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{name}")
             if job["needs"] != "scope":
                 # A job may also wait on a producer job of its workflow that
@@ -651,6 +658,11 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
                 for producer in needs[1:]:
                     assert producer in listed, (workflow, name, producer)
                     made = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{producer}")
+                    if (workflow, name, producer) == ("ci.yml", "linux-gui-coverage", "linux-gui"):
+                        assert made.key == "cell"
+                        assert {shard.row["session"] for shard in TIERS.shards_of(made)} == {"x11", "wayland"}
+                        assert all(shard.condition in conditions for shard in TIERS.shards_of(made))
+                        continue
                     assert made.key is None and all(condition == made.condition for condition in conditions), (
                         workflow,
                         name,
@@ -1015,7 +1027,7 @@ def test_a_plain_pull_request_plans_from_its_changed_paths(tmp_path: Path) -> No
 
 LANE_HEAVY_LINUX = ["static", "release", "tests", "bench", "linux-arm64-bundle"]
 LANE_LIGHT_LINUX = ["static", "release", "tests"]
-LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui", "linux-e40"]
+LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui", "linux-gui-coverage", "linux-e40"]
 
 
 @pytest.mark.parametrize(
@@ -1037,7 +1049,7 @@ LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui", "linux-e40"]
         (("src/stdlib/HTTP/Client.btrc",), LANE_HEAVY_LINUX, []),
         (
             ("src/tests/python/test_native_gui_target.py",),
-            [*LANE_LIGHT_LINUX, "linux-gui", "linux-e40"],
+            [*LANE_LIGHT_LINUX, "linux-gui", "linux-gui-coverage", "linux-e40"],
             ["native-bundle", "native-gui", "macos-e40"],
         ),
         # A pull request with no listed file plans the whole lane selection.
@@ -1323,7 +1335,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
         }, workflow
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
         expected = {
-            "ci.yml": ["native-gui", "linux-gui", "linux-e40"],
+            "ci.yml": ["native-gui", "linux-gui", "linux-gui-coverage", "linux-e40"],
             "macos.yml": ["native-gui", "macos-e40"],
             "windows.yml": ["win32-native-build", "win32-native"],
         }[workflow]
@@ -1753,11 +1765,22 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     """CL-UIA-11: the GUI and audio suites under X11 and Wayland, on every push."""
 
     job = _parsed("ci.yml")["jobs"]["linux-gui"]
-    assert job["name"] == "linux-gui (${{ matrix.session }})"
+    assert job["name"] == "linux-gui (${{ matrix.cell }})"
+    assert job["timeout-minutes"] == "90"
     assert job["runs-on"] == "ubuntu-latest"
     rows = [shard.row for shard in TIERS.shards if shard.job == "ci.yml/linux-gui"]
     # X11 gates; Wayland reports only until its sanitized shell journey is stable.
-    assert rows == [{"session": "x11", "report_only": "false"}, {"session": "wayland", "report_only": "true"}]
+    assert rows == [
+        {
+            "cell": f"{session}-{index}",
+            "session": session,
+            "index": str(index),
+            "count": "4",
+            "report_only": report_only,
+        }
+        for session, report_only in (("x11", "false"), ("wayland", "true"))
+        for index in range(4)
+    ]
     assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
     for tier in ("main", "extended", "release", "native-gui"):
         plan = TIERS.plan("ci.yml", tier)
@@ -1777,19 +1800,20 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
         assert "linux-gui" in TIERS.plan("ci.yml", "pr", [linux])["jobs"], linux
     # One container run of the shard target per row, with the CI shard budgets.
     commands = _job_commands(job, "ci.yml", "linux-gui")
-    for session in ("x11", "wayland"):
+    for row in rows:
         assert (
             'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 '
-            f"BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION={session} test-shard-gui"
+            f"BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION={row['session']} "
+            f"GUI_PARTITION={row['index']} GUI_PARTITIONS=4 test-shard-gui"
         ) in commands
     steps = job["steps"]
     evidence, junit, skips = steps[-3:]
     assert all(step["if"] == "always()" and step["uses"] == UPLOAD_ARTIFACT for step in (evidence, junit, skips))
-    assert evidence["with"]["name"] == "gui-evidence-ci-linux-gui-${{ matrix.session }}"
-    for path in ("build/linux-gui/${{ matrix.session }}/atspi.json", "build/ui-shell/"):
+    assert evidence["with"]["name"] == "gui-evidence-ci-linux-gui-${{ matrix.cell }}"
+    for path in ("build/linux-gui/${{ matrix.cell }}/*.json", "build/ui-shell/"):
         assert path in evidence["with"]["path"], path
-    assert junit["with"]["name"] == "junit-ci-linux-gui-${{ matrix.session }}"
-    assert junit["with"]["path"] == "build/linux-gui/${{ matrix.session }}/junit.xml"
+    assert junit["with"]["name"] == "junit-ci-linux-gui-${{ matrix.cell }}"
+    assert junit["with"]["path"] == "build/linux-gui/${{ matrix.cell }}/junit.xml"
     # The make target runs the focused GUI suites plus the null-PCM check in one
     # headless session per protocol, with the null PCM, the AT-SPI dump and the
     # skip gate on its own report.
@@ -1799,8 +1823,11 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     assert 'ALSA_CONFIG_PATH="$(abspath nix/asound.conf)"' in recipe
     assert "python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py" in recipe
     assert "tools/ui/session_evidence.py --output $(GUI_SHARD_DIR)" in recipe
-    assert "$(GUI_SHARD_TESTS) --basetemp" in recipe and "--junitxml=$(GUI_SHARD_DIR)/junit.xml" in recipe
-    assert "$(SKIP_GATE) build/skip-report-gui-$(GUI_SESSION).json" in recipe
+    assert "python3 -m tools.ui.gui_shards run" in recipe
+    assert "--selectors $(GUI_SHARD_TESTS) -- $(PYTEST_ARGS)" in recipe
+    assert "--index $(GUI_PARTITION) --count $(GUI_PARTITIONS)" in recipe
+    assert "BTRC_TEST_RUNNER=linux-devcontainer" in recipe
+    assert "$(SKIP_GATE) build/skip-report-gui-$(GUI_CELL).json" in recipe
     # The Wayland row leaves out the X11-protocol clipboard case; an explicit
     # path ignores --ignore, so make drops it from the list.
     assert "GUI_SHARD_X11_ONLY := src/tests/python/test_native_ui_sdl_clipboard_requestor.py" in makefile
@@ -2154,3 +2181,27 @@ def test_unit_diagnostic_preserves_the_complete_shard_and_runner_limits() -> Non
     assert "--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json" in recipe
     assert '-m "not e40_qualification"' in recipe
     assert "$(SKIP_GATE) build/skip-report-unit.json" in recipe
+
+
+def test_linux_gui_union_is_required_and_keeps_wayland_report_only() -> None:
+    job = _parsed("ci.yml")["jobs"]["linux-gui-coverage"]
+    assert job["needs"] == ["scope", "linux-gui"]
+    assert "always()" in job["if"]
+    assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
+    rows = [shard.row for shard in TIERS.shards if shard.job == "ci.yml/linux-gui-coverage"]
+    assert rows == [{"session": "x11", "report_only": "false"}, {"session": "wayland", "report_only": "true"}]
+    producer = _parsed("ci.yml")["jobs"]["linux-gui"]
+    proof = next(step for step in producer["steps"] if step.get("name") == "Retain the exact partition proof")
+    assert proof["with"]["name"] == "gui-partition-ci-linux-gui-${{ matrix.cell }}"
+    assert proof["with"]["path"].splitlines() == [
+        f"build/linux-gui/${{{{ matrix.cell }}}}/{name}"
+        for name in ("partition.json", "collection.json", "junit.xml", "skip-report.json")
+    ]
+    fetch = next(step for step in job["steps"] if "download-artifact@" in step.get("uses", ""))
+    assert fetch["with"]["pattern"] == "gui-partition-ci-linux-gui-${{ matrix.session }}-*"
+    assert "merge-multiple" not in fetch["with"]
+    verify = next(step for step in job["steps"] if "tools.ui.gui_shards aggregate" in step.get("run", ""))
+    assert verify["if"] == "always()"
+    assert '--count 4 --revision "$GITHUB_SHA"' in verify["run"]
+    assert "continue-on-error" not in verify
+    assert job["steps"][-1]["if"] == "always()"

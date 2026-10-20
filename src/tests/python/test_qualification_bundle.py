@@ -24,9 +24,13 @@ def _manifest() -> TierManifest:
 
 def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
     matrix = plan["matrix"].get(job, {"include": []})
-    key = {"native-bundle": "target", "linux-gui": "session", "win32-native": "target", "target-corpus": "target"}.get(
-        job, "shard"
-    )
+    key = {
+        "native-bundle": "target",
+        "linux-gui": "cell",
+        "linux-gui-coverage": "session",
+        "win32-native": "target",
+        "target-corpus": "target",
+    }.get(job, "shard")
     return {row[key]: row for row in matrix["include"]}
 
 
@@ -154,9 +158,11 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
             for job, matrix in main["matrix"].items():
                 assert all(row in plan["matrix"][job]["include"] for row in matrix["include"]), (workflow, wider, job)
     ci = manifest.plan("ci.yml", "main")
-    assert ci["jobs"] == ["release", "tests", "bench", "linux-arm64-bundle", "linux-gui"]
+    assert ci["jobs"] == ["release", "tests", "bench", "linux-arm64-bundle", "linux-gui", "linux-gui-coverage"]
     assert len(ci["matrix"]["tests"]["include"]) == 13
-    assert list(_rows(ci, "linux-gui")) == ["x11", "wayland"]
+    assert list(_rows(ci, "linux-gui")) == [
+        f"{session}-{index}" for session in ("x11", "wayland") for index in range(4)
+    ]
     macos = manifest.plan("macos.yml", "main")
     assert list(_rows(macos, "tests")) == [
         "unit",
@@ -333,7 +339,15 @@ def test_a_lane_keeps_the_linux_matrix_and_the_macos_lane_jobs() -> None:
     manifest = _manifest()
     ci = manifest.plan("ci.yml", "lane", ["src/stdlib/GUI/Linux/Window.btrc"])
     # The static job runs the naming contract, which reads every tracked file.
-    assert ci["jobs"] == ["static", "release", "tests", "bench", "linux-arm64-bundle", "linux-gui"]
+    assert ci["jobs"] == [
+        "static",
+        "release",
+        "tests",
+        "bench",
+        "linux-arm64-bundle",
+        "linux-gui",
+        "linux-gui-coverage",
+    ]
     assert ci["matrix"] == manifest.plan("ci.yml", "main")["matrix"]
     macos = manifest.plan("macos.yml", "lane", ["src/stdlib/GUI/Linux/Window.btrc"])
     assert macos["jobs"] == ["native-bundle", "native-gui"]
@@ -343,8 +357,8 @@ def test_a_lane_keeps_the_linux_matrix_and_the_macos_lane_jobs() -> None:
 LANE_LINUX = ["static", "release", "tests", "bench", "linux-arm64-bundle"]
 LANE_LIGHT = ["static", "release", "tests"]
 # The Linux GUI and audio shard joins when a Linux GUI, audio or native path changes.
-LANE_LINUX_GUI = [*LANE_LINUX, "linux-gui"]
-LANE_LIGHT_GUI = [*LANE_LIGHT, "linux-gui"]
+LANE_LINUX_GUI = [*LANE_LINUX, "linux-gui", "linux-gui-coverage"]
+LANE_LIGHT_GUI = [*LANE_LIGHT, "linux-gui", "linux-gui-coverage"]
 LANE_MACOS = ["native-bundle", "native-gui"]
 # Windows runs only its own paths. The Win32 GUI shell rows build from the
 # shared shell fixtures and link Library.GPU (CX-UIA-15).
@@ -429,7 +443,9 @@ def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(
     rows = list(_rows(ci, "tests"))
     heavy = "bench" in linux
     assert rows == (list(_rows(manifest.plan("ci.yml", "main"), "tests")) if heavy else ["unit"])
-    assert list(_rows(ci, "linux-gui")) == (["x11", "wayland"] if "linux-gui" in linux else [])
+    assert list(_rows(ci, "linux-gui")) == (
+        [f"{session}-{index}" for session in ("x11", "wayland") for index in range(4)] if "linux-gui" in linux else []
+    )
     plan = manifest.plan("macos.yml", "lane", changed)
     assert plan["jobs"] == macos
     assert list(_rows(plan, "native-bundle")) == (["macos-arm64"] if macos else [])
@@ -463,10 +479,10 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
     assert expected["ci.yml/bench"] == ["bench-results"]
     assert expected["ci.yml/native-gui"] == ["skip-report-ci-native-gui", "junit-ci-native-gui"]
     assert expected["ci.yml/linux-gui"] == [
-        "skip-report-ci-linux-gui-x11",
-        "junit-ci-linux-gui-x11",
-        "skip-report-ci-linux-gui-wayland",
-        "junit-ci-linux-gui-wayland",
+        f"{kind}-ci-linux-gui-{session}-{index}"
+        for session in ("x11", "wayland")
+        for index in range(4)
+        for kind in ("skip-report", "junit")
     ]
     assert "boundary-report-ci-tests-bootstrap" in expected["ci.yml/tests"]
     assert "boundary-report-macos-tests-bootstrap" in expected["macos.yml/tests"]
