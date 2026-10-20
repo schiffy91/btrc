@@ -3,6 +3,8 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #include "Load.h"
+#include "Presentation.h"
+#include <math.h>
 #import "Tracking.h"
 #include <assert.h>
 #include <mach/mach_time.h>
@@ -36,8 +38,10 @@ static NSInteger windowNumbers[2];
 static CAMetalLayer *layers[2];
 static id closeMonitor;
 static NSString *outputPath;
-static FILE *presentationFile;
-static long long frameSequence[2], inputSequence;
+static FILE *presentationFile, *attemptFile;
+static E40Presentation presentations[2];
+static bool dropContextPending[2], dropContextCaptured[2];
+static long long inputSequence;
 static uint64_t frameCounts[2], loadStarted, loadEnds, producerLastTick, producerMaximumGap;
 static uint64_t producerIterations, producerBySecond[ACTIVITY_SECONDS], inputPauses, nativeEnqueueErrors;
 static int loadSeconds, trialKind;
@@ -99,30 +103,34 @@ static void delivered(int kind, long long sequence, uint64_t now) {
     assert(m->pending >= 0 && m->bytes >= 0);
     memset(r, 0, sizeof(*r));
 }
-void e40LoadReceipt(int kind, long long sequence, unsigned long long due, int payloadBytes) {
+static void receipt(int kind, long long sequence, uint64_t due, int payloadBytes, uint64_t admitted) {
     requireKind(kind); assert(sequence > 0 && payloadBytes > 0);
-    pthread_mutex_lock(&mutex);
     struct Metrics *m = &metrics[kind];
     struct Receipt *r = &m->receipts[(uint64_t)sequence % SLOTS];
     assert(r->sequence == 0 && m->pending < SLOTS);
-    r->sequence = sequence; r->admitted = e40LoadNow();
+    r->sequence = sequence; r->admitted = admitted;
     r->due = due > r->admitted ? due : r->admitted; r->bytes = payloadBytes;
     m->accepted++; m->pending++; m->bytes += payloadBytes;
     int second = activitySecond(r->admitted);
     if (second >= 0) { m->acceptedBySecond[second]++; }
     if (m->pending > m->peakDepth) { m->peakDepth = m->pending; }
     if (m->bytes > m->peakBytes) { m->peakBytes = m->bytes; }
-    pthread_mutex_unlock(&mutex);
 }
-void e40LoadReject(int kind, long long sequence) {
-    requireKind(kind); pthread_mutex_lock(&mutex);
+void e40LoadReceipt(int kind, long long sequence, unsigned long long due, int payloadBytes) {
+    pthread_mutex_lock(&mutex); receipt(kind, sequence, due, payloadBytes, e40LoadNow()); pthread_mutex_unlock(&mutex);
+}
+static void reject(int kind, long long sequence) {
+    requireKind(kind);
     struct Metrics *m = &metrics[kind];
     struct Receipt *r = &m->receipts[(uint64_t)sequence % SLOTS];
     assert(r->sequence == sequence); /* A rejected input cannot have delivered. */
     m->accepted--; m->rejected++; m->pending--; m->bytes -= r->bytes;
     int second = activitySecond(r->admitted);
     if (second >= 0) { assert(m->acceptedBySecond[second] > 0); m->acceptedBySecond[second]--; }
-    memset(r, 0, sizeof(*r)); pthread_mutex_unlock(&mutex);
+    memset(r, 0, sizeof(*r));
+}
+void e40LoadReject(int kind, long long sequence) {
+    pthread_mutex_lock(&mutex); reject(kind, sequence); pthread_mutex_unlock(&mutex);
 }
 void e40LoadDeliver(int kind, long long sequence) {
     requireKind(kind); pthread_mutex_lock(&mutex);
@@ -169,6 +177,10 @@ void e40LoadSetup(const char *output, int trial) {
     NSString *csv = [outputPath stringByAppendingString:@".presentations.csv"];
     presentationFile = fopen(csv.UTF8String, "w"); assert(presentationFile);
     assert(fputs("window,presented_continuous_ns,native_presented_seconds,callback_continuous_ns\n", presentationFile) >= 0);
+    NSString *attempts = [outputPath stringByAppendingString:@".presentation-attempts.csv"];
+    attemptFile = fopen(attempts.UTF8String, "w"); assert(attemptFile);
+    assert(fputs("window,sequence,attempt,disposition,admitted_ns,due_ns,native_presented_seconds,callback_continuous_ns\n", attemptFile) >= 0);
+    assert(fflush(attemptFile) == 0);
     e40TrackingSetup(trial, windows[0], windows[1], outputPath);
 }
 bool e40LoadReady(void) {
@@ -181,21 +193,52 @@ static CAMetalLayer *findMetalLayer(NSView *view) {
     for (NSView *child in view.subviews) { CAMetalLayer *layer = findMetalLayer(child); if (layer) { return layer; } }
     return nil;
 }
+static void attemptRecord(int window, uint64_t sequence, uint64_t token, const char *disposition, double stamp) {
+    E40Presentation *state = &presentations[window];
+    FILE *sink = attemptFile ? attemptFile : stderr;
+    assert(fprintf(sink, "%d,%llu,%llu,%s,%llu,%llu,%.9f,%llu\n", window,
+        (unsigned long long)sequence, (unsigned long long)token, disposition,
+        (unsigned long long)state->admitted, (unsigned long long)state->due, stamp,
+        (unsigned long long)e40LoadNow()) > 0);
+    assert(fflush(sink) == 0);
+}
+static void invalidAttempt(int window, const char *operation) {
+    fprintf(stderr, "E40 presentation failed window=%d operation=%s sequence=%llu attempt=%llu\n", window, operation,
+        (unsigned long long)presentations[window].sequence, (unsigned long long)presentations[window].token);
+    fflush(stderr); abort();
+}
 static id<CAMetalDrawable> observedNextDrawable(id receiver, SEL selector) {
     id<CAMetalDrawable> drawable = ((id<CAMetalDrawable> (*)(id, SEL))originalNextDrawable)(receiver, selector);
     int window = receiver == layers[0] ? 0 : receiver == layers[1] ? 1 : -1;
     if (drawable && window >= 0 && measuring) {
-        pthread_mutex_lock(&mutex); long long sequence = frameSequence[window];
-        assert(metrics[5 + window].pending == 1); pthread_mutex_unlock(&mutex);
+        pthread_mutex_lock(&mutex);
+        E40Presentation *state = &presentations[window];
+        uint64_t sequence = state->sequence, token = state->token;
+        bool acquired = e40PresentationAcquire(state);
+        attemptRecord(window, sequence, token, acquired ? "acquired" : "invalid-acquire", 0.0);
+        if (!acquired) { invalidAttempt(window, "acquire"); }
+        pthread_mutex_unlock(&mutex);
         [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
-            double stamp = shown.presentedTime; assert(stamp > 0.0);
-            int64_t mapped = (int64_t)(stamp * 1000000000.0) + presentationClockOffset; assert(mapped > 0);
-            uint64_t callback = e40LoadNow();
+            double stamp = shown.presentedTime;
+            uint64_t callback = e40LoadNow(), mapped = 0;
+            bool valid = isfinite(stamp) && stamp >= 0.0;
+            if (valid && stamp > 0.0) {
+                double converted = stamp * 1000000000.0 + (double)presentationClockOffset;
+                valid = converted >= 1.0 && converted < (double)INT64_MAX;
+                if (valid) { mapped = (uint64_t)converted; }
+            }
             pthread_mutex_lock(&mutex);
-            delivered(5 + window, sequence, (uint64_t)mapped); frameCounts[window]++;
-            assert(fprintf(presentationFile, "%d,%llu,%.9f,%llu\n", window, (unsigned long long)mapped, stamp, (unsigned long long)callback) > 0);
-            uint64_t elapsed = e40LoadNow() - callback;
-            if (elapsed > metrics[5 + window].handlerMaximum) { metrics[5 + window].handlerMaximum = elapsed; }
+            E40PresentationResult result = e40PresentationComplete(&presentations[window], sequence, token, valid, mapped);
+            const char *names[] = {"presented", "dropped", "duplicate", "stale", "invalid"};
+            attemptRecord(window, sequence, token, names[result], stamp);
+            if (result == E40_DROPPED) { if (!dropContextCaptured[window]) { dropContextPending[window] = true; } }
+            else if (result == E40_PRESENTED) {
+                delivered(5 + window, (long long)sequence, mapped); frameCounts[window]++;
+                assert(fprintf(presentationFile, "%d,%llu,%.9f,%llu\n", window, (unsigned long long)mapped, stamp, (unsigned long long)callback) > 0);
+                assert(fflush(presentationFile) == 0);
+                uint64_t elapsed = e40LoadNow() - callback;
+                if (elapsed > metrics[5 + window].handlerMaximum) { metrics[5 + window].handlerMaximum = elapsed; }
+            } else { invalidAttempt(window, names[result]); }
             pthread_mutex_unlock(&mutex);
         }];
     }
@@ -233,7 +276,7 @@ void e40LoadPushInput(int window) {
     @autoreleasepool {
         NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
             timestamp:(double)(INPUT_STAMP + (uint64_t)sequence) windowNumber:windowNumbers[window] context:nil
-            characters:@"\uF710" charactersIgnoringModifiers:@"\uF710" isARepeat:NO keyCode:105];
+            characters:@"\uF703" charactersIgnoringModifiers:@"\uF703" isARepeat:NO keyCode:124];
         @try {
             if (!event) { e40LoadReject(0, sequence); pthread_mutex_lock(&mutex); nativeEnqueueErrors++; pthread_mutex_unlock(&mutex); }
             else { [NSApp postEvent:event atStart:NO]; inputSequence = sequence; }
@@ -254,11 +297,64 @@ void e40LoadPushClose(void) {
     @try { if (!event) { e40LoadReject(7, 1); nativeEnqueueErrors++; } else { [NSApp postEvent:event atStart:NO]; } }
     @catch (NSException *error) { (void)error; e40LoadReject(7, 1); nativeEnqueueErrors++; }
 }
-void e40LoadFrame(int window) {
-    assert(window == 0 || window == 1); assert(e40LoadPending(5 + window) == 0);
-    e40LoadReceipt(5 + window, ++frameSequence[window], 0, 1);
+/* Read AppKit geometry only on the main thread. The timestamp explicitly marks
+ * this observation after the dropped callback, not the time of the drop. */
+static void exposureRecord(int window, const char *reason) {
+    assert(NSThread.isMainThread);
+    NSWindow *native = windows[window];
+    NSScreen *screen = native.screen;
+    NSDictionary *context = @{@"window":@(window), @"reason":[NSString stringWithUTF8String:reason],
+        @"observed_ns":@(e40LoadNow()), @"visible":@(native.visible), @"key":@(native.keyWindow),
+        @"application_active":@(NSApp.active), @"occlusion_state":@(native.occlusionState),
+        @"frame":NSStringFromRect(native.frame), @"screen_frame":screen ? NSStringFromRect(screen.frame) : @"unavailable",
+        @"screen_visible_frame":screen ? NSStringFromRect(screen.visibleFrame) : @"unavailable"};
+    NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:context options:0 error:&error];
+    assert(data && !error);
+    NSString *path = [outputPath stringByAppendingString:@".presentation-context.jsonl.txt"];
+    FILE *file = fopen(path.UTF8String, "a"); assert(file);
+    assert(fwrite(data.bytes, 1, data.length, file) == data.length && fputc('\n', file) != EOF && fclose(file) == 0);
 }
-void e40LoadRejectFrame(int window) { assert(window == 0 || window == 1); e40LoadReject(5 + window, frameSequence[window]--); }
+bool e40LoadTryFrame(int window, bool allowNew) {
+    assert(NSThread.isMainThread && (window == 0 || window == 1));
+    pthread_mutex_lock(&mutex);
+    bool context = dropContextPending[window]; dropContextPending[window] = false;
+    if (context) { dropContextCaptured[window] = true; }
+    E40Presentation *state = &presentations[window];
+    bool started = e40PresentationBegin(state, allowNew, e40LoadNow());
+    if (started) {
+        if (state->newReceipt) { receipt(5 + window, (long long)state->sequence, state->due, 1, state->admitted); }
+        assert(metrics[5 + window].pending == 1);
+        attemptRecord(window, state->sequence, state->token, state->newReceipt ? "admitted" : "retry", 0.0);
+    }
+    pthread_mutex_unlock(&mutex);
+    if (context) { exposureRecord(window, "after-dropped-callback"); }
+    return started;
+}
+void e40LoadRejectFrame(int window) {
+    assert(NSThread.isMainThread && (window == 0 || window == 1));
+    pthread_mutex_lock(&mutex); E40Presentation *state = &presentations[window];
+    uint64_t sequence = state->sequence, token = state->token; bool newReceipt = state->newReceipt;
+    bool ended = e40PresentationUnavailable(state);
+    attemptRecord(window, sequence, token, ended ? "unavailable" : "invalid-unavailable", 0.0);
+    if (!ended) { invalidAttempt(window, "unavailable"); }
+    if (newReceipt) { reject(5 + window, (long long)sequence); }
+    pthread_mutex_unlock(&mutex);
+}
+void e40LoadDeadline(const char *phase) {
+    assert(NSThread.isMainThread);
+    for (int window = 0; window < 2; window++) { exposureRecord(window, phase); }
+    pthread_mutex_lock(&mutex);
+    for (int window = 0; window < 2; window++) {
+        E40Presentation *state = &presentations[window];
+        attemptRecord(window, state->sequence, state->token, "deadline", 0.0);
+        fprintf(stderr, "E40 deadline phase=%s window=%d sequence=%llu attempt=%llu pending=%d inflight=%d presented=%llu dropped=%llu unavailable=%llu admitted=%llu due=%llu\n",
+            phase, window, (unsigned long long)state->sequence, (unsigned long long)state->token,
+            state->pending, state->inflight, (unsigned long long)state->presented,
+            (unsigned long long)state->dropped, (unsigned long long)state->unavailable,
+            (unsigned long long)state->admitted, (unsigned long long)state->due);
+    }
+    fflush(stderr); abort();
+}
 static NSArray *counterArray(const uint64_t *values, int count) {
     NSMutableArray *array = [NSMutableArray arrayWithCapacity:count];
     for (int index = 0; index < count; index++) { [array addObject:@(values[index])]; } return array;
@@ -284,7 +380,18 @@ void e40LoadReport(bool hosted) {
             @"queue_depth":@[@(m->peakDepth)], @"queue_bytes":@[@(m->peakBytes)], @"capacity":@(SLOTS), @"byte_limit":@(SLOTS * sizeof(void *)),
             @"accepted_by_second":accepted, @"delivered_by_second":deliveredCounts, @"runnable_by_second":runnable}];
     }
+    NSMutableArray *attempts = [NSMutableArray array];
+    for (int window = 0; window < 2; window++) {
+        E40Presentation *state = &presentations[window];
+        assert(!state->pending && !state->inflight && !state->failed);
+        assert(state->attempts == state->presented + state->dropped + state->unavailable);
+        [attempts addObject:@{@"attempts":@(state->attempts), @"acquired":@(state->acquiredCount),
+            @"presented":@(state->presented), @"dropped":@(state->dropped), @"unavailable":@(state->unavailable),
+            @"inflight":@(state->inflight), @"pending":@(state->pending), @"duplicates":@(state->duplicates),
+            @"stale":@(state->stale), @"invalid":@(state->invalid), @"failed":@(state->failed)}];
+    }
     assert(fclose(presentationFile) == 0); presentationFile = NULL;
+    assert(fclose(attemptFile) == 0); attemptFile = NULL;
     NSMutableDictionary *report = [@{@"schema":@"btrc.ui2.macos-e40/1", @"trial":@[@"load", @"popup", @"slider", @"resize", @"sheet"][trialKind], @"entry":hosted ? @"host" : @"desktop",
         @"native_backend":@"AppKit", @"clock":@"mach_continuous_time nanoseconds", @"elapsed_ns":@(loadEnds - loadStarted),
         @"load_started_ns":@(loadStarted), @"load_ended_ns":@(loadEnds), @"visible_windows":@(windows[0].visible + windows[1].visible),
@@ -296,7 +403,7 @@ void e40LoadReport(bool hosted) {
         @"producer_iterations":@(producerIterations), @"producer_max_gap_ns":@(producerMaximumGap), @"producer_by_second":counterArray(producerBySecond, loadSeconds),
         @"presentation_source":@"MTLDrawable.addPresentedHandler/presentedTime", @"presentation_clock_offset_ns":@(presentationClockOffset),
         @"presentation_clock_uncertainty_ns":@(presentationClockUncertainty), @"presented_counts":@[@(frameCounts[0]), @(frameCounts[1])],
-        @"presentation_file":[outputPath stringByAppendingString:@".presentations.csv"], @"physical_input":@NO} mutableCopy];
+        @"presentation_attempts":attempts, @"presentation_file":[outputPath stringByAppendingString:@".presentations.csv"], @"physical_input":@NO} mutableCopy];
     if (trialKind != 0) { report[@"tracking"] = e40TrackingReport(); }
     NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:report options:0 error:&error];
     assert(data && !error && [data writeToFile:outputPath options:NSDataWritingAtomic error:&error] && !error);

@@ -108,6 +108,23 @@ def load(header):
         "load_started_ns": 1,
         "load_ended_ns": 600_000_000_001,
         "close_start_ns": [1000],
+        "presented_counts": [600, 600],
+        "presentation_attempts": [
+            {
+                "attempts": 603,
+                "acquired": 602,
+                "presented": 600,
+                "dropped": 2,
+                "unavailable": 1,
+                "pending": False,
+                "inflight": False,
+                "failed": False,
+                "duplicates": 0,
+                "stale": 0,
+                "invalid": 0,
+            }
+            for _ in range(2)
+        ],
         "presentation_source": "MTLDrawable.addPresentedHandler/presentedTime",
         "native_enqueue_errors": 0,
         "producer_by_second": [1] * 600,
@@ -442,3 +459,34 @@ def test_tracking_close_budget_exempts_only_sanitized_latency(tracking):
     with pytest.raises(AssertionError):
         E40Evidence(tracking, False).tracking("popup")
     E40Evidence(tracking, True).tracking("popup")
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "pending",
+        "inflight",
+        "failed",
+        "duplicates",
+        "stale",
+        "invalid",
+        "missing_attempt",
+        "false_presentation",
+        "missing_acquisition",
+    ],
+)
+def test_presentation_attempt_evidence_rejects_lost_or_false_completion(load, defect):
+    row = load["presentation_attempts"][0]
+    if defect in {"pending", "inflight", "failed"}:
+        row[defect] = True
+    elif defect in {"duplicates", "stale", "invalid"}:
+        row[defect] = 1
+    elif defect == "missing_attempt":
+        row["attempts"] -= 1
+    elif defect == "false_presentation":
+        row["presented"] += 1
+        row["dropped"] -= 1
+    else:
+        row["acquired"] -= 1
+    with pytest.raises(AssertionError):
+        E40Evidence(load, True).load()

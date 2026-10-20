@@ -102,8 +102,36 @@ class E40Evidence:
                 assert percentile is not None and percentile <= 100_000_000, row["name"]
             assert max(gaps) <= 250_000_000, row["name"]
 
+    def presentation_attempts(self):
+        attempts = self.report["presentation_attempts"]
+        assert len(attempts) == 2
+        by_name = {row["name"]: row for row in self.report["classes"]}
+        for window, row in enumerate(attempts):
+            values = {
+                name: self._integer(row[name])
+                for name in (
+                    "attempts",
+                    "acquired",
+                    "presented",
+                    "dropped",
+                    "unavailable",
+                    "duplicates",
+                    "stale",
+                    "invalid",
+                )
+            }
+            assert row["pending"] is row["inflight"] is row["failed"] is False
+            assert values["duplicates"] == values["stale"] == values["invalid"] == 0
+            assert values["attempts"] == values["presented"] + values["dropped"] + values["unavailable"]
+            assert values["presented"] + values["dropped"] <= values["acquired"] <= values["attempts"]
+            assert values["presented"] == self.report["presented_counts"][window]
+            name = "presentation_first" if window == 0 else "presentation_second"
+            assert name in by_name
+            assert values["presented"] == by_name[name]["delivered"] > 0
+
     def load(self):
         self.header("load")
+        self.presentation_attempts()
         assert self._integer(self.report["elapsed_ns"]) >= 600_000_000_000
         classes = self.report["classes"]
         assert len(classes) == len(self.CLASSES)
@@ -163,6 +191,7 @@ class E40Evidence:
     def tracking(self, trial):
         assert trial in self.TRACKING
         self.header(trial)
+        self.presentation_attempts()
         interval = self.report["tracking"]
         entered = self._integer(interval["entered_ns"], minimum=1)
         exited = self._integer(interval["exited_ns"], minimum=entered + 1)
