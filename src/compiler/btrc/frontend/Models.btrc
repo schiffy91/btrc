@@ -489,6 +489,7 @@ class FeNativeCallbackBinding {
 	public Map<string, string> methodNames = {};
 	public Map<string, string> superBefore = {};
 	public Map<string, string> superAfter = {};
+	public Map<string, bool> superRefusedResult = {};
 	public string slotGetter = "";
 	public string actionSetter = "";
 	public string actionGetter = "";
@@ -571,6 +572,7 @@ class FeNativeCallbackProjection {
 	public bool oneShot = false;
 	public string methodName = "invoke";
 	public string superAfter = "";
+	public bool superRefusedResult = false;
 	public bool scopedSuper = false;
 	public NativeNode? nativeMethod = null;
 	public NativeNode? slotGetter = null;

@@ -4524,7 +4524,8 @@ class DeclarationLowerer {
 			Vector<IRParam> parameters = [];
 			Vector<IRNode> arguments = self.instantiatedArguments(projection, values.get(index), parameters);
 			bool returns = projection.returnType.base != "void";
-			IRNode early = IRNode.returnStatement(returns ? IRNode.literal("NO") : null);
+			string refusedResult = projection.superRefusedResult ? "YES" : "NO";
+			IRNode early = IRNode.returnStatement(returns ? IRNode.literal(refusedResult) : null);
 			IRNode entry = IRNode.addressOf(IRNode.variable("entry"));
 			Vector<IRNode> body = [
 				IRNode.ifStatement(IRNode.unary("!", IRNode.variable("_configured"), true), IRNode.block([early]), null), wrongThread,
@@ -4548,7 +4549,7 @@ class DeclarationLowerer {
 				native.functionDecls.push(releasePrototype);
 				argumentReleases.push(IRNode.expressionStatement(IRNode.call(releaseName, [IRNode.variable(pin)])));
 			}
-			if (returns) { body.push(IRNode.variableDeclaration(projection.nativeReturn, "result", IRNode.literal("NO"))); }
+			if (returns) { body.push(IRNode.variableDeclaration(projection.nativeReturn, "result", IRNode.literal(refusedResult))); }
 			Vector<IRNode> superArguments = []; for parameter in parameters { superArguments.push(IRNode.variable(parameter.name)); }
 			IRNode superCall = IRNode.objectiveCMessage(IRNode.variable("super"), nativeMethod.selector, superArguments);
 			Vector<IRNode> beforeArguments = [raw, entry]; beforeArguments.extend(arguments);

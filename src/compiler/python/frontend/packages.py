@@ -516,7 +516,7 @@ class NativeCallbackBinding:
     superclass: str = ""
     overrides: tuple[str, ...] = ()
     method_names: tuple[tuple[str, str], ...] = ()
-    super_admission: tuple[tuple[str, str, str], ...] = ()
+    super_admission: tuple[tuple[str, str, str, bool | None], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1773,9 +1773,15 @@ class PackageManifestValidator:
                     raise ValueError(f"{location}.super-admission must map every override exactly once")
                 names = set()
                 for hooks in admission.values():
-                    if not isinstance(hooks, dict) or set(hooks) != {"before", "after"}:
+                    if (
+                        not isinstance(hooks, dict)
+                        or not {"before", "after"} <= set(hooks)
+                        or set(hooks) - {"before", "after", "refused-result"}
+                    ):
                         raise ValueError(f"{location}.super-admission requires before and after names")
-                    for name in hooks.values():
+                    if "refused-result" in hooks and type(hooks["refused-result"]) is not bool:
+                        raise ValueError(f"{location}.super-admission refused-result must be a bool")
+                    for name in (hooks["before"], hooks["after"]):
                         self._identifier(name, f"{location}.super-admission")
                         if name in names:
                             raise ValueError(f"{location}.super-admission hook names must be distinct")
@@ -2016,7 +2022,10 @@ class PackageManifestValidator:
                     superclass,
                     tuple(sorted(overrides)) if isinstance(overrides, list) else (),
                     tuple(sorted(method_names.items())),
-                    tuple((symbol, hooks["before"], hooks["after"]) for symbol, hooks in sorted(admission.items())),
+                    tuple(
+                        (symbol, hooks["before"], hooks["after"], hooks.get("refused-result"))
+                        for symbol, hooks in sorted(admission.items())
+                    ),
                 )
             )
         return tuple(callbacks)
