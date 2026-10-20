@@ -585,5 +585,9 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 
-	public void __del__() { if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native application destroyed before subtree cleanup completed"); } }
+	public void __del__() {
+		/* Final release cannot turn close's affinity error into a contained worker failure. */
+		if (!self._closed && !SDL_IsMainThread()) { Console.fatal("Native application destroyed before subtree cleanup completed"); }
+		if (self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native application destroyed before subtree cleanup completed"); }
+	}
 }
