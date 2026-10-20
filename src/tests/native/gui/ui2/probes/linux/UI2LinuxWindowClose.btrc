@@ -97,6 +97,7 @@ void verifyWindowCloseCycle() {
 	assert(program.decide(WINDOW_CLOSE_DECISION_CANCEL, 5LL).state == WINDOW_CLOSE_CANCELLED);
 	document.verify(); document.queueEditAfterCancel(); LinuxCloseChecks.events(first, second); document.verify("p!eserved draft");
 	assert(original.completeSave(retry.attempt, 5LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	document.finish();
 	assert(br.cancel() == CALLBACK_CANCELLATION_COMPLETE && other.state() == WINDOW_CLOSE_CANCELLED && second.isOpen());
 	assert(second.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER); LinuxCloseChecks.drain(second);
 	var final = LinuxCloseChecks.pending(first.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST), WINDOW_CLOSE_REQUEST_PENDING);

@@ -1,3 +1,5 @@
+import Library.Callback;
+import Library.GUI.ControlEvents;
 import Library.GUI.IWindow;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxContext;
@@ -6,6 +8,11 @@ import Library.GUI.Linux.LinuxScrollView;
 import Library.GUI.Linux.LinuxTextField;
 
 #include <assert.h>
+
+class LinuxCancelTerminals implements ITextControlEventHandler {
+	public int calls = 0;
+	public void textEvent(TextControlEvent event) { self.calls++; }
+}
 
 /* The attached document and its visible field are the stable destination and
  * scroll anchor for desktop close/quit. Focus and selection are established
@@ -16,6 +23,8 @@ class LinuxCancelState {
 	public LinuxTextField field;
 	private unsigned int _windowId;
 	private long long _generation;
+	private CallbackScope _scope = CallbackScope();
+	private LinuxCancelTerminals _terminals = LinuxCancelTerminals();
 	public LinuxCancelState(LinuxContext context, IWindow window) {
 		self.window = window;
 		var native = (ILinuxWindow?)window;
@@ -28,6 +37,8 @@ class LinuxCancelState {
 		self.field.arrange(8.0, 80.0, 120.0, 30.0);
 		self.scroll.scrollTo(72.0);
 		self._generation = self.field.node().generation();
+		self.field.onCommit(self._terminals, self._scope);
+		self.field.onCancel(self._terminals, self._scope);
 	}
 
 	public void queueFocus() {
@@ -49,7 +60,7 @@ class LinuxCancelState {
 	}
 
 	public void verify(string draft = "preserved draft") {
-		assert(self.window.isOpen() && self.window.root() == self.scroll);
+		assert(self.window.isOpen() && self.window.root() == self.scroll && self._terminals.calls == 0);
 		assert(self.scroll.childCount() == 1 && self.scroll.childAt(0) == self.field);
 		assert(self.field.text() == draft && self.field.node().generation() == self._generation);
 		var host = self.field.node().host;
@@ -57,6 +68,8 @@ class LinuxCancelState {
 		assert(self.scroll.offset().x == 0.0 && self.scroll.scrollOffset() == 72.0);
 		assert(self.scroll.visibleRect().y == 72.0 && self.field.node().y == 80.0);
 	}
+
+	public void finish() { assert(self._scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && self._scope.pendingCount() == 0); }
 
 	public void queueEditAfterCancel() {
 		/* Replacing the selected second character proves both selection and

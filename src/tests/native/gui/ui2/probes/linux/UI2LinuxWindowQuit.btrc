@@ -112,6 +112,7 @@ void verifyNativeApplicationQuit() {
 	assert(b.current().state() == WINDOW_CLOSE_CANCELLED); document.verify();
 	document.queueEditAfterCancel(); pump(application); document.verify("p!eserved draft");
 	assert(b.current().completeSave(saving.attempt, 4LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+	document.finish();
 	assert(ui2PushQuit() == 1); pump(application); assert(a.calls == 2 && b.calls == 2 && a.current() != original);
 	var attempt = a.current().decide(WINDOW_CLOSE_DECISION_SAVE, 2LL); a.current().completeSave(attempt.attempt, 2LL, true, "");
 	b.current().decide(WINDOW_CLOSE_DECISION_DISCARD, 4LL); pump(application);
