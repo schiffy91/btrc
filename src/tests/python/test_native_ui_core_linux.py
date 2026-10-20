@@ -101,13 +101,13 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 @pytest.mark.parametrize("state", ["open", "closed"])
-def test_linux_ui2_final_release_requires_executor(tmp_path, request, frontend, sanitized, state):
+def test_linux_ui2_callback_scope_release_requires_executor(tmp_path, request, frontend, sanitized, state):
     require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
     root = Path(__file__).resolve().parents[3]
     executable = build_provider_program(
-        root / "src/tests/native/gui/ui2/probes/linux/UI2LinuxFinalRelease.btrc",
+        root / "src/tests/native/gui/ui2/probes/linux/UI2LinuxAffineRelease.btrc",
         tmp_path,
         frontend,
         sanitized,
@@ -131,3 +131,53 @@ def test_linux_ui2_final_release_requires_executor(tmp_path, request, frontend, 
             assert "Callback scope destruction requires its creating thread" in result.stderr
             assert "UI2_FINAL_RELEASE worker-returned" not in result.stderr
             assert "UI2_FINAL_RELEASE joined" not in result.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+@pytest.mark.parametrize("state", ["open", "closed"])
+def test_linux_ui2_final_release_requires_executor(tmp_path, request, frontend, sanitized, state):
+    """Release the actual provider's last reference, without a UI owner alias."""
+    require_linux_reader()
+    if error := linux_display_error():
+        pytest.skip(error)
+    root = Path(__file__).resolve().parents[3]
+    executable = build_provider_program(
+        root / "src/tests/native/gui/ui2/probes/linux/UI2LinuxFinalRelease.btrc",
+        tmp_path,
+        frontend,
+        sanitized,
+        request,
+        data_root=request.getfixturevalue("gui_provider_root"),
+    )
+    result = subprocess.run(
+        [str(executable), state],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1"),
+    )
+    (tmp_path / "stdout.txt").write_text(result.stdout)
+    (tmp_path / "stderr.txt").write_text(result.stderr)
+    (tmp_path / "result.json").write_text(
+        json.dumps(
+            {
+                "owner": "LinuxApplication",
+                "state": state,
+                "returncode": result.returncode,
+                "frontend": frontend,
+                "sanitized": sanitized,
+            },
+            indent=2,
+        )
+    )
+    assert "UI2_FINAL_RELEASE worker-entered" in result.stderr, result.stderr
+    if state == "closed":
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "UI2_FINAL_RELEASE worker-returned" in result.stderr
+        assert "UI2_FINAL_RELEASE joined failed=0" in result.stderr
+    else:
+        assert result.returncode == -signal.SIGABRT, result.stdout + result.stderr
+        assert "Native application destroyed before subtree cleanup completed" in result.stderr
+        assert "UI2_FINAL_RELEASE worker-returned" not in result.stderr
+        assert "UI2_FINAL_RELEASE joined" not in result.stderr
