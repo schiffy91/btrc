@@ -1,0 +1,164 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEvents;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.IContainer;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxContainer;
+import Library.GUI.Linux.LinuxGrid;
+import Library.GUI.Linux.LinuxTextField;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.SDL;
+
+#include <assert.h>
+#include <stdio.h>
+
+class LinuxCaptureStateReceiver implements IViewInteractionStateHandler {
+	public Vector<ViewInteractionState> values = [];
+	public void interactionChanged(ViewInteractionState value) { assert(SDL_IsMainThread()); self.values.push(value); }
+}
+
+class LinuxCaptureTextReceiver implements ITextControlEventHandler {
+	public Vector<TextControlEvent> values = [];
+	public void textEvent(TextControlEvent value) { assert(SDL_IsMainThread()); self.values.push(value); }
+}
+
+class LinuxCaptureChecks {
+	class void pump(LinuxApplication application) { for (int turn = 0; turn < 20; turn++) { application.pumpOnce(0); } }
+
+	class void close(LinuxApplication application, CallbackScope scope) {
+		assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		var result = application.close();
+		for (int turn = 0; turn < 100 && result == CALLBACK_CANCELLATION_PENDING; turn++) { result = application.pollClose(); }
+		assert(result == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void fanout() {
+		var application = LinuxApplication(1, 8); var scope = CallbackScope();
+		var window = application.createWindow("capture fanout", 160.0, 100.0);
+		var root = application.createContainer(); var first = application.createContainer(); var second = application.createContainer();
+		root.attach(first); root.attach(second); window.attachRoot(root); window.show(); LinuxCaptureChecks.pump(application);
+		var parentEvents = LinuxCaptureStateReceiver(); var firstEvents = LinuxCaptureStateReceiver(); var secondEvents = LinuxCaptureStateReceiver();
+		root.onInteractionStateChanged(parentEvents, scope); first.onInteractionStateChanged(firstEvents, scope); second.onInteractionStateChanged(secondEvents, scope);
+		root.setVisible(false);
+		ILinuxView native = LinuxComposite.projection(root);
+		assert(native.node().events().pendingCount() == 3);
+		LinuxCaptureChecks.pump(application);
+		assert(parentEvents.values.len == 1 && firstEvents.values.len == 1 && secondEvents.values.len == 1);
+		assert(!parentEvents.values.get(0).effectiveEligible && !firstEvents.values.get(0).effectiveEligible && !secondEvents.values.get(0).effectiveEligible);
+		root.setVisible(true); LinuxCaptureChecks.pump(application);
+		assert(firstEvents.values.len == 2 && firstEvents.values.get(1).effectiveEligible);
+		LinuxCaptureChecks.close(application, scope);
+	}
+
+	class void prepaidFinal() {
+		var application = LinuxApplication(1, 3); var scope = CallbackScope();
+		var window = application.createWindow("prepaid final", 160.0, 60.0);
+		var text = LinuxTextField(application.context(), "seed", ""); window.attachRoot(text); window.show(); LinuxCaptureChecks.pump(application);
+		var drafts = LinuxCaptureTextReceiver(); var commits = LinuxCaptureTextReceiver();
+		text.onDraftChanged(drafts, scope); text.onCommit(commits, scope);
+		text.focus(true); var queue = text.node().events();
+		assert(queue.captureOwner().available() == 0 && queue.pendingCount() == 0);
+		assert(application.context().canCaptureInput(queue));
+		text.textInput("x"); text.focus(false);
+		assert(queue.pendingCount() == 2 && drafts.values.isEmpty() && commits.values.isEmpty());
+		LinuxCaptureChecks.pump(application);
+		assert(drafts.values.len == 1 && commits.values.len == 1);
+		assert(drafts.values.get(0).text.equals("seedx") && commits.values.get(0).text.equals("seedx"));
+		assert(drafts.values.get(0).context.interaction == commits.values.get(0).context.interaction);
+		LinuxCaptureChecks.close(application, scope);
+	}
+
+	class void preparedFocusSubscription() {
+		var application = LinuxApplication(1, 3); var scope = CallbackScope();
+		var window = application.createWindow("prepared focus subscription", 160.0, 60.0);
+		var text = LinuxTextField(application.context(), "seed", ""); window.attachRoot(text); window.show(); LinuxCaptureChecks.pump(application);
+		text.prepareFocus(); var drafts = LinuxCaptureTextReceiver(); var commits = LinuxCaptureTextReceiver();
+		text.onDraftChanged(drafts, scope); text.onCommit(commits, scope);
+		assert(text.node().events().captureOwner().available() == 0);
+		text.focus(true); text.discardFocusPreparation(); text.textInput("x"); text.focus(false); LinuxCaptureChecks.pump(application);
+		assert(drafts.values.len == 1 && commits.values.len == 1 && drafts.values.get(0).context.interaction == 1LL);
+		text.prepareFocus(); var previousQueue = text.node().events(); long long generation = text.node().generation();
+		assert(previousQueue.captureOwner().available() == 0);
+		window.detachRoot();
+		assert(previousQueue.captureOwner().available() == 3 && text.node().generation() == generation + 1LL);
+		assert(application.context().detachedEvents.captureOwner().available() == 1);
+		window.attachRoot(text); text.focus(true); text.textInput("y"); text.focus(false); LinuxCaptureChecks.pump(application);
+		assert(drafts.values.len == 2 && commits.values.len == 2 && drafts.values.get(1).context.interaction == 2LL);
+		assert(drafts.values.get(1).text.equals("seedxy") && drafts.values.get(1).context.generation == generation + 2LL);
+		LinuxCaptureChecks.close(application, scope);
+	}
+
+	class void refusedBegin() {
+		var application = LinuxApplication(1, 1); var scope = CallbackScope();
+		var window = application.createWindow("refused begin", 160.0, 60.0);
+		var text = LinuxTextField(application.context(), "seed", ""); window.attachRoot(text); window.show(); LinuxCaptureChecks.pump(application);
+		var drafts = LinuxCaptureTextReceiver(); text.onDraftChanged(drafts, scope);
+		bool refused = false; try { text.focus(true); } catch (string error) { refused = true; }
+		assert(refused && text.text().equals("seed") && text.node().events().pendingCount() == 0);
+		text.textInput("not admitted"); assert(text.text().equals("seed"));
+		assert(text.node().events().captureOwner().available() == 0);
+		LinuxCaptureChecks.close(application, scope);
+	}
+
+	class void observerMigration() {
+		var application = LinuxApplication(1, 2); var scope = CallbackScope();
+		var window = application.createWindow("observer migration", 120.0, 60.0);
+		var root = application.createContainer(); ILinuxView native = LinuxComposite.projection(root);
+		var events = LinuxCaptureStateReceiver(); root.onInteractionStateChanged(events, scope);
+		root.setVisible(false); LinuxCaptureChecks.pump(application); assert(events.values.len == 1);
+		long long generation = native.node().generation();
+		window.attachRoot(root); window.show(); root.setVisible(true); LinuxCaptureChecks.pump(application);
+		assert(native.node().generation() == generation + 1LL && events.values.get(events.values.len - 1).effectiveEligible);
+		window.detachRoot(); LinuxCaptureChecks.pump(application);
+		assert(native.node().generation() == generation + 2LL && !events.values.get(events.values.len - 1).effectiveEligible);
+		LinuxCaptureChecks.close(application, scope); assert(root.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void gridRefusal() {
+		var application = LinuxApplication(1, 1); var scope = CallbackScope();
+		var window = application.createWindow("grid refusal", 120.0, 60.0);
+		var grid = LinuxGrid(application.context(), 1, 1, 0.0, 0.0); var previous = application.createContainer(); var next = application.createContainer();
+		grid.setChild(0, 0, previous); window.attachRoot(grid); window.show(); LinuxCaptureChecks.pump(application);
+		var events = LinuxCaptureStateReceiver(); previous.onInteractionStateChanged(events, scope); next.onInteractionStateChanged(events, scope);
+		ILinuxView native = LinuxComposite.projection(previous); ILinuxView replacement = LinuxComposite.projection(next);
+		var host = native.node().host; long long generation = native.node().generation();
+		bool refused = false; try { grid.setChild(0, 0, next); } catch (string error) { refused = true; }
+		assert(refused && grid.childAt(0, 0) == previous && native.node().host == host && native.node().generation() == generation);
+		assert(native.node().attached && !replacement.node().attached && replacement.node().host == null);
+		LinuxCaptureChecks.close(application, scope); assert(next.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+
+	class void heldKeyRollback() {
+		var application = LinuxApplication(1, 3); var scope = CallbackScope();
+		var window = application.createWindow("held key rollback", 180.0, 80.0); var root = application.createContainer();
+		var text = LinuxTextField(application.context(), "seed", ""); var sibling = application.createContainer();
+		root.attach(text); root.attach(sibling); window.attachRoot(root); window.show(); LinuxCaptureChecks.pump(application);
+		var drafts = LinuxCaptureTextReceiver(); text.onDraftChanged(drafts, scope); text.focus(true);
+		var blockers = LinuxCaptureStateReceiver();
+		var first = application.createContainer(); var second = application.createContainer();
+		first.onInteractionStateChanged(blockers, scope); second.onInteractionStateChanged(blockers, scope); sibling.onInteractionStateChanged(blockers, scope);
+		assert(application.context().detachedEvents.captureOwner().available() == 1);
+		var queue = text.node().events(); var host = text.node().host; long long generation = text.node().generation(); long long revision = root.treeRevision();
+		int available = queue.captureOwner().available();
+		var edit = ContainerEdit(); edit.kind = CONTAINER_EDIT_DETACH; edit.child = text; edit.index = -1;
+		var next = ContainerEdit(); next.kind = CONTAINER_EDIT_DETACH; next.child = sibling; next.index = -1; Vector<ContainerEdit> edits = [edit, next];
+		var result = root.applyBatch(revision, edits);
+		assert(result.kind == CONTAINER_BATCH_REJECTED && root.treeRevision() == revision && root.childCount() == 2);
+		assert(application.context().detachedEvents.captureOwner().available() == 1);
+		assert(text.node().host == host && text.node().generation() == generation && queue.captureOwner().available() == available);
+		text.textInput("x"); text.focus(false); LinuxCaptureChecks.pump(application);
+		assert(drafts.values.len == 1 && drafts.values.get(0).text.equals("seedx") && drafts.values.get(0).context.interaction == 1LL);
+		assert(drafts.values.get(0).context.generation == generation);
+		LinuxCaptureChecks.close(application, scope);
+		assert(first.close() == CALLBACK_CANCELLATION_COMPLETE && second.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+int main() {
+	LinuxCaptureChecks.fanout(); LinuxCaptureChecks.prepaidFinal(); LinuxCaptureChecks.preparedFocusSubscription(); LinuxCaptureChecks.refusedBegin(); LinuxCaptureChecks.heldKeyRollback(); LinuxCaptureChecks.observerMigration(); LinuxCaptureChecks.gridRefusal();
+	puts("PASS: Linux capture admission and atomic forest routes"); return 0;
+}

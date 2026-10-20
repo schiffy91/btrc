@@ -127,6 +127,12 @@ class LinuxContext implements IApplicationNativeWake {
 	public void setNativeQuitPending(bool pending) { self.requireUI(); self._nativeQuitPending = pending; }
 
 	public int mutationDepth = 0;
+	private int _routePreparations = 0;
+	public void enterRoutePreparation() { self.requireUI(); self._routePreparations++; }
+
+	public void leaveRoutePreparation() { self.requireUI(); if (self._routePreparations <= 0) { throw "Native route preparation underflow"; } self._routePreparations--; }
+
+	public void requireSemanticRegistration() { self.requireUI(); if (self.mutationDepth > 0 || self._routePreparations > 0) { throw "Cannot register semantic input during native tree mutation"; } }
 	private int _closeDecisions = 0;
 
 	public void requireUI() { if (!SDL_IsMainThread()) { throw "Native window operations require the UI thread"; } }
@@ -154,15 +160,35 @@ class LinuxContext implements IApplicationNativeWake {
 	public ControlEventQueue detachedEvents;
 	public LinuxSemanticWake semanticWake;
 	private int _semanticCapacity;
+	private int _captureCapacity;
 	public LinuxIds ids;
 	public LinuxActionQueue actions;
 	public LinuxTheme darkTheme;
 	public LinuxTheme lightTheme;
 
-	public ControlEventQueue createSemanticQueue() { var queue = ControlEventQueue(self._semanticCapacity, self.terminalPool); queue.setWake(self.semanticWake); return queue; }
+	public bool captureEnabled() { return self._captureCapacity != 0; }
 
-	public LinuxContext(int workCapacity) {
-		self._semanticCapacity = workCapacity;
+	public ControlEventCaptureRole eventRole(ControlEventCaptureRole role) { return self.captureEnabled() ? role : CONTROL_CAPTURE_LEGACY; }
+
+	/* Drain admitted records before taking more input when continuation credits
+	 * are tight. With no pending receipt, existing gestures and observations
+	 * still have prepaid storage; only a new intent may be refused at its
+	 * synchronous begin hook, before its native/model state changes. */
+	public bool canCaptureInput(ControlEventQueue queue) {
+		if (!self.captureEnabled()) { return queue.canCapture(1); }
+		return queue.canCapture(0) && (queue.pendingCount() == 0 || queue.captureOwner().canReserveKeyChange());
+	}
+
+	public ControlEventQueue createSemanticQueue() {
+		ControlEventCaptureOwner? capture = self.captureEnabled() ? ControlEventCaptureOwner(self._captureCapacity, self.terminalPool) : null;
+		var queue = ControlEventQueue(self._semanticCapacity, self.terminalPool, 0, capture); queue.setWake(self.semanticWake); return queue;
+	}
+
+	/* Capture credits are an explicit count policy, independent of ordinary
+	 * work capacity. Tests may inject tiny budgets or select legacy mode with zero. */
+	public LinuxContext(int workCapacity, int captureCapacity = 16384) {
+		if (captureCapacity < 0 || captureCapacity > 65536) { throw "Invalid Linux capture credit capacity"; }
+		self._semanticCapacity = workCapacity; self._captureCapacity = captureCapacity;
 		self.terminalPool = ControlEventTerminalPool(16384);
 		self.semanticWake = LinuxSemanticWake();
 		self.detachedEvents = self.createSemanticQueue();

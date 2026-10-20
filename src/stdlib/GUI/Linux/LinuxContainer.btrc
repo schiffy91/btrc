@@ -103,9 +103,16 @@ class LinuxContainerMutation {
 			}
 		} catch (string error) { return self.result(CONTAINER_BATCH_REJECTED, step, error); }
 
+		var transition = LinuxAttachmentTransition();
+		try {
+			for saved in self._saved {
+				var destination = self.indexOf(proposed, saved.child) >= 0 ? self._node.host : null;
+				if (!transition.prepare(saved.child.node(), destination)) { return self.result(CONTAINER_BATCH_REJECTED, -1, "Native attachment capture capacity unavailable"); }
+			}
+		} catch (string error) { return self.result(CONTAINER_BATCH_REJECTED, -1, error); }
 		self._node.treeMutation = true; self._node.context.mutationDepth++;
 		ContainerBatchResultKind kind = CONTAINER_BATCH_COMMITTED;
-		string failure = ""; int failedStep = -1;
+		string failure = ""; int failedStep = -1; string settlementFailure = "";
 		try {
 			try {
 				var actual = self._original.copy(); step = 0;
@@ -142,12 +149,21 @@ class LinuxContainerMutation {
 			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().markInteraction(false); } }
 			self._node.settleInteraction();
 			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().settleInteraction(); } }
-			self._node.finishAttachment();
-			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().finishAttachment(); } }
+			if (kind == CONTAINER_BATCH_COMMITTED) { transition.commit(); }
+			else {
+				transition.abort();
+				if (kind == CONTAINER_BATCH_FAILED_QUARANTINED) {
+					self._node.cancelSemanticForest();
+					for saved in self._saved { saved.child.node().cancelSemanticForest(); }
+				}
+			}
 			self._node.publishInteraction();
 			for saved in self._saved { if (self.indexOf(self._node.children, saved.child) < 0) { saved.child.node().publishInteraction(); } }
 			self._node.invalidate();
-		} finally { self._node.context.mutationDepth--; self._node.treeMutation = false; }
+		} catch (string error) { settlementFailure = error; }
+		finally { self._node.context.mutationDepth--; self._node.treeMutation = false; }
+		try { transition.finish(); } catch (string error) { if (settlementFailure == "") { settlementFailure = error; } }
+		if (settlementFailure != "") { throw settlementFailure; }
 		return self.result(kind, failedStep, failure);
 	}
 }

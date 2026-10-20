@@ -27,12 +27,14 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 	private int _preeditSelectionEnd = 0;
 	private LinuxViewHost? _compositionHost;
 	private bool _interacting = false;
+	private bool _focusPrepared = false;
 	private long long _interaction = 0LL;
 	private long long _sequence = 0LL;
 	private long long _modelRevision = 1LL;
 	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _draft;
 	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _commit;
 	private ControlEventChannel<ITextControlEventHandler, TextControlEvent>? _cancel;
+	private ControlEventPublication<ITextControlEventHandler, TextControlEvent>? _publication;
 	private ControlEventTicket? _commitTicket;
 	private ControlEventTicket? _cancelTicket;
 	private string _placeholder;
@@ -59,45 +61,74 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 
 	class void deliverText(ITextControlEventHandler receiver, TextControlEvent event) { receiver.textEvent(event); }
 
-	private ControlEventChannel<ITextControlEventHandler, TextControlEvent> subscribe(ITextControlEventHandler receiver, CallbackScope owner) {
-		self.node().requireOpen();
-		var channel = new ControlEventChannel<ITextControlEventHandler, TextControlEvent>(self.node().events(), self.node(), receiver, LinuxTextField.deliverText, owner);
+	private ControlEventChannel<ITextControlEventHandler, TextControlEvent> subscribe(ITextControlEventHandler receiver, CallbackScope owner, ControlEventCaptureRole role) {
+		self.node().requireOpen(); self.node().context.requireSemanticRegistration();
+		var channel = new ControlEventChannel<ITextControlEventHandler, TextControlEvent>(self.node().events(), self.node(), receiver, LinuxTextField.deliverText, owner, self.node().context.eventRole(role));
 		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; }
 		return channel;
 	}
 
 	public ICallbackRegistration onDraftChanged(ITextControlEventHandler receiver, CallbackScope owner) {
 		if (self._draft != null && self._draft.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing draft handler first"; }
-		var channel = self.subscribe(receiver, owner); self._draft = channel; return channel;
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_KEYED);
+		try {
+			if ((self._interacting || self._focusPrepared) && self.node().context.captureEnabled()) {
+				self._publication = channel.prepareKey(self.node().generation(), self._interacting ? self._interaction : self._interaction + 1LL, 1LL);
+				if (self._publication == null) { throw "Control key reservation unavailable"; }
+			}
+		} catch (string error) { channel.cancel(); throw error; }
+		self._draft = channel; return channel;
 	}
 
 	public ICallbackRegistration onCommit(ITextControlEventHandler receiver, CallbackScope owner) {
 		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing commit handler first"; }
-		var channel = self.subscribe(receiver, owner);
-		if (self._interacting) { self._commitTicket = channel.beginInteraction(); }
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
+		try { if (self._interacting || self._focusPrepared) { self._commitTicket = channel.beginInteraction(); if (self._commitTicket == null) { throw "Text commit reservation unavailable"; } } }
+		catch (string error) { channel.cancel(); throw error; }
 		self._commit = channel; return channel;
 	}
 
 	public ICallbackRegistration onCancel(ITextControlEventHandler receiver, CallbackScope owner) {
 		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing cancel handler first"; }
-		var channel = self.subscribe(receiver, owner);
-		if (self._interacting) { self._cancelTicket = channel.beginInteraction(); }
+		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
+		try { if (self._interacting || self._focusPrepared) { self._cancelTicket = channel.beginInteraction(); if (self._cancelTicket == null) { throw "Text cancel reservation unavailable"; } } }
+		catch (string error) { channel.cancel(); throw error; }
 		self._cancel = channel; return channel;
 	}
 
 	private void releaseTickets() {
+		self._focusPrepared = false;
+		var publication = self._publication; self._publication = null; if (publication != null) { publication.abort(); }
 		if (self._commitTicket != null && !self._commitTicket.queued()) { self._commitTicket.retire(); }
 		if (self._cancelTicket != null && !self._cancelTicket.queued()) { self._cancelTicket.retire(); }
 		self._commitTicket = null; self._cancelTicket = null;
 	}
 
-	private void beginInteraction() {
-		if (self._interacting) { return; }
+	public void prepareFocus() {
+		if (self._interacting || self._focusPrepared) { return; }
 		if (self._interaction == 9223372036854775807LL) { throw "Text interaction identities exhausted"; }
 		try {
+			var draft = self._draft;
+			if (draft != null && draft.isOpen() && self.node().context.captureEnabled()) { self._publication = draft.prepareKey(self.node().generation(), self._interaction + 1LL, 1LL); if (self._publication == null) { throw "Text draft key reservation unavailable"; } }
 			if (self._commit != null && self._commit.isOpen()) { self._commitTicket = self._commit.beginInteraction(); if (self._commitTicket == null) { throw "Text commit reservation unavailable"; } }
 			if (self._cancel != null && self._cancel.isOpen()) { self._cancelTicket = self._cancel.beginInteraction(); if (self._cancelTicket == null) { throw "Text cancel reservation unavailable"; } }
 		} catch (string error) { self.releaseTickets(); throw error; }
+		self._focusPrepared = true;
+	}
+
+	public void discardFocusPreparation() { if (self._focusPrepared) { self.releaseTickets(); } }
+
+	private void beginInteraction() {
+		if (self._interacting) { return; }
+		self.prepareFocus();
+		try {
+			var publication = self._publication; var draft = self._draft;
+			if (publication != null) {
+				if (draft == null || !draft.isOpen()) { publication.abort(); self._publication = null; }
+				else { publication.validate(); }
+			}
+		} catch (string error) { self.releaseTickets(); throw error; }
+		self._focusPrepared = false;
 		self._interaction++; self._interacting = true; self._compositionCommitRequested = false;
 	}
 
@@ -118,7 +149,12 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		var channel = self._draft;
 		if (channel != null && channel.isOpen()) {
 			var event = self.snapshot(CONTROL_PHASE_DRAFT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
-			if (!channel.publish(event, event.context.generation, self._interaction, 1LL)) { throw "Text draft queue cannot admit native input"; }
+			var publication = self._publication;
+			bool accepted = false;
+			if (publication != null) { accepted = publication.commit(event); }
+			else { accepted = channel.publish(event, event.context.generation, self._interaction, 1LL); }
+			self._publication = null;
+			if (!accepted) { throw "Text draft queue cannot admit native input"; }
 		}
 	}
 
@@ -144,7 +180,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 	}
 
 	private void cancelInteraction(ControlOrigin origin, ControlCancelReason reason, bool restore) {
-		if (!self._interacting && !self._composing) { return; }
+		if (!self._interacting && !self._composing) { if (self._focusPrepared) { self.releaseTickets(); } return; }
 		self.clearComposition();
 		if (restore) { self._text = self._acceptedText; self._caret = self._text.len(); self._anchor = self._caret; }
 		self._interacting = false; self._compositionCommitRequested = false; self._dragging = false; self.changed();
@@ -304,6 +340,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		if (event.action == APP_POINTER_EXITED) { self._hovered = false; return false; }
 		if (!self._enabled) { return false; }
 		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
+			self.beginInteraction();
 			self.node().requestFocus();
 			int offset = self.offsetAt(event.logicalX);
 			if (event.clickCount >= 3) { self._anchor = 0; self._caret = self._text.len(); }

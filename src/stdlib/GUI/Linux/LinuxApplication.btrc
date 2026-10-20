@@ -136,10 +136,10 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private bool _workFailed = false;
 	private string _closeFailure = "";
 
-	public LinuxApplication(int workCapacity) {
+	public LinuxApplication(int workCapacity, int captureCapacity = 16384) {
 		if (workCapacity <= 0 || workCapacity > 65536) { throw "Application work capacity must be between 1 and 65536"; }
 		self._scheduler = ApplicationScheduler(workCapacity);
-		self._context = LinuxContext(workCapacity);
+		self._context = LinuxContext(workCapacity, captureCapacity);
 	}
 
 	public LinuxContext context() { return self._context; }
@@ -341,7 +341,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 	private LinuxWindow? windowFor(unsigned int id) { for window in self._windows { if (window.isOpen() && window.nativeId() == id) { return window; } } return null; }
 
 	private bool canPollInput() {
-		if (!self._context.actions.canCapture() || !self._context.detachedEvents.canCapture(1)) { return false; }
+		if (!self._context.actions.canCapture() || !self._context.canCaptureInput(self._context.detachedEvents)) { return false; }
 		for window in self._windows { if (window.isOpen() && !window.canCaptureInput()) { return false; } }
 		return true;
 	}
