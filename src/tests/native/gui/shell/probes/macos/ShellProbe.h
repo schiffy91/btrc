@@ -11,9 +11,6 @@ void shellProbeEnter(void);
 void shellProbeScroll(void);
 void shellProbeClose(void);
 int shellProbeFocus(void);
-/* Two successive journey turns exercise the public field-editor caret path. */
-int shellProbeCaretBegin(void);
-int shellProbeCaretFinish(void);
 /* NativeCount is strictly provider-created objects, including editable fields.
  * PrivateCount reports toolkit-created descendants separately; neither set
  * is reset between cycles. Drain is bounded and must precede teardown counts. */
