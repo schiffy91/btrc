@@ -14,6 +14,8 @@
     assert(symbol); \
     memcpy(&native, &symbol, sizeof(native))
 
+static int instance_claims;
+static int surface_claims;
 static int delayed_stage;
 static int adapter_claims;
 static int device_claims;
@@ -185,4 +187,31 @@ void wgpuDeviceAddRef(WGPUDevice device) {
 void wgpuDeviceRelease(WGPUDevice device) {
     NATIVE_CALL(WGPUProcDeviceRelease, wgpuDeviceRelease);
     assert(device && device_claims > 0); device_claims--; native(device);
+}
+
+int probeInstanceClaims(void) { return instance_claims; }
+int probeSurfaceClaims(void) { return surface_claims; }
+WGPUInstance wgpuCreateInstance(const WGPUInstanceDescriptor* descriptor) {
+    NATIVE_CALL(WGPUProcCreateInstance, wgpuCreateInstance);
+    WGPUInstance instance = native(descriptor); if (instance) { instance_claims++; } return instance;
+}
+void wgpuInstanceAddRef(WGPUInstance instance) {
+    NATIVE_CALL(WGPUProcInstanceAddRef, wgpuInstanceAddRef);
+    assert(instance); instance_claims++; native(instance);
+}
+void wgpuInstanceRelease(WGPUInstance instance) {
+    NATIVE_CALL(WGPUProcInstanceRelease, wgpuInstanceRelease);
+    assert(instance && instance_claims > 0); instance_claims--; native(instance);
+}
+WGPUSurface wgpuInstanceCreateSurface(WGPUInstance instance, const WGPUSurfaceDescriptor* descriptor) {
+    NATIVE_CALL(WGPUProcInstanceCreateSurface, wgpuInstanceCreateSurface);
+    WGPUSurface surface = native(instance, descriptor); if (surface) { surface_claims++; } return surface;
+}
+void wgpuSurfaceAddRef(WGPUSurface surface) {
+    NATIVE_CALL(WGPUProcSurfaceAddRef, wgpuSurfaceAddRef);
+    assert(surface); surface_claims++; native(surface);
+}
+void wgpuSurfaceRelease(WGPUSurface surface) {
+    NATIVE_CALL(WGPUProcSurfaceRelease, wgpuSurfaceRelease);
+    assert(surface && surface_claims > 0); surface_claims--; native(surface);
 }

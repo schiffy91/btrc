@@ -6,3 +6,6 @@ int probePendingCompletions(void);
 int probeAdapterClaims(void);
 int probeDeviceClaims(void);
 int probeBufferClaims(void);
+
+int probeInstanceClaims(void);
+int probeSurfaceClaims(void);

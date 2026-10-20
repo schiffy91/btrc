@@ -267,6 +267,9 @@ class GPUSurfaceRenderer {
 		self.releaseFrame();
 		if (self._configured && self._surface != null) { wgpuSurfaceUnconfigure(self.nativeSurface()); }
 		self._configured = false;
+		/* A closed renderer may remain reachable through a completed readback.
+		 * Its native surface claim must not outlive explicit shutdown. */
+		self._surface = null;
 		self._closed = true;
 	}
 

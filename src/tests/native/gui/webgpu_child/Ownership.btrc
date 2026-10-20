@@ -1,0 +1,43 @@
+/* Real SDK resources, no window or presentation. Retain closed public aliases
+ * while counting their native claims independently in the test interposer. */
+import Library.GUI.MacOS.MacOSGPUSurface;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUOffscreenTarget;
+import Library.GPU.GPUReadback;
+import Library.Timer;
+import Library.Callback;
+
+import ./CompletionProbe.btrc;
+#include <assert.h>
+
+int main() {
+	var target = MacOSGPUSurface();
+	var device = GPUDevice(target.nativeInstance(), target.nativeSurface()); var deadline = Timer(); deadline.start();
+	while (device.state() != GPU_DEVICE_READY && device.state() != GPU_DEVICE_FAILED && deadline.elapsed() < 10.0f) { device.poll(); Timer.sleep(0.001); }
+	assert(device.state() == GPU_DEVICE_READY);
+	int surfaces = probeSurfaceClaims(); assert(surfaces == 1);
+	var renderer = GPUSurfaceRenderer(device, target.nativeSurface(), true);
+	assert(probeSurfaceClaims() == surfaces + 1);
+	var format = renderer.nativeFormat(); renderer.close(); renderer.close();
+	assert(!renderer.isOpen() && probeSurfaceClaims() == surfaces);
+	// A mapping still awaiting its native completion retains its instance and
+	// buffer after cancellation, then drops both with the readback alias alive.
+	var offscreen = GPUOffscreenTarget(device, format); offscreen.resize(8, 4);
+	var drawing = GPUSurfaceRenderer.offscreen(device, offscreen, true); drawing.resize(8, 4);
+	assert(drawing.beginFrame(0.0, 0.5, 1.0) == GPU_SURFACE_FRAME_READY);
+	int instances = probeInstanceClaims(); int buffers = probeBufferClaims();
+	var readback = GPUReadback.create(drawing); probeDelayCompletions(4); assert(readback.submit());
+	deadline.reset(); deadline.start();
+	while (probePendingCompletions() == 0 && deadline.elapsed() < 10.0f) { readback.poll(); Timer.sleep(0.001); }
+	assert(probePendingCompletions() == 1 && probeBufferClaims() == buffers + 1 && probeInstanceClaims() == instances + 1);
+	assert(readback.close() == CALLBACK_CANCELLATION_PENDING);
+	assert(readback.poll() == GPU_READBACK_CLOSING && probeInstanceClaims() == instances + 1 && probeBufferClaims() == buffers + 1);
+	probeDeliverCompletion(); assert(readback.poll() == GPU_READBACK_CLOSED);
+	assert(readback.close() == CALLBACK_CANCELLATION_COMPLETE && probeInstanceClaims() == instances && probeBufferClaims() == buffers);
+	probeDelayCompletions(0); drawing.close(); offscreen.close(); device.close(); assert(device.poll() == GPU_DEVICE_CLOSED);
+	target.close();
+	assert(probeSurfaceClaims() == 0 && probeInstanceClaims() == 0 && probeDeviceClaims() == 0 && probeAdapterClaims() == 0);
+	assert(!renderer.isOpen() && !drawing.isOpen() && readback.state() == GPU_READBACK_CLOSED);
+	print("PASS: closed GPU aliases release native claims after completion drain"); return 0;
+}
