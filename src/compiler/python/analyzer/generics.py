@@ -226,6 +226,14 @@ class GenericAnalyzer:
         An instance-scoped adapter also roots its factory, and each instance
         roots the receiver the factory creates.
         """
+        if callback.scoped_super:
+            context = TypeExpr(
+                base="CallbackContext",
+                generic_args=[method.params[0].type, TypeExpr(base="void", pointer_depth=1)],
+                pointer_depth=1,
+            )
+            self._require_callback_methods([(context, (*self._STORED_CONTEXT_METHODS, "isOpen"))], method)
+            return
         receivers = [method.params[callback.parameter_index].type]
         if callback.factory:
             receivers.append(TypeExpr(base=callback.interface, pointer_depth=1))

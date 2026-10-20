@@ -1118,6 +1118,73 @@ non-variadic and non-consuming.
 Names may not collide across `methods`, instance overrides, `create` and class
 overrides.
 
+A designated-initializer subclass can opt into scoped admission before a
+superclass method runs:
+
+```toml
+[native.bindings.callbacks."-[NativeControl initWithFrame:].self"]
+interface = "IControlAdmission"
+lifetime = "instantiated"
+scope = "instance"
+failure = "abort"
+executor = "caller"
+superclass = "NativeControl"
+overrides = ["-[NativeControl press:]"]
+cancellation = "entry-barrier"
+super-admission = { "-[NativeControl press:]" = { before = "beginPress", after = "endPress" } }
+```
+
+This mode projects `NativeControl.initWithFrame(receiver, scope, frame)`.
+The first argument implements `IControlAdmission`; the second is an independent
+`CallbackScope`. Each call creates one native object and activates its ordinary
+`CallbackContext` before publication. It takes no factory and keeps no
+class-static receiver. A nil result or native exception during initialization
+aborts unpublished activation and throws at the source call. The other
+instantiated-adapter forms retain their factory API.
+
+`super-admission` maps every override to distinct, nonreserved BTRC hook names.
+Its table and per-selector hook tables may be inline or nested. This mode
+accepts only instance overrides returning void or BOOL (including the SDK BOOL
+typedef backed by signed char on x86_64), with the existing
+non-consuming, non-variadic restrictions. It rejects `NS_REQUIRES_SUPER`, class
+methods, `terminal`, protocol `methods`, and `method-names`. Selectors reserved
+for the generated configure/unregister operations are also rejected. The selected
+initializer must be a designated initializer of the selected superclass.
+
+For each selector, `before` returns bool and takes that selector's projected
+arguments. `after` has signature `void after(bool invokedSuper, bool nativeFailed)`.
+One successful callback entry holds the native object, its managed native
+arguments, and the BTRC receiver through both hooks and any nested native tracking. False skips super and returns void
+or NO without native mutation. True calls super exactly once with the original
+arguments and preserves its BOOL result. After runs once for every admitted
+entry, including refusal. Before configuration and after cancellation, the
+native override returns void or NO without entering a receiver.
+
+Cancellation closes later admission. An already entered invocation may finish
+before/super/after; cancellation inside either hook returns PENDING until it
+leaves. The adapter does not promise atomic cancellation against the superclass
+send across threads. Native destruction cancels its registration, and explicit
+scope cancellation breaks a receiver/native-object cycle. Every native entry,
+unregister, and destruction must use the creating executor.
+
+A superclass Objective-C exception is contained and passed to after as
+`nativeFailed=true`; a BOOL result is NO. The receiver owns translating that
+failure into its application error channel. BTRC exceptions in either hook are
+contained inside the C thunk before they can cross an Objective-C frame. After
+and common cleanup still run; the first error is retained, failed-entry
+admission is cancelled, the gate is left,
+and the receiver and native-object claims are released before the existing
+`failure="abort"` policy applies. The entry record is local to that invocation;
+registration and drain use `CallbackContext`, `CallbackState`, and `CallbackScope`.
+The abort policy applies after cleanup of the failing entry. A failure in a
+nested override terminates the process before an enclosing override can finish;
+this mode does not defer fatal errors across separate callback entries.
+
+This bridge establishes pre-native admission only. A provider must separately
+reserve the complete native event's semantic capacity and prove all input,
+accessibility, host, and nested-tracking routes before using it for pressure
+handling.
+
 The forms the SDK instantiates itself take `superclass` and `overrides` too: a
 UIKit application or scene delegate that must be a `UIResponder`, to join the
 responder chain or answer responder methods.

@@ -5020,6 +5020,9 @@ class FunctionLowerer:
             if any(callback.one_shot for callback in contract.callbacks):
                 self._emit_one_shot_objective_c_adapter(declaration, method, contract, native)
                 continue
+            if any(getattr(callback, "scoped_super", False) for callback in contract.callbacks):
+                self._emit_scoped_super_adapter(declaration, method, contract, native)
+                continue
             if any(isinstance(callback, NativeInstantiatedProjection) for callback in contract.callbacks):
                 self._emit_instance_instantiated_adapter(declaration, method, contract, native)
                 continue
@@ -6944,6 +6947,547 @@ class FunctionLowerer:
             )
         )
         return name
+
+    def _super_admission_thunks(self, prefix, callback, context_type, entry_type):
+        """One entered receiver survives the before/super/after native extent."""
+        module = self._session.module
+        context_c = CType(self._types.render(context_type))
+        context_symbol = context_c.text.removesuffix("*").strip()
+        receiver_type = context_type.generic_args[0]
+        receiver_c = CType(self._types.render(receiver_type))
+        entry = IRVar("entry")
+        raw_receiver = IRFieldAccess(entry, "receiver", arrow=True)
+        receiver = IRCast(receiver_c, raw_receiver)
+        context = IRCast(context_c, IRVar("rawContext"))
+        failed = IRFieldAccess(entry, "failed", arrow=True)
+        error = IRFieldAccess(entry, "error", arrow=True)
+        self._session.require_helper("__btrc_copy_error_message")
+
+        def boundary(body):
+            return self._exceptions.native_callback_boundary(
+                IRBlock([*body, *self._exceptions.pop_try_frames(1)]),
+                IRBlock(
+                    [
+                        IRIf(
+                            IRUnaryOp("!", failed),
+                            IRBlock(
+                                [
+                                    IRExprStmt(
+                                        IRCall(
+                                            "__btrc_copy_error_message",
+                                            [error, IRSizeof(error), IRFieldAccess(IRVar("__btrc_tls"), "error_msg")],
+                                            helper_ref="__btrc_copy_error_message",
+                                        )
+                                    ),
+                                    IRAssign(failed, IRLiteral("true")),
+                                ]
+                            ),
+                        )
+                    ]
+                ),
+            )
+
+        def define(suffix, result, parameters, body):
+            name = prefix + suffix
+            module.function_defs.append(
+                IRFunctionDef(
+                    name=name, return_type=CType(result), params=parameters, body=IRBlock(body), is_static=True
+                )
+            )
+            return name
+
+        common = [IRParam(CType("void*"), "rawContext"), IRParam(entry_type, "entry")]
+        before_names, after_names, value_types = [], [], []
+        for index, projection in enumerate(callback.methods):
+            values = self._native_callback_types(projection)[:-1]
+            value_types.append(values)
+            parameters = [
+                *common,
+                *[
+                    IRParam(CType(self._types.render(value)), f"argument{position}")
+                    for position, value in enumerate(values)
+                ],
+            ]
+            body = [IRAssign(raw_receiver, IRCast(CType("void*"), IRCall(f"{context_symbol}_enter", [context])))]
+            invocation_body = []
+            cleanup = self._native_cleanup_scope(parameters, invocation_body)
+            arguments, releases = [], []
+            for position, value in enumerate(values):
+                argument = IRVar(f"argument{position}")
+                info = self._analyzed.class_table.get(value.base)
+                if info is not None and info.native_language:
+                    if not value.is_nullable:
+                        invocation_body.append(self._objective_c_null_guard(argument, "super-admission: null argument"))
+                    argument = self._native_lease(position, value, argument, parameters, invocation_body, releases)
+                arguments.append(argument)
+            invocation_body.extend(
+                [
+                    IRAssign(
+                        IRVar("admitted"),
+                        IRCall(f"{callback.interface}_{projection.method_name}", [receiver, *arguments]),
+                    ),
+                    *releases,
+                    *cleanup,
+                ]
+            )
+            body.append(IRIf(raw_receiver, IRBlock(invocation_body)))
+            before_names.append(
+                define(
+                    f"_before{index}",
+                    "bool",
+                    parameters,
+                    [
+                        IRVarDecl(CType("bool"), "admitted", init=IRLiteral("false")),
+                        boundary(body),
+                        IRReturn(IRBinOp(IRUnaryOp("!", failed), "&&", IRVar("admitted"))),
+                    ],
+                )
+            )
+            after_names.append(
+                define(
+                    f"_after{index}",
+                    "void",
+                    [*common, IRParam(CType("bool"), "invokedSuper"), IRParam(CType("bool"), "nativeFailed")],
+                    [
+                        boundary(
+                            [
+                                IRIf(
+                                    raw_receiver,
+                                    IRBlock(
+                                        [
+                                            IRExprStmt(
+                                                IRCall(
+                                                    f"{callback.interface}_{projection.super_after}",
+                                                    [receiver, IRVar("invokedSuper"), IRVar("nativeFailed")],
+                                                )
+                                            )
+                                        ]
+                                    ),
+                                )
+                            ]
+                        ),
+                    ],
+                )
+            )
+        # The receiver's claim belongs to this extent, outside each hook's
+        # unwind cleanups. Leave and release are separate contained operations.
+        finish = define(
+            "_finish",
+            "void",
+            common,
+            [
+                IRIf(
+                    raw_receiver,
+                    IRBlock(
+                        [
+                            boundary(
+                                [IRIf(failed, IRBlock([IRExprStmt(IRCall(f"{context_symbol}_cancel", [context]))]))]
+                            ),
+                            boundary([IRExprStmt(IRCall(f"{context_symbol}_leave", [context]))]),
+                            IRVarDecl(receiver_c, "receiver", init=receiver),
+                            IRAssign(raw_receiver, IRLiteral("NULL")),
+                            boundary([IRExprStmt(self._lifetime.release_value(IRVar("receiver"), receiver_type))]),
+                            boundary([IRExprStmt(IRCall(f"{context_symbol}_pollCompletion", [context]))]),
+                        ]
+                    ),
+                )
+            ],
+        )
+        cancel = define(
+            "_cancelContext",
+            "void",
+            [IRParam(CType("void*"), "rawContext")],
+            [
+                self._exceptions.native_callback_boundary(
+                    IRBlock(
+                        [
+                            IRExprStmt(IRCall(f"{context_symbol}_cancel", [context])),
+                            *self._exceptions.pop_try_frames(1),
+                        ]
+                    )
+                )
+            ],
+        )
+        failure = define(
+            "_failed",
+            "void",
+            [IRParam(entry_type, "entry")],
+            [
+                IRIf(
+                    failed,
+                    IRBlock(
+                        [
+                            IRExprStmt(
+                                IRCall("fputs", [IRLiteral('"BTRC native callback failed: "'), IRVar("stderr")])
+                            ),
+                            IRExprStmt(IRCall("fputs", [error, IRVar("stderr")])),
+                            IRExprStmt(IRCall("abort", [], never_returns=True)),
+                        ]
+                    ),
+                ),
+            ],
+        )
+        return before_names, after_names, value_types, finish, cancel, failure
+
+    def _emit_scoped_super_adapter(self, declaration, method, contract, native):
+        """Construct one scoped subclass; each override gates one call to super."""
+        module = self._session.module
+        callback = contract.callbacks[0]
+        prefix = f"__btrc_objc_{declaration.name}_{method.name}"
+        context_type = TypeExpr(
+            base="CallbackContext",
+            generic_args=[method.params[0].type, TypeExpr(base="void", pointer_depth=1)],
+            pointer_depth=1,
+        )
+        context_c = CType(self._types.render(context_type))
+        context_symbol = context_c.text.removesuffix("*").strip()
+        self._stored_context_lifetime(prefix, context_type, context_symbol)
+        native.function_decls.append(
+            IRFunctionDecl(f"__btrc_objc_{declaration.name}_release", CType("void"), [IRParam(CType("void*"), "value")])
+        )
+        entry_name = prefix + "Entry"
+        entry_c = CType(f"struct {entry_name}")
+        entry_pointer = CType(entry_c.text + "*")
+        record = IRStructDef(
+            entry_name,
+            [
+                IRStructField(CType("void*"), "receiver"),
+                IRStructField(CType("bool"), "failed"),
+                IRStructField(CType("char"), "error", array_size=IRLiteral("1024")),
+            ],
+        )
+        for unit in (module, native):
+            unit.struct_forwards.append(IRStructForward(entry_name))
+            unit.struct_defs.append(record)
+        before, after, values, finish, cancel, failure = self._super_admission_thunks(
+            prefix, callback, context_type, entry_pointer
+        )
+        definitions = [
+            IRFunctionPointerTypedef(prefix + "Lifetime", CType("void"), [CType("void*")]),
+            IRFunctionPointerTypedef(prefix + "Finish", CType("void"), [CType("void*"), entry_pointer]),
+            IRFunctionPointerTypedef(prefix + "Failure", CType("void"), [entry_pointer]),
+            IRFunctionPointerTypedef(
+                prefix + "After", CType("void"), [CType("void*"), entry_pointer, CType("bool"), CType("bool")]
+            ),
+        ]
+        for index, arguments in enumerate(values):
+            definitions.append(
+                IRFunctionPointerTypedef(
+                    f"{prefix}Before{index}",
+                    CType("bool"),
+                    [CType("void*"), entry_pointer, *[CType(self._types.render(value)) for value in arguments]],
+                )
+            )
+        for unit in (module, native):
+            unit.function_pointer_typedefs.extend(definitions)
+        native.preprocessor_decls.append(IRInclude("pthread.h"))
+        holder_name = prefix + "Holder"
+        holder_c = CType(holder_name + "*")
+        native_context = IRVar("_context")
+        raw = IRVar("context")
+        fields = [
+            IRStructField(CType("void*"), "_context"),
+            IRStructField(CType("pthread_t"), "_executor"),
+            IRStructField(CType("bool"), "_configured"),
+        ]
+        configure_parameters = [IRParam(CType("void*"), "context")]
+        configure = [IRAssign(IRVar("_executor"), IRCall("pthread_self", []))]
+        transports = [
+            ("retain", prefix + "Lifetime"),
+            ("release", prefix + "Lifetime"),
+            ("cancel", prefix + "Lifetime"),
+            ("finish", prefix + "Finish"),
+            ("failed", prefix + "Failure"),
+        ]
+        for index in range(len(values)):
+            transports.extend([(f"before{index}", f"{prefix}Before{index}"), (f"after{index}", prefix + "After")])
+        configure_selector = "btrcConfigure:"
+        for name, value_type in transports:
+            fields.append(IRStructField(CType(value_type), "_" + name))
+            configure_parameters.append(IRParam(CType(value_type), name))
+            configure_selector += name + ":"
+            configure.append(IRAssign(IRVar("_" + name), IRVar(name)))
+        configure.extend(
+            [
+                IRExprStmt(IRCall(IRVar("_retain"), [raw])),
+                IRAssign(native_context, raw),
+                IRAssign(IRVar("_configured"), IRLiteral("true")),
+            ]
+        )
+        wrong_thread = IRIf(
+            IRBinOp(IRCall("pthread_equal", [IRVar("_executor"), IRCall("pthread_self", [])]), "==", IRLiteral("0")),
+            IRBlock([IRExprStmt(IRCall("abort", [], never_returns=True))]),
+        )
+        methods = [IRObjectiveCMethod(configure_selector, CType("void"), configure_parameters, IRBlock(configure))]
+        methods.append(
+            IRObjectiveCMethod(
+                "btrcUnregister",
+                CType("BOOL"),
+                [],
+                IRBlock(
+                    [
+                        wrong_thread,
+                        IRVarDecl(CType("void*"), "context", init=native_context),
+                        IRAssign(native_context, IRLiteral("NULL")),
+                        IRIf(raw, IRBlock([IRExprStmt(IRCall(IRVar("_release"), [raw]))])),
+                        IRReturn(IRLiteral("YES")),
+                    ]
+                ),
+            )
+        )
+        for index, projection in enumerate(callback.methods):
+            parameters, arguments = self._instantiated_arguments(
+                projection, [*values[index], TypeExpr(base="void", pointer_depth=1)]
+            )
+            returns = projection.return_type.base != "void"
+            early = IRReturn(IRLiteral("NO")) if returns else IRReturn()
+            entry = IRAddressOf(IRVar("entry"))
+            body = [
+                IRIf(IRUnaryOp("!", IRVar("_configured")), IRBlock([early])),
+                wrong_thread,
+                IRIf(IRUnaryOp("!", native_context), IRBlock([early])),
+                IRVarDecl(CType("void*"), "selfPin", init=IRCast(CType("void*"), IRVar("self"), bridge="retain")),
+                IRVarDecl(CType("void*"), "context", init=native_context),
+                IRExprStmt(IRCall(IRVar("_retain"), [raw])),
+                IRVarDecl(entry_c, "entry", init=IRInitializerList([IRLiteral("0")])),
+                IRVarDecl(CType("bool"), "invokedSuper", init=IRLiteral("false")),
+                IRVarDecl(CType("bool"), "nativeFailed", init=IRLiteral("false")),
+            ]
+            argument_releases = []
+            for position, (parameter, value) in enumerate(zip(parameters, values[index], strict=True)):
+                info = self._analyzed.class_table.get(value.base)
+                if info is None or not info.native_language:
+                    continue
+                # The explicit pin must end before a fatal callback report;
+                # an implicit ARC parameter claim would survive until return.
+                parameter.c_type = CType(parameter.c_type.text + " __unsafe_unretained")
+                pin = IRVar(f"argumentPin{position}")
+                body.append(
+                    IRVarDecl(
+                        CType("void*"), pin.name, init=IRCast(CType("void*"), IRVar(parameter.name), bridge="retain")
+                    )
+                )
+                release_name = f"__btrc_objc_{value.base}_release"
+                native.function_decls.append(
+                    IRFunctionDecl(release_name, CType("void"), [IRParam(CType("void*"), "value")])
+                )
+                argument_releases.insert(0, IRExprStmt(IRCall(release_name, [pin])))
+            if returns:
+                body.append(IRVarDecl(CType(projection.native_return), "result", init=IRLiteral("NO")))
+            super_call = IRObjectiveCMessage(
+                IRVar("super"), projection.native_method.selector, [IRVar(parameter.name) for parameter in parameters]
+            )
+            body.extend(
+                [
+                    IRIf(
+                        IRCall(IRVar(f"_before{index}"), [raw, entry, *arguments]),
+                        IRBlock(
+                            [
+                                IRAssign(IRVar("invokedSuper"), IRLiteral("true")),
+                                IRObjectiveCExceptionBoundary(
+                                    IRBlock(
+                                        [IRAssign(IRVar("result"), super_call) if returns else IRExprStmt(super_call)]
+                                    ),
+                                    IRBlock([IRAssign(IRVar("nativeFailed"), IRLiteral("true"))]),
+                                ),
+                            ]
+                        ),
+                    ),
+                    IRExprStmt(
+                        IRCall(IRVar(f"_after{index}"), [raw, entry, IRVar("invokedSuper"), IRVar("nativeFailed")])
+                    ),
+                    IRExprStmt(IRCall(IRVar("_finish"), [raw, entry])),
+                    *argument_releases,
+                    # Save the failure thunk before releasing native self.
+                    IRVarDecl(CType(prefix + "Failure"), "failed", init=IRVar("_failed")),
+                    IRExprStmt(IRCall(IRVar("_release"), [raw])),
+                    IRExprStmt(IRCall(f"__btrc_objc_{declaration.name}_release", [IRVar("selfPin")])),
+                    IRExprStmt(IRCall(IRVar("failed"), [entry])),
+                ]
+            )
+            if returns:
+                body.append(IRReturn(IRVar("result")))
+            methods.append(
+                IRObjectiveCMethod(
+                    projection.native_method.selector, CType(projection.native_return), parameters, IRBlock(body)
+                )
+            )
+        methods.append(
+            IRObjectiveCMethod(
+                "dealloc",
+                CType("void"),
+                [],
+                IRBlock(
+                    [
+                        IRIf(
+                            native_context,
+                            IRBlock(
+                                [
+                                    wrong_thread,
+                                    IRVarDecl(CType("void*"), "context", init=native_context),
+                                    IRExprStmt(IRCall(IRVar("_retain"), [raw])),
+                                    IRExprStmt(IRCall(IRVar("_cancel"), [raw])),
+                                    IRExprStmt(IRCall(IRVar("_release"), [raw])),
+                                ]
+                            ),
+                        ),
+                    ]
+                ),
+            )
+        )
+        native.objective_c_classes.append(
+            IRObjectiveCClass(holder_name, callback.superclass, fields=fields, methods=methods)
+        )
+        cancel_parameters = [IRParam(CType("void*"), "token")]
+        cancel_name = prefix + "Unregister"
+        module.function_decls.append(IRFunctionDecl(cancel_name, CType("bool"), cancel_parameters))
+        native.function_defs.append(
+            IRFunctionDef(
+                name=cancel_name,
+                return_type=CType("bool"),
+                params=cancel_parameters,
+                body=IRBlock(
+                    [
+                        IRObjectiveCExceptionBoundary(
+                            IRBlock(
+                                [
+                                    IRReturn(
+                                        IRObjectiveCMessage(
+                                            IRCast(holder_c, IRVar("token"), bridge="borrow"), "btrcUnregister", []
+                                        )
+                                    ),
+                                ]
+                            ),
+                            IRBlock([IRExprStmt(IRCall("abort", [], never_returns=True))]),
+                        )
+                    ]
+                ),
+            )
+        )
+        source_parameters = [self._signatures.lower_source_param(parameter) for parameter in method.params]
+        result_c = CType(self._types.render(method.return_type))
+        adapter_parameters = [
+            IRParam(CType("void*"), "context"),
+            *[IRParam(CType(value_type), name) for name, value_type in transports],
+            *source_parameters[2:],
+            IRParam(CType(result_c.text + " volatile*"), "nativeResult"),
+        ]
+        init_arguments = []
+        for parameter, source in zip(source_parameters[2:], method.params[2:], strict=True):
+            info = self._analyzed.class_table.get(source.type.base)
+            value = IRVar(parameter.name)
+            init_arguments.append(
+                IRCast(self._objective_c_object_type(source.type.base), value, bridge="borrow")
+                if info is not None and info.native_language
+                else self._objective_c_value(source.type, value, to_native=True)
+            )
+        configured = IRVar("created")
+        native_body = [
+            IRVarDecl(
+                holder_c,
+                "created",
+                init=IRObjectiveCMessage(
+                    IRObjectiveCMessage(IRVar(holder_name), "alloc", []), callback.initializer.selector, init_arguments
+                ),
+            ),
+            IRIf(IRUnaryOp("!", configured), IRBlock([IRReturn(IRLiteral("1"))])),
+            IRExprStmt(
+                IRObjectiveCMessage(configured, configure_selector, [raw, *[IRVar(name) for name, _ in transports]])
+            ),
+            IRAssign(IRDeref(IRVar("nativeResult")), IRCast(result_c, configured, bridge="retain")),
+            IRReturn(IRLiteral("0")),
+        ]
+        native.function_defs.append(
+            IRFunctionDef(
+                name=prefix,
+                return_type=CType("int"),
+                params=adapter_parameters,
+                body=IRBlock(
+                    [
+                        IRObjectiveCAutoreleasePool(
+                            IRBlock(
+                                [
+                                    IRObjectiveCExceptionBoundary(
+                                        IRBlock(native_body), IRBlock([IRReturn(IRLiteral("1"))])
+                                    )
+                                ]
+                            )
+                        )
+                    ]
+                ),
+            )
+        )
+        module.function_decls.append(IRFunctionDecl(prefix, CType("int"), adapter_parameters))
+        body = [IRVarDecl(result_c, "nativeResult", init=IRLiteral("NULL"))]
+        cleanup = self._native_cleanup_scope(source_parameters, body)
+        body.append(self._objective_c_null_guard(IRVar("receiver"), "super-admission requires a receiver"))
+        body.append(self._objective_c_null_guard(IRVar("scope"), "super-admission requires a scope"))
+        context = IRVar("context")
+        context_slot = IRVarDecl(
+            context_c, "context", init=IRCall(f"{context_symbol}_new", [IRVar("receiver"), IRFunctionRef(cancel_name)])
+        )
+        body.extend(
+            [
+                context_slot,
+                IRExprStmt(self._lifetime.register_cleanup_slot(context_slot, context_type)),
+            ]
+        )
+        callbacks = [prefix + "_retain", prefix + "_release", cancel, finish, failure]
+        for index in range(len(values)):
+            callbacks.extend([before[index], after[index]])
+        arguments = [IRCast(CType("void*"), context), *[IRFunctionRef(value) for value in callbacks]]
+        argument_releases = []
+        for index, (parameter, source) in enumerate(zip(source_parameters[2:], method.params[2:], strict=True), 2):
+            argument = IRVar(parameter.name)
+            info = self._analyzed.class_table.get(source.type.base)
+            if info is not None and info.native_language:
+                if not source.type.is_nullable:
+                    body.append(self._objective_c_null_guard(argument, "super-admission: null initializer argument"))
+                argument = self._native_lease(index, source.type, argument, source_parameters, body, argument_releases)
+            arguments.append(argument)
+        body.append(IRExprStmt(IRCall(f"{context_symbol}_activate", [context, IRVar("scope")])))
+        arguments.append(IRAddressOf(IRVar("nativeResult")))
+        self._session.require_helper("__btrc_throw")
+        body.extend(
+            [
+                IRIf(
+                    IRCall(prefix, arguments),
+                    IRBlock(
+                        [
+                            IRExprStmt(IRCall(f"{context_symbol}_abortActivation", [context])),
+                            IRExprStmt(
+                                IRCall(
+                                    "__btrc_throw",
+                                    [IRLiteral('"super-admission initializer failed before publication"')],
+                                    helper_ref="__btrc_throw",
+                                    never_returns=True,
+                                )
+                            ),
+                        ]
+                    ),
+                ),
+                IRExprStmt(self._lifetime.register_cleanup_slot(body[0], method.return_type)),
+                IRExprStmt(
+                    IRCall(f"{context_symbol}_publish", [context, IRCast(CType("void*"), IRVar("nativeResult"))])
+                ),
+            ]
+        )
+        release_locals = []
+        releases = self._lifetime.release_and_clear(context, context_type, release_locals, context_c.text)
+        body.extend(
+            [
+                *release_locals,
+                *[IRExprStmt(value) for value in releases],
+                *argument_releases,
+                *cleanup,
+                IRReturn(IRVar("nativeResult")),
+            ]
+        )
+        name = f"{declaration.name}_{method.name}"
+        module.function_decls.append(IRFunctionDecl(name, result_c, source_parameters, is_static=True))
+        module.function_defs.append(
+            IRFunctionDef(name=name, return_type=result_c, params=source_parameters, body=IRBlock(body), is_static=True)
+        )
 
     def _emit_instance_instantiated_adapter(self, declaration, method, contract, native):
         """Hand the SDK a generated class it instantiates once per instance (scope = "instance").

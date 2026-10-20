@@ -487,6 +487,9 @@ class FeManifestBlock {
 	private Map<string, bool> callbackNames = {};
 	private Map<string, bool> callbackOperationNames = {};
 	private Map<string, bool> callbackMethodNameTables = {};
+	private Map<string, bool> callbackSuperTables = {};
+	private Map<string, bool> callbackSuperDeclaredTables = {};
+	private Map<string, bool> callbackSuperHookTables = {};
 	private Map<string, bool> stringViewNames = {};
 	private Map<string, bool> unmanagedHandleNames = {};
 	private Map<string, bool> ownedOutputNames = {};
@@ -906,11 +909,11 @@ class FeManifestBlock {
 		for key in self.fields.keys() {
 			if (!key.startsWith("callbacks.")) { continue; }
 			var parts = Strings.split(key, ".");
-			if (parts.len == 5 && parts.get(3) == "method-names" && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
+			if ((parts.len == 5 || parts.len == 6) && (parts.get(3) == "method-names" || parts.get(3) == "super-admission") && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len == 5 && parts.get(3) == "operations" && self.identifier(parts.get(4)) && binding.symbols.contains(parts.get(1)) && self.identifier(parts.get(2))) { continue; }
 			if (parts.len != 4 || !binding.symbols.contains(parts.get(1)) || !self.identifier(parts.get(2))) { FePackageFailure.fail("callbacks must name selected function.parameter pairs"); }
 			string field = parts.get(3);
-			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "method-names" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "action-parameter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles" && field != "terminal" && field != "superclass" && field != "overrides") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
+			if (field != "context" && field != "context-index" && field != "interface" && field != "lifetime" && field != "failure" && field != "executor" && field != "unregister" && field != "activation-failure" && field != "cancellation" && field != "methods" && field != "method-names" && field != "super-admission" && field != "slot-getter" && field != "action-setter" && field != "action-getter" && field != "action-parameter" && field != "owned-arguments" && field != "field" && field != "name" && field != "record" && field != "size" && field != "owner" && field != "invocation" && field != "scope" && field != "registration-status" && field != "unregister-status" && field != "captured-handles" && field != "terminal" && field != "superclass" && field != "overrides") { FePackageFailure.fail(f"unexpected callback field '{field}'"); }
 			self.callbackNames.put(parts.get(1) + "." + parts.get(2), true);
 		}
 		for name in self.callbackNames.keys() {
@@ -950,7 +953,7 @@ class FeManifestBlock {
 				if (self.fields.has(prefix + "overrides") && !self.fields.has(prefix + "superclass")) { FePackageFailure.fail("callback overrides require superclass"); }
 				if (self.fields.has(prefix + "superclass") && !self.identifier(self.requiredText(prefix + "superclass"))) { FePackageFailure.fail("callback superclass must be an identifier"); }
 				for field in ["unregister", "activation-failure", "cancellation", "slot-getter", "action-setter", "action-getter", "action-parameter", "owned-arguments", "field"] {
-					if (self.fields.has(prefix + field)) { FePackageFailure.fail("instantiated adapters take only methods, scope, terminal, failure and executor"); }
+					if (self.fields.has(prefix + field) && !(field == "cancellation" && (self.fields.has(prefix + "super-admission") || self.callbackSuperTables.has(name)))) { FePackageFailure.fail("instantiated adapters take only methods, scope, terminal, failure and executor"); }
 				}
 			} else if (self.fields.has(prefix + "scope") || self.fields.has(prefix + "terminal")) { FePackageFailure.fail("callback scope and terminal require an instantiated adapter"); }
 			var realtime = self.realtimeCallback(binding, prefix, lifetime, interfaceName);
@@ -1082,9 +1085,112 @@ class FeManifestBlock {
 				if (unregister != parts.get(0) || activationFailure != "abort") { FePackageFailure.fail("delegate cancellation requires its setter and activation-failure abort"); }
 			}
 			self.finishCallbackMethodNames(binding, callback, name);
+			self.finishCallbackSuper(binding, callback, name);
 			binding.callbacks.put(name, callback);
 		}
 		if (binding.callbacks.len > 0 && binding.language != "c" && binding.language != "objective-c") { FePackageFailure.fail("callback mappings currently require C or Objective-C"); }
+	}
+
+	/* Inline maps here have two known levels: selected selector and its hooks.
+	 * Split only at this table's depth, preserving quoted selectors. */
+	private Map<string, string> callbackInlineTable(string raw) {
+		string value = raw.trim();
+		if (!value.startsWith("{") || !value.endsWith("}")) { FePackageFailure.fail("super-admission requires a method table"); }
+		string body = value.substring(1, value.length() - 2).trim();
+		Map<string, string> fields = {};
+		while (!body.isEmpty()) {
+			int depth = 0;
+			char quote = (char)0;
+			bool escaped = false;
+			int comma = -1;
+			for index in range(body.length()) {
+				char c = body[index];
+				if (quote != (char)0) {
+					if (!escaped && c == quote) { quote = (char)0; }
+					escaped = quote == '"' && !escaped && c == '\\';
+					continue;
+				}
+				if (c == '"' || c == (char)39) { quote = c; }
+				else if (c == '{') { depth++; }
+				else if (c == '}') { depth--; }
+				else if (c == ',' && depth == 0) { comma = index; break; }
+				if (depth < 0) { FePackageFailure.fail("super-admission requires a method table"); }
+			}
+			if (quote != (char)0 || depth != 0) { FePackageFailure.fail("super-admission requires a method table"); }
+			string entry = comma < 0 ? body : body.substring(0, comma);
+			int separator = TOML.unquotedPosition(entry, '=');
+			if (separator < 0) { FePackageFailure.fail("super-admission requires named hooks"); }
+			string name = TOML.unquote(entry.substring(0, separator).trim());
+			if (name.isEmpty() || fields.has(name)) { FePackageFailure.fail("super-admission contains duplicate or empty names"); }
+			fields.put(name, entry.substring(separator + 1, entry.length() - separator - 1).trim());
+			body = comma < 0 ? "" : body.substring(comma + 1, body.length() - comma - 1).trim();
+			if (comma >= 0 && body.isEmpty()) { FePackageFailure.fail("super-admission inline table has a trailing comma"); }
+		}
+		return fields;
+	}
+
+	public void declareCallbackSuper(string name) {
+		if (!self.callbackNames.has(name) || self.callbackSuperDeclaredTables.has(name) || self.fields.has("callbacks." + name + ".super-admission")) { FePackageFailure.fail("super-admission requires one preceding callback table and may not be duplicated"); }
+		self.callbackSuperTables.put(name, true);
+		self.callbackSuperDeclaredTables.put(name, true);
+	}
+
+	public void declareCallbackSuperHook(string name, string symbol) {
+		string key = name + "." + symbol;
+		if (!self.callbackNames.has(name) || self.callbackSuperHookTables.has(key) || self.fields.has("callbacks." + name + ".super-admission") || self.fields.has("callbacks." + name + ".super-admission." + symbol)) { FePackageFailure.fail("super-admission hook table is duplicated or has no callback"); }
+		self.callbackSuperTables.put(name, true);
+		self.callbackSuperHookTables.put(key, true);
+	}
+
+	private void finishCallbackSuper(FeNativeBinding binding, FeNativeCallbackBinding callback, string name) {
+		string prefix = "callbacks." + name + ".super-admission";
+		Map<string, Map<string, string>> entries = {};
+		bool present = self.fields.has(prefix) || self.callbackSuperTables.has(name);
+		if (self.fields.has(prefix)) {
+			var raw = self.callbackInlineTable(self.fields.get(prefix));
+			for symbol in raw.keys() { entries.put(symbol, self.callbackInlineTable(raw.get(symbol))); }
+		}
+		string tablePrefix = name + ".";
+		for key in self.callbackSuperHookTables.keys() {
+			if (key.startsWith(tablePrefix)) { entries.put(key.substring(tablePrefix.length(), key.length() - tablePrefix.length()), {}); }
+		}
+		for key in self.fields.keys() {
+			if (!key.startsWith(prefix + ".")) { continue; }
+			if (self.fields.has(prefix)) { FePackageFailure.fail("super-admission table is duplicated"); }
+			present = true;
+			var path = Strings.split(key.substring(prefix.length() + 1, key.length() - prefix.length() - 1), ".");
+			if (path.len == 1) {
+				if (entries.has(path.get(0))) { FePackageFailure.fail("super-admission hook table is duplicated"); }
+				entries.put(path.get(0), self.callbackInlineTable(self.fields.get(key)));
+			} else if (path.len == 2) {
+				if (self.fields.has(prefix + "." + path.get(0))) { FePackageFailure.fail("super-admission hook table is duplicated"); }
+				if (!entries.has(path.get(0))) { entries.put(path.get(0), {}); }
+				entries.get(path.get(0)).put(path.get(1), self.fields.get(key));
+			} else { FePackageFailure.fail("super-admission requires before and after names"); }
+		}
+		if (!present) { return; }
+		if (entries.len == 0) { FePackageFailure.fail("super-admission requires a nonempty method table"); }
+		string base = "callbacks." + name + ".";
+		if (binding.language != "objective-c" || callback.lifetime != "instantiated" || !name.endsWith(".self") || callback.scope != "instance") { FePackageFailure.fail("super-admission requires a designated-initializer instance adapter"); }
+		if (!self.fields.has(base + "cancellation") || self.requiredText(base + "cancellation") != "entry-barrier") { FePackageFailure.fail("super-admission requires cancellation entry-barrier"); }
+		if (self.fields.has(base + "methods") || self.fields.has(base + "terminal") || self.fields.has(base + "method-names") || self.callbackMethodNameTables.has(name)) { FePackageFailure.fail("super-admission cannot combine methods, terminal or method-names"); }
+		if (entries.len != callback.overrides.len) { FePackageFailure.fail("super-admission must map every override exactly once"); }
+		Map<string, bool> names = {};
+		for symbol in entries.keys() {
+			if (!callback.overrides.contains(symbol)) { FePackageFailure.fail("super-admission must map every override exactly once"); }
+			var hooks = entries.get(symbol);
+			if (hooks.len != 2 || !hooks.has("before") || !hooks.has("after")) { FePackageFailure.fail("super-admission requires before and after names"); }
+			for hook in ["before", "after"] {
+				string value = hooks.get(hook);
+				if (value.length() < 2 || !((value[0] == '"' && value[value.length()-1] == '"') || (value[0] == (char)39 && value[value.length()-1] == (char)39))) { FePackageFailure.fail("super-admission hook names must be strings"); }
+				string projected = TOML.unquote(value);
+				if (!self.identifier(projected)) { FePackageFailure.fail("super-admission hook names must be identifiers"); }
+				if (names.has(projected)) { FePackageFailure.fail("super-admission hook names must be distinct"); }
+				names.put(projected, true);
+				if (hook == "before") { callback.superBefore.put(symbol, projected); }
+				else { callback.superAfter.put(symbol, projected); }
+			}
+		}
 	}
 
 	private void callbackMethodName(FeNativeCallbackBinding callback, string symbol, string name) {
@@ -2537,6 +2643,15 @@ class FePackageManifestParser {
 				if (table.startsWith(callbackPrefix)) {
 					if (block == null || !block.isBinding()) { FePackageFailure.fail("callbacks requires a preceding native binding"); }
 					string suffix = table.substring(callbackPrefix.length(), table.length() - callbackPrefix.length());
+					var admissionPath = Strings.split(suffix, ".super-admission.");
+					if (admissionPath.len == 2) {
+						string name = TOML.unquote(admissionPath.get(0)); string symbol = TOML.unquote(admissionPath.get(1));
+						block.declareCallbackSuperHook(name, symbol); section = callbackPrefix + name + ".super-admission." + symbol; continue;
+					}
+					if (suffix.endsWith(".super-admission")) {
+						string name = TOML.unquote(suffix.substring(0, suffix.length() - 16));
+						block.declareCallbackSuper(name); section = callbackPrefix + name + ".super-admission"; continue;
+					}
 					if (suffix.endsWith(".method-names")) {
 						string name = TOML.unquote(suffix.substring(0, suffix.length() - 13));
 						block.declareCallbackMethodNames(name); section = callbackPrefix + name + ".method-names"; continue;
