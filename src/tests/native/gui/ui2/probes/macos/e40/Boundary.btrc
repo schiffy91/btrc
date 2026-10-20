@@ -8,6 +8,7 @@ import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSRunLoop;
 import Library.GUI.MacOS.AppKitText;
 
+import ./Host.btrc;
 #include <assert.h>
 #include <string.h>
 
@@ -21,23 +22,6 @@ class E40BoundaryReceiver implements IWindowKeyHandler, ITextControlEventHandler
 	public void closeRequested(IWindowCloseTransaction transaction) {
 		BTRCE40Boundary.close(); assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL).state == WINDOW_CLOSE_CANCELLED);
 	}
-}
-
-/* A separate host-owned source services the public attachment. Native event
- * dispatch still belongs to NSApplication.run; no fixture pump is installed. */
-class E40BoundaryHost implements IApplicationHost, IAppKitNotificationObserver {
-	public IApplicationHostAttachment? attachment;
-	private MacOSRunLoopSignal _signal = MacOSRunLoopSignal();
-	private CallbackScope _callbacks = CallbackScope();
-	public E40BoundaryHost() { self._signal.subscribe(self, self._callbacks); }
-
-	public bool requestTurn() { return self._signal.requestTurn(); }
-
-	public void scheduleTurn(unsigned long long deadline) { self._signal.scheduleDeadline(deadline); }
-
-	public void invoke(NSNotification notification) { var attached = self.attachment; if (attached != null) { attached.serviceTurn(); } }
-
-	public void close() { assert(self._callbacks.cancel() == CALLBACK_CANCELLATION_COMPLETE); assert(self._signal.close()); self.attachment = null; }
 }
 
 class E40BoundaryRun implements IApplicationWork {
@@ -82,7 +66,7 @@ int main(int argc, char** argv) {
 	first.onKey(receiver, owner); first.onCloseRequested(receiver, owner); field.onCommit(receiver, owner);
 	var run = E40BoundaryRun(application, field); application.post(run);
 	if (hosted) {
-		var host = E40BoundaryHost(); var hostOwner = CallbackScope(); var attached = application.attachHost(host, hostOwner);
+		var host = E40ApplicationHost(); var hostOwner = CallbackScope(); var attached = application.attachHost(host, hostOwner);
 		assert(attached.kind == APPLICATION_HOST_ATTACHED && attached.attachment != null); host.attachment = attached.attachment;
 		BTRCE40Boundary.runHost(); assert(application.close() == CALLBACK_CANCELLATION_COMPLETE);
 		assert(hostOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE); host.close();

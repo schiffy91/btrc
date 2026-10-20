@@ -26,11 +26,13 @@ def sanitized(request):
 
 
 @pytest.fixture
-def boundary_program(native_project, native_compile, gui_provider_root, sanitized, request):
+def e40_program(native_project, native_compile, gui_provider_root, sanitized, request):
     source, _, triple = native_project
     package = source.parent.parent
+    trial = request.node.callspec.params.get("trial", "bursts")
+    stem = "Boundary" if trial == "bursts" else "Load"
     for suffix in ("h", "m"):
-        name = f"Boundary.{suffix}"
+        name = f"{stem}.{suffix}"
         (package / name).write_text((FIXTURES / name).read_text())
     symbols = [
         "+[BTRCE40Boundary requireHosted]",
@@ -46,20 +48,47 @@ def boundary_program(native_project, native_compile, gui_provider_root, sanitize
         "+[BTRCE40Boundary cleanup]",
         "+[BTRCE40Boundary runHost]",
     ]
+    if stem == "Load":
+        symbols = [
+            "e40LoadRequireHosted",
+            "e40LoadSetup",
+            "e40LoadReady",
+            "e40LoadObserveSurfaces",
+            "e40LoadNow",
+            "e40LoadBegin",
+            "e40LoadProducerTick",
+            "e40LoadReceipt",
+            "e40LoadReject",
+            "e40LoadDeliver",
+            "e40LoadHandler",
+            "e40LoadPending",
+            "e40LoadPushInput",
+            "e40LoadInputDelivery",
+            "e40LoadPushClose",
+            "e40LoadFrame",
+            "e40LoadRejectFrame",
+            "e40LoadReport",
+            "e40LoadCleanup",
+            "e40LoadRunHost",
+        ]
+    language = "objective-c" if stem == "Boundary" else "c"
     manifest = package / "btrc.toml"
     manifest.write_text(
-        manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "Boundary.h"\n'
-        'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
+        manifest.read_text() + f'\n[[native.bindings]]\nmodule = "Main"\nheader = "{stem}.h"\n'
+        f'language = "{language}"\nstandard = "c11"\nos = ["macos"]\n'
         f"symbols = {json.dumps(symbols)}\n"
-        '[[native.sources]]\npath = "Boundary.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        f'[[native.sources]]\npath = "{stem}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        '[[native.frameworks]]\nname = "QuartzCore"\nmodules = ["Main"]\nos = ["macos"]\n'
+        '[[native.frameworks]]\nname = "Metal"\nmodules = ["Main"]\nos = ["macos"]\n'
     )
-    source.write_text((FIXTURES / "Boundary.btrc").read_text())
-    plan = package / "Boundary.link.json"
+    (source.parent / "Host.btrc").write_text((FIXTURES / "Host.btrc").read_text())
+    source.write_text((FIXTURES / f"{stem}.btrc").read_text())
+    plan = package / f"{stem}.link.json"
     compiled = native_compile(source, data_root=gui_provider_root, plan_path=plan)
     assert compiled.successful, str(compiled.failure) + str(compiled.diagnostics)
-    generated = package / "Boundary.c"
+    generated = package / f"{stem}.c"
     generated.write_text(compiled.c_source)
-    executable = package / "Boundary"
+    executable = package / stem
 
     def runner(command, **kwargs):
         flags = ["-O1"] if Path(command[0]).name in {"clang", "clang++"} else []
@@ -87,9 +116,16 @@ def boundary_program(native_project, native_compile, gui_provider_root, sanitize
     return executable, provenance
 
 
-def test_macos_ui2_e40_boundary_compile(boundary_program):
+def test_macos_ui2_e40_boundary_compile(e40_program):
     """Compilation/linking only: the executable is never launched by this case."""
-    executable, _ = boundary_program
+    executable, _ = e40_program
+    assert executable.is_file()
+
+
+@pytest.mark.parametrize("trial", ["load"])
+def test_macos_ui2_e40_load_compile(e40_program, trial):
+    """Build the workload without starting its worker, windows or run loop."""
+    executable, _ = e40_program
     assert executable.is_file()
 
 
@@ -98,10 +134,10 @@ def test_macos_ui2_e40_boundary_compile(boundary_program):
     sys.platform == "darwin" and (os.environ.get("BTRC_UI2_HOSTED_E40") != "1" or os.environ.get("CI") != "true"),
     reason="E40 visible native execution requires explicit hosted CI opt-in",
 )
-@pytest.mark.parametrize("trial", ["bursts"])
+@pytest.mark.parametrize("trial", ["bursts", "load"])
 @pytest.mark.parametrize("entry", ["desktop", "host"])
-def test_macos_ui2_e40(boundary_program, sanitized, entry, trial, tmp_path):
-    executable, provenance = boundary_program
+def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path):
+    executable, provenance = e40_program
     artifact_root = Path(os.environ.get("BTRC_UI2_E40_ARTIFACTS", str(tmp_path / "e40")))
     directory = artifact_root / provenance["frontend"] / ("sanitized" if sanitized else "plain") / entry / trial
     directory.mkdir(parents=True, exist_ok=True)
@@ -120,5 +156,11 @@ def test_macos_ui2_e40(boundary_program, sanitized, entry, trial, tmp_path):
     (directory / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
     assert report.is_file(), "Native trial returned without evidence"
-    E40Evidence(json.loads(report.read_text()), sanitized).bursts()
-    assert "PASS: E40 macOS native boundary bursts" in result.stdout
+    evidence = E40Evidence(json.loads(report.read_text()), sanitized)
+    if trial == "bursts":
+        evidence.bursts()
+        assert "PASS: E40 macOS native boundary bursts" in result.stdout
+    else:
+        evidence.load()
+        evidence.presentations(Path(str(report) + ".presentations.csv"))
+        assert "PASS: E40 macOS 600-second declared load" in result.stdout
