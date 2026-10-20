@@ -100,7 +100,8 @@ def test_linux_ui2_executor_and_lifecycle(tmp_path, request, frontend, sanitized
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
-def test_linux_ui2_final_release_requires_executor(tmp_path, request, frontend, sanitized):
+@pytest.mark.parametrize("state", ["open", "closed"])
+def test_linux_ui2_final_release_requires_executor(tmp_path, request, frontend, sanitized, state):
     require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
@@ -114,20 +115,19 @@ def test_linux_ui2_final_release_requires_executor(tmp_path, request, frontend, 
         data_root=request.getfixturevalue("gui_provider_root"),
     )
     environment = provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1")
-    for state in ("closed", "open"):
-        result = subprocess.run([str(executable), state], capture_output=True, text=True, timeout=30, env=environment)
-        (tmp_path / f"{state}-stdout.txt").write_text(result.stdout)
-        (tmp_path / f"{state}-stderr.txt").write_text(result.stderr)
-        (tmp_path / f"{state}-result.json").write_text(
-            json.dumps({"state": state, "returncode": result.returncode, "frontend": frontend, "sanitized": sanitized})
+    for mode in ("ui", state):
+        result = subprocess.run([str(executable), mode], capture_output=True, text=True, timeout=30, env=environment)
+        (tmp_path / f"{mode}-stdout.txt").write_text(result.stdout)
+        (tmp_path / f"{mode}-stderr.txt").write_text(result.stderr)
+        (tmp_path / f"{mode}-result.json").write_text(
+            json.dumps({"state": mode, "returncode": result.returncode, "frontend": frontend, "sanitized": sanitized})
         )
-        assert "UI2_FINAL_RELEASE worker-entered" in result.stderr, result.stderr
-        if state == "closed":
+        if mode == "ui":
             assert result.returncode == 0, result.stdout + result.stderr
-            assert "UI2_FINAL_RELEASE worker-returned" in result.stderr
-            assert "UI2_FINAL_RELEASE joined failed=0" in result.stderr
+            assert "PASS: UI2 closed affine owner released on UI thread" in result.stdout
         else:
+            assert "UI2_FINAL_RELEASE worker-entered" in result.stderr, result.stderr
             assert result.returncode == -signal.SIGABRT, result.stdout + result.stderr
-            assert "Native application destroyed before subtree cleanup completed" in result.stderr
+            assert "Callback scope destruction requires its creating thread" in result.stderr
             assert "UI2_FINAL_RELEASE worker-returned" not in result.stderr
             assert "UI2_FINAL_RELEASE joined" not in result.stderr

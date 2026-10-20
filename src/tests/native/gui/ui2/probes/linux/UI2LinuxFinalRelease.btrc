@@ -1,5 +1,6 @@
 import Library.Callback;
 import Library.BackgroundJobs.NativeWorker;
+import Library.GUI.IApplication;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.SDL;
 
@@ -7,31 +8,57 @@ import Library.GUI.Linux.SDL;
 #include <stdio.h>
 #include <string.h>
 
-/* The UI transfers the owner to the worker body. No application
- * alias survives on the UI stack when the worker drops this last field. */
+class LinuxAffineWork implements IApplicationWork {
+	public int calls = 0;
+	public void run() { self.calls++; }
+}
+
+/* Cancellation retires the scheduled work, but the component's scope stays
+ * affine until its final release, including after COMPLETE. */
+class LinuxAffineOwner {
+	private CallbackScope _scope = CallbackScope();
+	public ICallbackRegistration registration;
+	public LinuxAffineOwner(LinuxApplication application, LinuxAffineWork work) {
+		self.registration = application.postAfter(60.0, work); self._scope.track(self.registration);
+	}
+
+	public void close() {
+		assert(self._scope.cancel() == CALLBACK_CANCELLATION_COMPLETE && self._scope.pendingCount() == 0);
+		assert(self.registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+/* The UI transfers the component to this body. No component or scope alias
+ * survives on the UI stack when the worker drops its last owning field. */
 class LinuxFinalRelease implements INativeWorkerBody {
-	private LinuxApplication? _application;
-	public LinuxFinalRelease(bool closeFirst) {
-		var application = LinuxApplication(4);
-		if (closeFirst) { assert(application.close() == CALLBACK_CANCELLATION_COMPLETE); }
-		self._application = application;
+	private LinuxAffineOwner? _owner;
+	public LinuxFinalRelease(LinuxApplication application, LinuxAffineWork work, bool closeFirst) {
+		var owner = LinuxAffineOwner(application, work); if (closeFirst) { owner.close(); } self._owner = owner;
 	}
 
 	public int workLoop() {
 		assert(!SDL_IsMainThread());
 		fprintf(stderr, "UI2_FINAL_RELEASE worker-entered\n"); fflush(stderr);
-		self._application = null;
+		self._owner = null;
 		fprintf(stderr, "UI2_FINAL_RELEASE worker-returned\n"); fflush(stderr);
 		return 0;
 	}
 }
 
 int main(int argc, char** argv) {
-	assert(argc == 2 && (strcmp(argv[1], "open") == 0 || strcmp(argv[1], "closed") == 0));
+	assert(argc == 2 && (strcmp(argv[1], "open") == 0 || strcmp(argv[1], "closed") == 0 || strcmp(argv[1], "ui") == 0));
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
-	var transfer = LinuxFinalRelease(strcmp(argv[1], "closed") == 0); var worker = NativeWorker();
+	var application = LinuxApplication(4); var work = LinuxAffineWork();
+	if (strcmp(argv[1], "ui") == 0) {
+		LinuxAffineOwner? owner = LinuxAffineOwner(application, work); var registration = owner.registration;
+		owner.close(); owner = null;
+		assert(SDL_IsMainThread() && registration.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);
+		application.pumpOnce(0); assert(work.calls == 0 && application.close() == CALLBACK_CANCELLATION_COMPLETE);
+		printf("PASS: UI2 closed affine owner released on UI thread\n"); SDL_Quit(); return 0;
+	}
+	var transfer = LinuxFinalRelease(application, work, strcmp(argv[1], "closed") == 0); var worker = NativeWorker();
 	assert(worker.start(transfer) == NATIVE_WORKER_STARTED && worker.join());
-	/* A contained destructor exception is not the approved fatal outcome. */
+	/* Neither a contained exception nor normal return satisfies the fatal rule. */
 	fprintf(stderr, "UI2_FINAL_RELEASE joined failed=%d\n", worker.workerFailed() ? 1 : 0); fflush(stderr);
-	SDL_Quit(); return worker.workerFailed() ? 2 : 0;
+	application.close(); SDL_Quit(); return worker.workerFailed() ? 2 : 0;
 }
