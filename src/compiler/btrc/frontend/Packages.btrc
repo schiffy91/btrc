@@ -495,20 +495,38 @@ class FeManifestBlock {
 	 * storage: most stdlib blocks never declare any of these tables. */
 	private bool hasInventory(string kind) { return self.inventories != null && self.inventories.has(kind); }
 
-	private bool hasInventoryName(string kind, string name) { return self.hasInventory(kind) && self.inventories.get(kind).has(name); }
+	private bool hasInventoryName(string kind, string name) {
+		Map<string, Map<string, bool>>? inventories = self.inventories;
+		if (inventories == null) { return false; }
+		return inventories.has(kind) && inventories.get(kind).has(name);
+	}
 
-	private int inventoryCount(string kind) { return self.hasInventory(kind) ? self.inventories.get(kind).len : 0; }
+	private int inventoryCount(string kind) {
+		Map<string, Map<string, bool>>? inventories = self.inventories;
+		if (inventories == null) { return 0; }
+		return inventories.has(kind) ? inventories.get(kind).len : 0;
+	}
+
+	private Map<string, Map<string, bool>> writableInventories() {
+		Map<string, Map<string, bool>>? existing = self.inventories;
+		if (existing != null) { return existing; }
+		Map<string, Map<string, bool>> inventories = {};
+		self.inventories = inventories;
+		return inventories;
+	}
 
 	private void rememberInventoryName(string kind, string name) {
-		if (self.inventories == null) { self.inventories = {}; }
-		if (!self.inventories.has(kind)) { self.inventories.put(kind, {}); }
-		self.inventories.get(kind).put(name, true);
+		var inventories = self.writableInventories();
+		if (!inventories.has(kind)) { inventories.put(kind, {}); }
+		inventories.get(kind).put(name, true);
 	}
 
 	/* Call only for a present inventory, so absent reads allocate no keys. */
 	private Vector<string> inventoryNames(string kind) {
-		assert(self.hasInventory(kind));
-		return self.inventories.get(kind).keys();
+		Map<string, Map<string, bool>>? inventories = self.inventories;
+		if (inventories == null) { throw "Cannot enumerate an absent manifest inventory"; }
+		assert(inventories.has(kind));
+		return inventories.get(kind).keys();
 	}
 
 	public void declareResource(string name) {
