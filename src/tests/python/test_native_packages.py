@@ -196,6 +196,102 @@ _RESOURCE_BINDING = _BINDING.replace(
     'retain = "WidgetRetain"\nrelease = "WidgetRelease"\n'
 )
 
+
+@pytest.mark.parametrize("shape", ["absent", "tables", "dotted"])
+def test_manifest_optional_inventories_are_isolated_between_blocks(tmp_path, shape, compiler, request):
+    # The same names may be declared in distinct bindings; an intervening plain
+    # binding must not inherit a previous block's optional declarations.
+    binding = _BINDING if shape == "absent" else _RESOURCE_BINDING
+    if shape == "dotted":
+        binding = binding.replace("[native.bindings.resources.WidgetRef]\n", "")
+        for field in ("ownership", "retain", "release"):
+            binding = binding.replace(f"\n{field} =", f"\nresources.WidgetRef.{field} =")
+    source = _binding_package(
+        tmp_path,
+        binding
+        + _BINDING.replace('module = "Api"', 'module = "Plain"')
+        + binding.replace('module = "Api"', 'module = "Other"'),
+    )
+    for module in ("Plain", "Other"):
+        (source.parent / f"{module}.btrc").write_text("// Unloaded native module.\n")
+    if compiler == "python":
+        result = _compile(source)
+        assert result.successful, result.failure
+        assert result.c_source
+    else:
+        output = source.with_suffix(".c")
+        result = subprocess.run(
+            [
+                str(request.getfixturevalue("immutable_btrcc")),
+                str(source),
+                "--no-stdlib",
+                "--no-cache",
+                "-o",
+                str(output),
+            ],
+            env={**os.environ, "BTRC_HOME": str(REPO / "src")},
+            capture_output=True,
+            text=True,
+            timeout=RUN_TIMEOUT,
+        )
+        assert result.returncode == 0, result.stderr
+        assert output.read_text()
+
+
+@pytest.mark.parametrize(
+    ("declaration", "python_message", "selfhost_message"),
+    [
+        pytest.param(
+            "[native.bindings.resources.WidgetRef]\n",
+            ".ownership requires reference-counted, unique or com",
+            "requires field 'resources.WidgetRef.ownership'",
+            id="empty-resource",
+        ),
+        pytest.param(
+            "[native.bindings.string-views.WidgetRef]\n",
+            ".string-views.WidgetRef.data",
+            "requires field 'string-views.WidgetRef.data'",
+            id="empty-string-view",
+        ),
+        pytest.param(
+            "[native.bindings.unmanaged-handles.WidgetRef]\n",
+            "requires a selected record-pointer typedef",
+            ".unmanaged-handles.WidgetRef must declare its release",
+            id="empty-unmanaged-handle",
+        ),
+        pytest.param(
+            "[native.bindings.resources.WidgetRef]\n" * 2,
+            "Cannot declare",
+            "duplicate resource table 'WidgetRef'",
+            id="duplicate-empty-resource",
+        ),
+        pytest.param(
+            '[native.bindings.callbacks."WidgetCreate.callback"]\n' * 2,
+            "Cannot declare",
+            "duplicate callback table 'WidgetCreate.callback'",
+            id="duplicate-empty-callback",
+        ),
+        pytest.param(
+            '[native.bindings.callbacks."WidgetCreate.callback"]\n'
+            '[native.bindings.callbacks."WidgetCreate.callback".method-names]\n'
+            '[native.bindings.callbacks."WidgetCreate.callback".method-names]\n',
+            "Cannot declare",
+            "callback method-names requires one preceding callback table and may not be duplicated",
+            id="duplicate-empty-method-names",
+        ),
+    ],
+)
+def test_manifest_optional_inventories_preserve_empty_declarations(
+    tmp_path, declaration, python_message, selfhost_message, compiler, request
+):
+    # No SDK read is needed: user-package metadata is validated even when its
+    # module is not imported. Empty declarations must not become absent tables.
+    binding = _RESOURCE_BINDING.split("owned-results")[0]
+    source = _binding_package(tmp_path, binding + declaration)
+    message = _definition_failure(source, False, compiler, request)
+    assert (python_message if compiler == "python" else selfhost_message) in message
+
+
 _CPP_RESOURCE_BINDING = """
 [[native.bindings]]
 module = "Api"
