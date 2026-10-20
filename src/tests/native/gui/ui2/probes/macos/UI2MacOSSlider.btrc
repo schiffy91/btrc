@@ -30,6 +30,47 @@ class SliderInput {
 		if (event == null) { throw "Cannot create slider keyboard input"; } return event;
 	}
 }
+/* Registration consumes three capture credits. Every new intent must reserve
+ * its next key before changing the model, focus or the native projection. */
+class PressureSliderChecks {
+	class void run(int mode, bool inert) {
+		var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 1, null, mode == 5 ? 4 : 3);
+		var slider = MacOSSlider(inert ? 4.0 : 0.0, inert ? 4.0 : 10.0, 0); slider.stateNode().configure(context); slider.setValue(4.0);
+		var window = NSWindow.new(); if (window == null) { throw "Cannot create pressure slider window"; } window.setReleasedWhenClosed(false);
+		var frame = slider.nativeView().frame(); frame.size.width = 200.0; frame.size.height = 40.0;
+		window.setContentSize(frame.size); window.setContentView(slider.nativeView());
+		var queue = context.createQueue(); slider.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+		var owner = CallbackScope(); var receiver = SliderObservation();
+		slider.onPreview(receiver, owner); slider.onCommit(receiver, owner); slider.onCancel(receiver, owner);
+		var native = (NSSlider?)slider.nativeView(); if (native == null) { throw "Missing pressure slider projection"; }
+		assert(queue.captureOwner().used() == 3 && queue.pendingCount() == 0);
+		if (mode == 1) { assert(window.makeFirstResponder(native)); }
+		double previous = 4.0; int pending = 0;
+		if (mode == 5) {
+			BTRCUI2SliderProbe.send(SliderInput.pointer(slider, window, NSEventTypeLeftMouseDown, 20.0));
+			previous = slider.value(); pending = queue.pendingCount(); assert(previous != 4.0 && pending == 1 && !context.nativeFailed());
+			/* A duplicate down is a no-op, not a failed reservation. */
+			BTRCUI2SliderProbe.send(SliderInput.pointer(slider, window, NSEventTypeLeftMouseDown, 100.0));
+			assert(slider.value() == previous && !context.nativeFailed());
+		}
+		if (mode == 0) { BTRCUI2SliderProbe.send(SliderInput.pointer(slider, window, NSEventTypeLeftMouseDown, 190.0)); }
+		else if (mode == 1) { BTRCUI2SliderProbe.send(SliderInput.key(slider, window, kVK_RightArrow)); }
+		else if (mode == 2 || mode == 5) { BTRCUI2SliderProbe.choose(native, inert ? 4.0 : 8.0); }
+		else if (mode == 3) { assert(!BTRCUI2SliderProbe.increment(native)); }
+		else { assert(!BTRCUI2SliderProbe.decrement(native)); }
+		assert(slider.value() == previous && native.doubleValue() == previous && receiver.events.isEmpty());
+		assert(queue.pendingCount() == pending && context.nativeFailed() == !inert);
+		if (!inert) {
+			assert(context.nativeFailure() == "Native slider capture capacity exceeded");
+			BTRCUI2SliderProbe.choose(native, 2.0); assert(!BTRCUI2SliderProbe.increment(native));
+			assert(slider.value() == previous && native.doubleValue() == previous);
+		}
+		assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE); slider.stateNode().detachWindow(); window.setContentView(null);
+		assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close(); context.close(); assert(signal.close());
+	}
+}
+
 int main() {
 	NSApplication.sharedApplication();
 	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 8);
@@ -54,15 +95,31 @@ int main() {
 	var down = SliderInput.pointer(slider, window, NSEventTypeLeftMouseDown, 20.0);
 	var drag = SliderInput.pointer(slider, window, NSEventTypeLeftMouseDragged, 100.0);
 	var up = SliderInput.pointer(slider, window, NSEventTypeLeftMouseUp, 190.0);
-	assert(slider.invoke(down) == null && receiver.events.isEmpty());
-	assert(slider.invoke(drag) == null && slider.value() == 5.0 && native.doubleValue() == 5.0);
-	assert(slider.invoke(up) == null && slider.value() == 10.0);
+	BTRCUI2SliderProbe.send(down); assert(receiver.events.isEmpty());
+	BTRCUI2SliderProbe.send(drag); assert(slider.value() == 5.0 && native.doubleValue() == 5.0);
+	BTRCUI2SliderProbe.send(up); assert(slider.value() == 10.0);
 	assert(slider.invoke(up) == up);
 	while (context.dispatchOne()) {}
 	assert(receiver.events.len == 2 && receiver.events.get(0).phase == CONTROL_PHASE_PREVIEW);
 	assert(receiver.events.get(1).phase == CONTROL_PHASE_COMMIT && receiver.events.get(1).value == 10.0);
 	assert(receiver.events.get(0).context.interaction == receiver.events.get(1).context.interaction);
 	receiver.events.clear();
+	for (int order = 0; order < 3; order++) {
+		slider.setValue(7.0); BTRCUI2SliderProbe.send(down); double tracking = slider.value();
+		context.beginTreeMutation();
+		if (order == 0) { BTRCUI2SliderProbe.send(up); }
+		if (order == 2) { BTRCUI2SliderProbe.send(SliderInput.key(slider, window, kVK_Escape)); }
+		else { NSNotificationCenter.defaultCenter().postNotificationName(NSWindowDidResignKeyNotification, window); }
+		if (order != 0) { BTRCUI2SliderProbe.send(up); }
+		assert(slider.value() == tracking && !context.dispatchOne()); context.endTreeMutation();
+		while (context.dispatchOne()) {}
+		assert(receiver.events.len == 2 && receiver.events.get(0).phase == CONTROL_PHASE_PREVIEW);
+		assert(receiver.events.get(1).phase == (order == 0 ? CONTROL_PHASE_COMMIT : CONTROL_PHASE_CANCEL));
+		assert(slider.value() == (order == 0 ? 10.0 : 7.0));
+		if (order != 0) { assert(receiver.events.get(1).cancelReason == (order == 1 ? CONTROL_CANCEL_CAPTURE_LOSS : CONTROL_CANCEL_ESCAPE)); }
+		receiver.events.clear();
+	}
+	slider.setValue(10.0);
 	assert(slider.invoke(down) == null);
 	assert(slider.invoke(SliderInput.key(slider, window, kVK_Escape)) == null && slider.value() == 10.0);
 	while (context.dispatchOne()) {}
@@ -80,8 +137,8 @@ int main() {
 	while (context.dispatchOne()) {}
 	assert(receiver.events.isEmpty()); // accepted events recheck eligibility
 	slider.setEnabled(true); assert(window.makeFirstResponder(native));
-	assert(slider.invoke(SliderInput.key(slider, window, kVK_LeftArrow)) == null && slider.value() == 6.0);
-	assert(slider.invoke(SliderInput.key(slider, window, kVK_PageUp)) == null && slider.value() == 10.0);
+	BTRCUI2SliderProbe.send(SliderInput.key(slider, window, kVK_LeftArrow)); assert(slider.value() == 6.0);
+	BTRCUI2SliderProbe.send(SliderInput.key(slider, window, kVK_PageUp)); assert(slider.value() == 10.0);
 	while (context.dispatchOne()) {}
 	assert(receiver.events.len == 2);
 	assert(receiver.events.get(0).adjustment == UI_RANGE_ADJUST_SMALL_DECREMENT);
@@ -121,12 +178,13 @@ int main() {
 	context.beginTreeMutation();
 	NSNotificationCenter.defaultCenter().postNotificationName(NSWindowDidResignKeyNotification, window);
 	context.endTreeMutation();
-	assert(slider.invoke(up) == null); assert(slider.invoke(down) == null);
+	assert(slider.invoke(up) == up && slider.value() == 7.0); assert(slider.invoke(down) == null);
 	while (context.dispatchOne()) {}
 	assert(slider.value() != 10.0);
 	assert(slider.invoke(up) == null && slider.value() == 10.0);
 	while (context.dispatchOne()) {}
-	assert(receiver.events.len == 4 && receiver.events.get(3).phase == CONTROL_PHASE_COMMIT);
+	assert(receiver.events.len == 4 && receiver.events.get(1).phase == CONTROL_PHASE_CANCEL && receiver.events.get(1).cancelReason == CONTROL_CANCEL_CAPTURE_LOSS);
+	assert(receiver.events.get(3).phase == CONTROL_PHASE_COMMIT && receiver.events.get(1).context.interaction < receiver.events.get(3).context.interaction);
 	slider.stateNode().detachWindow(); window.setContentView(null);
 	assert(slider.close() == CALLBACK_CANCELLATION_COMPLETE); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	for (int cycle = 0; cycle < 100; cycle++) {
@@ -156,9 +214,10 @@ int main() {
 	assert(failed.invoke(SliderInput.pointer(failed, window, NSEventTypeLeftMouseDown, 20.0)) == null);
 	context.recordNativeFailure("injected slider source failure");
 	failed.setEnabled(false); assert(!failed.isEnabled());
-	failed.stateNode().detachWindow(); window.setContentView(null);
+	assert(failedOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE); failed.stateNode().detachWindow(); window.setContentView(null);
 	assert(failed.close() == CALLBACK_CANCELLATION_COMPLETE && failedOwner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	window.close();
 	context.close(); assert(signal.close());
+	for (int mode = 0; mode < 5; mode++) { PressureSliderChecks.run(mode, false); PressureSliderChecks.run(mode, true); } PressureSliderChecks.run(5, false);
 	print("PASS: UI2 macOS slider model and semantic controls"); return 0;
 }

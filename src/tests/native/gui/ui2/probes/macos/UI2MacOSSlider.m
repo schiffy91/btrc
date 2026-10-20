@@ -12,4 +12,8 @@
 }
 + (BOOL)increment:(NSSlider *)slider { return [slider accessibilityPerformIncrement]; }
 + (BOOL)decrement:(NSSlider *)slider { return [slider accessibilityPerformDecrement]; }
++ (void)send:(NSEvent *)event {
+    NSCAssert(!event.window.visible && !event.window.keyWindow, @"Slider probe must remain unshown");
+    [NSApp sendEvent:event];
+}
 @end

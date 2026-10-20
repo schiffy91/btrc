@@ -17,13 +17,6 @@ class MacOSSliderFocus implements IAppKitNotificationObserver {
 	public void invoke(NSNotification notification) { self._slider.focusLost(notification); }
 }
 
-class MacOSSliderAction implements IAppKitSliderAction {
-	private MacOSSlider _slider;
-	public MacOSSliderAction(MacOSSlider slider) { self._slider = slider; }
-
-	public void invoke() { self._slider.acceptAssistive(); }
-}
-
 /* The instantiated native adapter can outlive the public control. Its scoped
  * receiver drops the owner after admitted accessibility calls have returned. */
 class MacOSSliderAccessibility implements IAppKitSliderAccessibility, ICallbackRegistration {
@@ -89,7 +82,11 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	private MacOSNativeSettlementRegistration? _settlement;
 	private NSWindow? _trackingWindow;
 	private long long _trackingSerial = 0LL;
-	private long long _pendingFocusLoss = 0LL;
+	private long long _pendingTerminal = 0LL;
+	private bool _pendingCommit = false;
+	private double _pendingValue = 0.0;
+	private ControlOrigin _pendingOrigin = CONTROL_ORIGIN_SYSTEM;
+	private ControlCancelReason _pendingReason = CONTROL_CANCEL_NONE;
 
 	public MacOSSlider(double minimum, double maximum, int intervals = 0) {
 		if (!NSThread.isMainThread()) { throw "Native sliders require the main thread"; }
@@ -105,7 +102,6 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 		self.project();
 		try {
 			self._native.track(accessibility); accessibility.bind(self);
-			slider.setTarget(MacOSSliderAction(self), self._native);
 			NSEvent.addLocalMonitorForEventsMatchingMask(NSEventMaskLeftMouseDown | NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp | NSEventMaskKeyDown, self, self._native);
 			var focus = MacOSSliderFocus(self);
 			NSNotificationCenter.defaultCenter().addObserverForName(NSWindowDidResignKeyNotification, null, null, focus, self._native);
@@ -169,18 +165,18 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	}
 
 	public void setRange(double minimum, double maximum, double step) {
-		self.stateNode().requireMutation(); self.control();
+		self.stateNode().requireMutation(); self.control(); self.settleNative();
 		if (self._interaction.setRange(minimum, maximum, step)) { self.project(); }
 	}
 
 	public void setRangeValue(SliderRange range, double value) {
 		self.stateNode().requireMutation(); self.control();
-		if (range == null) { throw "Slider range is missing"; }
+		if (range == null) { throw "Slider range is missing"; } self.settleNative();
 		if (self._interaction.setRangeValue(range.minimum, range.maximum, range.step, value)) { self.project(); }
 	}
 
 	public void setValue(double value) {
-		self.stateNode().requireMutation(); self.control();
+		self.stateNode().requireMutation(); self.control(); self.settleNative();
 		if (self._interaction.setValue(value)) { self.project(); }
 	}
 
@@ -190,28 +186,35 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 		self._settlement = context.registerNativeSettlement(self, self._native);
 	}
 
-	public void settleNative() {
-		long long pending = self._pendingFocusLoss; self._pendingFocusLoss = 0LL;
-		if (pending > 0LL && pending == self._trackingSerial) { self.cancelTracking(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); }
+	/* A dequeued terminal survives a finite tree transaction in the settlement
+	 * already owned by this interaction. The first terminal wins. */
+	private void deferTerminal(bool commit, double value, ControlOrigin origin, ControlCancelReason reason) {
+		if (self._pendingTerminal == self._trackingSerial) { return; }
+		self._pendingTerminal = self._trackingSerial; self._pendingCommit = commit; self._pendingValue = value; self._pendingOrigin = origin; self._pendingReason = reason;
+		var settlement = self._settlement; if (settlement == null) { throw "Slider terminal settlement was not reserved"; } settlement.request();
 	}
 
-	public void acceptAssistive() {
-		try {
-			if (!self._closing && self.stateNode().effectiveEligible()) {
-				self.reserveSettlement();
-				self._interaction.assistiveValue(self.stateNode().generation(), self.control().doubleValue()); self.project();
-			}
-		} catch (string error) {
-			var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); }
+	public void settleNative() {
+		long long pending = self._pendingTerminal; bool commit = self._pendingCommit; double value = self._pendingValue;
+		var origin = self._pendingOrigin; var reason = self._pendingReason; self._pendingTerminal = 0LL;
+		if (pending > 0LL && pending == self._trackingSerial && self._interaction.active()) {
+			if (commit) { self._interaction.commitValue(value); self.project(); }
+			else { self.cancelTracking(origin, reason); }
 		}
+	}
+
+	private bool nativeInputAllowed() {
+		var context = self.stateNode().context();
+		return context != null && !context.treeMutationActive() && !context.nativeFailed();
 	}
 
 	public void setAccessibilityValue(double value) {
 		try {
+			if (self.nativeInputAllowed()) { self.settleNative(); }
 			var state = self.stateNode(); var context = state.context();
-			if (!self._closing && state.effectiveEligible() && context != null && !context.treeMutationActive()) {
+			if (!self._closing && state.effectiveEligible() && context != null && self.nativeInputAllowed() && !self._interaction.inert()) {
 				var range = self._interaction.range();
-				if (value >= range.minimum && value <= range.maximum) { self.reserveSettlement(); self._interaction.assistiveValue(state.generation(), value); self.project(); }
+				if (value >= range.minimum && value <= range.maximum) { self.reserveSettlement(); if (!self._interaction.assistiveValue(state.generation(), value)) { throw "Native slider capture capacity exceeded"; } self.project(); }
 			}
 		} catch (string error) { var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); } }
 	}
@@ -219,9 +222,10 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	public bool adjustAccessibility(UIRangeAdjustment adjustment) {
 		bool accepted = false;
 		try {
+			if (self.nativeInputAllowed()) { self.settleNative(); }
 			var state = self.stateNode(); var context = state.context();
-			if (!self._closing && state.effectiveEligible() && context != null && !context.treeMutationActive()) {
-				self.reserveSettlement(); accepted = self._interaction.adjust(state.generation(), adjustment, 1); self.project();
+			if (!self._closing && state.effectiveEligible() && context != null && self.nativeInputAllowed() && !self._interaction.inert()) {
+				self.reserveSettlement(); accepted = self._interaction.adjust(state.generation(), adjustment, 1); if (!accepted) { throw "Native slider capture capacity exceeded"; } self.project();
 			}
 		} catch (string error) { var context = self.stateNode().context(); if (context != null) { context.recordNativeFailure(error); } }
 		return accepted;
@@ -248,6 +252,7 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	}
 
 	private void cancelTracking(ControlOrigin origin, ControlCancelReason reason) {
+		self.settleNative();
 		try { self._interaction.cancel(origin, reason); } finally { self.project(); }
 	}
 
@@ -264,8 +269,7 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 		if (notification.name() == NSApplicationDidResignActiveNotification || notification.object() == window) {
 			var context = self.stateNode().context();
 			if (context != null && context.treeMutationActive()) {
-				self._pendingFocusLoss = self._trackingSerial; var settlement = self._settlement;
-				if (settlement == null) { throw "Slider focus settlement was not reserved"; } settlement.request();
+				self.deferTerminal(false, 0.0, CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS);
 			} else { self.cancelTracking(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); }
 		}
 	}
@@ -294,6 +298,7 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 	}
 
 	private NSEvent? input(NSEvent event) {
+		if (self.nativeInputAllowed()) { self.settleNative(); }
 		var slider = self._slider;
 		if (self._closing || slider == null || !self.stateNode().effectiveEligible()) { return event; }
 		NSView view = slider; var window = view.window();
@@ -303,7 +308,13 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 			NSResponder responder = slider;
 			if (window.firstResponder() != responder && !self._interaction.active()) { return event; }
 			var key = event.keyCode();
-			if (key == kVK_Escape && self._interaction.active()) { self.cancelTracking(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); return null; }
+			if (key == kVK_Escape && self._interaction.active()) {
+				var context = self.stateNode().context();
+				if (context != null && !context.nativeFailed()) {
+					if (context.treeMutationActive()) { self.deferTerminal(false, 0.0, CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); }
+					else { self.cancelTracking(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); }
+				} return null;
+			}
 			UIRangeAdjustment adjustment = UI_RANGE_ADJUST_NONE;
 			if (key == kVK_LeftArrow || key == kVK_DownArrow) { adjustment = UI_RANGE_ADJUST_SMALL_DECREMENT; }
 			else if (key == kVK_RightArrow || key == kVK_UpArrow) { adjustment = UI_RANGE_ADJUST_SMALL_INCREMENT; }
@@ -311,20 +322,33 @@ class MacOSSlider implements ISlider, IMacOSView, IMacOSViewEligibility, IAppKit
 			else if (key == kVK_PageDown) { adjustment = UI_RANGE_ADJUST_LARGE_DECREMENT; }
 			else if (key == kVK_Home) { adjustment = UI_RANGE_ADJUST_MINIMUM; }
 			else if (key == kVK_End) { adjustment = UI_RANGE_ADJUST_MAXIMUM; }
-			if (adjustment != UI_RANGE_ADJUST_NONE) { self.reserveSettlement(); self._interaction.adjust(self.stateNode().generation(), adjustment, 1); self.project(); return null; }
+			if (adjustment != UI_RANGE_ADJUST_NONE) {
+				if (!self.nativeInputAllowed() || self._interaction.inert()) { return null; }
+				self.reserveSettlement(); if (!self._interaction.adjust(self.stateNode().generation(), adjustment, 1)) { throw "Native slider capture capacity exceeded"; } self.project(); return null;
+			}
 			return event;
 		}
 		if (type == NSEventTypeLeftMouseDown) {
 			var content = window.contentView(); if (content == null) { return event; }
 			var hit = content.hitTest(content.convertPoint(event.locationInWindow(), null));
 			if (hit != view && (hit == null || !hit.isDescendantOf(view))) { return event; }
+			if (!self.nativeInputAllowed() || self._interaction.active() || self._interaction.inert()) { return null; }
 			self.reserveSettlement();
 			if (self._trackingSerial == 9223372036854775807LL) { throw "Slider tracking identities exhausted"; }
-			if (self._interaction.begin(self.stateNode().generation())) { self._trackingSerial++; self._trackingWindow = window; window.makeFirstResponder(slider); self._interaction.preview(self.valueAt(event)); self.project(); }
+			if (!self._interaction.begin(self.stateNode().generation())) { throw "Native slider capture capacity exceeded"; }
+			self._trackingSerial++; self._trackingWindow = window; window.makeFirstResponder(slider);
+			if (!self._interaction.preview(self.valueAt(event))) { throw "Native slider preview capacity exceeded"; } self.project();
 			return null;
 		}
-		if (type == NSEventTypeLeftMouseDragged && self._interaction.active()) { self._interaction.preview(self.valueAt(event)); self.project(); return null; }
-		if (type == NSEventTypeLeftMouseUp && self._interaction.active()) { self._interaction.commitValue(self.valueAt(event)); self.project(); return null; }
+		if (type == NSEventTypeLeftMouseDragged && self._interaction.active()) { if (self.nativeInputAllowed()) { if (!self._interaction.preview(self.valueAt(event))) { throw "Native slider preview capacity exceeded"; } self.project(); } return null; }
+		if (type == NSEventTypeLeftMouseUp && self._interaction.active()) {
+			var context = self.stateNode().context();
+			if (context != null && !context.nativeFailed()) {
+				double value = self.valueAt(event);
+				if (context.treeMutationActive()) { self.deferTerminal(true, value, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE); }
+				else { self._interaction.commitValue(value); self.project(); }
+			} return null;
+		}
 		return event;
 	}
 

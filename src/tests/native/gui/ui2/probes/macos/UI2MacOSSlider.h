@@ -5,4 +5,5 @@
 + (void)rejectInvalid:(NSSlider *)slider;
 + (BOOL)increment:(NSSlider *)slider;
 + (BOOL)decrement:(NSSlider *)slider;
++ (void)send:(NSEvent *)event;
 @end

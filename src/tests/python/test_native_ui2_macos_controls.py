@@ -38,6 +38,7 @@ def test_macos_ui2_controls(native_project, native_compile, gui_provider_root, s
             "+[BTRCUI2SliderProbe increment:]",
             "+[BTRCUI2SliderProbe rejectInvalid:]",
             "+[BTRCUI2SliderProbe decrement:]",
+            "+[BTRCUI2SliderProbe send:]",
         ],
         "UI2MacOSSelect": [
             "+[BTRCUI2SelectProbe begin:]",
