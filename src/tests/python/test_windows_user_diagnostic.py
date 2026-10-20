@@ -86,6 +86,8 @@ def test_user_diagnostic_retains_separate_mode_and_normal_artifacts(tmp_path, mo
     binary = evidence / "native-shell-windows-x64" / driver.shell_name("python", "windows-x64", True)
     binary.parent.mkdir(parents=True)
     binary.write_bytes(b"test executable placeholder; never launched")
+    observer = binary.with_name("observer-" + binary.name)
+    observer.write_bytes(b"test observer placeholder; never launched")
     monkeypatch.setattr(driver, "REPO", tmp_path)
     monkeypatch.setattr(driver, "sys", SimpleNamespace(platform="win32"))
     monkeypatch.setenv("BTRC_WIN32_EVIDENCE_DIR", str(evidence))
@@ -100,9 +102,17 @@ def test_user_diagnostic_retains_separate_mode_and_normal_artifacts(tmp_path, mo
         label = mode or "normal"
 
         def failed_shell(command, environment, timeout, label=label):
-            assert command[1] == "102" and timeout == 1200
             assert "BTRC_UI_SHELL_NO_AX" not in environment
             assert "BTRC_UI_SHELL_NO_SCROLL" not in environment
+            if command == [str(observer)]:
+                assert timeout == 60
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout="OBSERVER passed\n" + label,
+                    stderr="SHELL resource-window cycle=0 thread=1 handle=0x1 "
+                    "message-only=0 class=BtrcObserverForeignAnsi\n" + label,
+                )
+            assert command[0] == str(binary) and command[1] == "102" and timeout == 1200
             return SimpleNamespace(returncode=7, stdout=label, stderr=label + " failure evidence")
 
         monkeypatch.setattr(driver, "run_shell", failed_shell)
@@ -112,4 +122,9 @@ def test_user_diagnostic_retains_separate_mode_and_normal_artifacts(tmp_path, mo
         directory = base / mode if mode else base
         assert (directory / "shell.stdout").read_text() == (mode or "normal")
         assert (directory / "shell.stderr").read_text() == (mode or "normal") + " failure evidence"
+        assert (directory / "observer.stdout").read_text() == "OBSERVER passed\n" + (mode or "normal")
+        assert (directory / "observer.stderr").read_text() == (
+            "SHELL resource-window cycle=0 thread=1 handle=0x1 "
+            "message-only=0 class=BtrcObserverForeignAnsi\n" + (mode or "normal")
+        )
     assert not (base / "BTRC_UI_SHELL_NO_SCROLL").exists()
