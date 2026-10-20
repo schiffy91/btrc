@@ -592,7 +592,7 @@ reports = ["skip-report"]
 [[jobs]]
 workflow = "windows.yml"
 job = "win32-native-build"
-tiers = ["main", "extended", "release"]
+tiers = ["main", "extended", "release", "native-gui"]
 changed_tiers = ["pr", "lane"]
 changed_paths = [
   "src/tests/python/test_native_win32_subclass.py",
@@ -657,7 +657,7 @@ reports = ["skip-report"]
 job = "windows.yml/win32-native"
 target = "windows-x64"
 runner = "windows-latest"
-tiers = ["main", "extended", "release"]
+tiers = ["main", "extended", "release", "native-gui"]
 changed_tiers = ["pr", "lane"]
 changed_paths = [
   "src/tests/python/test_native_win32_subclass.py",
@@ -715,7 +715,7 @@ changed_paths = [
 job = "windows.yml/win32-native"
 target = "windows-arm64"
 runner = "windows-11-arm"
-tiers = ["main", "extended", "release"]
+tiers = ["main", "extended", "release", "native-gui"]
 changed_tiers = ["pr", "lane"]
 changed_paths = [
   "src/tests/python/test_native_win32_subclass.py",
