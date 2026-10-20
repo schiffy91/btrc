@@ -9,9 +9,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 
-#define TRACK_START_STAMP 52776558133248ULL
-#define TRACK_INPUT_STAMP 70368744177664ULL
+#define TRACK_START_SUBTYPE ((short)0x4540)
+#define TRACK_INPUT_ID 70368744177664ULL
+#define TRACK_MOUSE_NUMBER 0x454000
 #define TRACE_LIMIT 64
 /* Native input has its own bounded identity ledger. A dequeue is not a UI2
  * semantic callback; both observations are preserved in the report. */
@@ -69,7 +71,9 @@ static _Atomic uint64_t traceCounts[TRACE_COUNTERS], traceLast[TRACE_COUNTERS];
 static _Atomic bool traceStop;
 static pthread_t traceThread;
 static CFRunLoopObserverRef traceObserver;
-static FILE *traceStream;
+static FILE *traceStream, *eventTraceStream;
+static pthread_mutex_t eventTraceMutex = PTHREAD_MUTEX_INITIALIZER;
+static unsigned eventTraceRows;
 static void traceRecord(enum LoopTraceCounter counter) {
     if (!traceEnabled) { return; }
     atomic_fetch_add_explicit(&traceCounts[counter], 1, memory_order_relaxed);
@@ -100,12 +104,36 @@ static void *traceWrite(void *context) {
     }
     return NULL;
 }
+static void traceEvent(const char *phase, NSEvent *event, NSEventMask mask, NSRunLoopMode mode, BOOL dequeue) {
+    pthread_mutex_lock(&eventTraceMutex);
+    if (!eventTraceStream || eventTraceRows == TRACE_LIMIT) { pthread_mutex_unlock(&eventTraceMutex); return; }
+    @autoreleasepool {
+        NSMutableDictionary *row = [@{@"schema":@"btrc.ui2.e40-event-identity/1", @"row":@(eventTraceRows),
+            @"phase":[NSString stringWithUTF8String:phase], @"observed_ns":@(e40LoadNow()),
+            @"uptime_seconds":@(NSProcessInfo.processInfo.systemUptime), @"mask":@(mask),
+            @"mode":mode ? (id)mode : NSNull.null, @"dequeue":@(dequeue),
+            @"limit_reached":@(eventTraceRows == TRACE_LIMIT - 1)} mutableCopy];
+        if (event) {
+            row[@"type"] = @(event.type); row[@"timestamp_seconds"] = @(event.timestamp); row[@"window"] = @(event.windowNumber);
+            if (event.type == NSEventTypeApplicationDefined) { row[@"subtype"] = @(event.subtype); row[@"data1"] = @(event.data1); row[@"data2"] = @(event.data2); }
+            if (event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseDragged || event.type == NSEventTypeLeftMouseUp) { row[@"event_number"] = @(event.eventNumber); }
+        }
+        NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:row options:0 error:&error];
+        assert(data && !error && fwrite(data.bytes, 1, data.length, eventTraceStream) == data.length);
+        assert(fputc('\n', eventTraceStream) != EOF && fflush(eventTraceStream) == 0); [row release]; eventTraceRows++;
+    }
+    pthread_mutex_unlock(&eventTraceMutex);
+}
 static void traceSetup(NSString *output) {
     const char *enabled = getenv("BTRC_UI2_E40_TRACE");
     if (!enabled || strcmp(enabled, "1") != 0) { return; }
     assert(!traceEnabled); traceEnabled = true;
     NSString *path = [output stringByAppendingString:@".loop-trace.jsonl"];
     traceStream = fopen(path.fileSystemRepresentation, "w"); assert(traceStream);
+    NSString *events = [output stringByAppendingString:@".event-identity.jsonl.txt"];
+    pthread_mutex_lock(&eventTraceMutex);
+    eventTraceStream = fopen(events.fileSystemRepresentation, "w"); assert(eventTraceStream);
+    pthread_mutex_unlock(&eventTraceMutex);
     CFRunLoopObserverContext context = {0};
     traceObserver = CFRunLoopObserverCreate(NULL, kCFRunLoopBeforeSources | kCFRunLoopBeforeWaiting | kCFRunLoopAfterWaiting | kCFRunLoopExit,
         true, 0, traceObserve, &context); assert(traceObserver);
@@ -117,7 +145,11 @@ static void traceCleanup(void) {
     CFRunLoopObserverInvalidate(traceObserver); CFRelease(traceObserver); traceObserver = NULL;
     atomic_store_explicit(&traceStop, true, memory_order_release);
     assert(pthread_join(traceThread, NULL) == 0); assert(fclose(traceStream) == 0); traceStream = NULL;
-    traceEnabled = false;
+    /* Load joins its producer before requestQuit and this cleanup. The file
+     * lock also serializes closure with any entered event trace writer. */
+    pthread_mutex_lock(&eventTraceMutex);
+    assert(fclose(eventTraceStream) == 0); eventTraceStream = NULL;
+    pthread_mutex_unlock(&eventTraceMutex); traceEnabled = false;
 }
 
 static void entry(void) {
@@ -133,17 +165,27 @@ static NSView *findControl(NSView *view, Class type) {
     for (NSView *child in view.subviews) { NSView *found = findControl(child, type); if (found) { return found; } }
     return nil;
 }
+static bool isTrigger(NSEvent *event) {
+    return event && event.type == NSEventTypeApplicationDefined && event.subtype == TRACK_START_SUBTYPE &&
+        event.data1 == 1 && event.data2 == 0 && event.windowNumber == targetNumber;
+}
 static int identity(NSEvent *event) {
     if (!event) { return 0; }
-    uint64_t stamp = (uint64_t)event.timestamp;
-    if (trialKind == 3 && event.CGEvent) { stamp = (uint64_t)CGEventGetIntegerValueField(event.CGEvent, kCGEventSourceUserData); }
-    return stamp > TRACK_INPUT_STAMP && stamp <= TRACK_INPUT_STAMP + TRACE_LIMIT ? (int)(stamp - TRACK_INPUT_STAMP) : 0;
+    if (trialKind == 3) {
+        CGEventRef native = event.CGEvent;
+        uint64_t value = native ? (uint64_t)CGEventGetIntegerValueField(native, kCGEventSourceUserData) : 0;
+        return value > TRACK_INPUT_ID && value <= TRACK_INPUT_ID + TRACE_LIMIT ? (int)(value - TRACK_INPUT_ID) : 0;
+    }
+    if (event.type != NSEventTypeLeftMouseDown && event.type != NSEventTypeLeftMouseDragged && event.type != NSEventTypeLeftMouseUp) { return 0; }
+    NSInteger number = event.eventNumber;
+    NSInteger window = trialKind == 4 ? independentNumber : targetNumber;
+    return event.windowNumber == window && number > TRACK_MOUSE_NUMBER && number <= TRACK_MOUSE_NUMBER + TRACE_LIMIT ? (int)(number - TRACK_MOUSE_NUMBER) : 0;
 }
 static NSEvent *observeNextEvent(id receiver, SEL selector, NSEventMask mask, NSDate *until, NSRunLoopMode mode, BOOL dequeue) {
-    traceRecord(TRACE_NEXT_ENTER);
+    traceRecord(TRACE_NEXT_ENTER); traceEvent("next-enter", nil, mask, mode, dequeue);
     NSEvent *event = ((NSEvent *(*)(id, SEL, NSEventMask, NSDate *, NSRunLoopMode, BOOL))originalNextEvent)(receiver, selector, mask, until, mode, dequeue);
-    traceRecord(TRACE_NEXT_RETURN); traceRecord(event ? TRACE_NEXT_EVENT : TRACE_NEXT_NIL);
-    if (traceEnabled && event && event.timestamp == (double)TRACK_START_STAMP && event.windowNumber == targetNumber) {
+    traceRecord(TRACE_NEXT_RETURN); traceRecord(event ? TRACE_NEXT_EVENT : TRACE_NEXT_NIL); traceEvent("next-return", event, mask, mode, dequeue);
+    if (traceEnabled && isTrigger(event)) {
         traceRecord(dequeue ? TRACE_TRIGGER_DEQUEUE : TRACE_TRIGGER_PEEK);
     }
     int sequence = dequeue ? identity(event) : 0;
@@ -164,7 +206,8 @@ static NSEvent *observeNextEvent(id receiver, SEL selector, NSEventMask mask, NS
 }
 static void observeSendEvent(id receiver, SEL selector, NSEvent *event) {
     traceRecord(TRACE_SEND_ENTER);
-    if (traceEnabled && event && event.timestamp == (double)TRACK_START_STAMP && event.windowNumber == targetNumber) { traceRecord(TRACE_TRIGGER_SEND); }
+    traceEvent("send-enter", event, 0, nil, NO);
+    if (traceEnabled && isTrigger(event)) { traceRecord(TRACE_TRIGGER_SEND); }
     int sequence = identity(event);
     bool down = trialKind == 2 && sequence && event.type == NSEventTypeLeftMouseDown;
     bool up = trialKind == 2 && sequence && event.type == NSEventTypeLeftMouseUp;
@@ -187,14 +230,16 @@ static int reserveInput(NSEventType type) {
 }
 static void postMouse(NSEventType type, NSPoint point, NSInteger window) {
     int sequence = reserveInput(type);
-    NSEvent *event = [NSEvent mouseEventWithType:type location:point modifierFlags:0 timestamp:(double)(TRACK_INPUT_STAMP + sequence)
-        windowNumber:window context:nil eventNumber:sequence clickCount:1 pressure:type == NSEventTypeLeftMouseUp ? 0.0 : 1.0];
-    assert(event); [NSApp postEvent:event atStart:NO];
+    NSEvent *event = [NSEvent mouseEventWithType:type location:point modifierFlags:0 timestamp:NSProcessInfo.processInfo.systemUptime
+        windowNumber:window context:nil eventNumber:TRACK_MOUSE_NUMBER + sequence clickCount:1 pressure:type == NSEventTypeLeftMouseUp ? 0.0 : 1.0];
+    assert(event && event.type == type && identity(event) == sequence && event.windowNumber == window);
+    assert(isfinite(event.timestamp) && event.timestamp >= 0.0 && event.timestamp <= NSProcessInfo.processInfo.systemUptime);
+    traceEvent("input-pre-post", event, 0, nil, NO); [NSApp postEvent:event atStart:NO];
 }
 static void postResize(CGEventType type, CGPoint point) {
     int sequence = reserveInput(type == kCGEventLeftMouseDown ? NSEventTypeLeftMouseDown : type == kCGEventLeftMouseUp ? NSEventTypeLeftMouseUp : NSEventTypeLeftMouseDragged);
     CGEventRef event = CGEventCreateMouseEvent(NULL, type, point, kCGMouseButtonLeft); assert(event);
-    CGEventSetIntegerValueField(event, kCGEventSourceUserData, (int64_t)(TRACK_INPUT_STAMP + sequence));
+    CGEventSetIntegerValueField(event, kCGEventSourceUserData, (int64_t)(TRACK_INPUT_ID + sequence));
     CGEventPost(kCGHIDEventTap, event); CFRelease(event);
 }
 static void postMenuKey(bool finish) {
@@ -206,8 +251,8 @@ static void postMenuKey(bool finish) {
     CGKeyCode key = finish ? 36 : 125;
     CGEventRef press = CGEventCreateKeyboardEvent(NULL, key, true);
     CGEventRef release = CGEventCreateKeyboardEvent(NULL, key, false); assert(press && release);
-    CGEventSetIntegerValueField(press, kCGEventSourceUserData, (int64_t)(TRACK_INPUT_STAMP + sequence * 2));
-    CGEventSetIntegerValueField(release, kCGEventSourceUserData, (int64_t)(TRACK_INPUT_STAMP + sequence * 2 + 1));
+    CGEventSetIntegerValueField(press, kCGEventSourceUserData, (int64_t)(TRACK_INPUT_ID + sequence * 2));
+    CGEventSetIntegerValueField(release, kCGEventSourceUserData, (int64_t)(TRACK_INPUT_ID + sequence * 2 + 1));
     CGEventSetIntegerValueField(press, kCGKeyboardEventAutorepeat, 0);
     pthread_mutex_lock(&trackingMutex);
     inputs[sequence - 1].previousHighlight = highlighted;
@@ -332,13 +377,16 @@ void e40TrackingSetup(int trial, NSWindow *window, NSWindow *other, NSString *ou
         resizeBegin = CGPointMake(NSMaxX(window.frame) - 2, top - NSMinY(window.frame) - 2); resizeEnd = CGPointMake(resizeBegin.x + 70, resizeBegin.y + 40);
     }
     triggerMonitor = [[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined handler:^NSEvent *(NSEvent *event) {
-        if (event.timestamp == (double)TRACK_START_STAMP && event.windowNumber == targetNumber) { traceRecord(TRACE_TRIGGER_MONITOR); beginNativeTracking(); return nil; } return event;
+        if (isTrigger(event)) { traceRecord(TRACE_TRIGGER_MONITOR); beginNativeTracking(); return nil; } return event;
     }] retain];
 }
 void e40TrackingStart(void) {
     if (trialKind == 0) { return; }
-    NSEvent *event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0 timestamp:(double)TRACK_START_STAMP windowNumber:targetNumber context:nil subtype:0 data1:0 data2:0];
-    assert(event); traceRecord(TRACE_TRIGGER_POST_ENTER); [NSApp postEvent:event atStart:NO]; traceRecord(TRACE_TRIGGER_POST_RETURN);
+    NSEvent *event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0
+        timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:targetNumber context:nil subtype:TRACK_START_SUBTYPE data1:1 data2:0];
+    assert(isTrigger(event) && isfinite(event.timestamp) && event.timestamp >= 0.0 && event.timestamp <= NSProcessInfo.processInfo.systemUptime);
+    traceEvent("trigger-pre-post", event, 0, nil, NO);
+    traceRecord(TRACE_TRIGGER_POST_ENTER); [NSApp postEvent:event atStart:NO]; traceRecord(TRACE_TRIGGER_POST_RETURN);
 }
 void e40TrackingTick(void) {
     /* Input continues through the actual interaction. Only one identified event
@@ -429,7 +477,7 @@ NSDictionary *e40TrackingReport(void) {
         [native addObject:@{@"identity":@(index + 1), @"type":@(input->eventType), @"submitted_ns":@(input->submitted), @"post_returned_ns":@(input->posted), @"dequeued_ns":trialKind == 1 ? (id)NSNull.null : @(input->dequeued),
             @"effect_observed_ns":@(input->effect), @"semantic_delivered_ns":@(input->semantic), @"window_number":@(input->window),
             @"application_active":@(input->active), @"window_key":@(input->key), @"native_value":@(input->nativeValue), @"previous_highlight":@(input->previousHighlight), @"resulting_highlight":@(input->resultingHighlight),
-            @"posted_event_identities":trialKind == 1 ? @[@(TRACK_INPUT_STAMP + (index + 1) * 2), @(TRACK_INPUT_STAMP + (index + 1) * 2 + 1)] : @[@(TRACK_INPUT_STAMP + index + 1)],
+            @"posted_event_identities":trialKind == 1 ? @[@(TRACK_INPUT_ID + (index + 1) * 2), @(TRACK_INPUT_ID + (index + 1) * 2 + 1)] : @[@((trialKind == 3 ? TRACK_INPUT_ID : TRACK_MOUSE_NUMBER) + index + 1)],
             @"disposition":trialKind == 1 ? (input->effect ? @"native-effect-observed" : @"pending") : input->dequeued ? @"native-dequeued" : @"pending"}];
     }
     for (int index = 0; index < semanticCount; index++) {
@@ -439,7 +487,7 @@ NSDictionary *e40TrackingReport(void) {
     NSDictionary *result = @{@"entered_ns":@(entered), @"exited_ns":@(exited), @"native_entry_observed":@(entered > 0), @"native_exit_observed":@(exited > 0),
         @"run_modal_used":@NO, @"forced_cleanup":@(forcedCleanup), @"service":service, @"service_run_loop_modes":modes.allObjects, @"native_input":native, @"semantic_receipts":semantic,
         @"tracking_model":trialKind == 2 ? @"provider-owned slider drag" : trialKind == 4 ? @"nonmodal sheet" : @"native tracking loop",
-        @"input_identity_observation":trialKind == 1 ? @"CGEventSourceUserData at submission; one outstanding public menu effect; no dequeue acknowledgment" : @"original NSEvent at NSApplication dequeue",
+        @"input_identity_observation":trialKind == 1 ? @"CGEventSourceUserData at submission; one outstanding public menu effect; no dequeue acknowledgment" : trialKind == 3 ? @"CGEventSourceUserData at NSApplication dequeue" : @"NSEvent.eventNumber and windowNumber at NSApplication dequeue",
         @"input_route":@[@"none", @"menu-arrow-highlight-return", @"slider-drag-release", @"native-window-edge-drag", @"independent-public-view-pointer"][trialKind],
         @"in_live_resize_observed":@(liveResize), @"resize_changes":@(resizeChanges), @"highlight_changes":@(highlightChanges),
         @"target_window_number":@(targetNumber), @"independent_window_number":@(independentNumber), @"attached_sheet_observed":@(attachedSheet), @"pointer_down":@(pointerDown), @"pointer_up":@(pointerUp), @"previews":@(previews), @"commits":@(commits), @"unavailable":unavailable ? (id)unavailable : (id)NSNull.null};

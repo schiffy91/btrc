@@ -20,8 +20,12 @@
 #define SLOTS 128
 #define BINS 10002
 #define ACTIVITY_SECONDS 600
-#define INPUT_STAMP 17592186044416ULL
-#define CLOSE_STAMP 35184372088832ULL
+#define CLOSE_SUBTYPE ((short)0x4541)
+/* Retain every submitted identity until trial cleanup. Receipt slots recycle,
+ * but a late duplicate must remain distinguishable from foreign native input. */
+struct InputIdentity { double timestamp; long long sequence; NSInteger window; unsigned short keyCode; bool delivered, rejected; };
+static struct InputIdentity *inputIdentities;
+static size_t inputIdentityCount, inputIdentityCapacity;
 struct Receipt { long long sequence; uint64_t admitted, due; int bytes; };
 struct Metrics {
     struct Receipt receipts[SLOTS];
@@ -169,7 +173,7 @@ void e40LoadSetup(const char *output, int trial) {
     [windows[0] setFrameOrigin:NSMakePoint(100, 400)]; [windows[1] setFrameOrigin:NSMakePoint(700, 400)];
     [NSApp activateIgnoringOtherApps:YES]; [windows[0] makeKeyAndOrderFront:nil];
     closeMonitor = [[NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined handler:^NSEvent *(NSEvent *event) {
-        if (event.timestamp == (double)CLOSE_STAMP && event.windowNumber == windowNumbers[0]) {
+        if (event.subtype == CLOSE_SUBTYPE && event.data1 == 1 && event.data2 == 0 && event.windowNumber == windowNumbers[0]) {
             [windows[0] performClose:nil]; return nil;
         }
         return event;
@@ -274,27 +278,69 @@ void e40LoadPushInput(int window) {
     if (e40LoadPending(0) >= 64) { pthread_mutex_lock(&mutex); inputPauses++; pthread_mutex_unlock(&mutex); return; }
     long long sequence = inputSequence + 1; e40LoadReceipt(0, sequence, 0, (int)sizeof(void *));
     @autoreleasepool {
+        size_t identityIndex = SIZE_MAX;
         NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
-            timestamp:(double)(INPUT_STAMP + (uint64_t)sequence) windowNumber:windowNumbers[window] context:nil
+            timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:windowNumbers[window] context:nil
             characters:@"\uF703" charactersIgnoringModifiers:@"\uF703" isARepeat:NO keyCode:124];
         @try {
             if (!event) { e40LoadReject(0, sequence); pthread_mutex_lock(&mutex); nativeEnqueueErrors++; pthread_mutex_unlock(&mutex); }
-            else { [NSApp postEvent:event atStart:NO]; inputSequence = sequence; }
+            else {
+                assert(isfinite(event.timestamp) && event.timestamp >= 0.0 && event.timestamp <= NSProcessInfo.processInfo.systemUptime);
+                assert(event.type == NSEventTypeKeyDown && event.keyCode == 124 && event.windowNumber == windowNumbers[window]);
+                pthread_mutex_lock(&mutex);
+                assert(inputIdentityCount == 0 || inputIdentities[inputIdentityCount - 1].timestamp < event.timestamp);
+                if (inputIdentityCount == inputIdentityCapacity) {
+                    assert(inputIdentityCapacity <= SIZE_MAX / 2 / sizeof(*inputIdentities));
+                    size_t capacity = inputIdentityCapacity ? inputIdentityCapacity * 2 : 256;
+                    struct InputIdentity *grown = realloc(inputIdentities, capacity * sizeof(*inputIdentities)); assert(grown);
+                    inputIdentities = grown; inputIdentityCapacity = capacity;
+                }
+                identityIndex = inputIdentityCount++;
+                inputIdentities[identityIndex] = (struct InputIdentity){event.timestamp, sequence, event.windowNumber, event.keyCode, false, false};
+                pthread_mutex_unlock(&mutex);
+                [NSApp postEvent:event atStart:NO]; inputSequence = sequence;
+            }
         }
-        @catch (NSException *error) { (void)error; e40LoadReject(0, sequence); pthread_mutex_lock(&mutex); nativeEnqueueErrors++; pthread_mutex_unlock(&mutex); }
+        @catch (NSException *error) {
+            (void)error; e40LoadReject(0, sequence); pthread_mutex_lock(&mutex);
+            if (identityIndex != SIZE_MAX) { assert(!inputIdentities[identityIndex].delivered); inputIdentities[identityIndex].rejected = true; }
+            nativeEnqueueErrors++; pthread_mutex_unlock(&mutex);
+        }
     }
 }
 bool e40LoadInputDelivery(void) {
-    NSEvent *event = NSApp.currentEvent; double stamp = event.timestamp;
-    if (!event || stamp <= (double)INPUT_STAMP || stamp >= (double)CLOSE_STAMP) { return false; }
+    NSEvent *event = NSApp.currentEvent;
+    if (!event || event.type != NSEventTypeKeyDown) { return false; }
+    long long sequence = 0;
+    pthread_mutex_lock(&mutex);
+    size_t first = 0, end = inputIdentityCount;
+    while (first < end) {
+        size_t middle = first + (end - first) / 2;
+        if (inputIdentities[middle].timestamp < event.timestamp) { first = middle + 1; }
+        else { end = middle; }
+    }
+    if (first < inputIdentityCount && inputIdentities[first].timestamp == event.timestamp) {
+        struct InputIdentity *identity = &inputIdentities[first];
+        assert(!identity->delivered && !identity->rejected && identity->window == event.windowNumber && identity->keyCode == event.keyCode);
+        sequence = identity->sequence; identity->delivered = true;
+    }
+    pthread_mutex_unlock(&mutex);
+    if (sequence == 0) { return false; }
     assert(NSApp.active && windows[0].keyWindow && event.windowNumber == windowNumbers[0]);
-    long long sequence = (long long)(stamp - (double)INPUT_STAMP); e40LoadDeliver(0, sequence); return true;
+    e40LoadDeliver(0, sequence); return true;
 }
 void e40LoadPushClose(void) {
     e40LoadReceipt(7, 1, 0, (int)sizeof(void *));
     NSEvent *event = [NSEvent otherEventWithType:NSEventTypeApplicationDefined location:NSZeroPoint modifierFlags:0
-        timestamp:(double)CLOSE_STAMP windowNumber:windowNumbers[0] context:nil subtype:0 data1:0 data2:0];
-    @try { if (!event) { e40LoadReject(7, 1); nativeEnqueueErrors++; } else { [NSApp postEvent:event atStart:NO]; } }
+        timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:windowNumbers[0] context:nil subtype:CLOSE_SUBTYPE data1:1 data2:0];
+    @try {
+        if (!event) { e40LoadReject(7, 1); nativeEnqueueErrors++; }
+        else {
+            assert(isfinite(event.timestamp) && event.timestamp >= 0.0 && event.timestamp <= NSProcessInfo.processInfo.systemUptime);
+            assert(event.type == NSEventTypeApplicationDefined && event.subtype == CLOSE_SUBTYPE && event.data1 == 1 && event.data2 == 0 && event.windowNumber == windowNumbers[0]);
+            [NSApp postEvent:event atStart:NO];
+        }
+    }
     @catch (NSException *error) { (void)error; e40LoadReject(7, 1); nativeEnqueueErrors++; }
 }
 /* Read AppKit geometry only on the main thread. The timestamp explicitly marks
@@ -414,6 +460,7 @@ void e40LoadCleanup(void) {
     if (originalNextDrawable) { Method method = class_getInstanceMethod(drawableClass, @selector(nextDrawable)); method_setImplementation(method, originalNextDrawable); originalNextDrawable = NULL; }
     if (closeMonitor) { [NSEvent removeMonitor:closeMonitor]; [closeMonitor release]; closeMonitor = nil; }
     for (int index = 0; index < 2; index++) { [layers[index] release]; layers[index] = nil; [windows[index] release]; windows[index] = nil; }
+    pthread_mutex_lock(&mutex); free(inputIdentities); inputIdentities = NULL; inputIdentityCount = inputIdentityCapacity = 0; pthread_mutex_unlock(&mutex);
     [outputPath release]; outputPath = nil;
 }
 void e40LoadRunHost(void) { [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular]; [NSApp finishLaunching]; [NSApp run]; }
