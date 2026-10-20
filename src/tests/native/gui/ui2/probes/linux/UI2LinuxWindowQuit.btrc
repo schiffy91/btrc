@@ -10,6 +10,7 @@ import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.SDL;
 
 import ./WindowCloseProbe.btrc;
+import ./LinuxCancelState.btrc;
 #include <assert.h>
 #include <stdio.h>
 
@@ -94,7 +95,8 @@ void verifyNativeApplicationQuit() {
 	var application = LinuxApplication(8); int creditsBefore = application.context().terminalPool.available(); var scope = CallbackScope();
 	var clean = application.createWindow("native clean", 140.0, 100.0);
 	var first = application.createWindow("native first", 140.0, 100.0); var second = application.createWindow("native second", 140.0, 100.0);
-	var field = application.createTextField("preserved draft", ""); first.attachRoot(field);
+	var document = LinuxCancelState(application.context(), first); var field = document.field;
+	first.show(); pump(application); document.queueFocus(); document.queueDraft(); pump(application); document.verify();
 	var a = WindowDecision(); var b = WindowDecision(); first.onCloseRequested(a, scope); second.onCloseRequested(b, scope);
 	var nativeClean = application.firstWindow(); if (nativeClean == null) { throw "Missing native clean window"; }
 	// The close following quit stays queued until every member is held.
@@ -107,7 +109,8 @@ void verifyNativeApplicationQuit() {
 	assert(savingTransaction.decide(WINDOW_CLOSE_DECISION_SAVE, 5LL).attempt == saving.attempt);
 	a.current().decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL); pump(application);
 	assert(!application.context().nativeQuitPending() && !application.quitRequested() && first.isOpen() && second.isOpen() && clean.isOpen());
-	assert(field.text() == "preserved draft" && b.current().state() == WINDOW_CLOSE_CANCELLED);
+	assert(b.current().state() == WINDOW_CLOSE_CANCELLED); document.verify();
+	document.queueEditAfterCancel(); pump(application); document.verify("p!eserved draft");
 	assert(b.current().completeSave(saving.attempt, 4LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
 	assert(ui2PushQuit() == 1); pump(application); assert(a.calls == 2 && b.calls == 2 && a.current() != original);
 	var attempt = a.current().decide(WINDOW_CLOSE_DECISION_SAVE, 2LL); a.current().completeSave(attempt.attempt, 2LL, true, "");
@@ -171,6 +174,7 @@ int main() {
 	for (int cycle = 0; cycle < 100; cycle++) {
 		verifyQuitGroup(); verifyQuitCancellation(); verifyQuitMembership(); verifyQuitUndeliveredCancellation(); verifyNativeApplicationQuit(); verifyForcedApplicationClose(); verifyQuitBeforePointerDecision(false); verifyQuitBeforePointerDecision(true);
 		assert(ui2NativeWindowCount() == 0);
+		printf("UI2_CANCEL_STATE window-quit %d entries=native-quit draft=kept focus=kept selection=kept anchor=kept destination=kept\n", cycle + 1);
 		printf("UI2_CYCLE window-quit %d windows=0\n", cycle + 1); fflush(stdout);
 	}
 	print("UI2_POLICY window-quit work_capacity=8 scenarios=8 entries=native-quit,program,forced-close,pointer-decision");
