@@ -352,7 +352,6 @@
             "src/compiler/python/syntax/__init__.py"
             "src/compiler/python/syntax/ast/__init__.py"
             "src/compiler/python/syntax/ast/generated.py"
-            "src/compiler/python/syntax/grammar.py"
           ];
           excludedPrefixes = [ ];
         };
