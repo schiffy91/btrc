@@ -61,11 +61,10 @@ jobs:
           use-flakehub: false
       - name: Build the original pinned devcontainer
         run: make devcontainer
-      - run: chmod -R a+w .
+      - run: mkdir -p build/wayland93 && chmod -R a+w .
       - name: Diagnose the original 100-cycle plain Python shell case
         run: |
           set -euo pipefail
-          mkdir -p build/wayland93
           podman run --rm --init --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
             -v "$PWD:/workspace" btrc-devcontainer:latest \
             bash tools/ui/wayland93.sh 2>&1 | tee build/wayland93/container.log
