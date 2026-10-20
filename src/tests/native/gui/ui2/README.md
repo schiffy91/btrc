@@ -78,6 +78,17 @@ scope may be released there. `UI2LinuxAffineRelease`, through
 separately checks the callback-scope rule. A caught destructor exception does
 not satisfy a required fatal outcome.
 
+`UI2MacOSControlLifetime`, through
+`test_native_ui2_macos_control_lifetime.py::test_macos_ui2_control_lifetime`,
+tracks actual Select and Slider native objects over 100 fresh cycles. Each
+cycle replaces the menu model, commits selection and slider actions, completes
+six registrations and returns all capture and terminal credits. Weak identity
+sets require zero survivors for the fixture host, controls, cells, both menu
+generations, keyed items and presentation items after callback handles and the
+native autorelease pool drain. The fixture remains unshown and non-key. Its
+native helper uses explicit ARC; this census does not count AppKit-private
+objects or establish popup tracking. Full qualification remains pending.
+
 `UI2LinuxResourceLifetime`, through
 `test_native_ui2_linux_resource_lifetime.py::test_linux_ui2_native_resource_lifetime`,
 observes executable-origin SDL and WebGPU claims over 100 fresh windows. Each
