@@ -30,7 +30,7 @@ class LinuxButton extends LinuxNodeView implements IButton {
 		self.adoptNode(LinuxViewNode(context));
 		if (title == null) { throw "Native button title is missing"; }
 		self._title = title;
-		self._action = context.actions.bind();
+		self._action = context.actions.bind(self.node());
 	}
 
 	private double symbolSize() { return Math.ceilDouble(self._size * 1.15); }
@@ -66,7 +66,7 @@ class LinuxButton extends LinuxNodeView implements IButton {
 	public bool pointer(AppPointerEvent event) {
 		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; self.node().invalidate(); return false; }
 		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self.node().invalidate(); return false; }
-		if (!self._enabled) { return false; }
+		if (!self._enabled || !self.node().effectiveEligible()) { return false; }
 		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) { self._pressed = true; self.node().invalidate(); return true; }
 		if (event.action == APP_POINTER_DRAGGED && self._pressed) {
 			bool inside = event.logicalX >= 0.0 && event.logicalY >= 0.0 && event.logicalX < self.node().width && event.logicalY < self.node().height;
@@ -109,7 +109,7 @@ class LinuxButton extends LinuxNodeView implements IButton {
 
 	public bool locallyEnabled() { return self._enabled; }
 
-	public void eligibilityLost() { self.node().cancelOwnPointerCapture(); self._pressed = false; self.node().invalidate(); }
+	public void eligibilityLost() { if (self._action != null) { self._action.eligibilityLost(); } self.node().cancelOwnPointerCapture(); self._pressed = false; self.node().invalidate(); }
 
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
@@ -166,7 +166,7 @@ class LinuxButton extends LinuxNodeView implements IButton {
 
 	public bool activate() {
 		self.node().requireOpen();
-		if (!self._enabled) { return false; }
+		if (!self._enabled || !self.node().effectiveEligible()) { return false; }
 		self.fire();
 		return true;
 	}
@@ -175,7 +175,7 @@ class LinuxButton extends LinuxNodeView implements IButton {
 		self.node().requireOpen();
 		var bound = self._action;
 		if (bound == null) { throw "Native button action is closed"; }
-		return bound.onAction(action, scope);
+		var registration = bound.onAction(action, scope); self.node().ownCallback(registration); return registration;
 	}
 
 	public CallbackCancellation close() {

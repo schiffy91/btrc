@@ -2,6 +2,8 @@ import Library.Callback;
 import Library.GUI.IButton;
 import Library.GUI.ActionMailbox;
 
+interface ILinuxActionTarget { bool effectiveEligible(); }
+
 /* Stable BTRC identity for one button's action subscription. Each queued
  * click snapshots its generation; cancellation or replacement invalidates
  * older clicks without touching the ring. No path leads back to the scope. */
@@ -9,11 +11,23 @@ class LinuxAction implements IQueuedAction {
 	private ActionMailbox _mailbox;
 	private int _generation = 0;
 	private bool _open = true;
+	private ILinuxActionTarget? _target;
+	private long long _ineligible = 0LL;
 	private CallbackContext<IButtonAction, LinuxAction>? _handler;
 
-	public LinuxAction(ActionMailbox mailbox) { self._mailbox = mailbox; }
+	public LinuxAction(ActionMailbox mailbox, ILinuxActionTarget? target = null) { self._mailbox = mailbox; self._target = target; }
 
-	public bool accepts(int generation) { return self._open && self._generation == generation; }
+	private bool eligible() { return self._handler == null || self._target == null || self._target.effectiveEligible(); }
+
+	public long long ineligibleCount() { return self._ineligible; }
+
+	public void eligibilityLost() { self._mailbox.prune(); }
+
+	public bool accepts(int generation) {
+		if (!self._open || self._generation != generation) { return false; }
+		if (!self.eligible()) { self._ineligible++; return false; }
+		return true;
+	}
 
 	/* Called by the button on a completed click. */
 	public void invoke() { if (self._open) { self._mailbox.enqueue(self, self._generation); } }
@@ -36,6 +50,8 @@ class LinuxAction implements IQueuedAction {
 	}
 
 	public void deliver() {
+		if (!self._open) { return; }
+		if (!self.eligible()) { self._ineligible++; return; }
 		var handler = self._handler;
 		if (handler == null) { return; }
 		var receiver = handler.enter();
@@ -69,10 +85,10 @@ class LinuxActionQueue {
 
 	private void requireOpen() { if (self._closed) { throw "Native action queue is closed"; } }
 
-	public LinuxAction bind() {
+	public LinuxAction bind(ILinuxActionTarget? target = null) {
 		self.requireOpen();
 		self._bound++;
-		return LinuxAction(self._mailbox);
+		return LinuxAction(self._mailbox, target);
 	}
 
 	public void unbind(LinuxAction action) {
