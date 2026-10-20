@@ -37,6 +37,13 @@ An operation or case is **classified** only when its merged record has both
 only `implementation`. The family seed records source state with no evidence:
 48 partial, 15 custom and 237 missing. A source classification is not a pass.
 
+The UI2 source audit `ui2-source-f6ef992e` updates E01–E04, E29–E31, E42
+and E46 mappings to the current provider fixtures. Those cells remain partial
+and implemented-unverified. The [UI2 fixture map](../../../src/tests/native/gui/ui2/README.md)
+distinguishes wired provider checks, uncalled portable helpers and pending
+acceptance extensions. Older `ui1-*` evidence retains its original revision and
+observations; it does not describe the current UI2 implementation.
+
 The **frozen** slots are those of every ui-operation, ui-case and family-cell
 release `tools/qualification/denominators.toml` declares. Today that is the one
 2026-09-21 release: 1,620 operation slots, 470 case slots and 300 family cells.
