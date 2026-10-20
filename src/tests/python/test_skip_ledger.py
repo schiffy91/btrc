@@ -314,10 +314,30 @@ HOSTED_SKIPS = {
     ),
 }
 
+HOSTED_LINUX_WINDOWS_SKIPS = [
+    (
+        f"src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[{frontend}-{target}-{variant}]",
+        "requires Windows: windows.yml's win32-native job runs the executables the build tests publish",
+    )
+    for frontend in ("python", "selfhost")
+    for target in ("windows-arm64", "windows-x64")
+    for variant in ("plain", "ubsan")
+] + [
+    (
+        f"src/tests/python/test_windows_http.py::test_preserved_native_executables_run[{frontend}-{target}]",
+        "requires the real Windows native runner",
+    )
+    for frontend in ("failures", "reference", "selfhost")
+    for target in ("windows-arm64", "windows-x64")
+]
+
 EXPECTED_BY_RUNNER = {
     "macos": dict(zip(("dap-session-developer-mode", "linux-freetype-macro-constants"), MACOS_SKIPS[:2], strict=True)),
     "macos-hosted": HOSTED_SKIPS,
-    "linux-hosted": {},
+    "linux-hosted": {
+        "windows-native-shell-runtime": HOSTED_LINUX_WINDOWS_SKIPS[0],
+        "windows-http-runtime": HOSTED_LINUX_WINDOWS_SKIPS[-1],
+    },
     "linux-devcontainer": LINUX_SKIPS,
     "windows": WINDOWS_SKIPS,
 }
@@ -328,13 +348,32 @@ def test_the_ci_runner_manifests_explain_their_recorded_skips(runner):
     manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
 
     assert manifest.enforce
-    if runner == "linux-hosted":
-        assert manifest.rules == ()
     assert {rule_id: manifest.classify(*skip).id for rule_id, skip in EXPECTED_BY_RUNNER[runner].items()} == {
         rule_id: rule_id for rule_id in EXPECTED_BY_RUNNER[runner]
     }
     # A Windows-only reason on a Linux file, or a POSIX reason elsewhere, is not explained.
     assert manifest.classify("src/tests/python/test_cases.py::test_x", "requires the native Windows CRT") is None
+
+
+def test_hosted_linux_windows_exceptions_do_not_admit_other_cases_or_reasons():
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-hosted.json")
+    assert len(HOSTED_LINUX_WINDOWS_SKIPS) == 14
+    for node, reason in HOSTED_LINUX_WINDOWS_SKIPS:
+        rule = manifest.classify(node, reason)
+        assert rule is not None and rule.covered_by == ("windows",)
+        for changed in (
+            node.replace("windows-x64", "windows-x86").replace("windows-arm64", "windows-arm32"),
+            node.replace("test_windows_native_shell_runs", "test_windows_native_shell_builds")
+            if "native_shell_runs" in node
+            else node.replace("test_preserved_native_executables_run", "test_build"),
+        ):
+            assert manifest.classify(changed, reason) is None
+        assert manifest.classify(node, reason + ": missing compiler") is None
+        if "windows.yml" in reason:
+            assert manifest.classify(node, reason.replace("windows.yml", "windows-yml")) is None
+        assert manifest.classify(node, "native compiler is not installed") is None
+        assert manifest.classify("src/tests/python/test_native_jni_android.py::test_round_trip[python]", reason) is None
+        assert manifest.classify("tools/target_hosts/windows/test_executor.py::test_executor", reason) is None
 
 
 def test_the_hosted_macos_manifest_expects_only_platform_and_hardware_skips():
@@ -754,6 +793,43 @@ def test_hosted_linux_collector_and_gate_require_every_selected_case(tmp_path):
     outcome = SkipGate().check([report_path])
     assert not outcome.passed
     assert any("an injected unexpected skip" in line for line in outcome.lines)
+
+
+def test_hosted_linux_collector_gates_only_the_fourteen_windows_runtime_skips(tmp_path):
+    suite = tmp_path / "suite"
+    tests = suite / "src" / "tests" / "python"
+    tests.mkdir(parents=True)
+    (suite / "conftest.py").write_text(_INNER_CONFTEST)
+    for filename, function in (
+        ("test_native_ui_shell_windows.py", "test_windows_native_shell_runs"),
+        ("test_windows_http.py", "test_preserved_native_executables_run"),
+    ):
+        cases = [
+            (node.split("[", 1)[1][:-1], reason) for node, reason in HOSTED_LINUX_WINDOWS_SKIPS if filename in node
+        ]
+        (tests / filename).write_text(
+            "import pytest\n"
+            f"@pytest.mark.parametrize('case,reason', {cases!r}, ids={[case for case, _ in cases]!r})\n"
+            f"def {function}(case, reason):\n    pytest.skip(reason)\n"
+        )
+    report_path = tmp_path / "out" / "skip-report.json"
+    completed, report = _run_inner(tmp_path, "-p", "no:xdist", runner="linux-hosted")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert report["counts"]["skipped"] == 14
+    assert {row["nodeid"] for row in report["skips"]} == {node for node, _ in HOSTED_LINUX_WINDOWS_SKIPS}
+    assert "classification_error" not in report
+    assert SkipGate().check([report_path]).passed
+
+    # A JNI skip remains fatal even when its reason matches a Windows exception.
+    (tests / "test_native_jni_android.py").write_text(
+        "import pytest\ndef test_round_trip():\n    pytest.skip('requires the real Windows native runner')\n"
+    )
+    completed, report = _run_inner(tmp_path, "-p", "no:xdist", runner="linux-hosted")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert report["counts"]["skipped"] == 15
+    outcome = SkipGate().check([report_path])
+    assert not outcome.passed
+    assert any("test_native_jni_android.py" in failure for failure in outcome.failures)
 
 
 @pytest.mark.parametrize("workers", [None, "2"])
