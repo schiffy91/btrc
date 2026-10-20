@@ -230,6 +230,9 @@ class GUIShardRun:
                 [
                     *self.record["selected"],
                     *self.arguments,
+                    # Explicit fixture groups share one build per configuration.
+                    # Unmarked cases remain independent scheduling units.
+                    "--dist=loadgroup",
                     f"--basetemp={self.output / 'pytest'}",
                     f"--junitxml={self.output / 'junit.xml'}",
                     f"--skip-report={self.skip_report}",

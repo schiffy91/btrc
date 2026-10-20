@@ -236,6 +236,7 @@ def test_run_records_original_outcome_and_keeps_all_selected_evidence(tmp_path, 
     worker_arguments = [calls[0][1][i + 1] for i, value in enumerate(calls[0][1]) if value == "-n"]
     assert worker_arguments == ["4", "0"]
     assert calls[1][1][: len(selected)] == selected
+    assert "--dist=loadgroup" in calls[1][1]
     assert (output / "skip-report.json").is_file()
     with pytest.raises(ValueError, match="already exist"):
         run.run()
@@ -301,3 +302,73 @@ def test_run_cli_preserves_selectors_and_pytest_arguments(tmp_path, monkeypatch)
     )
     assert main() == 0
     assert seen == [(["one.py", "two.py::test_x"], ["-q", "-n", "4", "-m", "not e40_qualification"], 4)]
+
+
+def test_linux_provider_groups_build_each_configuration_once_and_preserve_nodes(tmp_path):
+    """Exercise the real provider marks with cheap build stand-ins on four workers."""
+    (tmp_path / "pytest.ini").write_text("[pytest]\nmarkers =\n    linux_gui: native GUI fixture\n")
+    (tmp_path / "test_grouped.py").write_text(
+        "from pathlib import Path\n"
+        "import os\n"
+        "import pytest\n"
+        "from src.tests.python import test_native_ui_linux_spike as provider\n"
+        "frontend = provider.frontend\n"
+        "sanitized = provider.sanitized\n"
+        "def build(family, frontend, sanitized):\n"
+        "    key = f'{family}-{frontend}-{sanitized}'\n"
+        "    path = Path(f'build-{key}-{os.environ[\"PYTEST_XDIST_WORKER\"]}.txt')\n"
+        "    with path.open('a') as stream: stream.write(key + '\\n')\n"
+        "    return key\n"
+        "@pytest.fixture(scope='module')\n"
+        "def boundary(frontend, sanitized): return build('boundary', frontend, sanitized)\n"
+        "@pytest.fixture(scope='module')\n"
+        "def repair(frontend, sanitized): return build('repair', frontend, sanitized)\n"
+        "@pytest.mark.parametrize('repeat', range(8))\n"
+        "def test_boundary(boundary, repeat): assert boundary.startswith('boundary-')\n"
+        "@pytest.mark.parametrize('repeat', range(8))\n"
+        "def test_repair(repair, repeat): assert repair.startswith('repair-')\n"
+        "test_boundary.pytestmark += [m for m in provider.test_linux_event_boundary.pytestmark if m.name == 'xdist_group']\n"
+        "test_repair.pytestmark += [m for m in provider.test_linux_input_repair.pytestmark if m.name == 'xdist_group']\n"
+        "@pytest.mark.parametrize('repeat', range(4))\n"
+        "def test_unrelated(repeat): assert repeat < 4\n"
+    )
+    env = dict(os.environ, PYTHONPATH=str(ROOT), PYTEST_ADDOPTS="")
+    common = [sys.executable, "-m", "pytest", "-p", "tools.ui.gui_collection", "-c", "pytest.ini", "test_grouped.py"]
+    collected = subprocess.run(
+        [*common, "--collect-only", "-n", "0", "--gui-collection=collection.json"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert collected.returncode == 0, collected.stdout + collected.stderr
+    nodes = GUIPartition.collection(tmp_path / "collection.json")
+    assert len(nodes) == 68
+    run = subprocess.run(
+        [*common, "-n", "4", "--dist=loadgroup", "--junitxml=junit.xml"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    cases = list(ET.parse(tmp_path / "junit.xml").getroot().iter("testcase"))
+    observed = [
+        prop.get("value")
+        for case in cases
+        for prop in case.findall("./properties/property")
+        if prop.get("name") == NODE_PROPERTY
+    ]
+    assert sorted(observed) == nodes
+    partitions = [GUIPartition.create(nodes, "x11", index, 4, HEAD)["selected"] for index in range(4)]
+    assert sorted(node for part in partitions for node in part) == nodes
+    assert len(set(observed)) == len(nodes)
+    builds = [line for path in tmp_path.glob("build-*.txt") for line in path.read_text().splitlines()]
+    assert sorted(builds) == sorted(
+        f"{family}-{frontend}-{sanitized}"
+        for family in ("boundary", "repair")
+        for frontend in ("python", "selfhost")
+        for sanitized in (False, True)
+    )

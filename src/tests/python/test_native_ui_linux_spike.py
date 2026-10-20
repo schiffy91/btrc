@@ -10,12 +10,24 @@ from src.tests.python.linux_provider_fixtures import (
 )
 
 
-@pytest.fixture(scope="module", params=["python", "selfhost"])
+@pytest.fixture(
+    scope="module",
+    params=[
+        pytest.param(name, marks=pytest.mark.xdist_group(name=f"linux_provider_{name}"))
+        for name in ("python", "selfhost")
+    ],
+)
 def frontend(request):
     return request.param
 
 
-@pytest.fixture(scope="module", params=[False, True], ids=["plain", "sanitized"])
+@pytest.fixture(
+    scope="module",
+    params=[
+        pytest.param(False, id="plain", marks=pytest.mark.xdist_group(name="linux_provider_plain")),
+        pytest.param(True, id="sanitized", marks=pytest.mark.xdist_group(name="linux_provider_sanitized")),
+    ],
+)
 def sanitized(request):
     return request.param
 
@@ -61,6 +73,7 @@ def input_repair_program(tmp_path_factory, request, frontend, sanitized):
 @pytest.mark.parametrize("count", [4095, 4096, 4097, 8193])
 @pytest.mark.parametrize("terminal", [0, 1, 2, 3], ids=["keys", "release", "text", "close"])
 @pytest.mark.linux_gui
+@pytest.mark.xdist_group(name="linux_event_boundary")
 def test_linux_event_boundary(event_boundary_program, sanitized, count, terminal, tmp_path):
     """Lossless, bounded delivery and inter-turn work progress must all hold."""
     environment = provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1")
@@ -79,6 +92,7 @@ def test_linux_event_boundary(event_boundary_program, sanitized, count, terminal
 
 @pytest.mark.parametrize("mode", [0, 1, 2, 3], ids=["failed-cut", "popup-below", "popup-above", "external-visibility"])
 @pytest.mark.linux_gui
+@pytest.mark.xdist_group(name="linux_input_repair")
 def test_linux_input_repair(input_repair_program, sanitized, mode, tmp_path):
     result = subprocess.run(
         [str(input_repair_program), str(mode)],
