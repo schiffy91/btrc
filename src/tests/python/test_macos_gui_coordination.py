@@ -72,13 +72,18 @@ class GuiProcesses:
             "            expected = gui_lock_path\n"
             "            if expected is not None and expected.exists() and os.path.samestat(os.fstat(args[0]), expected.stat()):\n"
             "                Path(os.environ['LEASE_ROLE'] + '.blocked').write_text(str(expected.resolve()))\n"
+            "            elif expected is not None:\n"
+            "                for ticket in expected.with_name(expected.name + '.queue').glob('*.ticket'):\n"
+            "                    try: matches = os.path.samestat(os.fstat(args[0]), ticket.stat())\n"
+            "                    except FileNotFoundError: continue\n"
+            "                    if matches: Path(os.environ['LEASE_ROLE'] + '.blocked').write_text(str(expected.resolve()))\n"
             "            raise\n"
             "    fcntl.flock = observed_flock\n"
             "if os.environ.get('LEASE_TIMEOUT'):\n"
-            "    original = owner._exclusive\n"
+            "    original = owner._gui_exclusive\n"
             "    def bounded(path, **kwargs):\n"
             "        return original(path, **(kwargs | {'timeout': float(os.environ['LEASE_TIMEOUT'])}))\n"
-            "    owner._exclusive = bounded\n"
+            "    owner._gui_exclusive = bounded\n"
             "def pytest_configure(config):\n"
             "    global gui_lock_path\n"
             "    gui_lock_path = config.cache.mkdir('macos-gui' if os.environ['LEASE_PLATFORM'] == 'darwin' else 'linux-gui') / 'execution.lock'\n"
@@ -752,3 +757,141 @@ def test_macos_gui_report_identity_rejects_inconsistent_serialization(defect):
     next(serializer)
     with pytest.raises(ValueError, match="AppKit report identity"):
         serializer.send(data)
+
+
+class FIFOProcesses:
+    """Independent lease clients with parent-controlled entry/release barriers."""
+
+    def __init__(self, root):
+        self.root = root
+        self.processes = {}
+        (root / "actor.py").write_text(
+            "import sys, time\nfrom pathlib import Path\n"
+            "from src.tests.conftest import _gui_exclusive\n"
+            "name, turns, timeout = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])\n"
+            "for turn in range(turns):\n"
+            "    try:\n"
+            "        with _gui_exclusive(Path('execution.lock'), timeout=timeout, owner=name):\n"
+            "            Path(f'{name}.{turn}.entered').touch()\n"
+            "            deadline = time.monotonic() + 15\n"
+            "            while not Path(f'{name}.{turn}.release').exists():\n"
+            "                assert time.monotonic() < deadline, 'parent did not release lease'\n"
+            "                time.sleep(0.01)\n"
+            "    except TimeoutError as error:\n"
+            "        Path(f'{name}.timeout').write_text(str(error))\n"
+            "        break\n"
+        )
+
+    def start(self, name, *, turns=1, timeout=10):
+        self.processes[name] = subprocess.Popen(
+            [sys.executable, "actor.py", name, str(turns), str(timeout)],
+            cwd=self.root,
+            env=os.environ | {"PYTHONPATH": str(REPO)},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        return self.processes[name]
+
+    def wait(self, name, *, queued=False, turn=0):
+        deadline = time.monotonic() + 15
+        while True:
+            if queued:
+                for ticket in (self.root / "execution.lock.queue").glob("*.ticket"):
+                    try:
+                        record = json.loads(ticket.read_text())
+                    except (FileNotFoundError, json.JSONDecodeError):
+                        continue
+                    if record["owner"] == name:
+                        return
+            elif (self.root / f"{name}.{turn}.entered").exists():
+                return
+            process = self.processes[name]
+            assert process.poll() is None, process.communicate(timeout=15)[0]
+            assert time.monotonic() < deadline, f"{name} did not reach its barrier"
+            time.sleep(0.01)
+
+    def release(self, name, turn=0):
+        (self.root / f"{name}.{turn}.release").touch()
+
+    def finish(self, name):
+        process = self.processes[name]
+        output = process.communicate(timeout=15)[0]
+        assert process.returncode == 0, output
+
+    def close(self):
+        for process in self.processes.values():
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=15)
+
+
+@pytest.fixture
+def fifo_processes(tmp_path):
+    if os.name != "posix":
+        pytest.skip("requires POSIX kernel file locks")
+    processes = FIFOProcesses(tmp_path)
+    try:
+        yield processes
+    finally:
+        processes.close()
+
+
+def test_gui_fifo_prevents_holder_reacquisition_ahead_of_existing_waiter(fifo_processes):
+    processes = fifo_processes
+    processes.start("first", turns=2)
+    processes.wait("first")
+    processes.start("second")
+    processes.wait("second", queued=True)
+    processes.release("first")
+    processes.wait("second")
+    assert not (processes.root / "first.1.entered").exists()
+    processes.release("second")
+    processes.finish("second")
+    processes.wait("first", turn=1)
+    processes.release("first", turn=1)
+    processes.finish("first")
+    assert not list((processes.root / "execution.lock.queue").glob("*.ticket"))
+
+
+@pytest.mark.parametrize("departure", ["timeout", "process-death"])
+def test_gui_fifo_removes_departed_waiters_without_blocking_successors(fifo_processes, departure):
+    processes = fifo_processes
+    holder = processes.start("holder")
+    processes.wait("holder")
+    waiter = processes.start("waiter", timeout=0.3 if departure == "timeout" else 10)
+    processes.wait("waiter", queued=True)
+    if departure == "timeout":
+        processes.finish("waiter")
+        diagnostic = (processes.root / "waiter.timeout").read_text()
+        assert "Timed out after 0.3s waiting for execution.lock" in diagnostic
+        assert f'"pid": {holder.pid}' in diagnostic
+        assert '"owner": "holder"' in diagnostic
+        tickets = list((processes.root / "execution.lock.queue").glob("*.ticket"))
+        assert [json.loads(path.read_text())["owner"] for path in tickets] == ["holder"]
+    else:
+        waiter.kill()
+        waiter.communicate(timeout=15)
+    processes.start("successor")
+    processes.wait("successor", queued=True)
+    assert not (processes.root / "successor.0.entered").exists()
+    processes.release("holder")
+    processes.finish("holder")
+    processes.wait("successor")
+    processes.release("successor")
+    processes.finish("successor")
+    assert not list((processes.root / "execution.lock.queue").glob("*.ticket"))
+
+
+def test_gui_fifo_queue_guard_wait_uses_the_same_deadline(fifo_processes):
+    import fcntl
+
+    processes = fifo_processes
+    queue = processes.root / "execution.lock.queue"
+    queue.mkdir()
+    with (queue / "guard").open("a+") as guard:
+        fcntl.flock(guard.fileno(), fcntl.LOCK_EX)
+        processes.start("guarded", timeout=0.2)
+        processes.finish("guarded")
+        assert "Timed out after 0.2s waiting for execution.lock" in (processes.root / "guarded.timeout").read_text()
+        assert not list(queue.glob("*.ticket"))
