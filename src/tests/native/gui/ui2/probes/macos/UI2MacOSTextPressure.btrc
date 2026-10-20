@@ -1,0 +1,49 @@
+import Library.Callback;
+import Library.Vector;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.ControlEvents;
+import Library.GUI.ITextField;
+import Library.GUI.MacOS.MacOSTextField;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.MacOSRunLoop;
+
+#include <assert.h>
+
+class TextPressureObservation implements ITextControlEventHandler {
+	public Vector<TextControlEvent> events = [];
+	public void textEvent(TextControlEvent event) { self.events.push(event); }
+
+	class void deliver(TextPressureObservation receiver, TextControlEvent event) { receiver.textEvent(event); }
+}
+
+int main() {
+	BTRCUI2TextProbe.prepare();
+	var signal = MacOSRunLoopSignal(); var context = MacOSViewContext(MacOSSemanticWake(signal), 1);
+	var queue = context.createQueue(); var field = MacOSTextField("accepted"); field.stateNode().configure(context);
+	var native = field.nativeControl(); var window = BTRCUI2TextProbe.host(native);
+	field.stateNode().attachWindow(queue, true, WINDOW_EXPOSURE_EXPOSED);
+	var owner = CallbackScope(); var receiver = TextPressureObservation();
+	field.onDraftChanged(receiver, owner); field.onCommit(receiver, owner); field.onCancel(receiver, owner);
+	// A different registration already owns the sole ordinary semantic slot.
+	var other = new ControlEventChannel<TextPressureObservation, TextControlEvent>(queue, field.stateNode(), receiver, TextPressureObservation.deliver, owner);
+	var earlier = TextControlEvent(); earlier.text = "other-before"; earlier.phase = CONTROL_PHASE_DRAFT;
+	assert(other.publish(earlier, field.stateNode().generation(), 1LL, 1LL));
+	assert(!queue.canCapture(1));
+	assert(BTRCUI2TextProbe.focus(native));
+	BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("first"));
+	BTRCUI2TextProbe.replace(native, AppKitText.nativeValue("final"));
+	BTRCUI2TextProbe.accept(native); BTRCUI2TextProbe.blur(native);
+	assert(field.text() == "final" && !context.nativeFailed());
+	while (context.dispatchOne()) {}
+	assert(receiver.events.get(0).text == "other-before");
+	int commits = 0;
+	for event in receiver.events {
+		if (event.phase == CONTROL_PHASE_COMMIT) { commits++; assert(event.text == "final" && !event.composing); }
+	}
+	assert(commits == 1 && receiver.events.get(receiver.events.len - 1).phase == CONTROL_PHASE_COMMIT);
+	field.stateNode().detachWindow(); BTRCUI2TextProbe.finish(window);
+	assert(field.close() == CALLBACK_CANCELLATION_COMPLETE && owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+	context.close(); assert(signal.close());
+	print("PASS: UI2 macOS text pressure preserves the final native commit"); return 0;
+}

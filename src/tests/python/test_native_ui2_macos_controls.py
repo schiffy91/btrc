@@ -13,7 +13,7 @@ from tools.native_plan import NativePlanBuilder
 
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
-@pytest.mark.parametrize("fixture", ["UI2MacOSSlider", "UI2MacOSSelect", "UI2MacOSTextField"])
+@pytest.mark.parametrize("fixture", ["UI2MacOSSlider", "UI2MacOSSelect", "UI2MacOSTextField", "UI2MacOSTextPressure"])
 def test_macos_ui2_controls(native_project, native_compile, gui_provider_root, sanitized, fixture):
     source, _, _ = native_project
     package = source.parent.parent
@@ -29,8 +29,9 @@ def test_macos_ui2_controls(native_project, native_compile, gui_provider_root, s
         '"+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]"]\n'
     )
     root = Path(__file__).resolve().parents[3]
+    native_fixture = "UI2MacOSTextField" if fixture == "UI2MacOSTextPressure" else fixture
     for suffix in ("h", "m"):
-        name = f"{fixture}.{suffix}"
+        name = f"{native_fixture}.{suffix}"
         (package / name).write_text((root / "src/tests/native/gui/ui2/probes/macos" / name).read_text())
     symbols = {
         "UI2MacOSSlider": [
@@ -62,12 +63,12 @@ def test_macos_ui2_controls(native_project, native_compile, gui_provider_root, s
             "+[BTRCUI2TextProbe undo:]",
             "+[BTRCUI2TextProbe finish:]",
         ],
-    }[fixture]
+    }[native_fixture]
     manifest.write_text(
-        manifest.read_text() + f'\n[[native.bindings]]\nmodule = "Main"\nheader = "{fixture}.h"\n'
+        manifest.read_text() + f'\n[[native.bindings]]\nmodule = "Main"\nheader = "{native_fixture}.h"\n'
         'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
         f"symbols = {json.dumps(symbols)}\n"
-        f'[[native.sources]]\npath = "{fixture}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        f'[[native.sources]]\npath = "{native_fixture}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
     )
     source.write_text((root / "src/tests/native/gui/ui2/probes/macos" / f"{fixture}.btrc").read_text())
     plan = package / "Slider.link.json"
@@ -98,5 +99,6 @@ def test_macos_ui2_controls(native_project, native_compile, gui_provider_root, s
         "UI2MacOSSlider": "PASS: UI2 macOS slider model and semantic controls",
         "UI2MacOSSelect": "PASS: UI2 macOS keyed selection and native callback settlement",
         "UI2MacOSTextField": "PASS: UI2 macOS text drafts composition cancellation and commit",
+        "UI2MacOSTextPressure": "PASS: UI2 macOS text pressure preserves the final native commit",
     }[fixture]
     assert marker in ran.stdout
