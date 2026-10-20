@@ -115,7 +115,10 @@ def test_memory_intensive_bootstrap_runs_after_the_parallel_suite():
     commands = [shlex.split(line) for line in output.splitlines() if "python3 -m pytest" in line]
 
     assert len(commands) == 3
-    parallel, e40, serial_bootstrap = commands
+    for command in commands:
+        pytest_index = command.index("pytest")
+        assert command[pytest_index - 2 : pytest_index] == ["python3", "-m"]
+    parallel, e40, serial_bootstrap = [command[command.index("pytest") + 1 :] for command in commands]
     assert "src/tests/" in parallel
     assert "--ignore=src/tests/btrc/test_bootstrap.py" in parallel
     assert parallel[parallel.index("-m") + 1] == "not e40_qualification"
