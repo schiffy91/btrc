@@ -204,6 +204,7 @@ symbols = [
 	"-[NSTextField frame]", "-[NSTextField setFrame:]"
 ]
 os = ["macos"]
+main-thread-globals = ["NSTextStorageDidProcessEditingNotification", "NSTextViewDidChangeSelectionNotification"]
 
 [native.bindings.callbacks."-[NSTextField setDelegate:].delegate"]
 interface = "IAppKitTextEvents"
@@ -544,6 +545,7 @@ header = "MacOS/AppKit.h"
 language = "objective-c"
 standard = "c11"
 symbols = [
+	"-[NSClipView setPostsBoundsChangedNotifications:]", "NSViewBoundsDidChangeNotification",
 	"+[NSThread isMainThread]", "+[NSScrollView new]", "+[NSView new]",
 	"-[NSView frame]", "-[NSView setFrame:]",
 	"-[NSScrollView setBorderType:]", "NSNoBorder", "-[NSScrollView setDrawsBackground:]",
@@ -555,6 +557,7 @@ symbols = [
 	"-[NSClipView bounds]", "-[NSClipView scrollToPoint:]"
 ]
 os = ["macos"]
+main-thread-globals = ["NSViewBoundsDidChangeNotification"]
 
 [[native.bindings]]
 module = "MacOS.MetalLayer"
