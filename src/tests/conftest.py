@@ -65,6 +65,9 @@ def pytest_configure(config):
     SkipLedger.install(config)
     config.addinivalue_line("markers", "macos_gui: requires exclusive AppKit application execution on macOS")
     config.addinivalue_line("markers", "linux_gui: owns shared Linux GUI focus or clipboard state")
+    config.addinivalue_line(
+        "markers", "e40_qualification: sustained native workload; requires a serial qualification stage"
+    )
 
 
 @pytest.hookimpl(wrapper=True)
