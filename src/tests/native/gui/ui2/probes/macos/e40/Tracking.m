@@ -13,7 +13,9 @@
 
 #define TRACK_START_SUBTYPE ((short)0x4540)
 #define TRACK_INPUT_ID 70368744177664ULL
-#define TRACK_MOUSE_NUMBER 0x454000
+/* AppKit queue round trips preserve a signed 16-bit mouse event number.
+ * Keep the complete fixture namespace in that representation. */
+#define TRACK_MOUSE_NUMBER 0x4000
 #define TRACE_LIMIT 64
 /* Native input has its own bounded identity ledger. A dequeue is not a UI2
  * semantic callback; both observations are preserved in the report. */
