@@ -441,7 +441,7 @@ void e40LoadReport(bool hosted) {
     NSMutableDictionary *report = [@{@"schema":@"btrc.ui2.macos-e40/1", @"trial":@[@"load", @"popup", @"slider", @"resize", @"sheet"][trialKind], @"entry":hosted ? @"host" : @"desktop",
         @"native_backend":@"AppKit", @"clock":@"mach_continuous_time nanoseconds", @"elapsed_ns":@(loadEnds - loadStarted),
         @"load_started_ns":@(loadStarted), @"load_ended_ns":@(loadEnds), @"visible_windows":@(windows[0].visible + windows[1].visible),
-        @"application_active":@(NSApp.active), @"window_key":@(NSApp.keyWindow != nil), @"key_window_number":@(NSApp.keyWindow.windowNumber), @"native_failure":NSNull.null, @"trace_overflow":@0, @"classes":classes,
+        @"application_active":@(NSApp.active), @"window_key":@((BOOL)(NSApp.keyWindow != nil)), @"key_window_number":@(NSApp.keyWindow.windowNumber), @"native_failure":NSNull.null, @"trace_overflow":@0, @"classes":classes,
         @"close_start_ns":@[@(metrics[7].maximumLatency)], @"native_enqueue_errors":@(nativeEnqueueErrors),
         @"accounted_storage":@"retained payload/reference credits; excludes native and driver allocations",
         @"input_receipt_admission":@"probe ledger before native submission; not an SDK admission acknowledgment",
