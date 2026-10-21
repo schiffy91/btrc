@@ -743,10 +743,10 @@ def test_macos_gui_report_identity_rejects_inconsistent_serialization(defect):
         when="call",
         user_properties=[],
     )
-    report.btrc_gui_identity = (original, scheduled)
+    report.btrc_gui_identity = (original, scheduled, "@macos_gui")
     data = {"nodeid": scheduled, "user_properties": []}
     if defect == "mapping":
-        report.btrc_gui_identity = (original, original + "@other")
+        report.btrc_gui_identity = (original, original + "@other", "@macos_gui")
     elif defect == "report":
         report.nodeid = original
     elif defect == "serialized":
@@ -755,7 +755,7 @@ def test_macos_gui_report_identity_rejects_inconsistent_serialization(defect):
         data["user_properties"] = [("btrc.gui-report-identity", "{}")]
     serializer = TestReportForwarder().pytest_report_to_serializable(report)
     next(serializer)
-    with pytest.raises(ValueError, match="AppKit report identity"):
+    with pytest.raises(ValueError, match="grouped report identity"):
         serializer.send(data)
 
 

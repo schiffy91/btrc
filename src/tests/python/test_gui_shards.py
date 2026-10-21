@@ -307,6 +307,11 @@ def test_run_cli_preserves_selectors_and_pytest_arguments(tmp_path, monkeypatch)
 def test_linux_provider_groups_build_each_configuration_once_and_preserve_nodes(tmp_path):
     """Exercise the real provider marks with cheap build stand-ins on four workers."""
     (tmp_path / "pytest.ini").write_text("[pytest]\nmarkers =\n    linux_gui: native GUI fixture\n")
+    (tmp_path / "conftest.py").write_text(
+        "from src.tests.skip_ledger import SkipLedger\n"
+        "def pytest_addoption(parser): SkipLedger.add_options(parser)\n"
+        "def pytest_configure(config): SkipLedger.install(config)\n"
+    )
     (tmp_path / "test_grouped.py").write_text(
         "from pathlib import Path\n"
         "import os\n"
@@ -332,7 +337,7 @@ def test_linux_provider_groups_build_each_configuration_once_and_preserve_nodes(
         "@pytest.mark.parametrize('repeat', range(4))\n"
         "def test_unrelated(repeat): assert repeat < 4\n"
     )
-    env = dict(os.environ, PYTHONPATH=str(ROOT), PYTEST_ADDOPTS="")
+    env = dict(os.environ, PYTHONPATH=str(ROOT), PYTEST_ADDOPTS="", BTRC_TEST_RUNNER="linux-devcontainer")
     common = [sys.executable, "-m", "pytest", "-p", "tools.ui.gui_collection", "-c", "pytest.ini", "test_grouped.py"]
     collected = subprocess.run(
         [*common, "--collect-only", "-n", "0", "--gui-collection=collection.json"],
@@ -346,7 +351,7 @@ def test_linux_provider_groups_build_each_configuration_once_and_preserve_nodes(
     nodes = GUIPartition.collection(tmp_path / "collection.json")
     assert len(nodes) == 68
     run = subprocess.run(
-        [*common, "-n", "4", "--dist=loadgroup", "--junitxml=junit.xml"],
+        [*common, "-n", "4", "--dist=loadgroup", "--junitxml=junit.xml", "--skip-report=skip-report.json"],
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -365,6 +370,9 @@ def test_linux_provider_groups_build_each_configuration_once_and_preserve_nodes(
     partitions = [GUIPartition.create(nodes, "x11", index, 4, HEAD)["selected"] for index in range(4)]
     assert sorted(node for part in partitions for node in part) == nodes
     assert len(set(observed)) == len(nodes)
+    ledger = json.loads((tmp_path / "skip-report.json").read_text())
+    assert ledger["tests"] == dict.fromkeys(nodes, "passed")
+    GUIPartition.outcomes(tmp_path, nodes, ledger["revision"])
     builds = [line for path in tmp_path.glob("build-*.txt") for line in path.read_text().splitlines()]
     assert sorted(builds) == sorted(
         f"{family}-{frontend}-{sanitized}"
