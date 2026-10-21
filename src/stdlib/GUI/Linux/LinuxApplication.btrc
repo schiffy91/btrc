@@ -186,6 +186,7 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 
 	public void post(IApplicationWork work) {
 		var result = self.schedule(work, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+		if (result.kind == SCHEDULE_FULL) { throw "Application work capacity exceeded"; }
 		if (result.kind != SCHEDULE_ACCEPTED) { throw "Application work admission failed"; }
 	}
 
@@ -198,8 +199,10 @@ class LinuxApplication implements ILinuxApplication, ILinuxDialogPump {
 
 	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
 		var result = self.schedule(work, delaySeconds, WORK_SUSPENSION_DEFER, 0LL);
-		if (result.kind != SCHEDULE_ACCEPTED || result.registration == null) { throw "Application delayed work admission failed"; }
-		return result.registration;
+		if (result.kind == SCHEDULE_FULL) { throw "Application work capacity exceeded"; }
+		var registration = result.registration;
+		if (result.kind != SCHEDULE_ACCEPTED || registration == null) { throw "Application delayed work admission failed"; }
+		return registration;
 	}
 
 	public ApplicationPublisherOutcome createPublisher(int capacity, IApplicationPublicationHandler handler, CallbackScope owner) {

@@ -3,9 +3,11 @@
 # CODEX: entry point to the unified plan
 
 Read [AGENTS.md](AGENTS.md), then [PLAN.md](PLAN.md). The owner consolidated
-the roadmap and provider queue on 2026-10-07. Update PLAN.md only; this file
-keeps old links working and contains no independent task queue. Shared file
-claims remain in [WORKSTREAMS.md](WORKSTREAMS.md).
+the roadmap and provider queue on 2026-10-07. Live post-consolidation blockers
+are tracked in GitHub Issues [#108](https://github.com/schiffy91/btrc/issues/108)
+through [#113](https://github.com/schiffy91/btrc/issues/113). Update PLAN.md
+only; this file keeps old links working and contains no independent task queue.
+Shared file claims remain in [WORKSTREAMS.md](WORKSTREAMS.md).
 
 ## Goal and ownership
 

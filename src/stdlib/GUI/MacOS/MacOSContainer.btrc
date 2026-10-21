@@ -67,9 +67,16 @@ class MacOSContainerStep {
 	public MacOSContainerStep(ContainerEditKind kind, MacOSContainerJournal saved, int index, MacOSContainerPlacement placement) { self.kind = kind; self.saved = saved; self.index = index; self.placement = placement; }
 }
 
+class MacOSContainerEligibility implements IMacOSViewEligibility {
+	private Vector<MacOSViewInput> _inputs;
+	public MacOSContainerEligibility(Vector<MacOSViewInput> inputs) { self._inputs = inputs; }
+
+	public void eligibilityLost() { MacOSViewInput.detached(self._inputs); }
+}
+
 /* A native grouping view with BTRC-owned children, not an OS-handle registry.
  * Native parents are queried when needed; children never retain BTRC parents. */
-class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
+class MacOSContainer implements IContainer, IMacOSView {
 	private MacOSViewState _state;
 	private NSView? _view;
 	private Vector<MacOSContainerChild> _children = [];
@@ -88,7 +95,7 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 		self._layout = layout;
 		self._view = layout == null ? NSView.new() : layout.nativeView();
 		if (self._view == null) { throw "Cannot create native container"; }
-		self._state = MacOSViewState(self);
+		self._state = MacOSViewState(MacOSContainerEligibility(self._inputs));
 	}
 
 	private void requireMainThread() {
@@ -100,8 +107,6 @@ class MacOSContainer implements IContainer, IMacOSView, IMacOSViewEligibility {
 	public ViewInteractionState interactionState() { return self._state.snapshot(); }
 
 	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._state.observe(handler, owner); }
-
-	public void eligibilityLost() { self.cancelPointerCapture(); }
 
 	public NSView nativeView() {
 		self.requireMainThread();

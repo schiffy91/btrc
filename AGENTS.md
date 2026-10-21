@@ -58,10 +58,15 @@ This project is too large for a single context window. You WILL run out of memor
 ### Current roadmap and historical baseline
 
 The integrator lands reviewed work on `main`. [`PLAN.md`](PLAN.md) is the
-single roadmap and provider queue, consolidated on 2026-10-07. Its current
-status distinguishes integrated work, open reviews and missing qualification;
-the previous plan is frozen verbatim in `docs/design/plan-reference.md` and
-cited as `ref:N`. Never edit the frozen reference.
+single roadmap and provider queue, consolidated on 2026-10-07. Live
+post-consolidation blockers are tracked in GitHub Issues
+[#108](https://github.com/schiffy91/btrc/issues/108) through
+[#113](https://github.com/schiffy91/btrc/issues/113), and dated execution logs
+live in [`docs/design/claude-integration-record.md`](docs/design/claude-integration-record.md).
+Its current status distinguishes integrated work, open reviews and missing
+qualification; the previous plan is frozen verbatim in
+`docs/design/plan-reference.md` and cited as `ref:N`. Never edit the frozen
+reference.
 
 For a cross-repository handoff, read BTRSmith's MVP epic (schiffy91/btrsmith
 issue #15, which replaced `GOAL.md`), `docs/HWW.md`, `docs/DD.md` and

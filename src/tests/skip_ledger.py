@@ -49,7 +49,7 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_REPORT = REPO / "build" / "skip-report.json"
 GATES_PROPERTY = "btrc.capability-gates"
 GUI_IDENTITY_PROPERTY = "btrc.gui-report-identity"
-_GUI_IDENTITY = pytest.StashKey[tuple[str, str]]()
+_GUI_IDENTITY = pytest.StashKey[tuple[str, str, str]]()
 
 # Variables whose presence decides whether some test runs. Only presence is
 # recorded: values hold private paths, and a report is uploaded from CI.
@@ -97,18 +97,24 @@ class TestReportForwarder:
 
     @pytest.hookimpl(wrapper=True, tryfirst=True)
     def pytest_collection_modifyitems(self, items):
-        originals = {item: item.nodeid for item in items if item.get_closest_marker("macos_gui") is not None}
+        originals = {id(item): item.nodeid for item in items}
         result = yield
-        for item, original in originals.items():
+        for item in items:
+            original = originals[id(item)]
             if item.nodeid == original:
                 continue
             groups = {
                 str(mark.args[0] if mark.args else mark.kwargs.get("name", "default"))
                 for mark in item.iter_markers("xdist_group")
             }
-            if groups != {"macos_gui"} or item.nodeid != original + "@macos_gui":
+            if not groups:
+                continue
+            if item.get_closest_marker("macos_gui") is not None and groups != {"macos_gui"}:
                 raise pytest.UsageError(f"{original}: inconsistent AppKit scheduling identity")
-            item.stash[_GUI_IDENTITY] = (original, item.nodeid)
+            suffix = "@" + "_".join(sorted(groups))
+            if item.nodeid != original + suffix:
+                raise pytest.UsageError(f"{original}: inconsistent grouped scheduling identity")
+            item.stash[_GUI_IDENTITY] = (original, item.nodeid, suffix)
         return result
 
     @pytest.hookimpl(wrapper=True)
@@ -117,14 +123,16 @@ class TestReportForwarder:
         identity = getattr(report, "btrc_gui_identity", None)
         if identity is None:
             return data
-        original, scheduled = identity
+        original, scheduled, suffix = identity
         if (
-            scheduled != original + "@macos_gui"
+            not suffix.startswith("@")
+            or len(suffix) == 1
+            or scheduled != original + suffix
             or report.nodeid != scheduled
             or data is None
             or data.get("nodeid") != scheduled
         ):
-            raise ValueError("Inconsistent AppKit report identity")
+            raise ValueError("Inconsistent grouped report identity")
         # xdist checks the live report against the scheduled item after this
         # hook. Only its serialized copy may carry the canonical source ID.
         copied = dict(data)
@@ -132,7 +140,7 @@ class TestReportForwarder:
         properties = []
         for name, value in data.get("user_properties", ()):
             if name == GUI_IDENTITY_PROPERTY:
-                raise ValueError("Duplicate AppKit report identity")
+                raise ValueError("Duplicate grouped report identity")
             if name == GATES_PROPERTY:
                 gates = json.loads(value)
                 value = json.dumps(
@@ -149,7 +157,7 @@ class TestReportForwarder:
         identity = item.stash.get(_GUI_IDENTITY, None)
         if identity is not None:
             if report.nodeid != identity[1]:
-                raise ValueError("Changed AppKit report identity")
+                raise ValueError("Changed grouped report identity")
             report.btrc_gui_identity = identity
         gates = CapabilityGateLog.drain()
         if gates:

@@ -41,6 +41,7 @@ class MacOSAction implements IMacOSAction, IAppKitButtonAction, IAppKitButtonAdm
 	private bool beginNative() {
 		self._mailbox.requireMainThread();
 		var entry = MacOSButtonEntry(); self._entries.push(entry);
+		self._mailbox.beginActivation();
 		bool admitted = false;
 		try {
 			var state = self._state; var context = state == null ? null : state.context();
@@ -57,6 +58,7 @@ class MacOSAction implements IMacOSAction, IAppKitButtonAction, IAppKitButtonAdm
 		try {
 			if (self._entries.len == 0) { throw "Native button admission entry is missing"; }
 			var entry = self._entries.get(self._entries.len - 1); self._entries.remove(self._entries.len - 1); entry.retire();
+			self._mailbox.endActivation(nativeFailed);
 			if (nativeFailed) { self.failed("Native button activation failed"); }
 		} catch (string error) { self.failed(error); }
 	}
@@ -162,6 +164,7 @@ class MacOSActionMailbox {
 	private ActionMailbox _ring;
 	private MacOSRunLoopSignal? _signal;
 	private MacOSNativeFailure _failure = MacOSNativeFailure();
+	private int _activeActivations = 0;
 
 	public MacOSActionMailbox(int capacity, MacOSRunLoopSignal? signal) {
 		self.requireMainThread();
@@ -173,6 +176,17 @@ class MacOSActionMailbox {
 
 	public bool automaticDispatch() { self.requireMainThread(); return self._signal != null; }
 
+	public bool activationActive() { self.requireMainThread(); return self._activeActivations > 0; }
+
+	public void beginActivation() { self.requireMainThread(); self._activeActivations++; }
+
+	public void endActivation(bool nativeFailed) {
+		self.requireMainThread();
+		if (self._activeActivations <= 0) { throw "Native button activation ended without admission"; }
+		self._activeActivations--;
+		if (!nativeFailed && self._activeActivations == 0) { self.wake(); }
+	}
+
 	public void stopDispatch() { self.requireMainThread(); self._signal = null; }
 
 	public int pendingCount() { self.requireMainThread(); return self._ring.pendingCount(); }
@@ -180,7 +194,7 @@ class MacOSActionMailbox {
 	public void wake() {
 		self.requireMainThread();
 		var signal = self._signal;
-		if (signal != null && self._ring.hasPending()) { signal.wake(); }
+		if (signal != null && self._activeActivations == 0 && self._ring.hasPending()) { signal.wake(); }
 	}
 
 	public void prune() { self.requireMainThread(); self._ring.prune(); }
@@ -191,7 +205,7 @@ class MacOSActionMailbox {
 
 	public ActionMailboxReservation? reserve(MacOSAction action, int generation) { self.requireMainThread(); return self._failure.failed() ? null : self._ring.reserve(action, generation); }
 
-	public void enqueueReserved(ActionMailboxReservation reservation) { self.requireMainThread(); if (self._ring.enqueueReserved(reservation)) { self.wake(); } }
+	public void enqueueReserved(ActionMailboxReservation reservation) { self.requireMainThread(); self._ring.enqueueReserved(reservation); }
 
 	public void enqueue(MacOSAction action, int generation) {
 		self.requireMainThread();
@@ -297,6 +311,8 @@ class MacOSActionQueue {
 	}
 
 	public int pendingCount() { self.requireOpen(); return self._mailbox.pendingCount(); }
+
+	public bool activationActive() { self.requireOpen(); return self._mailbox.activationActive(); }
 
 	public void wake() { self.requireOpen(); self._mailbox.wake(); }
 

@@ -57,10 +57,13 @@ class QuitOnTimer implements IAppKitDelayedWork {
 	}
 
 	public void invoke(NSTimer timer) {
-		assert(self._application.isRunning() && timer.isValid());
+		assert(self._application.isRunning() && ApplicationProbe.hasDelegate() && timer.isValid());
 		bool rejected = false;
 		try { self._application.run(); } catch (string error) { rejected = true; }
 		assert(rejected);
+		rejected = false;
+		try { var duplicate = MacOSApplication(); duplicate.run(); } catch (string error) { rejected = error.equals("Native delegate slot is already occupied"); }
+		assert(rejected && ApplicationProbe.hasDelegate());
 		rejected = false;
 		try { self._application.close(); } catch (string error) { rejected = true; }
 		assert(rejected);
@@ -205,10 +208,8 @@ int main(int argc, char** argv) {
 	bool nativePending = strcmp(argv[1], "native-pending") == 0;
 	bool modal = strcmp(argv[1], "modal-native") == 0 || strcmp(argv[1], "modal-portable") == 0;
 	IApplication application = MacOSApplication(4);
-	assert(!application.isRunning() && ApplicationProbe.hasDelegate());
+	assert(!application.isRunning() && !ApplicationProbe.hasDelegate());
 	bool rejected = false;
-	try { var duplicate = MacOSApplication(); } catch (string error) { rejected = error.equals("Native delegate slot is already occupied"); }
-	assert(rejected && ApplicationProbe.hasDelegate());
 	var window = application.createWindow("Native application lifecycle", 480.0, 240.0);
 	var root = MacOSContainer();
 	var child = MacOSView(ApplicationProbe.newView());
@@ -230,7 +231,7 @@ int main(int argc, char** argv) {
 		application.requestQuit();
 		rejected = false;
 		try { application.post(ScheduledWork(application, window, 0)); } catch (string error) { rejected = true; }
-		assert(rejected && workDestroyed == 2);
+		assert(rejected && workDestroyed == 6);
 	}
 	else if (beforeRun) { application.requestQuit(); application.requestQuit(); verifyQuitAdmission(application); }
 	else { NSTimer.scheduledTimerWithTimeInterval(0.02, false, QuitOnTimer(application, window, child, strcmp(argv[1], "native") == 0 || nativePending, nativePending), timers); }

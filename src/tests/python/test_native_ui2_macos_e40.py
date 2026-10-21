@@ -225,8 +225,10 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         "native_optimization": 2,
         "sanitized": sanitized,
         "target": triple,
-        "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-        "source_changes": subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).splitlines(),
+        "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=30).strip(),
+        "source_changes": subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=ROOT, text=True, timeout=30
+        ).splitlines(),
         "platform": platform.platform(),
         "machine": platform.machine(),
         "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),

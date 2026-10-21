@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "src/tests/native/gui/ui2"
 
 
+@pytest.mark.macos_gui
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 def test_macos_image_publication(native_project, native_compile, gui_provider_root, sanitized):
     _macos_image_publication(
@@ -29,6 +30,7 @@ def test_macos_image_publication(native_project, native_compile, gui_provider_ro
     )
 
 
+@pytest.mark.macos_gui
 def test_macos_image_publication_thread_sanitizer(native_project, native_compile, gui_provider_root):
     _require_macos_thread_sanitizer(native_project[0].parent)
     _macos_image_publication(native_project, native_compile, gui_provider_root, "thread")

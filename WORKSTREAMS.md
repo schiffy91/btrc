@@ -5,6 +5,11 @@ roadmap and queue for both roles. CLAUDE.md and CODEX.md are compatibility entry
 points. This file retains claims and protocol; historical split-file statements
 below are superseded by D29. The current session is authorized to implement and
 integrate after the required review and gates. No qualification bar is waived.
+Live post-consolidation blockers and queues are tracked in GitHub Issues
+[#108](https://github.com/schiffy91/btrc/issues/108) through
+[#113](https://github.com/schiffy91/btrc/issues/113), and historical October 7
+to 19 execution records live in
+[docs/design/claude-integration-record.md](docs/design/claude-integration-record.md).
 
 **Historical protocol status:** in force, 2026-10-03 (D27, §2); amended 2026-10-06 by D28. **Roadmap and decisions:** [PLAN.md](PLAN.md). **Rules every agent follows:** [AGENTS.md](AGENTS.md). **Provider queue:** [PLAN.md](PLAN.md#provider-implementation-queue).
 **Contents:** 449 work packets (Claude 185, Codex 209, owner 55), generated from six planning analysts' output plus the writer adjustments in §9 and the review changes in §10, with four packets added on 2026-10-03 (`CX-UIA-30`, `CL-UIA-24`, `CL-R-50`, `CL-P2-29`; [codex-ui-lanes.md](docs/workstreams/codex-ui-lanes.md)).

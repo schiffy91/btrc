@@ -92,10 +92,10 @@ def provenance(frontend, sanitized):
     return {
         "schema": "btrc.linux-e40/1",
         "revision": subprocess.check_output(
-            ["git", "-c", f"safe.directory={ROOT}", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ["git", "-c", f"safe.directory={ROOT}", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=30
         ).strip(),
         "source_changes": subprocess.check_output(
-            ["git", "-c", f"safe.directory={ROOT}", "status", "--porcelain"], cwd=ROOT, text=True
+            ["git", "-c", f"safe.directory={ROOT}", "status", "--porcelain"], cwd=ROOT, text=True, timeout=30
         ).splitlines(),
         "frontend": frontend,
         "sanitized": sanitized,
@@ -106,7 +106,7 @@ def provenance(frontend, sanitized):
         "session": "headless native SDL; synthetic input; real delegated wgpuSurfacePresent",
         "physical_device_latency": "not measured",
         "clock": "SDL_GetTicksNS monotonic nanoseconds",
-        "compiler": subprocess.check_output(["cc", "--version"], text=True).splitlines()[0],
+        "compiler": subprocess.check_output(["cc", "--version"], text=True, timeout=30).splitlines()[0],
         "selfhost_binary": os.environ.get("BTRC_TEST_BTRCC") if frontend == "selfhost" else None,
         "limits": {
             "input_count_per_turn": 4096,

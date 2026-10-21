@@ -17,9 +17,12 @@ class MacOSSelectAdmission {
 	public ControlEventTicket? commit;
 	public ControlEventTicket? cancel;
 	public void retire() {
-		if (self.changed != null) { self.changed.abort(); self.changed = null; }
-		if (self.commit != null && !self.commit.queued()) { self.commit.retire(); }
-		if (self.cancel != null && !self.cancel.queued()) { self.cancel.retire(); }
+		var changed = self.changed;
+		if (changed != null) { changed.abort(); self.changed = null; }
+		var commit = self.commit;
+		if (commit != null && !commit.queued()) { commit.retire(); }
+		var cancel = self.cancel;
+		if (cancel != null && !cancel.queued()) { cancel.retire(); }
 		self.commit = null; self.cancel = null;
 	}
 
@@ -195,13 +198,21 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 		try { self.stateNode().ownChannel(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
 	}
 
+	private MacOSSelectAdmission requireAdmission() {
+		var admission = self._admission;
+		if (admission == null) { throw "Active selection interaction has no admission"; }
+		return admission;
+	}
+
 	public ICallbackRegistration onChanged(ISelectionControlEventHandler receiver, CallbackScope owner) {
 		if (self._changed != null && self._changed.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection change handler first"; }
 		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_KEYED);
 		try {
 			if (self._tracking && self.stateNode().events().captureEnabled()) {
-				self._admission.changed = channel.prepareKey(self._interactionGeneration, self._interaction, self._modelRevision);
-				if (self._admission.changed == null) { throw "Selection candidate reservation unavailable"; }
+				var admission = self.requireAdmission();
+				var prepared = channel.prepareKey(self._interactionGeneration, self._interaction, self._modelRevision);
+				if (prepared == null) { throw "Selection candidate reservation unavailable"; }
+				admission.changed = prepared;
 			}
 		} catch (string error) { channel.cancel(); throw error; }
 		self._changed = channel; return channel;
@@ -210,7 +221,14 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 	public ICallbackRegistration onCommit(ISelectionControlEventHandler receiver, CallbackScope owner) {
 		if (self._commit != null && self._commit.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection commit handler first"; }
 		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
-		try { if (self._tracking) { self._admission.commit = channel.beginInteraction(); if (self._admission.commit == null) { throw "Selection commit reservation unavailable"; } } }
+		try {
+			if (self._tracking) {
+				var admission = self.requireAdmission();
+				var ticket = channel.beginInteraction();
+				if (ticket == null) { throw "Selection commit reservation unavailable"; }
+				admission.commit = ticket;
+			}
+		}
 		catch (string error) { channel.cancel(); throw error; }
 		self._commit = channel; return channel;
 	}
@@ -218,7 +236,14 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 	public ICallbackRegistration onCancel(ISelectionControlEventHandler receiver, CallbackScope owner) {
 		if (self._cancel != null && self._cancel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing selection cancel handler first"; }
 		var channel = self.subscribe(receiver, owner, CONTROL_CAPTURE_TERMINAL);
-		try { if (self._tracking) { self._admission.cancel = channel.beginInteraction(); if (self._admission.cancel == null) { throw "Selection cancel reservation unavailable"; } } }
+		try {
+			if (self._tracking) {
+				var admission = self.requireAdmission();
+				var ticket = channel.beginInteraction();
+				if (ticket == null) { throw "Selection cancel reservation unavailable"; }
+				admission.cancel = ticket;
+			}
+		}
 		catch (string error) { channel.cancel(); throw error; }
 		self._cancel = channel; return channel;
 	}
@@ -247,12 +272,24 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 		if (self._interaction == 9223372036854775807LL) { throw "Selection interaction identities exhausted"; }
 		var admission = MacOSSelectAdmission();
 		try {
-			if (self._changed != null && self._changed.isOpen() && self.stateNode().events().captureEnabled()) {
-				admission.changed = self._changed.prepareKey(self.stateNode().generation(), self._interaction + 1LL, self._modelRevision);
-				if (admission.changed == null) { throw "Selection change reservation unavailable"; }
+			var changed = self._changed;
+			if (changed != null && changed.isOpen() && self.stateNode().events().captureEnabled()) {
+				var prepared = changed.prepareKey(self.stateNode().generation(), self._interaction + 1LL, self._modelRevision);
+				if (prepared == null) { throw "Selection change reservation unavailable"; }
+				admission.changed = prepared;
 			}
-			if (self._commit != null && self._commit.isOpen()) { admission.commit = self._commit.beginInteraction(); if (admission.commit == null) { throw "Selection commit reservation unavailable"; } }
-			if (self._cancel != null && self._cancel.isOpen()) { admission.cancel = self._cancel.beginInteraction(); if (admission.cancel == null) { throw "Selection cancel reservation unavailable"; } }
+			var commit = self._commit;
+			if (commit != null && commit.isOpen()) {
+				var ticket = commit.beginInteraction();
+				if (ticket == null) { throw "Selection commit reservation unavailable"; }
+				admission.commit = ticket;
+			}
+			var cancel = self._cancel;
+			if (cancel != null && cancel.isOpen()) {
+				var ticket = cancel.beginInteraction();
+				if (ticket == null) { throw "Selection cancel reservation unavailable"; }
+				admission.cancel = ticket;
+			}
 		} catch (string error) { admission.retire(); throw error; }
 		return admission;
 	}
@@ -270,10 +307,12 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 	private void cancelMenu(ControlOrigin origin, ControlCancelReason reason) {
 		if (!self._tracking) { return; }
 		var event = self.snapshot(CONTROL_PHASE_CANCEL, origin, reason); var channel = self._cancel; var admission = self.takeMenu();
+		if (admission == null) { throw "Active selection interaction has no admission"; }
 		try {
 			try { var menu = self._menu; if (menu != null) { menu.cancelTracking(); } }
 			finally { if (self._button != null) { self.projectSelection(); } }
-			if (channel != null && channel.isOpen() && admission.cancel != null) { channel.publishTerminal(event, event.context.generation, event.context.interaction, admission.cancel); }
+			var cancelTicket = admission.cancel;
+			if (channel != null && channel.isOpen() && cancelTicket != null) { channel.publishTerminal(event, event.context.generation, event.context.interaction, cancelTicket); }
 		} finally { admission.retire(); }
 	}
 
@@ -286,7 +325,11 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 		self._selected = index; self.projectSelection();
 		var event = changed ? self.snapshot(CONTROL_PHASE_COMMIT, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE) : null;
 		var channel = self._commit; var admission = self.takeMenu();
-		try { if (event != null && channel != null && channel.isOpen() && admission.commit != null) { channel.publishTerminal(event, event.context.generation, event.context.interaction, admission.commit); } }
+		if (admission == null) { throw "Active selection interaction has no admission"; }
+		try {
+			var commitTicket = admission.commit;
+			if (event != null && channel != null && channel.isOpen() && commitTicket != null) { channel.publishTerminal(event, event.context.generation, event.context.interaction, commitTicket); }
+		}
 		finally { admission.retire(); }
 	}
 
@@ -350,8 +393,10 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 	public bool activateItem(long long revision, int index) {
 		try {
 			if (revision != self._modelRevision || !self.canBegin() || index < 0 || index >= self._keys.len || !self._enabledItems.get(index)) { return false; }
+			var menu = self._menu;
+			if (menu == null) { throw "Native selection menu is unavailable"; }
 			bool active = self._tracking; if (!self.beginMenu()) { return false; } long long interaction = self._interaction;
-			try { self._menu.performActionForItemAtIndex((long)index); }
+			try { menu.performActionForItemAtIndex((long)index); }
 			finally { if (!active && self._tracking && self._interaction == interaction) { self.finishMenu(); } }
 			return !self._nativeFailed;
 		} catch (string error) { self.nativeFailure(error); return false; }
@@ -385,8 +430,9 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 					self._highlight = index; var channel = self._changed;
 					if (channel != null && channel.isOpen()) {
 						var event = self.snapshot(CONTROL_PHASE_CHANGE, CONTROL_ORIGIN_USER, CONTROL_CANCEL_NONE);
-						var preparation = self._admission.changed;
-						if (preparation != null) { self._admission.changed = null; preparation.commit(event); }
+						var admission = self.requireAdmission();
+						var preparation = admission.changed;
+						if (preparation != null) { admission.changed = null; preparation.commit(event); }
 						else if (!channel.publish(event, self._interactionGeneration, self._interaction, self._modelRevision)) { throw "Selection candidate queue cannot admit native input"; }
 					}
 				}

@@ -46,6 +46,7 @@ import Library.Image;
  * from exiting before the ordinary UI turn resolves it and runs shutdown. */
 class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotificationObserver {
 	public bool quitRequested = false;
+	public bool loopActive = false;
 	private MacOSApplicationExecutor _executor;
 	private MacOSViewContext _viewContext;
 	private MacOSActionQueue _actions;
@@ -69,10 +70,16 @@ class MacOSApplicationEvents implements IAppKitApplicationEvents, IAppKitNotific
 		self._shutdown = shutdown;
 	}
 
-	public void invoke(NSNotification notification) { self.serviceTurn(); }
+	public void invoke(NSNotification notification) {
+		if (!self.loopActive) { return; }
+		self.serviceTurn();
+	}
 
 	public void serviceTurn() {
-		if (self.quitRequested || self._dispatchingEvents || self._viewContext.treeMutationActive()) { return; }
+		if (self.quitRequested || self._dispatchingEvents || self._viewContext.treeMutationActive() || self._actions.activationActive()) {
+			if (!self.quitRequested && self._actions.activationActive() && !self._viewContext.wake.requestTurn()) { self.failWork("Application semantic wake failed"); }
+			return;
+		}
 		self._dispatchingEvents = true;
 		try {
 			self._viewContext.checkNativeFailure();
@@ -338,6 +345,7 @@ class MacOSApplication implements IApplication {
 	private Vector<IView> _views = [];
 	private bool _closing = false;
 	private bool _closed = false;
+	private bool _postedWork = false;
 	private string _closeFailure = "";
 
 	public MacOSApplication(int workCapacity = 256) {
@@ -399,13 +407,17 @@ class MacOSApplication implements IApplication {
 				}
 			}
 			if (self._events.quitRequested) { self._events.armShutdown(); }
-			self._running = true;
+			self._running = true; self._events.loopActive = true;
+			if (!self._events.quitRequested) {
+				self._actions.wake();
+				if ((self._events.pendingWork() > 0 || self._viewContext.pending()) && !self._viewContext.wake.requestTurn()) { self._events.failWork("Application semantic wake failed"); }
+			}
 			try { self._application.run(); } catch (string error) {
-				self._running = false;
+				self._running = false; self._events.loopActive = false;
 				self.close();
 				throw error;
 			}
-			self._running = false;
+			self._running = false; self._events.loopActive = false;
 			self._events.requestQuit(self._application);
 		}
 		if (self._events.workFailed()) { throw self._events.workFailure(); }
@@ -421,13 +433,17 @@ class MacOSApplication implements IApplication {
 
 	public void post(IApplicationWork work) {
 		var result = self.schedule(work, 0.0, WORK_SUSPENSION_DEFER, 0LL);
+		if (result.kind == SCHEDULE_FULL) { throw "Application work capacity exceeded"; }
 		if (result.kind != SCHEDULE_ACCEPTED) { throw "Application work admission failed"; }
+		self._postedWork = true;
 	}
 
 	public ICallbackRegistration postAfter(double delaySeconds, IApplicationWork work) {
 		var result = self.schedule(work, delaySeconds, WORK_SUSPENSION_DEFER, 0LL);
-		if (result.kind != SCHEDULE_ACCEPTED || result.registration == null) { throw "Application delayed work admission failed"; }
-		return result.registration;
+		if (result.kind == SCHEDULE_FULL) { throw "Application work capacity exceeded"; }
+		var registration = result.registration;
+		if (result.kind != SCHEDULE_ACCEPTED || registration == null) { throw "Application delayed work admission failed"; }
+		return registration;
 	}
 
 	public ApplicationHostAttachOutcome attachHost(IApplicationHost host, CallbackScope owner) {
@@ -545,6 +561,10 @@ class MacOSApplication implements IApplication {
 		self.requireMainThread();
 		if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
 		if (self._closeFailure != "") { throw self._closeFailure; }
+		if (self._running) { throw "Request application quit before closing a running application"; }
+		if (!self._closing && !self._events.quitRequested && self._attachment == null && self._postedWork && self._events.pendingWork() > 0) {
+			throw "Run the application to drain pending work before closing";
+		}
 		self._closing = true;
 		self._events.requestQuit(self._application);
 		if (self._running || self._events.eventsActive()) { return CALLBACK_CANCELLATION_PENDING; }

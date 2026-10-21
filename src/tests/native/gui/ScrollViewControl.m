@@ -45,7 +45,7 @@ static NSRect headerFrame;
     if (window == nil || root == nil || scroll == nil || header == nil ||
         !NSEqualRects(root.frame, window.contentView.bounds) ||
         scroll.documentView.superview != scroll.contentView ||
-        !scroll.hasVerticalScroller || scroll.hasHorizontalScroller || !scroll.autohidesScrollers ||
+        !scroll.hasVerticalScroller || !scroll.hasHorizontalScroller || !scroll.autohidesScrollers ||
         scroll.scrollerStyle != NSScrollerStyleOverlay || scroll.borderType != NSNoBorder ||
         !NSEqualRects(scroll.frame, NSMakeRect(0, 0, 480, 400)) ||
         scroll.documentView.subviews.count != 2 ||

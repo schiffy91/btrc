@@ -88,10 +88,11 @@ int main() {
 	bool invalidFrame = false;
 	try { view.arrange(0.0, 0.0, -1.0, 30.0); } catch (string error) { invalidFrame = error.equals("Invalid native view frame"); }
 	assert(invalidFrame);
+	window.show();
 	assert(NativeTextFieldProbe.mount());
 	assert(NativeTextFieldProbe.replaceSelection());
 	assert(field.text().equals("Guitar 🎸"));
-	field.setText("Guitar 🎸");
+	field.setText("Library Música 🎸");
 	assert(NativeTextFieldProbe.selectionUnchanged());
 	assert(NativeTextFieldProbe.undo());
 	assert(field.text().equals("Library Música 🎸"));

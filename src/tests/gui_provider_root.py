@@ -50,7 +50,7 @@ class GUIProviderRoot:
             "SliderInteraction",
             "ApplicationPublisher",
             "ApplicationScheduler",
-            "IApplicationNativeWake",
+            "ApplicationNativeWake",
         ):
             if name not in exported:
                 provider.append(name)

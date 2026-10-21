@@ -152,8 +152,9 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 	private MacOSWindowEvents _events;
 	private CallbackScope _callbacks;
 	private bool _requestedVisible = false;
-	private WindowState? _state;
-	private WindowState? _pendingState;
+	private WindowState _state = WindowState();
+	private bool _stateInitialized = false;
+	private bool _statePending = false;
 	private ControlEventChannel<IWindowStateHandler, WindowState>? _stateChannel;
 	private MacOSNativeSettlementRegistration? _stateSettlement;
 	private ControlEventChannel<MacOSWindowCloseReceiver, IWindowCloseTransaction>? _closeChannel;
@@ -232,51 +233,67 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 
 	private void refreshWindowState() {
 		self.requireMainThread();
-		if (self._viewContext != null && self._viewContext.treeMutationActive()) { return; }
-		var old = self._state; var next = WindowState(); var window = self._window;
-		next.width = old == null ? 0.0 : old.width; next.height = old == null ? 0.0 : old.height;
-		next.backingScale = old == null ? 1.0 : old.backingScale;
+		var current = self._state;
+		if (current == null || (self._viewContext != null && self._viewContext.treeMutationActive())) { return; }
+		var window = self._window;
+		double width = self._stateInitialized ? current.width : 0.0;
+		double height = self._stateInitialized ? current.height : 0.0;
+		double backingScale = self._stateInitialized ? current.backingScale : 1.0;
 		if (window != null) {
-			var content = window.contentView(); if (content != null) { var bounds = content.bounds(); next.width = bounds.size.width; next.height = bounds.size.height; }
-			next.backingScale = window.backingScaleFactor();
+			var content = window.contentView(); if (content != null) { var bounds = content.bounds(); width = bounds.size.width; height = bounds.size.height; }
+			backingScale = window.backingScaleFactor();
 		}
-		next.requestedVisible = self._requestedVisible;
-		next.nativeVisible = self.isOpen() && window != null && window.isVisible();
-		next.minimized = window != null && window.isMiniaturized();
-		next.windowActive = self.isOpen() && window != null && window.isKeyWindow(); next.applicationActivity = self._activity;
-		next.exposure = WINDOW_EXPOSURE_UNKNOWN; next.notExposedReason = WINDOW_EXPOSURE_REASON_NONE;
-		if (next.minimized) { next.exposure = WINDOW_EXPOSURE_NOT_EXPOSED; next.notExposedReason = WINDOW_EXPOSURE_REASON_MINIMIZED; }
-		else if (!next.nativeVisible) { next.exposure = WINDOW_EXPOSURE_NOT_EXPOSED; next.notExposedReason = WINDOW_EXPOSURE_REASON_HIDDEN; }
+		bool requestedVisible = self._requestedVisible;
+		bool nativeVisible = self.isOpen() && window != null && window.isVisible();
+		bool minimized = window != null && window.isMiniaturized();
+		bool windowActive = self.isOpen() && window != null && window.isKeyWindow();
+		ApplicationActivity applicationActivity = self._activity;
+		WindowExposure exposure = WINDOW_EXPOSURE_UNKNOWN;
+		WindowExposureReason notExposedReason = WINDOW_EXPOSURE_REASON_NONE;
+		if (minimized) { exposure = WINDOW_EXPOSURE_NOT_EXPOSED; notExposedReason = WINDOW_EXPOSURE_REASON_MINIMIZED; }
+		else if (!nativeVisible) { exposure = WINDOW_EXPOSURE_NOT_EXPOSED; notExposedReason = WINDOW_EXPOSURE_REASON_HIDDEN; }
 		else if (window != null) {
-			if ((window.occlusionState() & NSWindowOcclusionStateVisible) != 0UL) { next.exposure = WINDOW_EXPOSURE_EXPOSED; }
-			else { next.exposure = WINDOW_EXPOSURE_NOT_EXPOSED; next.notExposedReason = WINDOW_EXPOSURE_REASON_OCCLUDED; }
+			if ((window.occlusionState() & NSWindowOcclusionStateVisible) != 0UL) { exposure = WINDOW_EXPOSURE_EXPOSED; }
+			else { exposure = WINDOW_EXPOSURE_NOT_EXPOSED; notExposedReason = WINDOW_EXPOSURE_REASON_OCCLUDED; }
 		}
-		next.presentable = self.isOpen() && next.nativeVisible && !next.minimized && next.exposure != WINDOW_EXPOSURE_NOT_EXPOSED && self._activity != APPLICATION_ACTIVITY_SUSPENDED && next.width > 0.0 && next.height > 0.0 && next.backingScale > 0.0;
-		if (old != null && old.width == next.width && old.height == next.height && old.backingScale == next.backingScale && old.requestedVisible == next.requestedVisible && old.nativeVisible == next.nativeVisible && old.minimized == next.minimized && old.windowActive == next.windowActive && old.applicationActivity == next.applicationActivity && old.exposure == next.exposure && old.notExposedReason == next.notExposedReason && old.presentable == next.presentable) { return; }
-		if (old != null && old.stateRevision == 9223372036854775807LL) { throw "Window state revisions exhausted"; }
-		next.stateRevision = old == null ? 1LL : old.stateRevision + 1LL; self._state = next; self._pendingState = next; self.publishState();
+		bool presentable = self.isOpen() && nativeVisible && !minimized && exposure != WINDOW_EXPOSURE_NOT_EXPOSED && self._activity != APPLICATION_ACTIVITY_SUSPENDED && width > 0.0 && height > 0.0 && backingScale > 0.0;
+		if (self._stateInitialized && current.width == width && current.height == height && current.backingScale == backingScale && current.requestedVisible == requestedVisible && current.nativeVisible == nativeVisible && current.minimized == minimized && current.windowActive == windowActive && current.applicationActivity == applicationActivity && current.exposure == exposure && current.notExposedReason == notExposedReason && current.presentable == presentable) { return; }
+		if (self._stateInitialized && current.stateRevision == 9223372036854775807LL) { throw "Window state revisions exhausted"; }
+		current.width = width; current.height = height; current.backingScale = backingScale;
+		current.requestedVisible = requestedVisible; current.nativeVisible = nativeVisible; current.minimized = minimized;
+		current.windowActive = windowActive; current.applicationActivity = applicationActivity;
+		current.exposure = exposure; current.notExposedReason = notExposedReason; current.presentable = presentable;
+		current.stateRevision = self._stateInitialized ? current.stateRevision + 1LL : 1LL;
+		self._stateInitialized = true; self._statePending = true; self.publishState();
 	}
 
 	private void publishState() {
-		var channel = self._stateChannel; var state = self._pendingState;
-		if (state == null) { return; }
-		if (channel == null || !channel.isOpen() || !self.isOpen()) { self._pendingState = null; return; }
+		var channel = self._stateChannel; var state = self._state;
+		if (!self._statePending || state == null) { return; }
+		if (channel == null || !channel.isOpen() || !self.isOpen()) { self._statePending = false; return; }
 		var context = self.semanticContext(); context.checkNativeFailure(); var queue = self._semantic;
 		if (queue == null || !queue.canCapture(0)) { throw "Window state semantic source is unavailable"; }
-		if (channel.publish(state, 1LL, 0LL, 1LL)) { self._pendingState = null; }
+		if (channel.publish(MacOSWindow.copyState(state), 1LL, 0LL, 1LL)) { self._statePending = false; }
 		else { if (self._stateSettlement == null) { throw "Window state settlement is unavailable"; } self._stateSettlement.request(); }
 	}
 
 	public void settleNative() { self.publishState(); }
 
-	public WindowState state() { self.refreshWindowState(); var state = self._state; if (state == null) { throw "Window state unavailable"; } return MacOSWindow.copyState(state); }
+	public WindowState state() { self.refreshWindowState(); var state = self._state; if (!self._stateInitialized || state == null) { throw "Window state unavailable"; } return MacOSWindow.copyState(state); }
+
+	private ControlEventQueue semanticQueue() {
+		var queue = self._semantic;
+		if (queue == null) { throw "Window observation requires an application context"; }
+		return queue;
+	}
 
 	public ICallbackRegistration onStateChanged(IWindowStateHandler receiver, CallbackScope owner) {
 		self.nativeWindow(); var context = self.semanticContext(); context.requireSemanticRegistration();
+		var queue = self.semanticQueue();
 		if (self._stateChannel != null && self._stateChannel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing window state handler first"; }
-		self.refreshWindowState(); self._pendingState = null;
+		self.refreshWindowState(); self._statePending = false;
 		if (self._stateSettlement == null) { self._stateSettlement = context.registerNativeSettlement(self, self._callbacks); }
-		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(self._semantic, self, receiver, MacOSWindow.deliverState, owner, self._semantic.captureEnabled() ? CONTROL_CAPTURE_OBSERVER : CONTROL_CAPTURE_LEGACY);
+		var channel = new ControlEventChannel<IWindowStateHandler, WindowState>(queue, self, receiver, MacOSWindow.deliverState, owner, queue.captureEnabled() ? CONTROL_CAPTURE_OBSERVER : CONTROL_CAPTURE_LEGACY);
 		try {
 			self._callbacks.track(channel); self._stateChannel = channel;
 		} catch (string error) { channel.cancel(); throw error; }
@@ -286,11 +303,12 @@ class MacOSWindow implements IWindow, IControlEventTarget, IMacOSNativeSettlemen
 	public ICallbackRegistration onCloseRequested(IWindowCloseRequestHandler handler, CallbackScope owner) {
 		if (handler == null || owner == null) { throw "Window close handler and owner are required"; }
 		self.nativeWindow(); var context = self.semanticContext(); context.requireSemanticRegistration();
+		var queue = self.semanticQueue();
 		var previous = self._closeRegistration;
 		if (previous != null && previous.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel and drain the existing close handler first"; }
 		if (self._closeHandlerGeneration == 9223372036854775807LL) { throw "Window close handler generations exhausted"; }
 		var receiver = MacOSWindowCloseReceiver(self, handler);
-		var channel = new ControlEventChannel<MacOSWindowCloseReceiver, IWindowCloseTransaction>(self._semantic, self, receiver, MacOSWindowCloseReceiver.deliver, self._callbacks, self._semantic.captureEnabled() ? CONTROL_CAPTURE_TERMINAL : CONTROL_CAPTURE_LEGACY);
+		var channel = new ControlEventChannel<MacOSWindowCloseReceiver, IWindowCloseTransaction>(queue, self, receiver, MacOSWindowCloseReceiver.deliver, self._callbacks, queue.captureEnabled() ? CONTROL_CAPTURE_TERMINAL : CONTROL_CAPTURE_LEGACY);
 		var registration = MacOSWindowCloseRegistration(self, channel);
 		try { owner.track(registration); self._callbacks.track(registration); }
 		catch (string error) { registration.cancel(); throw error; }

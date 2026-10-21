@@ -250,7 +250,7 @@ jobs:
     runs-on: macos-15
     # Hosted macOS runners have three cores, and the unit shard carries the
     # native-interop cases Linux skips.
-    timeout-minutes: 180
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix.tests }}

@@ -12,6 +12,7 @@ from src.tests.python.native_import_fixtures import native_project as native_pro
 from tools.native_plan import NativePlanBuilder
 
 
+@pytest.mark.macos_gui
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 def test_macos_select_capture(native_project, native_compile, gui_provider_root, sanitized):
     fixture = "UI2MacOSSelectCapture"

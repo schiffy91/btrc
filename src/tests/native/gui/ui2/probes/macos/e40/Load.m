@@ -343,17 +343,45 @@ void e40LoadPushClose(void) {
     }
     @catch (NSException *error) { (void)error; e40LoadReject(7, 1); nativeEnqueueErrors++; }
 }
+static NSView *findLayerView(NSView *view, CALayer *layer) {
+    if (view.layer == layer) { return view; }
+    for (NSView *child in view.subviews) { NSView *found = findLayerView(child, layer); if (found) { return found; } }
+    return nil;
+}
 /* Read AppKit geometry only on the main thread. The timestamp explicitly marks
  * this observation after the dropped callback, not the time of the drop. */
 static void exposureRecord(int window, const char *reason) {
     assert(NSThread.isMainThread);
     NSWindow *native = windows[window];
     NSScreen *screen = native.screen;
+    CAMetalLayer *layer = layers[window];
+    NSView *view = findLayerView(native.contentView, layer);
+    NSMutableArray *ancestors = [NSMutableArray array];
+    NSView *ancestor = view;
+    for (int depth = 0; ancestor && depth < 32; depth++, ancestor = ancestor.superview) {
+        [ancestors addObject:@{@"class":NSStringFromClass(ancestor.class), @"frame":NSStringFromRect(ancestor.frame),
+            @"bounds":NSStringFromRect(ancestor.bounds), @"visible_rect":NSStringFromRect(ancestor.visibleRect),
+            @"hidden":@(ancestor.hidden), @"alpha":@(ancestor.alphaValue), @"clips_to_bounds":@(ancestor.clipsToBounds)}];
+    }
+    NSRect viewOnScreen = view ? [native convertRectToScreen:[view convertRect:view.bounds toView:nil]] : NSZeroRect;
+    CALayer *presented = layer.presentationLayer;
+    NSDictionary *surface = @{@"view_found":@((BOOL)(view != nil)), @"view_window_matches":@((BOOL)(view && view.window == native)),
+        @"view_ancestors":ancestors, @"view_ancestors_complete":@((BOOL)(ancestor == nil)),
+        @"view_screen_frame":NSStringFromRect(viewOnScreen),
+        @"view_screen_intersection":NSStringFromRect(screen ? NSIntersectionRect(viewOnScreen, screen.frame) : NSZeroRect),
+        @"layer_frame":NSStringFromRect(layer.frame), @"layer_bounds":NSStringFromRect(layer.bounds),
+        @"layer_hidden":@(layer.hidden), @"layer_opacity":@(layer.opacity), @"layer_has_superlayer":@((BOOL)(layer.superlayer != nil)),
+        @"drawable_size":NSStringFromSize(layer.drawableSize), @"contents_scale":@(layer.contentsScale),
+        @"presents_with_transaction":@(layer.presentsWithTransaction), @"display_sync_enabled":@(layer.displaySyncEnabled),
+        @"device_name":layer.device.name ?: @"unavailable", @"pixel_format":@(layer.pixelFormat),
+        @"presentation_layer_frame":presented ? NSStringFromRect(presented.frame) : @"unavailable",
+        @"presentation_layer_bounds":presented ? NSStringFromRect(presented.bounds) : @"unavailable",
+        @"presentation_layer_opacity":presented ? @(presented.opacity) : NSNull.null};
     NSDictionary *context = @{@"window":@(window), @"reason":[NSString stringWithUTF8String:reason],
         @"observed_ns":@(e40LoadNow()), @"visible":@(native.visible), @"key":@(native.keyWindow),
         @"application_active":@(NSApp.active), @"occlusion_state":@(native.occlusionState),
         @"frame":NSStringFromRect(native.frame), @"screen_frame":screen ? NSStringFromRect(screen.frame) : @"unavailable",
-        @"screen_visible_frame":screen ? NSStringFromRect(screen.visibleFrame) : @"unavailable"};
+        @"screen_visible_frame":screen ? NSStringFromRect(screen.visibleFrame) : @"unavailable", @"surface":surface};
     NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:context options:0 error:&error];
     assert(data && !error);
     NSString *path = [outputPath stringByAppendingString:@".presentation-context.jsonl.txt"];
@@ -441,7 +469,7 @@ void e40LoadReport(bool hosted) {
     NSMutableDictionary *report = [@{@"schema":@"btrc.ui2.macos-e40/1", @"trial":@[@"load", @"popup", @"slider", @"resize", @"sheet"][trialKind], @"entry":hosted ? @"host" : @"desktop",
         @"native_backend":@"AppKit", @"clock":@"mach_continuous_time nanoseconds", @"elapsed_ns":@(loadEnds - loadStarted),
         @"load_started_ns":@(loadStarted), @"load_ended_ns":@(loadEnds), @"visible_windows":@(windows[0].visible + windows[1].visible),
-        @"application_active":@(NSApp.active), @"window_key":@(NSApp.keyWindow != nil), @"key_window_number":@(NSApp.keyWindow.windowNumber), @"native_failure":NSNull.null, @"trace_overflow":@0, @"classes":classes,
+        @"application_active":@(NSApp.active), @"window_key":@((BOOL)(NSApp.keyWindow != nil)), @"key_window_number":@(NSApp.keyWindow.windowNumber), @"native_failure":NSNull.null, @"trace_overflow":@0, @"classes":classes,
         @"close_start_ns":@[@(metrics[7].maximumLatency)], @"native_enqueue_errors":@(nativeEnqueueErrors),
         @"accounted_storage":@"retained payload/reference credits; excludes native and driver allocations",
         @"input_receipt_admission":@"probe ledger before native submission; not an SDK admission acknowledgment",

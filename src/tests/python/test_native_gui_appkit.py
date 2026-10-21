@@ -431,7 +431,7 @@ def test_macos_panel_and_progress_controls(
         manifest.write_text(
             manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "PointerInput.h"\n'
             'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
-            'symbols = ["-[NSApplication postEvent:atStart:]", "-[NSWindow windowNumber]", "-[NSWindow sendEvent:]", "-[NSView hitTest:]", "-[NSView convertPoint:fromView:]", '
+            'symbols = ["-[NSApplication postEvent:atStart:]", "-[NSApplication sendEvent:]", "-[NSWindow windowNumber]", "-[NSWindow sendEvent:]", "-[NSView hitTest:]", "-[NSView convertPoint:fromView:]", '
             '"+[NSEvent mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:]", '
             '"NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp", "-[NSView intrinsicContentSize]"'
             + (

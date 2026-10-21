@@ -13,7 +13,9 @@
 
 #define TRACK_START_SUBTYPE ((short)0x4540)
 #define TRACK_INPUT_ID 70368744177664ULL
-#define TRACK_MOUSE_NUMBER 0x454000
+/* AppKit queue round trips preserve a signed 16-bit mouse event number.
+ * Keep the complete fixture namespace in that representation. */
+#define TRACK_MOUSE_NUMBER 0x4000
 #define TRACE_LIMIT 64
 /* Native input has its own bounded identity ledger. A dequeue is not a UI2
  * semantic callback; both observations are preserved in the report. */
@@ -112,7 +114,7 @@ static void traceEvent(const char *phase, NSEvent *event, NSEventMask mask, NSRu
             @"phase":[NSString stringWithUTF8String:phase], @"observed_ns":@(e40LoadNow()),
             @"uptime_seconds":@(NSProcessInfo.processInfo.systemUptime), @"mask":@(mask),
             @"mode":mode ? (id)mode : NSNull.null, @"dequeue":@(dequeue),
-            @"limit_reached":@(eventTraceRows == TRACE_LIMIT - 1)} mutableCopy];
+            @"limit_reached":@((BOOL)(eventTraceRows == TRACE_LIMIT - 1))} mutableCopy];
         if (event) {
             row[@"type"] = @(event.type); row[@"timestamp_seconds"] = @(event.timestamp); row[@"window"] = @(event.windowNumber);
             if (event.type == NSEventTypeApplicationDefined) { row[@"subtype"] = @(event.subtype); row[@"data1"] = @(event.data1); row[@"data2"] = @(event.data2); }
@@ -484,7 +486,7 @@ NSDictionary *e40TrackingReport(void) {
         struct SemanticInput *item = &semantics[index];
         [semantic addObject:@{@"delivered_ns":@(item->delivered), @"phase":@(item->phase), @"generation":@(item->generation), @"interaction":@(item->interaction), @"sequence":@(item->sequence), @"model_revision":@(item->revision), @"trigger_identity":@(item->trigger), @"latency_ns":@(item->latency), @"candidate_index":trialKind == 1 ? (id)@((NSInteger)item->value) : NSNull.null, @"disposition":@"semantic-delivered"}];
     }
-    NSDictionary *result = @{@"entered_ns":@(entered), @"exited_ns":@(exited), @"native_entry_observed":@(entered > 0), @"native_exit_observed":@(exited > 0),
+    NSDictionary *result = @{@"entered_ns":@(entered), @"exited_ns":@(exited), @"native_entry_observed":@((BOOL)(entered > 0)), @"native_exit_observed":@((BOOL)(exited > 0)),
         @"run_modal_used":@NO, @"forced_cleanup":@(forcedCleanup), @"service":service, @"service_run_loop_modes":modes.allObjects, @"native_input":native, @"semantic_receipts":semantic,
         @"tracking_model":trialKind == 2 ? @"provider-owned slider drag" : trialKind == 4 ? @"nonmodal sheet" : @"native tracking loop",
         @"input_identity_observation":trialKind == 1 ? @"CGEventSourceUserData at submission; one outstanding public menu effect; no dequeue acknowledgment" : trialKind == 3 ? @"CGEventSourceUserData at NSApplication dequeue" : @"NSEvent.eventNumber and windowNumber at NSApplication dequeue",

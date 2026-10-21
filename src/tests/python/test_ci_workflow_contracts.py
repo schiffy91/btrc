@@ -706,13 +706,11 @@ def test_a_pr_tier_corpus_row_reaches_pytest_through_pytest_addopts() -> None:
         suite = next(
             step for step in _parsed(workflow)["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", "")
         )
-        options = "${{ matrix.pytest_addopts }}"
-        if workflow == "macos.yml":
-            options = (
-                "${{ matrix.shard == 'unit' && format('--dist=loadgroup "
-                "--failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) "
-                "|| matrix.pytest_addopts }}"
-            )
+        options = (
+            "${{ matrix.shard == 'unit' && format('--dist=loadgroup "
+            "--failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) "
+            "|| matrix.pytest_addopts }}"
+        )
         assert suite["env"] == {"PYTEST_ADDOPTS": options}, workflow
     linux = next(step for step in _parsed("ci.yml")["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", ""))
     assert '-v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest' in linux["run"]
@@ -1241,18 +1239,22 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
         "format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', "
         "matrix.pytest_addopts) || matrix.pytest_addopts }}"
     )
-    steps = _parsed("macos.yml")["jobs"]["tests"]["steps"]
-    upload = next(step for step in steps if step.get("name") == "Retain partial unit failures")
-    assert upload["if"] == "always() && matrix.shard == 'unit'"
-    assert upload["uses"] == UPLOAD_ARTIFACT
-    assert upload["with"] == {
-        "name": "failure-report-macos-tests-unit",
-        "path": "build/failure-report-unit.jsonl",
-        "if-no-files-found": "ignore",
-        "retention-days": "14",
-    }
-    assert steps.index(upload) > next(i for i, step in enumerate(steps) if "matrix.target" in step.get("run", ""))
     assert "podman" not in job
+
+
+def test_unit_shards_preserve_partial_failures_before_final_reports() -> None:
+    for workflow in ("ci", "macos"):
+        steps = _parsed(f"{workflow}.yml")["jobs"]["tests"]["steps"]
+        upload = next(step for step in steps if step.get("name") == "Retain partial unit failures")
+        assert upload["if"] == "always() && matrix.shard == 'unit'"
+        assert upload["uses"] == UPLOAD_ARTIFACT
+        assert upload["with"] == {
+            "name": f"failure-report-{workflow}-tests-unit",
+            "path": "build/failure-report-unit.jsonl",
+            "if-no-files-found": "ignore",
+            "retention-days": "14",
+        }
+        assert steps.index(upload) > next(i for i, step in enumerate(steps) if "matrix.target" in step.get("run", ""))
 
 
 def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
@@ -2252,6 +2254,7 @@ def test_workflow_retains_raw_image_inspect_and_stops_on_failure(tmp_path: Path,
         env={**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}", "CANDIDATE": "a" * 40},
         capture_output=True,
         text=True,
+        timeout=30,
     )
     assert result.returncode == inspect_status, result.stderr
     calls = [json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()]

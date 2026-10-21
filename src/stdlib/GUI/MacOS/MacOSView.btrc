@@ -15,22 +15,32 @@ interface IMacOSView extends IView {
 	void cancelPointerCapture();
 }
 
+class MacOSViewEligibility implements IMacOSViewEligibility {
+	public IMacOSViewEligibility? controlEligibility;
+	public Vector<MacOSViewInput> inputs = [];
+
+	public void eligibilityLost() {
+		var receiver = self.controlEligibility;
+		try { if (receiver != null) { receiver.eligibilityLost(); } }
+		finally { if (self.inputs != null) { MacOSViewInput.detached(self.inputs); } }
+	}
+}
+
 /* Main-thread view ownership shared by native leaf controls and containers.
  * Managed attachment reserves close for the owning container. */
 class MacOSView implements IMacOSView, IMacOSViewEligibility {
+	private MacOSViewEligibility _eligibility = MacOSViewEligibility();
 	private MacOSViewState _state;
-	private IMacOSViewEligibility? _controlEligibility;
 	private NSView? _view;
 	private bool _attached = false;
 	private bool _closing = false;
 	private CallbackScope _input = CallbackScope();
-	private Vector<MacOSViewInput> _inputs = [];
 
 	public MacOSView(NSView? view = null) {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		self._view = view == null ? NSView.new() : view;
 		if (self._view == null) { throw "Cannot create native view"; }
-		self._state = MacOSViewState(self);
+		self._state = MacOSViewState(self._eligibility);
 	}
 
 	public MacOSViewState stateNode() { return self._state; }
@@ -39,9 +49,9 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 
 	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._state.observe(handler, owner); }
 
-	public void bindEligibility(IMacOSViewEligibility receiver) { self._state.requireMutation(); if (self._controlEligibility != null || receiver == null) { throw "Native view eligibility receiver is already bound or missing"; } self._controlEligibility = receiver; }
+	public void bindEligibility(IMacOSViewEligibility receiver) { self._state.requireMutation(); if (self._eligibility.controlEligibility != null || receiver == null) { throw "Native view eligibility receiver is already bound or missing"; } self._eligibility.controlEligibility = receiver; }
 
-	public void eligibilityLost() { var receiver = self._controlEligibility; try { if (receiver != null) { receiver.eligibilityLost(); } } finally { self.cancelPointerCapture(); } }
+	public void eligibilityLost() { self._eligibility.eligibilityLost(); }
 
 	public NSView nativeView() {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
@@ -119,11 +129,11 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 
 	public bool isVisible() { return !self.nativeView().isHidden(); }
 
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._inputs, self._state); }
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), handler, null, self._input, owner, self._eligibility.inputs, self._state); }
 
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._inputs, self._state); }
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._eligibility.inputs, self._state); }
 
-	public void cancelPointerCapture() { MacOSViewInput.detached(self._inputs); }
+	public void cancelPointerCapture() { MacOSViewInput.detached(self._eligibility.inputs); }
 
 	/* GPU owners close admission before draining native work, while retaining
 	 * their view/layer until the existing native teardown barrier completes. */
@@ -164,7 +174,7 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 		var state = self._input.pollCompletion();
 		if (state != CALLBACK_CANCELLATION_COMPLETE) { return state; }
 		view.removeFromSuperview();
-		self._view = null; self._controlEligibility = null;
+		self._view = null; self._eligibility.controlEligibility = null;
 		return CALLBACK_CANCELLATION_COMPLETE;
 	}
 

@@ -1,4 +1,4 @@
-import Library.GUI.IApplicationNativeWake;
+import Library.GUI.ApplicationNativeWake;
 import Library.Callback;
 import Library.GUI.IApplication;
 import Library.GUI.ApplicationPublisher;

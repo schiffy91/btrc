@@ -42,7 +42,7 @@ static NSUInteger liveObjects(void) {
         }
     }
     NSDictionary *record = @{ @"cycle": @(cycle), @"order": @((cycle - 1) % 4),
-        @"explicit_original_close": @((cycle - 1) / 4 % 2 == 1), @"workers": @(atomic_load(&workers)),
+        @"explicit_original_close": ((cycle - 1) / 4 % 2 == 1) ? @YES : @NO, @"workers": @(atomic_load(&workers)),
         @"counts": lifetimeCounts, @"survivors": @(survivors), @"drain_deadline_seconds": @2 };
     NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingSortedKeys error:&error];
     assert(data && !error);

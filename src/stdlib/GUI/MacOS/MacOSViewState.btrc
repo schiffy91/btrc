@@ -1,7 +1,7 @@
 import Library.Callback;
 import Library.Console;
 import Library.Vector;
-import Library.GUI.IApplicationNativeWake;
+import Library.GUI.ApplicationNativeWake;
 import Library.GUI.IView;
 import Library.GUI.ControlEventQueue;
 import Library.GUI.MacOS.MacOSRunLoop;
@@ -512,13 +512,19 @@ class MacOSViewState implements IControlEventTarget {
 	}
 
 	public CallbackCancellation close() {
-		self.requireMainThread(); if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		self.requireMainThread();
+		if (self._closed || self._state == null || self._callbacks == null || self._children == null || self._channels == null) {
+			self._closed = true; return CALLBACK_CANCELLATION_COMPLETE;
+		}
 		if (!self._closing) { self._closing = true; try { self.mark(false, self._state.exposure); self.settle(); } finally { self._callbacks.cancel(); } }
 		return self.pollClose();
 	}
 
 	public CallbackCancellation pollClose() {
-		self.requireMainThread(); if (self._closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		self.requireMainThread();
+		if (self._closed || self._callbacks == null || self._channels == null) {
+			self._closed = true; return CALLBACK_CANCELLATION_COMPLETE;
+		}
 		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
 		var result = self._callbacks.pollCompletion(); if (result != CALLBACK_CANCELLATION_COMPLETE) { return result; }
 		self._closed = true; self._owner = null; self._observation = null; self._channels.clear(); return result;

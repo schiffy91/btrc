@@ -40,7 +40,7 @@ void clickSlider(ISlider slider) {
 	NSApplication.sharedApplication().postEvent(up, false);
 	// Match native button tests: AppKit routes/tracks the synthetic click,
 	// without assuming WindowServer activation (including on a locked Mac).
-	window.sendEvent(down);
+	NSApplication.sharedApplication().sendEvent(down);
 }
 
 /* One step per native loop turn: each click is dispatched before its

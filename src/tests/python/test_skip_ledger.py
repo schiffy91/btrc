@@ -792,12 +792,16 @@ def pytest_runtest_makereport(item, call):
 
 
 @pytest.mark.parametrize("workers", [None, "2"])
-def test_failure_journal_preserves_phases_sections_and_consecutive_sessions(tmp_path, workers):
+@pytest.mark.parametrize("groups", [("macos_gui",), ("linux_fixture", "linux_sanitized")])
+def test_failure_journal_preserves_phases_sections_and_consecutive_sessions(tmp_path, workers, groups):
     suite = _failure_suite(tmp_path)
+    marks = [f"pytest.mark.xdist_group(name={group!r})" for group in groups]
+    if groups == ("macos_gui",):
+        marks.append("pytest.mark.macos_gui")
     (suite / "test_cases.py").write_text(
         """
 import pytest
-pytestmark = [pytest.mark.macos_gui, pytest.mark.xdist_group(name="macos_gui")]
+pytestmark = [MARKS]
 
 @pytest.fixture
 def setup_error():
@@ -827,7 +831,7 @@ def test_skip():
 @pytest.mark.xfail(reason="expected failure")
 def test_xfail():
     assert False
-"""
+""".replace("MARKS", ", ".join(marks))
     )
     options = ("-n", workers, "--dist=loadgroup") if workers else ("-p", "no:xdist")
     journal = tmp_path / "out" / "failures.jsonl"

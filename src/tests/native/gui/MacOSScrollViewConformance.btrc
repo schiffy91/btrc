@@ -42,6 +42,7 @@ int main() {
 	assert(fabs(NativeScrollViewProbe.topOfDocumentChild(0L) - 70.0) < 0.01);
 	assert(fabs(NativeScrollViewProbe.topOfDocumentChild(1L) - 500.0) < 0.01);
 	scroll.setContentSize(480.0, 1600.0);
+	window.show();
 	assert(NativeScrollViewProbe.prepare());
 	assert(fabs(scroll.scrollOffset()) < 0.01);
 	scroll.scrollTo(125.5);

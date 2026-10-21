@@ -1,6 +1,6 @@
 import Library.Callback;
 import Library.Console;
-import Library.GUI.IApplicationNativeWake;
+import Library.GUI.ApplicationNativeWake;
 import Library.GUI.MacOS.CoreFoundation;
 
 /* The native registrations own one retained state. Each entered callback

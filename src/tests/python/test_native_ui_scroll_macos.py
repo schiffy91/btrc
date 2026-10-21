@@ -10,6 +10,7 @@ from src.tests.python.native_import_fixtures import native_project as native_pro
 from src.tests.python.test_native_ui_core_macos import ui2_native_project as ui2_native_project
 
 
+@pytest.mark.macos_gui
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 def test_macos_ui2_scroll(ui2_native_project, native_compile, gui_provider_root, sanitized):
     source, _sdk, _triple = ui2_native_project

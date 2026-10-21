@@ -3,7 +3,7 @@ import Library.Image;
 import Library.GUI.Linux.LinuxFonts;
 import Library.GUI.ControlEventQueue;
 import Library.GUI.IApplication;
-import Library.GUI.IApplicationNativeWake;
+import Library.GUI.ApplicationNativeWake;
 import Library.GUI.Linux.SDL;
 import Library.GUI.Linux.LinuxActionQueue;
 

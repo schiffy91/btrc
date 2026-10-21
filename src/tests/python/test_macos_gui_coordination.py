@@ -743,10 +743,10 @@ def test_macos_gui_report_identity_rejects_inconsistent_serialization(defect):
         when="call",
         user_properties=[],
     )
-    report.btrc_gui_identity = (original, scheduled)
+    report.btrc_gui_identity = (original, scheduled, "@macos_gui")
     data = {"nodeid": scheduled, "user_properties": []}
     if defect == "mapping":
-        report.btrc_gui_identity = (original, original + "@other")
+        report.btrc_gui_identity = (original, original + "@other", "@macos_gui")
     elif defect == "report":
         report.nodeid = original
     elif defect == "serialized":
@@ -755,7 +755,7 @@ def test_macos_gui_report_identity_rejects_inconsistent_serialization(defect):
         data["user_properties"] = [("btrc.gui-report-identity", "{}")]
     serializer = TestReportForwarder().pytest_report_to_serializable(report)
     next(serializer)
-    with pytest.raises(ValueError, match="AppKit report identity"):
+    with pytest.raises(ValueError, match="grouped report identity"):
         serializer.send(data)
 
 
@@ -895,3 +895,134 @@ def test_gui_fifo_queue_guard_wait_uses_the_same_deadline(fifo_processes):
         processes.finish("guarded")
         assert "Timed out after 0.2s waiting for execution.lock" in (processes.root / "guarded.timeout").read_text()
         assert not list(queue.glob("*.ticket"))
+
+
+def test_linux_module_provider_builds_share_runtime_admission(fifo_processes):
+    """Real four-worker preparation, including failure, leaves the runtime lease usable."""
+    root = fifo_processes.root
+    (root / "pytest.ini").write_text("[pytest]\nmarkers =\n    linux_gui: native GUI fixture\n")
+    (root / "conftest.py").write_text(
+        "import sys\nfrom types import SimpleNamespace\n"
+        "from src.tests import conftest as owner\n"
+        "pytest_plugins = ['src.tests.conftest']\n"
+        "owner.sys = SimpleNamespace(**(vars(sys) | {'platform': 'linux'}))\n"
+    )
+    (root / "test_admission.py").write_text(
+        """import fcntl
+import json
+import os
+import time
+from pathlib import Path
+import pytest
+from src.tests.python import linux_provider_fixtures as helpers
+from src.tests.python import test_native_ui_linux_spike as provider
+
+frontend = provider.frontend
+sanitized = provider.sanitized
+boundary = provider.event_boundary_program
+repair = provider.input_repair_program
+worker = os.environ['PYTEST_XDIST_WORKER']
+original_flock = fcntl.flock
+
+def flock(*args):
+    try:
+        return original_flock(*args)
+    except BlockingIOError:
+        Path(f'{worker}.blocked').touch()
+        raise
+fcntl.flock = flock
+
+def ready():
+    Path(f'{worker}.ready').touch()
+    deadline = time.monotonic() + 15
+    while len(list(Path('.').glob('*.ready'))) < 4:
+        assert time.monotonic() < deadline, 'four workers did not reach preparation'
+        time.sleep(0.01)
+helpers.require_linux_reader = ready
+helpers.linux_display_error = lambda: None
+
+def build(tmp_path_factory, request, frontend, sanitized, program, *unused):
+    family = 'boundary' if 'LinuxEventBoundary' in program else 'repair'
+    key = f'{family}-{frontend}-{sanitized}'
+    # Exclusive file creation detects any build/build or build/runtime overlap.
+    descriptor = os.open('active', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        with Path(f'{worker}.builds').open('a') as output:
+            output.write(key + '\\n')
+        deadline = time.monotonic() + 15
+        while len(list(Path('.').glob('*.blocked'))) < 3:
+            assert time.monotonic() < deadline, 'no actual competing lease attempts'
+            time.sleep(0.01)
+        if family == 'boundary' and frontend == 'python' and not sanitized:
+            raise RuntimeError('injected module preparation failure')
+        return key
+    finally:
+        os.close(descriptor)
+        Path('active').unlink()
+helpers._build_observed_provider_program = build
+
+def runtime(request, key):
+    lock = request.config.cache.mkdir('linux-gui') / 'execution.lock'
+    assert json.loads(lock.read_text())['owner'] == request.node.nodeid
+    with lock.open('a+') as probe:
+        with pytest.raises(BlockingIOError):
+            original_flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    descriptor = os.open('active', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        with Path(f'{worker}.runtime').open('a') as output:
+            output.write(key + '\\n')
+    finally:
+        os.close(descriptor)
+        Path('active').unlink()
+
+@pytest.mark.linux_gui
+@pytest.mark.parametrize('repeat', range(2))
+def test_boundary(boundary, repeat, request):
+    runtime(request, boundary)
+
+@pytest.mark.linux_gui
+@pytest.mark.parametrize('repeat', range(2))
+def test_repair(repair, repeat, request):
+    runtime(request, repair)
+
+test_boundary.pytestmark += [m for m in provider.test_linux_event_boundary.pytestmark if m.name == 'xdist_group']
+test_repair.pytestmark += [m for m in provider.test_linux_input_repair.pytestmark if m.name == 'xdist_group']
+"""
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-c",
+            "pytest.ini",
+            "-n",
+            "4",
+            "--dist=loadgroup",
+            "--skip-report=skip-report.json",
+            "test_admission.py",
+        ],
+        cwd=root,
+        env=os.environ | {"PYTHONPATH": str(REPO), "PYTEST_ADDOPTS": "", "BTRC_TEST_RUNNER": "macos"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    report = json.loads((root / "skip-report.json").read_text())
+    assert report["counts"] == {"passed": 14, "failed": 0, "error": 2, "skipped": 0, "xfailed": 0, "xpassed": 0}
+    assert "injected module preparation failure" in result.stdout
+    assert len(list(root.glob("*.blocked"))) >= 3
+    builds = [line for path in root.glob("*.builds") for line in path.read_text().splitlines()]
+    expected = [
+        f"{family}-{frontend}-{sanitized}"
+        for family in ("boundary", "repair")
+        for frontend in ("python", "selfhost")
+        for sanitized in (False, True)
+    ]
+    assert sorted(builds) == sorted(expected)
+    runtime = [line for path in root.glob("*.runtime") for line in path.read_text().splitlines()]
+    assert sorted(runtime) == sorted(key for key in expected if key != "boundary-python-False" for _ in range(2))
+    assert not (root / "active").exists()
+    assert not list(root.glob(".pytest_cache/d/linux-gui/execution.lock.queue/*.ticket"))
