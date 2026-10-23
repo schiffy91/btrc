@@ -21,8 +21,9 @@ static int burstSize, finalKind, repetition, terminalPosition, nativeCount, orde
 static int nativeDuplicates, nativeReordered, orderedDuplicates, orderedReordered, terminalCount, enqueueErrors;
 static int previousNative, previousOrdered;
 static bool active, nativeSeen[8194], orderedSeen[8194];
-struct BoundaryKey { NSEventType type; unsigned short keyCode; NSInteger window; };
+struct BoundaryKey { NSEventType type; unsigned short keyCode; NSInteger window; double timestamp; };
 static struct BoundaryKey keyMetadata[8194];
+static int keyCount, identityMisses;
 static uint64_t serial, closeIdentity;
 static NSString *failure;
 
@@ -37,6 +38,17 @@ static int identity(NSEvent *event) {
     if (index) {
         struct BoundaryKey *key = &keyMetadata[index];
         assert(key->type == event.type && key->keyCode == event.keyCode && key->window == event.windowNumber);
+    } else if (active && keyCount > 0 && identityMisses++ < 32) {
+        int nearest = 0;
+        for (int candidate = 1; candidate <= burstSize; candidate++) {
+            if (keyMetadata[candidate].timestamp == 0.0) { continue; }
+            if (!nearest || fabs(keyMetadata[candidate].timestamp - event.timestamp) < fabs(keyMetadata[nearest].timestamp - event.timestamp)) { nearest = candidate; }
+        }
+        assert(nearest);
+        struct BoundaryKey *key = &keyMetadata[nearest];
+        fprintf(stderr, "E40 boundary identity miss: observed=%.17g type=%ld key=%u window=%ld nearest=%d submitted=%.17g type=%ld key=%u window=%ld delta_ns=%.9f\n",
+            event.timestamp, (long)event.type, event.keyCode, (long)event.windowNumber, nearest,
+            key->timestamp, (long)key->type, key->keyCode, (long)key->window, (event.timestamp - key->timestamp) * 1e9);
     }
     return index;
 }
@@ -103,6 +115,7 @@ void e40BoundaryBegin(int size, int final, int repeat, int ordinal) {
     burstSize = size; finalKind = final; repetition = repeat; terminalPosition = MIN(size, 4097);
     nativeCount = orderedCount = nativeDuplicates = nativeReordered = orderedDuplicates = orderedReordered = terminalCount = enqueueErrors = 0;
     previousNative = previousOrdered = 0; memset(nativeSeen, 0, sizeof(nativeSeen)); memset(orderedSeen, 0, sizeof(orderedSeen));
+    keyCount = identityMisses = 0; memset(keyMetadata, 0, sizeof(keyMetadata));
     [identities removeAllObjects]; [expectedText release]; expectedText = nil;
     if (final == 1) {
         [textField selectText:nil]; NSTextView *editor = (NSTextView *)textField.currentEditor;
@@ -134,7 +147,7 @@ void e40BoundaryBegin(int size, int final, int repeat, int ordinal) {
                 if (event.type == NSEventTypeKeyDown || event.type == NSEventTypeKeyUp) {
                     assert(identities[@(event.timestamp)] == nil);
                     identities[@(event.timestamp)] = @(index);
-                    keyMetadata[index] = (struct BoundaryKey){event.type, event.keyCode, event.windowNumber};
+                    keyMetadata[index] = (struct BoundaryKey){event.type, event.keyCode, event.windowNumber, event.timestamp}; keyCount++;
                 }
                 assert(identity(event) == index && event.windowNumber == firstWindow.windowNumber);
                 [NSApp postEvent:event atStart:NO];

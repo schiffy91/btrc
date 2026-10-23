@@ -26,6 +26,7 @@
 struct InputIdentity { double timestamp; long long sequence; NSInteger window; unsigned short keyCode; bool delivered, rejected; };
 static struct InputIdentity *inputIdentities;
 static size_t inputIdentityCount, inputIdentityCapacity;
+static unsigned inputIdentityMisses;
 struct Receipt { long long sequence; uint64_t admitted, due; int bytes; };
 struct Metrics {
     struct Receipt receipts[SLOTS];
@@ -71,6 +72,10 @@ static int activitySecond(uint64_t now) {
 static void delivered(int kind, long long sequence, uint64_t now) {
     struct Metrics *m = &metrics[kind];
     struct Receipt *r = &m->receipts[(uint64_t)sequence % SLOTS];
+    if (r->sequence != sequence || sequence != m->lastSequence + 1) {
+        fprintf(stderr, "E40 delivery order: kind=%d sequence=%lld receipt=%lld previous=%lld pending=%d accepted=%lld delivered=%lld rejected=%lld\n",
+            kind, sequence, r->sequence, m->lastSequence, m->pending, m->accepted, m->delivered, m->rejected);
+    }
     assert(r->sequence == sequence && sequence == m->lastSequence + 1);
     assert(now >= r->admitted && now >= r->due);
     uint64_t latency = now - r->admitted;
@@ -323,6 +328,13 @@ bool e40LoadInputDelivery(void) {
         struct InputIdentity *identity = &inputIdentities[first];
         assert(!identity->delivered && !identity->rejected && identity->window == event.windowNumber && identity->keyCode == event.keyCode);
         sequence = identity->sequence; identity->delivered = true;
+    } else if (inputIdentityCount && inputIdentityMisses++ < 32) {
+        size_t nearest = first < inputIdentityCount ? first : inputIdentityCount - 1;
+        if (first > 0 && fabs(inputIdentities[first - 1].timestamp - event.timestamp) < fabs(inputIdentities[nearest].timestamp - event.timestamp)) { nearest = first - 1; }
+        struct InputIdentity *identity = &inputIdentities[nearest];
+        fprintf(stderr, "E40 load identity miss: observed=%.17g key=%u window=%ld nearest=%lld submitted=%.17g key=%u window=%ld delivered=%d rejected=%d delta_ns=%.9f\n",
+            event.timestamp, event.keyCode, (long)event.windowNumber, identity->sequence, identity->timestamp,
+            identity->keyCode, (long)identity->window, identity->delivered, identity->rejected, (event.timestamp - identity->timestamp) * 1e9);
     }
     pthread_mutex_unlock(&mutex);
     if (sequence == 0) { return false; }
