@@ -236,6 +236,7 @@ class CompilerPipeline {
 			analyzer.configureValidationRecords(records);
 			BtrccPhaseTimer.mark("a-records");
 		}
+		if (options.runDce && !options.stdlibStrict) { analyzer.configureStdlibBodies(StdlibReachability.classify(program.declarations(), self.hostedAbi)); }
 		Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);
 		BtrccPhaseTimer.mark("analyze");
 		if (records != null) {

@@ -266,6 +266,20 @@ class GenericSpecializer {
 		self.validateRealtimeChecks();
 	}
 
+	public void reopenInstances() {
+		self.closedClassInstances = {};
+		self.closedMethodInstances = {};
+	}
+
+	/* After validation, newly reached bodies need template discovery, but
+	 * must not write a pre-validation discovery record using later facts. */
+	public void discoverExpanded(Node program) {
+		IValidationRecords? previous = self.records;
+		self.records = null;
+		self.discover(program);
+		self.records = previous;
+	}
+
 	public void useRecords(IValidationRecords? records) { self.records = records; }
 
 	/* Stage B: a function's or class's recorded generic demand for `phase`,
@@ -375,6 +389,7 @@ class GenericSpecializer {
 				if (member.kind != NK_FUNCTION_DECL) { contract = imported.methods.has(member.name) ? imported.methods.get(member.name) : null; }
 				if (contract == null) { continue; }
 				if ((contract.copiedResult != null && contract.copiedResult.kind == "bytes") || (contract.recordSnapshot != null && !contract.recordSnapshot.byteField.isEmpty())) {
+					self.analyzed.callableOwnerDemands.put("Bytes", true);
 					Node? constructor = self.analyzed.classConstructor("Bytes");
 					Node? fromRaw = self.analyzed.classMethod("Bytes", "fromRaw");
 					if (constructor == null || fromRaw == null || !hostedAbi.compilerStdlibNode(constructor) || !hostedAbi.compilerStdlibNode(fromRaw)) { throw "Copied native bytes require authenticated import Library.Bytes"; }
@@ -442,6 +457,7 @@ class GenericSpecializer {
 					}
 					if (callback.unregister == null && !callback.oneShot) { continue; }
 					if (callback.realtime != null) {
+						self.analyzed.callableOwnerDemands.put("CallbackState", true);
 						Node? constructor = self.analyzed.classConstructor("CallbackState");
 						if (constructor == null || !hostedAbi.compilerStdlibNode(constructor)) { throw "Stored native callbacks require import Library.Callback"; }
 						continue;
@@ -568,6 +584,7 @@ class GenericSpecializer {
 	}
 
 	private void collectMethodGenericsBlock(Node block, Analyzed a, OperatorSemantics operators, Map<string, Node> vt) {
+		if (!a.bodyReached(block)) { return; }
 		if (block == null) { return; }
 		int i = 0;
 		while (i < block.statements().len) {
@@ -1237,7 +1254,13 @@ class GenericSpecializer {
 			for parameter in member.genericParams() {
 				if (!substitutions.has(parameter)) { unresolved.put(parameter, true); }
 			}
-			for node in AstStructure.preorder(member) {
+			Vector<Node> pending = [member];
+			Map<Node, bool> visited = {};
+			while (pending.len > 0) {
+				Node node = pending.pop();
+				if (visited.has(node) || !a.bodyReached(node)) { continue; }
+				visited.put(node, true);
+				AstStructure.children(node, pending);
 				/* A type no argument reaches was checked where it is declared. */
 				if (node.kind != NK_TYPE_EXPR || !TypeIdentity.referencesNames(node, substituted)) { continue; }
 				self.realtimeTypeProblems(SemanticTypeSystem.resolveGenericType(node, substitutions, a), unresolved, visiting, problems, a);
@@ -1453,6 +1476,7 @@ class GenericSpecializer {
 	}
 
 	private void upgradeBlockGenericArgs(Node block, Analyzed a, Map<string, bool> unresolved) {
+		if (!a.bodyReached(block)) { return; }
 		if (block == null) { return; }
 		int i = 0;
 		while (i < block.statements().len) {
@@ -1704,6 +1728,7 @@ class GenericSpecializer {
 
 	/* Walk a block's statements for generic-instance-bearing types/exprs. */
 	private void collectGenericsBlock(Node block, Analyzed a, Map<string, bool> unresolved) {
+		if (!a.bodyReached(block)) { return; }
 		if (block == null) { return; }
 		int i = 0;
 		while (i < block.statements().len) {
@@ -1881,6 +1906,7 @@ class GenericSpecializer {
 	}
 
 	private void genericClosureWalkNode(Node? node, Map<string, Node> substitutions, Map<string, bool> unresolved, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> variables) {
+		if (!analyzed.bodyReached(node)) { return; }
 		if (node == null) { return; }
 		if (node.kind == NK_TYPE_EXPR) {
 			self.genericClosureRegisterType(node, substitutions, unresolved, analyzed);

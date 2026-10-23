@@ -294,6 +294,27 @@ class StdlibReachability {
 		}
 	}
 
+	public Map<Node, bool> unreachedBodies(Vector<Node> declarations) {
+		Map<Node, bool> bodies = {};
+		for declaration in declarations {
+			if (!self.stdlibKeys.has(StdlibReachability.declarationKey(declaration))) { continue; }
+			bool reached = self.reaches(declaration);
+			if (declaration.kind == NK_FUNCTION_DECL) {
+				if (!reached && declaration.bodyNode != null) { bodies.put(declaration.bodyNode, true); }
+			} else if (declaration.kind == NK_CLASS_DECL) {
+				for member in declaration.members() {
+					if (member.kind == NK_METHOD_DECL) {
+						if ((!reached || !self.reachesMethod(declaration, member)) && member.bodyNode != null) { bodies.put(member.bodyNode, true); }
+					} else if (member.kind == NK_PROPERTY_DECL && !reached) {
+						if (member.getterBody != null) { bodies.put(member.getterBody, true); }
+						if (member.setterBody != null) { bodies.put(member.setterBody, true); }
+					}
+				}
+			}
+		}
+		return bodies;
+	}
+
 	private void reach(Node declaration, Vector<Node> worklist) {
 		string key = StdlibReachability.declarationKey(declaration);
 		if (self.reached.has(key)) { return; }

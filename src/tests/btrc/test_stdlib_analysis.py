@@ -161,3 +161,86 @@ def test_reference_cache_preserves_strict_and_changed_body_requirements(stdlib_p
     result = compiler.compile(changed, str(program), options)
     assert not result.successful and not result.cache_hit
     assert any("missing" in diagnostic.message for diagnostic in result.diagnostics)
+
+
+def test_selfhost_records_preserve_changed_body_requirements(stdlib_project, semantic_btrcc):
+    """Changing only a caller's body must widen its cached library coverage."""
+    library = stdlib_project / "stdlib/Probe.btrc"
+    library.write_text(
+        "class Probe { public int answer() { return 42; } "
+        "public int alternate() { return 43; } public int dormant() { return missingValue; } }"
+    )
+    program = stdlib_project.parent / "Main.btrc"
+    cache = (stdlib_project.parent / "cache").resolve()
+    source = "import Library.Probe;\nint main() { Probe p = Probe(); return p.answer(); }"
+
+    def build(name, text, *, strict=False, verify=False):
+        program.write_text(text)
+        output = stdlib_project.parent / name
+        output.mkdir()
+        return subprocess.run(
+            [
+                str(semantic_btrcc),
+                str(program),
+                "-o",
+                str(output / "program.c"),
+                "--emit-units",
+                str(output / "program"),
+                "--module-units",
+                *(["--stdlib-strict"] if strict else []),
+            ],
+            cwd=REPO,
+            env={
+                **os.environ,
+                "BTRC_HOME": str(stdlib_project),
+                "BTRC_CACHE_DIR": str(cache),
+                "BTRC_TIMING": "1",
+                **({"BTRC_VERIFY_VALIDATION_RECORDS": "1"} if verify else {}),
+            },
+            capture_output=True,
+            text=True,
+            timeout=BTRC_TRANSPILE_TIMEOUT,
+        )
+
+    first = build("first", source)
+    assert first.returncode == 0, first.stderr
+    assert "a-records-stored(replayed=0,journaled=" in first.stderr
+    alternate = source.replace("p.answer()", "p.alternate()")
+    expanded = build("expanded", alternate)
+    assert expanded.returncode == 0, expanded.stderr
+    verified = build("verified", alternate, verify=True)
+    assert verified.returncode == 0, verified.stderr
+    restored = build("restored", source, verify=True)
+    assert restored.returncode == 0, restored.stderr
+    strict = build("strict", source, strict=True)
+    assert strict.returncode != 0 and "missingValue" in strict.stderr
+    bad = build("bad", source.replace("p.answer()", "p.dormant()"))
+    assert bad.returncode != 0 and "missingValue" in bad.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("strict", [False, True], ids=["application", "strict"])
+@pytest.mark.parametrize(
+    "library, diagnostic",
+    [
+        (
+            "class Dormant { public int value { get { return missingValue; } } } int answer() { return 42; }",
+            "missing",
+        ),
+        (
+            "class Dormant<T> { public T broken(T value) { return missingValue; } } int answer() { return 42; }",
+            "missing",
+        ),
+        (
+            'class Dormant { public @realtime void broken() { print("allocated"); } } int answer() { return 42; }',
+            "realtime",
+        ),
+    ],
+    ids=["property", "generic", "realtime"],
+)
+def test_unreached_stdlib_class_bodies(stdlib_project, request, frontend, strict, library, diagnostic):
+    source = "import Library.Probe;\nint main() { return answer() == 42 ? 0 : 1; }"
+    success, diagnostics, _ = compile_project(stdlib_project, request, frontend, source, strict=strict, library=library)
+    assert success == (not strict), diagnostics
+    if strict:
+        assert diagnostic in diagnostics.lower()

@@ -160,6 +160,16 @@ class SemanticValidator {
 		BtrccPhaseTimer.mark("v-bodies");
 	}
 
+	public void validateExpanded(Node program) {
+		self.borrows.validateNativeInvocations(program);
+		for declaration in program.declarations() {
+			self.controlFlow.flow.enterBody();
+			int literals = self.expressions.inferredLiteralMark();
+			self.validateBodies(declaration);
+			self.expressions.checkInferredLiterals(literals);
+		}
+	}
+
 	public void useRecords(IValidationRecords? records) {
 		self.records = records;
 		self.state.records = records;
