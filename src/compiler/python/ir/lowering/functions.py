@@ -7209,7 +7209,9 @@ class FunctionLowerer:
             )
         for unit in (module, native):
             unit.function_pointer_typedefs.extend(definitions)
-        native.preprocessor_decls.append(IRInclude("pthread.h"))
+        include = IRInclude("pthread.h")
+        if include not in native.preprocessor_decls:
+            native.preprocessor_decls.append(include)
         holder_name = prefix + "Holder"
         holder_c = CType(holder_name + "*")
         native_context = IRVar("_context")
