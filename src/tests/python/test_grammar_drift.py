@@ -279,14 +279,13 @@ class TestTrailingCommas:
         assert len(expr.elements) == 3
 
 
-# ---- #12 override / reserved-but-unparseable keywords ----
+# ---- #12 checked override ----
 
 
 class TestReservedKeywords:
-    def test_override_member_is_parse_error(self):
-        # `override` is reserved (a keyword) but no member rule consumes it.
-        with pytest.raises(ParseError):
-            parse("class C { public override int f() { return 1; } }")
+    def test_override_member_is_marked(self):
+        program = parse("class C { public override int f() { return 1; } }")
+        assert program.declarations[0].members[0].is_override
 
 
 # ---- #14 tuple access x.0 works, x.0.1 mis-lexes ----

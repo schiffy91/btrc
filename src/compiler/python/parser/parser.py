@@ -1381,6 +1381,7 @@ class Parser:
             is_abstract_method = True
             self._advance()
 
+        is_override = bool(self._match(TokenKind.OVERRIDE))
         is_gpu = bool(self._match(TokenKind.AT_GPU))
         is_realtime = bool(self._match(TokenKind.AT_REALTIME))
         if is_gpu and is_realtime:
@@ -1391,11 +1392,15 @@ class Parser:
         if self._is_function_pointer_declarator(self.pos):
             if is_realtime:
                 raise self._error("@realtime cannot be applied to fields or properties")
+            if is_override:
+                raise self._error("override can only be applied to non-constructor methods")
             specifier = self._declarator_specifier(type_expr)
             name_tok, type_expr = self._parse_function_pointer_declarator(type_expr, name=True)
             assert name_tok is not None
             return self._parse_field_decls(access, type_expr, name_tok, tok, specifier)
         if self._check(TokenKind.LPAREN):
+            if is_override:
+                raise self._error("override can only be applied to non-constructor methods")
             return [
                 self._parse_method_rest(
                     access,
@@ -1428,9 +1433,12 @@ class Parser:
                     name_tok.line,
                     name_tok.col,
                     is_abstract=is_abstract_method,
+                    is_override=is_override,
                     keep_return=keep_return,
                 )
             ]
+        if is_override:
+            raise self._error("override can only be applied to non-constructor methods")
         if is_realtime:
             raise self._error("@realtime cannot be applied to fields or properties")
         specifier = self._declarator_specifier(type_expr)
@@ -1483,6 +1491,7 @@ class Parser:
         is_abstract: bool = False,
         keep_return: bool = False,
         is_constructor: bool = False,
+        is_override: bool = False,
     ) -> MethodDecl:
         generic_params = []
         if self._match(TokenKind.LT):
@@ -1509,6 +1518,7 @@ class Parser:
             is_gpu=is_gpu,
             is_realtime=is_realtime,
             is_abstract=is_abstract,
+            is_override=is_override,
             keep_return=keep_return,
             line=line,
             col=col,

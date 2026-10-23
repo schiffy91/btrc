@@ -42,7 +42,8 @@ def test_general_keywords_follow_grammar_and_skip_unimplemented_reservations():
     source = "int main() { ret }\n"
     labels = _labels(source, "ret", len("ret"))
     assert {"finally", "import", "interface"} <= labels
-    assert {"goto", "override"}.isdisjoint(labels)
+    assert {"auto", "goto", "register"}.isdisjoint(labels)
+    assert "override" in labels
 
 
 def test_static_completion_honors_access_mode_and_live_class_shadowing():

@@ -2007,7 +2007,7 @@ Codex owns `codex/checked-override-20261023` from
 exception. Owned paths: `src/language/{ast.asdl,grammar.ebnf}`, both parser
 owners, Python `analyzer/declarations.py`, btrc `analyzer/validation/Names.btrc`
 and `syntax/Identity.btrc`, their generated AST catalogs, focused parser and
-paired compiler tests, class corpus fixtures and goldens, and
+paired compiler tests, LSP keyword completion and its tests, class corpus fixtures and goldens, and
 `docs/known-language-gaps.md`. This is an append-only WORKSTREAMS claim.
 
 The optional method modifier checks that a parent class supplies a compatible

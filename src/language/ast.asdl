@@ -101,7 +101,7 @@ module Btrc {
                               identifier* generic_params,
                               param* params,
                               block? body, bool is_gpu, bool is_realtime,
-                              bool is_abstract,
+                              bool is_abstract, bool is_override,
                               bool keep_return, int name_line, int name_col)
                  | PropertyDecl(string access, type_expr type,
                                 identifier name, bool has_getter,

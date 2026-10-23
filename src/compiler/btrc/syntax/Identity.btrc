@@ -340,6 +340,7 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.isGpu);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.isRealtime);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_abstract=" + self.canonBool(node.isAbstract);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_override=" + self.canonBool(node.isOverride);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keepReturn);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
