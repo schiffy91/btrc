@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.program import ClassInfo, Occurrence
+from src.compiler.python.analyzer.types import TypeSystem
 from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.packages import ResolvedPackages
 from src.compiler.python.syntax.ast.generated import (
@@ -74,6 +75,8 @@ class DefinitionMap:
         return (file, getattr(node, "line", 0), getattr(node, "col", 0))
 
     def _build(self, result: DocumentAnalysis):
+        records = {decl.name: decl for decl in result.ast.declarations if isinstance(decl, StructDecl)}
+        enums = {decl.name for decl in result.ast.declarations if isinstance(decl, EnumDecl)}
         for decl in result.ast.declarations:
             file = getattr(decl, "source_file", None)
             if isinstance(decl, ClassDecl):
@@ -97,7 +100,8 @@ class DefinitionMap:
                 if not decl.is_forward or decl.name not in self.struct_defs:
                     self.struct_defs[decl.name] = self._name_pos(decl, file)
             elif isinstance(decl, TypedefDecl):
-                self.typedef_defs[decl.alias] = self._name_pos(decl, file)
+                if not TypeSystem.is_identity_typedef(decl, records, enums):
+                    self.typedef_defs[decl.alias] = self._name_pos(decl, file)
         self.var_defs.extend(LexicalScopeIndex.from_analysis(result, self._resolver).definitions)
 
     def _collect_class_members(self, cls: ClassDecl, file: str | None):

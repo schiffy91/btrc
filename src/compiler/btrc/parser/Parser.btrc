@@ -261,11 +261,11 @@ class Parser {
 			if (nt == "IDENT") {
 				string after2 = self.peekAt(2).type;
 				if (after2 == "LBRACE" || after2 == "SEMICOLON") {
-					declarations.push(self.parseStructDecl());
+					self.parseStructDeclsInto(declarations);
 					return;
 				}
 			} else if (nt == "LBRACE") {
-				declarations.push(self.parseStructDecl());
+				self.parseStructDeclsInto(declarations);
 				return;
 			}
 		}
@@ -275,8 +275,10 @@ class Parser {
 				declarations.push(self.parseRichEnumDecl());
 				return;
 			}
-			declarations.push(self.parseEnumDecl());
-			return;
+			if (self.peekAt(1).type != "IDENT" || self.peekAt(2).type == "LBRACE" || self.peekAt(2).type == "SEMICOLON") {
+				declarations.push(self.parseEnumDecl());
+				return;
+			}
 		}
 
 		if (tok.type == "TYPEDEF" && !isGpu && !isRealtime && !keepReturn) {
@@ -617,7 +619,7 @@ class Parser {
 	/* ---- Struct declaration ---- */
 
 	/* `struct S { ... };`, `union U { ... };` or a tag forward. */
-	public Node parseStructDecl() {
+	public void parseStructDeclsInto(Vector<Node> declarations) {
 		Token tok = self.advance();
 		Node n = Node();
 		n.kind = NK_STRUCT_DECL;
@@ -637,12 +639,27 @@ class Parser {
 			n.isForward = false;
 			Node? flexible = self.parseRecordMembersInto(n.fieldsMut(), n.isUnion);
 			if (flexible != null) { self.failUnionFlexibleArray(n.name, flexible); }
-			self.expect("SEMICOLON");
 		} else {
 			n.isForward = true;
-			self.expect("SEMICOLON");
 		}
-		return n;
+		declarations.push(n);
+		if (!n.isForward && !self.check("SEMICOLON")) {
+			Node specifier = Node();
+			specifier.kind = NK_TYPE_EXPR;
+			specifier.base = tok.value + " " + n.name;
+			specifier.line = tok.line;
+			specifier.col = tok.col;
+			Node firstType = Parser.copySpecifier(specifier);
+			while (self.matchTok("STAR")) { firstType.pointerDepth++; }
+			Node objectDecl = self.parseDeclaratorName(firstType);
+			Token objectTok = Parser.declaratorNameToken(objectDecl);
+			if (n.name == "") {
+				self.failAt(f"An untagged {tok.value} definition needs a tag to declare '{objectTok.value}'; write '{tok.value} Name {{ ... }} {objectTok.value};'", tok);
+				return;
+			}
+			self.parseDeclarators(declarations, objectDecl.type, objectTok, tok, specifier, true, true);
+		}
+		self.expect("SEMICOLON");
 	}
 
 	/* A record's `{ member; ... }`, returning a union's first member of
@@ -697,16 +714,15 @@ class Parser {
 		return flexible;
 	}
 
-	/* `typedef union [Tag] { ... } D1, *D2;` splices into one record and one
-	 * typedef per declarator (C row 9; r08 extends this to `struct` and
-	 * `enum`). An untagged record takes its first plain declarator's name as
+	/* A typedef definition splices into one record or enum and one typedef
+	 * per declarator. An untagged record takes its first plain declarator's name as
 	 * its tag, and a plain declarator equal to the tag is dropped: it would
 	 * only repeat the record's own name. */
 	public void parseTypedefRecordInto(Vector<Node> declarations, Token typedefTok) {
 		Token keywordTok = self.advance();
 		Node record = Node();
-		record.kind = NK_STRUCT_DECL;
-		record.isUnion = true;
+		record.kind = keywordTok.type == "ENUM" ? NK_ENUM_DECL : NK_STRUCT_DECL;
+		record.isUnion = keywordTok.type == "UNION";
 		record.isForward = false;
 		record.line = keywordTok.line;
 		record.col = keywordTok.col;
@@ -719,7 +735,12 @@ class Parser {
 			record.nameLine = tagTok.line;
 			record.nameCol = tagTok.col;
 		}
-		Node? flexible = self.parseRecordMembersInto(record.fieldsMut(), true);
+		Node? flexible = null;
+		if (record.kind == NK_ENUM_DECL) {
+			self.parseEnumValuesInto(record.valuesMut());
+		} else {
+			flexible = self.parseRecordMembersInto(record.fieldsMut(), record.isUnion);
+		}
 		Node specifier = Node();
 		specifier.kind = NK_TYPE_EXPR;
 		specifier.base = "";
@@ -842,15 +863,19 @@ class Parser {
 			n.nameLine = nameTok.line;
 			n.nameCol = nameTok.col;
 		}
+		self.parseEnumValuesInto(n.valuesMut());
+		self.expect("SEMICOLON");
+		return n;
+	}
+
+	public void parseEnumValuesInto(Vector<Node> values) {
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Node ev = self.parseEnumValue();
-			n.valuesMut().push(ev);
+			values.push(ev);
 			if (!self.matchTok("COMMA")) { break; }
 		}
 		self.expect("RBRACE");
-		self.expect("SEMICOLON");
-		return n;
 	}
 
 	public Node parseEnumValue() {
@@ -910,7 +935,7 @@ class Parser {
 	/* `typedef int A, *B;` declares one alias per declarator, `*` bound to each. */
 	public void parseTypedefDeclsInto(Vector<Node> declarations) {
 		Token tok = self.expect("TYPEDEF");
-		if (self.check("UNION") && (self.peekAt(1).type == "LBRACE" || (self.peekAt(1).type == "IDENT" && self.peekAt(2).type == "LBRACE"))) {
+		if ((self.check("STRUCT") || self.check("UNION") || self.check("ENUM")) && (self.peekAt(1).type == "LBRACE" || (self.peekAt(1).type == "IDENT" && self.peekAt(2).type == "LBRACE"))) {
 			self.parseTypedefRecordInto(declarations, tok);
 			return;
 		}

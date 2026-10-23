@@ -1056,13 +1056,17 @@ class Parser:
             next_tok = self._peek(1)
             if next_tok.type == TokenKind.IDENT:
                 if self._peek(2).type in (TokenKind.LBRACE, TokenKind.SEMICOLON):
-                    return [self._parse_struct_decl()]
+                    return self._parse_struct_decls()
             elif next_tok.type == TokenKind.LBRACE:
-                return [self._parse_struct_decl()]
+                return self._parse_struct_decls()
         if tok.type == TokenKind.ENUM and not is_gpu and not is_realtime and not keep_return:
             if self._peek(1).type == TokenKind.CLASS:
                 return [self._parse_rich_enum_decl()]
-            return [self._parse_enum_decl()]
+            if self._peek(1).type != TokenKind.IDENT or self._peek(2).type in (
+                TokenKind.LBRACE,
+                TokenKind.SEMICOLON,
+            ):
+                return [self._parse_enum_decl()]
         if tok.type == TokenKind.TYPEDEF and not is_gpu and not is_realtime and not keep_return:
             return self._parse_typedef_decls()
         if self._is_type_start(tok):
@@ -1134,7 +1138,7 @@ class Parser:
             segments.append(self._expect(TokenKind.IDENT, "module segment").value)
         return ".".join(segments)
 
-    def _parse_struct_decl(self) -> StructDecl:
+    def _parse_struct_decls(self) -> list:
         """``struct S { ... };``, ``union U { ... };`` or a tag forward."""
         tok = self._advance()
         is_union = tok.type == TokenKind.UNION
@@ -1146,19 +1150,20 @@ class Parser:
             name_line, name_col = name_tok.line, name_tok.col
         if not self._check(TokenKind.LBRACE):
             self._expect(TokenKind.SEMICOLON)
-            return StructDecl(
-                name=name,
-                fields=[],
-                is_forward=True,
-                is_union=is_union,
-                line=tok.line,
-                col=tok.col,
-                name_line=name_line,
-                name_col=name_col,
-            )
+            return [
+                StructDecl(
+                    name=name,
+                    fields=[],
+                    is_forward=True,
+                    is_union=is_union,
+                    line=tok.line,
+                    col=tok.col,
+                    name_line=name_line,
+                    name_col=name_col,
+                )
+            ]
         fields = self._parse_record_body(name, is_union)
-        self._expect(TokenKind.SEMICOLON)
-        return StructDecl(
+        record = StructDecl(
             name=name,
             fields=fields,
             is_forward=False,
@@ -1168,6 +1173,23 @@ class Parser:
             name_line=name_line,
             name_col=name_col,
         )
+        declarations = [record]
+        if not self._check(TokenKind.SEMICOLON):
+            specifier = TypeExpr(base=f"{tok.value} {name}", line=tok.line, col=tok.col)
+            first_type = copy.deepcopy(specifier)
+            while self._match(TokenKind.STAR):
+                first_type.pointer_depth += 1
+            object_tok, first_type = self._parse_declarator_name(first_type, "variable name")
+            if not name:
+                raise ParseError(
+                    f"An untagged {tok.value} definition needs a tag to declare '{object_tok.value}'; "
+                    f"write '{tok.value} Name {{ ... }} {object_tok.value};'",
+                    tok.line,
+                    tok.col,
+                )
+            declarations.extend(self._parse_declarators(first_type, object_tok, tok, specifier=specifier))
+        self._expect(TokenKind.SEMICOLON)
+        return declarations
 
     def _parse_record_body(self, name: str, is_union: bool) -> list[FieldDef]:
         fields, flexible = self._parse_record_members(is_union)
@@ -1176,15 +1198,20 @@ class Parser:
         return fields
 
     def _parse_typedef_record(self, typedef_tok: Token) -> list:
-        """``typedef union [Tag] { ... } D1, *D2;`` splices into one record and
-        one ``TypedefDecl`` per declarator (C row 9; r08 extends this to
-        ``struct`` and ``enum``). An untagged record takes its first plain
+        """A typedef definition splices into one record or enum and one
+        ``TypedefDecl`` per declarator. An untagged record takes its first plain
         declarator's name as its tag, and a plain declarator equal to the tag
         is dropped: it would only repeat the record's own name."""
         keyword_tok = self._advance()
         keyword = keyword_tok.value
         tag_tok = self._advance() if self._check(TokenKind.IDENT) else None
-        fields, flexible = self._parse_record_members(is_union=True)
+        is_union = keyword_tok.type == TokenKind.UNION
+        is_enum = keyword_tok.type == TokenKind.ENUM
+        if is_enum:
+            values = self._parse_enum_values()
+            fields, flexible = [], None
+        else:
+            fields, flexible = self._parse_record_members(is_union=is_union)
         specifier = TypeExpr(base="", line=keyword_tok.line, col=keyword_tok.col)
         first_type = copy.deepcopy(specifier)
         while self._match(TokenKind.STAR):
@@ -1212,15 +1239,11 @@ class Parser:
             raise ParseError(UNION_FLEXIBLE_ARRAY.format(name, flexible.name), flexible.line, flexible.col)
         for declarator in declarators:
             declarator.type.base = f"{keyword} {name}"
-        record = StructDecl(
-            name=name,
-            fields=fields,
-            is_forward=False,
-            is_union=True,
-            line=keyword_tok.line,
-            col=keyword_tok.col,
-            name_line=name_line,
-            name_col=name_col,
+        location = dict(name=name, line=keyword_tok.line, col=keyword_tok.col, name_line=name_line, name_col=name_col)
+        record = (
+            EnumDecl(values=values, **location)
+            if is_enum
+            else StructDecl(fields=fields, is_forward=False, is_union=is_union, **location)
         )
         return [record] + [
             TypedefDecl(
@@ -1585,6 +1608,11 @@ class Parser:
             name_tok = self._advance()
             name = name_tok.value
             name_line, name_col = name_tok.line, name_tok.col
+        values = self._parse_enum_values()
+        self._expect(TokenKind.SEMICOLON)
+        return EnumDecl(name=name, values=values, line=tok.line, col=tok.col, name_line=name_line, name_col=name_col)
+
+    def _parse_enum_values(self) -> list[EnumValue]:
         self._expect(TokenKind.LBRACE)
         values = []
         while not self._check(TokenKind.RBRACE) and not self._at_end():
@@ -1597,8 +1625,7 @@ class Parser:
             if not self._match(TokenKind.COMMA):
                 break
         self._expect(TokenKind.RBRACE)
-        self._expect(TokenKind.SEMICOLON)
-        return EnumDecl(name=name, values=values, line=tok.line, col=tok.col, name_line=name_line, name_col=name_col)
+        return values
 
     # ---- Rich enum declaration ----
 
@@ -1631,7 +1658,7 @@ class Parser:
     def _parse_typedef_decls(self) -> list:
         """``typedef int A, *B;`` declares one alias per declarator, ``*`` bound to each."""
         tok = self._expect(TokenKind.TYPEDEF)
-        if self._check(TokenKind.UNION) and (
+        if self._peek().type in (TokenKind.STRUCT, TokenKind.UNION, TokenKind.ENUM) and (
             self._peek(1).type == TokenKind.LBRACE
             or (self._peek(1).type == TokenKind.IDENT and self._peek(2).type == TokenKind.LBRACE)
         ):

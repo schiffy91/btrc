@@ -7,43 +7,22 @@ id = "r08-typedef-anonymous-struct"
 row = "8"
 construct = "typedef struct { } T;"
 intent = "positive"
-status = "rejected"
+status = "accepted"
 revision = "cf28fe7"
-divergence = "diagnostic wording"
 python = { diagnostic = "Expected struct name, got LBRACE '{' at 2:16" }
 btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:16" }
-source = '''
-#include <assert.h>
-typedef struct { int x; int y; } Point;
-int main() {
-	Point point = {1, 2};
-	assert(point.x + point.y == 3);
-	print("PASS: typedef anonymous struct");
-	return 0;
-}
-'''
+corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
 id = "r08-typedef-tagged-struct"
 row = "8"
 construct = "typedef struct P { } P;"
 intent = "positive"
-status = "rejected"
+status = "accepted"
 revision = "cf28fe7"
-divergence = "diagnostic wording"
 python = { diagnostic = "Expected typedef alias, got LBRACE '{' at 2:21" }
 btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:21" }
-source = '''
-#include <assert.h>
-typedef struct Pair { int left; int right; } Pair;
-int main() {
-	Pair pair = {3, 4};
-	struct Pair other = pair;
-	assert(other.left * other.right == 12);
-	print("PASS: typedef tagged struct");
-	return 0;
-}
-'''
+corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
 id = "r08-anonymous-members"
@@ -324,21 +303,11 @@ id = "x-typedef-enum"
 row = "x-typedef-enum"
 construct = "typedef enum { } T;"
 intent = "positive"
-status = "rejected"
+status = "accepted"
 revision = "cf28fe7"
-divergence = "diagnostic wording"
 python = { diagnostic = "Expected enum name, got LBRACE '{' at 2:14" }
 btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:14" }
-source = '''
-#include <assert.h>
-typedef enum { RED, GREEN, BLUE } Color;
-int main() {
-	Color color = GREEN;
-	assert((int)color == 1);
-	print("PASS: typedef enum");
-	return 0;
-}
-'''
+corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
 id = "x-typedef-enum-duplicate-enumerator"
@@ -347,7 +316,6 @@ construct = "a repeated enumerator"
 intent = "negative"
 status = "rejected"
 revision = "cf28fe7"
-divergence = "diagnostic wording"
 python = { diagnostic = "Expected enum name, got LBRACE '{' at 1:14" }
 btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 1:14" }
 source = '''
@@ -385,21 +353,11 @@ id = "x-enum-tag-btrc-enum"
 row = "x-enum-tag"
 construct = "enum Color c for a btrc enum"
 intent = "positive"
-status = "known-divergence"
+status = "accepted"
 revision = "cf28fe7"
-divergence = "outcome"
 python = { diagnostic = "Cannot assign 'Color' to variable 'color' of type 'enum Color' at 4:2" }
 btrcc = { c = "rejected" }
-source = '''
-#include <assert.h>
-enum Color { RED, GREEN, BLUE };
-int main() {
-	enum Color color = BLUE;
-	assert((int)color == 2);
-	print("PASS: enum tag spelling");
-	return 0;
-}
-'''
+corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
 id = "x-enum-tag-unknown"

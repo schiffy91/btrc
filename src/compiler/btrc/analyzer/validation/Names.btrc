@@ -470,6 +470,7 @@ class NameValidator {
 		int index = 0;
 		while (index < program.declarations().len) {
 			Node declaration = program.declarations().get(index);
+			if (SemanticTypeSystem.isIdentityTypedef(declaration, self.state.analyzed)) { index++; continue; }
 			if (self.namedTopLevel(declaration)) {
 				string name = self.topLevelName(declaration);
 				if (declaration.kind == NK_STRUCT_DECL && !declaration.isForward && SemanticTypeSystem.recordDeclarators(declaration).len == 0 && !self.state.analyzed.isNativeDeclaration(declaration)) {

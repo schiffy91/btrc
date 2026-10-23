@@ -2010,7 +2010,7 @@ owners remain authoritative.
 
 Owned paths are the two parsers, declaration registration and validation,
 record type and initializer owners, structured record lowering and emission,
-module-unit record collection, affected LSP symbols/navigation, focused
+typed-declaration dependency planning, module-unit record collection, affected LSP symbols/navigation, focused
 paired tests, C2 probe records, corpus/layout mirrors and documentation.
 No raw C lowering or new generated AST fields are planned. Any necessary
 generated output will be regenerated in a separate derived commit.

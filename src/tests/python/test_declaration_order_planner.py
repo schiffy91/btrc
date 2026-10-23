@@ -248,6 +248,18 @@ def test_typedef_cycles_fail_closed():
         IROptimizer.plan_type_declarations(module)
 
 
+@pytest.mark.parametrize("keyword", ["struct", "union"])
+def test_foreign_tag_typedef_does_not_depend_on_itself(keyword):
+    module = IRModule(typedef_defs=[IRTypedefDef(CType(f"{keyword} Foreign"), "Foreign")])
+    assert _names(module) == ["Foreign"]
+
+
+def test_ordinary_self_typedef_still_fails_closed():
+    module = IRModule(typedef_defs=[IRTypedefDef(CType("Foreign"), "Foreign")])
+    with pytest.raises(ValueError, match="cyclic typed C declaration dependency"):
+        IROptimizer.plan_type_declarations(module)
+
+
 def test_duplicate_type_providers_fail_closed():
     module = IRModule()
     module.typedef_defs = [IRTypedefDef(CType("int"), "Value")]

@@ -19,16 +19,17 @@ class DeclarationRegistry {
 		self.hostedAbi = hostedAbi;
 	}
 
-	/* Let a tagged native record's C spelling name the imported record. An SDK
-	 * record imports under its tag (`pollfd`, `sockaddr`), and C code names
-	 * that same type `struct pollfd`. The alias row maps the written tag to
-	 * the import in the typedef alias index, so every canonicalization
-	 * resolves it in one place; the key holds a space and can never collide
-	 * with a source name. An unknown tag stays a trusted foreign C tag. */
-	private void aliasNativeTag(Node declaration) {
-		if (!self.analyzed.isNativeDeclaration(declaration)) { return; }
-		string spelling = self.analyzed.nativeTypeSpelling(declaration.name);
-		if (spelling != "struct " + declaration.name && spelling != "union " + declaration.name) { return; }
+	/* Canonical aliases for source enum tags and native record tags.
+	 * Source record tags are normalized before registration. */
+	private void aliasTag(Node declaration) {
+		string spelling = "";
+		if (declaration.kind == NK_ENUM_DECL && !self.analyzed.isNativeDeclaration(declaration)) {
+			if (declaration.name == "") { return; }
+			spelling = "enum " + declaration.name;
+		} else if (self.analyzed.isNativeDeclaration(declaration)) {
+			spelling = self.analyzed.nativeTypeSpelling(declaration.name);
+			if (spelling != "struct " + declaration.name && spelling != "union " + declaration.name) { return; }
+		} else { return; }
 		if (!self.analyzed.typedefTable.has(spelling)) { self.analyzed.typedefTable.put(spelling, SemanticTypeSystem.primitive(declaration.name)); }
 	}
 
@@ -61,6 +62,7 @@ class DeclarationRegistry {
 				}
 			} else if (d.kind == NK_ENUM_DECL) {
 				self.analyzed.enumTable.put(d.name, d);
+				self.aliasTag(d);
 				int v = 0;
 				while (v < d.values().len) {
 					string valueName = d.values().get(v).name;
@@ -81,13 +83,11 @@ class DeclarationRegistry {
 				}
 			} else if (d.kind == NK_RICH_ENUM_DECL) {
 				self.analyzed.richEnumTable.put(d.name, d);
-			} else if (d.kind == NK_TYPEDEF_DECL) {
-				self.analyzed.typedefTable.put(d.alias, d.original);
 			} else if (d.kind == NK_STRUCT_DECL) {
 				if (!self.analyzed.structTable.has(d.name) || !d.isForward) {
 					self.analyzed.structTable.put(d.name, d);
 				}
-				self.aliasNativeTag(d);
+				self.aliasTag(d);
 			} else if (d.kind == NK_VAR_DECL_STMT) {
 				/* Module-level variable: record its type in the global scope so self.analyzed
         * bare identifier referencing it resolves during inference. An
@@ -103,6 +103,11 @@ class DeclarationRegistry {
 			}
 			i = i + 1;
 		}
+		for declaration in program.declarations() {
+			if (declaration.kind == NK_TYPEDEF_DECL && !SemanticTypeSystem.isIdentityTypedef(declaration, self.analyzed)) {
+				self.analyzed.typedefTable.put(declaration.alias, declaration.original);
+			}
+		}
 		self.normalizeRecordTags(program);
 		self.indexAnalyzedMembers(self.analyzed);
 	}
@@ -115,7 +120,7 @@ class DeclarationRegistry {
 	 * assignability rule and one lowering. A tag of another kind stays for
 	 * the wrong-keyword refusal, an SDK record keeps its written spelling,
 	 * and a typedef named for its own tag (`typedef struct P P;`) keeps its
-	 * original for the name-claim diagnostic.
+	 * original for identity-typedef classification.
 	 *
 	 * A record named like any generic parameter in the program (`T`, `K`,
 	 * `V`, the stdlib's included) keeps its written tag everywhere: its bare
@@ -167,11 +172,11 @@ class DeclarationRegistry {
 	}
 
 	/* `typedef struct P P;` or `typedef struct P* P;`: the alias reuses the
-	 * tag's name, a name claim the validator reports. */
+	 * tag's name, which registration must classify unchanged. */
 	class bool namesItsOwnTag(Node declaration) {
 		Node? original = declaration.original;
 		if (original == null) { return false; }
-		return SemanticTypeSystem.recordTagName(original.base) == declaration.alias && original.base != declaration.alias;
+		return original.base == "struct " + declaration.alias || original.base == "union " + declaration.alias || original.base == "enum " + declaration.alias;
 	}
 
 	/* Immutable exact-name indexes for semantic and lowering member queries. */

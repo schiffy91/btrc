@@ -98,6 +98,7 @@ class EnumRegistrar:
             return
         if declaration.name:
             self.index.enum_table[key] = values
+            self.names.alias_tag(declaration)
         else:
             self.index.enum_table.setdefault("", []).extend(values)
 
@@ -367,23 +368,25 @@ class TopLevelRegistrar:
                 self.index.struct_table[declaration.name] = declaration
         elif declaration.name not in self.index.struct_table:
             self.index.struct_table[declaration.name] = declaration
-        self._alias_native_tag(declaration)
+        self.alias_tag(declaration)
 
-    def _alias_native_tag(self, declaration) -> None:
-        """Let a tagged native record's C spelling name the imported record.
+    def alias_tag(self, declaration) -> None:
+        """Register enum and native record tags in the canonical alias index.
 
-        An SDK record imports under its tag (`pollfd`, `sockaddr`), and C code
-        names that same type `struct pollfd`. The alias row maps the written
-        tag to the import in the typedef alias index, so every canonicalization
-        resolves it in one place; the key holds a space and can never collide
-        with a source name. An unknown tag stays a trusted foreign C tag.
+        Source record tags are normalized before registration. Enum tags
+        retain their spelling, and native records retain the SDK spelling.
+        A key containing a space cannot claim a source name.
         """
         source = declaration.source_file
-        if not isinstance(source, NativeHeaderSource):
+        if isinstance(declaration, EnumDecl) and not isinstance(source, NativeHeaderSource):
+            spelling = f"enum {declaration.name}"
+        elif isinstance(source, NativeHeaderSource):
+            spelling = source.type_spelling
+            if spelling not in (f"struct {declaration.name}", f"union {declaration.name}"):
+                return
+        else:
             return
-        spelling = source.type_spelling
-        if spelling in (f"struct {declaration.name}", f"union {declaration.name}"):
-            self.index.typedef_table.setdefault(spelling, TypeExpr(base=declaration.name))
+        self.index.typedef_table.setdefault(spelling, TypeExpr(base=declaration.name))
 
     def register_function(self, declaration) -> None:
         registry = self.registry
@@ -1251,6 +1254,16 @@ class DeclarationRegistry:
         self.index.global_definitions = {}
         self.index.struct_definitions = {}
         self.normalize_record_tags(program)
+        records = {
+            declaration.name: declaration
+            for declaration in self.session.declarations(program)
+            if isinstance(declaration, StructDecl)
+        }
+        enums = {
+            declaration.name
+            for declaration in self.session.declarations(program)
+            if isinstance(declaration, EnumDecl) and not isinstance(declaration.source_file, NativeHeaderSource)
+        }
         for declaration in self.session.declarations(program):
             if isinstance(declaration, InterfaceDecl):
                 self._register_interface(declaration, top_level)
@@ -1267,6 +1280,8 @@ class DeclarationRegistry:
             elif isinstance(declaration, RichEnumDecl):
                 enum_registrar.register_rich(declaration)
             elif isinstance(declaration, TypedefDecl):
+                if TypeSystem.is_identity_typedef(declaration, records, enums):
+                    continue
                 top_level.claim_name(
                     declaration.alias,
                     "typedef",
@@ -1293,7 +1308,7 @@ class DeclarationRegistry:
         instance, one assignability rule and one lowering. A tag of another
         kind stays for the wrong-keyword refusal, an SDK record keeps its
         written spelling, and a typedef named for its own tag (``typedef struct
-        P P;``) keeps its original for the name-claim diagnostic. It runs
+        P P;``) keeps its original for identity-typedef classification. It runs
         before registration, so prototype and global compatibility compare
         one spelling.
 
@@ -1353,12 +1368,13 @@ class DeclarationRegistry:
     @staticmethod
     def _names_its_own_tag(declaration: TypedefDecl) -> bool:
         """``typedef struct P P;`` or ``typedef struct P* P;``: the alias
-        reuses the tag's name, a name claim the registry reports."""
+        reuses the tag's name, which registration must classify unchanged."""
         original = declaration.original
         return (
             original is not None
             and original.base != declaration.alias
-            and TypeSystem.record_tag_name(original.base) == declaration.alias
+            and original.base
+            in (f"struct {declaration.alias}", f"union {declaration.alias}", f"enum {declaration.alias}")
         )
 
     @staticmethod

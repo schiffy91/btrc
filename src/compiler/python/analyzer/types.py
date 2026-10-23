@@ -18,6 +18,7 @@ from src.compiler.python.analyzer.program import (
     InitializerSlot,
     InitializerSlotPlan,
 )
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.lexer.lexer import LiteralDecoder
 from src.compiler.python.syntax.ast.generated import (
     AnonymousMember,
@@ -1195,6 +1196,19 @@ class TypeSystem:
             if base.startswith(prefix):
                 return base[len(prefix) :]
         return base
+
+    @classmethod
+    def is_identity_typedef(cls, declaration, records, enums) -> bool:
+        """A plain source alias of its own declared C tag is a redeclaration."""
+        if not isinstance(declaration, TypedefDecl) or isinstance(declaration.source_file, NativeHeaderSource):
+            return False
+        original = declaration.original
+        if original != TypeExpr(base=original.base):
+            return False
+        record = records.get(declaration.alias)
+        if record is not None and not isinstance(record.source_file, NativeHeaderSource):
+            return original.base == f"{cls.record_keyword(record)} {declaration.alias}"
+        return declaration.alias in enums and original.base == f"enum {declaration.alias}"
 
     @classmethod
     def record_declarators(cls, record) -> tuple:

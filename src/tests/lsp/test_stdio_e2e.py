@@ -236,3 +236,57 @@ def test_target_changes_reanalyze_open_buffers_over_stdio(tmp_path):
         client.send("exit", {}, request=False)
     finally:
         client.close()
+
+
+@pytest.mark.parametrize(
+    ("keyword", "body", "kind"), [("struct", "int x;", 23), ("union", "int x;", 23), ("enum", "READY", 10)]
+)
+def test_identity_typedef_symbols_and_definition_over_stdio(tmp_path, keyword, body, kind):
+    path = tmp_path / "Record.btrc"
+    source = (
+        f"typedef {keyword} Record Record;\n"
+        f"{keyword} Record {{ {body} }};\n"
+        "typedef Record Alias;\n"
+        "int main() { Record* value = null; return value == null ? 0 : 1; }\n"
+    )
+    path.write_text(source)
+    uri = path.as_uri()
+    client = LspClient(env={"BTRC_LSP_DEBOUNCE": "0"})
+    try:
+        initialize = client.send("initialize", {"processId": None, "rootUri": tmp_path.as_uri(), "capabilities": {}})
+        assert "error" not in client.wait_response(initialize)
+        client.send("initialized", {}, request=False)
+        client.send(
+            "textDocument/didOpen",
+            {"textDocument": {"uri": uri, "languageId": "btrc", "version": 1, "text": source}},
+            request=False,
+        )
+        published = client.wait_notification("textDocument/publishDiagnostics")
+        assert published["params"]["uri"] == uri
+        assert published["params"]["diagnostics"] == []
+        document = client.wait_response(client.send("textDocument/documentSymbol", {"textDocument": {"uri": uri}}))
+        records = [symbol for symbol in document["result"] if symbol["name"] == "Record"]
+        assert len(records) == 1
+        assert records[0]["kind"] == kind
+        assert records[0]["selectionRange"]["start"] == {"line": 1, "character": len(keyword) + 1}
+        assert any(symbol["name"] == "Alias" for symbol in document["result"])
+        workspace = client.wait_response(client.send("workspace/symbol", {"query": "Record"}))
+        records = [
+            symbol for symbol in workspace["result"] if symbol["name"] == "Record" and symbol["location"]["uri"] == uri
+        ]
+        assert len(records) == 1
+        assert records[0]["kind"] == kind
+        assert records[0]["location"]["range"]["start"]["line"] == 1
+        definition = client.wait_response(
+            client.send(
+                "textDocument/definition",
+                {"textDocument": {"uri": uri}, "position": {"line": 3, "character": 14}},
+            )
+        )
+        assert definition["result"]["uri"] == uri
+        assert definition["result"]["range"]["start"] == {"line": 1, "character": len(keyword) + 1}
+        shutdown = client.send("shutdown", {})
+        client.wait_response(shutdown)
+        client.send("exit", {}, request=False)
+    finally:
+        client.close()

@@ -1,0 +1,46 @@
+#include <assert.h>
+
+typedef struct { int x; int y; } Point, *PointPtr;
+typedef struct Pair { int left; int right; } Pair;
+typedef struct Point Coordinates;
+typedef struct Later Later;
+struct Later { int value; Later* next; } first = {7, null}, *firstPtr = &first;
+typedef union Value Value;
+union Value { int integer; float real; };
+typedef enum { RED, GREEN, BLUE } Color;
+typedef enum Shade { DARK, LIGHT } Tint, *TintPtr;
+typedef enum Kind Kind;
+enum Kind { SMALL, LARGE };
+typedef struct Foreign Foreign;
+
+Coordinates translated(struct Point point, int distance) {
+	Coordinates result = {point.x + distance, point.y + distance};
+	return result;
+}
+
+enum Color nextColor(Color color) { return color == RED ? GREEN : BLUE; }
+
+int main() {
+	Point point = {2, 3};
+	PointPtr pointer = &point;
+	Coordinates moved = translated(point, 4);
+	assert(pointer->x == 2 && moved.x == 6 && moved.y == 7);
+	Pair pair = {3, 4};
+	struct Pair copy = pair;
+	assert(copy.left * copy.right == 12);
+	assert(firstPtr->value == 7 && first.next == null);
+	Value value = {9};
+	union Value other = value;
+	assert(other.integer == 9);
+	enum Color color = nextColor(RED);
+	assert(color == GREEN && (int)BLUE == 2);
+	Tint tint = LIGHT;
+	TintPtr tintPtr = &tint;
+	assert((int)*tintPtr == 1);
+	Kind kind = LARGE;
+	assert((int)kind == 1);
+	Foreign* foreign = null;
+	assert(foreign == null);
+	print("PASS: typedef records");
+	return 0;
+}

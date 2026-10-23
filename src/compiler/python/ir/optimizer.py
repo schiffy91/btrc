@@ -462,6 +462,14 @@ class IROptimizer:
             for name in cls._ctype_references(node, pattern):
                 provider = providers[name]
                 provided = declarations[provider]
+                if (
+                    provider == declaration_index
+                    and isinstance(declaration, IRTypedefDef)
+                    and node.text in (f"struct {name}", f"union {name}")
+                ):
+                    # The foreign tag belongs to C's tag namespace; this
+                    # declaration introduces the separate typedef name.
+                    continue
                 if not isinstance(provided, _AGGREGATE_TYPES) or requires_complete:
                     dependencies.add(provider)
                 if requires_complete and isinstance(provided, IRTypedefDef):

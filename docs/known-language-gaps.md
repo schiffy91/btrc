@@ -303,8 +303,7 @@ record, so `union T*` and `T*` are one type.
 
 A program that spells a btrc record or enum with its tag (`struct Point`,
 `union Number`, `enum Color`) under strict imports must import the module
-that declares it, as for the bare name (`enum Color` for a btrc enum is
-otherwise the enum-tag row's work). As in C, a tag names only a type: a
+that declares it, as for the bare name. As in C, a tag names only a type: a
 module that declares a function `timeval` does not make `struct timeval`
 need its import, and a tag needs an import only for a non-generic type the
 program declares: a header's own `struct Timer`, or its `struct ListNode`
@@ -316,6 +315,30 @@ generic parameter anywhere in the program (`T`, `K`, `V`, …): its tag and its
 name stay two spellings, as before C row 9, so `Vector<struct T>` and
 `Vector<T>` are two instances, and an instance's substitution never captures
 the record.
+
+## Typedef record declarations (C row 8)
+
+`typedef struct [Tag] { ... } Name, *Pointer;` and the corresponding union
+and enum forms declare the type and its aliases. An untagged definition
+takes its first plain declarator as its tag. Thus `typedef struct { int x; }
+Point;` also permits `struct Point`, an extension to C's tag rules.
+
+A plain identity typedef such as `typedef struct Point Point;` is a
+redeclaration when the program declares that struct, including later in the
+source. The same rule applies to unions and plain enums. Qualifiers, pointers
+and arrays do not make an identity typedef. Without a source declaration,
+`typedef struct Foreign Foreign;` remains a foreign C typedef.
+
+A tagged record definition can also declare file-scope objects:
+`struct Point { int x; } origin = {0}, *pointer = &origin;`.
+An untagged definition cannot declare such objects without a typedef.
+`enum Color` resolves to the plain enum `Color` in local and global variables,
+parameters and return types. These forms are covered by
+`c_compat/TypedefRecords.btrc` and the paired declaration tests.
+
+Anonymous members remain separate C2 work. Typedef array declarators still
+wait for Stage 18. Unknown enum tags still need the enum-tag lane's source
+evidence validation.
 
 ## Variable-length arrays (C row 23)
 
