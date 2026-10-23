@@ -196,6 +196,29 @@ def test_macos_classifies_only_the_linux_main_stack_limit_cases(runner):
     assert manifest.classify("src/tests/btrc/test_other.py::test_limit[64]", reason) is None
 
 
+@pytest.mark.parametrize("runner", ["macos", "macos-hosted"])
+def test_macos_classifies_only_the_linux_child_subreaper_case(runner):
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+    nodeid = "src/tests/python/test_android_executor.py::test_a_descendant_that_leaves_the_session_is_still_reaped"
+    reason = "the child subreaper is Linux's"
+    rule = manifest.classify(nodeid, reason)
+
+    assert rule is not None
+    assert rule.category == "platform"
+    assert rule.covered_by == ("linux-devcontainer",)
+    assert manifest.classify(nodeid, "requires a host C compiler") is None
+    assert manifest.classify(nodeid + "_unrelated", reason) is None
+    assert (
+        manifest.classify(
+            "src/tests/python/test_android_executor.py::test_descendants_die_with_the_program_even_holding_its_stderr",
+            reason,
+        )
+        is None
+    )
+    for linux in ("linux-devcontainer", "linux-hosted"):
+        assert ExpectedSkipManifest.load(MANIFEST_ROOT / f"{linux}.json").classify(nodeid, reason) is None
+
+
 def test_the_macos_manifest_expects_a_dap_session_skip_only_for_developer_mode():
     """The DAP sessions skip under a reason per cause; on a Mac only developer mode being off is expected.
 
