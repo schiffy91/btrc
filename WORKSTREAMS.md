@@ -1998,3 +1998,28 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+
+### 2026-10-23: CX-STDLIB-ANALYSIS-18
+
+Under the current D29 harmonization session, `codex/stdlib-analysis-20261023`
+implements issues #4 and #18: skip unreached stdlib bodies during application
+analysis, and provide full-body stdlib validation through both compilers in CI.
+The reference and self-hosted analyzers own the shared reachability policy;
+lowering consumes it without creating an analyzer-to-IR dependency.
+
+Owned paths: `src/compiler/python/analyzer/`,
+`src/compiler/python/application/`, `src/compiler/python/cli/compiler.py`,
+`src/compiler/python/ir/lowering/`; `src/compiler/btrc/analyzer/`,
+`src/compiler/btrc/pipeline/`, `src/compiler/btrc/cli/Driver.btrc`,
+`src/compiler/btrc/ir/lowering/`; the corresponding stdlib-analysis,
+reachability, CLI and compiler-structure tests;
+`docs/design/compiler-structure.md`; `tools/qualification/stdlib.py`;
+`.github/workflows/stdlib.yml`; this append-only claim.
+Makefile targets, CI tier rows, skip rules and inventory totals are fragments,
+not held paths. PR114 retains its existing workflow and GUI-test claims.
+
+Acceptance requires reached-body and dormant-body diagnostic tests, generic
+and implicit-call coverage, strict-import parity, full stdlib CI coverage,
+and the final compiler/corpus/bootstrap/C11 gates. No language or runtime
+semantics are relaxed, and no platform qualification is claimed by this claim.
