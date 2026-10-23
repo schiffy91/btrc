@@ -311,6 +311,21 @@
       "note": "The patched SDL's X11 clipboard path (nix/sdl3-x11-selection-requestor.patch) exists only on Linux; the probe runs under the Linux virtual display."
     },
     {
+      "id": "linux-child-subreaper",
+      "files": [
+        "src/tests/python/test_android_executor.py"
+      ],
+      "nodes": [
+        "src/tests/python/test_android_executor.py::test_a_descendant_that_leaves_the_session_is_still_reaped"
+      ],
+      "reason": "^the child subreaper is Linux's$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The Linux unit shard exercises descendants that leave the supervised session. The Android supervisor uses PR_SET_CHILD_SUBREAPER only on Linux; macOS still runs the process-group descendant cleanup case."
+    },
+    {
       "id": "linux-main-stack-resource-limit",
       "files": [
         "src/tests/btrc/test_deep_expression_parity.py"
