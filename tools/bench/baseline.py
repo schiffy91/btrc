@@ -8,6 +8,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from tools.perf import PHASES
+
+from .app_scale import AppScaleFixture
+
 BASELINE_PATH = Path("src/tests/fixtures/benchmarks/baseline.json")
 SCHEMA_VERSION = 1
 
@@ -66,12 +70,14 @@ class Baseline:
     def metric_kind(name: str) -> str:
         """The comparison kind a metric name declares through its last component.
 
-        Per-phase compiler timings are recorded for attribution but never gate: a
-        mark that moves or a phase that splits changes where time is attributed
-        without changing the compile, and the compile's own timing is compared.
+        Individual phase marks are attribution only. The app-scale fixture uses
+        complete stage totals; compare gates those after a qualifying baseline.
         """
 
-        if name.startswith(INFORMATIONAL_PREFIXES):
+        if name == f"reference.compile.{AppScaleFixture.NAME}_ms":
+            return "info"
+        app_stages = {f"btrcc.phase.{AppScaleFixture.NAME}.{phase}_ms" for phase in PHASES}
+        if name.startswith(INFORMATIONAL_PREFIXES) and name not in app_stages:
             return "info"
         tail = name.rsplit(".", 1)[-1]
         if tail.endswith("_ms"):
@@ -80,6 +86,16 @@ class Baseline:
             if tail == kind or tail.endswith("_" + kind):
                 return kind
         raise ValueError(f"metric {name!r} does not end in a known kind")
+
+    @staticmethod
+    def app_scale_timing(name: str) -> bool:
+        return name.startswith(
+            (
+                f"btrcc.compile.{AppScaleFixture.NAME}_",
+                f"btrcc.phase.{AppScaleFixture.NAME}.",
+                f"cc.{AppScaleFixture.NAME}.",
+            )
+        ) and name.endswith("_ms")
 
     @classmethod
     def compare(
@@ -105,9 +121,16 @@ class Baseline:
         """
 
         findings: list[Finding] = []
+        qualified = (
+            0.0
+            < float((baseline or {}).get(f"btrcc.compile.{AppScaleFixture.NAME}_ms", 0))
+            <= AppScaleFixture.QUALIFY_MS
+        )
         for name in sorted(current):
             value = float(current[name])
             kind = cls.metric_kind(name)
+            if kind == "ms" and cls.app_scale_timing(name) and not qualified:
+                kind = "info"
             reference = None if baseline is None else baseline.get(name)
             if reference is None:
                 findings.append(Finding(name, None, value, "new"))
