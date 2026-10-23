@@ -181,6 +181,7 @@ def test_devcontainer_policy_and_generated_output_are_unambiguously_filtered():
         "host.nix",
         # The .#platforms shell's additions, which the CI image never imports.
         "platforms.nix",
+        "stdlib-windows-sdk.nix",
         "wgpu-native-prebuilt.nix",
     }
     assert "files = import ./nix" in (REPO_ROOT / "flake.nix").read_text()

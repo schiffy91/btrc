@@ -29,7 +29,6 @@ OWNER_MODULES = {
     "iteration.py": "IterationLowerer",
     "lowerer.py": "IRLowerer",
     "ownership.py": "OwnershipLowerer",
-    "reachability.py": "StdlibReachability",
     "session.py": "LoweringSession",
     "statements.py": "StatementLowerer",
     "storage.py": "StorageLowerer",
@@ -43,7 +42,6 @@ EXPECTED_FILES = frozenset({"__init__.py", *OWNER_MODULES})
 # exports.
 EXPECTED_INTERNAL_IMPORTS = {
     "__init__.py": set(),
-    "reachability.py": set(),
     "calls.py": {"ownership.py", "session.py", "types.py"},
     "classes.py": {
         "calls.py",
@@ -124,7 +122,7 @@ EXPECTED_INTERNAL_IMPORTS = {
         "types.py",
     },
     "ownership.py": {"session.py", "types.py"},
-    "session.py": {"reachability.py", "generics.py"},
+    "session.py": {"generics.py"},
     "statements.py": {
         "calls.py",
         "control_flow.py",
@@ -139,7 +137,6 @@ EXPECTED_INTERNAL_IMPORTS = {
     },
     "storage.py": {"calls.py", "ownership.py", "session.py", "types.py"},
     "translation_unit.py": {
-        "reachability.py",
         "calls.py",
         "classes.py",
         "collections.py",
@@ -322,7 +319,6 @@ EXPECTED_PRIMARY_RETAINED = {
         "CleanupSlotRegistry",
     },
     "CTypeLowerer": {"LoweringSession"},
-    "StdlibReachability": set(),
 }
 
 BEHAVIOR_ARGUMENTS = frozenset(
@@ -612,10 +608,10 @@ def _is_callable_annotation(annotation: ast.expr, aliases: set[str]) -> bool:
     return bool(_annotation_names(annotation) & aliases)
 
 
-def test_lowering_package_has_the_exact_twenty_one_file_tree() -> None:
+def test_lowering_package_has_the_exact_twenty_file_tree() -> None:
     relative_files = {path.relative_to(LOWERING_ROOT).as_posix() for path in LOWERING_ROOT.rglob("*.py")}
     assert relative_files == EXPECTED_FILES
-    assert len(relative_files) == 21
+    assert len(relative_files) == 20
     assert not (LOWERING_ROOT.parent / "gen").exists()
     for filename, owner in OWNER_MODULES.items():
         _owner_class(LOWERING_ROOT / filename, owner)

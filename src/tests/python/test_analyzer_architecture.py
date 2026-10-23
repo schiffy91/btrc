@@ -27,6 +27,7 @@ OWNER_MODULES = {
     "macros.py": "SourceMacroAnalyzer",
     "ownership.py": "OwnershipAnalyzer",
     "program.py": "AnalysisSession",
+    "reachability.py": "StdlibReachability",
     "realtime.py": "RealtimeAnalyzer",
     "statements.py": "StatementAnalyzer",
     "storage.py": "StorageModel",
@@ -100,6 +101,7 @@ SEMANTIC_OWNER_SUFFIXES = (
 SEMANTIC_OWNER_NAMES = {
     "SourceMacroNamespace",
     "SourceRuntimeSymbols",
+    "StdlibReachability",
     "TypeIdentity",
 }
 
