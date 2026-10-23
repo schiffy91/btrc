@@ -57,8 +57,14 @@ def test_reference_and_individual_marks_do_not_gate_after_promotion() -> None:
         "btrcc.compile.CompileAppScale_ms": 9_000,
         "reference.compile.CompileAppScale_ms": 100,
         "btrcc.phase.CompileAppScale.a-bodies_ms": 100,
+        "btrcc.phase.CompileAppScale.marks.lower_ms": 100,
     }
-    current = {**baseline, "reference.compile.CompileAppScale_ms": 900, "btrcc.phase.CompileAppScale.a-bodies_ms": 900}
+    current = {
+        **baseline,
+        "reference.compile.CompileAppScale_ms": 900,
+        "btrcc.phase.CompileAppScale.a-bodies_ms": 900,
+        "btrcc.phase.CompileAppScale.marks.lower_ms": 900,
+    }
     assert all(finding.status == "ok" for finding in Baseline.compare(current, baseline))
 
 
@@ -96,11 +102,24 @@ def test_app_measurement_uses_native_plan_and_complete_stage_totals(tmp_path: Pa
         (program, tmp_path / "CompileAppScale.link.json", 0),
         (program, tmp_path / "CompileAppScale.link.json", 2),
     ]
-    assert {key: value for key, value in suite.metrics.items() if key.startswith("btrcc.phase.")} == {
+    assert {
+        key: value for key, value in suite.metrics.items() if key.startswith("btrcc.phase.") and ".marks." not in key
+    } == {
         "btrcc.phase.CompileAppScale.analyze_ms": 6,
         "btrcc.phase.CompileAppScale.lower_ms": 7,
         "btrcc.phase.CompileAppScale.optimize_ms": 18,
         "btrcc.phase.CompileAppScale.emit_ms": 8,
+    }
+    assert {key.rsplit(".", 1)[-1]: value for key, value in suite.metrics.items() if ".marks." in key} == {
+        "a-decls_ms": 1,
+        "a-bodies_ms": 2,
+        "analyze_ms": 3,
+        "l-functions_ms": 4,
+        "lower_ms": 3,
+        "o-reachability_ms": 6,
+        "optimize_ms": 5,
+        "setjmp-analysis_ms": 7,
+        "emit_ms": 8,
     }
 
 

@@ -1983,7 +1983,9 @@ Regenerate the fixture with `python -m tools.bench.app_scale`; `--check`
 verifies the checked-in source. Select it with
 `make bench BENCH_ARGS="--programs CompileAppScale"` under the repository's
 measurement protocol. Its `analyze`, `lower`, `optimize` and `emit` metrics sum
-the complete stage, including its internal marks. Timings remain informational
+the complete stage, including its internal marks. Individual marks are retained
+under `btrcc.phase.CompileAppScale.marks.*` for attribution and never gate.
+Complete-stage timings remain informational
 until a platform baseline records a self-host compile of at most 10 seconds.
 That baseline enables the normal 35% tolerance; a slower candidate cannot
 disable the gate. Reference compile time stays informational, and hosted

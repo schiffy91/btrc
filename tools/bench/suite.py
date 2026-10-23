@@ -412,6 +412,8 @@ class Suite:
             if name == AppScaleFixture.NAME:
                 if not set(PHASES) <= phases.keys():
                     raise RuntimeError(f"{name}: compiler timing report is missing stage marks")
+                for phase, millis in phases.items():
+                    self.metrics[f"btrcc.phase.{name}.marks.{phase}_ms"] = round(millis, 3)
                 seconds = {phase: millis / 1000 for phase, millis in phases.items()}
                 totals = CompilerRun(
                     "btrcc", compiled.wall_ms / 1000, compiled.cpu_ms / 1000, 0, seconds, "", ""
