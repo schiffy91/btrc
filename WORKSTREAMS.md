@@ -1998,3 +1998,25 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+## 2026-10-23 CX-C2-RECORDS: issue 17 prerequisites
+
+Codex owns `codex/c2-records-20261023` from `b800bb0` under D29 for
+Stage 17 r08, a prerequisite of the remaining issue 17 keyword work.
+The approved contract is `docs/design/c-compatibility.md`: typedef record
+and enum definitions, identity typedefs, file-scope record object declarators,
+and plain-value anonymous struct/union members with flattened lookup and
+structured initialization. The existing shared schema and record-member
+owners remain authoritative.
+
+Owned paths are the two parsers, declaration registration and validation,
+record type and initializer owners, structured record lowering and emission,
+module-unit record collection, affected LSP symbols/navigation, focused
+paired tests, C2 probe records, corpus/layout mirrors and documentation.
+No raw C lowering or new generated AST fields are planned. Any necessary
+generated output will be regenerated in a separate derived commit.
+
+This packet does not claim C2 integration, memory acceptance or keyword
+completion from focused tests. The full reviewed matrix and the approved
+quiet-host memory comparison remain required; no local GUI, bootstrap or
+performance measurement runs under the current host restrictions.
+
