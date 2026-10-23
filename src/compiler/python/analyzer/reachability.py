@@ -243,10 +243,10 @@ class StdlibReachabilityPlan:
 
         return not StdlibReachability.is_stdlib_declaration(declaration) or id(declaration) in self.reached
 
-    def lowers_method(self, declaration: ClassDecl, member: MethodDecl) -> bool:
+    def reaches_method(self, declaration: ClassDecl, member: MethodDecl) -> bool:
         return (
             not StdlibReachability.is_stdlib_declaration(declaration)
-            or StdlibReachability.always_lowered(member)
+            or StdlibReachability.always_reached(member)
             or member.name in self.names
         )
 
@@ -268,13 +268,13 @@ class StdlibReachabilityPlan:
         chosen: set[tuple[str, str]] = set()
         for member in declaration.members:
             if isinstance(member, MethodDecl):
-                if self.lowers_method(declaration, member):
+                if self.reaches_method(declaration, member):
                     chosen.add(("method", member.name))
             elif isinstance(member, PropertyDecl):
                 chosen.add(("get", member.name))
                 chosen.add(("set", member.name))
         for member in inherited:
-            if StdlibReachability.always_lowered(member) or member.name in self.names:
+            if StdlibReachability.always_reached(member) or member.name in self.names:
                 chosen.add(("method", member.name))
         return frozenset(chosen) if selected is None else frozenset(chosen & selected)
 
@@ -356,8 +356,8 @@ class StdlibReachability:
     def reaches(self, declaration: object) -> bool:
         return self.plan.reaches(declaration)
 
-    def lowers_method(self, declaration: ClassDecl, member: MethodDecl) -> bool:
-        return self.plan.lowers_method(declaration, member)
+    def reaches_method(self, declaration: ClassDecl, member: MethodDecl) -> bool:
+        return self.plan.reaches_method(declaration, member)
 
     def selected_callables(
         self,
@@ -383,7 +383,7 @@ class StdlibReachability:
         skeleton.extend(Identifier(name=interface) for interface in declaration.interfaces)
         for member in declaration.members:
             if isinstance(member, MethodDecl):
-                if StdlibReachability.always_lowered(member):
+                if StdlibReachability.always_reached(member):
                     self._push_method(declaration, member, worklist)
             else:
                 skeleton.append(member)
@@ -407,7 +407,7 @@ class StdlibReachability:
         return isinstance(getattr(declaration, "source_file", None), CompilerStdlibSource)
 
     @staticmethod
-    def always_lowered(member: MethodDecl) -> bool:
+    def always_reached(member: MethodDecl) -> bool:
         """Constructors, destructors, operators and lowering-implied methods never prune."""
 
         return (

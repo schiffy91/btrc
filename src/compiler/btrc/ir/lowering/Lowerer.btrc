@@ -31,7 +31,7 @@ import ./Generics.btrc;
 import ./ownership/Calls.btrc;
 import ./ownership/CycleBoundaries.btrc;
 import ./ownership/Lifetime.btrc;
-import ./Reachability.btrc;
+import ../../analyzer/Reachability.btrc;
 import ./ownership/ManagedTypes.btrc;
 import ./ownership/Operands.btrc;
 import ./ownership/Semantics.btrc;

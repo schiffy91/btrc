@@ -8,11 +8,11 @@ from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING
 
+from src.compiler.python.analyzer.reachability import StdlibReachability
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceConditionals, SourceMacroRules
-from src.compiler.python.ir.lowering.reachability import StdlibReachability
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,

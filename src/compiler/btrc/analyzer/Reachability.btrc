@@ -2,8 +2,8 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
-import ../../analyzer/HostedAbi.btrc;
-import ../../generated/ast/Node.btrc;
+import ./HostedAbi.btrc;
+import ../generated/ast/Node.btrc;
 
 /* Which stdlib callables a program can reach, decided before lowering.
  *
@@ -217,7 +217,7 @@ class StdlibReachability {
 		return implied.has(name);
 	}
 
-	class bool alwaysLowered(Node member) { return member.isConstructor || member.name.startsWith("__") || StdlibReachability.impliedMethodName(member.name) || member.genericParams().len > 0; }
+	class bool alwaysReached(Node member) { return member.isConstructor || member.name.startsWith("__") || StdlibReachability.impliedMethodName(member.name) || member.genericParams().len > 0; }
 
 	class string declarationKey(Node declaration) { return Strings.fromInt((int)declaration.kind) + ":" + declaration.name + ":" + Strings.fromInt(declaration.line) + ":" + Strings.fromInt(declaration.col); }
 
@@ -312,7 +312,7 @@ class StdlibReachability {
 		for iface in declaration.interfaces() { self.mentionName(iface, worklist); }
 		for member in declaration.members() {
 			if (member.kind == NK_METHOD_DECL) {
-				if (StdlibReachability.alwaysLowered(member)) { self.pushMethod(declaration, member, worklist); }
+				if (StdlibReachability.alwaysReached(member)) { self.pushMethod(declaration, member, worklist); }
 			} else {
 				worklist.push(member);
 			}
@@ -363,9 +363,9 @@ class StdlibReachability {
 		return self.reached.has(key);
 	}
 
-	public bool lowersMethod(Node declaration, Node member) {
+	public bool reachesMethod(Node declaration, Node member) {
 		if (!self.stdlibKeys.has(StdlibReachability.declarationKey(declaration))) { return true; }
-		return StdlibReachability.alwaysLowered(member) || self.names.has(member.name);
+		return StdlibReachability.alwaysReached(member) || self.names.has(member.name);
 	}
 
 	/* Every identifier, member, type, parent, interface and signature name a subtree mentions. */

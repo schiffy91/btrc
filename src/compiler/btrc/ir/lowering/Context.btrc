@@ -6,7 +6,7 @@ import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
 import ../Model.btrc;
 import ./ownership/Operands.btrc;
-import ./Reachability.btrc;
+import ../../analyzer/Reachability.btrc;
 
 /* Mutable state shared by one structured-IR lowering run.
  *

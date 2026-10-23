@@ -8,7 +8,7 @@ import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
 import ../Model.btrc;
-import ./Reachability.btrc;
+import ../../analyzer/Reachability.btrc;
 
 /* Semantic TypeExpr -> C type lowering for one analyzed module.
  *

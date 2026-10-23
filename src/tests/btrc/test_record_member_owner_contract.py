@@ -47,7 +47,7 @@ BTRC_ALLOWED = {
     "analyzer/Realtime.btrc::collectChildren": (2, GENERIC_WALK),
     "frontend/Visibility.btrc::visit": (2, GENERIC_WALK),
     "ir/lowering/Declarations.btrc::collectTupleTypesBody": (2, GENERIC_WALK),
-    "ir/lowering/Reachability.btrc::pushChildren": (2, GENERIC_WALK),
+    "analyzer/Reachability.btrc::pushChildren": (2, GENERIC_WALK),
     "ir/lowering/Statements.btrc::nodeUsesTrycatch": (2, GENERIC_WALK),
     "syntax/Identity.btrc::children": (2, "AstStructure.children, the structural walk itself"),
     "syntax/Identity.btrc::renderAtDepth": (

@@ -17,7 +17,7 @@ import ./Models.btrc;
 import ./ModuleUnits.btrc;
 import ../frontend/SourceIo.btrc;
 import ../frontend/Timing.btrc;
-import ../ir/lowering/Reachability.btrc;
+import ../analyzer/Reachability.btrc;
 
 class CompilerPipeline {
 	private GrammarInfo grammar;

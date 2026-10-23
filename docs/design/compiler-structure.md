@@ -168,6 +168,7 @@ src/compiler/python/
     macros.py                    # SourceMacroAnalyzer/Namespace
     generated_symbols.py         # GeneratedSymbolRegistry
     realtime.py                  # RealtimeAnalyzer/fixed-point effect proof
+    reachability.py              # conservative stdlib declaration and callable reachability
 
   abi/
     __init__.py
@@ -204,7 +205,6 @@ src/compiler/python/
       concurrency.py             # ConcurrencyLowerer
       generics.py                # GenericSpecializer only
       gpu.py                     # GpuLowerer
-      reachability.py            # StdlibReachability: stdlib callables to lower
 
   backend/
     __init__.py
@@ -314,6 +314,7 @@ src/compiler/btrc/
     SourceMacros.btrc            # SourceMacroNamespace
     GPU.btrc                      # GPU semantic owners
     Realtime.btrc                 # transitive realtime-effect proof
+    Reachability.btrc             # conservative stdlib declaration and callable reachability
 
     ownership/
       Values.btrc                 # ManagedValueSemantics
@@ -343,7 +344,6 @@ src/compiler/btrc/
       References.btrc             # RuntimeReferenceCollector
 
     lowering/
-      Reachability.btrc           # source reachability before lowering
       Context.btrc                # LoweringContext
       Lowerer.btrc                # IRLowerer composition root
       Types.btrc                  # CTypeLowerer
