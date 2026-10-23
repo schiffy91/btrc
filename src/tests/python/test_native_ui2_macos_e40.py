@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,88 @@ from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "src/tests/native/gui/ui2/probes/macos/e40"
+
+
+class E40MetalControl:
+    """Retain a direct Metal result separately from the E40 acceptance oracle."""
+
+    TIMEOUT_SECONDS = 15
+
+    def __init__(self, command, build_command, source_sha256):
+        self.command = command
+        self.executable = Path(command[0])
+        self.build_command = build_command
+        self.source_sha256 = source_sha256
+        self.recorded = set()
+
+    @classmethod
+    def build(cls, directory):
+        executable = directory / "MetalPresentation"
+        source = FIXTURES / "MetalPresentation.m"
+        command = [
+            "/usr/bin/clang",
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-fobjc-arc",
+            "-O0",
+            str(source),
+            "-framework",
+            "AppKit",
+            "-framework",
+            "Metal",
+            "-framework",
+            "QuartzCore",
+            "-o",
+            str(executable),
+        ]
+        subprocess.run(command, env=apple_environment(), capture_output=True, text=True, check=True, timeout=60)
+        return cls([str(executable)], command, hashlib.sha256(source.read_bytes()).hexdigest())
+
+    def record(self, artifact_root, environment):
+        directory = (artifact_root / "metal-control").resolve()
+        if directory in self.recorded:
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        report = directory / "observations.json"
+        report.unlink(missing_ok=True)
+        command = [*self.command, str(report)]
+        receipt = {
+            "schema": "btrc.ui2.metal-control-execution/1",
+            "scope": "direct Metal diagnostic; E40 outcomes are checked independently",
+            "build_command": self.build_command,
+            "source_sha256": self.source_sha256,
+            "executable_sha256": hashlib.sha256(self.executable.read_bytes()).hexdigest(),
+            "command": command,
+            "timeout_seconds": self.TIMEOUT_SECONDS,
+        }
+        stdout, stderr = "", ""
+        try:
+            result = subprocess.run(
+                command, env=environment, capture_output=True, text=True, timeout=self.TIMEOUT_SECONDS
+            )
+            receipt.update(status="completed", returncode=result.returncode)
+            stdout, stderr = result.stdout, result.stderr
+        except (OSError, subprocess.TimeoutExpired) as error:
+            receipt.update(status="failed", error=str(error))
+            if isinstance(error, subprocess.TimeoutExpired):
+                stdout, stderr = error.stdout or b"", error.stderr or b""
+        for name, text in (("stdout", stdout), ("stderr", stderr)):
+            (directory / f"{name}.txt").write_text(text.decode(errors="replace") if isinstance(text, bytes) else text)
+        receipt["report_written"] = report.is_file()
+        (directory / "execution.json").write_text(json.dumps(receipt, indent=2))
+        self.recorded.add(directory)
+
+
+@pytest.fixture(scope="session")
+def build_metal_control(tmp_path_factory):
+    @cache
+    def build():
+        return E40MetalControl.build(tmp_path_factory.mktemp("e40-metal-control"))
+
+    return build
 
 
 class E40LoopDiagnostic:
@@ -246,10 +329,11 @@ def test_macos_ui2_e40_boundary_compile(e40_program):
 
 
 @pytest.mark.parametrize("trial", ["load"])
-def test_macos_ui2_e40_load_compile(e40_program, trial):
+def test_macos_ui2_e40_load_compile(e40_program, trial, build_metal_control):
     """Build the workload without starting its worker, windows or run loop."""
     executable, _ = e40_program
     assert executable.is_file()
+    assert build_metal_control().executable.is_file()
 
 
 @pytest.mark.e40_qualification
@@ -260,7 +344,7 @@ def test_macos_ui2_e40_load_compile(e40_program, trial):
 )
 @pytest.mark.parametrize("trial", ["bursts", "load", "popup", "slider", "resize", "sheet"])
 @pytest.mark.parametrize("entry", ["desktop", "host"])
-def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path):
+def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_metal_control):
     executable, provenance = e40_program
     artifact_root = Path(os.environ.get("BTRC_UI2_E40_ARTIFACTS", str(tmp_path / "e40")))
     directory = artifact_root / provenance["frontend"] / ("sanitized" if sanitized else "plain") / entry / trial
@@ -276,6 +360,8 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path):
     (directory / "provenance.json").write_text(json.dumps(provenance, indent=2))
     environment = apple_environment() | {"UBSAN_OPTIONS": "halt_on_error=1"}
     environment.pop("BTRC_GUI_BACKGROUND", None)
+    if trial == "load":
+        build_metal_control().record(artifact_root, environment)
     command = [str(executable), entry, *([] if trial == "bursts" else [trial]), str(report.resolve())]
     timeout = 1800 if trial == "bursts" else 900 if trial == "load" else 60
     try:
