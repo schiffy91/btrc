@@ -202,6 +202,7 @@ class MethodDecl:
     is_gpu: bool = False
     is_realtime: bool = False
     is_abstract: bool = False
+    is_override: bool = False
     keep_return: bool = False
     name_line: int = _dc_field(default=0, compare=False)
     name_col: int = _dc_field(default=0, compare=False)
