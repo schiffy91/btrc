@@ -1,0 +1,102 @@
+name: Strict stdlib
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/**
+      - tools/**
+      - nix/**
+      - flake.*
+      - Makefile
+      - .github/workflows/stdlib.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - src/**
+      - tools/**
+      - nix/**
+      - flake.*
+      - Makefile
+      - .github/workflows/stdlib.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stdlib-${{ github.event_name == 'pull_request' && github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux
+            runner: ubuntu-latest
+            target: linux-x86_64
+          # Windows SDK semantics use the Linux host's native-header reader.
+          - id: windows
+            runner: ubuntu-latest
+            target: windows-x86_64
+          - id: macos
+            runner: macos-15
+            target: macos-aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Root the development shell
+        run: nix develop --profile "$RUNNER_TEMP/stdlib-dev-shell" --command true
+      - name: Build the host compiler
+        id: compiler
+        run: nix develop --command make NIX= btrcc
+      - name: Check every applicable module with the reference compiler
+        env:
+          TARGET: ${{ matrix.target }}
+        run: nix develop --command python -m tools.qualification.stdlib check --target "$TARGET" --frontend python --output build/stdlib-strict/python
+      - name: Check every applicable module with the self-hosted compiler
+        if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: nix develop --command python -m tools.qualification.stdlib check --target "$TARGET" --frontend selfhost --btrcc bin/btrcc --output build/stdlib-strict/selfhost
+      - name: Retain reports and diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stdlib-strict-${{ matrix.id }}
+          path: |
+            build/stdlib-strict/*/report.json
+            build/stdlib-strict/*/logs
+          if-no-files-found: error
+
+  coverage:
+    needs: check
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: stdlib-strict-*
+          path: build/stdlib-reports
+      - name: Require both compilers to cover every source
+        run: |
+          python -m tools.qualification.stdlib coverage \
+            --target linux-x86_64 --target windows-x86_64 --target macos-aarch64 \
+            --report build/stdlib-reports/stdlib-strict-linux/python/report.json \
+            --report build/stdlib-reports/stdlib-strict-linux/selfhost/report.json \
+            --report build/stdlib-reports/stdlib-strict-windows/python/report.json \
+            --report build/stdlib-reports/stdlib-strict-windows/selfhost/report.json \
+            --report build/stdlib-reports/stdlib-strict-macos/python/report.json \
+            --report build/stdlib-reports/stdlib-strict-macos/selfhost/report.json

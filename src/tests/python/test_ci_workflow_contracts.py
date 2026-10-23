@@ -275,7 +275,7 @@ def _parsed(name: str) -> dict[str, object]:
 # runs when its paths change; a dispatch-only workflow is a probe someone
 # starts by hand; release runs on dispatch, tags and the nightly schedule.
 CORE_WORKFLOWS = ("ci.yml", "macos.yml", "windows.yml")
-LANE_WORKFLOWS = ("host-*.yml", "windows-*.yml", "ios.yml", "android.yml")
+LANE_WORKFLOWS = ("host-*.yml", "windows-*.yml", "ios.yml", "android.yml", "stdlib.yml")
 DISPATCH_ONLY_WORKFLOWS = ("windows-msvc-probe.yml", "acceptance-x86.yml")
 TAG_WORKFLOWS = ("release.yml",)
 

@@ -2027,3 +2027,34 @@ semantics are relaxed, and no platform qualification is claimed by this claim.
 CX-STDLIB-ANALYSIS-18 claim extension: `src/compiler/btrc/Compiler.btrc`
 owns the whole-output cache identity, which must distinguish strict stdlib
 validation. Corresponding artifact-cache and module-unit tests are held too.
+
+CX-STDLIB-ANALYSIS-18 checkpoint: local commits `a4b7e05c` and `8a079afb`
+implement selective body analysis in both compilers. Signatures, defaults and
+field initializers remain checked; inferred generic and native demands expand
+the body selection. Validation and instance records identify the body coverage
+they prove, including when an edited caller reaches another library method.
+The 40 paired pruning cases and 100 module-unit/staleness cases passed locally.
+Full-library strict CI inventory, broader regression gates and performance
+evidence remain outstanding. These commits have not yet been pushed to PR115.
+
+CX-STDLIB-ANALYSIS-18 claim extension: the full-library check exposed an
+early return in native-plan composition when compiling within a stdlib package.
+This packet also owns `src/compiler/python/frontend/packages.py`,
+`src/compiler/btrc/frontend/Packages.btrc` and corresponding package tests for
+that repair. Strict qualification imports each module from a temporary probe
+in its package so compiler-owned declarations retain stdlib provenance.
+The packet also owns `src/stdlib/Audio/MacOS/MacOSAudioDevice.btrc` and
+`src/stdlib/GPU/WebGPU.btrc` for diagnostics exposed by that check: nullable
+aggregate-description resources and the native callback type import.
+`src/tests/python/test_ci_workflow_contracts.py` adds only the new stdlib
+workflow to the lane registry; PR114 retains its other changes in that file.
+
+CX-STDLIB-ANALYSIS-18 qualification checkpoint: the inventory contains 243
+modules, including private providers. Linux, macOS and Windows targets cover
+every module; the aggregate requires complete reports from both compilers.
+Local generated-source, lint and format checks pass, as do 56 paired pruning
+and harness tests, 264 package/workflow tests, and four CoreAudio aggregate
+allocation-failure tests across both compilers and sanitizer modes. The native
+composition repair is `4c2857c2`; stdlib diagnostic repairs are `6afd11fd`.
+Full strict module runs and hosted CI remain outstanding. These changes are
+local and have not yet been pushed to PR115.
