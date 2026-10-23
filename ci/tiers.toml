@@ -760,7 +760,7 @@ reports = ["skip-report"]
 [[jobs]]
 workflow = "macos.yml"
 job = "native-gui"
-tiers = ["native-gui", "release"]
+tiers = ["main", "extended", "native-gui", "release"]
 selected_tiers = { lane = "lane-macos" }
 reports = ["skip-report", "junit"]
 
