@@ -1998,3 +1998,22 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+### CX-APP-SCALE-BENCH (2026-10-23)
+
+Codex reserves `codex/app-scale-benchmark-20261023` for issue #5 under D29.
+Owned paths: `tools/bench/{app_scale,suite,baseline}.py`, the generated
+`src/tests/benchmarks/CompileAppScale.btrc`, focused benchmark tests under
+`src/tests/python/`, and benchmark documentation.
+
+The fixture reaches the GUI, Audio, Image, GPU, HTTP, FileSystem and
+BackgroundJobs packages and a bounded family of distinct generic instances.
+Both frontends must produce an executable with the same checked output.
+Phase timings use the existing compiler-stage aggregation owner; the four
+app-scale stages use the normal 35% tolerance only after a recorded baseline
+qualifies at at most 10 seconds. The reference timing stays informational.
+Existing per-mark attribution metrics retain their policy.
+
+Local work verifies generation, compilation, output and comparison policy.
+Timing acceptance requires the existing quiet-host protocol or hosted CI;
+no new baseline or performance claim is inferred from correctness runs.
