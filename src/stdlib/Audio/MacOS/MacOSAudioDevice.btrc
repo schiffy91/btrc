@@ -709,18 +709,18 @@ class CoreAudioDeviceConfiguration {
 
 class CoreAudioAggregateDescription {
 	private bool _prepared;
-	private CFStringRef _inputUid;
-	private CFStringRef _outputUid;
-	private CFUUIDRef _uuid;
-	private CFStringRef _uuidText;
-	private CFStringRef _aggregateUid;
-	private CFStringRef _name;
-	private CFNumberRef _one;
-	private CFNumberRef _zero;
-	private CFMutableDictionaryRef _input;
-	private CFMutableDictionaryRef _output;
-	private CFMutableDictionaryRef _description;
-	private CFMutableArrayRef _subdevices;
+	private CFStringRef? _inputUid;
+	private CFStringRef? _outputUid;
+	private CFUUIDRef? _uuid;
+	private CFStringRef? _uuidText;
+	private CFStringRef? _aggregateUid;
+	private CFStringRef? _name;
+	private CFNumberRef? _one;
+	private CFNumberRef? _zero;
+	private CFMutableDictionaryRef? _input;
+	private CFMutableDictionaryRef? _output;
+	private CFMutableDictionaryRef? _description;
+	private CFMutableArrayRef? _subdevices;
 
 	public CoreAudioAggregateDescription() {
 		self._prepared = false;
@@ -751,10 +751,14 @@ class CoreAudioAggregateDescription {
 		self._inputUid = CFStringCreateWithCString(kCFAllocatorDefault, input, kCFStringEncodingUTF8);
 		self._outputUid = CFStringCreateWithCString(kCFAllocatorDefault, output, kCFStringEncodingUTF8);
 		self._uuid = CFUUIDCreate(kCFAllocatorDefault);
-		if (self._inputUid == null || self._outputUid == null || self._uuid == null) { return false; }
-		self._uuidText = CFUUIDCreateString(kCFAllocatorDefault, self._uuid);
+		var inputUid = self._inputUid;
+		var outputUid = self._outputUid;
+		var uuid = self._uuid;
+		if (inputUid == null || outputUid == null || uuid == null) { return false; }
+		self._uuidText = CFUUIDCreateString(kCFAllocatorDefault, uuid);
+		var uuidText = self._uuidText;
 		char identifier[64];
-		if (self._uuidText == null || CFStringGetCString(self._uuidText, identifier, 64, kCFStringEncodingUTF8) == 0) { return false; }
+		if (uuidText == null || CFStringGetCString(uuidText, identifier, 64, kCFStringEncodingUTF8) == 0) { return false; }
 		string uid = "org.btrc.private.coreaudio." + Strings.copy(identifier);
 		self._aggregateUid = CFStringCreateWithCString(kCFAllocatorDefault, uid, kCFStringEncodingUTF8);
 		self._name = CFStringCreateWithCString(kCFAllocatorDefault, "BTRC Private Duplex Audio", kCFStringEncodingUTF8);
@@ -766,14 +770,26 @@ class CoreAudioAggregateDescription {
 		self._output = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 		self._description = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 		self._subdevices = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
-		if (self._aggregateUid == null || self._name == null || self._one == null || self._zero == null || self._input == null || self._output == null || self._description == null || self._subdevices == null) { return false; }
-		if (!self.put(self._input, kAudioSubDeviceUIDKey, self._inputUid) || !self.put(self._input, kAudioSubDeviceDriftCompensationKey, self._one) || !self.put(self._output, kAudioSubDeviceUIDKey, self._outputUid) || !self.put(self._output, kAudioSubDeviceDriftCompensationKey, self._zero)) { return false; }
-		CFArrayAppendValue(self._subdevices, self._input);
-		CFArrayAppendValue(self._subdevices, self._output);
-		return self.put(self._description, kAudioAggregateDeviceUIDKey, self._aggregateUid) && self.put(self._description, kAudioAggregateDeviceNameKey, self._name) && self.put(self._description, kAudioAggregateDeviceSubDeviceListKey, self._subdevices) && self.put(self._description, kAudioAggregateDeviceMainSubDeviceKey, self._outputUid) && self.put(self._description, kAudioAggregateDeviceIsPrivateKey, self._one) && self.put(self._description, kAudioAggregateDeviceIsStackedKey, self._one);
+		var aggregateUid = self._aggregateUid;
+		var name = self._name;
+		var oneValue = self._one;
+		var zeroValue = self._zero;
+		var inputDictionary = self._input;
+		var outputDictionary = self._output;
+		var description = self._description;
+		var subdevices = self._subdevices;
+		if (aggregateUid == null || name == null || oneValue == null || zeroValue == null || inputDictionary == null || outputDictionary == null || description == null || subdevices == null) { return false; }
+		if (!self.put(inputDictionary, kAudioSubDeviceUIDKey, inputUid) || !self.put(inputDictionary, kAudioSubDeviceDriftCompensationKey, oneValue) || !self.put(outputDictionary, kAudioSubDeviceUIDKey, outputUid) || !self.put(outputDictionary, kAudioSubDeviceDriftCompensationKey, zeroValue)) { return false; }
+		CFArrayAppendValue(subdevices, inputDictionary);
+		CFArrayAppendValue(subdevices, outputDictionary);
+		return self.put(description, kAudioAggregateDeviceUIDKey, aggregateUid) && self.put(description, kAudioAggregateDeviceNameKey, name) && self.put(description, kAudioAggregateDeviceSubDeviceListKey, subdevices) && self.put(description, kAudioAggregateDeviceMainSubDeviceKey, outputUid) && self.put(description, kAudioAggregateDeviceIsPrivateKey, oneValue) && self.put(description, kAudioAggregateDeviceIsStackedKey, oneValue);
 	}
 
-	public CFDictionaryRef dictionary() { return self._description; }
+	public CFDictionaryRef dictionary() {
+		var description = self._description;
+		if (description == null) { throw "CoreAudio aggregate description is unavailable"; }
+		return description;
+	}
 }
 
 class CoreAudioAggregateDevice {
