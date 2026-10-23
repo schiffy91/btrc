@@ -2023,3 +2023,7 @@ Acceptance requires reached-body and dormant-body diagnostic tests, generic
 and implicit-call coverage, strict-import parity, full stdlib CI coverage,
 and the final compiler/corpus/bootstrap/C11 gates. No language or runtime
 semantics are relaxed, and no platform qualification is claimed by this claim.
+
+CX-STDLIB-ANALYSIS-18 claim extension: `src/compiler/btrc/Compiler.btrc`
+owns the whole-output cache identity, which must distinguish strict stdlib
+validation. Corresponding artifact-cache and module-unit tests are held too.

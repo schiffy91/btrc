@@ -1897,7 +1897,7 @@ class ModuleUnitCompiler {
 		BtrccPhaseTimer.mark("u-digest");
 		Map<string, string> sources = self.groupSourceDigests();
 		BtrccPhaseTimer.mark("u-sources");
-		string context = f"debug={self.options.debug};dce={self.options.runDce};target={input.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
+		string context = f"debug={self.options.debug};dce={self.options.runDce};stdlib-strict={self.options.stdlibStrict};target={input.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
 		Vector<string> defineNames = input.nativeDefines.keys(); defineNames.sort();
 		for name in defineNames { string value = input.nativeDefines.get(name); context += f";define={name.len()}:{name}{value.len()}:{value}"; }
 		Vector<ModuleUnitGroupState> states = [];
@@ -2849,7 +2849,7 @@ class ValidationRecords implements IValidationRecords {
 			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
 		}
 		self.codec = ValidationRecordCodec(program.declarations(), self.fileOfDeclaration);
-		string context = f"validation-record-v5;target={target};strict={options.strictImports};stdlib={options.includeStdlib}";
+		string context = f"validation-record-v5;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}";
 		Map<string, string> sources = {};
 		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
 		if (resolved.stdlibLineCount > 0) { sources.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }

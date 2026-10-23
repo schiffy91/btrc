@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from src.compiler.python import Compiler, CompilerOptions, CompilerResult
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOutput
+from src.compiler.python.artifacts.cache import CompilerCache
 
 SOURCE = "int main() { return 0; }\n"
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -246,6 +247,20 @@ def test_compiler_uses_injected_cache_without_reentering_pipeline(tmp_path):
     assert second.c_source == first.c_source
     assert cache.loads == 2
     assert cache.stores == 1
+
+
+def test_strict_stdlib_validation_has_a_separate_artifact_cache(tmp_path, monkeypatch):
+    source_path = tmp_path / "Main.btrc"
+    source_path.write_text(SOURCE)
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    compiler = Compiler(cache=CompilerCache())
+    outputs = []
+    for strict, hit in [(False, False), (False, True), (True, False), (True, True), (False, True)]:
+        result = compiler.compile(SOURCE, str(source_path), CompilerOptions(stdlib_strict=strict))
+        assert result.successful, result.failure
+        assert result.cache_hit == hit
+        outputs.append(result.c_source)
+    assert len(set(outputs)) == 1
 
 
 def test_analyzer_failure_stops_before_ir_lowering(tmp_path):

@@ -84,6 +84,17 @@ def artifact_build(immutable_btrcc, tmp_path, monkeypatch):
     return ArtifactBuild(immutable_btrcc, tmp_path, source, monkeypatch)
 
 
+def test_selfhost_strict_stdlib_validation_has_a_separate_artifact_cache(artifact_build):
+    build = artifact_build
+    build.compile(hit=False)
+    original = {path: path.read_bytes() for path in build.output_files()}
+    build.compile(hit=True)
+    build.compile(hit=False, extra=("--stdlib-strict",))
+    build.compile(hit=True, extra=("--stdlib-strict",))
+    build.compile(hit=True)
+    assert {path: path.read_bytes() for path in build.output_files()} == original
+
+
 def test_selfhost_restores_complete_generation_after_outputs_removed(artifact_build):
     build = artifact_build
     build.compile(hit=False)

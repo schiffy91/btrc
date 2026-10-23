@@ -901,6 +901,7 @@ class ModuleUnitCompiler:
             {
                 "debug": options.debug,
                 "dce": options.dce,
+                "stdlib-strict": options.stdlib_strict,
                 # The resolved row's canonical label: every spelling of one
                 # target, and the inferred host, key one set of units.
                 "target": source.native_plan.target.label,

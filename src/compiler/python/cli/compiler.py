@@ -117,6 +117,11 @@ class CompilerCommand:
             help="Allow legacy implicit cross-file visibility and auto-compose the stdlib",
         )
         parser.set_defaults(strict_imports=True)
+        parser.add_argument(
+            "--stdlib-strict",
+            action="store_true",
+            help="Check all imported stdlib bodies, including unused functions and methods",
+        )
         parser.add_argument("--debug", action="store_true", help="Emit #line directives for source debugging")
         parser.add_argument("--no-cache", action="store_true", help="Disable on-disk compilation caches")
         parser.add_argument(
@@ -250,6 +255,7 @@ class CompilerCommand:
             output=output,
             include_stdlib=not args.no_stdlib,
             strict_imports=args.strict_imports,
+            stdlib_strict=args.stdlib_strict,
             use_ast_cache=not args.no_cache and not args.debug,
             use_cache=not args.no_cache,
             map_stdlib_positions=True,
