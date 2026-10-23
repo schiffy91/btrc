@@ -653,6 +653,7 @@
         };
       in {
         inherit btrcpy btrcc btrc-format btrc-lsp;
+        stdlib-windows-sdk = import ./nix/stdlib-windows-sdk.nix { inherit pkgs nixpkgs; };
         btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;
         btrc-native-header = nativeHeaderReader;
