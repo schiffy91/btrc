@@ -451,6 +451,7 @@ class AnalyzedProgram:
     program: Program
     generic_instances: dict[str, list[tuple[TypeExpr, ...]]]
     class_table: dict[str, ClassInfo]
+    unreached_stdlib_bodies: frozenset[int] = frozenset()
     generic_class_callable_instances: dict[ClassCallableIdentity, list[tuple[TypeExpr, ...]]] = field(
         default_factory=dict
     )
@@ -521,6 +522,9 @@ class AnalysisSession(AnalysisContext):
 
     def __init__(self) -> None:
         super().__init__()
+        # Only stdlib callable roots are excluded. Nested lambdas follow their enclosing body.
+        self.unreached_stdlib_bodies: frozenset[int] = frozenset()
+        self.callable_owner_demands: set[str] = set()
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.generic_class_callable_instances: dict[ClassCallableIdentity, list[tuple[TypeExpr, ...]]] = {}
         self.generic_class_callable_dependencies: dict[ClassCallableIdentity, list[GenericTemplateDependency]] = {}
@@ -580,6 +584,8 @@ class AnalysisSession(AnalysisContext):
         self.warnings = []
         self.diagnostics = []
         self.current_source_file = None
+        self.unreached_stdlib_bodies = frozenset()
+        self.callable_owner_demands = set()
         self._hosted_call_ids = set()
         self._unresolved_direct_callee_ids = set()
         self._unresolved_c_symbol_reference_ids = set()

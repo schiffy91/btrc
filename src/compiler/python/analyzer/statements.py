@@ -123,6 +123,12 @@ class StatementAnalyzer:
         self.ownership = ownership
         self.storage = storage
         self.types = types
+        self._analyzed_root_blocks: set[int] = set()
+        self._prepared_callables: set[int] = set()
+
+    def begin(self) -> None:
+        self._analyzed_root_blocks.clear()
+        self._prepared_callables.clear()
 
     def _inferred_array_binding_type(self, inferred, initializer):
         """Represent `var alias = arrayValue` as a pointer-valued binding."""
@@ -1790,6 +1796,22 @@ class StatementAnalyzer:
             param.name, value_type, "param", param.name_line or param.line, param.name_col or param.col
         )
 
+    def analyze_pending_bodies(self, program) -> None:
+        """Check bodies newly reached through inferred generic instances."""
+        for declaration in self.session.declarations(program):
+            with self.session.nonnull_frame((), reachable=True), self._inferred_literal_checks():
+                if isinstance(declaration, ClassDecl):
+                    self._analyze_class(declaration, pending_only=True)
+                elif isinstance(declaration, FunctionDecl) and self._pending_body(declaration.body):
+                    self._analyze_function(declaration)
+
+    def _pending_body(self, body) -> bool:
+        return (
+            body is not None
+            and id(body) not in self.session.unreached_stdlib_bodies
+            and id(body) not in self._analyzed_root_blocks
+        )
+
     def analyze_declaration(self, decl):
         # Each declaration's bodies start reachable and know no non-null facts.
         with self.session.nonnull_frame((), reachable=True), self._inferred_literal_checks():
@@ -1805,12 +1827,20 @@ class StatementAnalyzer:
         elif isinstance(decl, (EnumDecl, RichEnumDecl)):
             return
 
-    def _analyze_class(self, decl):
+    def _analyze_class(self, decl, *, pending_only=False):
         prev_class = self.session.current_class
         prev_class_callable = self.session.current_class_callable
         self.session.current_class = self.index.class_table[decl.name]
         self.session.current_class_callable = None
         for member in decl.members:
+            if pending_only and not (
+                (isinstance(member, MethodDecl) and self._pending_body(member.body))
+                or (
+                    isinstance(member, PropertyDecl)
+                    and (self._pending_body(member.getter_body) or self._pending_body(member.setter_body))
+                )
+            ):
+                continue
             if isinstance(member, FieldDecl):
                 member.type = self.types.upgrade_class_type(member.type)
                 self.generics.collect_type_instances(member.type)
@@ -1889,13 +1919,15 @@ class StatementAnalyzer:
         self.session.current_return_type = prev_return_type
 
     def _analyze_method_body(self, method, is_constructor: bool) -> None:
-        self.declarations.validate_default_parameters(method.params, method.line, method.col)
+        prepare = id(method) not in self._prepared_callables
+        if prepare:
+            self.declarations.validate_default_parameters(method.params, method.line, method.col)
         if method.access != "class":
             self_type = self.types.current_self_type()
             self.session.scope.define("self", SymbolInfo("self", self_type, "param"))
         for param in method.params:
             self.generics.collect_type_instances(param.type)
-            if param.default is not None:
+            if prepare and param.default is not None:
                 parameter_value_type = self.aggregates.array_parameter_value_type(param.type)
                 self.aggregates.validate_array_parameter_default(
                     param.type,
@@ -1938,6 +1970,9 @@ class StatementAnalyzer:
                 self.session.scope.define(param.name, self._param_symbol(param))
         if not is_constructor:
             self.generics.collect_type_instances(method.return_type)
+        self._prepared_callables.add(id(method))
+        if id(method.body) in self.session.unreached_stdlib_bodies:
+            return
         self._analyze_root_block(method.body)
         if (
             not is_constructor
@@ -1961,7 +1996,7 @@ class StatementAnalyzer:
         prev_class_callable = self.session.current_class_callable
         prev_return_type = self.session.current_return_type
         owner = self.session.current_class.name if self.session.current_class is not None else ""
-        if prop.getter_body:
+        if prop.getter_body and id(prop.getter_body) not in self.session.unreached_stdlib_bodies:
             self.session.current_class_callable = ClassCallableIdentity.getter(owner, prop.name)
             self.session.current_method = MethodDecl(
                 access=prop.access,
@@ -1979,7 +2014,7 @@ class StatementAnalyzer:
                         prop.line,
                         prop.col,
                     )
-        if prop.setter_body:
+        if prop.setter_body and id(prop.setter_body) not in self.session.unreached_stdlib_bodies:
             self.session.current_class_callable = ClassCallableIdentity.setter(owner, prop.name)
             self.session.current_method = MethodDecl(
                 access=prop.access,
@@ -2020,7 +2055,9 @@ class StatementAnalyzer:
         self.session.current_return_type = prev_return_type
 
     def _analyze_function_body(self, func) -> None:
-        self.declarations.validate_default_parameters(func.params, func.line, func.col)
+        prepare = id(func) not in self._prepared_callables
+        if prepare:
+            self.declarations.validate_default_parameters(func.params, func.line, func.col)
         self.session.scope.define(
             func.name,
             self.session.local_symbol(
@@ -2029,7 +2066,7 @@ class StatementAnalyzer:
         )
         for param in func.params:
             self.generics.collect_type_instances(param.type)
-            if param.default is not None:
+            if prepare and param.default is not None:
                 parameter_value_type = self.aggregates.array_parameter_value_type(param.type)
                 self.aggregates.validate_array_parameter_default(
                     param.type,
@@ -2072,6 +2109,9 @@ class StatementAnalyzer:
             ):
                 self.session.scope.define(param.name, self._param_symbol(param))
         self.generics.collect_type_instances(func.return_type)
+        self._prepared_callables.add(id(func))
+        if id(func.body) in self.session.unreached_stdlib_bodies:
+            return
         self._analyze_root_block(func.body)
         if func.is_gpu:
             self.gpu.validate_kernel(func)
@@ -2209,6 +2249,7 @@ class StatementAnalyzer:
     def _analyze_root_block(self, block):
         """Analyze a callable body in the same scope as its parameters."""
         if block is not None:
+            self._analyzed_root_blocks.add(id(block))
             self._analyze_statement_sequence(block)
 
     def _analyze_statement_sequence(self, block):

@@ -164,6 +164,12 @@ class TranslationUnitLowerer:
                 if self._prune_stdlib
                 else None
             )
+            if self._analyzed.unreached_stdlib_bodies:
+                plan = self._facts.stdlib_reachability
+                if plan is None or not self._analyzed.unreached_stdlib_bodies.issubset(
+                    plan.unreached_bodies(self._analyzed.program.declarations)
+                ):
+                    raise CodegenError("Stdlib lowering selected a body that semantic analysis did not check")
             self._facts.stdlib_reachability_computed = True
         self._session.stdlib_reachability = self._facts.stdlib_reachability
         self._classes.configure_pack_alignments(self.declaration_pack_alignments(self._analyzed.program))

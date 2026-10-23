@@ -147,6 +147,8 @@ class RealtimeAnalyzer:
         for declaration in program.declarations:
             source_file = getattr(declaration, "source_file", None)
             if isinstance(declaration, ast.FunctionDecl):
+                if id(declaration.body) in self.session.unreached_stdlib_bodies:
+                    continue
                 self._add_callable(
                     f"function:{declaration.name}",
                     declaration.name,
@@ -157,14 +159,16 @@ class RealtimeAnalyzer:
             elif isinstance(declaration, ast.ClassDecl):
                 for member in declaration.members:
                     if isinstance(member, ast.MethodDecl):
+                        if id(member.body) in self.session.unreached_stdlib_bodies:
+                            continue
                         label = f"{declaration.name}.{member.name}"
                         self._add_callable(f"method:{label}", label, member, member.body, source_file)
                     elif isinstance(member, ast.PropertyDecl):
-                        if member.has_getter:
+                        if member.has_getter and id(member.getter_body) not in self.session.unreached_stdlib_bodies:
                             self._add_property_callable(
                                 declaration.name, member, "get", member.getter_body, source_file
                             )
-                        if member.has_setter:
+                        if member.has_setter and id(member.setter_body) not in self.session.unreached_stdlib_bodies:
                             self._add_property_callable(
                                 declaration.name, member, "set", member.setter_body, source_file
                             )
