@@ -33,6 +33,7 @@ CORPUS = REPO / "src/tests/c_compat"
 
 # layout program -> {struct name: {unsized-array field: its element's C type}}
 LAYOUT_PROGRAMS = {
+    "AnonymousMemberLayout.btrc": {"Envelope": {}, "AlignedEnvelope": {}},
     "FlexibleArrayLayout.btrc": {
         "Ints": {"data": "int"},
         "CharDoubles": {"d": "double"},

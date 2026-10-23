@@ -2557,7 +2557,7 @@ class ExpressionLowerer {
 				Node declaration = self.analyzed.structTable.get(structName);
 				Vector<string> fields = [];
 				Vector<IRNode> values = [];
-				for slot in SemanticTypeSystem.initializerSlots(declaration, node, self.analyzed).slots {
+				for slot in SemanticTypeSystem.initializerLeafSlots(declaration, node, self.analyzed) {
 					Node field = slot.member();
 					fields.push(field.name);
 					values.push(self.lowerAssignedValue(slot.element, field.type, varTypes, callableFlow));
@@ -3620,6 +3620,18 @@ class ExpressionLowerer {
 		}
 		if (node.kind != NK_BRACE_INITIALIZER && node.kind != NK_LIST_LITERAL) {
 			return self.lowerExpr(node, varTypes, callableFlow);
+		}
+
+		Node? canonical = self.canonicalStaticInitializerType(expected);
+		Node? record = canonical == null ? null : self.staticInitializerRecord(canonical);
+		if (record != null && !SemanticTypeSystem.recordIsFlat(record)) {
+			Vector<IRNode> designated = [];
+			for slot in SemanticTypeSystem.initializerLeafSlots(record, node, self.analyzed) {
+				IRNode value = self.lowerStaticInitializer(slot.element, slot.type, varTypes, callableFlow);
+				designated.push(IRNode.designation(slot.member().name, null, value));
+			}
+			if (designated.len == 0) { designated.push(IRNode.literal("0")); }
+			return IRNode.initializerList(designated);
 		}
 
 		Vector<IRNode> elements = [];

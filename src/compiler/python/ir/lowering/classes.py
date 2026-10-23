@@ -35,6 +35,7 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.compiler.python.syntax.ast.generated import (
+    AnonymousMember,
     BraceInitializer,
     ClassDecl,
     FieldDecl,
@@ -1164,8 +1165,28 @@ class ClassLowerer:
         if decl.is_forward:
             return
         provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        fields = self._record_fields(decl, provenance)
+        self._session.module.struct_defs.append(
+            IRStructDef(
+                name=decl.name,
+                fields=fields,
+                pack_alignment=self._pack_alignments.get(id(decl)),
+                is_union=decl.is_union,
+            )
+        )
+
+    def _record_fields(self, record, provenance: CallableProvenance) -> list[IRStructField]:
         fields = []
-        for f in TypeSystem.record_declarators(decl):
+        for f in TypeSystem.record_declarators(record):
+            if isinstance(f, AnonymousMember):
+                fields.append(
+                    IRStructField(
+                        c_type=CType(text=TypeSystem.record_keyword(f)),
+                        name="",
+                        record_fields=self._record_fields(f, provenance),
+                    )
+                )
+                continue
             flexible = TypeSystem.is_flexible_array_member(f)
             if f.type and f.type.is_array and (f.type.array_size or flexible):
                 base_type = TypeSystem.strip_outer_storage(f.type, array=True)
@@ -1192,14 +1213,7 @@ class ClassLowerer:
                         ),
                     )
                 )
-        self._session.module.struct_defs.append(
-            IRStructDef(
-                name=decl.name,
-                fields=fields,
-                pack_alignment=self._pack_alignments.get(id(decl)),
-                is_union=decl.is_union,
-            )
-        )
+        return fields
 
     def emit_class_decl(self, decl: ClassDecl):
         """Emit a class: struct + constructor + destructor + methods."""

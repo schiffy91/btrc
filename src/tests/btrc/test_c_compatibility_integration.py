@@ -252,3 +252,31 @@ def test_record_typedefs_keep_their_identity_across_units(
     )
     for name, compiler in _compilers(semantic_btrcc).items():
         assert _build_and_run(compiler, program, tmp_path / name, layout, ("--no-stdlib",)) == "", name
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        pytest.param(None, id="single-unit"),
+        pytest.param([], id="split"),
+        pytest.param(["--module-units"], id="module-units"),
+    ],
+)
+def test_anonymous_members_keep_nested_type_dependencies_across_units(
+    semantic_btrcc: Path, tmp_path: Path, layout: list[str] | None
+) -> None:
+    (tmp_path / "Records.btrc").write_text(
+        "struct Pair { int x; int y; };\n"
+        "enum Color { RED, GREEN };\n"
+        "typedef struct { union { struct { Pair pair; Color color; }; double real; }; } Envelope;\n"
+        "Envelope makeEnvelope() { Envelope result = {{{{2, 3}, GREEN}}}; return result; }\n"
+    )
+    program = tmp_path / "Main.btrc"
+    program.write_text(
+        "#include <assert.h>\n"
+        "import ./Records.btrc;\n"
+        "int main() { Envelope value = makeEnvelope(); "
+        "assert(value.pair.x + value.pair.y == 5 && value.color == GREEN); return 0; }\n"
+    )
+    for name, compiler in _compilers(semantic_btrcc).items():
+        assert _build_and_run(compiler, program, tmp_path / name, layout, ("--no-stdlib",)) == "", name

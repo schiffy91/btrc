@@ -522,6 +522,24 @@ class SemanticTypeSystem {
 		return SemanticTypeSystem.planInitializerSlots(record, initializer, analyzed);
 	}
 
+	/* Typed leaves in evaluation order, with anonymous brace slots expanded. */
+	class Vector<SemanticInitializerSlot> initializerLeafSlots(Node record, Node initializer, Analyzed analyzed) {
+		Vector<SemanticInitializerSlot> result = [];
+		for slot in SemanticTypeSystem.initializerSlots(record, initializer, analyzed).slots {
+			if (slot.member().kind == NK_ANONYMOUS_MEMBER && slot.element.kind == NK_BRACE_INITIALIZER) {
+				for nested in SemanticTypeSystem.initializerLeafSlots(slot.member(), slot.element, analyzed) {
+					Vector<Node> path = [];
+					for step in slot.path { path.push(step); }
+					for step in nested.path { path.push(step); }
+					result.push(SemanticInitializerSlot(nested.element, path, nested.type));
+				}
+			} else {
+				result.push(slot);
+			}
+		}
+		return result;
+	}
+
 	class Node? structFieldFor(Node? typeExpr, string fieldName, Analyzed analyzed) {
 		string name = SemanticTypeSystem.resolvedStructName(typeExpr, analyzed);
 		if (name == "" || !analyzed.structTable.has(name)) { return null; }

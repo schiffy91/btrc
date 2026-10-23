@@ -1176,10 +1176,10 @@ class CallableProvenance:
                 return tuple(zip(expected.generic_args, value.elements))
             declaration = self.struct_declaration(expected)
             if declaration is not None:
-                plan = TypeSystem.initializer_slots(
+                slots = TypeSystem.initializer_leaf_slots(
                     self._analyzed.initializer_slot_plans, self._analyzed, declaration, value
                 )
-                return tuple((slot.type, slot.element) for slot in plan.slots)
+                return tuple((slot.type, slot.element) for slot in slots)
         if isinstance(value, TupleLiteral) and expected.base == "Tuple":
             return tuple(zip(expected.generic_args, value.elements))
         if isinstance(value, MapLiteral) and expected.base == "Map" and len(expected.generic_args) == 2:

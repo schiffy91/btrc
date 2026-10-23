@@ -124,7 +124,8 @@ class IndexMaterialization:
 @dataclass(frozen=True, slots=True)
 class AggregateMaterialization:
     plan: object
-    elements: tuple[object, ...]
+    elements: tuple[StaticInitializerMaterialization, ...]
+    leaf_targets: tuple[TypeExpr | None, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,7 +481,10 @@ class ExpressionLowerer:
         """Materialize an expression's eager operands through one boundary."""
         if isinstance(materialization, SyncMethodMaterialization):
             operand_targets = (None, *materialization.argument_targets)
-        elif isinstance(materialization, CollectionLiteralMaterialization) and materialization.leaf_targets:
+        elif (
+            isinstance(materialization, (AggregateMaterialization, CollectionLiteralMaterialization))
+            and materialization.leaf_targets
+        ):
             operand_targets = materialization.leaf_targets
         elif isinstance(materialization, AssignmentMaterialization) and materialization.operand_targets:
             operand_targets = materialization.operand_targets
@@ -631,7 +635,10 @@ class ExpressionLowerer:
         if isinstance(materialization, AggregateMaterialization):
             return self._collections.materialize_aggregate(
                 materialization.plan,
-                [self.lower_expr(element, provenance) for element in materialization.elements],
+                [
+                    self._materialize_static_initializer(element, provenance, constant_expression=False)
+                    for element in materialization.elements
+                ],
             )
         if isinstance(materialization, CollectionLiteralMaterialization):
             # A leaf of a subclass or an implementation is stored as the
@@ -1478,6 +1485,7 @@ class ExpressionLowerer:
         plan = self._collections.plan_static(node, provenance)
         if plan is None:
             return StaticInitializerMaterialization(source=node, plan=None), ((node, target_type),)
+        source_elements = plan.elements if plan.elements is not None else node.elements
         child_targets: tuple[TypeExpr | None, ...]
         if plan.element_types is not None:
             child_targets = plan.element_types
@@ -1488,10 +1496,10 @@ class ExpressionLowerer:
                 if canonical_target is not None and canonical_target.is_array
                 else None
             )
-            child_targets = (element_target,) * len(node.elements)
-        child_flow = provenance.plan_evaluation(node.elements)
+            child_targets = (element_target,) * len(source_elements)
+        child_flow = provenance.plan_evaluation(source_elements)
         children = []
-        for index, element in enumerate(node.elements):
+        for index, element in enumerate(source_elements):
             entry = child_flow.entries.get(id(element), child_flow.incoming)
             with provenance.at_flow(entry):
                 children.append(
@@ -2707,13 +2715,27 @@ class ExpressionLowerer:
     ) -> IRExpr:
         """Lower aggregate leaves, then materialize their resolved shape."""
 
-        materialization = AggregateMaterialization(plan, tuple(elements))
+        if plan.elements is not None:
+            elements = plan.elements
+        children = []
+        leaf_plans = []
+        for element in elements:
+            element_type = self._types.canonical_type(self._session.type_of(element))
+            if isinstance(element, BraceInitializer) and element_type is not None and element_type.is_array:
+                child, leaves = self._plan_static_initializer(element, provenance, target_type=element_type)
+                children.append(child)
+                leaf_plans.extend(leaves)
+            else:
+                children.append(StaticInitializerMaterialization(source=element, plan=None))
+                leaf_plans.append((element, None))
+        leaves = tuple(leaf for leaf, _target in leaf_plans)
+        materialization = AggregateMaterialization(plan, tuple(children), tuple(target for _leaf, target in leaf_plans))
         sequenced = self._sequence_operands(
-            list(elements),
+            leaves,
             provenance,
             materialization=materialization,
             result_type=self._session.type_of(plan.source),
-            force=self._operand_order.operands_require_order(elements),
+            force=self._operand_order.operands_require_order(leaves),
         )
         return sequenced if sequenced is not None else self._materialize_sequenced(materialization, provenance)
 

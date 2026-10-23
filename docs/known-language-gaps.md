@@ -336,9 +336,22 @@ An untagged definition cannot declare such objects without a typedef.
 parameters and return types. These forms are covered by
 `c_compat/TypedefRecords.btrc` and the paired declaration tests.
 
-Anonymous members remain separate C2 work. Typedef array declarators still
-wait for Stage 18. Unknown enum tags still need the enum-tag lane's source
-evidence validation.
+Anonymous struct and union members may nest inside a struct or union.
+Their fields are accessible through the enclosing record, and field names
+must be unique across that record. Each anonymous member takes one positional
+initializer slot with its own braces. Omitted fields are zero-initialized.
+The emitted C retains the anonymous bodies, including their array members,
+so the C compiler determines layout.
+
+Members must hold plain C values, transitively. Managed values and
+`RealtimeFunction` storage are refused; plain `CFunction` pointers retain
+the usual refusal of captured environments. Named members of untagged types,
+nested tagged definitions and anonymous members in classes are refused.
+`c_compat/AnonymousMembers.btrc` exercises initialization and member access;
+`c_compat/AnonymousMemberLayout.btrc` compares layout with a C mirror.
+
+Typedef array declarators still wait for Stage 18. Unknown enum tags still
+need the enum-tag lane's source evidence validation.
 
 ## Variable-length arrays (C row 23)
 

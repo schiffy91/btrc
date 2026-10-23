@@ -99,6 +99,8 @@ class DefinitionMap:
             elif isinstance(decl, StructDecl):
                 if not decl.is_forward or decl.name not in self.struct_defs:
                     self.struct_defs[decl.name] = self._name_pos(decl, file)
+                for field in TypeSystem.record_fields(decl):
+                    self.field_defs[decl.name, field.name] = self._name_pos(field, file)
             elif isinstance(decl, TypedefDecl):
                 if not TypeSystem.is_identity_typedef(decl, records, enums):
                     self.typedef_defs[decl.alias] = self._name_pos(decl, file)
@@ -579,6 +581,8 @@ class NavigationProvider:
             if prev.value in (".", "->", "?."):
                 target_class = self.resolver.resolve_chain_type(result, tokens, token_idx - 2, class_table)
                 if target_class:
+                    if (target_class, name) in dmap.field_defs:
+                        return ("field", target_class, name)
                     cinfo = class_table.get(target_class)
                     if cinfo:
                         if name in cinfo.methods:

@@ -1126,6 +1126,21 @@ class TypeValidator {
 		}
 	}
 
+	public void validateAnonymousMembers(Node declaration) {
+		for member in SemanticTypeSystem.recordMembers(declaration) {
+			if (member.kind != NK_ANONYMOUS_MEMBER) { continue; }
+			for field in SemanticTypeSystem.recordFields(member) {
+				Map<string, bool> visiting = {};
+				Vector<string> reason = self.unionMemberBlocker(field.type, visiting);
+				if (reason.len == 0) { continue; }
+				string held = "a RealtimeFunction";
+				if (reason.get(0) == "managed") { held = "managed type '" + reason.get(1) + "'"; }
+				if (reason.get(0) == "contains") { held = "'" + reason.get(1) + "', which contains managed field '" + reason.get(2) + "'"; }
+				TypeValidator.fail("Member '" + field.name + "' of an anonymous " + SemanticTypeSystem.recordKeyword(member) + " in " + SemanticTypeSystem.recordKeyword(declaration) + " '" + declaration.name + "' cannot hold " + held + "; anonymous members must be plain C values", field);
+			}
+		}
+	}
+
 	public bool realtimePod(Node? typeExpr) { return RealtimePayloadRules.pod(typeExpr, self.state.analyzed); }
 
 	/* The struct with a flexible array member that typeExpr stores by value
@@ -1352,6 +1367,7 @@ class TypeValidator {
 					fieldIndex = fieldIndex + 1;
 				}
 				if (declaration.isUnion) { self.validateUnionMembers(declaration); }
+				self.validateAnonymousMembers(declaration);
 			} else if (declaration.kind == NK_TYPEDEF_DECL) {
 				self.validateDeclaredType(declaration.original, "Typedef '" + declaration.alias + "'", "alias", declaration);
 			} else if (declaration.kind == NK_INTERFACE_DECL) {

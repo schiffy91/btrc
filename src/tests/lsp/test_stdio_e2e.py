@@ -290,3 +290,76 @@ def test_identity_typedef_symbols_and_definition_over_stdio(tmp_path, keyword, b
         client.send("exit", {}, request=False)
     finally:
         client.close()
+
+
+@pytest.mark.parametrize(
+    ("declaration", "access"),
+    [
+        ("Record value;", "value.count"),
+        ("Record value; Record* pointer = &value;", "pointer->count"),
+        ("Alias value;", "value.count"),
+        ("Holder value;", "value.record.count"),
+    ],
+)
+@pytest.mark.parametrize("imported", [False, True])
+def test_anonymous_member_symbols_and_definition_over_stdio(tmp_path, declaration, access, imported):
+    path = tmp_path / "Record.btrc"
+    source = (
+        "struct Record {\n"
+        "    int kind;\n"
+        "    union {\n"
+        "        int count;\n"
+        "        float real;\n"
+        "    };\n"
+        "};\n"
+        "typedef Record Alias;\n"
+        "struct Holder { Record record; };\n"
+        f"int main() {{ {declaration} {access} = 7; return {access}; }}\n"
+    )
+    definition_path = path
+    access_line = 9
+    if imported:
+        definition_path = tmp_path / "Records.btrc"
+        definition_path.write_text("\n".join(source.splitlines()[:9]) + "\n")
+        source = "import ./Records.btrc;\n" + source.splitlines()[9] + "\n"
+        access_line = 1
+    path.write_text(source)
+    uri = path.as_uri()
+    client = LspClient(env={"BTRC_LSP_DEBOUNCE": "0"})
+    try:
+        initialize = client.send("initialize", {"processId": None, "rootUri": tmp_path.as_uri(), "capabilities": {}})
+        assert "error" not in client.wait_response(initialize)
+        client.send("initialized", {}, request=False)
+        client.send(
+            "textDocument/didOpen",
+            {"textDocument": {"uri": uri, "languageId": "btrc", "version": 1, "text": source}},
+            request=False,
+        )
+        published = client.wait_notification("textDocument/publishDiagnostics")
+        assert published["params"]["uri"] == uri
+        assert published["params"]["diagnostics"] == []
+        document = client.wait_response(client.send("textDocument/documentSymbol", {"textDocument": {"uri": uri}}))
+        if not imported:
+            record = next(symbol for symbol in document["result"] if symbol["name"] == "Record")
+            assert [symbol["name"] for symbol in record["children"]] == ["kind", "count", "real"]
+            field = next(symbol for symbol in record["children"] if symbol["name"] == "count")
+            assert field["selectionRange"]["start"] == {"line": 3, "character": 12}
+        definition = client.wait_response(
+            client.send(
+                "textDocument/definition",
+                {
+                    "textDocument": {"uri": uri},
+                    "position": {
+                        "line": access_line,
+                        "character": source.splitlines()[access_line].rindex("count") + 1,
+                    },
+                },
+            )
+        )
+        assert definition["result"]["uri"] == definition_path.as_uri()
+        assert definition["result"]["range"]["start"] == {"line": 3, "character": 12}
+        shutdown = client.send("shutdown", {})
+        client.wait_response(shutdown)
+        client.send("exit", {}, request=False)
+    finally:
+        client.close()

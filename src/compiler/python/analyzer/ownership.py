@@ -122,8 +122,10 @@ class CallableValueSemantics:
                 return zip(expected.generic_args, value.elements)
             declaration = self.struct_declaration(expected)
             if declaration is not None:
-                plan = self.types.initializer_slots(self.session.initializer_slot_plans, self.index, declaration, value)
-                return ((slot.type, slot.element) for slot in plan.slots)
+                slots = self.types.initializer_leaf_slots(
+                    self.session.initializer_slot_plans, self.index, declaration, value
+                )
+                return ((slot.type, slot.element) for slot in slots)
         if isinstance(value, TupleLiteral) and expected.base == "Tuple":
             return zip(expected.generic_args, value.elements)
         if isinstance(value, MapLiteral) and expected.base == "Map" and (len(expected.generic_args) == 2):

@@ -193,30 +193,9 @@ class InitializerAnalyzer:
         if declaration is not None and (not declaration.is_forward):
             if initializer.elements and getattr(declaration.source_file, "private_fields", False):
                 self.context.error("Native records with private fields cannot use positional initialization", line, col)
-            plan = TypeSystem.plan_initializer_slots(declaration, initializer, self.index)
-            self.context.initializer_slot_plans[id(initializer)] = plan
-            for slot in plan.slots:
-                steps.append(
-                    InitializerArrayFieldCheck(
-                        slot.member,
-                        slot.element,
-                        f"Field '{slot.member.name}'",
-                        getattr(slot.element, "line", line),
-                        getattr(slot.element, "col", col),
-                    )
-                )
-            slots = [(slot.element, slot.member.name, self.types.array_field_value(slot.member)) for slot in plan.slots]
-            capacity = plan.capacity
-            excess = plan.excess
-            aggregate_name = f"{TypeSystem.record_keyword(declaration)} '{struct_name}'"
-            if excess and declaration.is_union:
-                self.context.error(
-                    f"Union '{struct_name}' initializer has {len(initializer.elements)} elements; a positional union "
-                    "initializer sets only the first member (use a designator such as {.f = ...})",
-                    initializer.line or line,
-                    initializer.col or col,
-                )
-                excess = 0
+            steps.extend(self._plan_record_initializer(declaration, initializer, subject, line, col, declaration))
+            steps.append(InitializerTypeContext(initializer, expected))
+            return InitializerPlan(True, tuple(steps))
         elif canonical.base == "Tuple":
             slots = [
                 (element, f"_{index}", argument)
@@ -249,6 +228,61 @@ class InitializerAnalyzer:
             steps.extend(nested.steps)
         steps.append(InitializerTypeContext(initializer, expected))
         return InitializerPlan(True, tuple(steps))
+
+    def _plan_record_initializer(
+        self, record, initializer, subject, line, col, enclosing
+    ) -> tuple[InitializerStep, ...]:
+        plan = TypeSystem.plan_initializer_slots(record, initializer, self.index)
+        self.context.initializer_slot_plans[id(initializer)] = plan
+        aggregate_name = f"{TypeSystem.record_keyword(enclosing)} '{enclosing.name}'"
+        if plan.excess:
+            if record.is_union:
+                self.context.error(
+                    f"Union '{enclosing.name}' initializer has {len(initializer.elements)} elements; a positional union "
+                    "initializer sets only the first member (use a designator such as {.f = ...})",
+                    initializer.line or line,
+                    initializer.col or col,
+                )
+            else:
+                self.context.error(
+                    f"{subject} has {len(initializer.elements)} initializer elements but {aggregate_name} has {plan.capacity} fields",
+                    line,
+                    col,
+                )
+        steps: list[InitializerStep] = []
+        for slot in plan.slots:
+            member, element = slot.member, slot.element
+            element_line = getattr(element, "line", line)
+            element_col = getattr(element, "col", col)
+            if isinstance(member, AnonymousMember):
+                if not isinstance(element, BraceInitializer):
+                    self.context.error(
+                        f"The anonymous {TypeSystem.record_keyword(member)} member of {aggregate_name} requires its own braces in a positional initializer",
+                        element_line,
+                        element_col,
+                    )
+                    continue
+                steps.extend(
+                    self._plan_record_initializer(member, element, subject, element_line, element_col, enclosing)
+                )
+                continue
+            field_type = self.types.array_field_value(member)
+            steps.append(
+                InitializerArrayFieldCheck(member, element, f"Field '{member.name}'", element_line, element_col)
+            )
+            steps.append(
+                InitializerStringConversionCheck(
+                    field_type,
+                    element,
+                    f"Implicit class-to-string conversion is not supported inside {aggregate_name}; prepare an owned string local for field '{member.name}' first",
+                    element_line,
+                    element_col,
+                )
+            )
+            steps.extend(
+                self.plan_typed(field_type, element, f"Field '{member.name}'", element_line, element_col).steps
+            )
+        return tuple(steps)
 
     def plan_collection(
         self, expected: TypeExpr, initializer: object, subject: str, line: int, col: int
@@ -419,6 +453,8 @@ class AggregateAnalyzer:
         for declaration in declarations:
             with self.session.source(getattr(declaration, "source_file", None)):
                 self._validate_union_members(declaration)
+                if isinstance(declaration, StructDecl) and not declaration.is_forward:
+                    self._validate_anonymous_members(declaration, declaration)
                 self._collect_aggregate_dependencies(declaration, graph, owners)
         self._report_dependency_cycles(graph, owners, "Aggregate")
 
@@ -444,6 +480,29 @@ class AggregateAnalyzer:
                     f"{prefix} {held}; a union cannot tell which member is live, so its members must be plain C values"
                 )
             self.session.error(message, field.line, field.col)
+
+    def _validate_anonymous_members(self, record, enclosing: StructDecl) -> None:
+        for member in TypeSystem.record_members(record):
+            if not isinstance(member, AnonymousMember):
+                continue
+            for field in TypeSystem.record_fields(member):
+                reason = self.types.union_member_blocker(field.type)
+                if reason is None:
+                    continue
+                held = (
+                    "a RealtimeFunction"
+                    if reason[0] == "realtime"
+                    else f"managed type '{reason[1]}'"
+                    if reason[0] == "managed"
+                    else f"'{reason[1]}', which contains managed field '{reason[2]}'"
+                )
+                self.session.error(
+                    f"Member '{field.name}' of an anonymous {TypeSystem.record_keyword(member)} in "
+                    f"{TypeSystem.record_keyword(enclosing)} '{enclosing.name}' cannot hold {held}; "
+                    "anonymous members must be plain C values",
+                    field.line,
+                    field.col,
+                )
 
     def _collect_aggregate_dependencies(self, declaration, graph, owners) -> None:
         if isinstance(declaration, StructDecl) and (not declaration.is_forward):

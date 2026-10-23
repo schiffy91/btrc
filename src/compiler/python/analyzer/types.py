@@ -1398,6 +1398,22 @@ class TypeSystem:
             return plan
         return cls.plan_initializer_slots(record, initializer, tables)
 
+    @classmethod
+    def initializer_leaf_slots(cls, plans, tables, record, initializer) -> tuple[InitializerSlot, ...]:
+        """Typed leaves in evaluation order, with anonymous brace slots expanded."""
+        result = []
+        for slot in cls.initializer_slots(plans, tables, record, initializer).slots:
+            if isinstance(slot.member, AnonymousMember) and isinstance(slot.element, BraceInitializer):
+                for nested in cls.initializer_leaf_slots(plans, tables, slot.member, slot.element):
+                    result.append(InitializerSlot(nested.element, (*slot.path, *nested.path), nested.type))
+            else:
+                result.append(slot)
+        return tuple(result)
+
+    @classmethod
+    def record_has_anonymous_members(cls, record) -> bool:
+        return any(isinstance(member, AnonymousMember) for member in cls.record_members(record))
+
     def function_pointer_signature(self, type_expr):
         """Return the canonical callable shape: return type followed by parameters."""
         canonical = self.canonical_type(type_expr)

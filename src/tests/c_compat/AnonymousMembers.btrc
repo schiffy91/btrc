@@ -1,0 +1,39 @@
+#include <assert.h>
+
+typedef struct {
+	int kind;
+	union {
+		struct {
+			int x;
+			int values[2];
+		};
+		double real;
+	};
+	int tail;
+} Value;
+
+Value global = {1, {{2, {3, 4}}}, 5};
+int calls = 0;
+
+int nextValue() {
+	calls += 1;
+	return calls;
+}
+
+int main() {
+	static Value local = {2, {{3, {4, 5}}}, 6};
+	Value zero = {};
+	Value partial = {3, {{7}}};
+	Value ordered = {nextValue(), {{nextValue(), {nextValue(), nextValue()}}}, nextValue()};
+	Value* pointer = &global;
+	assert(pointer->x == 2 && pointer->values[1] == 4 && pointer->tail == 5);
+	assert(local.x == 3 && local.values[1] == 5 && local.tail == 6);
+	assert(zero.kind == 0 && zero.x == 0 && zero.values[0] == 0 && zero.tail == 0);
+	assert(partial.x == 7 && partial.values[0] == 0 && partial.tail == 0);
+	assert(ordered.kind == 1 && ordered.x == 2 && ordered.values[0] == 3 && ordered.values[1] == 4 && ordered.tail == 5);
+	assert(calls == 5);
+	pointer->x = 9;
+	assert(global.x == 9);
+	print("PASS: anonymous members");
+	return 0;
+}
