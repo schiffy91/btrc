@@ -181,7 +181,7 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
         for variant in ("plain", "sanitized")
     ]
     macos = manifest.plan("macos.yml", "main")
-    assert macos["jobs"] == ["native-bundle", "tests", "macos-e40"]
+    assert macos["jobs"] == ["native-bundle", "tests", "native-gui", "macos-e40"]
     assert list(_rows(macos, "macos-e40")) == [
         f"macos-{frontend}-{variant}" for frontend in ("reference", "selfhost") for variant in ("plain", "sanitized")
     ]

@@ -1126,7 +1126,10 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
     # finish inside the default run budget at -O0.
     assert "make devcontainer" in job
     assert job.count('podman run --rm --init -v "$PWD:/workspace"') == 1
-    assert "PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}" in job
+    assert (
+        "PYTEST_WORKERS=4 UNIT_GUI_SEPARATE=${{ contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui') "
+        "&& '1' || '0' }} BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}"
+    ) in job
     # The runner is headless: every shard runs under the virtual display and
     # software Vulkan, as `make linux-ci` does, so the GUI and adapter tests run.
     assert "btrc-devcontainer:latest tools/virtual-display.sh make NIX=" in _code(job)
@@ -1233,6 +1236,7 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
     suite = _step_containing(job, "make NIX=")
     assert _code(suite).strip() == (
         "- run: nix develop --command make NIX= PYTEST_WORKERS=3 "
+        "UNIT_GUI_SEPARATE=${{ contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui') && '1' || '0' }} "
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}\n"
         "        env:\n"
         "          PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && "

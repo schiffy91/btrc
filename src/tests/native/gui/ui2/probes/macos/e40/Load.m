@@ -365,6 +365,7 @@ static void exposureRecord(int window, const char *reason) {
     }
     NSRect viewOnScreen = view ? [native convertRectToScreen:[view convertRect:view.bounds toView:nil]] : NSZeroRect;
     CALayer *presented = layer.presentationLayer;
+    NSString *deviceName = layer.device.name;
     NSDictionary *surface = @{@"view_found":@((BOOL)(view != nil)), @"view_window_matches":@((BOOL)(view && view.window == native)),
         @"view_ancestors":ancestors, @"view_ancestors_complete":@((BOOL)(ancestor == nil)),
         @"view_screen_frame":NSStringFromRect(viewOnScreen),
@@ -373,7 +374,7 @@ static void exposureRecord(int window, const char *reason) {
         @"layer_hidden":@(layer.hidden), @"layer_opacity":@(layer.opacity), @"layer_has_superlayer":@((BOOL)(layer.superlayer != nil)),
         @"drawable_size":NSStringFromSize(layer.drawableSize), @"contents_scale":@(layer.contentsScale),
         @"presents_with_transaction":@(layer.presentsWithTransaction), @"display_sync_enabled":@(layer.displaySyncEnabled),
-        @"device_name":layer.device.name ?: @"unavailable", @"pixel_format":@(layer.pixelFormat),
+        @"device_name":deviceName ? deviceName : @"unavailable", @"pixel_format":@(layer.pixelFormat),
         @"presentation_layer_frame":presented ? NSStringFromRect(presented.frame) : @"unavailable",
         @"presentation_layer_bounds":presented ? NSStringFromRect(presented.bounds) : @"unavailable",
         @"presentation_layer_opacity":presented ? @(presented.opacity) : NSNull.null};

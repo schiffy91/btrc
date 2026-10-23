@@ -299,9 +299,9 @@ jobs:
           fi
           /usr/sbin/DevToolsSecurity -status | grep -q "currently enabled"
 
-      # The unit shard also owns native GUI cases. Keep those on one worker,
-      # retaining the row's selection flags and parallel execution elsewhere.
-      - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
+      # Delegate the GUI selection only when the companion job is present.
+      # Any AppKit cases remaining in unit still share one worker.
+      - run: nix develop --command make NIX= PYTEST_WORKERS=3 UNIT_GUI_SEPARATE=${{ contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui') && '1' || '0' }} BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
           PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
 

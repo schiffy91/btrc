@@ -265,7 +265,7 @@ jobs:
       # The runner has no display or GPU: tools/virtual-display.sh starts Xvfb
       # and selects Mesa's software Vulkan (lavapipe), so the Linux GUI and
       # WebGPU adapter tests run here instead of skipping.
-      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
+      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 UNIT_GUI_SEPARATE=${{ contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui') && '1' || '0' }} BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
           PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
       - name: Retain partial unit failures

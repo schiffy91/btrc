@@ -131,6 +131,7 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         "+[BTRCE40Boundary text:]",
         "+[BTRCE40Boundary close]",
         "+[BTRCE40Boundary complete]",
+        "+[BTRCE40Boundary diagnoseDeadline]",
         "+[BTRCE40Boundary finish]",
         "+[BTRCE40Boundary report]",
         "+[BTRCE40Boundary cleanup]",

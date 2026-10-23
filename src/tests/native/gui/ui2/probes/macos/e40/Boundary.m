@@ -207,6 +207,12 @@ void e40RunHost(void) {
 + (void)text:(NSString *)text { e40BoundaryText(text); }
 + (void)close { e40BoundaryClose(); }
 + (BOOL)complete { return e40BoundaryComplete(); }
++ (void)diagnoseDeadline {
+    fprintf(stderr, "E40 deadline: active=%d app_active=%d first_visible=%d second_visible=%d key=%d completed=%lu size=%d final=%d repeat=%d native=%d ordered=%d terminal=%d enqueue_errors=%d failure=%s\n",
+        active, (int)NSApp.active, (int)firstWindow.visible, (int)secondWindow.visible, (int)firstWindow.keyWindow,
+        (unsigned long)rows.count, burstSize, finalKind, repetition, nativeCount, orderedCount, terminalCount, enqueueErrors,
+        failure ? failure.UTF8String : "none");
+}
 + (void)finish { e40BoundaryFinish(); }
 + (void)report { e40BoundaryReport(); }
 + (void)cleanup { e40BoundaryCleanup(); }
