@@ -6,7 +6,6 @@ import pytest
 
 from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
-
 CASES = [
     pytest.param(
         "struct Point { int x; int y; int z; };",
