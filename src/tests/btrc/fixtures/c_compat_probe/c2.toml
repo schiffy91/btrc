@@ -8,7 +8,7 @@ row = "8"
 construct = "typedef struct { } T;"
 intent = "positive"
 status = "accepted"
-revision = "5885bf40"
+revision = "5d817dd0"
 python = { exit = 0, stdout = "PASS: typedef records\n" }
 btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
 corpus = "c_compat/TypedefRecords.btrc"
@@ -19,7 +19,7 @@ row = "8"
 construct = "typedef struct P { } P;"
 intent = "positive"
 status = "accepted"
-revision = "5885bf40"
+revision = "5d817dd0"
 python = { exit = 0, stdout = "PASS: typedef records\n" }
 btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
 corpus = "c_compat/TypedefRecords.btrc"
@@ -29,26 +29,11 @@ id = "r08-anonymous-members"
 row = "8"
 construct = "anonymous struct/union members"
 intent = "positive"
-status = "rejected"
-revision = "5885bf40"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected union name, got LBRACE '{' at 4:8" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 4:8" }
-source = '''
-#include <assert.h>
-struct Value {
-	int kind;
-	union { int integer; float real; };
-};
-int main() {
-	struct Value value;
-	value.kind = 1;
-	value.integer = 7;
-	assert(value.integer == 7);
-	print("PASS: anonymous members");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5d817dd0"
+python = { exit = 0, stdout = "PASS: anonymous members\n" }
+btrcc = { exit = 0, stdout = "PASS: anonymous members\n" }
+corpus = "c_compat/AnonymousMembers.btrc"
 
 [[probe]]
 id = "r08-anonymous-member-collision"
@@ -56,10 +41,9 @@ row = "8"
 construct = "an anonymous member repeating a field name"
 intent = "negative"
 status = "rejected"
-revision = "5885bf40"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected union name, got LBRACE '{' at 3:8" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 3:8" }
+revision = "5d817dd0"
+python = { diagnostic = "Duplicate field 'integer' in struct 'Value' at 3:14" }
+btrcc = { diagnostic = "Duplicate field 'integer' in struct 'Value' at 3:14" }
 source = '''
 struct Value {
 	int integer;
