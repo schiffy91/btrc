@@ -1998,3 +1998,23 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+
+## 2026-10-23 CX-CHECKED-OVERRIDE: issue 17
+
+Codex owns `codex/checked-override-20261023` from
+`b800bb07798b95e5d3c02692db998652437698d2` under the D29 harmonization
+exception. Owned paths: `src/language/{ast.asdl,grammar.ebnf}`, both parser
+owners, Python `analyzer/declarations.py`, btrc `analyzer/validation/Names.btrc`
+and `syntax/Identity.btrc`, their generated AST catalogs, focused parser and
+paired compiler tests, LSP keyword completion and its tests, class corpus fixtures and goldens, and
+`docs/known-language-gaps.md`. This is an append-only WORKSTREAMS claim.
+
+The optional method modifier checks that a parent class supplies a compatible
+method. It keeps existing signature checks and static dispatch. Constructors,
+fields, properties and interface-only implementations cannot claim an override.
+The approved storage-class and goto designs remain separate issue 17 work.
+
+Baseline: 709 reference parser/analyzer tests pass on the unchanged base.
+Generated output is regenerated in a derived commit. Full draft-PR CI and
+review remain required; local focused tests do not establish final acceptance.

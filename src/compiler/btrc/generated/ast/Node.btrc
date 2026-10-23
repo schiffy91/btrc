@@ -195,6 +195,7 @@ class Node {
 	public string access;
 	public Node initializer;
 	public bool isConstructor;
+	public bool isOverride;
 	public bool hasGetter;
 	public bool hasSetter;
 	public Node getterBody;
@@ -319,6 +320,7 @@ class Node {
 		self.keep_ = false;
 		self.access = "";
 		self.isConstructor = false;
+		self.isOverride = false;
 		self.hasGetter = false;
 		self.hasSetter = false;
 		self.varName = "";

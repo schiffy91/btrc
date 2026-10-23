@@ -25,8 +25,6 @@
   -- intact and to leave room for future syntax):
   --   auto, register  -- C storage classes, not implemented
   --   goto            -- no goto/label syntax
-  --   override        -- not a member modifier (member_body has no slot for
-  --                      it); `public override int f()` is a parse error
   -- These remain in @keywords so the keyword/token round-trip stays total
   -- (every keyword maps to an existing TokenKind, and syntax/tokens.py validates it).
 
@@ -220,11 +218,14 @@
                   (* "class" and "static" both mark a static member; the
                      parser maps both to access "class". *) ;
 
-  member_body = [ "abstract" ] [ "@gpu" ] [ "keep" ] method_or_field_or_property
-                (* Modifier order is fixed: abstract, then @gpu, then keep.
-                   "abstract" is only accepted inside an `abstract class`
-                   (abstract methods elsewhere are a parse error). "keep" marks
-                   the return value as keep-retained. *) ;
+  member_body = [ "abstract" ] [ "override" ] [ "@gpu" ] [ "@realtime" ]
+                [ "keep" ] method_or_field_or_property
+                (* Modifier order is fixed as shown. "abstract" is only
+                   accepted inside an abstract class. "override" applies only
+                   to non-constructor methods and requires a compatible method
+                   inherited from a parent class; dispatch remains static.
+                   @gpu and @realtime cannot be combined. "keep" marks the
+                   return value as keep-retained. *) ;
 
   method_or_field_or_property
               = type_expr IDENT method_rest        (* method: has ( *)
