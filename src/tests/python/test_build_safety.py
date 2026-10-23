@@ -29,6 +29,8 @@ def _make_dry_run(*args: str) -> str:
         "PYTEST_WORKERS",
         "PYTEST_ARGS",
         "PYTEST_SERIAL_ARGS",
+        "UNIT_GUI_SEPARATE",
+        "GUI_PYTEST_WORKERS",
         "MAKEFLAGS",
         "MFLAGS",
         "MAKEOVERRIDES",
@@ -90,7 +92,10 @@ def test_unit_shard_builds_and_shares_the_selfhost_compiler():
     assert "--ignore=src/tests/btrc --ignore=src/tests/runner.py" in output
 
 
-def test_separate_gui_shard_owns_exactly_the_unit_exclusions():
+@pytest.mark.parametrize("inherited_delegation", ["0", "1"])
+def test_separate_gui_shard_owns_exactly_the_unit_exclusions(monkeypatch, inherited_delegation):
+    monkeypatch.setenv("UNIT_GUI_SEPARATE", inherited_delegation)
+
     def pytest_arguments(target, *options):
         output = _make_dry_run(target, "NIX=", *options).replace("\\\n", "")
         command = next(line for line in output.splitlines() if "-m pytest " in line)
