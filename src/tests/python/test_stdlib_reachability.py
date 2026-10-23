@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from src.compiler.python.analyzer.reachability import IMPLIED_METHOD_NAMES, StdlibReachability
 from src.compiler.python.frontend.sources import CompilerStdlibSource
-from src.compiler.python.ir.lowering.reachability import IMPLIED_METHOD_NAMES, StdlibReachability
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl
@@ -62,14 +62,14 @@ def test_methods_prune_by_name_but_keep_constructors_operators_and_implied_names
     square: ClassDecl = named["Square"]
     tools: ClassDecl = named["Tools"]
     methods = {m.name: m for m in square.members if isinstance(m, MethodDecl)}
-    assert reach.lowers_method(square, methods["area"])  # interface signature names it
-    assert reach.lowers_method(square, methods["Square"])  # constructor
-    assert not reach.lowers_method(square, methods["perimeter"])
+    assert reach.reaches_method(square, methods["area"])  # interface signature names it
+    assert reach.reaches_method(square, methods["Square"])  # constructor
+    assert not reach.reaches_method(square, methods["perimeter"])
     tool_methods = {m.name: m for m in tools.members if isinstance(m, MethodDecl)}
-    assert reach.lowers_method(tools, tool_methods["twice"])
-    assert reach.lowers_method(tools, tool_methods["helper"])  # reached through twice's body
-    assert not reach.lowers_method(tools, tool_methods["unused"])
-    assert reach.lowers_method(tools, tool_methods["toString"])  # lowering-implied
+    assert reach.reaches_method(tools, tool_methods["twice"])
+    assert reach.reaches_method(tools, tool_methods["helper"])  # reached through twice's body
+    assert not reach.reaches_method(tools, tool_methods["unused"])
+    assert reach.reaches_method(tools, tool_methods["toString"])  # lowering-implied
     selected = reach.selected_callables(tools, None)
     assert ("method", "twice") in selected and ("method", "unused") not in selected
     assert reach.selected_callables(tools, frozenset({("method", "unused")})) == frozenset()
@@ -77,14 +77,14 @@ def test_methods_prune_by_name_but_keep_constructors_operators_and_implied_names
     assert reach.reaches(user_main)
 
 
-def test_always_lowered_covers_operators_generics_and_the_implied_set() -> None:
+def test_always_reached_covers_operators_generics_and_the_implied_set() -> None:
     def method(name: str, **fields) -> MethodDecl:
         return MethodDecl(name=name, return_type=None, **fields)
 
-    assert StdlibReachability.always_lowered(method("__eq__"))
-    assert StdlibReachability.always_lowered(method("size"))
-    assert StdlibReachability.always_lowered(method("pick", generic_params=["T"]))
-    assert not StdlibReachability.always_lowered(method("perimeter"))
+    assert StdlibReachability.always_reached(method("__eq__"))
+    assert StdlibReachability.always_reached(method("size"))
+    assert StdlibReachability.always_reached(method("pick", generic_params=["T"]))
+    assert not StdlibReachability.always_reached(method("perimeter"))
     assert "iterLen" in IMPLIED_METHOD_NAMES and "toString" in IMPLIED_METHOD_NAMES
 
 
@@ -99,7 +99,7 @@ def test_both_compilers_carry_the_same_implied_method_names() -> None:
     import re
     from pathlib import Path
 
-    source = Path(__file__).resolve().parents[3] / "src/compiler/btrc/ir/lowering/Reachability.btrc"
+    source = Path(__file__).resolve().parents[3] / "src/compiler/btrc/analyzer/Reachability.btrc"
     text = source.read_text(encoding="utf-8")
     body = text[text.index("class bool impliedMethodName(") :]
     body = body[: body.index("return implied.has(name);")]
@@ -153,7 +153,9 @@ def test_generic_instance_type_arguments_are_roots() -> None:
     element_type = type(element_type)(base="Element", line=0, col=0)
     reach = StdlibReachability(declarations, [box], (), [element_type])
     assert reach.reaches(box) and reach.reaches(named["Element"])
-    assert reach.lowers_method(named["Element"], next(m for m in named["Element"].members if isinstance(m, MethodDecl)))
+    assert reach.reaches_method(
+        named["Element"], next(m for m in named["Element"].members if isinstance(m, MethodDecl))
+    )
     assert not reach.reaches(named["Hidden"])
 
 

@@ -152,7 +152,7 @@ class _Workspace:
         assert old in text
         path.write_text(text.replace(old, new))
 
-    def build(self, entry: str, output: Path, monkeypatch):
+    def build(self, entry: str, output: Path, monkeypatch, *, stdlib_strict=False):
         monkeypatch.setenv("BTRC_CACHE_DIR", str(self.cache))
         output.mkdir(parents=True, exist_ok=True)
         path = self.modules / entry
@@ -162,6 +162,7 @@ class _Workspace:
             CompilerOptions(
                 units_prefix=str(output / "program"),
                 module_units=True,
+                stdlib_strict=stdlib_strict,
                 generated_c_path=str(output / "program.c"),
             ),
         )
@@ -289,7 +290,13 @@ def _btrcc_build(btrcc, workspace: _Workspace, entry: str, output: Path) -> tupl
 
 
 def _btrcc_build_logged(
-    btrcc, workspace: _Workspace, entry: str, output: Path, environment: dict[str, str] | None = None
+    btrcc,
+    workspace: _Workspace,
+    entry: str,
+    output: Path,
+    environment: dict[str, str] | None = None,
+    *,
+    stdlib_strict=False,
 ) -> tuple[dict[str, int], dict[str, str], str, str]:
     """`_btrcc_build`, also returning the compiler's diagnostic output."""
     output.mkdir(parents=True, exist_ok=True)
@@ -302,6 +309,7 @@ def _btrcc_build_logged(
             "--emit-units",
             str(output / "program"),
             "--module-units",
+            *(["--stdlib-strict"] if stdlib_strict else []),
         ],
         cwd=workspace.modules,
         env={
@@ -2055,3 +2063,36 @@ def test_unit_flow_roots_cover_every_setjmp_safety_location(location):
         IRFunctionDef("ordinary", CType("void"), body=IRBlock([])),
     ]
     assert ModuleUnitCompiler.setjmp_flow_functions(module) == {"protected"}
+
+
+def test_strict_stdlib_validation_has_separate_module_units(tmp_path, monkeypatch):
+    workspace = _Workspace(tmp_path)
+    normal, normal_units = workspace.build("CatalogMain.btrc", tmp_path / "normal", monkeypatch)
+    assert normal.module_units_lowered and not normal.module_units_reused
+    strict, strict_units = workspace.build("CatalogMain.btrc", tmp_path / "strict", monkeypatch, stdlib_strict=True)
+    assert strict.module_units_lowered == normal.module_units_lowered
+    assert not strict.module_units_reused
+    repeated, repeated_units = workspace.build("CatalogMain.btrc", tmp_path / "repeat", monkeypatch, stdlib_strict=True)
+    assert repeated.module_units_reused and not repeated.module_units_lowered
+    assert normal_units == strict_units == repeated_units
+
+
+def test_selfhost_strict_stdlib_validation_has_separate_records(tmp_path, immutable_btrcc):
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("self-hosted artifact reuse needs the native header reader identity")
+    workspace = _Workspace(tmp_path.resolve())
+    normal, normal_units, _, normal_log = _btrcc_build_logged(
+        immutable_btrcc, workspace, "CatalogMain.btrc", workspace.root / "normal"
+    )
+    strict, strict_units, _, strict_log = _btrcc_build_logged(
+        immutable_btrcc, workspace, "CatalogMain.btrc", workspace.root / "strict", stdlib_strict=True
+    )
+    assert normal == strict == {"lowered": 6, "reused": 0}
+    assert _validation_records(strict_log) == _validation_records(normal_log)
+    assert _validation_records(strict_log)["replayed"] == 0
+    repeated, repeated_units, _, repeated_log = _btrcc_build_logged(
+        immutable_btrcc, workspace, "CatalogMain.btrc", workspace.root / "repeat", stdlib_strict=True
+    )
+    assert repeated == {"lowered": 0, "reused": 6}
+    assert _validation_records(repeated_log)["replayed"] > 0
+    assert normal_units == strict_units == repeated_units

@@ -3195,17 +3195,19 @@ class FeNativeLinkPlan {
 		selected.restrictToSources(sources);
 		BtrccPhaseTimer.mark("stdlib-restrict");
 		if (selected.declarations.len == 0 && selected.bindingImports().len == 0) { return; }
+		Map<string, bool> existingNames = {};
 		for existing in self.packages {
 			if (!existing.name.startsWith("btrc_stdlib_")) { continue; }
 			for package in libraryPackages {
 				if (!package.name.equals(existing.name)) { continue; }
 				if (package.manifestHash.isEmpty()) { package.manifestHash = SHA256.digest(sourcesByName.get(package.name)); }
-				if (FeSourcePathPolicy().identity(existing.root).equals(FeSourcePathPolicy().identity(package.root)) && existing.manifestHash.equals(package.manifestHash)) { return; }
+				if (FeSourcePathPolicy().identity(existing.root).equals(FeSourcePathPolicy().identity(package.root)) && existing.manifestHash.equals(package.manifestHash)) { existingNames.put(existing.name, true); break; }
 			}
+			if (existingNames.has(existing.name)) { continue; }
 			FePackageFailure.fail(f"package identity '{existing.name}' is reserved for compiler-owned stdlib runtimes");
 		}
-		self.packages.extend(selected.packages);
-		self.declarations.extend(selected.declarations);
+		for package in selected.packages { if (!existingNames.has(package.name)) { self.packages.push(package); } }
+		for declaration in selected.declarations { if (!existingNames.has(declaration.packageName)) { self.declarations.push(declaration); } }
 	}
 
 	private string loadStdlibPackage(string root, string path, string alias, FeSourceFileReader sourceFiles, Vector<FePackageNode> packages, Map<string, string> namesByRoot, Vector<string> loading, Map<string, FeParsedPackageManifest> manifestsByName, Map<string, string> sourcesByName) {

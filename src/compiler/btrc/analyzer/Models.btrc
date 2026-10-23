@@ -133,6 +133,9 @@ class ValidationJournal {
  * of being validated; a declaration validated live is journaled when
  * `journals` says so, and its journal is handed to `finish`. */
 interface IValidationRecords {
+	/* Body coverage is part of a record's identity. Node identities are
+	 * compilation-local; the record owner renders a stable ordered mask. */
+	void selectBodies(Map<Node, bool> unreached);
 	/* The declaration's recorded facts for a phase, resolved to this
 	 * program's nodes, or null when it must be analyzed live. */
 	Vector<ValidationFact>? recorded(int phase, Node declaration);
@@ -190,6 +193,13 @@ class SemanticInitializerPlan {
 }
 
 class Analyzed {
+	/* Only callable body roots can be excluded. Signatures, defaults and
+	 * field initializers remain part of semantic analysis. */
+	public Map<Node, bool> unreachedStdlibBodies = {};
+	public Map<string, bool> callableOwnerDemands = {};
+
+	public bool bodyReached(Node? body) { return body == null || !self.unreachedStdlibBodies.has(body); }
+
 	public Vector<FeNativeImportedDeclaration> nativeDeclarations;
 	/* Combined source lines of files that textually include a C header or
 	 * source the importer does not model; ALL_CAPS names there may be C

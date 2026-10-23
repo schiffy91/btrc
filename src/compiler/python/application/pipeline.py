@@ -600,10 +600,17 @@ class CompilationPipeline:
             profile=profile,
         )
 
-    def analyze(self, program: Program, profile: dict[str, float] | None = None, target: PackageTarget | None = None):
+    def analyze(
+        self,
+        program: Program,
+        profile: dict[str, float] | None = None,
+        target: PackageTarget | None = None,
+        *,
+        prune_stdlib: bool = False,
+    ):
         """Analyze for ``target``'s data model, the host's when unset."""
         start = time.perf_counter()
-        analyzed = self._new_analyzer(target).analyze(program)
+        analyzed = self._new_analyzer(target).analyze(program, prune_stdlib=prune_stdlib)
         self._timed(profile, "analyze", start)
         return analyzed
 
@@ -794,7 +801,12 @@ class CompilationPipeline:
             return self._result(source, options, profile, tokens=parsed.tokens, program=program)
 
         try:
-            analyzed = self.analyze(program, profile, source.native_plan.target)
+            analyzed = self.analyze(
+                program,
+                profile,
+                source.native_plan.target,
+                prune_stdlib=options.dce and not options.stdlib_strict and options.stdlib_archive is None,
+            )
         except RecursionError as error:
             return self._result(
                 source,

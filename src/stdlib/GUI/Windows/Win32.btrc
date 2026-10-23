@@ -1,1 +1,2 @@
 /* SDK declarations selected by the Windows GUI manifest. No application policy. */
+import Library.Callback;

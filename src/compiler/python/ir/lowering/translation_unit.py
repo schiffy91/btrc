@@ -8,11 +8,11 @@ from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING
 
+from src.compiler.python.analyzer.reachability import StdlibReachability
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceConditionals, SourceMacroRules
-from src.compiler.python.ir.lowering.reachability import StdlibReachability
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
@@ -164,6 +164,12 @@ class TranslationUnitLowerer:
                 if self._prune_stdlib
                 else None
             )
+            if self._analyzed.unreached_stdlib_bodies:
+                plan = self._facts.stdlib_reachability
+                if plan is None or not self._analyzed.unreached_stdlib_bodies.issubset(
+                    plan.unreached_bodies(self._analyzed.program.declarations)
+                ):
+                    raise CodegenError("Stdlib lowering selected a body that semantic analysis did not check")
             self._facts.stdlib_reachability_computed = True
         self._session.stdlib_reachability = self._facts.stdlib_reachability
         self._classes.configure_pack_alignments(self.declaration_pack_alignments(self._analyzed.program))

@@ -47,6 +47,8 @@ class BtrccOptions {
 	public bool valid;
 	public bool includeStdlib;
 	public bool strictImports;
+	/* Validate imported stdlib bodies even when the program does not use them. */
+	public bool stdlibStrict = false;
 	public bool runDce;
 	public bool showHelp;
 	public bool showStdlibDirectory;

@@ -17,6 +17,7 @@ import ./Operators.btrc;
 import ./ownership/Cycles.btrc;
 import ./ownership/Values.btrc;
 import ./Realtime.btrc;
+import ./Reachability.btrc;
 import ./Types.btrc;
 import ./validation/Names.btrc;
 import ./validation/Validator.btrc;
@@ -33,6 +34,7 @@ class SemanticAnalyzer {
 	private CycleSemantics cycles;
 	private SourceRuntimeSymbols sourceRuntimeSymbols;
 	private IValidationRecords? validationRecords = null;
+	private Map<string, bool>? stdlibKeys = null;
 	/* The #define/#undef name rules conditioning shares (M1-M4). */
 	private SourceMacroRules macroRules;
 
@@ -57,13 +59,28 @@ class SemanticAnalyzer {
 		self.declarations.registerProgram(program);
 		BtrccPhaseTimer.mark("a-register");
 		self.expressions.inferGlobals(program);
+		self.selectReachedBodies(program, true);
 		self.generics.discover(program);
+		while (true) {
+			Node expanded = self.selectReachedBodies(program, false);
+			if (expanded.declarations().len == 0) { break; }
+			self.generics.reopenInstances();
+			self.generics.discover(expanded);
+		}
 		BtrccPhaseTimer.mark("a-generics");
 		SemanticValidator validator = SemanticValidator(program, self.analysis, hostedAbi, self.macroRules, self.operators, self.gpu, self.cycles, self.sourceRuntimeSymbols, self.types, self.declarations, self.expressions);
 		validator.useRecords(self.validationRecords);
 		validator.validate();
 		BtrccPhaseTimer.mark("a-validate");
 		self.generics.closeExpressionGraph(program, hostedAbi);
+		while (true) {
+			Node expanded = self.selectReachedBodies(program, false);
+			if (expanded.declarations().len == 0) { break; }
+			self.generics.reopenInstances();
+			self.generics.discoverExpanded(expanded);
+			validator.validateExpanded(expanded);
+			self.generics.closeExpressionGraph(expanded, hostedAbi);
+		}
 		BtrccPhaseTimer.mark("a-close-generics");
 		RealtimeAnalyzer realtime = RealtimeAnalyzer(program, self.analysis, hostedAbi, self.sourceRuntimeSymbols, self.expressions);
 		realtime.useRecords(self.validationRecords);
@@ -77,6 +94,57 @@ class SemanticAnalyzer {
 		keep validator;
 		keep realtime;
 		return self.analysis;
+	}
+
+	public void configureStdlibBodies(Map<string, bool> keys) { self.stdlibKeys = keys; }
+
+	/* Body selection grows monotonically as inference finds implicit owners
+	 * and specializations. The returned program contains whole declarations
+	 * whose coverage grew, so their cache journals describe that full coverage. */
+	private Node selectReachedBodies(Node program, bool initial) {
+		Node expanded = Node();
+		expanded.kind = NK_PROGRAM;
+		Map<string, bool>? keys = self.stdlibKeys;
+		if (keys == null) { return expanded; }
+		Vector<Node> owners = [];
+		Vector<Node> arguments = [];
+		for instance in self.analysis.genericInstances {
+			if (self.analysis.genericClassTable.has(instance.base)) { owners.push(self.analysis.genericClassTable.get(instance.base)); }
+			for argument in instance.args { arguments.push(argument); }
+		}
+		for instance in self.analysis.methodGenInstances {
+			Node owner = Node(); owner.kind = NK_IDENTIFIER; owner.name = instance.classBase;
+			arguments.push(owner);
+			Node method = Node(); method.kind = NK_IDENTIFIER; method.name = instance.methodName;
+			arguments.push(method);
+			for argument in instance.classArgs { arguments.push(argument); }
+			for argument in instance.methodArgs { arguments.push(argument); }
+		}
+		for name in self.analysis.callableOwnerDemands.keys() {
+			Node owner = Node(); owner.kind = NK_IDENTIFIER; owner.name = name;
+			arguments.push(owner);
+		}
+		StdlibReachability reachability = StdlibReachability(program.declarations(), keys, owners, arguments);
+		Map<Node, bool> previous = self.analysis.unreachedStdlibBodies;
+		Map<Node, bool> proposed = reachability.unreachedBodies(program.declarations());
+		Map<Node, bool> selected = {};
+		for body in proposed.keys() { if (initial || previous.has(body)) { selected.put(body, true); } }
+		if (!initial && selected.len == previous.len) { return expanded; }
+		self.analysis.unreachedStdlibBodies = selected;
+		IValidationRecords? records = self.validationRecords;
+		if (records != null) { records.selectBodies(selected); }
+		if (initial) { return expanded; }
+		for declaration in program.declarations() {
+			bool changed = false;
+			Vector<Node> callables = declaration.kind == NK_CLASS_DECL ? declaration.members() : [declaration];
+			for callable in callables {
+				if (callable.bodyNode != null && previous.has(callable.bodyNode) && !selected.has(callable.bodyNode)) { changed = true; }
+				if (callable.getterBody != null && previous.has(callable.getterBody) && !selected.has(callable.getterBody)) { changed = true; }
+				if (callable.setterBody != null && previous.has(callable.setterBody) && !selected.has(callable.setterBody)) { changed = true; }
+			}
+			if (changed) { expanded.declarationsMut().push(declaration); }
+		}
+		return expanded;
 	}
 
 	public OperatorSemantics operatorSemantics() { return self.operators; }

@@ -207,6 +207,7 @@ class Compiler:
                     "source": source.cache_identity(),
                     "debug": options.debug,
                     "dce": options.dce,
+                    "stdlib_strict": options.stdlib_strict,
                     "use_ast_cache": options.use_ast_cache,
                     "map_stdlib_positions": options.map_stdlib_positions,
                     # Only debug emission observes the primary output path.

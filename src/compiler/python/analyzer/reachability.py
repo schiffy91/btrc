@@ -1,24 +1,10 @@
-"""Which stdlib callables a program can reach, decided before lowering.
+"""Conservative stdlib callable reachability shared by analysis and lowering.
 
-Dead-code elimination runs on lowered IR, so every method of every imported
-stdlib class used to be lowered first and discarded afterwards; on a program
-that imports JSON, Regex, TOML and the collections that was most of the
-compile. This pass answers the same question on the analyzed program instead,
-as an over-approximation by name: starting from every user and native
-declaration, it collects the names a subtree mentions (identifiers, member
-accesses, type bases, class parents and interfaces, interface method
-signatures) and closes over them. A stdlib declaration is reachable once its
-name is mentioned; a method of a reachable stdlib class is lowered once its
-name is mentioned, and its body then contributes names of its own. Members
-that are not ordinary methods (fields, properties, constructors, destructors)
-and the method names lowering itself implies (iteration, string coercion,
-sizes, operators) always stay.
-
-The IR-level elimination still runs afterwards and removes exactly what it
-removed before, so the emitted C does not change; this pass only avoids
-lowering work. It is conservative by construction: every symbol the lowerer
-emits for a stdlib callable is derived from a name the analyzed program
-mentions, and that mention keeps the callable.
+Every user and native declaration is a root. Names in reachable declarations,
+selected bodies and inferred generic instances extend the closure. Declaration
+contracts remain visible even when analysis skips a callable's body. Constructors,
+destructors, properties, generic methods and implicit protocol methods of a
+reached class remain selected. IR dead-code elimination removes any excess.
 """
 
 from __future__ import annotations
@@ -31,6 +17,7 @@ from src.compiler.python.frontend.sources import CompilerStdlibSource
 from src.compiler.python.syntax.ast.generated import (
     ClassDecl,
     FieldAccessExpr,
+    FunctionDecl,
     Identifier,
     InterfaceDecl,
     MethodDecl,
@@ -226,7 +213,7 @@ IMPLIED_METHOD_NAMES = frozenset(
 class StdlibReachabilityPlan:
     """The closure's answer: which stdlib declarations and method names a program reaches.
 
-    A frozen value the lowering session carries; `StdlibReachability` computes it.
+    A frozen value shared by the semantic and lowering sessions; `StdlibReachability` computes it.
     """
 
     names: frozenset[str]
@@ -243,12 +230,33 @@ class StdlibReachabilityPlan:
 
         return not StdlibReachability.is_stdlib_declaration(declaration) or id(declaration) in self.reached
 
-    def lowers_method(self, declaration: ClassDecl, member: MethodDecl) -> bool:
+    def reaches_method(self, declaration: ClassDecl, member: MethodDecl) -> bool:
         return (
             not StdlibReachability.is_stdlib_declaration(declaration)
-            or StdlibReachability.always_lowered(member)
+            or StdlibReachability.always_reached(member)
             or member.name in self.names
         )
+
+    def unreached_bodies(self, declarations: Iterable[decl]) -> frozenset[int]:
+        """Body identities excluded from analysis; declaration contracts remain visible."""
+        bodies: set[int] = set()
+        for declaration in declarations:
+            if not StdlibReachability.is_stdlib_declaration(declaration):
+                continue
+            reached = self.reaches(declaration)
+            if isinstance(declaration, FunctionDecl):
+                if not reached and declaration.body is not None:
+                    bodies.add(id(declaration.body))
+            elif isinstance(declaration, ClassDecl):
+                for member in declaration.members:
+                    if isinstance(member, MethodDecl):
+                        if (not reached or not self.reaches_method(declaration, member)) and member.body is not None:
+                            bodies.add(id(member.body))
+                    elif isinstance(member, PropertyDecl) and not reached:
+                        for body in (member.getter_body, member.setter_body):
+                            if body is not None:
+                                bodies.add(id(body))
+        return frozenset(bodies)
 
     def selected_callables(
         self,
@@ -268,13 +276,13 @@ class StdlibReachabilityPlan:
         chosen: set[tuple[str, str]] = set()
         for member in declaration.members:
             if isinstance(member, MethodDecl):
-                if self.lowers_method(declaration, member):
+                if self.reaches_method(declaration, member):
                     chosen.add(("method", member.name))
             elif isinstance(member, PropertyDecl):
                 chosen.add(("get", member.name))
                 chosen.add(("set", member.name))
         for member in inherited:
-            if StdlibReachability.always_lowered(member) or member.name in self.names:
+            if StdlibReachability.always_reached(member) or member.name in self.names:
                 chosen.add(("method", member.name))
         return frozenset(chosen) if selected is None else frozenset(chosen & selected)
 
@@ -356,8 +364,8 @@ class StdlibReachability:
     def reaches(self, declaration: object) -> bool:
         return self.plan.reaches(declaration)
 
-    def lowers_method(self, declaration: ClassDecl, member: MethodDecl) -> bool:
-        return self.plan.lowers_method(declaration, member)
+    def reaches_method(self, declaration: ClassDecl, member: MethodDecl) -> bool:
+        return self.plan.reaches_method(declaration, member)
 
     def selected_callables(
         self,
@@ -383,7 +391,7 @@ class StdlibReachability:
         skeleton.extend(Identifier(name=interface) for interface in declaration.interfaces)
         for member in declaration.members:
             if isinstance(member, MethodDecl):
-                if StdlibReachability.always_lowered(member):
+                if StdlibReachability.always_reached(member):
                     self._push_method(declaration, member, worklist)
             else:
                 skeleton.append(member)
@@ -407,7 +415,7 @@ class StdlibReachability:
         return isinstance(getattr(declaration, "source_file", None), CompilerStdlibSource)
 
     @staticmethod
-    def always_lowered(member: MethodDecl) -> bool:
+    def always_reached(member: MethodDecl) -> bool:
         """Constructors, destructors, operators and lowering-implied methods never prune."""
 
         return (

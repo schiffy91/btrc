@@ -2,24 +2,15 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
-import ../../analyzer/HostedAbi.btrc;
-import ../../generated/ast/Node.btrc;
+import ./HostedAbi.btrc;
+import ../generated/ast/Node.btrc;
 
-/* Which stdlib callables a program can reach, decided before lowering.
- *
- * Dead-code elimination runs on lowered IR, so every method of every imported
- * stdlib class used to be lowered first and discarded afterwards. This pass
- * answers the same question on the analyzed program, as an over-approximation
- * by name: starting from every user and native declaration it collects the
- * names a subtree mentions (identifiers, member accesses, type bases, class
- * parents and interfaces, interface method signatures) and closes over them.
- * A stdlib declaration is reachable once its name is mentioned; a method of a
- * reachable stdlib class is lowered once its name is mentioned, and its body
- * then contributes names of its own. Fields, properties, constructors,
- * destructors, operators and the method names lowering itself implies always
- * stay. The IR-level elimination still runs afterwards and removes exactly what
- * it removed before, so the emitted C does not change; only lowering work is
- * avoided. The reference compiler implements the same closure. */
+/* Conservative stdlib body selection shared by analysis and lowering.
+ * Starting from user and native declarations, collect names mentioned by
+ * signatures and bodies, then close over the declarations and methods they
+ * reach. Fields, constructors, destructors, operators and implicit calls stay
+ * checked. Semantic discovery can expand this selection with inferred generic
+ * and native demands. The optimizer still removes unreachable lowered IR. */
 class StdlibReachability {
 	class Map<string, bool>? impliedNames = null;
 	/* Keys of the compiler-owned stdlib declarations, classified once at construction. */
@@ -217,7 +208,7 @@ class StdlibReachability {
 		return implied.has(name);
 	}
 
-	class bool alwaysLowered(Node member) { return member.isConstructor || member.name.startsWith("__") || StdlibReachability.impliedMethodName(member.name) || member.genericParams().len > 0; }
+	class bool alwaysReached(Node member) { return member.isConstructor || member.name.startsWith("__") || StdlibReachability.impliedMethodName(member.name) || member.genericParams().len > 0; }
 
 	class string declarationKey(Node declaration) { return Strings.fromInt((int)declaration.kind) + ":" + declaration.name + ":" + Strings.fromInt(declaration.line) + ":" + Strings.fromInt(declaration.col); }
 
@@ -294,6 +285,27 @@ class StdlibReachability {
 		}
 	}
 
+	public Map<Node, bool> unreachedBodies(Vector<Node> declarations) {
+		Map<Node, bool> bodies = {};
+		for declaration in declarations {
+			if (!self.stdlibKeys.has(StdlibReachability.declarationKey(declaration))) { continue; }
+			bool reached = self.reaches(declaration);
+			if (declaration.kind == NK_FUNCTION_DECL) {
+				if (!reached && declaration.bodyNode != null) { bodies.put(declaration.bodyNode, true); }
+			} else if (declaration.kind == NK_CLASS_DECL) {
+				for member in declaration.members() {
+					if (member.kind == NK_METHOD_DECL) {
+						if ((!reached || !self.reachesMethod(declaration, member)) && member.bodyNode != null) { bodies.put(member.bodyNode, true); }
+					} else if (member.kind == NK_PROPERTY_DECL && !reached) {
+						if (member.getterBody != null) { bodies.put(member.getterBody, true); }
+						if (member.setterBody != null) { bodies.put(member.setterBody, true); }
+					}
+				}
+			}
+		}
+		return bodies;
+	}
+
 	private void reach(Node declaration, Vector<Node> worklist) {
 		string key = StdlibReachability.declarationKey(declaration);
 		if (self.reached.has(key)) { return; }
@@ -312,7 +324,7 @@ class StdlibReachability {
 		for iface in declaration.interfaces() { self.mentionName(iface, worklist); }
 		for member in declaration.members() {
 			if (member.kind == NK_METHOD_DECL) {
-				if (StdlibReachability.alwaysLowered(member)) { self.pushMethod(declaration, member, worklist); }
+				if (StdlibReachability.alwaysReached(member)) { self.pushMethod(declaration, member, worklist); }
 			} else {
 				worklist.push(member);
 			}
@@ -363,9 +375,9 @@ class StdlibReachability {
 		return self.reached.has(key);
 	}
 
-	public bool lowersMethod(Node declaration, Node member) {
+	public bool reachesMethod(Node declaration, Node member) {
 		if (!self.stdlibKeys.has(StdlibReachability.declarationKey(declaration))) { return true; }
-		return StdlibReachability.alwaysLowered(member) || self.names.has(member.name);
+		return StdlibReachability.alwaysReached(member) || self.names.has(member.name);
 	}
 
 	/* Every identifier, member, type, parent, interface and signature name a subtree mentions. */

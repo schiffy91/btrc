@@ -74,6 +74,7 @@ class BorrowValidator {
 		Vector<Node> children = [];
 		while (pending.len > 0) {
 			Node node = pending.pop();
+			if (!self.state.analyzed.bodyReached(node)) { continue; }
 			if (node.kind == NK_TYPE_EXPR && !allowed.contains(node)) {
 				string base = node.base;
 				if (self.state.analyzed.typedefTable.has(base)) {
@@ -109,7 +110,7 @@ class BorrowValidator {
 					allowed.push(parameter.type);
 					if (!callable.isRealtime) { TypeValidator.fail("Native invocation parameters require @realtime", parameter); }
 					Vector<Node> visiting = [];
-					if (!self.invocationUsesAreLocal(callable.bodyNode, parameter.name, canonical.base, visiting)) { TypeValidator.fail("Native invocation capability may only call its declared operations; it cannot escape or be reinterpreted", parameter); }
+					if (self.state.analyzed.bodyReached(callable.bodyNode) && !self.invocationUsesAreLocal(callable.bodyNode, parameter.name, canonical.base, visiting)) { TypeValidator.fail("Native invocation capability may only call its declared operations; it cannot escape or be reinterpreted", parameter); }
 				}
 			}
 			/* The type walk reads only the declaration's own tree and the

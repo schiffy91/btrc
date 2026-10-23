@@ -5672,7 +5672,7 @@ class DeclarationLowerer {
 		int mi = 0;
 		while (mi < decl.members().len) {
 			Node mem = decl.members().get(mi);
-			bool lowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.lowersMethod(decl, mem);
+			bool lowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.reachesMethod(decl, mem);
 			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0) {
 				string retC = self.cTypes.lowerGeneric(mem.returnType, typeMap);
 				IRFunctionDecl methodDeclaration = IRFunctionDecl(mangled + "_" + mem.name, retC, true);
@@ -5830,7 +5830,7 @@ class DeclarationLowerer {
 		int m2 = 0;
 		while (m2 < decl.members().len) {
 			Node mem = decl.members().get(m2);
-			bool bodyLowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.lowersMethod(decl, mem);
+			bool bodyLowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.reachesMethod(decl, mem);
 			if (bodyLowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0) {
 				IRFunction fn = IRFunction();
 				fn.name = mangled + "_" + mem.name;
@@ -6040,7 +6040,7 @@ class DeclarationLowerer {
 			Node mem = decl.members().get(i);
 			if (mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__") {
 				ownMethods.put(mem.name, true);
-				bool lowered = reachability == null || reachability.lowersMethod(decl, mem);
+				bool lowered = reachability == null || reachability.reachesMethod(decl, mem);
 				if (lowered && mem.genericParams().len == 0 && !mem.isAbstract && mem.bodyNode != null) {
 					m.functions.push(self.lowerMethod(decl, mem));
 				}
@@ -6136,7 +6136,7 @@ class DeclarationLowerer {
 		while (i < decl.members().len) {
 			Node mem = decl.members().get(i);
 			if (mem.kind == NK_METHOD_DECL) { own.put(mem.name, true); }
-			bool lowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.lowersMethod(decl, mem);
+			bool lowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.reachesMethod(decl, mem);
 			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0) {
 				bool isStatic = mem.access == "class";
 				string ret = self.cTypes.lower(mem.returnType);

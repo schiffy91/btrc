@@ -579,7 +579,9 @@ class OwnershipAnalyzer:
                         self.session.error(
                             "Native invocation parameters require @realtime", parameter.line, parameter.col
                         )
-                    if not self._invocation_uses_are_local(
+                    if id(
+                        getattr(callable_, "body", None)
+                    ) not in self.session.unreached_stdlib_bodies and not self._invocation_uses_are_local(
                         getattr(callable_, "body", None), parameter.name, capability
                     ):
                         self.session.error(
@@ -595,7 +597,11 @@ class OwnershipAnalyzer:
         pending = [root]
         while pending:
             node = pending.pop()
-            if node is None or isinstance(node, (str, int, float, bool)):
+            if (
+                node is None
+                or isinstance(node, (str, int, float, bool))
+                or id(node) in self.session.unreached_stdlib_bodies
+            ):
                 continue
             if isinstance(node, (list, tuple)):
                 pending.extend(reversed(node))

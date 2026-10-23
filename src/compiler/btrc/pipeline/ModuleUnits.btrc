@@ -1897,7 +1897,7 @@ class ModuleUnitCompiler {
 		BtrccPhaseTimer.mark("u-digest");
 		Map<string, string> sources = self.groupSourceDigests();
 		BtrccPhaseTimer.mark("u-sources");
-		string context = f"debug={self.options.debug};dce={self.options.runDce};target={input.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
+		string context = f"debug={self.options.debug};dce={self.options.runDce};stdlib-strict={self.options.stdlibStrict};target={input.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
 		Vector<string> defineNames = input.nativeDefines.keys(); defineNames.sort();
 		for name in defineNames { string value = input.nativeDefines.get(name); context += f";define={name.len()}:{name}{value.len()}:{value}"; }
 		Vector<ModuleUnitGroupState> states = [];
@@ -2784,7 +2784,10 @@ class ValidationRecords implements IValidationRecords {
 	private Map<string, string> groupOfFile = {};
 	private Map<string, string> keys = {};
 	private Map<string, Map<string, string>> loaded = {};
-	private Map<string, StringBuilder> writing = {};
+	private Map<string, Map<string, string>> writing = {};
+	private Map<string, string> loadedDependencies = {};
+	private Map<Node, bool> unreachedBodies = {};
+	private Map<Node, string> bodyCoverage = {};
 	private Map<string, Map<string, bool>> foreign = {};
 	private Map<string, bool> unwritable = {};
 	private Map<string, bool> abandoned = {};
@@ -2849,7 +2852,7 @@ class ValidationRecords implements IValidationRecords {
 			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
 		}
 		self.codec = ValidationRecordCodec(program.declarations(), self.fileOfDeclaration);
-		string context = f"validation-record-v5;target={target};strict={options.strictImports};stdlib={options.includeStdlib}";
+		string context = f"validation-record-v6;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}";
 		Map<string, string> sources = {};
 		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
 		if (resolved.stdlibLineCount > 0) { sources.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }
@@ -2943,8 +2946,9 @@ class ValidationRecords implements IValidationRecords {
 
 	private void load(string group) {
 		BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.keys.get(group));
-		if (payload == null || !payload.record.equals("validation-record-v5")) { return; }
+		if (payload == null || !payload.record.equals("validation-record-v6")) { return; }
 		Map<string, string> declarations = {};
+		StringBuilder dependencies = StringBuilder();
 		string slot = "";
 		StringBuilder facts = StringBuilder();
 		bool open = false;
@@ -2952,6 +2956,7 @@ class ValidationRecords implements IValidationRecords {
 			if (line.startsWith("dep\t")) {
 				Vector<string> fields = Strings.split(line, "\t");
 				if (fields.len != 3 || !self.keys.has(fields.get(1)) || !self.keys.get(fields.get(1)).equals(fields.get(2))) { return; }
+				dependencies.append(line + "\n");
 			} else if (line.startsWith("d\t")) {
 				if (open) { declarations.put(slot, facts.toString()); }
 				slot = line.substring(2, line.length() - 2);
@@ -2964,10 +2969,35 @@ class ValidationRecords implements IValidationRecords {
 		}
 		if (open) { declarations.put(slot, facts.toString()); }
 		self.loaded.put(group, declarations);
+		self.loadedDependencies.put(group, dependencies.toString());
 	}
 
-	/* A declaration's section of its group's record: phase, then slot. */
-	private string section(int phase, Node declaration) { return Strings.fromInt(phase) + "\t" + self.codec.slot(declaration); }
+	public void selectBodies(Map<Node, bool> unreached) {
+		self.unreachedBodies = unreached;
+		self.bodyCoverage = {};
+	}
+
+	/* Source order is stable under a group's source key. Pointer identities
+	 * only answer membership here; no pointer enters the persisted mask. */
+	private string coverage(Node declaration) {
+		if (self.bodyCoverage.has(declaration)) { return self.bodyCoverage.get(declaration); }
+		StringBuilder mask = StringBuilder();
+		Vector<Node> callables = declaration.kind == NK_CLASS_DECL ? declaration.members() : [declaration];
+		for callable in callables {
+			if (callable.kind == NK_FUNCTION_DECL || callable.kind == NK_METHOD_DECL) {
+				if (callable.bodyNode != null) { mask.append(self.unreachedBodies.has(callable.bodyNode) ? "0" : "1"); }
+			} else if (callable.kind == NK_PROPERTY_DECL) {
+				if (callable.getterBody != null) { mask.append(self.unreachedBodies.has(callable.getterBody) ? "0" : "1"); }
+				if (callable.setterBody != null) { mask.append(self.unreachedBodies.has(callable.setterBody) ? "0" : "1"); }
+			}
+		}
+		string value = mask.toString();
+		self.bodyCoverage.put(declaration, value);
+		return value;
+	}
+
+	/* Phase, structural declaration slot, then the selected body mask. */
+	private string section(int phase, Node declaration) { return Strings.fromInt(phase) + "\t" + self.codec.slot(declaration) + "\t" + self.coverage(declaration); }
 
 	public Vector<ValidationFact>? recorded(int phase, Node declaration) {
 		if (self.verify) { return null; }
@@ -2990,7 +3020,7 @@ class ValidationRecords implements IValidationRecords {
 			fprintf(stderr, "records: live %s (group %s, loaded %d)\n", self.codec.slot(declaration), group, self.loaded.has(group) ? 1 : 0);
 		}
 		if (group.isEmpty() || self.unwritable.has(group)) { return false; }
-		return self.verify || !self.loaded.has(group);
+		return self.verify || !self.loaded.has(group) || !self.loaded.get(group).has(self.section(phase, declaration));
 	}
 
 	public bool finish(int phase, Node declaration, ValidationJournal journal) {
@@ -2999,7 +3029,7 @@ class ValidationRecords implements IValidationRecords {
 		string? text = self.codec.encode(declaration, journal, self.foreign.get(group));
 		if (phase == RECORD_PHASE_VALIDATE) { self.journaled = self.journaled + 1; }
 		string slot = self.section(phase, declaration);
-		if (self.loaded.has(group)) {
+		if (self.loaded.has(group) && self.loaded.get(group).has(slot)) {
 			/* Verifying: the record must equal the live journal, and must
 			 * resolve to nodes that encode back to the same text. */
 			Map<string, string> declarations = self.loaded.get(group);
@@ -3018,10 +3048,8 @@ class ValidationRecords implements IValidationRecords {
 			self.unwritable.put(group, true);
 			return true;
 		}
-		if (!self.writing.has(group)) { self.writing.put(group, StringBuilder()); }
-		StringBuilder out = self.writing.get(group);
-		out.append("d\t" + slot + "\n");
-		out.append(text);
+		if (!self.writing.has(group)) { self.writing.put(group, {}); }
+		self.writing.get(group).put(slot, text);
 		return true;
 	}
 
@@ -3044,7 +3072,7 @@ class ValidationRecords implements IValidationRecords {
 	public bool reusable(Node declaration) {
 		if (self.verify) { return false; }
 		string group = self.groupOf(declaration);
-		return !group.isEmpty() && self.loaded.has(group) && !self.abandoned.has(group);
+		return !group.isEmpty() && self.loaded.has(group) && !self.abandoned.has(group) && self.loaded.get(group).has(self.section(RECORD_PHASE_VALIDATE, declaration));
 	}
 
 	private string instanceKey(string group) { return SHA256.digest("validation-instances-v2\n" + self.keys.get(group)); }
@@ -3089,13 +3117,14 @@ class ValidationRecords implements IValidationRecords {
 	}
 
 	public Vector<ValidationFact>? recordedInstance(Node template, string section) {
+		string coveredSection = section + "\t" + self.coverage(template);
 		if (self.verify) { return null; }
 		string group = self.groupOf(template);
 		/* After validation, an instance scan reads validation's facts. */
 		if (group.isEmpty() || (section.startsWith("after\t") && self.abandoned.has(group))) { return null; }
 		Map<string, string> sections = self.instances(group);
-		if (!sections.has(section)) { return null; }
-		Vector<ValidationFact>? facts = self.codec.decode(sections.get(section));
+		if (!sections.has(coveredSection)) { return null; }
+		Vector<ValidationFact>? facts = self.codec.decode(sections.get(coveredSection));
 		if (facts != null) { self.instancesReplayed = self.instancesReplayed + 1; }
 		return facts;
 	}
@@ -3106,12 +3135,13 @@ class ValidationRecords implements IValidationRecords {
 	}
 
 	public bool finishInstance(Node template, string section, ValidationJournal journal) {
+		string coveredSection = section + "\t" + self.coverage(template);
 		string group = self.groupOf(template);
 		Map<string, bool> files = {};
 		string? text = self.codec.encode(template, journal, files);
 		if (self.verify) {
 			Map<string, string> sections = self.instances(group);
-			if (sections.has(section)) { return text != null && sections.get(section).equals(text); }
+			if (sections.has(coveredSection)) { return text != null && sections.get(coveredSection).equals(text); }
 		}
 		if (text == null) {
 			self.instancesUnwritable.put(group, true);
@@ -3122,7 +3152,7 @@ class ValidationRecords implements IValidationRecords {
 		string? dependencies = self.dependencyLines(group, files);
 		if (dependencies == null) { return true; }
 		if (!self.instancesWritten.has(group)) { self.instancesWritten.put(group, {}); }
-		self.instancesWritten.get(group).put(section, dependencies + text);
+		self.instancesWritten.get(group).put(coveredSection, dependencies + text);
 		return true;
 	}
 
@@ -3155,8 +3185,9 @@ class ValidationRecords implements IValidationRecords {
 	public void persist() {
 		for group in self.abandoned.keys() { self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-void", "")); }
 		for group in self.writing.keys() {
-			if (self.unwritable.has(group) || self.loaded.has(group)) { continue; }
+			if (self.unwritable.has(group) || self.abandoned.has(group) || self.verify) { continue; }
 			StringBuilder text = StringBuilder();
+			if (self.loadedDependencies.has(group)) { text.append(self.loadedDependencies.get(group)); }
 			bool complete = true;
 			Map<string, bool> files = {};
 			if (self.foreign.has(group)) { files = self.foreign.get(group); }
@@ -3175,8 +3206,15 @@ class ValidationRecords implements IValidationRecords {
 				}
 			}
 			if (!complete) { continue; }
-			text.append(self.writing.get(group).toString());
-			self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-v5", text.toString()));
+			Map<string, string> written = self.writing.get(group);
+			if (self.loaded.has(group)) {
+				Map<string, string> previous = self.loaded.get(group);
+				for slot in previous.keys() {
+					if (!written.has(slot)) { text.append("d\t" + slot + "\n" + previous.get(slot)); }
+				}
+			}
+			for slot in written.keys() { text.append("d\t" + slot + "\n" + written.get(slot)); }
+			self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-v6", text.toString()));
 		}
 		for group in self.instancesWritten.keys() {
 			if (self.instancesUnwritable.has(group) || self.verify) { continue; }

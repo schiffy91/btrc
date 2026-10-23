@@ -31,7 +31,7 @@ import ./Generics.btrc;
 import ./ownership/Calls.btrc;
 import ./ownership/CycleBoundaries.btrc;
 import ./ownership/Lifetime.btrc;
-import ./Reachability.btrc;
+import ../../analyzer/Reachability.btrc;
 import ./ownership/ManagedTypes.btrc;
 import ./ownership/Operands.btrc;
 import ./ownership/Semantics.btrc;
@@ -153,6 +153,14 @@ class IRLowerer {
 				for argument in methodPlan.instance.methodArgs { instantiatedTypes.push(argument); }
 			}
 			self.context.reachability = StdlibReachability(program.declarations(), stdlibKeys, instantiated, instantiatedTypes);
+		}
+		if (self.analyzed.unreachedStdlibBodies.len > 0) {
+			StdlibReachability? reachability = self.context.reachability;
+			if (reachability == null) { throw "Stdlib lowering requires semantic body coverage"; }
+			Map<Node, bool> excluded = reachability.unreachedBodies(program.declarations());
+			for body in self.analyzed.unreachedStdlibBodies.keys() {
+				if (!excluded.has(body)) { throw "Stdlib lowering selected a body that semantic analysis did not check"; }
+			}
 		}
 		if (facts != null && !facts.reachabilityComputed) {
 			facts.reachability = self.context.reachability;

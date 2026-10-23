@@ -79,7 +79,7 @@ EXPECTED_BTRC_FILES = frozenset(
     ir/lowering/Expressions.btrc
     ir/lowering/Functions.btrc
     ir/lowering/Generics.btrc
-    ir/lowering/Reachability.btrc
+    analyzer/Reachability.btrc
     ir/lowering/Lowerer.btrc
     ir/lowering/ownership/Calls.btrc
     ir/lowering/ownership/CycleBoundaries.btrc

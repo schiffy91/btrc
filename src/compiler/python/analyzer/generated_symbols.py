@@ -203,7 +203,7 @@ class GeneratedSymbolRegistry:
         for declaration in self.session.declarations(program):
             if isinstance(declaration, PreprocessorDirective):
                 self._validate_preprocessor_symbols(declaration, claims)
-            for node in self._walk_ast(declaration):
+            for node in self._walk_ast(declaration, self.session.unreached_stdlib_bodies):
                 if not isinstance(node, Identifier):
                     continue
                 node_id = id(node)
@@ -305,7 +305,7 @@ class GeneratedSymbolRegistry:
             )
 
     @staticmethod
-    def _walk_ast(root):
+    def _walk_ast(root, excluded=frozenset()):
         pending = [root]
         seen: set[int] = set()
         while pending:
@@ -315,7 +315,7 @@ class GeneratedSymbolRegistry:
             if isinstance(value, (list, tuple)):
                 pending.extend(reversed(value))
                 continue
-            if not is_dataclass(value) or id(value) in seen:
+            if not is_dataclass(value) or id(value) in seen or id(value) in excluded:
                 continue
             seen.add(id(value))
             yield value

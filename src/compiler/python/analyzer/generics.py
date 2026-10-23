@@ -417,6 +417,7 @@ class GenericAnalyzer:
                     ),
                 )
             return
+        self.session.callable_owner_demands.add(receiver.base)
         if not cls.generic_params:
             return
         callable_identity = ClassCallableIdentity(receiver.base, kind, callable_name)
@@ -697,7 +698,7 @@ class GenericAnalyzer:
             plan.append((type_expr, self._substitution_names(type_expr)))
 
         def visit(value):
-            if value is None:
+            if value is None or id(value) in self.session.unreached_stdlib_bodies:
                 return
             if isinstance(value, TypeExpr):
                 add_type(value)

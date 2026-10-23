@@ -356,6 +356,7 @@ class RealtimeAnalyzer {
 	}
 
 	private void addCallable(string key, string label, Node declaration, Node? body, string owner) {
+		if (!self.analyzed.bodyReached(body)) { return; }
 		RealtimeCallable callable = RealtimeCallable(key, label, declaration);
 		callable.body = body;
 		Node? indexed = self.indexOwner;
