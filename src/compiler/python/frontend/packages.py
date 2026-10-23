@@ -1065,6 +1065,7 @@ class NativeLinkPlan:
         if not selected.declarations and not selected.bindings:
             return self
         known = {package.name: package for package in packages}
+        existing_names = set()
         for existing in self.packages:
             if not existing.name.startswith(self.STDLIB_PACKAGE_PREFIX):
                 continue
@@ -1074,14 +1075,16 @@ class NativeLinkPlan:
                 and self._source_identity(existing.root) == self._source_identity(package.root)
                 and existing.manifest_hash == package.manifest_hash
             ):
-                return self
+                existing_names.add(existing.name)
+                continue
             raise IncludeResolutionError(
                 f"package identity {existing.name!r} is reserved for compiler-owned stdlib runtimes"
             )
         return NativeLinkPlan(
             self.target,
-            self.packages + selected.packages,
-            self.declarations + selected.declarations,
+            self.packages + tuple(package for package in selected.packages if package.name not in existing_names),
+            self.declarations
+            + tuple(declaration for declaration in selected.declarations if declaration.package not in existing_names),
             self.generated_units,
         )
 
