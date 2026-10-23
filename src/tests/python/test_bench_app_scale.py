@@ -1,12 +1,14 @@
 """Application-scale workload generation, stage totals and promotion policy."""
 
+import json
 from pathlib import Path
 
 import pytest
 
 from tools.bench.app_scale import AppScaleFixture
 from tools.bench.baseline import Baseline
-from tools.bench.suite import Program, Suite, Timing
+from tools.bench.suite import IncrementalBuild, Program, Suite, Timing
+from tools.host_c_compiler import HostCCompiler
 
 
 def test_generated_application_workload_is_current() -> None:
@@ -114,3 +116,81 @@ def test_app_measurement_refuses_a_missing_stage_report(tmp_path: Path, monkeypa
     suite = Suite(Path("btrcc"), ["cc"], 1, tmp_path, reference=False, peaks=False)
     with pytest.raises(RuntimeError, match="missing stage marks"):
         suite._program(Program(AppScaleFixture.NAME, AppScaleFixture.path()), {})
+
+
+def test_incremental_edits_change_only_main_and_its_checked_result() -> None:
+    source = AppScaleFixture.path().read_text()
+    assert AppScaleFixture.edited_source(source, 0) == source
+    prefix = source.split("int main() {", 1)[0]
+    for revision in (1, 2, 101):
+        edited = AppScaleFixture.edited_source(source, revision)
+        assert edited.startswith(prefix)
+        assert f"int checksum = {revision};" in edited[len(prefix) :]
+        assert f"assert(checksum == {AppScaleFixture.checksum() + revision});" in edited
+        assert AppScaleFixture.expected_stdout(revision) != AppScaleFixture.expected_stdout()
+    with pytest.raises(ValueError, match="anchors"):
+        AppScaleFixture.edited_source("int main() {}", 1)
+
+
+def test_incremental_gate_does_not_wait_for_cold_compile_qualification() -> None:
+    baseline = {"incremental.edit_ms": 4_000.0, "btrcc.compile.CompileAppScale_ms": 30_000.0}
+    candidate = {**baseline, "incremental.edit_ms": 5_401.0}
+    findings = {finding.name: finding.status for finding in Baseline.compare(candidate, baseline)}
+    assert findings["incremental.edit_ms"] == "regression"
+    reported = {finding.name: finding.status for finding in Baseline.compare(candidate, baseline, gate_timings=False)}
+    assert reported["incremental.edit_ms"] == "slower"
+
+
+def test_incremental_timer_excludes_priming_and_writes(tmp_path: Path, monkeypatch) -> None:
+    events = []
+    times = iter((1.0, 1.3, 2.0, 2.2))
+    monkeypatch.setattr(IncrementalBuild, "prepare", lambda self, revision: events.append(("edit", revision)))
+    monkeypatch.setattr(IncrementalBuild, "run", lambda self, revision: events.append(("run", revision)))
+
+    def clock():
+        events.append(("clock", None))
+        return next(times)
+
+    monkeypatch.setattr("tools.bench.suite.time.perf_counter", clock)
+    suite = Suite(Path("btrcc"), ["cc"], 2, tmp_path)
+    suite._incremental(Program(AppScaleFixture.NAME, AppScaleFixture.path()))
+    assert suite.metrics == {"incremental.edit_ms": 200.0}
+    assert events == [
+        ("edit", 0),
+        ("run", 0),
+        ("run", 0),
+        ("edit", 1),
+        ("clock", None),
+        ("run", 1),
+        ("clock", None),
+        ("edit", 2),
+        ("clock", None),
+        ("run", 2),
+        ("clock", None),
+    ]
+
+
+def test_incremental_build_reuses_real_objects_and_rejects_stale_output(tmp_path: Path, immutable_btrcc: Path) -> None:
+    """Exercise the real compiler, object cache, linker and executable without timing them."""
+
+    source = f"""#include <assert.h>
+int main() {{
+\tint checksum = 0;
+\tchecksum += {AppScaleFixture.checksum()};
+\tassert(checksum == {AppScaleFixture.checksum()});
+\tprint(f"PASS: app-scale models={len(AppScaleFixture.MODELS)} checksum={{checksum}}");
+\treturn 0;
+}}
+"""
+    suite = Suite(immutable_btrcc, HostCCompiler.configured(), 1, tmp_path)
+    build = IncrementalBuild(immutable_btrcc, suite.cc, tmp_path, suite.peak_environment(), source)
+    build.prepare(0)
+    build.run(0)
+    build.run(0)
+    report = json.loads((tmp_path / "native-0.json").read_text())
+    assert report["reused_units"] > 0
+    with pytest.raises(RuntimeError, match="output failed the workload contract"):
+        build.run(1)
+    for revision in (1, 2):
+        build.prepare(revision)
+        build.run(revision)

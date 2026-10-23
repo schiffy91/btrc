@@ -2001,7 +2001,7 @@ is not the final hosted gate or complete BTRSmith/Linux acceptance.
 
 ### CX-APP-SCALE-BENCH (2026-10-23)
 
-Codex reserves `codex/app-scale-benchmark-20261023` for issue #5 under D29.
+Codex reserves `codex/app-scale-benchmark-20261023` for issues #5 and #9 under D29.
 Owned paths: `tools/bench/{app_scale,suite,baseline}.py`, the generated
 `src/tests/benchmarks/CompileAppScale.btrc`, focused benchmark tests under
 `src/tests/python/`, and benchmark documentation.
@@ -2017,3 +2017,11 @@ Existing per-mark attribution metrics retain their policy.
 Local work verifies generation, compilation, output and comparison policy.
 Timing acceptance requires the existing quiet-host protocol or hosted CI;
 no new baseline or performance claim is inferred from correctness runs.
+
+The same workload packet supplies #9's `incremental.edit_ms` measurement.
+Each sample changes the scratch app module's main body and expected checksum,
+then compiles module units, links through the native object cache at -O1 and
+runs the result. Cache priming and source editing are outside the timed span.
+Every sampled source revision is new; checking its distinct output rejects
+stale executables. Existing per-platform timing comparisons apply. Real
+BTRSmith measurements and platform baseline promotion remain outstanding.

@@ -83,8 +83,22 @@ class AppScaleFixture:
         return sum(400 * index + 16 for index in range(len(cls.MODELS)))
 
     @classmethod
-    def expected_stdout(cls) -> str:
-        return f"PASS: app-scale models={len(cls.MODELS)} checksum={cls.checksum()}\n"
+    def expected_stdout(cls, revision: int = 0) -> str:
+        return f"PASS: app-scale models={len(cls.MODELS)} checksum={cls.checksum() + revision}\n"
+
+    @classmethod
+    def edited_source(cls, source: str, revision: int) -> str:
+        """Change one module's main body, including its checked result."""
+
+        if revision < 0:
+            raise ValueError("an app-scale edit revision must be nonnegative")
+        before = "int main() {\n\tint checksum = 0;"
+        assertion = f"assert(checksum == {cls.checksum()});"
+        if source.count(before) != 1 or source.count(assertion) != 1:
+            raise ValueError("app-scale edit anchors do not match the generated workload")
+        return source.replace(before, f"int main() {{\n\tint checksum = {revision};").replace(
+            assertion, f"assert(checksum == {cls.checksum() + revision});"
+        )
 
     @classmethod
     def render(cls) -> str:

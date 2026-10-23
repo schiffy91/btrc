@@ -1990,6 +1990,16 @@ disable the gate. Reference compile time stays informational, and hosted
 `--timings report` runs retain their reporting-only timing policy. This fixture
 complements the BTRSmith cold/edit budgets in `tools/budget_bench.py`.
 
+The workload also records `incremental.edit_ms`: compile, link and run after
+editing one scratch module. It primes the module and native object caches,
+then gives each sample a new main-body edit and a distinct checked checksum.
+Source editing and priming are outside the timer. The development build uses
+module units, one compiler worker and one native worker, and -O1 without LTO.
+This metric uses the normal per-platform 35% timing tolerance independently
+of the cold-compile qualification; hosted `--timings report` remains
+informational. Recording this fixture does not establish BTRSmith's separate
+2–5 second real-application budget.
+
 The corpus runner (`src/tests/runner.py`) executes every program through both
 compilers and compares stdout to a golden file, so the two compilers are held
 to identical behavior by the same tests. The harness builds the self-hosted

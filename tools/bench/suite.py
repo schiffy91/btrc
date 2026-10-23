@@ -246,6 +246,71 @@ class Workload:
 
 
 @dataclass
+class IncrementalBuild:
+    """Rebuild one scratch app module through the production caches and linker."""
+
+    btrcc: Path
+    cc: list[str]
+    directory: Path
+    env: dict[str, str]
+    original: str
+
+    def prepare(self, revision: int) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        (self.directory / "CompileAppScale.btrc").write_text(
+            AppScaleFixture.edited_source(self.original, revision), encoding="utf-8"
+        )
+
+    def run(self, revision: int) -> None:
+        env = {name: value for name, value in self.env.items() if name != TIMING_VARIABLE}
+        env["BTRC_CACHE_DIR"] = str(self.directory / "cache")
+        source = self.directory / "CompileAppScale.btrc"
+        generated = self.directory / "app.c"
+        plan = self.directory / "app.link.json"
+        binary = self.directory / "app"
+        runner = partial(subprocess.run, env=env, cwd=self.directory, timeout=COMMAND_TIMEOUT)
+        compiled = runner(
+            [
+                str(self.btrcc),
+                "--strict-imports",
+                "--debug",
+                "--emit-link-plan",
+                str(plan),
+                "--emit-units",
+                str(self.directory / "app"),
+                "--module-units",
+                "--jobs",
+                "1",
+                str(source),
+                "-o",
+                str(generated),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if compiled.returncode:
+            raise RuntimeError(f"app-scale edit {revision}: compile failed:\n{compiled.stderr[:2000]}")
+        NativePlanBuilder(runner=partial(subprocess.run, env=env, timeout=COMMAND_TIMEOUT)).build(
+            plan_path=plan,
+            generated_c=generated,
+            output=binary,
+            cc=self.cc,
+            optimization=1,
+            jobs=1,
+            object_cache=self.directory / "objects",
+            report_path=self.directory / f"native-{revision}.json",
+            compile_flags=CFLAGS,
+            link_flags=LIBS,
+        )
+        executed = runner([str(binary)], capture_output=True, text=True)
+        if executed.returncode or executed.stdout != AppScaleFixture.expected_stdout(revision):
+            raise RuntimeError(
+                f"app-scale edit {revision}: output failed the workload contract "
+                f"(exit {executed.returncode}): {executed.stdout!r}\n{executed.stderr[:2000]}"
+            )
+
+
+@dataclass
 class Suite:
     btrcc: Path
     cc: list[str]
@@ -281,11 +346,30 @@ class Suite:
         for program in programs:
             if not self.peak_only:
                 self._program(program, env)
+                if program.name == AppScaleFixture.NAME:
+                    self._incremental(program)
             if self.peaks:
                 self._program_peak(program)
         for workload in self.workloads:
             self._workload_peak(workload)
         return self.metrics
+
+    def _incremental(self, program: Program) -> None:
+        directory = self.out_dir / "incremental"
+        shutil.rmtree(directory, ignore_errors=True)
+        build = IncrementalBuild(
+            self.btrcc, self.cc, directory, self.peak_environment(), program.path.read_text(encoding="utf-8")
+        )
+        build.prepare(0)
+        build.run(0)
+        build.run(0)
+        samples = []
+        for revision in range(1, max(1, self.repeat) + 1):
+            build.prepare(revision)
+            started = time.perf_counter()
+            build.run(revision)
+            samples.append((time.perf_counter() - started) * 1000)
+        self.metrics["incremental.edit_ms"] = round(min(samples), 3)
 
     def _program_peak(self, program: Program) -> None:
         """The compile's peak memory, the lowest of up to three samples."""
