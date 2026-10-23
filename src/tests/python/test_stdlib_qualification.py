@@ -189,7 +189,10 @@ def test_strict_check_catches_unused_imported_body_without_writing_sources(tmp_p
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
-def test_strict_check_composes_native_bindings_from_sibling_packages(tmp_path, request, frontend):
+@pytest.mark.parametrize("with_sdk", [False, True])
+def test_strict_check_composes_native_bindings_from_sibling_packages(
+    tmp_path, request, monkeypatch, frontend, with_sdk
+):
     root = tmp_path / "stdlib"
     root.mkdir()
     for module in (REPO / "src/stdlib").glob("*.btrc"):
@@ -201,10 +204,27 @@ name = "btrc_stdlib_runtime"
 Left = { path = "Left" }
 Right = { path = "Right" }
 """)
+    sdk = None
+    if with_sdk:
+        sdk = tmp_path / "sdk"
+        (sdk / "include").mkdir(parents=True)
+        (sdk / "lib/pkgconfig").mkdir(parents=True)
+        (sdk / "include/qualification-sdk.h").write_text(
+            '#ifndef BTRC_QUALIFICATION_SDK\n#error "target package flags are missing"\n#endif\n'
+        )
+        (sdk / "lib/pkgconfig/qualification-sdk.pc").write_text(
+            "Name: qualification-sdk\nDescription: test SDK\nVersion: 1\nCflags: -DBTRC_QUALIFICATION_SDK=1\n"
+        )
+        startup = tmp_path / "startup.sh"
+        startup.write_text("export CPATH=/missing-sdk\nexport PKG_CONFIG_PATH=/missing-sdk\n")
+        monkeypatch.setenv("BASH_ENV", str(startup))
     for group, symbol in (("Left", "leftValue"), ("Right", "rightValue")):
         directory = root / group
         directory.mkdir()
-        (directory / "Native.h").write_text(f"static inline int {symbol}(void) {{ return 7; }}\n")
+        (directory / "Native.h").write_text(
+            ("#include <qualification-sdk.h>\n" if with_sdk else "")
+            + f"static inline int {symbol}(void) {{ return 7; }}\n"
+        )
         (directory / "Native.btrc").write_text("// Native declarations belong to this module.\n")
         (directory / "btrc.toml").write_text(f'''manifest-version = 1
 [package]
@@ -217,11 +237,14 @@ language = "c"
 standard = "c11"
 symbols = ["{symbol}"]
 ''')
+        if with_sdk:
+            with (directory / "btrc.toml").open("a") as manifest:
+                manifest.write('[[native.pkg-config]]\nname = "qualification-sdk"\nmodules = ["Native"]\n')
     (root / "Left/Native.btrc").write_text(
         "import Library.Right.Native;\nint answer() { return leftValue() + rightValue(); }\n"
     )
     binary = request.getfixturevalue("semantic_btrcc") if frontend == "selfhost" else None
-    checker = StdlibCheck(StdlibInventory(root), PackageTarget.parse(None), frontend, binary)
+    checker = StdlibCheck(StdlibInventory(root), PackageTarget.parse(None), frontend, binary, sdk)
     output = tmp_path / "result"
     report = checker.run(output, modules=("Left/Native.btrc",))
     row = next(row for row in report["modules"] if row["module"] == "Left/Native.btrc")

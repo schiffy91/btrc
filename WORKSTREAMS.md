@@ -2058,3 +2058,22 @@ allocation-failure tests across both compilers and sanitizer modes. The native
 composition repair is `4c2857c2`; stdlib diagnostic repairs are `6afd11fd`.
 Full strict module runs and hosted CI remain outstanding. These changes are
 local and have not yet been pushed to PR115.
+
+CX-STDLIB-ANALYSIS-18 Windows qualification follow-up: hosted strict run
+39995949811 at ca0194fe completed 127 modules and failed 23 per compiler.
+Twenty failures lack the pinned target WebGPU package, two expose Win32's
+missing Callback import, and one lacks Windows JNI headers. This packet also
+owns `src/stdlib/GUI/Windows/Win32.btrc`, `nix/stdlib-windows-sdk.nix`, the
+WebGPU archive version passthrough, and the flake's SDK package export.
+The SDK reuses the existing WebGPU pin and nixpkgs' OpenJDK source pin for
+Windows JNI headers. The checker composes target include and package paths
+without allowing container startup scripts to replace them. No target is
+excluded to bypass a missing dependency. The flake export and shared archive
+metadata will be carried in a final fragment commit.
+
+The Windows SDK derivation built locally. The SDK and package-composition
+regressions pass through both compilers, including a container startup file
+that would otherwise replace the package/include paths. All 133 harness and
+workflow checks passed. Complete Windows strict runs now pass all 150
+applicable modules per compiler with zero diagnostics and the same 93 platform
+exclusions. These are cross-target semantic checks; no Windows executable ran.

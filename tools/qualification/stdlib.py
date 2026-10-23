@@ -135,13 +135,37 @@ class StdlibInventory:
 class StdlibCheck:
     """Run each source in a fresh compiler process against a disposable library copy."""
 
-    def __init__(self, inventory: StdlibInventory, target: PackageTarget, frontend: str, btrcc: Path | None) -> None:
+    def __init__(
+        self,
+        inventory: StdlibInventory,
+        target: PackageTarget,
+        frontend: str,
+        btrcc: Path | None,
+        native_sdk: Path | None = None,
+    ) -> None:
         if frontend == "selfhost" and (btrcc is None or not btrcc.is_file()):
             raise ValueError("selfhost checks require --btrcc pointing to a built compiler")
         self.inventory = inventory
         self.target = target
         self.frontend = frontend
         self.btrcc = btrcc.resolve() if btrcc is not None else None
+        self.native_sdk = native_sdk.resolve(strict=True) if native_sdk is not None else None
+        if self.native_sdk is not None:
+            for directory in ("include", "lib/pkgconfig"):
+                if not (self.native_sdk / directory).is_dir():
+                    raise ValueError(f"native SDK is missing {directory}: {self.native_sdk}")
+
+    def environment(self) -> dict[str, str]:
+        environment = dict(os.environ)
+        if self.native_sdk is not None:
+            for key, directory in (("CPATH", "include"), ("PKG_CONFIG_PATH", "lib/pkgconfig")):
+                environment[key] = os.pathsep.join(
+                    filter(None, (str(self.native_sdk / directory), environment.get(key)))
+                )
+            # Nix wrappers must not source a container startup file that replaces
+            # the already composed target package paths.
+            environment.pop("BASH_ENV", None)
+        return environment
 
     @staticmethod
     def compile_python(stdlib: str, source: str, target: str) -> int:
@@ -190,7 +214,7 @@ class StdlibCheck:
         if self.btrcc is not None:
             report["compiler_sha256"] = hashlib.sha256(self.btrcc.read_bytes()).hexdigest()
         report_path = output / "report.json"
-        environment = dict(os.environ)
+        environment = self.environment()
         if any(
             row["excluded"] is None
             and (not modules or row["module"] in modules)
@@ -340,6 +364,7 @@ class StdlibCommand:
         parser.add_argument("--report", type=Path, action="append", default=[])
         parser.add_argument("--frontend", choices=("python", "selfhost"), default="python")
         parser.add_argument("--btrcc", type=Path)
+        parser.add_argument("--native-sdk", type=Path, help="target SDK with include/ and lib/pkgconfig/")
         parser.add_argument("--output", type=Path)
         parser.add_argument("--timeout", type=int, default=600)
         parser.add_argument("--module", action="append", default=[])
@@ -358,7 +383,7 @@ class StdlibCommand:
             return 0
         if args.output is None or args.timeout <= 0:
             parser.error("check requires --output and a positive --timeout")
-        report = StdlibCheck(inventory, target, args.frontend, args.btrcc).run(
+        report = StdlibCheck(inventory, target, args.frontend, args.btrcc, args.native_sdk).run(
             args.output,
             timeout=args.timeout,
             modules=tuple(args.module),

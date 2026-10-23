@@ -57,15 +57,26 @@ jobs:
       - name: Build the host compiler
         id: compiler
         run: nix develop --command make NIX= btrcc
+      - name: Prepare the Windows SDK
+        if: matrix.id == 'windows'
+        run: |
+          sdk=$(nix build .#stdlib-windows-sdk --out-link "$RUNNER_TEMP/stdlib-windows-sdk" --print-out-paths)
+          echo "STDLIB_NATIVE_SDK=$sdk" >> "$GITHUB_ENV"
       - name: Check every applicable module with the reference compiler
         env:
           TARGET: ${{ matrix.target }}
-        run: nix develop --command python -m tools.qualification.stdlib check --target "$TARGET" --frontend python --output build/stdlib-strict/python
+        run: |
+          sdk=()
+          if [ -n "${STDLIB_NATIVE_SDK:-}" ]; then sdk=(--native-sdk "$STDLIB_NATIVE_SDK"); fi
+          nix develop --command python -m tools.qualification.stdlib check --target "$TARGET" --frontend python --output build/stdlib-strict/python "${sdk[@]}"
       - name: Check every applicable module with the self-hosted compiler
         if: ${{ !cancelled() && steps.compiler.outcome == 'success' }}
         env:
           TARGET: ${{ matrix.target }}
-        run: nix develop --command python -m tools.qualification.stdlib check --target "$TARGET" --frontend selfhost --btrcc bin/btrcc --output build/stdlib-strict/selfhost
+        run: |
+          sdk=()
+          if [ -n "${STDLIB_NATIVE_SDK:-}" ]; then sdk=(--native-sdk "$STDLIB_NATIVE_SDK"); fi
+          nix develop --command python -m tools.qualification.stdlib check --target "$TARGET" --frontend selfhost --btrcc bin/btrcc --output build/stdlib-strict/selfhost "${sdk[@]}"
       - name: Retain reports and diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
