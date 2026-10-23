@@ -54,6 +54,7 @@ BTRC_ALLOWED = {
         2,
         "the canonical AST renderer prints StructDecl and AnonymousMember fields",
     ),
+    "parser/Parser.btrc::parseAnonymousMember": (1, "the parser builds an anonymous record's member list"),
     "parser/Parser.btrc::parseStructDeclsInto": (1, "the parser builds the member list"),
     "parser/Parser.btrc::parseTypedefRecordInto": (1, "the parser builds a typedef record's member list"),
     "frontend/NativeImports.btrc::record": (2, NATIVE_FRONTEND),

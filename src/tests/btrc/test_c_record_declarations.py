@@ -154,6 +154,7 @@ def test_record_declaration_ast_positions_match(selfhost_driver, tmp_path: Path)
         "typedef enum Shade { DARK, LIGHT } Tint;\n"
         "typedef struct Later Later;\n"
         "struct Later { int value; } first = {7}, *next = &first;\n"
+        "typedef struct { int kind; union { struct { int x, y; }; float real; }; } Nested;\n"
     )
     parser = selfhost_driver(REPO / "src/compiler/btrc/tools/ParseMain.btrc", compile_flags=("-pedantic-errors",))
     parsed = subprocess.run([str(parser), str(source)], capture_output=True, text=True, timeout=30)

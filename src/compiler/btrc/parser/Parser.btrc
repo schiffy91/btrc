@@ -19,6 +19,16 @@ import ../syntax/Literals.btrc;
 import ../syntax/Tokens.btrc;
 import ../lexer/Lexer.btrc;
 
+/* A typedef may name its record after the body. Keep its first contextual
+ * refusal until that name is available. */
+class RecordParseContext {
+	public string keyword;
+	public string diagnostic = "";
+	public Token? token = null;
+
+	public RecordParseContext(string keyword) { self.keyword = keyword; }
+}
+
 class Parser {
 	public Vector<Token> tokens;
 	public int pos;
@@ -429,6 +439,10 @@ class Parser {
 	/* One class member declaration; a field declaration adds one per declarator. */
 	public void parseClassMemberInto(Vector<Node> members, bool allowAbstract) {
 		Token tok = self.peek();
+		if (self.startsRecordBody()) {
+			self.failAt("Anonymous struct and union members are only allowed in struct and union declarations", tok);
+			return;
+		}
 		string access = "";
 		if (tok.type == "PUBLIC") {
 			access = "public";
@@ -444,6 +458,10 @@ class Parser {
 			return;
 		}
 
+		if (self.startsRecordBody()) {
+			self.failAt("Anonymous struct and union members are only allowed in struct and union declarations", self.peek());
+			return;
+		}
 		bool isAbstractMethod = false;
 		if (allowAbstract && self.check("ABSTRACT")) {
 			isAbstractMethod = true;
@@ -637,8 +655,9 @@ class Parser {
 		}
 		if (self.check("LBRACE")) {
 			n.isForward = false;
-			Node? flexible = self.parseRecordMembersInto(n.fieldsMut(), n.isUnion);
-			if (flexible != null) { self.failUnionFlexibleArray(n.name, flexible); }
+			RecordParseContext context = RecordParseContext(tok.value);
+			self.parseRecordMembersInto(n.fieldsMut(), n.isUnion, context);
+			self.finishRecordMembers(context, n.name);
 		} else {
 			n.isForward = true;
 		}
@@ -662,28 +681,76 @@ class Parser {
 		self.expect("SEMICOLON");
 	}
 
-	/* A record's `{ member; ... }`, returning a union's first member of
-	 * unknown size. A union member is a plain C value, so neither unsized
-	 * spelling has a meaning there: `T[] name` is btrc's pointer-valued array,
-	 * refused here, and `T name[]` a flexible array member (C11 6.7.2.1p18
-	 * allows one only in a struct), refused by the caller once the union's
-	 * name is known. */
-	public Node? parseRecordMembersInto(Vector<Node> fields, bool isUnion) {
-		self.expect("LBRACE");
-		Node? flexible = null;
-		while (!self.check("RBRACE") && !self.atEnd()) {
-			Node? memberFlexible = self.parseStructFieldsInto(fields, isUnion);
-			if (flexible == null) { flexible = memberFlexible; }
+	public void deferRecordError(RecordParseContext context, string message, Token token) {
+		if (context.diagnostic == "") {
+			context.diagnostic = message;
+			context.token = token;
 		}
-		self.expect("RBRACE");
-		return flexible;
 	}
 
-	public void failUnionFlexibleArray(string unionName, Node member) { self.failAt(f"Union member '{unionName}.{member.name}' cannot be a flexible array member", Token("IDENT", member.name, member.line, member.col)); }
+	public void finishRecordMembers(RecordParseContext context, string name) {
+		Token? token = context.token;
+		if (token == null) { return; }
+		string message = context.diagnostic.replace("{record}", name).replace("{keyword}", context.keyword);
+		message = message.replace("{title}", context.keyword == "union" ? "Union" : "Struct");
+		self.failAt(message, token);
+	}
 
-	public Node? parseStructFieldsInto(Vector<Node> fields, bool isUnion) {
+	public bool startsRecordBody() { return (self.check("STRUCT") || self.check("UNION")) && (self.peekAt(1).type == "LBRACE" || (self.peekAt(1).type == "IDENT" && self.peekAt(2).type == "LBRACE")); }
+
+	/* Inline anonymous records retain their own member lists and have no tag. */
+	public void parseRecordMembersInto(Vector<Node> fields, bool isUnion, RecordParseContext context) {
+		self.expect("LBRACE");
+		while (!self.check("RBRACE") && !self.atEnd()) {
+			if (self.startsRecordBody()) {
+				Node anonymous = self.parseAnonymousMember(context);
+				fields.push(anonymous);
+				continue;
+			}
+			Node? flexible = self.parseStructFieldsInto(fields, isUnion, context);
+			if (flexible != null) {
+				self.deferRecordError(context, "Union member '{record}." + flexible.name + "' cannot be a flexible array member", Token("IDENT", flexible.name, flexible.line, flexible.col));
+			}
+		}
+		self.expect("RBRACE");
+	}
+
+	public Node parseAnonymousMember(RecordParseContext context) {
+		Token keyword = self.advance();
+		if (self.check("IDENT")) {
+			self.advance();
+			self.deferRecordError(context, "A " + keyword.value + " defined inside {keyword} '{record}' must be declared at file scope", keyword);
+		}
+		Node member = Node();
+		member.kind = NK_ANONYMOUS_MEMBER;
+		member.isUnion = keyword.type == "UNION";
+		member.line = keyword.line;
+		member.col = keyword.col;
+		self.parseRecordMembersInto(member.fieldsMut(), member.isUnion, context);
+		if (!self.check("SEMICOLON")) {
+			Node specifier = Node();
+			specifier.kind = NK_TYPE_EXPR;
+			specifier.base = "";
+			specifier.line = keyword.line;
+			specifier.col = keyword.col;
+			Node firstType = Parser.copySpecifier(specifier);
+			while (self.matchTok("STAR")) { firstType.pointerDepth++; }
+			Token name = self.expect("IDENT");
+			self.deferRecordError(context, "Member '" + name.value + "' of {keyword} '{record}' has an untagged " + keyword.value + " type; declare '" + keyword.value + " Name' at file scope or make the member anonymous", name);
+			Vector<Node> declarators = [];
+			self.parseDeclarators(declarators, firstType, name, keyword, specifier, false, true);
+		}
+		self.expect("SEMICOLON");
+		return member;
+	}
+
+	public Node? parseStructFieldsInto(Vector<Node> fields, bool isUnion, RecordParseContext context) {
 		Token start = self.peek();
 		Node ftype = self.parseType();
+		if (self.matchTok("SEMICOLON")) {
+			self.deferRecordError(context, "{title} '{record}' declares an unnamed member that is neither a bit-field nor an anonymous struct or union", start);
+			return null;
+		}
 		Node specifier = Parser.declaratorSpecifier(ftype);
 		Node declarator = self.parseDeclaratorName(ftype);
 		if (!isUnion && specifier.isArray) {
@@ -735,11 +802,11 @@ class Parser {
 			record.nameLine = tagTok.line;
 			record.nameCol = tagTok.col;
 		}
-		Node? flexible = null;
+		RecordParseContext context = RecordParseContext(keywordTok.value);
 		if (record.kind == NK_ENUM_DECL) {
 			self.parseEnumValuesInto(record.valuesMut());
 		} else {
-			flexible = self.parseRecordMembersInto(record.fieldsMut(), record.isUnion);
+			self.parseRecordMembersInto(record.fieldsMut(), record.isUnion, context);
 		}
 		Node specifier = Node();
 		specifier.kind = NK_TYPE_EXPR;
@@ -768,10 +835,8 @@ class Parser {
 			record.nameLine = namingDeclarator.nameLine;
 			record.nameCol = namingDeclarator.nameCol;
 		}
-		if (flexible != null) {
-			self.failUnionFlexibleArray(record.name, flexible);
-			return;
-		}
+		self.finishRecordMembers(context, record.name);
+		if (self.failed) { return; }
 		declarations.push(record);
 		for declarator in declarators {
 			declarator.type.base = keywordTok.value + " " + record.name;

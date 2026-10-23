@@ -5,6 +5,7 @@ import pytest
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import ParseError, Parser
 from src.compiler.python.syntax.ast.generated import (
+    AnonymousMember,
     AssignExpr,
     BinaryExpr,
     Block,
@@ -1618,3 +1619,42 @@ def test_cfor_loop_var_has_name_span():
         assert d.name_line > 0 and d.name_col > 0, f"{name} span unpopulated"
         landed = lines[d.name_line - 1][d.name_col - 1 : d.name_col - 1 + len(name)]
         assert landed == name, f"{name} span landed on {landed!r}"
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "struct Value { int kind; union { struct { int x; int y; }; float real; }; };",
+        "typedef struct { int kind; union { struct { int x; int y; }; float real; }; } Value;",
+    ],
+)
+def test_anonymous_record_members_preserve_nested_slots(declaration):
+    record = parse(declaration).declarations[0]
+    assert record.name == "Value"
+    assert len(record.fields) == 2
+    union = record.fields[1]
+    assert isinstance(union, AnonymousMember) and union.is_union
+    assert len(union.fields) == 2
+    structure = union.fields[0]
+    assert isinstance(structure, AnonymousMember) and not structure.is_union
+    assert [field.name for field in structure.fields] == ["x", "y"]
+    assert union.line == 1 and union.col == declaration.index("union") + 1
+    assert structure.line == 1 and structure.col == declaration.index("struct { int x") + 1
+
+
+@pytest.mark.parametrize("prefix, suffix", [("struct S", ";"), ("typedef struct", " S;")])
+@pytest.mark.parametrize(
+    "body, message",
+    [
+        ("int;", "Struct 'S' declares an unnamed member that is neither a bit-field nor an anonymous struct or union"),
+        (
+            "union { int value; } u;",
+            "Member 'u' of struct 'S' has an untagged union type; declare 'union Name' at file scope or make the member anonymous",
+        ),
+        ("union U { int value; };", "A union defined inside struct 'S' must be declared at file scope"),
+    ],
+)
+def test_anonymous_record_parser_refusals_use_enclosing_typedef_name(prefix, suffix, body, message):
+    with pytest.raises(ParseError) as error:
+        parse(prefix + " { " + body + " }" + suffix)
+    assert str(error.value).startswith(message + " at ")
