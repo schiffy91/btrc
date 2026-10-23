@@ -688,7 +688,11 @@ class SemanticResolver:
             record = self._record_declaration(result, current_type)
             if record is not None and not receiver_is_type:
                 field = TypeSystem.record_member(record, member)
-                current_type = field.type.base if field is not None else None
+                member_type = field.type if field is not None else None
+                if called:
+                    signature = TypeSystem.declaration_callable_signature(member_type, result.analyzed.typedef_table)
+                    member_type = signature[0] if signature else None
+                current_type = member_type.base if member_type is not None else None
             else:
                 current_type = self.resolve_member_type(
                     current_type, member, class_table, prefer_method=called, static_access=receiver_is_type

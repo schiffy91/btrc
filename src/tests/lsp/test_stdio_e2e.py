@@ -299,6 +299,8 @@ def test_identity_typedef_symbols_and_definition_over_stdio(tmp_path, keyword, b
         ("Record value; Record* pointer = &value;", "pointer->count"),
         ("Alias value;", "value.count"),
         ("Holder value;", "value.record.count"),
+        ("Callable value;", "value.callback()->count"),
+        ("AliasedCallable value;", "value.callback()->count"),
     ],
 )
 @pytest.mark.parametrize("imported", [False, True])
@@ -314,14 +316,17 @@ def test_anonymous_member_symbols_and_definition_over_stdio(tmp_path, declaratio
         "};\n"
         "typedef Record Alias;\n"
         "struct Holder { Record record; };\n"
+        "struct Callable { union { CFunction<Record*> callback; void* pointer; }; };\n"
+        "typedef CFunction<Record*> RecordCallback;\n"
+        "struct AliasedCallable { union { RecordCallback callback; void* pointer; }; };\n"
         f"int main() {{ {declaration} {access} = 7; return {access}; }}\n"
     )
     definition_path = path
-    access_line = 9
+    access_line = 12
     if imported:
         definition_path = tmp_path / "Records.btrc"
-        definition_path.write_text("\n".join(source.splitlines()[:9]) + "\n")
-        source = "import ./Records.btrc;\n" + source.splitlines()[9] + "\n"
+        definition_path.write_text("\n".join(source.splitlines()[:12]) + "\n")
+        source = "import ./Records.btrc;\n" + source.splitlines()[12] + "\n"
         access_line = 1
     path.write_text(source)
     uri = path.as_uri()

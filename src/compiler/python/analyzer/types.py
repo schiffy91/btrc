@@ -1454,10 +1454,21 @@ class TypeSystem:
         A ``CFunction<...>?`` is callable once the flow proves it non-null; the
         call site, not this shape, checks that.
         """
-        signature = self.function_pointer_signature(type_expr)
-        if signature is None and self.is_nullable_function_pointer(type_expr):
-            return self.canonical_type(type_expr).generic_args
-        return signature
+        return self.declaration_callable_signature(type_expr, self.index.typedef_table)
+
+    @classmethod
+    def declaration_callable_signature(cls, type_expr, typedefs):
+        """Resolve a declared callable without mutable analysis state."""
+        canonical = cls.canonical_declaration_type(type_expr, typedefs)
+        if (
+            canonical is None
+            or canonical.base not in _FUNCTION_POINTER_BASES
+            or canonical.is_array
+            or not canonical.generic_args
+        ):
+            return None
+        depth = canonical.pointer_depth - int(cls.nullable_collapses_reference_layer(canonical, base_is_reference=True))
+        return canonical.generic_args if depth == 0 else None
 
     def function_object_pointer_hint(self, target, source) -> str:
         """Explain a refused conversion between a function pointer and ``void*``.
