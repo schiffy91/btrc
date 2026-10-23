@@ -28,7 +28,17 @@ def test_override_requires_inherited_method(semantic_btrcc: Path, tmp_path: Path
         assert "is marked override but no inherited method exists" in result.stderr
 
 
-@pytest.mark.parametrize("member", ["int value;", "int value { get; }", "int (*callback)(int);", "Child() {}"])
+@pytest.mark.parametrize(
+    "member",
+    [
+        "int value;",
+        "int value { get; }",
+        "int (*callback)(int);",
+        "Child() {}",
+        "@realtime int value;",
+        "@realtime int (*callback)(int);",
+    ],
+)
 def test_override_refuses_non_method(semantic_btrcc: Path, tmp_path: Path, member: str) -> None:
     for result, _ in compile_both(
         semantic_btrcc, tmp_path, f"class Child {{ public override {member} }} int main() {{ return 0; }}"

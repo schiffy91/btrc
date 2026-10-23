@@ -1390,10 +1390,10 @@ class Parser:
         type_expr = self._parse_type_expr()
 
         if self._is_function_pointer_declarator(self.pos):
-            if is_realtime:
-                raise self._error("@realtime cannot be applied to fields or properties")
             if is_override:
                 raise self._error("override can only be applied to non-constructor methods")
+            if is_realtime:
+                raise self._error("@realtime cannot be applied to fields or properties")
             specifier = self._declarator_specifier(type_expr)
             name_tok, type_expr = self._parse_function_pointer_declarator(type_expr, name=True)
             assert name_tok is not None

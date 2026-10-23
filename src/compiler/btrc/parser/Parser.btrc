@@ -498,10 +498,10 @@ class Parser {
 			members.push(self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, isOverride, keepReturn));
 			return;
 		}
+		if (isOverride) { self.failAt("override can only be applied to non-constructor methods", nameTok); }
 		if (isRealtime) {
 			self.failAt("@realtime cannot be applied to fields or properties", nameTok);
 		}
-		if (isOverride) { self.failAt("override can only be applied to non-constructor methods", nameTok); }
 		Node specifier = Parser.declaratorSpecifier(typeExpr);
 		self.parseDeclaratorArraySuffix(typeExpr);
 		if (self.check("LBRACE") && self.isPropertyStart()) {
