@@ -1971,6 +1971,25 @@ make clean                  # Remove build artifacts
 
 `make help` prints the canonical, complete target list.
 
+`CompileAppScale` is the application-scale compiler workload in `make bench`.
+It imports the GUI, Audio, Image, GPU, HTTP, FileSystem and BackgroundJobs
+packages and runs 64 distinct model types through typed indexes, edits and
+undo histories. Both compiler outputs must print the checked checksum, even
+before a timing baseline exists. Native headers, objects and libraries come
+from each compiler's link plan. Runtime checks use package data operations and
+an inline worker pool; they need no window, audio device or GPU device.
+
+Regenerate the fixture with `python -m tools.bench.app_scale`; `--check`
+verifies the checked-in source. Select it with
+`make bench BENCH_ARGS="--programs CompileAppScale"` under the repository's
+measurement protocol. Its `analyze`, `lower`, `optimize` and `emit` metrics sum
+the complete stage, including its internal marks. Timings remain informational
+until a platform baseline records a self-host compile of at most 10 seconds.
+That baseline enables the normal 35% tolerance; a slower candidate cannot
+disable the gate. Reference compile time stays informational, and hosted
+`--timings report` runs retain their reporting-only timing policy. This fixture
+complements the BTRSmith cold/edit budgets in `tools/budget_bench.py`.
+
 The corpus runner (`src/tests/runner.py`) executes every program through both
 compilers and compares stdout to a golden file, so the two compilers are held
 to identical behavior by the same tests. The harness builds the self-hosted
