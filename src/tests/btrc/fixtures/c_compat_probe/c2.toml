@@ -8,9 +8,9 @@ row = "8"
 construct = "typedef struct { } T;"
 intent = "positive"
 status = "accepted"
-revision = "cf28fe7"
-python = { diagnostic = "Expected struct name, got LBRACE '{' at 2:16" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:16" }
+revision = "5885bf40"
+python = { exit = 0, stdout = "PASS: typedef records\n" }
+btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
 corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
@@ -19,9 +19,9 @@ row = "8"
 construct = "typedef struct P { } P;"
 intent = "positive"
 status = "accepted"
-revision = "cf28fe7"
-python = { diagnostic = "Expected typedef alias, got LBRACE '{' at 2:21" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:21" }
+revision = "5885bf40"
+python = { exit = 0, stdout = "PASS: typedef records\n" }
+btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
 corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
@@ -30,7 +30,7 @@ row = "8"
 construct = "anonymous struct/union members"
 intent = "positive"
 status = "rejected"
-revision = "cf28fe7"
+revision = "5885bf40"
 divergence = "diagnostic wording"
 python = { diagnostic = "Expected union name, got LBRACE '{' at 4:8" }
 btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 4:8" }
@@ -56,7 +56,7 @@ row = "8"
 construct = "an anonymous member repeating a field name"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
+revision = "5885bf40"
 divergence = "diagnostic wording"
 python = { diagnostic = "Expected union name, got LBRACE '{' at 3:8" }
 btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 3:8" }
@@ -304,9 +304,9 @@ row = "x-typedef-enum"
 construct = "typedef enum { } T;"
 intent = "positive"
 status = "accepted"
-revision = "cf28fe7"
-python = { diagnostic = "Expected enum name, got LBRACE '{' at 2:14" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:14" }
+revision = "5885bf40"
+python = { exit = 0, stdout = "PASS: typedef records\n" }
+btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
 corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
@@ -315,9 +315,10 @@ row = "x-typedef-enum"
 construct = "a repeated enumerator"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-python = { diagnostic = "Expected enum name, got LBRACE '{' at 1:14" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 1:14" }
+revision = "5885bf40"
+divergence = "diagnostic wording"
+python = { diagnostic = "Duplicate enum value 'RED' in enum 'Color' at 1:21" }
+btrcc = { diagnostic = "Duplicate enum value name 'RED' in enum 'Color' at 1:21" }
 source = '''
 typedef enum { RED, RED } Color;
 int main() { return 0; }
@@ -354,9 +355,9 @@ row = "x-enum-tag"
 construct = "enum Color c for a btrc enum"
 intent = "positive"
 status = "accepted"
-revision = "cf28fe7"
-python = { diagnostic = "Cannot assign 'Color' to variable 'color' of type 'enum Color' at 4:2" }
-btrcc = { c = "rejected" }
+revision = "5885bf40"
+python = { exit = 0, stdout = "PASS: typedef records\n" }
+btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
 corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
@@ -365,7 +366,7 @@ row = "x-enum-tag"
 construct = "enum Missing names no enum"
 intent = "negative"
 status = "known-divergence"
-revision = "cf28fe7"
+revision = "5885bf40"
 python = { c = "rejected" }
 btrcc = { c = "rejected" }
 source = '''

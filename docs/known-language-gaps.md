@@ -446,9 +446,6 @@ Known gaps around FAMs, recorded rather than fixed here:
 
 - `char16_t` and `pthread_t` elements are refused in both compilers with the
   misleading wording `cannot hold managed type`; neither is managed.
-- `enum Color d[]` spelled with the tag of a btrc enum is accepted and both
-  compilers emit invalid C: the x-enum-tag divergence, fixed by the enum-tag
-  lane. Write `Color d[]`.
 - `p->data.len` on an array member (fixed or flexible) emits invalid C in
   both compilers; `sizeof(r.get(p))` drops the variable use and trips
   `-Werror=unused-variable`.
