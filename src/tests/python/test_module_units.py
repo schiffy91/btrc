@@ -2318,3 +2318,115 @@ def test_module_atomic_types_keep_their_lock_free_proofs(tmp_path, immutable_btr
         for text in atomic_units:
             assert text.count("__btrc_atomic_lock_free_") == 1, frontend
             assert f"{macro} == 2" in text, frontend
+
+
+@pytest.mark.parametrize("generic", [False, True])
+def test_shared_span_callback_layouts_keep_frontend_order(tmp_path, immutable_btrcc, generic):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (source / "Shared.btrc").write_text(
+        "typedef RealtimeFunction<int, Span<int>, Span<const int>> Processor;\n"
+        "@realtime int process(Span<int> values, Span<const int> source) { return 0; }\n"
+        "class Holder {\n"
+        "    public Processor callback;\n"
+        "    public int value;\n"
+        "    public Holder(int value) { self.callback = process; self.value = value; }\n"
+        "}\n"
+    )
+    local_type = "Box<int>" if generic else "Marker"
+    declaration = (
+        "class Box<T> { public T value; public Box(T value) { self.value = value; } }"
+        if generic
+        else "class Marker { public int value; public Marker(int value) { self.value = value; } }"
+    )
+    (source / "Local.btrc").write_text(
+        "import ./Shared.btrc;\n" + declaration + "\n"
+        "int sample() {\n"
+        "    Holder holder = new Holder(15);\n"
+        f"    {local_type} marker = new {local_type}(7);\n"
+        "    return holder.value + marker.value;\n"
+        "}\n"
+    )
+    (source / "Main.btrc").write_text("import ./Local.btrc;\nint main() { print(sample()); return 0; }\n")
+    sanitizer = require_sanitizers(tmp_path)
+    generated = {}
+    for frontend, command in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = tmp_path.resolve() / frontend
+        output.mkdir()
+        compiled = subprocess.run(
+            [
+                *command,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                "--module-units",
+                "--jobs",
+                "1",
+                "--emit-units",
+                str(output / "program"),
+                "-o",
+                str(output / "program.c"),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        units = sorted(output.glob("program*.c"))
+        generated[frontend] = {unit.name: unit.read_text() for unit in units}
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "span module qualification requires a C compiler"
+            executable = output / mode
+            built = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *map(str, units),
+                    "-lm",
+                    "-lpthread",
+                    "-o",
+                    str(executable),
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert built.returncode == 0, built.stderr
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0, ran.stderr
+            assert ran.stdout == "22\n"
+    local_units = {
+        frontend: next(text for name, text in units.items() if ".unit-Local-" in name)
+        for frontend, units in generated.items()
+    }
+    for frontend, text in local_units.items():
+        layouts = re.findall(r"^struct (\w+) \{", text, re.MULTILINE)
+        spans = [name for name in layouts if name.startswith(("btrc_Span_", "btrc_ZQgb8_5370616e"))]
+        assert len(spans) == 2, (frontend, layouts)
+        assert "const int* data;" in text and "int* data;" in text
+    assert local_units["reference"] == local_units["selfhost"]
