@@ -2093,3 +2093,20 @@ pointer, callback and class-conversion regressions before the source change,
 then qualify sequencing, ownership, callback, module and raw C parity paths.
 The prior combined application candidate remains on its separate diagnostic
 branch with all evidence preserved; refresh that composition after qualification.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: declared cycle-visitor storage
+
+The assignment-alias follow-up also owns
+`src/compiler/btrc/ir/lowering/ownership/CycleBoundaries.btrc`. Its managed-value
+regression still differs after assignment-result typing is repaired: the class
+visitor creates a canonical `Base*` accessor beside the declared `Value`
+accessor already used by the field's store. Both frontends pass strict C11 and
+sanitizer execution. The reference visitor uses the field's declared C type.
+
+Use that declared storage type for the visitor's existing slot-adapter request;
+retain canonical type classification and runtime descriptors. Keep the
+regression's whole-C comparison, extend it to generic holders, and run cycle,
+polymorphic ARC, assignment, callback, module and parity checks. The separate
+class-alias upcast defect is preserved in reproduction `8d7433bf`; it remains
+open and is not covered by this storage repair.
