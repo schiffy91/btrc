@@ -416,7 +416,7 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_nat
     report = directory / "observations.json"
     diagnostic = E40LoopDiagnostic(directory) if os.environ.get("BTRC_UI2_E40_TRACE") == "1" else None
     if diagnostic is not None:
-        assert sanitized and provenance["frontend"] == "selfhost" and trial == "slider"
+        assert sanitized and provenance["frontend"] == "selfhost" and trial in {"slider", "resize"}
         provenance["diagnostic"] = diagnostic.retain_build(executable)
         provenance["diagnostic"]["full_e40_qualification"] = False
         compiler = Path(os.environ["BTRC_TEST_BTRCC"]).resolve(strict=True)

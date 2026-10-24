@@ -1374,7 +1374,19 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                     + (["e40-diagnostic"] if workflow == "macos.yml" else [])
                     + (["user-census-diagnostic"] if workflow == "windows.yml" else []),
                     "default": "full",
-                }
+                },
+                **(
+                    {
+                        "diagnostic_trial": {
+                            "description": "Native tracking route for the E40 diagnostic",
+                            "type": "choice",
+                            "options": ["slider", "resize"],
+                            "default": "slider",
+                        }
+                    }
+                    if workflow == "macos.yml"
+                    else {}
+                ),
             }
         }, workflow
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
@@ -2158,15 +2170,28 @@ def test_mac_loop_diagnostic_is_opt_in_and_preserves_exact_native_trials() -> No
         "CI": "true",
         "BTRC_UI2_HOSTED_E40": "1",
         "BTRC_UI2_E40_TRACE": "1",
+        "BTRC_UI2_E40_TRIAL": "${{ inputs.diagnostic_trial || 'slider' }}",
         "BTRC_UI2_E40_ARTIFACTS": "build/e40-diagnostic/native",
         "BTRC_TEST_TRANSPILE_TIMEOUT": "600",
     }
     script = run["run"]
-    nodes = re.findall(r"'([^'\n]+::test_macos_ui2_e40\[[^'\n]+\])'", script)
-    assert nodes == [
-        "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-desktop-slider]",
-        "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-host-slider]",
-    ]
+    selection = script[script.index('case "$BTRC_UI2_E40_TRIAL"') : script.index("printf '%s\\n'")]
+    for trial in ("slider", "resize", "bursts", "resize; exit 0"):
+        result = subprocess.run(
+            ["bash", "-eu", "-c", selection + "printf '%s\\n' \"${nodes[@]}\""],
+            env={**os.environ, "BTRC_UI2_E40_TRIAL": trial},
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if trial not in {"slider", "resize"}:
+            assert result.returncode == 2 and not result.stdout
+            continue
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [
+            f"src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-{entry}-{trial}]"
+            for entry in ("desktop", "host")
+        ]
     assert "test-e40-macos" not in script and "tools.ui.e40" not in script
     assert "generated-check gpu-required btrcc" in script
     assert 'export BTRC_TEST_BTRCC="$PWD/bin/btrcc"' in script

@@ -118,7 +118,12 @@ static void traceEvent(const char *phase, NSEvent *event, NSEventMask mask, NSRu
         if (event) {
             row[@"type"] = @(event.type); row[@"timestamp_seconds"] = @(event.timestamp); row[@"window"] = @(event.windowNumber);
             if (event.type == NSEventTypeApplicationDefined) { row[@"subtype"] = @(event.subtype); row[@"data1"] = @(event.data1); row[@"data2"] = @(event.data2); }
-            if (event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseDragged || event.type == NSEventTypeLeftMouseUp) { row[@"event_number"] = @(event.eventNumber); }
+            if (event.type == NSEventTypeMouseMoved || event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseDragged || event.type == NSEventTypeLeftMouseUp) {
+                row[@"event_number"] = @(event.eventNumber);
+                row[@"location"] = NSStringFromPoint(event.locationInWindow);
+                CGEventRef native = event.CGEvent;
+                row[@"native_identity"] = native ? @(CGEventGetIntegerValueField(native, kCGEventSourceUserData)) : NSNull.null;
+            }
         }
         NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:row options:0 error:&error];
         assert(data && !error && fwrite(data.bytes, 1, data.length, eventTraceStream) == data.length);
