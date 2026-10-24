@@ -2177,3 +2177,22 @@ suites passed 118 executable/contract cases; one structural assertion still
 expects the old untyped rememberOverride call. Update that assertion to require
 the actual staged type. Production candidate behavior, reference and emitted-C
 checks already passed; rerun the immediate-lambda contract after this test edit.
+
+### 2026-10-24: unary-update receiver lifetime (Codex, PR120 follow-up)
+
+Branch `codex/unary-update-ownership-20261024` starts at `39af6ea` in
+`~/.cache/btrc/unary-update-20261024`, the sixth writer clone. Owned paths are
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Semantics.btrc`, and
+`src/tests/btrc/test_operand_sequencing_contract.py`, plus this claim.
+D29 authorizes this harmonization work. The discarded-assignment packet owns
+separate test additions and analyzer changes; preserve both on composition.
+
+Nested managed-field increments retain their receiver in the self-hosted
+compiler even when no later operand can invalidate it. The reference compiler
+omits that boundary. Baseline reductions pass native execution but differ in
+emitted C. The repair must preserve temporary-receiver lifetime, index side
+effects, exception cleanup and virtual storage updates. Assignment target
+retention remains a separate contract. Focused, broader and application
+qualification are required before publication, which waits for the active
+hosted CI train.
