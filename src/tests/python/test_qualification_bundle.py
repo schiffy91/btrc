@@ -502,7 +502,7 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
     assert expected["ci.yml/bench"] == ["bench-results"]
     assert expected["ci.yml/native-gui"] == ["skip-report-ci-native-gui", "junit-ci-native-gui"]
     assert expected["macos.yml/native-gui"] == [
-        f"{kind}-macos-native-gui-macos-{index}" for index in range(2) for kind in ("skip-report", "junit")
+        f"{kind}-macos-native-gui-macos-{index}" for index in range(4) for kind in ("skip-report", "junit")
     ]
     assert expected["ci.yml/linux-gui"] == [
         f"{kind}-ci-linux-gui-{session}-{index}"

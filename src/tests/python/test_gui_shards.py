@@ -438,7 +438,8 @@ def test_runner_admission_precedes_evidence_or_execution(
         assert not calls and not output.exists()
 
 
-def test_two_macos_cells_execute_real_grouped_pytest_and_prove_union(tmp_path, monkeypatch):
+@pytest.mark.parametrize("count", [2, 4])
+def test_macos_cells_execute_real_grouped_pytest_and_prove_union(tmp_path, monkeypatch, count):
     """Only synthetic arithmetic runs; no AppKit application or system input."""
     from src.tests.process_limits import TOOL_TIMEOUT
     from tools.ui import gui_shards
@@ -463,19 +464,19 @@ def test_two_macos_cells_execute_real_grouped_pytest_and_prove_union(tmp_path, m
     monkeypatch.setenv("PYTEST_ADDOPTS", "")
     monkeypatch.setenv("BTRC_TEST_RUNNER", "macos-hosted")
     evidence_root = tmp_path / "evidence"
-    for index in range(2):
+    for index in range(count):
         output = evidence_root / f"macos-{index}"
         GUIShardRun(
-            "macos", index, 2, output, tmp_path / f"skip-{index}.json", ["test_sample.py"], ["-n", "3", "-q"]
+            "macos", index, count, output, tmp_path / f"skip-{index}.json", ["test_sample.py"], ["-n", "3", "-q"]
         ).run()
         record = json.loads((output / "partition.json").read_text())
-        assert record["status"] == "passed" and len(record["selected"]) == 4
+        assert record["status"] == "passed" and len(record["selected"]) == 8 // count
         assert all("@literal" in node and "@macos_gui" not in node for node in record["selected"])
-    proof = GUIPartition.aggregate(evidence_root, "macos", 2, revision)
+    proof = GUIPartition.aggregate(evidence_root, "macos", count, revision)
     assert proof["status"] == "passed" and proof["nodes"] == 8
     report = evidence_root / "macos-1" / "skip-report.json"
     value = json.loads(report.read_text())
     value["runner"] = "linux-devcontainer"
     write_json(report, value)
     with pytest.raises(ValueError, match="skip report identity"):
-        GUIPartition.aggregate(evidence_root, "macos", 2, revision)
+        GUIPartition.aggregate(evidence_root, "macos", count, revision)

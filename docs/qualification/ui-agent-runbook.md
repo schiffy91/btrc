@@ -129,10 +129,10 @@ journal contains no failures. Wayland keeps its report-only policy until its
 main-branch qualification is complete.
 
 macOS/AppKit and hosted GPU correctness evidence comes from the draft PR's
-`macos.yml` native-gui matrix. Its two cells retain
-`junit-macos-native-gui-macos-0` and `junit-macos-native-gui-macos-1`.
+`macos.yml` native-gui matrix. Its four cells retain
+`junit-macos-native-gui-macos-0` through `junit-macos-native-gui-macos-3`.
 The `native-gui-coverage` job requires their exact disjoint union to match the
-complete collected selection. Read both JUnit artifacts to confirm the AppKit
+complete collected selection. Read all four JUnit artifacts to confirm the AppKit
 rows executed; a green cell alone does not qualify the suite. The packet may use at most one
 `focus=native-gui` dispatch per workflow when needed:
 

@@ -2159,3 +2159,26 @@ failure branch reports those values with the current geometry and flipped
 coordinates. Assertions and input sequencing remain unchanged. Local validation
 is limited to syntax and fixture-contract checks; hosted execution is required
 to establish the cause. No extra CI train is started while c0de remains active.
+
+
+### 2026-10-24: four macOS GUI partitions (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/python/test_gui_shards.py`,
+`src/tests/python/test_ci_workflow_contracts.py`,
+`src/tests/python/test_qualification_bundle.py`, and
+`docs/qualification/ui-agent-runbook.md`. Final fragment:
+`.github/workflows/macos.yml` and `ci/tiers.toml`.
+
+The c0de macos-1 cell hit its 90-minute job limit after finishing 423 of 440
+selected tests. Its two completed ApplicationQuit failures remain failures;
+the pending geometry diagnostic addresses their missing evidence separately.
+Four cells divide the same complete sorted selection into smaller disjoint
+parts. The coverage job requires four complete receipts and their exact union.
+Worker count, per-test limits, job deadline and skip policy stay unchanged.
+
+Replay the retained 881-node collection to prove that each new cell refines
+one previous cell and their union preserves every identity. Run the existing
+partition, workflow and qualification contracts, including grouped synthetic
+pytest execution with two and four cells. This is headless configuration
+qualification. Hosted execution and the final integrated platform matrix
+remain required; publish after the current CI train finishes.

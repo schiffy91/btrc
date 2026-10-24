@@ -672,7 +672,9 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
                         continue
                     if (workflow, name, producer) == ("macos.yml", "native-gui-coverage", "native-gui"):
                         assert made.key == "cell"
-                        assert {shard.row["cell"] for shard in TIERS.shards_of(made)} == {"macos-0", "macos-1"}
+                        assert {shard.row["cell"] for shard in TIERS.shards_of(made)} == {
+                            f"macos-{index}" for index in range(4)
+                        }
                         assert all(shard.condition in conditions for shard in TIERS.shards_of(made))
                         continue
                     assert made.key is None and all(condition == made.condition for condition in conditions), (
@@ -2336,7 +2338,7 @@ def test_macos_gui_cells_require_complete_coverage_and_retain_exact_evidence() -
     jobs = _parsed("macos.yml")["jobs"]
     producer, coverage = jobs["native-gui"], jobs["native-gui-coverage"]
     rows = [shard.row for shard in TIERS.shards if shard.job == "macos.yml/native-gui"]
-    assert rows == [{"cell": f"macos-{index}", "index": str(index), "count": "2"} for index in range(2)]
+    assert rows == [{"cell": f"macos-{index}", "index": str(index), "count": "4"} for index in range(4)]
     for tier in ("main", "extended", "release", "native-gui", "lane"):
         plan = TIERS.plan("macos.yml", tier)
         assert "native-gui" in plan["jobs"] and "native-gui-coverage" in plan["jobs"]
@@ -2354,7 +2356,7 @@ def test_macos_gui_cells_require_complete_coverage_and_retain_exact_evidence() -
     assert fetch["with"] == {"pattern": "gui-partition-macos-native-gui-macos-*", "path": "build/gui-partitions/macos"}
     verify = next(step for step in coverage["steps"] if "tools.ui.gui_shards aggregate" in step.get("run", ""))
     assert verify["if"] == "always()"
-    assert '--session macos --count 2 --revision "$GITHUB_SHA"' in verify["run"]
+    assert '--session macos --count 4 --revision "$GITHUB_SHA"' in verify["run"]
     assert coverage["steps"][-1]["if"] == "always()"
     makefile = (REPO / "Makefile").read_text()
     recipe = _makefile_recipe(makefile, "test-shard-gui-macos")
