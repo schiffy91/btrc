@@ -88,7 +88,8 @@ def test_managed_compound_updates_have_one_physical_storage_transaction() -> Non
     ]
     plan = managed_types[
         managed_types.index("public ManagedCompoundStorePlan? planCompoundStore(") : managed_types.index(
-            "/* Evaluate receiver and replacement once", managed_types.index("public ManagedCompoundStorePlan?")
+            "public ManagedInstanceFieldStore prepareInstanceFieldStore(",
+            managed_types.index("public ManagedCompoundStorePlan?"),
         )
     ]
 
@@ -1369,4 +1370,38 @@ def test_borrowed_storage_upcasts_preserve_prepared_value_type(semantic_btrcc, t
     for name, generated in (("selfhost", selfhost_c), ("reference", reference_c)):
         strict_build_and_run(generated, tmp_path / name, optimization="-O2")
         sanitized_build_and_run(generated, tmp_path / f"{name}-sanitized", toolchain)
+    assert selfhost_c.read_bytes() == reference_c.read_bytes()
+
+
+def test_managed_field_target_precedes_conditional_value_lowering(semantic_btrcc: Path, tmp_path: Path) -> None:
+    sanitizer = require_sanitizers(tmp_path)
+    source = """
+        #include <assert.h>
+        int receiverCalls = 0;
+        class Failure {
+            public string message;
+            public Failure(string message) { self.message = message; }
+        }
+        Failure choose(Failure value) { receiverCalls++; return value; }
+        string fail() { throw "rhs"; }
+        int main() {
+            Failure target = new Failure("old");
+            string input = "";
+            string assigned = (choose(target).message = input == null || input.isEmpty() ? "fallback" : input);
+            assert(receiverCalls == 1);
+            assert(assigned == "fallback" && target.message == "fallback");
+            try { choose(target).message = fail(); assert(false); }
+            catch (string error) { assert(error == "rhs"); }
+            assert(receiverCalls == 2 && target.message == "fallback");
+            print("PASS");
+            return 0;
+        }
+    """
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    for frontend, generated in (("selfhost", selfhost_c), ("reference", reference_c)):
+        strict_build_and_run(generated, tmp_path / f"{frontend}-field-target", optimization="-O2")
+        sanitized_build_and_run(generated, tmp_path / f"{frontend}-field-target-sanitized", sanitizer)
     assert selfhost_c.read_bytes() == reference_c.read_bytes()

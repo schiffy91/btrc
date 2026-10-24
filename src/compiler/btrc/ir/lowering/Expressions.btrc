@@ -3995,9 +3995,10 @@ class ExpressionLowerer {
 		if (fieldStore != null) {
 			ManagedInstanceFieldStorePlan concreteStore = fieldStore;
 			IRNode loweredReceiver = self.lowerExpr(assignment.target.obj, variableTypes, callableFlow);
+			ManagedInstanceFieldStore target = self.managedTypes.prepareInstanceFieldStore(concreteStore, loweredReceiver);
 			PreparedValue prepared = self.prepareTargetValue(assignment.valueNode, concreteStore.fieldType, variableTypes, callableFlow);
 			IRNode value = self.strings.upcastClassPointer(concreteStore.fieldType, prepared.effectiveType, prepared.value);
-			return self.managedTypes.materializeInstanceFieldStore(concreteStore, loweredReceiver, value, prepared.owned);
+			return self.managedTypes.materializeInstanceFieldStore(target, value, prepared.owned);
 		}
 		IRNode? indirect = self.lowerIndirectAssignment(assignment, variableTypes, callableFlow);
 		if (indirect != null) { return indirect; }
