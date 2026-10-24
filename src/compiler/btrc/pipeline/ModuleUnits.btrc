@@ -2399,6 +2399,10 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 			if (definition.name == "main" || definition.name == "btrc_main") { definesEntry = true; }
 		}
 		for global in unit.globalDecls { if (!global.isExtern) { kept = true; } }
+		/* Imported C implementations define symbols outside the btrc AST. */
+		for declaration in unit.preprocessorDecls {
+			if (declaration.kind == IR_PREPROCESSOR_INCLUDE && declaration.header.endsWith(".c")) { kept = true; }
+		}
 		exports.sort();
 		string text = "";
 		if (kept) {
