@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 #include <assert.h>
 #include <pthread.h>
 
@@ -7,10 +8,31 @@
  * or a live-resize notification before sending the drag. No setFrame call
  * supplies a resize observation, and this control does not qualify E40. */
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static NSMutableArray *submitted, *observed, *notifications;
+static NSMutableArray *submitted, *observed, *notifications, *nextEvents;
+static unsigned nextCalls, nextNil, nextOverflow;
+static IMP originalNextEvent;
 static unsigned observationOverflow;
 static CGPoint startPoint, endPoint;
 static const int64_t inputBase = 0x400000000000;
+
+/* Match E40's dequeue boundary. A returned peek remains a peek, and a native
+ * resize notification never supplies a missing input identity. */
+static NSEvent *observeNextEvent(id receiver, SEL selector, NSEventMask mask, NSDate *until, NSRunLoopMode mode, BOOL dequeue) {
+    NSEvent *event = ((NSEvent *(*)(id, SEL, NSEventMask, NSDate *, NSRunLoopMode, BOOL))originalNextEvent)(receiver, selector, mask, until, mode, dequeue);
+    pthread_mutex_lock(&lock);
+    nextCalls++;
+    if (!event) { nextNil++; }
+    else if (nextEvents.count < 256) {
+        CGEventRef native = event.CGEvent;
+        int64_t identity = native ? CGEventGetIntegerValueField(native, kCGEventSourceUserData) : 0;
+        [nextEvents addObject:@{@"native_identity":@(identity), @"type":@(event.type),
+            @"seconds":@(CACurrentMediaTime()), @"window_number":@(event.windowNumber),
+            @"mask":@(mask), @"mode":mode ? (id)mode : NSNull.null, @"dequeue":@(dequeue),
+            @"location":NSStringFromPoint(event.locationInWindow)}];
+    } else { nextOverflow++; }
+    pthread_mutex_unlock(&lock);
+    return event;
+}
 
 static void postInput(CGEventType type, CGPoint point, unsigned sequence) {
     CGEventRef event = CGEventCreateMouseEvent(NULL, type, point, kCGMouseButtonLeft);
@@ -49,8 +71,13 @@ static void *dragWindow(void *context) {
 int main(int argc, const char *argv[]) {
     assert(argc == 2);
     @autoreleasepool {
-        submitted = [NSMutableArray new]; observed = [NSMutableArray new]; notifications = [NSMutableArray new];
+        submitted = [NSMutableArray new]; observed = [NSMutableArray new]; notifications = [NSMutableArray new]; nextEvents = [NSMutableArray new];
         NSApplication *application = NSApplication.sharedApplication;
+        Class applicationClass = object_getClass(application);
+        SEL nextSelector = @selector(nextEventMatchingMask:untilDate:inMode:dequeue:);
+        Method nextMethod = class_getInstanceMethod(applicationClass, nextSelector); assert(nextMethod);
+        originalNextEvent = method_getImplementation(nextMethod);
+        class_replaceMethod(applicationClass, nextSelector, (IMP)observeNextEvent, method_getTypeEncoding(nextMethod));
         [application setActivationPolicy:NSApplicationActivationPolicyRegular];
         [application finishLaunching];
         NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(100, 400, 320, 200)
@@ -107,6 +134,7 @@ int main(int argc, const char *argv[]) {
         [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
         [application run];
         if (workerStarted) { assert(pthread_join(worker, NULL) == 0); }
+        class_replaceMethod(applicationClass, nextSelector, originalNextEvent, method_getTypeEncoding(nextMethod));
         [NSEvent removeMonitor:monitor];
         for (id observer in observers) { [center removeObserver:observer]; }
         NSDictionary *report = @{
@@ -118,7 +146,9 @@ int main(int argc, const char *argv[]) {
             @"initial_frame":NSStringFromRect(initialFrame), @"final_frame":NSStringFromRect(window.frame),
             @"screen_frame":NSStringFromRect(window.screen.frame), @"in_live_resize":@(window.inLiveResize),
             @"submitted":submitted, @"observed_appkit_events":observed, @"notifications":notifications,
-            @"observation_overflow":@(observationOverflow)
+            @"observation_overflow":@(observationOverflow),
+            @"next_event_returns":nextEvents, @"next_event_calls":@(nextCalls),
+            @"next_event_nil":@(nextNil), @"next_event_overflow":@(nextOverflow)
         };
         NSError *error = nil;
         NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:&error];
