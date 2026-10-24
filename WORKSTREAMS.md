@@ -2581,3 +2581,60 @@ field order remain with their existing owners. The eight regression cases
 cover independent and nested records, two manifest orders, and whole-program
 and module output. Require the combined prototype repair to pass complete C
 comparisons, then recheck the full application and final integration gates.
+
+
+### 2026-10-24: callback declaration ordering (Codex follow-up)
+
+Owned paths: `src/compiler/python/ir/optimizer.py`,
+`src/compiler/btrc/ir/optimization/Optimizer.btrc`,
+`src/tests/python/test_declaration_order_planner.py`, and paired module tests
+under `src/tests/python/test_module_units.py`. Base: `c22c5a59`.
+
+The full application at `9b321568` retains a GUIProvider difference consisting
+only of three callback typedefs in different orders. The typed declaration
+planner preserves callback discovery order. Two reduced planner tests fail
+when the same callback declarations arrive in different permutations; all
+15 existing planner and nested callback rendering checks pass on that base.
+
+Canonicalize callback names when constructing the optimizer's dependency
+plan in both frontends. Keep the original IR lists, nested callback discovery,
+named-alias dependencies and duplicate-provider validation intact. Dependencies
+still determine which declarations can be emitted. Require paired strict and
+sanitized native output, the full application comparison, and final gates.
+
+## Default helper argument types, 2026-10-24
+
+Codex owns `src/compiler/python/ir/lowering/expressions.py` and the appended
+default-helper regression in `src/tests/python/test_module_units.py` for this
+packet, based on `c22c5a59b8c0dcf57509d7fb8e72436d06eba8c9`.
+The application comparison shows a redundant interface cast in a default
+helper call after the argument has already been converted and stabilized.
+Portable interface and base-class examples reproduce the same complete-C
+difference for free functions and class methods. All sixteen strict and
+sanitized native executions pass on the baseline.
+
+The call lowerer must carry the actual type of each stabilized operand into
+later default arguments. Keep source evaluation order, ownership, and the
+existing typed upcast rules. Establish the tracked regression baseline before
+changing production code, then check both compiler outputs and the declaration
+scope and operand-lifetime suites. This packet does not qualify application
+performance or final integration gates.
+
+
+### 2026-10-24: concrete generic interface cycle edges (Codex follow-up)
+
+Owned paths: `src/compiler/python/ir/lowering/ownership.py`,
+`src/tests/python/test_polymorphic_arc_metadata.py` and
+`src/tests/python/test_module_units.py`. Base: `c22c5a59`.
+
+A native reduction exposes an unreachable Owner -> ILink -> Box<Owner> ->
+Owner cycle. In whole-program and module output, strict and sanitized Python
+builds destroy neither object; all four self-hosted executions destroy both.
+The Python runtime-type expansion keeps only the generic implementer's name,
+losing the concrete arguments needed to follow its managed fields.
+
+Preserve the existing conservative interface query and expand its instantiated
+generic implementers with their actual arguments. Record failing regressions
+before production edits. Check retained owners, scalar payloads and unused type
+parameters, paired strict and sanitized execution, and complete C parity.
+Broader ownership, application and final integrated gates remain required.
