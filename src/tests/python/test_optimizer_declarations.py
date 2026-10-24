@@ -9,6 +9,7 @@ from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.nodes import (
     CType,
+    IRAddressOf,
     IRBlock,
     IRCall,
     IRCast,
@@ -19,6 +20,7 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRFunctionPointerTypedef,
     IRFunctionRef,
+    IRGlobalDecl,
     IRHelperDecl,
     IRInitializerList,
     IRLiteral,
@@ -294,3 +296,46 @@ def test_custom_source_under_catalog_helper_name_keeps_opaque_references():
     )
     IROptimizer(module).optimize()
     assert [declaration.name for declaration in module.function_decls] == ["helper_extern"]
+
+
+@pytest.mark.parametrize("root", ["unused", "function", "global", "macro"])
+def test_module_arc_descriptor_reachability_preserves_live_dependencies(root):
+    name = "__btrc_Cell_arc_type"
+    descriptor = IRGlobalDecl(
+        CType("const __btrc_arc_type"),
+        name,
+        IRInitializerList([IRFunctionRef("destroy_cell")]),
+        is_static=False,
+    )
+    module = IRModule(
+        global_decls=[descriptor],
+        function_defs=[
+            IRFunctionDef(
+                name="destroy_cell",
+                return_type=CType("void"),
+                body=IRBlock([]),
+                is_static=True,
+            ),
+            _main(),
+        ],
+    )
+    if root == "function":
+        module.function_defs[-1].body.stmts.insert(0, IRExprStmt(IRAddressOf(IRVar(name))))
+    elif root == "global":
+        module.global_decls.append(
+            IRGlobalDecl(
+                CType("const __btrc_arc_type*"),
+                "exported_descriptor",
+                IRAddressOf(IRVar(name)),
+                is_static=False,
+            )
+        )
+    elif root == "macro":
+        module.preprocessor_decls.append(IRMacroDef(name="CELL_DESCRIPTOR", replacement=f"(&{name})"))
+
+    IROptimizer(module, module_unit=True).optimize()
+
+    assert (name in {declaration.name for declaration in module.global_decls}) == (root != "unused")
+    assert ("destroy_cell" in {function.name for function in module.function_defs}) == (root != "unused")
+    if root == "global":
+        assert "exported_descriptor" in {declaration.name for declaration in module.global_decls}

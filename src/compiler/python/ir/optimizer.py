@@ -569,9 +569,13 @@ class IROptimizer:
 
     @classmethod
     def _is_global_root(cls, declaration: IRGlobalDecl) -> bool:
+        # Module partitioning exports ARC descriptors, but their linkage does
+        # not make them roots. Live constructors and other references do.
         return bool(
-            not declaration.is_static
-            or declaration.is_extern
+            (
+                (not declaration.is_static or declaration.is_extern)
+                and declaration.c_type.text != "const __btrc_arc_type"
+            )
             or cls._initializer_has_side_effects(declaration.init)
             or cls._initializer_has_side_effects(declaration.array_size)
         )

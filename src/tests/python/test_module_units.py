@@ -25,6 +25,7 @@ from src.compiler.python.application.modules import (
     ModuleUnitCompiler,
     ModuleUnitGraph,
     ModuleUnitRecord,
+    SharedDeclarations,
     _GroupState,
 )
 from src.compiler.python.application.results import CompilerOptions
@@ -47,6 +48,7 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRFunctionRef,
     IRGlobalDecl,
+    IRHelperDecl,
     IRMacroDef,
     IRModule,
     IRObjectiveCClass,
@@ -56,6 +58,7 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.tests import runner
 from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
@@ -4087,3 +4090,67 @@ def test_runtime_helper_locals_do_not_retain_application_prototypes(tmp_path, im
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("allocated", [False, True], ids=["unused", "allocated"])
+def test_module_arc_descriptors_follow_live_constructors(tmp_path, immutable_btrcc, module_units, allocated):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Cell.btrc").write_text(
+        """
+int alive = 0;
+int destroyed = 0;
+class Cell<T> {
+    public T value;
+    public Cell(T value) { self.value = value; alive++; }
+    public void __del__() { alive--; destroyed++; }
+    public T read() { return self.value; }
+}
+"""
+    )
+    initializer = "new Cell<int>(7)" if allocated else "null"
+    result = 7 if allocated else 0
+    (source / "Graph.btrc").write_text(
+        "import ./Cell.btrc;\n"
+        f"int exercise() {{ Cell<int>? value = {initializer}; "
+        "if (value == null) { return 0; } return value.read(); }\n"
+    )
+    (source / "Main.btrc").write_text(
+        "import ./Cell.btrc;\nimport ./Graph.btrc;\n"
+        f"int main() {{ for (int i = 0; i < 20; i++) {{ assert(exercise() == {result}); "
+        f"assert(alive == 0 && destroyed == {'i + 1' if allocated else '0'}); }} "
+        'print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("helper_kind", ["canonical", "opaque", "catalog-name-override"])
+@pytest.mark.parametrize("referenced", [False, True], ids=["unused", "referenced"])
+def test_shared_declarations_ignore_canonical_helper_locals(helper_kind, referenced):
+    shared = SharedDeclarations(
+        IRModule(global_decls=[IRGlobalDecl(CType("int"), "destroyed", is_static=False, is_extern=True)])
+    )
+    helper = IRHelperDecl.from_runtime(RuntimeHelperCatalog().definition("__btrc_tls_state"))
+    if helper_kind != "canonical":
+        if helper_kind == "opaque":
+            helper.name = "custom_helper"
+        helper.c_source = "static int custom_helper(void) { return destroyed; }"
+    unit = IRModule(helper_decls=[helper])
+    if referenced:
+        unit.function_defs.append(
+            IRFunctionDef(
+                name="read_destroyed",
+                return_type=CType("int"),
+                body=IRBlock([IRExprStmt(IRVar("destroyed"))]),
+            )
+        )
+
+    shared.merge_into(unit)
+
+    assert ("destroyed" in {declaration.name for declaration in unit.global_decls}) == (
+        referenced or helper_kind != "canonical"
+    )
