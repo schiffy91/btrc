@@ -623,10 +623,10 @@ int main() {
 }
 
 
-def test_reordered_span_shapes_keep_other_units_exact(compiler: str, tmp_path, request):
-    """btrcpy declares span shapes once, in body-discovery order, and every unit
-    takes them in that order; btrcc declares them in each unit's own session."""
-    _, incremental, _ = _incremental_matches_clean(
+@pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
+def test_reordered_span_shapes_keep_other_units_exact(compiler: str, debug, tmp_path, request):
+    """Reordering existing Span shapes changes only the edited module."""
+    cold, incremental, _ = _incremental_matches_clean(
         compiler,
         request,
         tmp_path,
@@ -639,8 +639,17 @@ def test_reordered_span_shapes_keep_other_units_exact(compiler: str, tmp_path, r
                 "\tint storage[2] = {value, value};\n\tSpan<int> view = Span(storage);\n",
             )
         },
+        *(["--debug"] if debug else []),
     )
-    _lowered(incremental, 3 if compiler == "python" else 1)
+    changed = {name for name, text in incremental.units.items() if text != cold.units[name]}
+    assert len(changed) == 1 and next(iter(changed)).startswith("p.unit-Lib-"), changed
+    _lowered(incremental, 1)
+    root = tmp_path.resolve()
+    warm = _build(
+        _command(compiler, request), root / "program", root / "out", root / "cache", *(["--debug"] if debug else [])
+    )
+    assert warm.units == incremental.units and warm.diagnostics == incremental.diagnostics
+    _lowered(warm, 0)
 
 
 _INSTANCE_ORDER_PROGRAM = {

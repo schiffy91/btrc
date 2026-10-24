@@ -2374,3 +2374,39 @@ qualification remain required.
 The earlier direct-field-assignment reduction also exposed canonicalized
 assignment-result and discarded-value temporaries. Those raw differences are
 preserved separately; method-based mutations isolate the visitor repair here.
+
+### 2026-10-24: shared Span declaration ownership (Codex, PR115 follow-up)
+
+Branch `codex/span-declaration-ownership-20261024` starts at `b992e385` in
+the reused checked-override clone. The completed assignment packet remains
+at `21b57e1a` in the hub; composition reads that pinned commit. This packet
+owns `src/compiler/btrc/ir/lowering/Lowerer.btrc`,
+`src/compiler/btrc/ir/lowering/Types.btrc`, a separate regression in
+`src/tests/python/test_module_units.py`, and this appended claim. D29
+allows the work; the existing typedef and Python demand test additions
+remain separate and must be preserved when composing them.
+
+Self-hosted module units emit Span forwards before merging shared class
+forwards. The reference compiler obtains Span declarations from the shared
+catalog, preserving its declaration order. Whole-program output agrees.
+Separate Span declaration emission from atomic lock-free proofs so module
+units use the shared Span catalog while retaining their atomic proofs.
+The baseline covers explicit, inferred and inline borrows. Test local-only
+Span discovery too, and retain the existing shared callback-layout checks.
+Focused, broader, application and final integrated gates remain required.
+Publication waits for the current hosted CI train.
+
+The declaration-only pass also needs Span shapes found by the existing body
+and specialization type walk. Register those concrete shapes during collection
+so the shared catalog covers local-only views. The first candidate omitted this
+step and failed module native compilation; its patch and results are retained.
+This extends the owned paths to `src/compiler/btrc/ir/lowering/Declarations.btrc`.
+
+The shared Span inventory also needs stable symbol order. Broader validation
+found that a local reorder moves shared declarations and forces three groups
+to lower. Canonicalize Span declaration order in both frontends, preserving
+per-unit reuse for unchanged shapes. Extend ownership to
+`src/compiler/python/ir/lowering/translation_unit.py` and
+`src/tests/python/test_module_unit_staleness.py`. The strengthened regression
+checks release/debug output, exact changed units, one lowered group and a
+zero-lowering warm rebuild. The failed second candidate remains in evidence.
