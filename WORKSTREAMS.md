@@ -2077,3 +2077,20 @@ that would otherwise replace the package/include paths. All 133 harness and
 workflow checks passed. Complete Windows strict runs now pass all 150
 applicable modules per compiler with zero diagnostics and the same 93 platform
 exclusions. These are cross-target semantic checks; no Windows executable ran.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: module-owned enum declarations
+
+This packet's existing translation-unit and module-unit-test ownership also
+covers enum declaration parity. Python emits foreign enums into each lowered
+module before merging shared declarations; the self-hosted compiler emits
+that module's enums and obtains foreign declarations from the shared unit.
+The full application has 43 files whose only difference is enum ordering.
+Reduced plain and rich enum programs execute correctly through both frontends
+under strict C11 and sanitizers, then expose the declaration-order mismatch.
+
+Keep source order within each owning group and preserve shared declarations,
+variant constructors, toString linkage and enum-member initializer semantics.
+Cross-enum initializers are rejected by both analyzers and are not a supported
+dependency to reorder. The repair must pass module ownership, cache staleness
+and native execution checks before broader composition and final CI gates.
