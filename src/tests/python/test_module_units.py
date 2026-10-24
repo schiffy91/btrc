@@ -2607,3 +2607,44 @@ def test_c_only_imported_module_keeps_its_implementation(tmp_path, immutable_btr
             name for name, content in units.items() if str((source / "Counter.c").resolve()).encode() in content
         ]
         assert len(includes) == 1, (frontend, includes)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("addressed", [False, True], ids=["function", "address"])
+@pytest.mark.parametrize("generic", [False, True], ids=["class", "generic-class"])
+def test_ordered_function_values_normalize_class_signatures(
+    tmp_path, immutable_btrcc, module_units, addressed, generic
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "orderedCallback"\n')
+    declaration = "Item<T>" if generic else "Item"
+    value_type = "T" if generic else "int"
+    payload = "Item<int>" if generic else "Item"
+    callback = "&receive" if addressed else "receive"
+    (source / "Main.btrc").write_text(
+        f"""
+        class {declaration} {{
+            public {value_type} value;
+            public Item({value_type} value) {{ self.value = value; }}
+        }}
+        static int calls = 0;
+        int next() {{ calls++; return calls; }}
+        int receive({payload} value) {{ return value.value; }}
+        int dispatch(int first, int second, CFunction<int, {payload}> callback, {payload} value) {{
+            assert(first == 1 && second == 2);
+            return callback(value);
+        }}
+        int main() {{
+            var input = new {payload}(42);
+            int output = dispatch(next(), next(), {callback}, input);
+            assert(output == 42 && calls == 2);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["selfhost"] == generated["reference"]

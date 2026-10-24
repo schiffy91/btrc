@@ -112,7 +112,10 @@ class ExpressionTypeResolver {
 
 	public Node? genericArgumentType(Node argument, Map<string, Node> variables) {
 		if (argument.kind == NK_IDENTIFIER && self.analyzed.funcTable.has(argument.name) && !variables.has(argument.name)) {
-			return CallableSignature.sourceFunctionPointer(self.analyzed.funcTable.get(argument.name));
+			Node declaration = self.analyzed.funcTable.get(argument.name);
+			Node signature = CallableSignature.sourceFunctionPointer(declaration);
+			SemanticTypeSystem.upgradeTypeGenericArgs(signature, self.analyzed, SemanticTypeSystem.genericParameterSet(declaration.genericParams()));
+			return signature;
 		}
 		return self.inferSpecialization(argument, variables);
 	}
