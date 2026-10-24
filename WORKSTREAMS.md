@@ -2155,3 +2155,23 @@ ownership, atomic lock-free proofs and raw-C comparison. Emission must stay a
 walk of structured IR. Qualify module, realtime, tuple, parity and structural
 paths before refreshing the full application comparison. This repair alone
 cannot establish complete application parity or performance acceptance.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: native resource declaration order
+
+The application comparison still contains opaque native resource forwards in
+different orders. The Python manifest reader sorts resource names before
+creating their declarations. The self-hosted manifest reader also sorts them,
+but the C importer later enumerates the resource map without sorting its keys.
+The C++ importer already sorts those keys explicitly. A reduced executable
+regression must establish the C import defect before production changes.
+
+This packet also owns `src/compiler/btrc/frontend/NativeImports.btrc` and
+the corresponding regression in `src/tests/python/test_module_units.py`.
+Vary header, symbol and resource-table order independently, using resource
+names whose map-slot order differs from name order. Require strict C11 and
+ASan/UBSan execution through both frontends and unchanged whole-module C
+comparison. Preserve native resource ownership, release behavior, declaration
+identity and module boundaries. Refresh the full application comparison and
+qualify native-import, module, parity and structure paths before publication.
+This repair does not establish complete application parity or performance.
