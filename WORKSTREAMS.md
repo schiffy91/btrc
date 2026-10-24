@@ -2094,3 +2094,23 @@ variant constructors, toString linkage and enum-member initializer semantics.
 Cross-enum initializers are rejected by both analyzers and are not a supported
 dependency to reorder. The repair must pass module ownership, cache staleness
 and native execution checks before broader composition and final CI gates.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: module atomic proofs
+
+This packet's existing IR-lowering and module-unit ownership also covers
+`src/compiler/python/ir/lowering/types.py`,
+`src/compiler/python/ir/lowering/translation_unit.py`, and
+`src/tests/python/test_module_units.py` for atomic lock-free proof emission.
+The reduced imported-counter program emits one proof in both whole-program
+builds. In module mode Python emits none, while the self-hosted compiler emits
+one in each of the two units that uses the atomic type. Both frontends pass
+strict C11 and sanitizer execution on the current lock-free host.
+
+Register concrete atomic types when their C types are lowered and retain the
+structured compile-time proof in every module that registers one. Preserve
+payload validation, target macro selection, declaration order and unused-type
+pruning. Do not remove a proof to obtain byte parity. Add the module regression
+before changing production behavior, then run module, realtime, parity and
+structure checks. Full application comparison and final integration remain
+required.
