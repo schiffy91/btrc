@@ -45,6 +45,7 @@ from src.compiler.python.ir.nodes import (
 )
 from src.tests import runner
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
+from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
@@ -1071,6 +1072,73 @@ def test_native_includes_are_include_once_blocks(compiler: str, tmp_path, reques
     assert including
     assert all(text.count('#include "ShapeScale.h"') == text.count(block) == 1 for text in including)
     assert all("BTRC_INCLUDE_" not in line for text in units.values() for line in text.split("\n") if "<" in line)
+
+
+@pytest.mark.parametrize("reference_kind", ["comment", "literal", "reference"])
+def test_native_headers_follow_code_references(compiler, tmp_path, request, reference_kind):
+    NativeBindingPackage.require_reader()
+    root = tmp_path.resolve()
+    sources = root / "src"
+    sources.mkdir()
+    if reference_kind == "comment":
+        # The string runtime's declaration comment says "Byte length".
+        header = "typedef unsigned char Byte;\nstatic inline Byte nativeByte(void) { return 7; }\n"
+        symbol, native_value, body = "nativeByte", "nativeByte()", 'return "hello";'
+        expected = "hello\n"
+    else:
+        header = "enum { ProbeToken = 7 };\n"
+        symbol, native_value = "ProbeToken", "ProbeToken"
+        if reference_kind == "literal":
+            body = r'return "prefix \"ProbeToken\" /* ProbeToken */";'
+            expected = 'prefix "ProbeToken" /* ProbeToken */\n'
+        else:
+            body, expected = 'return f"{(int)ProbeToken}";', "7\n"
+    (root / "Probe.h").write_text(header)
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "headerReferences"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Probe.h"\n'
+        f'language = "c"\nstandard = "c11"\nsymbols = ["{symbol}"]\n'
+    )
+    (sources / "Foundation.btrc").write_text("// Declarations come from Probe.h.\n")
+    (sources / "Text.btrc").write_text(f"import ./Foundation.btrc;\nstring message() {{ {body} }}\n")
+    source = sources / "Main.btrc"
+    source.write_text(
+        "import ./Foundation.btrc;\nimport ./Text.btrc;\n"
+        f"int main() {{ assert({native_value} == 7); print(message()); return 0; }}\n"
+    )
+    generated, plan = root / "Program.c", root / "Program.json"
+    compiled = subprocess.run(
+        [
+            *_native_command(compiler, request),
+            "--no-cache",
+            "--strict-imports",
+            "--module-units",
+            "--jobs",
+            "1",
+            "--emit-units",
+            str(root / "Program"),
+            "--emit-link-plan",
+            str(plan),
+            "-o",
+            str(generated),
+            str(source),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "BTRC_HOME": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    units = list(root.glob("Program.unit-Text-*.c"))
+    assert len(units) == 1
+    text = units[0].read_text()
+    executable = root / "program"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc=C_COMPILER)
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0 and ran.stdout == expected, ran.stdout + ran.stderr
+    includes_probe = any("Probe.h" in line for line in text.splitlines() if line.startswith("#include "))
+    assert includes_probe == (reference_kind == "reference")
 
 
 _CYCLE_PROGRAM = {

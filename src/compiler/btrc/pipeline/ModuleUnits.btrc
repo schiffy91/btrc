@@ -640,7 +640,7 @@ class ModuleUnitDeclarations {
 		if (others.len == all.len) { return; }
 		unit.preprocessorDecls = others;
 		Map<string, bool> used = {};
-		ModuleUnitDeclarations.collectText(CEmitter().emitModuleUnit(unit), used);
+		RuntimeReferenceCollector.collectIdentifiers(CEmitter().emitModuleUnit(unit), used);
 		Vector<IRPreprocessorDecl> kept = [];
 		for declaration in all {
 			if (self.nativeInclude(declaration)) {
