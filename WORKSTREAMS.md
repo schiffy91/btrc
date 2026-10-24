@@ -2114,3 +2114,22 @@ pruning. Do not remove a proof to obtain byte parity. Add the module regression
 before changing production behavior, then run module, realtime, parity and
 structure checks. Full application comparison and final integration remain
 required.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: callback declaration normalization
+
+This packet's analyzer ownership also covers
+`src/compiler/btrc/analyzer/Generics.btrc` and
+`src/tests/btrc/test_cfunction_callback_contract.py` for concrete class types
+in typedef and record callback declarations. Reduced programs execute through
+both frontends under strict C11 and ASan/UBSan. A local callback has identical
+C output, while a typedef or record field uses a different callback identity.
+The reference normalizes those declaration signatures; the self-hosted
+generic discovery pass currently omits them.
+
+Use the existing semantic type normalization and recursive record-field walk.
+Preserve alias spelling, const layers, native callback ABI and lexical generic
+parameters. Add executable regressions before changing production code,
+including local and alias controls and anonymous record members. Qualify the
+callback, generic, realtime and module paths, then refresh the application
+comparison. This extension does not establish full application parity.
