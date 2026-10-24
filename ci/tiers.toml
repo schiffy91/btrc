@@ -760,9 +760,30 @@ reports = ["skip-report"]
 [[jobs]]
 workflow = "macos.yml"
 job = "native-gui"
+key = "cell"
+reports = ["skip-report", "junit"]
+
+[[jobs]]
+workflow = "macos.yml"
+job = "native-gui-coverage"
 tiers = ["main", "extended", "native-gui", "release"]
 selected_tiers = { lane = "lane-macos" }
-reports = ["skip-report", "junit"]
+
+[[shards]]
+job = "macos.yml/native-gui"
+cell = "macos-0"
+index = "0"
+count = "2"
+tiers = ["main", "extended", "native-gui", "release"]
+selected_tiers = { lane = "lane-macos" }
+
+[[shards]]
+job = "macos.yml/native-gui"
+cell = "macos-1"
+index = "1"
+count = "2"
+tiers = ["main", "extended", "native-gui", "release"]
+selected_tiers = { lane = "lane-macos" }
 
 # UI2 requires both frontends, plain/sanitized, in desktop and host modes.
 # Runtime admission is exclusive to this explicitly opted-in hosted job.
