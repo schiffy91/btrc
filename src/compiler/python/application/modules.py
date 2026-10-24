@@ -600,7 +600,13 @@ class SharedDeclarations:
     )
 
     def __init__(self, module: IRModule) -> None:
-        self._preprocessor = list(module.preprocessor_decls)
+        # This declaration inventory spans every group. Its derived runtime
+        # headers do not belong to each unit: the optimizer rematerializes them
+        # from that unit's surviving declarations and bodies after the merge.
+        generated = {id(declaration) for declaration in module.take_generated_runtime_preprocessor()}
+        self._preprocessor = [
+            declaration for declaration in module.preprocessor_decls if id(declaration) not in generated
+        ]
         self._native_header_names: dict[str, set[str]] = {}
         self._entries: list[tuple[str, object]] = []
         for field_name in self._FIELDS:

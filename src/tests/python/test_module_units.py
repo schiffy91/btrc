@@ -1141,6 +1141,58 @@ def test_native_headers_follow_code_references(compiler, tmp_path, request, refe
     assert includes_probe == (reference_kind == "reference")
 
 
+@pytest.mark.parametrize("explicit_headers", [False, True])
+def test_runtime_headers_follow_live_unit_dependencies(compiler: str, tmp_path, request, explicit_headers):
+    """Derived headers stay with their live uses; source includes stay in every unit."""
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Leaf.btrc").write_text("int leaf() { return 7; }\n")
+    (workspace.modules / "Work.btrc").write_text(
+        'int checked(int value) { if (value < 0) { throw "negative"; } return value; }\n'
+        "int work() { Atomic<uint> value = Atomic(5u);\n"
+        "try { return checked((int)value.load(MemoryOrder.ACQUIRE)); }\n"
+        "catch (string error) { return -1; } }\n"
+    )
+    (workspace.modules / "Main.btrc").write_text(
+        ("#include <setjmp.h>\n#include <stdatomic.h>\n" if explicit_headers else "")
+        + "import ./Leaf.btrc;\nimport ./Work.btrc;\n"
+        + "int main() { return leaf() == 7 && work() == 5 ? 0 : 1; }\n"
+    )
+    output = workspace.root / "out"
+    units = _cli_units(_timing_command(compiler, request), workspace, "Main.btrc", output, 1)
+    if C_COMPILER is None:
+        pytest.skip("module-unit execution needs a C compiler")
+    executable = output / "program"
+    build = subprocess.run(
+        [
+            *C_COMPILER,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            *(str(output / name) for name in units),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert build.returncode == 0, build.stderr
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0, ran.stderr
+    leaf = next(text for name, text in units.items() if ".unit-Leaf-" in name)
+    work = next(text for name, text in units.items() if ".unit-Work-" in name)
+    for header in ("setjmp.h", "stdatomic.h"):
+        include = f"#include <{header}>"
+        assert (include in leaf) == explicit_headers, (compiler, header, leaf)
+        assert include in work
+        if explicit_headers:
+            assert all(include in text for text in units.values())
+
+
 _CYCLE_PROGRAM = {
     "Model/Node.btrc": """import Library.Vector;
 
