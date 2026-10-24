@@ -194,6 +194,10 @@ class IRLowerer {
 		 * group's directives. */
 		bool shared = self.context.declarationsElsewhere;
 		if (!shared) { self.declarations.emitForwardDecls(program, module); }
+		/* Span shapes are registered throughout lowering. Preserve their
+		 * declaration phase after tuples and before ordinary class layouts. */
+		int spanForwardPosition = module.structForwards.len;
+		int spanLayoutPosition = module.structDefs.len;
 		self.gpuPipeline.registerKernels(program, module);
 		if (!shared) {
 			self.cTypes.appendTypedefs(program, module, self.context.reachability);
@@ -244,7 +248,7 @@ class IRLowerer {
 		self.functions.materializeDeferredClosure();
 		if (self.context.declarationsElsewhere) { self.declarations.emitReferencedInterfaces(module); }
 		self.cTypes.appendFunctionPointerTypedefs(module);
-		self.cTypes.appendRealtimeTypeDeclarations(module);
+		self.cTypes.emitRealtimeTypeDeclarations(module, shared ? module.structForwards.len : spanForwardPosition, shared ? module.structDefs.len : spanLayoutPosition);
 		self.cleanupSlots.finalize(module);
 		self.expressionTypes.disableMemo();
 		if (self.context.moduleUnits) { self.partitionModuleUnit(module); }

@@ -2208,38 +2208,7 @@ def test_selfhost_strict_stdlib_validation_has_separate_records(tmp_path, immuta
     assert normal_units == strict_units == repeated_units
 
 
-@pytest.mark.parametrize(
-    ("payload", "values", "macro"),
-    [
-        ("uint", "uint first = 1u; uint second = 7u;", "ATOMIC_INT_LOCK_FREE"),
-        (
-            "const int*",
-            "int firstValue = 1; int secondValue = 7; const int* first = &firstValue; const int* second = &secondValue;",
-            "ATOMIC_POINTER_LOCK_FREE",
-        ),
-    ],
-)
-def test_module_atomic_types_keep_their_lock_free_proofs(tmp_path, immutable_btrcc, payload, values, macro):
-    source = tmp_path.resolve() / "source"
-    source.mkdir()
-    (source / "Counter.btrc").write_text(
-        f"{payload} readCounter(Atomic<{payload}>* counter) {{ return counter->load(MemoryOrder.ACQUIRE); }}\n"
-    )
-    (source / "Main.btrc").write_text(
-        f"""
-        #include <assert.h>
-        import ./Counter.btrc;
-        int main() {{
-            {values}
-            Atomic<{payload}> counter = Atomic(first);
-            assert(readCounter(&counter) == first);
-            counter.store(second, MemoryOrder.RELEASE);
-            assert(readCounter(&counter) == second);
-            print("PASS");
-            return 0;
-        }}
-        """
-    )
+def _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, expected_stdout):
     sanitizer = require_sanitizers(tmp_path)
     generated = {}
     for frontend, command in (
@@ -2280,7 +2249,7 @@ def test_module_atomic_types_keep_their_lock_free_proofs(tmp_path, immutable_btr
                 sanitizer.environment,
             ),
         ):
-            assert compiler is not None, "atomic module qualification requires a C compiler"
+            assert compiler is not None, "module qualification requires a C compiler"
             executable = output / mode
             built = subprocess.run(
                 [
@@ -2311,10 +2280,87 @@ def test_module_atomic_types_keep_their_lock_free_proofs(tmp_path, immutable_btr
                 timeout=30,
             )
             assert ran.returncode == 0, ran.stderr
-            assert ran.stdout == "PASS\n"
+            assert ran.stdout == expected_stdout
+    return generated
+
+
+@pytest.mark.parametrize(
+    ("payload", "values", "macro"),
+    [
+        ("uint", "uint first = 1u; uint second = 7u;", "ATOMIC_INT_LOCK_FREE"),
+        (
+            "const int*",
+            "int firstValue = 1; int secondValue = 7; const int* first = &firstValue; const int* second = &secondValue;",
+            "ATOMIC_POINTER_LOCK_FREE",
+        ),
+    ],
+)
+def test_module_atomic_types_keep_their_lock_free_proofs(tmp_path, immutable_btrcc, payload, values, macro):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (source / "Counter.btrc").write_text(
+        f"{payload} readCounter(Atomic<{payload}>* counter) {{ return counter->load(MemoryOrder.ACQUIRE); }}\n"
+    )
+    (source / "Main.btrc").write_text(
+        f"""
+        #include <assert.h>
+        import ./Counter.btrc;
+        int main() {{
+            {values}
+            Atomic<{payload}> counter = Atomic(first);
+            assert(readCounter(&counter) == first);
+            counter.store(second, MemoryOrder.RELEASE);
+            assert(readCounter(&counter) == second);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
     for frontend, units in generated.items():
         atomic_units = [text for name, text in units.items() if ".unit-Main-" in name or ".unit-Counter-" in name]
         assert len(atomic_units) == 2, frontend
         for text in atomic_units:
             assert text.count("__btrc_atomic_lock_free_") == 1, frontend
             assert f"{macro} == 2" in text, frontend
+
+
+@pytest.mark.parametrize("generic", [False, True])
+def test_shared_span_callback_layouts_keep_frontend_order(tmp_path, immutable_btrcc, generic):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (source / "Shared.btrc").write_text(
+        "typedef RealtimeFunction<int, Span<int>, Span<const int>> Processor;\n"
+        "@realtime int process(Span<int> values, Span<const int> source) { return 0; }\n"
+        "class Holder {\n"
+        "    public Processor callback;\n"
+        "    public int value;\n"
+        "    public Holder(int value) { self.callback = process; self.value = value; }\n"
+        "}\n"
+    )
+    local_type = "Box<int>" if generic else "Marker"
+    declaration = (
+        "class Box<T> { public T value; public Box(T value) { self.value = value; } }"
+        if generic
+        else "class Marker { public int value; public Marker(int value) { self.value = value; } }"
+    )
+    (source / "Local.btrc").write_text(
+        "import ./Shared.btrc;\n" + declaration + "\n"
+        "int sample() {\n"
+        "    Holder holder = new Holder(15);\n"
+        f"    {local_type} marker = new {local_type}(7);\n"
+        "    return holder.value + marker.value;\n"
+        "}\n"
+    )
+    (source / "Main.btrc").write_text("import ./Local.btrc;\nint main() { print(sample()); return 0; }\n")
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "22\n")
+    local_units = {
+        frontend: next(text for name, text in units.items() if ".unit-Local-" in name)
+        for frontend, units in generated.items()
+    }
+    for frontend, text in local_units.items():
+        layouts = re.findall(r"^struct (\w+) \{", text, re.MULTILINE)
+        spans = [name for name in layouts if name.startswith(("btrc_Span_", "btrc_ZQgb8_5370616e"))]
+        assert len(spans) == 2, (frontend, layouts)
+        assert "const int* data;" in text and "int* data;" in text
+    assert local_units["reference"] == local_units["selfhost"]
