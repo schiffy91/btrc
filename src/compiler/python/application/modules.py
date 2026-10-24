@@ -1725,8 +1725,15 @@ class ModuleUnitWorker:
         hosted = IROptimizer.unavailable_hosted_references(unit, self._compiler.unavailable_hosted())
         helpers = tuple(sorted(helper.name for helper in unit.helper_decls))
         self._compiler.finalize_unit(unit)
-        kept = any(not function.is_static for function in unit.function_defs) or any(
-            not declaration.is_extern for declaration in unit.global_decls
+        # Imported C implementations define symbols outside the btrc AST.
+        # Their owning unit must survive even without btrc definitions.
+        kept = (
+            any(not function.is_static for function in unit.function_defs)
+            or any(not declaration.is_extern for declaration in unit.global_decls)
+            or any(
+                isinstance(declaration, IRInclude) and declaration.header.endswith(".c")
+                for declaration in unit.preprocessor_decls
+            )
         )
         if kept:
             self._shared.trim_native_includes(unit)

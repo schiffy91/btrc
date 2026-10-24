@@ -2577,3 +2577,33 @@ def test_unique_resource_lifetime_helpers_match_frontends(tmp_path, immutable_bt
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("native_binding", [False, True], ids=["extern", "native-binding"])
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_c_only_imported_module_keeps_its_implementation(tmp_path, immutable_btrcc, native_binding, module_units):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "Counter.h").write_text("int counterNext(void);\n")
+    (source / "Counter.c").write_text(
+        '#include "../Counter.h"\nstatic int count = 40;\nint counterNext(void) { return ++count; }\n'
+    )
+    (source / "Counter.btrc").write_text(
+        "import ./Counter.c;\n" + ("" if native_binding else "extern int counterNext();\n")
+    )
+    manifest = 'manifest-version = 1\n[package]\nname = "cOnlyImport"\n'
+    if native_binding:
+        manifest += '[[native.bindings]]\nmodule = "Counter"\nheader = "Counter.h"\nlanguage = "c"\nstandard = "c11"\nsymbols = ["counterNext"]\n'
+    (tmp_path / "btrc.toml").write_text(manifest)
+    (source / "Shared.btrc").write_text("import ./Counter.btrc;\nint sharedNext() { return counterNext(); }\n")
+    (source / "Main.btrc").write_text(
+        'import ./Counter.btrc;\nimport ./Shared.btrc;\nint main() { assert(counterNext() == 41); assert(sharedNext() == 42); assert(counterNext() == 43); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    for frontend, units in generated.items():
+        includes = [
+            name for name, content in units.items() if str((source / "Counter.c").resolve()).encode() in content
+        ]
+        assert len(includes) == 1, (frontend, includes)

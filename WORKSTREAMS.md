@@ -2202,3 +2202,24 @@ symbols in both frontends. Its failing inputs and plans are preserved under
 `build/native-plan-parity/imported-c-module-link-reproduction.json` in the
 application diagnostic clone. Using an explicit native source declaration
 isolates helper parity; it does not resolve or remove that issue7 defect.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: retain C-only imported modules
+
+PR115 also owns the module retention decision in
+`src/compiler/python/application/modules.py` and
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`, with its regression in
+`src/tests/python/test_module_units.py`. Both frontends omit an imported C
+implementation when its importing module has no btrc function or global
+definition. A referenced btrc-function control retains exactly one C include
+and links and executes through both frontends; the unanchored control fails
+to link through both.
+
+Retain a module that owns a C implementation include. Preserve existing
+foreign-body filtering and structured include IR, and leave header-only
+empty modules eligible for omission. Exercise whole and module builds with
+explicit extern declarations and native header bindings. Calls from two
+groups must share one C counter, with exactly one implementation include.
+Require strict C11 and sanitizer execution through both frontends, module
+cache and ownership checks, and the final composed integration gates.
+The new regression and candidate remain unqualified until those checks run.
