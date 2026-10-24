@@ -1425,9 +1425,11 @@ class OwnershipOperandOrder:
             effective_canonical is not None
             and effective_canonical.pointer_depth == 0
             and not effective_canonical.is_array
+            and not self._types.render(effective_canonical).rstrip().endswith("*")
         ):
             # Sequenced operands are assigned after declaration. A scalar's
-            # source-slot constness does not qualify its copied value.
+            # source-slot constness does not qualify its copied value. Implicit
+            # pointers such as string retain their pointee's qualification.
             return self._types.value_storage_c_type(effective_canonical)
         if (
             source_type is not None

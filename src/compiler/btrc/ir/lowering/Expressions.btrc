@@ -3252,7 +3252,7 @@ class ExpressionLowerer {
 			string spec = prepared.converted ? "%s" : self.strings.printfFormatSpec(sourceType);
 			if (sourceType == null) { spec = self.untrackedFormat(interpolation, spec); }
 			string valueCType = spec == "%s" ? "char*" : "int";
-			if (prepared.effectiveType != null) { valueCType = self.cTypes.lower(prepared.effectiveType); }
+			if (prepared.effectiveType != null) { valueCType = self.operandPlanner.operandCType(interpolation, prepared.effectiveType); }
 			interpolations.push(interpolation);
 			preparedValues.push(prepared);
 			valueCTypes.push(valueCType);

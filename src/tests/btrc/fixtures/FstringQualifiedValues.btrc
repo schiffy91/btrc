@@ -1,0 +1,21 @@
+const int globalCount = 7;
+int order = 0;
+
+class FormattedValue {
+	public string toString() { order = order * 10 + 1; return "converted"; }
+}
+
+int nextValue() { order = order * 10 + 2; return order; }
+
+int main() {
+	const int localCount = 11;
+	const double ratio = 1.5;
+	const bool enabled = true;
+	const char* pointer = "pointer";
+	const string text = "text";
+	var value = new FormattedValue();
+	string result = f"{globalCount}|{localCount}|{ratio}|{enabled}|{pointer}|{text}|{value}|{nextValue()}";
+	assert(order == 12);
+	print(result);
+	return 0;
+}

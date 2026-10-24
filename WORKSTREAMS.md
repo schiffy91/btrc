@@ -2008,6 +2008,8 @@ the operand planners that already distinguish copied values from source slots.
 
 Owned paths are `src/compiler/python/ir/lowering/expressions.py`,
 `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/python/ir/lowering/ownership.py`,
+`src/compiler/btrc/ir/lowering/ownership/Operands.btrc`,
 `src/tests/btrc/test_fstring_allocation_c11.py`,
 `src/tests/btrc/fixtures/FstringQualifiedValues.btrc`, and
 `src/tests/python/test_native_c_values.py`, plus this claim. Preserve native
@@ -2015,3 +2017,8 @@ read-only validation, pointer qualifiers, evaluation order, conversions and
 managed lifetimes. Prove both frontends against real strict-C compilation and
 execution. Full integration gates remain required; publication waits for CI
 capacity. This packet is independent of the module-header repair.
+
+The qualified-string regression also exposes a planner gap: a language string
+has zero explicit pointer depth but lowers to a C pointer. Its pointee's const
+qualifier must survive copying. Both planners distinguish that physical pointer
+representation before dropping a copied scalar's storage qualifiers.
