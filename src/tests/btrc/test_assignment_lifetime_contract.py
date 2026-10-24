@@ -1257,9 +1257,10 @@ def test_compound_update_loads_before_mutating_rhs(
     ],
     ids=["interface", "class"],
 )
+@pytest.mark.parametrize("aliases", ["none", "source", "target", "both"])
 @pytest.mark.parametrize("slot", ["holder.value", "Holder.shared"], ids=["instance", "static"])
 def test_managed_field_upcasts_preserve_prepared_value_type(
-    semantic_btrcc, tmp_path, declaration, inheritance, field, slot
+    semantic_btrcc, tmp_path, declaration, inheritance, field, slot, aliases
 ):
     source = (
         """
@@ -1320,6 +1321,14 @@ def test_managed_field_upcasts_preserve_prepared_value_type(
         .replace("CONCRETE_FIELD", field)
         .replace("SLOT", slot)
     )
+    if aliases != "none":
+        source = source.replace(
+            "class Holder {", "typedef Value ValueAlias; typedef Concrete ConcreteAlias; class Holder {"
+        )
+    if aliases in {"source", "both"}:
+        source = source.replace("Concrete?", "ConcreteAlias?").replace("Concrete makeValue", "ConcreteAlias makeValue")
+    if aliases in {"target", "both"}:
+        source = source.replace("Value?", "ValueAlias?")
     selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
     reference, reference_c = compile_ownership_reference(tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
