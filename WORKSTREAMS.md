@@ -2177,3 +2177,23 @@ suites passed 118 executable/contract cases; one structural assertion still
 expects the old untyped rememberOverride call. Update that assertion to require
 the actual staged type. Production candidate behavior, reference and emitted-C
 checks already passed; rerun the immediate-lambda contract after this test edit.
+
+
+### 2026-10-24: discarded assignment aliases (Codex, PR120 follow-up)
+
+Owned paths: `src/compiler/btrc/analyzer/Expressions.btrc` and
+`src/tests/btrc/test_operand_sequencing_contract.py`. Base: `39af6ea1`.
+
+PR120 preserves declared storage for staged assignment results and ARC field
+visitors. A source-matched application composition still expands aliases in
+discarded assignment-result declarations. Its four whole-program and module
+cases pass sixteen strict C11 and sanitizer executions; their only C differences
+are six declarations spelling `Payload*` or `Link*` instead of the field alias.
+
+Raw assignment inference currently asks for the target's specialization type,
+which resolves the outer typedef. Keep the target's raw type here; callers
+that need canonical classification already use the explicit resolved queries.
+Four new regressions cover plain, generic and chained aliases, nested assignment
+and cycle collection, with repeated lifetime checks and full emitted-C comparison.
+Establish the PR120 baseline before production edits. Focused, broader, module,
+application and final integrated qualification remain required.
