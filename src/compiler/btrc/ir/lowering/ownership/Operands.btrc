@@ -231,8 +231,9 @@ class OwnershipOperandPlanner {
 			 * C signature the temporary is assigned from. */
 			canonical = outer;
 		}
-		if (canonical != null && canonical.pointerDepth == 0 && !canonical.isArray) {
-			/* A copied scalar does not retain the source slot's constness. */
+		if (canonical != null && canonical.pointerDepth == 0 && !canonical.isArray && !self.cTypes.lower(canonical).endsWith("*")) {
+			/* A copied scalar drops the source slot's constness; implicit
+			 * pointers such as string retain their pointee's qualification. */
 			Node storage = TypeShape.copy(canonical);
 			storage.isConst = false;
 			storage.isStatic = false;

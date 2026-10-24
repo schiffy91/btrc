@@ -590,6 +590,31 @@ def test_native_enum_const_storage_rejected(native_project, native_compile, body
 
 
 @pytest.mark.parametrize("sanitized", [False, True])
+def test_native_read_only_values_format_as_copied_operands(native_project, native_compile, tmp_path, sanitized):
+    source, sdk, triple = native_project
+    root = source.parent.parent
+    (root / "Foundation.h").write_text(
+        "enum { nativeNumber = 40 };\n"
+        "static const int nativeSigned = -7;\n"
+        "static const unsigned long long nativeWide = 9007199254740991ULL;\n"
+    )
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "formattedNativeValues"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Foundation.h"\n'
+        'language = "c"\nstandard = "c11"\nsymbols = ["nativeNumber", "nativeSigned", "nativeWide"]\n'
+    )
+    (source.parent / "Foundation.btrc").write_text("// Read-only native values.\n")
+    source.write_text(
+        "import ./Foundation.btrc;\n"
+        'int main() { string result = f"{nativeNumber}|{nativeSigned}|{nativeWide}";\n'
+        '\tassert(result == "40|-7|9007199254740991"); return 0; }\n'
+    )
+    compiled = native_compile(source)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, tmp_path, sdk, triple, sanitized, frameworks=())
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
 def test_native_record_fixed_array_nullable_field_and_ordered_constant(
     native_project, native_compile, tmp_path, sanitized
 ):

@@ -2812,7 +2812,7 @@ class ExpressionLowerer:
             if source_type is None:
                 spec = ExpressionLowerer._untracked_format(expression, spec)
             c_type = (
-                self._types.render(prepared.effective_type)
+                self._operand_order.operand_c_type(expression, prepared.effective_type)
                 if prepared.effective_type is not None
                 else "char*"
                 if spec == "%s"
@@ -2966,6 +2966,7 @@ class ExpressionLowerer:
                 provenance,
                 materialization=BinaryMaterialization(node),
                 result_type=self._session.type_of(node),
+                result_owned=self._ownership.owns_result(node, provenance=provenance),
                 keep_nodes=keep_nodes,
                 pin_nodes=pin_nodes,
                 force=self._operand_order.operands_require_order([node.left, node.right]),

@@ -2260,6 +2260,23 @@ side effects, strict C11 and sanitizer execution before exact C comparison.
 The baseline ran 76 native executions; ten frontend/case combinations failed
 strict C. Full application composition and final gates remain required.
 
+
+## 2026-10-24 local issue-parity composition diagnostic
+
+The current harmonization owner composes the qualified local repairs from
+PRs #118, #119, #120, #122 and #123 on the PR #115 stdlib-analysis candidate.
+This is a local diagnostic branch, not a publication or integration packet.
+Existing PR owners and branches remain intact. In particular, module-unit
+source and test edits shared with PR #115 are composed here for interaction
+checks; this record does not transfer their ownership or claim final gates.
+
+The exact donor revisions, paths and application results are recorded in the
+commit message and the local composition evidence. Preserve all donor tests,
+strict imports, generated-source policy and raw emitted-C comparisons. Run
+combined behavior and application checks before using this candidate's output
+to diagnose remaining differences. Do not merge this diagnostic branch as a
+substitute for reviewed source packets and the final integration matrix.
+
 ### 2026-10-24 CX-STDLIB-ANALYSIS: collection construction cleanup parity
 
 PR115 also owns `src/compiler/python/ir/lowering/collections.py` and its
@@ -2374,3 +2391,26 @@ qualification remain required.
 The earlier direct-field-assignment reduction also exposed canonicalized
 assignment-result and discarded-value temporaries. Those raw differences are
 preserved separately; method-based mutations isolate the visitor repair here.
+
+### 2026-10-24: generic module effect-summary cache (Codex, issue8)
+
+Branch `codex/generic-summary-cache-20261024` starts at `d3ad1d67` in the
+reused checked-override checkout. The preserved override branch remains at
+`7118ec76`. This local follow-up for the session's PR115/PR119 work changes
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+the separate generic-summary regression and optional worker-count argument
+in `src/tests/python/test_module_units.py`, and this appended claim. The
+concurrent Span packet keeps its existing hunks in the test module. D29
+authorizes this harmonization work; no other packet's hunks are replaced.
+
+Cold module compilation records Map's consultation of Vector constructor
+and push effects, then drops those effects when their definitions are
+pruned. The first unchanged warm build therefore lowers Map again. The
+repair must retain the solved producer facts, preserve emitted code, and
+continue to rebuild the provider when caller edits change generic demand.
+Baseline and candidate checks cover inline and forked workers, exact cold
+and warm C, constructor-demand edits, and strict/sanitized native execution.
+Shared frontend cache reuse, performance targets and final integrated gates
+remain unqualified. The hunk will be composed with PR119 before publication; no competing
+source claim or standalone green status is asserted. Publication waits for
+the current hosted CI train.

@@ -640,7 +640,7 @@ class ModuleUnitDeclarations {
 		if (others.len == all.len) { return; }
 		unit.preprocessorDecls = others;
 		Map<string, bool> used = {};
-		ModuleUnitDeclarations.collectText(CEmitter().emitModuleUnit(unit), used);
+		RuntimeReferenceCollector.collectIdentifiers(CEmitter().emitModuleUnit(unit), used);
 		Vector<IRPreprocessorDecl> kept = [];
 		for declaration in all {
 			if (self.nativeInclude(declaration)) {
@@ -2082,7 +2082,10 @@ class ModuleUnitCompiler {
 			record.text = reply.substring(newline + 1 + headerLength, reply.length() - newline - 1 - headerLength);
 			record.hasSetjmp = state.hasSetjmp;
 			record.effectsSolved = needsSolve;
-			for name in record.exports { if (solved.has(name)) { record.exportedEffects.put(name, solved.get(name)); } }
+			/* Other units solved against every lowered export, including generic
+			 * members whose code demand pruning removed. Keep those summaries
+			 * so an unchanged build can reproduce the same solve. */
+			for name in state.exports { if (solved.has(name)) { record.exportedEffects.put(name, solved.get(name)); } }
 			for name in state.consulted.keys() { if (solved.has(name)) { record.consultedEffects.put(name, solved.get(name)); } }
 			record.releasesCyclable = header.get("releases").asBool();
 			record.definesEntry = header.get("entry").asBool();
