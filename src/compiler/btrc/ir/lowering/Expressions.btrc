@@ -859,11 +859,11 @@ class ExpressionLowerer {
 
 		string receiverKey = AstIdentity.key(receiverExpression);
 		bool receiverHadOverride = self.context.hasExpressionOverrideKey(receiverKey);
-		IRNode receiverPrevious = IRNode.literal("0");
+		ExpressionOverride receiverPrevious = ExpressionOverride(IRNode.literal("0"));
 		if (receiverHadOverride) {
-			receiverPrevious = self.context.expressionOverrideForKey(receiverKey);
+			receiverPrevious = self.context.expressionOverrideStateForKey(receiverKey);
 		}
-		self.context.setExpressionOverrideKey(receiverKey, receiver);
+		self.context.setExpressionOverrideKey(receiverKey, receiver, concreteReceiverType);
 
 		bool callableField = call.callee != null && call.callee.kind == NK_FIELD_ACCESS_EXPR && plan.target.kind == CALL_TARGET_CALLABLE_VALUE;
 		bool callableOrder = callableField && operandsComplete && self.callOwnership.requiresOrder(call.callee, plan.operands, environment);
@@ -897,7 +897,7 @@ class ExpressionLowerer {
 		IRNode lowered = self.lowerMethodCallCore(call, varTypes, callableFlow);
 		if (argumentBoundary) { boundary.restore(); }
 		if (receiverHadOverride) {
-			self.context.setExpressionOverrideKey(receiverKey, receiverPrevious);
+			self.context.restoreExpressionOverrideKey(receiverKey, receiverPrevious);
 		} else {
 			self.context.removeExpressionOverrideKey(receiverKey);
 		}
@@ -2655,16 +2655,16 @@ class ExpressionLowerer {
 		while (index < plan.evaluations.len) {
 			CallArgumentSlot slot = plan.evaluations.get(index);
 			Node? expected = slot.parameter.type;
-			Node? sourceType = null;
+			Node? sourceType = self.context.expressionOverrideType(slot.expression);
 			IRNode value = IRNode.literal("0");
 			if (slot.usesDefault) {
 				Map<string, Node> saved = self.calls.beginDefaultTypeScope(target.signature.substitutions);
 				value = self.lowerAssignedValueRaw(slot.expression, expected, varTypes, callableFlow);
 				self.calls.endDefaultTypeScope(saved);
-				sourceType = self.callTargets.defaultExpressionType(slot.expression, target.signature.substitutions, varTypes);
+				if (sourceType == null) { sourceType = self.callTargets.defaultExpressionType(slot.expression, target.signature.substitutions, varTypes); }
 			} else {
 				value = self.lowerAssignedValueRaw(slot.expression, expected, varTypes, callableFlow);
-				sourceType = self.resolvedExpressionType(slot.expression, varTypes);
+				if (sourceType == null) { sourceType = self.resolvedExpressionType(slot.expression, varTypes); }
 			}
 			if (expected == null && target.signature.variadic && !slot.usesDefault) {
 				value = self.strings.promoteVariadicArgument(sourceType, value);
