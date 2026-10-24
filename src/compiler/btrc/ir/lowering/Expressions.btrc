@@ -200,7 +200,8 @@ class ExpressionLowerer {
 		self.addProjectionOperands(boundary, plan, "assignment target", varTypes, callableFlow);
 		IRNode lowered = self.materializeAssignmentCore(assignmentPlan, varTypes, callableFlow);
 		boundary.restore();
-		Node? resultType = self.resolvedExpressionType(expression, varTypes);
+		/* The stored result has the target's declared type, including aliases. */
+		Node? resultType = self.operandPlanner.expressionStorageType(expression.target, environment);
 		Node? virtualType = self.ownershipSemantics.virtualAssignmentValueType(expression.target, environment, self.context.currentPropertyBacking);
 		bool rhsSuppliesResult = virtualType != null && self.ownershipSemantics.virtualAssignmentRhsOwnsResult(expression, virtualType, environment);
 		boundary.resultOwned = rhsSuppliesResult;
