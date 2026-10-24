@@ -1998,3 +1998,22 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+
+### 2026-10-24 CX-GUI-GATES-108: direct native resize diagnostic
+
+PR114 also owns `src/tests/native/gui/ui2/probes/macos/e40/NativeResize.m`
+and the bounded-control support in `src/tests/python/test_native_ui2_macos_e40.py`
+and `src/tests/python/test_native_ui2_e40_evidence.py` for issue110.
+The hosted resize fixture posts its initial mouse-down, then sends no drag
+until native entry and dequeue are observed. Retained reports show no entry,
+no dequeue and watchdog cleanup. Whether that dependency prevents the native
+resize gesture from starting remains unproven.
+
+Add a direct AppKit control with a bounded native mouse drag independent of
+those acknowledgments. Record submitted events, post return, observed AppKit
+events, live-resize notifications, geometry and posting permissions. Retain
+source/binary hashes and timeout outcomes beside the existing Metal control.
+No programmatic resize may satisfy the observation, and no diagnostic result
+changes E40 acceptance. Build locally without launching a window; native
+runtime evidence comes from hosted CI. Preserve the existing E40 thresholds.
