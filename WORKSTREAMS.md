@@ -2150,3 +2150,22 @@ classification for ownership and runtime descriptors. Do not change the test's
 whole-C comparison or normalize its output. Validate the combined reference
 conversion and self-hosted storage repair through the alias matrix, ownership,
 interface, module and emitted-C parity suites before committing production code.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: prepared call argument types
+
+The four class/interface and borrowed/owned call diagnostics pass all sixteen
+strict O2 and sanitizer executions but differ in raw C. Argument preparation
+performs an upcast, then the expression override retains only its IR value.
+Final argument lowering infers the original expression type and casts again.
+
+This packet adds `src/compiler/btrc/ir/lowering/Context.btrc` and
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc` to its owned paths.
+Existing claims cover Expressions, Statements and operand-sequencing tests.
+Store the optional effective type with the overridden IR value in one record.
+Preserve that complete record through call boundaries, optional receivers and
+array projection save/restore paths. Use the prepared type only where present;
+never infer it from the destination parameter. Preserve source order, cleanup,
+variadic promotion, default arguments and the exact emitted-C comparison.
+Prove the reduced regression before production edits and then run the broader
+ownership, call, module, structure and parity suites on a fresh compiler.
