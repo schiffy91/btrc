@@ -2034,3 +2034,21 @@ records in hosted artifacts. Prove normal outcomes and forced controller
 termination during setup and call, both sequentially and with grouped xdist.
 Keep the current selection, workers, job limit, skip policy and acceptance
 checks. These records diagnose incomplete execution; they do not qualify it.
+
+### 2026-10-24 CX-GUI-GATES-108: Linux E40 startup phases
+
+PR114 also owns diagnostic phase records in
+`src/tests/native/gui/ui2/probes/linux/{UI2LinuxFairness.btrc,Fairness.c,Fairness.h}`
+and their native symbol declaration in
+`src/tests/python/test_native_ui2_fairness_linux.py` for issues109 and110.
+The c3 self-hosted sanitized diagnostic and the 606 reference sanitized
+600-second qualification both timed out with empty stdout, no native result
+rows and no presentation CSV. The latter passed all16 burst cases first.
+
+Record and flush entry/return phases for startup operations and warmup pumps.
+Retain them through the existing stderr artifact when the parent kills a
+timed-out child. Keep the measurement interval free of per-turn diagnostics,
+and preserve all durations, thresholds and qualification requirements. These
+records locate an unfinished call; they cannot establish a cause by themselves.
+Local checks may compile and inspect the fixture without opening windows;
+actual Linux provider execution remains a hosted gate.
