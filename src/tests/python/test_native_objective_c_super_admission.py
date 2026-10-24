@@ -6,15 +6,15 @@ import subprocess
 
 import pytest
 
+from src.compiler.python.analyzer.types import TypeIdentity
 from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.results import CompilerOptions
+from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.tests.process_limits import TRANSPILE_TIMEOUT
 from src.tests.python.native_import_fixtures import REPO
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.test_native_objective_c_subclasses import _build_and_run
-from src.compiler.python.analyzer.types import TypeIdentity
-from src.compiler.python.syntax.ast.generated import TypeExpr
 
 HEADER = """#import <Foundation/Foundation.h>
 @interface AdmissionArgument : NSObject

@@ -14,13 +14,19 @@ import sys
 import threading
 import time
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.application.compiler import Compiler
-from src.compiler.python.application.modules import ForkedModuleUnitWorkers, ModuleUnitCompiler, ModuleUnitRecord
+from src.compiler.python.application.modules import (
+    ForkedModuleUnitWorkers,
+    ModuleUnitCompiler,
+    ModuleUnitGraph,
+    ModuleUnitRecord,
+    _GroupState,
+)
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
@@ -31,6 +37,7 @@ from src.compiler.python.ir.lowering.exceptions import (
     ParameterEffect,
     SetjmpUnitSolver,
 )
+from src.compiler.python.ir.lowering.session import ModuleLoweringFacts
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -38,11 +45,17 @@ from src.compiler.python.ir.nodes import (
     IRExprStmt,
     IRFunctionDecl,
     IRFunctionDef,
+    IRFunctionRef,
+    IRGlobalDecl,
+    IRMacroDef,
     IRModule,
+    IRObjectiveCClass,
+    IRObjectiveCMethod,
     IRParam,
     IRVar,
     IRVarDecl,
 )
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.tests import runner
 from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
@@ -53,16 +66,6 @@ from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.pugixml_fixtures import pugixml_project as pugixml_project
 from tools.native_plan import NativePlanBuilder
-from dataclasses import replace
-from src.compiler.python.application.modules import ModuleUnitGraph
-from src.compiler.python.application.modules import _GroupState
-from src.compiler.python.ir.lowering.session import ModuleLoweringFacts
-from src.compiler.python.ir.nodes import IRFunctionRef
-from src.compiler.python.ir.nodes import IRGlobalDecl
-from src.compiler.python.ir.nodes import IRMacroDef
-from src.compiler.python.ir.nodes import IRObjectiveCClass
-from src.compiler.python.ir.nodes import IRObjectiveCMethod
-from src.compiler.python.ir.optimizer import IROptimizer
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "src" / "tests" / "native" / "modules"

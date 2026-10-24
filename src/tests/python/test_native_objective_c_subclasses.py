@@ -21,12 +21,12 @@ import subprocess
 
 import pytest
 
+from src.compiler.python.analyzer.types import TypeIdentity
+from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
 from tools.native_plan import NativePlanBuilder
-from src.compiler.python.analyzer.types import TypeIdentity
-from src.compiler.python.syntax.ast.generated import TypeExpr
 
 HEADER = """#import <Foundation/Foundation.h>
 @interface NativeLayer : NSObject
