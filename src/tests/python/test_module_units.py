@@ -2206,3 +2206,115 @@ def test_selfhost_strict_stdlib_validation_has_separate_records(tmp_path, immuta
     assert repeated == {"lowered": 0, "reused": 6}
     assert _validation_records(repeated_log)["replayed"] > 0
     assert normal_units == strict_units == repeated_units
+
+
+@pytest.mark.parametrize(
+    ("payload", "values", "macro"),
+    [
+        ("uint", "uint first = 1u; uint second = 7u;", "ATOMIC_INT_LOCK_FREE"),
+        (
+            "const int*",
+            "int firstValue = 1; int secondValue = 7; const int* first = &firstValue; const int* second = &secondValue;",
+            "ATOMIC_POINTER_LOCK_FREE",
+        ),
+    ],
+)
+def test_module_atomic_types_keep_their_lock_free_proofs(tmp_path, immutable_btrcc, payload, values, macro):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (source / "Counter.btrc").write_text(
+        f"{payload} readCounter(Atomic<{payload}>* counter) {{ return counter->load(MemoryOrder.ACQUIRE); }}\n"
+    )
+    (source / "Main.btrc").write_text(
+        f"""
+        #include <assert.h>
+        import ./Counter.btrc;
+        int main() {{
+            {values}
+            Atomic<{payload}> counter = Atomic(first);
+            assert(readCounter(&counter) == first);
+            counter.store(second, MemoryOrder.RELEASE);
+            assert(readCounter(&counter) == second);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    sanitizer = require_sanitizers(tmp_path)
+    generated = {}
+    for frontend, command in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = tmp_path.resolve() / frontend
+        output.mkdir()
+        compiled = subprocess.run(
+            [
+                *command,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                "--module-units",
+                "--jobs",
+                "1",
+                "--emit-units",
+                str(output / "program"),
+                "-o",
+                str(output / "program.c"),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        units = sorted(output.glob("program*.c"))
+        generated[frontend] = {unit.name: unit.read_text() for unit in units}
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "atomic module qualification requires a C compiler"
+            executable = output / mode
+            built = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *map(str, units),
+                    "-lm",
+                    "-lpthread",
+                    "-o",
+                    str(executable),
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert built.returncode == 0, built.stderr
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0, ran.stderr
+            assert ran.stdout == "PASS\n"
+    for frontend, units in generated.items():
+        atomic_units = [text for name, text in units.items() if ".unit-Main-" in name or ".unit-Counter-" in name]
+        assert len(atomic_units) == 2, frontend
+        for text in atomic_units:
+            assert text.count("__btrc_atomic_lock_free_") == 1, frontend
+            assert f"{macro} == 2" in text, frontend

@@ -15,10 +15,7 @@ from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceConditionals, SourceMacroRules
 from src.compiler.python.ir.nodes import (
     CType,
-    IRBinOp,
     IRCall,
-    IREnumDef,
-    IREnumValue,
     IRFunctionDecl,
     IRFunctionRef,
     IRGlobalDecl,
@@ -32,7 +29,6 @@ from src.compiler.python.ir.nodes import (
     IRStructField,
     IRStructForward,
     IRTypedefDef,
-    IRVar,
 )
 from src.compiler.python.syntax.ast.generated import (
     BraceInitializer,
@@ -142,7 +138,6 @@ class TranslationUnitLowerer:
         self._cleanup_slots = cleanup_slots
         self._preprocessor_prefix_end = 0
         self._span_types: dict[str, TypeExpr] = {}
-        self._atomic_types: dict[str, TypeExpr] = {}
 
     def lower(self):
         """Run the ordered translation-unit phase cascade."""
@@ -184,7 +179,7 @@ class TranslationUnitLowerer:
         if not shared:
             self._emit_forward_decls()
             self._emit_tuple_structs(class_views, method_views)
-        self._emit_realtime_types()
+        self._emit_span_types()
         self._emit_fn_ptr_typedefs()
         if not shared:
             self._emit_structs()
@@ -209,6 +204,7 @@ class TranslationUnitLowerer:
         if self._session.declarations_elsewhere:
             self._emit_referenced_interfaces()
         self._emit_fn_ptr_typedefs()
+        self._session.module.enum_defs = self._types.atomic_lock_free_proofs() + self._session.module.enum_defs
         self._cleanup_slots.finalize()
         if self._session.owned_group is None:
             self._exceptions.apply_setjmp_volatility(self._session.module)
@@ -1062,9 +1058,6 @@ class TranslationUnitLowerer:
         if type_expr.base == "Span" and len(type_expr.generic_args) == 1:
             symbol = self._type_identity.generic_symbol("Span", type_expr.generic_args)
             self._span_types.setdefault(symbol, type_expr.generic_args[0])
-        if type_expr.base == "Atomic" and len(type_expr.generic_args) == 1:
-            symbol = self._type_identity.generic_symbol("Atomic", type_expr.generic_args)
-            self._atomic_types.setdefault(symbol, type_expr.generic_args[0])
         if (
             type_expr.base == "Tuple"
             and type_expr.generic_args
@@ -1074,8 +1067,8 @@ class TranslationUnitLowerer:
                 self._type_identity.generic_symbol("Tuple", type_expr.generic_args), list(type_expr.generic_args)
             )
 
-    def _emit_realtime_types(self) -> None:
-        """Emit concrete borrowed-view layouts and target lock-free proofs."""
+    def _emit_span_types(self) -> None:
+        """Emit concrete borrowed-view layouts."""
         for symbol, element in self._span_types.items():
             definition = IRStructDef(
                 name=symbol,
@@ -1091,39 +1084,3 @@ class TranslationUnitLowerer:
             forward = IRStructForward(name=symbol)
             if forward not in self._session.module.struct_forwards:
                 self._session.module.struct_forwards.append(forward)
-        for symbol, payload in self._atomic_types.items():
-            macro = self._atomic_lock_free_macro(payload)
-            if macro is None:
-                raise CodegenError(f"Atomic payload '{self._types.render(payload)}' has no lock-free proof")
-            self._session.require_runtime_header("stdatomic.h")
-            self._session.module.enum_defs.append(
-                IREnumDef(
-                    name=None,
-                    values=[
-                        IREnumValue(
-                            name=f"__btrc_atomic_lock_free_{symbol}",
-                            value=IRBinOp(
-                                left=IRLiteral(text="1"),
-                                op="/",
-                                right=IRBinOp(
-                                    left=IRVar(name=macro),
-                                    op="==",
-                                    right=IRLiteral(text="2"),
-                                ),
-                            ),
-                        )
-                    ],
-                )
-            )
-
-    def _atomic_lock_free_macro(self, payload: TypeExpr) -> str | None:
-        payload = self._types.canonical_type(payload)
-        if payload is None:
-            return None
-        if payload.pointer_depth > 0:
-            return "ATOMIC_POINTER_LOCK_FREE"
-        if payload.base == "bool":
-            return "ATOMIC_BOOL_LOCK_FREE"
-        if payload.base in {"int", "signed", "signed int", "uint", "unsigned", "unsigned int"}:
-            return "ATOMIC_INT_LOCK_FREE"
-        return None

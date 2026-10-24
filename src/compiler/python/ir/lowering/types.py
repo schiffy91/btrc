@@ -26,6 +26,8 @@ from src.compiler.python.ir.nodes import (
     IRCommaExpr,
     IRCompoundLiteral,
     IRDeref,
+    IREnumDef,
+    IREnumValue,
     IRExpr,
     IRFunctionPointerTypedef,
     IRLiteral,
@@ -151,6 +153,7 @@ class CTypeLowerer:
             enum_names=analyzed.enum_table,
         )
         self._function_pointers = FunctionPointerTypedefRegistry(self._identity)
+        self._atomic_types: dict[str, TypeExpr] = {}
 
     def substitute_concrete_type(
         self, type_expr: TypeExpr | None, substitutions: dict[str, TypeExpr]
@@ -174,6 +177,8 @@ class CTypeLowerer:
             c_type = self._function_pointer_name(type_expr)
         elif base == "Atomic" and len(type_expr.generic_args) == 1:
             self._session.require_runtime_header("stdatomic.h")
+            symbol = self._identity.generic_symbol(base, type_expr.generic_args)
+            self._atomic_types.setdefault(symbol, type_expr.generic_args[0])
             c_type = f"_Atomic({self.render(type_expr.generic_args[0])})"
         elif base == "MemoryOrder" and not type_expr.generic_args:
             self._session.require_runtime_header("stdatomic.h")
@@ -274,6 +279,47 @@ class CTypeLowerer:
         if base == "bool":
             return "%s"
         return "%d"
+
+    def atomic_lock_free_proofs(self) -> list[IREnumDef]:
+        """Prove every concrete atomic type rendered by this translation unit."""
+        proofs: list[IREnumDef] = []
+        for symbol, payload in self._atomic_types.items():
+            macro = self._atomic_lock_free_macro(payload)
+            if macro is None:
+                raise CodegenError(f"Atomic payload '{self.render(payload)}' has no lock-free proof")
+            self._session.require_runtime_header("stdatomic.h")
+            proofs.append(
+                IREnumDef(
+                    name=None,
+                    values=[
+                        IREnumValue(
+                            name=f"__btrc_atomic_lock_free_{symbol}",
+                            value=IRBinOp(
+                                left=IRLiteral(text="1"),
+                                op="/",
+                                right=IRBinOp(
+                                    left=IRVar(name=macro),
+                                    op="==",
+                                    right=IRLiteral(text="2"),
+                                ),
+                            ),
+                        )
+                    ],
+                )
+            )
+        return proofs
+
+    def _atomic_lock_free_macro(self, payload: TypeExpr) -> str | None:
+        payload = self.canonical_type(payload)
+        if payload is None:
+            return None
+        if payload.pointer_depth > 0:
+            return "ATOMIC_POINTER_LOCK_FREE"
+        if payload.base == "bool":
+            return "ATOMIC_BOOL_LOCK_FREE"
+        if payload.base in {"int", "signed", "signed int", "uint", "unsigned", "unsigned int"}:
+            return "ATOMIC_INT_LOCK_FREE"
+        return None
 
     def consume_function_pointer_typedefs(self) -> list[IRFunctionPointerTypedef]:
         """Drain callback declarations registered since the previous phase."""
