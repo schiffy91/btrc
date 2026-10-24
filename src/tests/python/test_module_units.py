@@ -44,6 +44,7 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.tests import runner
+from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.core_audio_fixtures import fault_package
@@ -834,6 +835,115 @@ def test_enum_functions_belong_to_the_enums_unit(tmp_path, request):
         )
         ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
         assert ran.returncode == 0 and ran.stdout == "Dark\nHit\n", (compiler, ran)
+
+
+@pytest.mark.parametrize("rich", [False, True], ids=["plain", "rich"])
+def test_module_enum_declarations_match_their_owning_group_order(tmp_path, request, rich):
+    if C_COMPILER is None:
+        pytest.skip("module-unit execution needs a C compiler")
+    sanitizer = require_sanitizers(tmp_path)
+    source = tmp_path / "source"
+    source.mkdir()
+    if rich:
+        shared = "enum class SharedKind { Value(int amount), Empty }\n"
+        local = """
+            enum class LocalKind { Mark(int amount), Missing }
+            int main() {
+                SharedKind shared = SharedKind.Value(5);
+                LocalKind local = LocalKind.Mark(7);
+                print(shared.toString());
+                print(local.toString());
+                print(shared.data.Value.amount + local.data.Mark.amount);
+                return 0;
+            }
+        """
+        expected = "Value\nMark\n12\n"
+    else:
+        shared = "enum SharedKind { low = 3, high = low + 2 };\n"
+        local = """
+            enum LocalKind { first = 6, here = first + 1 };
+            int main() {
+                SharedKind shared = SharedKind.high;
+                LocalKind local = LocalKind.here;
+                print(shared.toString());
+                print(local.toString());
+                print((int)shared + (int)local);
+                return 0;
+            }
+        """
+        expected = "high\nhere\n12\n"
+    (source / "Shared.btrc").write_text(shared)
+    (source / "Main.btrc").write_text("import ./Shared.btrc;\n" + local)
+    declarations = {}
+    for compiler in ("python", "btrc"):
+        output = tmp_path / compiler
+        output.mkdir()
+        completed = subprocess.run(
+            [
+                *_native_command(compiler, request),
+                str(source / "Main.btrc"),
+                "--no-cache",
+                "--strict-imports",
+                "--module-units",
+                "--jobs",
+                "1",
+                "--emit-units",
+                str(output / "program"),
+                "-o",
+                str(output / "program.c"),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert completed.returncode == 0, completed.stderr
+        sources = sorted(output.glob("*.c"))
+        main_unit = next(path for path in sources if ".unit-Main-" in path.name)
+        declarations[compiler] = re.findall(
+            r"^typedef enum \{\n[^{}]*^\} (?:SharedKind|LocalKind)(?:_Tag)?;",
+            main_unit.read_text(),
+            re.M,
+        )
+        assert len(declarations[compiler]) == 2
+        for mode in ("strict", "sanitized"):
+            native_compiler = sanitizer.command if mode == "sanitized" else C_COMPILER
+            flags = (
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if mode == "sanitized" else ["-O2"]
+            )
+            environment = sanitizer.environment if mode == "sanitized" else None
+            executable = output / mode
+            built = subprocess.run(
+                [
+                    *native_compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *map(str, sources),
+                    "-lm",
+                    "-lpthread",
+                    "-o",
+                    str(executable),
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert built.returncode == 0, built.stderr
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0 and ran.stdout == expected, (compiler, mode, ran)
+    assert declarations["python"] == declarations["btrc"]
 
 
 def _cli_units(command: list[str], workspace: _Workspace, entry: str, output: Path, jobs: int) -> dict[str, str]:
