@@ -3218,3 +3218,51 @@ def test_owned_typedefs_precede_shared_aliases(tmp_path, immutable_btrcc, module
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("record_order", [("Alpha", "Beta", "Gamma"), ("Beta", "Gamma", "Alpha")])
+@pytest.mark.parametrize("nested", [False, True], ids=["independent", "nested"])
+def test_native_record_input_declarations_match_frontends(
+    tmp_path, immutable_btrcc, module_units, record_order, nested
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    child = "const Gamma* child;" if nested else ""
+    child_value = " + value->child->value" if nested else ""
+    (tmp_path / "Records.h").write_text(
+        "#pragma once\n"
+        "typedef struct Gamma { int value; } Gamma;\n"
+        f"typedef struct Alpha {{ int value; {child} }} Alpha;\n"
+        "typedef struct Beta { int value; } Beta;\n"
+        f"static inline int readAlpha(const Alpha* value) {{ return value->value{child_value}; }}\n"
+        "static inline int readBeta(const Beta* value) { return value->value; }\n"
+        "static inline int readGamma(const Gamma* value) { return value->value; }\n"
+    )
+    (tmp_path / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "recordInputOrder"\n'
+        '[[native.bindings]]\nmodule = "Records"\nheader = "Records.h"\nlanguage = "c"\nstandard = "c11"\n'
+        'symbols = ["Alpha", "Beta", "Gamma", "readAlpha", "readBeta", "readGamma"]\n'
+        f"owned-records = {json.dumps(record_order)}\n"
+        'record-inputs = ["readAlpha.value", "readBeta.value", "readGamma.value"]\n'
+        + ('[native.bindings.object-fields]\n"Alpha.child" = "Gamma"\n' if nested else "")
+    )
+    (source / "Records.btrc").write_text("// Native record input projections.\n")
+    initialize = "alpha.child = gamma;" if nested else ""
+    expected = 49 if nested else 42
+    (source / "Reader.btrc").write_text(
+        "import ./Records.btrc;\n"
+        "int read() {\n"
+        "    var alpha = AlphaInput(); alpha.value = 20;\n"
+        "    var beta = BetaInput(); beta.value = 15;\n"
+        "    var gamma = GammaInput(); gamma.value = 7;\n"
+        f"    {initialize}\n"
+        "    return readAlpha(alpha) + readBeta(beta) + readGamma(gamma);\n}\n"
+    )
+    (source / "Main.btrc").write_text(
+        f'import ./Reader.btrc;\nint main() {{ assert(read() == {expected}); print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

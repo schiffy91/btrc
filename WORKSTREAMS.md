@@ -2414,3 +2414,23 @@ these generated instances. Cover scoped superclass admission and instance
 factory roots, with strict and sanitized native execution. Keep the already
 normalized per-instance receiver as a control. Preserve all lifecycle assertions
 and verify module output in the combined application tree.
+
+
+### 2026-10-24: native record input declaration order (Codex follow-up)
+
+Owned paths: `src/compiler/python/frontend/native_imports.py`,
+`src/compiler/btrc/frontend/NativeImports.btrc` and
+`src/tests/python/test_module_units.py`. Base: `c77e6cf0`.
+
+Generated native input classes follow different map iteration orders in the
+two frontends. A local C-header reduction passes all 32 strict and sanitized
+native executions but fails six of eight complete C comparisons. Independent
+records differ in their forwards, layouts and generated lifecycle definitions;
+module consumers also expose the existing external-prototype ordering issue.
+
+Sort each binding's completed record projections by name before creating its
+ordinary input classes in both frontends. Recursive projection discovery and
+field order remain with their existing owners. The eight regression cases
+cover independent and nested records, two manifest orders, and whole-program
+and module output. Require the combined prototype repair to pass complete C
+comparisons, then recheck the full application and final integration gates.
