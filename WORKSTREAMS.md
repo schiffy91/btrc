@@ -1998,3 +1998,20 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+## 2026-10-24 CX-NATIVE-HANDOFF-PARITY: native call-boundary cleanup
+
+Reserved: Codex owns `codex/native-handoff-parity-20261024` from
+`b800bb0` under D29. BTRSmith's AppKitText unit exposes different release
+expressions after a call: the self-hosted compiler adds a null guard around
+its generated native lifetime helper, while the reference compiler calls the
+helper directly. Establish a paired baseline before changing that path.
+
+Owned paths are `src/compiler/btrc/ir/lowering/ownership/Calls.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`,
+`src/tests/python/test_native_managed_resources.py`, and this claim.
+Preserve nullable-resource safety, retained argument lifetime, clearing before
+release, and exception cleanup. Verify the generated adapters' null contracts,
+including Objective-C and COM, before removing any guard. This is an
+independent parity packet; it does not change collection cycle batching.
+Full integrated gates remain required. Publication waits for CI capacity.
