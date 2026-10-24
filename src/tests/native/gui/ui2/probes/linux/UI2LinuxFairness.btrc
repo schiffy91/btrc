@@ -106,8 +106,18 @@ class FairnessPresentation {
 }
 class FairnessChecks {
 	class void ready(LinuxApplication application, int window) {
+		e40Phase("warmup-begin", window);
 		unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
-		while (e40Frames(window) == 0 && SDL_GetTicksNS() < deadline) { application.pumpOnce(10); }
+		int pumps = 0;
+		while (e40Frames(window) == 0 && SDL_GetTicksNS() < deadline) {
+			// Bound startup output even if a failing surface never presents.
+			if (pumps < 32) { e40Phase("warmup-pump-begin", window); }
+			application.pumpOnce(10);
+			if (pumps < 32) { e40Phase("warmup-pump-end", window); }
+			pumps++;
+			if (pumps == 32) { e40Phase("warmup-pump-trace-limit", window); }
+		}
+		e40Phase("warmup-end", window);
 		assert(e40Frames(window) > 0);
 	}
 
@@ -116,17 +126,45 @@ class FairnessChecks {
 int main(int argc, char** argv) {
 	assert(argc == 4); int seconds = atoi(argv[1]); int sanitized = atoi(argv[2]);
 	assert(seconds == 10 || seconds == 600); assert(sanitized == 0 || sanitized == 1);
+	e40Phase("sdl-init-begin", -1);
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
-	var application = LinuxApplication(128); var first = application.createWindow("E40 first", 200.0, 100.0);
+	e40Phase("sdl-init-end", -1);
+	e40Phase("application-create-begin", -1);
+	var application = LinuxApplication(128);
+	e40Phase("application-create-end", -1);
+	e40Phase("window-create-begin", 0);
+	var first = application.createWindow("E40 first", 200.0, 100.0);
+	e40Phase("window-create-end", 0);
+	e40Phase("window-create-begin", 1);
 	var second = application.createWindow("E40 second", 200.0, 100.0);
-	var firstLabel = application.createLabel("first"); var secondLabel = application.createLabel("second");
-	first.attachRoot(firstLabel); second.attachRoot(secondLabel);
+	e40Phase("window-create-end", 1);
+	e40Phase("label-create-begin", 0);
+	var firstLabel = application.createLabel("first");
+	e40Phase("label-create-end", 0);
+	e40Phase("label-create-begin", 1);
+	var secondLabel = application.createLabel("second");
+	e40Phase("label-create-end", 1);
+	e40Phase("root-attach-begin", 0);
+	first.attachRoot(firstLabel);
+	e40Phase("root-attach-end", 0);
+	e40Phase("root-attach-begin", 1);
+	second.attachRoot(secondLabel);
+	e40Phase("root-attach-end", 1);
 	// Only one surface is visible during each warmup, establishing the native
 	// surface-to-window association before the presentation observer measures.
-	first.show(); FairnessChecks.ready(application, 0); second.show(); FairnessChecks.ready(application, 1);
+	e40Phase("window-show-begin", 0);
+	first.show();
+	e40Phase("window-show-end", 0);
+	FairnessChecks.ready(application, 0);
+	e40Phase("window-show-begin", 1);
+	second.show();
+	e40Phase("window-show-end", 1);
+	FairnessChecks.ready(application, 1);
 	var firstNative = (ILinuxWindow?)first; var secondNative = (ILinuxWindow?)second;
 	assert(firstNative != null && secondNative != null);
+	e40Phase("measurement-start-begin", -1);
 	e40Start(firstNative.nativeId(), secondNative.nativeId(), argv[3]);
+	e40Phase("measurement-start-end", -1);
 	var receiver = FairnessReceiver(); var scope = CallbackScope();
 	first.onKey(receiver, scope); second.onKey(receiver, scope); first.onCloseRequested(receiver, scope);
 	var created = application.createPublisher(64, receiver, scope); var publisher = created.publisher;

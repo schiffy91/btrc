@@ -69,6 +69,7 @@ def load_program(tmp_path_factory, request, frontend, sanitized):
         "src/tests/native/gui/ui2/probes/linux/UI2LinuxFairness.btrc",
         "src/tests/native/gui/ui2/probes/linux/Fairness",
         (
+            "e40Phase",
             "e40Start",
             "e40LoadBegin",
             "e40ProducerTick",

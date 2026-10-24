@@ -265,7 +265,7 @@ jobs:
       # The runner has no display or GPU: tools/virtual-display.sh starts Xvfb
       # and selects Mesa's software Vulkan (lavapipe), so the Linux GUI and
       # WebGPU adapter tests run here instead of skipping.
-      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
+      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 UNIT_GUI_SEPARATE=${{ contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui') && '1' || '0' }} BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
           PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
       - name: Retain partial unit failures
@@ -555,7 +555,9 @@ jobs:
           use-flakehub: false
       - run: make devcontainer
       - run: chmod -R a+w .
-      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui
+      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui
+        env:
+          PYTEST_ADDOPTS: --progress-report=build/linux-gui/${{ matrix.cell }}/progress.jsonl --failure-report=build/linux-gui/${{ matrix.cell }}/failures.jsonl
       # pytest makes its working directories private (0700) as the container's
       # user, which the runner cannot read back to upload.
       - name: Open the session evidence to the runner
@@ -581,6 +583,7 @@ jobs:
           name: gui-evidence-ci-linux-gui-${{ matrix.cell }}
           path: |
             build/linux-gui/${{ matrix.cell }}/*.json
+            build/linux-gui/${{ matrix.cell }}/*.jsonl
             build/linux-gui/${{ matrix.cell }}/*.txt
             build/ui-shell/
             build/linux-gui/${{ matrix.cell }}/pytest/**/*.stdout

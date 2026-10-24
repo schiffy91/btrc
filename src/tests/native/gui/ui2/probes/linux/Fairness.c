@@ -41,6 +41,12 @@ static int loadSeconds;
 static FILE *presentationFile;
 static bool measuring;
 
+void e40Phase(const char *phase, int window) {
+    fprintf(stderr, "E40_PHASE phase=%s window=%d monotonic_ns=%llu\n", phase, window,
+            (unsigned long long)SDL_GetTicksNS());
+    fflush(stderr);
+}
+
 static void requireKind(int kind) { assert(kind >= 0 && kind < CLASSES); }
 /* Buckets cover the exact declared load interval. Setup, close and final drain
  * cannot fill a missing load bucket. This helper is called under the mutex. */

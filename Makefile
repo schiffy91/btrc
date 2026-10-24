@@ -6,7 +6,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer linux-ci clean \
-	test-e40 test-e40-linux test-e40-macos test-shard-unit test-native-gui test-shard-gui test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
+	test-e40 test-e40-linux test-e40-macos test-shard-unit test-native-gui test-shard-gui test-shard-gui-macos test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
 
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
@@ -352,10 +352,13 @@ test-c11: generated-check gpu-required btrcc ## Strict C11: both compilers with 
 # be taken as the program to run. With NIX= (CI in the devcontainer) env is
 # a harmless no-op.
 SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"
+# CI enables this only when its plan also runs the complete native GUI selection.
+UNIT_GUI_SEPARATE ?= 0
+UNIT_GUI_IGNORES = $(if $(filter 1,$(UNIT_GUI_SEPARATE)),$(addprefix --ignore=,$(NATIVE_GUI_TESTS)))
 
-test-shard-unit: generated-check gpu-required ## CI shard: everything but the self-host and corpus suites
-	$(NIX) $(PYTEST) src/tests/ \
-		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(PYTEST_ARGS) -m "not e40_qualification"
+test-shard-unit: generated-check gpu-required btrcc ## CI shard: everything but the self-host and corpus suites
+	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/ \
+		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(UNIT_GUI_IGNORES) $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-unit.json
 
 # The focused native-GUI gate (PLAN Stage 30, ui-0-focused-gate): the GUI,
@@ -368,9 +371,18 @@ NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui_runtime.py tes
 	test_native_app_runtime.py test_native_tray_runtime.py test_native_linux_providers.py \
 	test_native_linux_call_shapes.py test_native_webgpu_imports.py) $(sort $(wildcard src/tests/python/test_native_ui_*.py src/tests/python/test_native_ui2_*.py))
 
-test-native-gui: generated-check ## Focused gate: the native GUI, tray and provider suites only
-	$(NIX) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS) -m "not e40_qualification"
+test-native-gui: generated-check btrcc ## Focused gate: the native GUI, tray and provider suites only
+	$(NIX) $(SHARD_BTRCC) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-native-gui.json
+
+# Hosted macOS splits the same complete selection across isolated runners.
+# The standalone test-native-gui target above still executes every selected test.
+MACOS_GUI_DIR = build/macos-gui/macos-$(GUI_PARTITION)
+test-shard-gui-macos: generated-check btrcc ## CI shard: one exact partition of the hosted macOS GUI selection
+	$(NIX) $(SHARD_BTRCC) python3 -m tools.ui.gui_shards run --session macos --index $(GUI_PARTITION) --count $(GUI_PARTITIONS) \
+		--output $(MACOS_GUI_DIR) --skip-report build/skip-report-native-gui-macos-$(GUI_PARTITION).json \
+		--selectors $(NATIVE_GUI_TESTS) -- $(PYTEST_ARGS) -n $(PYTEST_WORKERS) -m "not e40_qualification"
+	$(NIX) $(SKIP_GATE) build/skip-report-native-gui-macos-$(GUI_PARTITION).json
 
 # The Linux GUI and audio CI shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
 # the focused gate's suites plus the null-PCM check, inside one private
@@ -385,6 +397,9 @@ test-native-gui: generated-check ## Focused gate: the native GUI, tray and provi
 GUI_SESSION ?= x11
 GUI_PARTITION ?= 0
 GUI_PARTITIONS ?= 1
+# Native execution already holds one display lease. A single worker also keeps
+# compile-only cases from competing with the large sanitized provider builds.
+GUI_PYTEST_WORKERS ?= 1
 GUI_CELL := $(GUI_SESSION)-$(GUI_PARTITION)
 GUI_SHARD_DIR := build/linux-gui/$(GUI_CELL)
 # The SDL clipboard-requestor case drives the X11 selection protocol itself, so
@@ -398,7 +413,7 @@ test-shard-gui: generated-check gpu-required btrcc ## CI shard: native GUI and L
 		python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py --output $(GUI_SHARD_DIR) -- \
 		python3 -m tools.ui.gui_shards run --session $(GUI_SESSION) --index $(GUI_PARTITION) --count $(GUI_PARTITIONS) \
 		--output $(GUI_SHARD_DIR) --skip-report build/skip-report-gui-$(GUI_CELL).json \
-		--selectors $(GUI_SHARD_TESTS) -- $(PYTEST_ARGS) -m "not e40_qualification"
+		--selectors $(GUI_SHARD_TESTS) -- $(PYTEST_ARGS) -n $(GUI_PYTEST_WORKERS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-gui-$(GUI_CELL).json
 
 test-shard-btrc: generated-check gpu-required btrcc ## CI shard: self-host contract tests

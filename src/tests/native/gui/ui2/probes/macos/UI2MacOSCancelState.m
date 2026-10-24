@@ -1,5 +1,6 @@
 #import "UI2MacOSCancelState.h"
 #include <assert.h>
+#include <stdio.h>
 
 @interface BTRCUI2CancelState () {
     NSWindow *_window;
@@ -45,7 +46,7 @@
 }
 - (BOOL)unchanged {
     assert([NSThread isMainThread]);
-    return _window != nil && _window.visible && _window.contentView == _content &&
+    BOOL unchanged = _window != nil && _window.visible && _window.contentView == _content &&
         _root.window == _window && _field.window == _window && _scroll.window == _window &&
         _field.superview == _fieldParent && _scroll.superview == _scrollParent &&
         [_field isDescendantOf:_root] && [_scroll isDescendantOf:_root] &&
@@ -53,6 +54,16 @@
         _window.firstResponder == _editor && _field.currentEditor == _editor &&
         [_editor.string isEqualToString:@"draft"] && NSEqualRanges(_editor.selectedRange, _selection) &&
         NSEqualPoints(_clip.bounds.origin, _offset);
+    if (!unchanged) {
+        fprintf(stderr, "UI2 native cancel state changed: visible=%d content=%d root_window=%d field_parent=%d scroll_parent=%d clip=%d document=%d child_parent=%d responder=%d editor=%d text=%s selection=%s expected_selection=%s offset=%s expected_offset=%s\n",
+            (int)_window.visible, _window.contentView == _content, _root.window == _window,
+            _field.superview == _fieldParent, _scroll.superview == _scrollParent,
+            _scroll.contentView == _clip, _scroll.documentView == _document, _child.superview == _document,
+            _window.firstResponder == _editor, _field.currentEditor == _editor, _editor.string.UTF8String,
+            NSStringFromRange(_editor.selectedRange).UTF8String, NSStringFromRange(_selection).UTF8String,
+            NSStringFromPoint(_clip.bounds.origin).UTF8String, NSStringFromPoint(_offset).UTF8String);
+    }
+    return unchanged;
 }
 - (void)continueInput {
     assert([self unchanged]);

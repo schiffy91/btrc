@@ -40,7 +40,7 @@ static id triggerMonitor;
 static NSTimer *progressTimer, *watchdog;
 static bool forcedCleanup;
 static NSString *failurePath, *unavailable;
-static uint64_t entered, exited, injectionStarted;
+static uint64_t entered, exited, injectionStarted, resizeNextInput;
 static uint64_t firstService[7], lastService[7], maximumGap[7], serviceCount[7];
 static int pointerDown, pointerUp, commits, previews, nextStep, highlightChanges, resizeChanges;
 static bool liveResize, attachedSheet, injectionDone;
@@ -118,7 +118,12 @@ static void traceEvent(const char *phase, NSEvent *event, NSEventMask mask, NSRu
         if (event) {
             row[@"type"] = @(event.type); row[@"timestamp_seconds"] = @(event.timestamp); row[@"window"] = @(event.windowNumber);
             if (event.type == NSEventTypeApplicationDefined) { row[@"subtype"] = @(event.subtype); row[@"data1"] = @(event.data1); row[@"data2"] = @(event.data2); }
-            if (event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseDragged || event.type == NSEventTypeLeftMouseUp) { row[@"event_number"] = @(event.eventNumber); }
+            if (event.type == NSEventTypeMouseMoved || event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseDragged || event.type == NSEventTypeLeftMouseUp) {
+                row[@"event_number"] = @(event.eventNumber);
+                row[@"location"] = NSStringFromPoint(event.locationInWindow);
+                CGEventRef native = event.CGEvent;
+                row[@"native_identity"] = native ? @(CGEventGetIntegerValueField(native, kCGEventSourceUserData)) : NSNull.null;
+            }
         }
         NSError *error = nil; NSData *data = [NSJSONSerialization dataWithJSONObject:row options:0 error:&error];
         assert(data && !error && fwrite(data.bytes, 1, data.length, eventTraceStream) == data.length);
@@ -156,7 +161,7 @@ static void traceCleanup(void) {
 
 static void entry(void) {
     traceRecord(TRACE_TRACKING_ENTER);
-    pthread_mutex_lock(&trackingMutex); assert(entered == 0); entered = e40LoadNow(); injectionStarted = entered; pthread_mutex_unlock(&trackingMutex);
+    pthread_mutex_lock(&trackingMutex); assert(entered == 0); entered = e40LoadNow(); if (trialKind != 3) { injectionStarted = entered; } pthread_mutex_unlock(&trackingMutex);
 }
 static void exitTracking(void) {
     traceRecord(TRACE_TRACKING_EXIT);
@@ -242,7 +247,21 @@ static void postResize(CGEventType type, CGPoint point) {
     int sequence = reserveInput(type == kCGEventLeftMouseDown ? NSEventTypeLeftMouseDown : type == kCGEventLeftMouseUp ? NSEventTypeLeftMouseUp : NSEventTypeLeftMouseDragged);
     CGEventRef event = CGEventCreateMouseEvent(NULL, type, point, kCGMouseButtonLeft); assert(event);
     CGEventSetIntegerValueField(event, kCGEventSourceUserData, (int64_t)(TRACK_INPUT_ID + sequence));
-    CGEventPost(kCGHIDEventTap, event); CFRelease(event);
+    CGEventPost(kCGHIDEventTap, event);
+    uint64_t posted = e40LoadNow(); CFRelease(event);
+    pthread_mutex_lock(&trackingMutex);
+    inputs[sequence - 1].posted = posted;
+    resizeNextInput = inputs[sequence - 1].posted + 100000000ULL;
+    pthread_mutex_unlock(&trackingMutex);
+}
+static void beginResizeStimulus(void) {
+    /* Position the cursor before pressing the edge. Native entry requires drag
+     * input, so the producer's clock starts independently of that observation. */
+    CGEventRef move = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, resizeBegin, kCGMouseButtonLeft); assert(move);
+    CGEventPost(kCGHIDEventTap, move); CFRelease(move);
+    pthread_mutex_lock(&trackingMutex);
+    injectionStarted = e40LoadNow(); resizeNextInput = injectionStarted + 100000000ULL;
+    pthread_mutex_unlock(&trackingMutex);
 }
 static void postMenuKey(bool finish) {
     assert(NSThread.isMainThread && NSApp.active && NSApp.keyWindow);
@@ -334,7 +353,7 @@ static void beginNativeTracking(void) {
         postMouse(NSEventTypeLeftMouseDown, sliderBegin, targetNumber);
     } else if (trialKind == 3) {
         if (!CGPreflightPostEventAccess()) { unavailable = [@"CGPreflightPostEventAccess is false" copy]; return; }
-        postResize(kCGEventLeftMouseDown, resizeBegin);
+        beginResizeStimulus();
     } else if (trialKind == 4) {
         sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 180, 80) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
         [target beginSheet:sheet completionHandler:^(NSModalResponse response) { (void)response; exitTracking(); }];
@@ -391,14 +410,17 @@ void e40TrackingStart(void) {
     traceRecord(TRACE_TRIGGER_POST_ENTER); [NSApp postEvent:event atStart:NO]; traceRecord(TRACE_TRIGGER_POST_RETURN);
 }
 void e40TrackingTick(void) {
-    /* Input continues through the actual interaction. Only one identified event
-     * is outstanding, so native drag coalescing cannot hide an unexplained loss. */
+    /* Resize uses an independent bounded gesture: AppKit needs drag input before
+     * entering live resize. Its receipt ledger still requires every dequeue.
+     * Other routes retain their single-outstanding-input handshake. */
     pthread_mutex_lock(&trackingMutex);
     uint64_t started = injectionStarted;
-    if (!started || injectionDone || forcedCleanup || trialKind == 1 || submittedCount != dequeuedCount) { pthread_mutex_unlock(&trackingMutex); return; }
-    uint64_t elapsed = e40LoadNow() - started;
-    if (elapsed < (uint64_t)(nextStep + 1) * 100000000ULL) { pthread_mutex_unlock(&trackingMutex); return; }
-    int step = ++nextStep; if (step == 21) { injectionDone = true; }
+    if (!started || injectionDone || forcedCleanup || trialKind == 1 || (trialKind != 3 && submittedCount != dequeuedCount)) { pthread_mutex_unlock(&trackingMutex); return; }
+    /* Space resize events from the previous post return, preventing a delayed
+     * producer tick from compressing the remaining gesture into a burst. */
+    uint64_t due = trialKind == 3 ? resizeNextInput : started + (uint64_t)(nextStep + 1) * 100000000ULL;
+    if (e40LoadNow() < due) { pthread_mutex_unlock(&trackingMutex); return; }
+    int step = trialKind == 3 ? nextStep++ : ++nextStep; if (step == 21) { injectionDone = true; }
     pthread_mutex_unlock(&trackingMutex);
     @autoreleasepool {
         double fraction = step >= 20 ? 1.0 : (double)step / 20.0;
@@ -406,7 +428,7 @@ void e40TrackingTick(void) {
             postMouse(step == 21 ? NSEventTypeLeftMouseUp : NSEventTypeLeftMouseDragged,
                 NSMakePoint(sliderBegin.x + (sliderEnd.x - sliderBegin.x) * fraction, sliderBegin.y), targetNumber);
         } else if (trialKind == 3) {
-            postResize(step == 21 ? kCGEventLeftMouseUp : kCGEventLeftMouseDragged,
+            postResize(step == 0 ? kCGEventLeftMouseDown : step == 21 ? kCGEventLeftMouseUp : kCGEventLeftMouseDragged,
                 CGPointMake(resizeBegin.x + (resizeEnd.x - resizeBegin.x) * fraction, resizeBegin.y + (resizeEnd.y - resizeBegin.y) * fraction));
         } else if (trialKind == 4) {
             /* Use an independent eligible public view while the parent has a

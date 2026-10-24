@@ -606,3 +606,73 @@ def test_loop_diagnostic_thread_start_failure_reaps_child_and_preserves_error(tm
     receipt = json.loads((tmp_path / "loop-diagnostic.json").read_text())
     assert receipt["native_returncode"] == processes[0].returncode
     assert receipt["samples"] == []
+
+
+@pytest.mark.parametrize("control_name", ["metal", "resize"])
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_native_control_retains_native_outcome_and_runs_once(tmp_path, exit_code, control_name):
+    import hashlib
+    import json
+    import os
+    import sys
+
+    from src.tests.python.test_native_ui2_macos_e40 import E40NativeControl
+
+    executable = tmp_path / "control"
+    executable.write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "print('native output')\nprint('native diagnostic', file=sys.stderr)\n"
+        "Path(sys.argv[1]).write_text('{\"presented\": 0}')\n"
+        f"raise SystemExit({exit_code})\n"
+    )
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    control = E40NativeControl(control_name, [sys.executable, str(executable)], [], digest)
+    control.record(tmp_path, os.environ.copy())
+    directory = tmp_path / f"{control_name}-control"
+    receipt = json.loads((directory / "execution.json").read_text())
+    assert receipt["schema"] == f"btrc.ui2.{control_name}-control-execution/1"
+    assert receipt["source_sha256"] == digest
+    assert receipt["status"] == "completed" and receipt["returncode"] == exit_code
+    assert receipt["report_written"] is True
+    assert json.loads((directory / "observations.json").read_text()) == {"presented": 0}
+    assert (directory / "stdout.txt").read_text() == "native output\n"
+    assert (directory / "stderr.txt").read_text() == "native diagnostic\n"
+    executable.unlink()
+    control.record(tmp_path, os.environ.copy())
+    assert json.loads((directory / "execution.json").read_text()) == receipt
+
+
+@pytest.mark.parametrize("control_name", ["metal", "resize"])
+def test_native_control_timeout_reaps_child_and_discards_stale_report(tmp_path, monkeypatch, control_name):
+    import hashlib
+    import json
+    import os
+    import subprocess
+    import sys
+
+    from src.tests.python import test_native_ui2_macos_e40 as driver
+
+    executable = tmp_path / "control"
+    executable.write_text("import time\nprint('started', flush=True)\ntime.sleep(30)\n")
+    control = driver.E40NativeControl(
+        control_name, [sys.executable, str(executable)], [], hashlib.sha256(executable.read_bytes()).hexdigest()
+    )
+    monkeypatch.setattr(control, "TIMEOUT_SECONDS", 0.5)
+    directory = tmp_path / f"{control_name}-control"
+    directory.mkdir()
+    (directory / "observations.json").write_text('{"presented": 20}')
+    children = []
+    original = subprocess.Popen
+
+    def spawn(*args, **kwargs):
+        child = original(*args, **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(driver.subprocess, "Popen", spawn)
+    control.record(tmp_path, os.environ.copy())
+    receipt = json.loads((directory / "execution.json").read_text())
+    assert receipt["status"] == "failed" and receipt["report_written"] is False
+    assert not (directory / "observations.json").exists()
+    assert len(children) == 1 and children[0].poll() is not None
+    assert (directory / "stdout.txt").read_text() in {"", "started\n"}

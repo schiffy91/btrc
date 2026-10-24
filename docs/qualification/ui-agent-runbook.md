@@ -122,15 +122,18 @@ executes each row. Generated outputs, when authorized, belong in a separate
 outputs at integration; Codex never hand-edits generated files.
 
 macOS/AppKit and hosted GPU correctness evidence comes from the draft PR's
-`macos.yml` native-gui job. Read its `junit-macos-native-gui` artifact to confirm
-the AppKit rows actually executed. The packet may use at most one
+`macos.yml` native-gui matrix. Its two cells retain
+`junit-macos-native-gui-macos-0` and `junit-macos-native-gui-macos-1`.
+The `native-gui-coverage` job requires their exact disjoint union to match the
+complete collected selection. Read both JUnit artifacts to confirm the AppKit
+rows executed; a green cell alone does not qualify the suite. The packet may use at most one
 `focus=native-gui` dispatch per workflow when needed:
 
 ```sh
 nix develop --command gh workflow run macos.yml --ref codex/cx-example -f focus=native-gui
 nix develop --command gh run list --branch codex/cx-example
 nix develop --command gh run view RUN_ID --log-failed
-nix develop --command gh run download RUN_ID -n junit-macos-native-gui
+nix develop --command gh run download RUN_ID -p 'junit-macos-native-gui-macos-*'
 ```
 
 These are hosted/headless stand-ins. They do not establish physical display,

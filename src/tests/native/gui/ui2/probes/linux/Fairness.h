@@ -1,6 +1,7 @@
 #ifndef BTRC_TEST_LINUX_FAIRNESS_H
 #define BTRC_TEST_LINUX_FAIRNESS_H
 /* Native fixture instrumentation only. All times are SDL monotonic nanoseconds. */
+void e40Phase(const char *phase, int window);
 void e40Start(unsigned int first, unsigned int second, const char *presentations);
 unsigned long long e40LoadBegin(int seconds);
 void e40ProducerTick(void);

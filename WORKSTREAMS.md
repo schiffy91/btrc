@@ -1998,3 +1998,125 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+
+### 2026-10-24 CX-GUI-GATES-108: direct native resize diagnostic
+
+PR114 also owns `src/tests/native/gui/ui2/probes/macos/e40/NativeResize.m`
+and the bounded-control support in `src/tests/python/test_native_ui2_macos_e40.py`
+and `src/tests/python/test_native_ui2_e40_evidence.py` for issue110.
+The hosted resize fixture posts its initial mouse-down, then sends no drag
+until native entry and dequeue are observed. Retained reports show no entry,
+no dequeue and watchdog cleanup. Whether that dependency prevents the native
+resize gesture from starting remains unproven.
+
+Add a direct AppKit control with a bounded native mouse drag independent of
+those acknowledgments. Record submitted events, post return, observed AppKit
+events, live-resize notifications, geometry and posting permissions. Retain
+source/binary hashes and timeout outcomes beside the existing Metal control.
+No programmatic resize may satisfy the observation, and no diagnostic result
+changes E40 acceptance. Build locally without launching a window; native
+runtime evidence comes from hosted CI. Preserve the existing E40 thresholds.
+
+### 2026-10-24 CX-GUI-GATES-108: retain unfinished test phases
+
+PR114 also owns `src/tests/skip_ledger.py`,
+`src/tests/python/test_skip_ledger.py`, `.github/workflows/macos.yml`, and
+`src/tests/python/test_ci_workflow_contracts.py` for an optional progress
+journal on the macOS native-GUI job. Job `120768445071` on `c3bdcd75`
+reached its 90-minute limit after reporting 82% progress. Its reader remained
+usable, but no final JUnit or skip report identified the unfinished tests.
+
+Record test starts, completed phases and finishes immediately in the pytest
+controller. Preserve canonical and scheduled identities without stripping
+group suffixes from source IDs. Retain the journal and existing failure
+records in hosted artifacts. Prove normal outcomes and forced controller
+termination during setup and call, both sequentially and with grouped xdist.
+Keep the current selection, workers, job limit, skip policy and acceptance
+checks. These records diagnose incomplete execution; they do not qualify it.
+
+### 2026-10-24 CX-GUI-GATES-108: Linux E40 startup phases
+
+PR114 also owns diagnostic phase records in
+`src/tests/native/gui/ui2/probes/linux/{UI2LinuxFairness.btrc,Fairness.c,Fairness.h}`
+and their native symbol declaration in
+`src/tests/python/test_native_ui2_fairness_linux.py` for issues109 and110.
+The c3 self-hosted sanitized diagnostic and the 606 reference sanitized
+600-second qualification both timed out with empty stdout, no native result
+rows and no presentation CSV. The latter passed all 16 burst cases first.
+
+Record and flush entry/return phases for startup operations and warmup pumps.
+Retain them through the existing stderr artifact when the parent kills a
+timed-out child. Keep the measurement interval free of per-turn diagnostics,
+and preserve all durations, thresholds and qualification requirements. These
+records locate an unfinished call; they cannot establish a cause by themselves.
+Local checks may compile and inspect the fixture without opening windows;
+actual Linux provider execution remains a hosted gate.
+
+
+### 2026-10-24 CX-GUI-GATES-108: native resize dequeue observation
+
+The plain reference and self-hosted controls on `60685688` each submit 23
+mouse events, return from all posts, enter live resize after the second drag,
+observe 18 geometry changes and exit. Their local event monitors see only
+move and down. This does not establish that the NSApplication dequeue hook
+used by E40 can observe the remaining native input.
+
+The existing `NativeResize.m` claim now includes bounded observation of that
+same nextEventMatchingMask:untilDate:inMode:dequeue: boundary. Retain each
+returned event's identity, mode, mask and dequeue flag alongside the separate
+local monitor and notification records. Preserve the independent drag and all
+E40 acceptance rules. Compile locally without launching the control; runtime
+observations require hosted CI. Tracking stimulus changes remain a separate
+step requiring a headless execution proof before native publication.
+
+
+### 2026-10-24 CX-GUI-GATES-108: independent native resize stimulus
+
+The headless driver includes the actual `Tracking.m` implementation and
+intercepts every CGEventPost call. It records one initial post before native
+entry, still one after entry without acknowledgment, and a second only after
+acknowledgment. No native application, window or event loop is started, and
+no system input-posting symbol is linked. Hosted controls independently prove
+that this native route needs drag input before its entry notification.
+
+This packet owns `src/tests/native/gui/ui2/probes/macos/e40/Tracking.m`,
+`TrackingStimulus.m` in the same directory, and the existing compile fixture
+in `src/tests/python/test_native_ui2_macos_e40.py` for the regression. Compile
+and execute the intercepted scheduler once per session through that fixture;
+retain strict plain and sanitizer checks. It must schedule cursor positioning,
+down, twenty drags and up without entry or acknowledgment, preserve event
+identities and actual post-return timestamps, and stop after completion or
+forced cleanup. Delayed entry must not reset the stimulus clock.
+
+Retain all E40 runtime requirements: exactly 22 native input receipts with
+actual dequeue observations, live-resize entry/exit and geometry changes.
+Keep other interaction routes' acknowledgment rules. Neither post return nor
+a geometry notification may stand in for input dequeue. Hosted runtime and
+the full platform matrix remain necessary; the headless test proves only the
+fixture's stimulus scheduling and accounting.
+
+### 2026-10-24 CX-GUI-GATES-108: complete hosted macOS GUI coverage
+
+The retained hosted journal on `60685688` records 759 finished tests and one
+interrupted test at the 90-minute limit. Collection against the same selection
+and identity owners contains 881 tests, leaving 121 unstarted. No failed phase
+was recorded, and setup completed just before cancellation.
+
+PR114 now owns `tools/ui/gui_shards.py`, `src/tests/python/test_gui_shards.py`,
+`src/tests/python/test_ci_workflow_contracts.py`,
+`src/tests/python/test_qualification_bundle.py`, and
+`docs/qualification/ui-agent-runbook.md` for two hosted macOS partitions.
+Workflow, Makefile and `ci/tiers.toml` changes remain isolated fragments.
+Reuse the existing partition owner, preserve the full native-GUI selection,
+three workers per cell and all timeouts and skip rules. Require Darwin and the
+macos-hosted runner. Every cell retains its complete collection and exact test
+outcomes; a scheduled coverage job must prove the disjoint complete union.
+Unit delegation requires both execution and coverage jobs. Standalone native
+GUI runs retain the full selection. Linux partitions also retain controller
+journals to identify unfinished work after cancellation.
+
+The baseline partition, workflow and qualification suites pass 228 tests.
+Prove admission, missing/overlapping/wrong-revision evidence rejection and
+real subprocess partition execution with synthetic fixtures before publication.
+These local checks cannot establish hosted AppKit runtime acceptance.
