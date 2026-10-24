@@ -426,7 +426,7 @@ jobs:
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui
         env:
           # One AppKit worker avoids starvation between valid successive lease holders.
-          PYTEST_ADDOPTS: --dist=loadgroup --junitxml=build/junit/native-gui.xml
+          PYTEST_ADDOPTS: --dist=loadgroup --junitxml=build/junit/native-gui.xml --progress-report=build/progress-report-native-gui.jsonl --failure-report=build/failure-report-native-gui.jsonl
 
       - name: Recheck native reader prerequisites
         if: always()
@@ -440,6 +440,17 @@ jobs:
         with:
           name: native-reader-macos-native-gui
           path: build/native-reader/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Retain test progress and failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-journals-macos-native-gui
+          path: |
+            build/progress-report-native-gui.jsonl
+            build/failure-report-native-gui.jsonl
           if-no-files-found: warn
           retention-days: 14
 
