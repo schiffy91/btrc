@@ -2135,3 +2135,23 @@ syntax is not available on this packet base; the existing record-field owner
 still preserves its recursive traversal for future composition. Qualify the
 callback, generic, realtime and module paths, then refresh the application
 comparison. This extension does not establish full application parity.
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: shared span declaration order
+
+The application comparison retains 186 raw C differences. A reduced imported
+class with a RealtimeFunction field taking mutable and const spans reproduces
+one ordering difference: Python emits shared span layouts before the imported
+class; the self-hosted compiler emits them afterward. Plain and generic local
+classes both reproduce it. All eight strict/sanitized native executions pass,
+and each local-unit raw diff contains only those moved layouts. Imported
+function bodies alone do not retain span types in the local unit.
+
+This packet owns `src/compiler/btrc/ir/lowering/Lowerer.btrc`,
+`src/compiler/btrc/ir/lowering/Types.btrc`, and the executable regression in
+`src/tests/python/test_module_units.py` for declaration placement. Establish
+the failing regression on this packet's own base before changing production
+code. Preserve tuple dependencies, span discovery and qualifiers, module
+ownership, atomic lock-free proofs and raw-C comparison. Emission must stay a
+walk of structured IR. Qualify module, realtime, tuple, parity and structural
+paths before refreshing the full application comparison. This repair alone
+cannot establish complete application parity or performance acceptance.
