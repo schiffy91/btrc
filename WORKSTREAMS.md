@@ -2132,3 +2132,21 @@ changes in the same Python file. This extension changes only the upcast method.
 Compose those disjoint changes by patch and verify both methods survive;
 never replace the file wholesale from either branch. Full application parity
 and the separate staged-call effective-type investigation remain open.
+
+### 2026-10-24 CX-FSTRING-STAGING: aliased call results in value storage
+
+The reference upcast candidate passes 144 reference checks and all 64 strict
+C11 and sanitizer executions in the 16-case field conversion matrix. Eight
+destination-alias cases still differ in raw C: the self-hosted compiler drops
+the declared alias in discarded call results and binary operands, creating
+different cleanup slot adapters. Preserve that failure and its emitted files.
+
+This packet extends its claim to the discarded-expression storage declaration
+in `src/compiler/btrc/ir/lowering/Statements.btrc`. Its existing
+`Expressions.btrc` claim covers binary operand storage. Reuse the declared
+storage selection already used by call arguments, retaining the prepared
+effective type whenever a conversion changes the value's type. Keep canonical
+classification for ownership and runtime descriptors. Do not change the test's
+whole-C comparison or normalize its output. Validate the combined reference
+conversion and self-hosted storage repair through the alias matrix, ownership,
+interface, module and emitted-C parity suites before committing production code.
