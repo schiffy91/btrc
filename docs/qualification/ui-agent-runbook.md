@@ -121,6 +121,13 @@ executes each row. Generated outputs, when authorized, belong in a separate
 `derived: regenerate` commit. Claude re-applies fragments and regenerates
 outputs at integration; Codex never hand-edits generated files.
 
+Linux GUI qualification uses eight cells per session, `x11-0` through
+`x11-7` and `wayland-0` through `wayland-7`. The `linux-gui-coverage` job
+requires all eight receipts to cover the complete collected selection exactly.
+A canceled cell leaves the session incomplete even if its retained progress
+journal contains no failures. Wayland keeps its report-only policy until its
+main-branch qualification is complete.
+
 macOS/AppKit and hosted GPU correctness evidence comes from the draft PR's
 `macos.yml` native-gui matrix. Its two cells retain
 `junit-macos-native-gui-macos-0` and `junit-macos-native-gui-macos-1`.

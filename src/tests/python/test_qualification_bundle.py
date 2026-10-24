@@ -172,7 +172,7 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
     ]
     assert len(ci["matrix"]["tests"]["include"]) == 13
     assert list(_rows(ci, "linux-gui")) == [
-        f"{session}-{index}" for session in ("x11", "wayland") for index in range(4)
+        f"{session}-{index}" for session in ("x11", "wayland") for index in range(8)
     ]
     assert list(_rows(ci, "linux-gui-coverage")) == ["x11", "wayland"]
     assert list(_rows(ci, "linux-e40")) == [
@@ -467,7 +467,7 @@ def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(
     heavy = "bench" in linux
     assert rows == (list(_rows(manifest.plan("ci.yml", "main"), "tests")) if heavy else ["unit"])
     assert list(_rows(ci, "linux-gui")) == (
-        [f"{session}-{index}" for session in ("x11", "wayland") for index in range(4)] if "linux-gui" in linux else []
+        [f"{session}-{index}" for session in ("x11", "wayland") for index in range(8)] if "linux-gui" in linux else []
     )
     plan = manifest.plan("macos.yml", "lane", changed)
     assert plan["jobs"] == macos
@@ -507,7 +507,7 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
     assert expected["ci.yml/linux-gui"] == [
         f"{kind}-ci-linux-gui-{session}-{index}"
         for session in ("x11", "wayland")
-        for index in range(4)
+        for index in range(8)
         for kind in ("skip-report", "junit")
     ]
     assert expected["ci.yml/linux-e40"] == [
@@ -541,7 +541,7 @@ def test_the_tiers_command_prints_one_line_of_json(tmp_path: Path, capsys: pytes
     assert code == 0 and out.count("\n") == 1
     assert json.loads(out) == _manifest().plan("ci.yml", "pr", ["src/tests/strings/Foo.btrc"])
     assert QualificationCommand().run(["tiers"]) == 0
-    assert "ci.yml main: 7 job(s), 31 matrix row(s)" in capsys.readouterr().out
+    assert "ci.yml main: 7 job(s), 39 matrix row(s)" in capsys.readouterr().out
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml"]) == 2
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml", "--tier", "nightly"]) == 2
 

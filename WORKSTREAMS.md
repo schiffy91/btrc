@@ -2120,3 +2120,25 @@ The baseline partition, workflow and qualification suites pass 228 tests.
 Prove admission, missing/overlapping/wrong-revision evidence rejection and
 real subprocess partition execution with synthetic fixtures before publication.
 These local checks cannot establish hosted AppKit runtime acceptance.
+
+### 2026-10-24: bounded Linux GUI partition work (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/python/test_ci_workflow_contracts.py`,
+`src/tests/python/test_qualification_bundle.py`, and
+`docs/qualification/ui-agent-runbook.md`; final fragments:
+`.github/workflows/ci.yml` and `ci/tiers.toml`.
+
+PR114 job `120887752312` reached its 90-minute limit after 185 of 220 selected
+tests finished. Its retained journal records 113 passes, 72 classified skips,
+one unfinished test and 34 unstarted tests; no final JUnit was produced.
+The same 882-node X11 collection passed in the preceding run. Among completed
+cases that previously took over ten seconds, the median duration ratio is
+1.625. This comparison does not identify the cause of the slower execution.
+
+Split each Linux session into eight canonical, disjoint partitions. Each new
+cell is a subset of one former cell; collection, per-test limits, skip policy,
+worker count and the 90-minute job limit stay unchanged. The coverage job must
+receive all eight complete receipts and prove their exact union. Wayland
+retains its existing report-only status. Replay of retained identities and
+headless workflow/partition tests checks scheduling only; hosted execution and
+final main qualification remain required.

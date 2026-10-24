@@ -1852,11 +1852,11 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
             "cell": f"{session}-{index}",
             "session": session,
             "index": str(index),
-            "count": "4",
+            "count": "8",
             "report_only": report_only,
         }
         for session, report_only in (("x11", "false"), ("wayland", "true"))
-        for index in range(4)
+        for index in range(8)
     ]
     assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
     for tier in ("main", "extended", "release", "native-gui"):
@@ -1881,7 +1881,7 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
         assert (
             'podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 '
             f"BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION={row['session']} "
-            f"GUI_PARTITION={row['index']} GUI_PARTITIONS=4 test-shard-gui"
+            f"GUI_PARTITION={row['index']} GUI_PARTITIONS=8 test-shard-gui"
         ) in commands
     steps = job["steps"]
     evidence, junit, skips = steps[-3:]
@@ -2292,7 +2292,7 @@ def test_linux_gui_union_is_required_and_keeps_wayland_report_only() -> None:
     assert "merge-multiple" not in fetch["with"]
     verify = next(step for step in job["steps"] if "tools.ui.gui_shards aggregate" in step.get("run", ""))
     assert verify["if"] == "always()"
-    assert '--count 4 --revision "$GITHUB_SHA"' in verify["run"]
+    assert '--count 8 --revision "$GITHUB_SHA"' in verify["run"]
     assert "continue-on-error" not in verify
     assert job["steps"][-1]["if"] == "always()"
 
