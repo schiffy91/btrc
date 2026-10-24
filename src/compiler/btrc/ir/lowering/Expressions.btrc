@@ -316,7 +316,7 @@ class ExpressionLowerer {
 		}
 		IRNode lowered = self.lowerFieldAccessCore(expression, varTypes, callableFlow);
 		boundary.restore();
-		Node? resultType = self.resolvedExpressionType(expression, varTypes);
+		Node? resultType = self.operandPlanner.expressionStorageType(expression, environment);
 		return boundary.finish(lowered, resultType, self.managedValues.isManaged(self.cTypes.resolveBodyType(resultType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && !self.ownershipSemantics.customPropertyGetterProjection(expression, environment));
 	}
 

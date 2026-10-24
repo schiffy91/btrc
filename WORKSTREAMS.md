@@ -2326,3 +2326,28 @@ exception fixture uses static backing storage to satisfy the existing
 setjmp escape restriction. Strict C11 and ASan/UBSan executions precede raw C
 comparison. Validation, composition/application qualification and final
 integrated gates remain required.
+
+### 2026-10-24: owned field alias storage (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc` and
+`src/tests/python/test_module_units.py`. Base: `8f8415ab`.
+
+Reading a field from an owned temporary preserved its typedef in the reference
+compiler but expanded it in the self-hosted result temporary. The field-access
+boundary now uses the existing expression storage type query. Managed-value
+classification still resolves the type through its existing owner.
+
+Eight whole-program and module-unit cases cover scalar aliases, alias chains,
+readonly pointer aliases and managed field aliases. Each factory is called
+once per iteration, including a throw after allocating the owner. Destructor
+counts check owner release and payload survival. The baseline passes 32 strict
+C11 and ASan/UBSan executions but fails all eight C comparisons.
+
+Scalar and pointer cases compare every generated C unit. Managed cases compare
+the complete consumer function because class ARC visitor helpers have a
+separate alias/concrete deduplication difference; the preserved baseline records
+that difference. Native runs execute all generated units. Main uses try/catch
+to require the headers whose unused emission is covered by PR119.
+
+Focused, broader, composition/application and final integrated qualification
+remain required. This change does not complete application C parity.

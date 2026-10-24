@@ -3038,3 +3038,96 @@ int throwingValue() { trace = trace * 10 + 5; throw "value"; }
     )
     (source / "Main.btrc").write_text('import ./Operations.btrc;\nint main() { probe(); print("PASS"); return 0; }\n')
     _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("field_kind", ["scalar", "chain", "readonly-pointer", "managed"])
+def test_owned_field_alias_storage_matches_frontends(tmp_path, immutable_btrcc, module_units, field_kind):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "ownedFieldAlias"\n')
+    managed = field_kind == "managed"
+    declarations = {
+        "scalar": "typedef unsigned long long Value;\n",
+        "chain": "typedef unsigned long long Token;\ntypedef Token Value;\n",
+        "readonly-pointer": "typedef const int* Value;\nint storage = 41;\n",
+        "managed": """int payloads = 0;
+class Payload {
+    public int number;
+    public Payload(int number) { self.number = number; payloads++; }
+    public void __del__() { payloads--; }
+}
+typedef Payload Value;
+""",
+    }[field_kind]
+    value = "new Payload(41)" if managed else "&storage" if field_kind == "readonly-pointer" else "41ULL"
+    (source / "Entries.btrc").write_text(
+        declarations
+        + """int alive = 0;
+int calls = 0;
+class Entry {
+    public Value value;
+    public Entry(Value value) { self.value = value; alive++; }
+    public void __del__() { alive--; }
+}
+Entry createEntry(bool fail) {
+    calls++;
+"""
+        + f"    Entry entry = new Entry({value});\n"
+        + """    if (fail) { throw "factory"; }
+    return entry;
+}
+"""
+    )
+    inspect = (
+        "value.number == 41 && payloads == 1"
+        if managed
+        else "value == &storage && *value == 41"
+        if field_kind == "readonly-pointer"
+        else "value == 41ULL"
+    )
+    payload_check = "assert(payloads == 0);" if managed else ""
+    (source / "Operations.btrc").write_text(
+        "import ./Entries.btrc;\n"
+        + """void probe() {
+    for (int iteration = 0; iteration < 3; iteration++) {
+        try {
+            Value value = createEntry(iteration == 1).value;
+"""
+        + f"            assert({inspect});\n"
+        + """            assert(alive == 0 && calls == iteration + 1);
+            assert(iteration != 1);
+        } catch (string message) {
+            assert(message == "factory" && iteration == 1);
+        }
+        assert(alive == 0 && calls == iteration + 1);
+"""
+        + f"        {payload_check}\n"
+        + """    }
+}
+"""
+    )
+    storage_import = "import ./Entries.btrc;\n" if field_kind == "readonly-pointer" else ""
+    storage_check = "assert(storage == 41);" if field_kind == "readonly-pointer" else ""
+    (source / "Main.btrc").write_text(
+        "import ./Operations.btrc;\n"
+        + storage_import
+        + f'int main() {{ try {{ probe(); {storage_check} print("PASS"); }} '
+        + "catch (string message) { assert(false); } return 0; }\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    if not managed:
+        assert generated["reference"] == generated["selfhost"]
+        return
+    # Alias and concrete class fields still select distinct ARC visitor helpers.
+    # Compare the complete field-access consumer here; native runs cover the
+    # generated visitors and destruction of both the owner and its payload.
+    pattern = re.compile(rb"^void probe\(void\) \{\n.*?^\}", re.MULTILINE | re.DOTALL)
+    bodies = {}
+    for frontend, units in generated.items():
+        matches = [match.group() for unit in units.values() if (match := pattern.search(unit)) is not None]
+        assert len(matches) == 1, frontend
+        bodies[frontend] = matches[0]
+    assert bodies["reference"] == bodies["selfhost"]
