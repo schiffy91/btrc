@@ -2581,3 +2581,21 @@ field order remain with their existing owners. The eight regression cases
 cover independent and nested records, two manifest orders, and whole-program
 and module output. Require the combined prototype repair to pass complete C
 comparisons, then recheck the full application and final integration gates.
+
+## Default helper argument types, 2026-10-24
+
+Codex owns `src/compiler/python/ir/lowering/expressions.py` and the appended
+default-helper regression in `src/tests/python/test_module_units.py` for this
+packet, based on `c22c5a59b8c0dcf57509d7fb8e72436d06eba8c9`.
+The application comparison shows a redundant interface cast in a default
+helper call after the argument has already been converted and stabilized.
+Portable interface and base-class examples reproduce the same complete-C
+difference for free functions and class methods. All sixteen strict and
+sanitized native executions pass on the baseline.
+
+The call lowerer must carry the actual type of each stabilized operand into
+later default arguments. Keep source evaluation order, ownership, and the
+existing typed upcast rules. Establish the tracked regression baseline before
+changing production code, then check both compiler outputs and the declaration
+scope and operand-lifetime suites. This packet does not qualify application
+performance or final integration gates.

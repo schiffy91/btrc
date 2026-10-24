@@ -3855,3 +3855,36 @@ def test_native_record_input_declarations_match_frontends(
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("kind", ["interface", "base"])
+@pytest.mark.parametrize("static", [False, True], ids=["free", "class-method"])
+def test_default_helpers_use_stabilized_argument_types(tmp_path, immutable_btrcc, kind, static):
+    source = tmp_path / "source"
+    source.mkdir()
+    parent = "IBackend" if kind == "interface" else "Base"
+    declarations = (
+        "interface IBackend { int number(); }\n"
+        "class Backend implements IBackend { public int number() { return 42; } }\n"
+        if kind == "interface"
+        else "class Base { public int number() { return 42; } }\nclass Backend extends Base {}\n"
+    )
+    setup = (
+        "class Setup {\n"
+        f" public {parent}? backend; public string message;\n"
+        f" public Setup({parent}? backend, string message) {{ self.backend = backend; self.message = message; }}\n"
+    )
+    method = f'Setup failed({parent}? backend, string message = "ok") {{ return Setup(backend, message); }}\n'
+    (source / "Shared.btrc").write_text(
+        declarations + setup + (" class " + method + "}\n" if static else "}\n" + method)
+    )
+    callee = "Setup.failed" if static else "failed"
+    (source / "Main.btrc").write_text(
+        "import ./Shared.btrc;\nint main() {\n"
+        " Backend backend = new Backend();\n"
+        f" Setup result = {callee}(backend);\n"
+        " assert(result.backend != null); assert(result.backend.number() == 42);\n"
+        ' assert(result.message == "ok"); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
+    assert generated["reference"] == generated["selfhost"]
