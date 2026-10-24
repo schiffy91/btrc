@@ -1998,3 +1998,19 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+## 2026-10-24 CX-MODULE-HEADER-PARITY: issue 3 C dependencies
+
+Reserved: Codex owns `codex/module-header-parity-20261024` from `b800bb0`
+under D29. The full BTRSmith comparison found unnecessary native headers in
+self-hosted module units. A reduced program confirms that a native type name
+inside a runtime comment or string keeps its header in the self-hosted output;
+the reference compiler already excludes comments and literals from this scan.
+
+Owned paths are `src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+`src/compiler/btrc/ir/runtime/References.btrc`, and
+`src/tests/python/test_module_units.py`, plus this claim. Reuse the runtime
+reference collector's C token scan and prove that actual native references
+still retain their headers. Full emitted-C parity, shared-cache acceptance and
+real-application performance remain required by issues 3 and 8. Publication
+waits for the existing heavy CI runs to release capacity.
+
