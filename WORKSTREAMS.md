@@ -2142,3 +2142,20 @@ receive all eight complete receipts and prove their exact union. Wayland
 retains its existing report-only status. Replay of retained identities and
 headless workflow/partition tests checks scheduling only; hosted execution and
 final main qualification remain required.
+
+
+### 2026-10-24: cancelled native quit geometry evidence (Codex, PR114 follow-up)
+
+Owned path: `src/tests/native/gui/ui2/probes/macos/UI2MacOSCancelState.m`.
+The c0de macos-1 run completed two failing ApplicationQuit cases before the
+90-minute job timeout. Both sanitized frontends preserved the public logical
+scroll offset but failed the native clip-origin check: `(50, 255)` versus
+`(50, 240)`. A viewport change could explain that difference; the existing
+snapshot did not record its dimensions.
+
+The fixture now snapshots clip bounds, document and scroll frames, scroller
+style and scroller presence when it records the expected origin. Its existing
+failure branch reports those values with the current geometry and flipped
+coordinates. Assertions and input sequencing remain unchanged. Local validation
+is limited to syntax and fixture-contract checks; hosted execution is required
+to establish the cause. No extra CI train is started while c0de remains active.

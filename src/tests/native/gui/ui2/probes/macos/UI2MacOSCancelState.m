@@ -16,6 +16,12 @@
     NSTextView *_editor;
     NSRange _selection;
     NSPoint _offset;
+    NSRect _clipBounds;
+    NSRect _documentFrame;
+    NSRect _scrollFrame;
+    NSScrollerStyle _scrollerStyle;
+    BOOL _horizontalScroller;
+    BOOL _verticalScroller;
 }
 @end
 
@@ -42,6 +48,9 @@
     [_editor insertText:@"draft" replacementRange:NSMakeRange(0, _editor.string.length)];
     [_editor setSelectedRange:NSMakeRange(1, 3)];
     _selection = _editor.selectedRange; _offset = _clip.bounds.origin;
+    _clipBounds = _clip.bounds; _documentFrame = _document.frame; _scrollFrame = _scroll.frame;
+    _scrollerStyle = _scroll.scrollerStyle;
+    _horizontalScroller = _scroll.hasHorizontalScroller; _verticalScroller = _scroll.hasVerticalScroller;
     assert([self unchanged]);
 }
 - (BOOL)unchanged {
@@ -62,6 +71,14 @@
             _window.firstResponder == _editor, _field.currentEditor == _editor, _editor.string.UTF8String,
             NSStringFromRange(_editor.selectedRange).UTF8String, NSStringFromRange(_selection).UTF8String,
             NSStringFromPoint(_clip.bounds.origin).UTF8String, NSStringFromPoint(_offset).UTF8String);
+        fprintf(stderr, "UI2 native cancel geometry: clip_bounds=%s expected_clip_bounds=%s document_frame=%s expected_document_frame=%s scroll_frame=%s expected_scroll_frame=%s scroller_style=%ld expected_scroller_style=%ld horizontal_scroller=%d expected_horizontal_scroller=%d vertical_scroller=%d expected_vertical_scroller=%d document_flipped=%d clip_flipped=%d\n",
+            NSStringFromRect(_clip.bounds).UTF8String, NSStringFromRect(_clipBounds).UTF8String,
+            NSStringFromRect(_document.frame).UTF8String, NSStringFromRect(_documentFrame).UTF8String,
+            NSStringFromRect(_scroll.frame).UTF8String, NSStringFromRect(_scrollFrame).UTF8String,
+            (long)_scroll.scrollerStyle, (long)_scrollerStyle,
+            (int)_scroll.hasHorizontalScroller, (int)_horizontalScroller,
+            (int)_scroll.hasVerticalScroller, (int)_verticalScroller,
+            (int)_document.isFlipped, (int)_clip.isFlipped);
     }
     return unchanged;
 }
