@@ -27,6 +27,7 @@ def _rows(plan: dict, job: str) -> dict[str, dict[str, str]]:
     key = {
         "native-bundle": "target",
         "linux-gui": "cell",
+        "native-gui": "cell",
         "linux-gui-coverage": "session",
         "linux-e40": "cell",
         "macos-e40": "cell",
@@ -181,7 +182,7 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
         for variant in ("plain", "sanitized")
     ]
     macos = manifest.plan("macos.yml", "main")
-    assert macos["jobs"] == ["native-bundle", "tests", "native-gui", "macos-e40"]
+    assert macos["jobs"] == ["native-bundle", "tests", "native-gui", "native-gui-coverage", "macos-e40"]
     assert list(_rows(macos, "macos-e40")) == [
         f"macos-{frontend}-{variant}" for frontend in ("reference", "selfhost") for variant in ("plain", "sanitized")
     ]
@@ -372,7 +373,7 @@ def test_a_lane_keeps_the_linux_matrix_and_the_macos_lane_jobs() -> None:
     ]
     assert ci["matrix"] == manifest.plan("ci.yml", "main")["matrix"]
     macos = manifest.plan("macos.yml", "lane", ["src/stdlib/GUI/Linux/Window.btrc"])
-    assert macos["jobs"] == ["native-bundle", "native-gui", "macos-e40"]
+    assert macos["jobs"] == ["native-bundle", "native-gui", "native-gui-coverage", "macos-e40"]
     assert list(_rows(macos, "native-bundle")) == ["macos-arm64"]
 
 
@@ -381,7 +382,7 @@ LANE_LIGHT = ["static", "release", "tests"]
 # The Linux GUI and audio shard joins when a Linux GUI, audio or native path changes.
 LANE_LINUX_GUI = [*LANE_LINUX, "linux-gui", "linux-gui-coverage", "linux-e40"]
 LANE_LIGHT_GUI = [*LANE_LIGHT, "linux-gui", "linux-gui-coverage", "linux-e40"]
-LANE_MACOS = ["native-bundle", "native-gui", "macos-e40"]
+LANE_MACOS = ["native-bundle", "native-gui", "native-gui-coverage", "macos-e40"]
 # Windows runs only its own paths. The Win32 GUI shell rows build from the
 # shared shell fixtures and link Library.GPU (CX-UIA-15).
 LANE_WINDOWS = {
@@ -500,6 +501,9 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
     assert expected["ci.yml/static"] == ["skip-report-ci-static"]
     assert expected["ci.yml/bench"] == ["bench-results"]
     assert expected["ci.yml/native-gui"] == ["skip-report-ci-native-gui", "junit-ci-native-gui"]
+    assert expected["macos.yml/native-gui"] == [
+        f"{kind}-macos-native-gui-macos-{index}" for index in range(2) for kind in ("skip-report", "junit")
+    ]
     assert expected["ci.yml/linux-gui"] == [
         f"{kind}-ci-linux-gui-{session}-{index}"
         for session in ("x11", "wayland")

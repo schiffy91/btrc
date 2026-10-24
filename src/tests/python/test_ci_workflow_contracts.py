@@ -548,6 +548,8 @@ def test_every_test_job_retains_its_skip_report_as_its_last_step() -> None:
         assert upload["path"] == (
             "build/skip-report-gui-${{ matrix.cell }}.json"
             if (workflow, name) == ("ci.yml", "linux-gui")
+            else "build/skip-report-native-gui-${{ matrix.cell }}.json"
+            if (workflow, name) == ("macos.yml", "native-gui")
             else SKIP_REPORTS
         ), (workflow, name)
         assert upload["if-no-files-found"] == "warn", (workflow, name)
@@ -648,7 +650,7 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         for name in listed:
             job = jobs[name]
             expected_condition = f"contains({PLAN}.jobs, '{name}')"
-            if (workflow, name) == ("ci.yml", "linux-gui-coverage"):
+            if (workflow, name) in (("ci.yml", "linux-gui-coverage"), ("macos.yml", "native-gui-coverage")):
                 expected_condition = "${{ always() && " + expected_condition + " }}"
             assert job["if"] == expected_condition, (workflow, name)
             tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{name}")
@@ -666,6 +668,11 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
                     if (workflow, name, producer) == ("ci.yml", "linux-gui-coverage", "linux-gui"):
                         assert made.key == "cell"
                         assert {shard.row["session"] for shard in TIERS.shards_of(made)} == {"x11", "wayland"}
+                        assert all(shard.condition in conditions for shard in TIERS.shards_of(made))
+                        continue
+                    if (workflow, name, producer) == ("macos.yml", "native-gui-coverage", "native-gui"):
+                        assert made.key == "cell"
+                        assert {shard.row["cell"] for shard in TIERS.shards_of(made)} == {"macos-0", "macos-1"}
                         assert all(shard.condition in conditions for shard in TIERS.shards_of(made))
                         continue
                     assert made.key is None and all(condition == made.condition for condition in conditions), (
@@ -1047,17 +1054,29 @@ LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui", "linux-gui-coverage", "linux-e
             LANE_LIGHT_LINUX,
             [],
         ),
-        (("tools/ui/codex-setup.sh",), LANE_LIGHT_LINUX, ["native-bundle", "native-gui", "macos-e40"]),
-        (("src/stdlib/GUI/MacOS/Window.btrc",), LANE_HEAVY_LINUX, ["native-bundle", "native-gui", "macos-e40"]),
-        (("src/stdlib/GUI/Linux/Window.btrc",), LANE_GUI_LINUX, ["native-bundle", "native-gui", "macos-e40"]),
+        (
+            ("tools/ui/codex-setup.sh",),
+            LANE_LIGHT_LINUX,
+            ["native-bundle", "native-gui", "native-gui-coverage", "macos-e40"],
+        ),
+        (
+            ("src/stdlib/GUI/MacOS/Window.btrc",),
+            LANE_HEAVY_LINUX,
+            ["native-bundle", "native-gui", "native-gui-coverage", "macos-e40"],
+        ),
+        (
+            ("src/stdlib/GUI/Linux/Window.btrc",),
+            LANE_GUI_LINUX,
+            ["native-bundle", "native-gui", "native-gui-coverage", "macos-e40"],
+        ),
         (("src/stdlib/HTTP/Client.btrc",), LANE_HEAVY_LINUX, []),
         (
             ("src/tests/python/test_native_gui_target.py",),
             [*LANE_LIGHT_LINUX, "linux-gui", "linux-gui-coverage", "linux-e40"],
-            ["native-bundle", "native-gui", "macos-e40"],
+            ["native-bundle", "native-gui", "native-gui-coverage", "macos-e40"],
         ),
         # A pull request with no listed file plans the whole lane selection.
-        ((), LANE_GUI_LINUX, ["native-bundle", "native-gui", "macos-e40"]),
+        ((), LANE_GUI_LINUX, ["native-bundle", "native-gui", "native-gui-coverage", "macos-e40"]),
     ],
 )
 def test_a_lane_pull_request_runs_the_jobs_its_paths_select(
@@ -1236,7 +1255,8 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
     suite = _step_containing(job, "make NIX=")
     assert _code(suite).strip() == (
         "- run: nix develop --command make NIX= PYTEST_WORKERS=3 "
-        "UNIT_GUI_SEPARATE=${{ contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui') && '1' || '0' }} "
+        "UNIT_GUI_SEPARATE=${{ contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui') && "
+        "contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui-coverage') && '1' || '0' }} "
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}\n"
         "        env:\n"
         "          PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && "
@@ -1360,7 +1380,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
         assert _scope_step(workflow)["env"]["FOCUS"] == "${{ inputs.focus }}", workflow
         expected = {
             "ci.yml": ["native-gui", "linux-gui", "linux-gui-coverage", "linux-e40"],
-            "macos.yml": ["native-gui", "macos-e40"],
+            "macos.yml": ["native-gui", "native-gui-coverage", "macos-e40"],
             "windows.yml": ["win32-native-build", "win32-native"],
         }[workflow]
         assert TIERS.plan(workflow, "native-gui")["jobs"] == expected, workflow
@@ -1378,13 +1398,13 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
     assert macos["native-gui"]["runs-on"] == "macos-15"
     reader = next(step for step in macos["tests"]["steps"] if step.get("name") == "Build the native header reader")
     steps = macos["native-gui"]["steps"]
-    suite = next(index for index, step in enumerate(steps) if "test-native-gui" in step.get("run", ""))
+    suite = next(index for index, step in enumerate(steps) if "test-shard-gui-macos" in step.get("run", ""))
     assert reader in steps[:suite], "the reader builds before the suite"
     assert steps[suite] == {
         "run": "nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 "
-        "BTRC_TEST_RUN_TIMEOUT=60 test-native-gui",
+        "BTRC_TEST_RUN_TIMEOUT=60 GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui-macos",
         "env": {
-            "PYTEST_ADDOPTS": "--dist=loadgroup --junitxml=build/junit/native-gui.xml "
+            "PYTEST_ADDOPTS": "--dist=loadgroup "
             "--progress-report=build/progress-report-native-gui.jsonl "
             "--failure-report=build/failure-report-native-gui.jsonl"
         },
@@ -1395,7 +1415,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
     assert journals["if"] == "always()"
     assert journals["uses"] == UPLOAD_ARTIFACT
     assert journals["with"] == {
-        "name": "test-journals-macos-native-gui",
+        "name": "test-journals-macos-native-gui-${{ matrix.cell }}",
         "path": "build/progress-report-native-gui.jsonl\nbuild/failure-report-native-gui.jsonl\n",
         "if-no-files-found": "warn",
         "retention-days": "14",
@@ -1405,8 +1425,11 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
     for workflow, stem in (("ci.yml", "ci"), ("macos.yml", "macos")):
         junit = _parsed(workflow)["jobs"]["native-gui"]["steps"][-2]
         assert junit["if"] == "always()", workflow
-        assert junit["with"]["name"] == f"junit-{stem}-native-gui", workflow
-        assert junit["with"]["path"] == "build/junit/native-gui.xml", workflow
+        suffix = "-${{ matrix.cell }}" if stem == "macos" else ""
+        assert junit["with"]["name"] == f"junit-{stem}-native-gui{suffix}", workflow
+        assert junit["with"]["path"] == (
+            "build/macos-gui/${{ matrix.cell }}/junit.xml" if stem == "macos" else "build/junit/native-gui.xml"
+        ), workflow
 
 
 def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> None:
@@ -1844,7 +1867,7 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     commands = _job_commands(job, "ci.yml", "linux-gui")
     for row in rows:
         assert (
-            'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 '
+            'podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 '
             f"BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION={row['session']} "
             f"GUI_PARTITION={row['index']} GUI_PARTITIONS=4 test-shard-gui"
         ) in commands
@@ -2282,3 +2305,50 @@ def test_workflow_retains_raw_image_inspect_and_stops_on_failure(tmp_path: Path,
     assert json.loads((tmp_path / "build/bench-diagnostic/image.json").read_text()) == image
     if not inspect_status:
         assert "python3 -m tools.bench.diagnostic" in shlex.join(calls[1])
+
+
+def test_macos_gui_cells_require_complete_coverage_and_retain_exact_evidence() -> None:
+    jobs = _parsed("macos.yml")["jobs"]
+    producer, coverage = jobs["native-gui"], jobs["native-gui-coverage"]
+    rows = [shard.row for shard in TIERS.shards if shard.job == "macos.yml/native-gui"]
+    assert rows == [{"cell": f"macos-{index}", "index": str(index), "count": "2"} for index in range(2)]
+    for tier in ("main", "extended", "release", "native-gui", "lane"):
+        plan = TIERS.plan("macos.yml", tier)
+        assert "native-gui" in plan["jobs"] and "native-gui-coverage" in plan["jobs"]
+        assert plan["matrix"]["native-gui"]["include"] == rows
+    assert coverage["needs"] == ["scope", "native-gui"]
+    assert "always()" in coverage["if"] and "continue-on-error" not in coverage
+    proof = next(step for step in producer["steps"] if step.get("name") == "Retain the exact partition proof")
+    assert proof["if"] == "always()"
+    assert proof["with"]["name"] == "gui-partition-macos-native-gui-${{ matrix.cell }}"
+    assert proof["with"]["path"].splitlines() == [
+        f"build/macos-gui/${{{{ matrix.cell }}}}/{name}"
+        for name in ("partition.json", "collection.json", "junit.xml", "skip-report.json")
+    ]
+    fetch = next(step for step in coverage["steps"] if "download-artifact@" in step.get("uses", ""))
+    assert fetch["with"] == {"pattern": "gui-partition-macos-native-gui-macos-*", "path": "build/gui-partitions/macos"}
+    verify = next(step for step in coverage["steps"] if "tools.ui.gui_shards aggregate" in step.get("run", ""))
+    assert verify["if"] == "always()"
+    assert '--session macos --count 2 --revision "$GITHUB_SHA"' in verify["run"]
+    assert coverage["steps"][-1]["if"] == "always()"
+    makefile = (REPO / "Makefile").read_text()
+    recipe = _makefile_recipe(makefile, "test-shard-gui-macos")
+    assert "--selectors $(NATIVE_GUI_TESTS)" in recipe
+    assert '-- $(PYTEST_ARGS) -n $(PYTEST_WORKERS) -m "not e40_qualification"' in recipe
+    assert "--session macos --index $(GUI_PARTITION) --count $(GUI_PARTITIONS)" in recipe
+    assert "$(SKIP_GATE) build/skip-report-native-gui-macos-$(GUI_PARTITION).json" in recipe
+    standalone = _makefile_recipe(makefile, "test-native-gui")
+    assert "$(PYTEST) $(NATIVE_GUI_TESTS)" in standalone and "gui_shards" not in standalone
+
+
+def test_linux_gui_retains_controller_journals_when_the_job_is_cancelled() -> None:
+    steps = _parsed("ci.yml")["jobs"]["linux-gui"]["steps"]
+    run = next(step for step in steps if "test-shard-gui" in step.get("run", ""))
+    assert "-e PYTEST_ADDOPTS" in run["run"]
+    assert run["env"]["PYTEST_ADDOPTS"] == (
+        "--progress-report=build/linux-gui/${{ matrix.cell }}/progress.jsonl "
+        "--failure-report=build/linux-gui/${{ matrix.cell }}/failures.jsonl"
+    )
+    upload = next(step for step in steps if step.get("name") == "Retain the session evidence")
+    assert upload["if"] == "always()"
+    assert "build/linux-gui/${{ matrix.cell }}/*.jsonl" in upload["with"]["path"].splitlines()
