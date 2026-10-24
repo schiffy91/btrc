@@ -108,6 +108,67 @@ def build_native_controls(tmp_path_factory):
     return build
 
 
+@pytest.fixture(scope="session")
+def check_tracking_stimulus(tmp_path_factory):
+    @cache
+    def check():
+        directory = tmp_path_factory.mktemp("e40-tracking-stimulus")
+        source = FIXTURES / "TrackingStimulus.m"
+        records = []
+        for sanitized in (False, True):
+            executable = directory / ("sanitized" if sanitized else "plain")
+            flags = (
+                ["-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
+                if sanitized
+                else ["-O2"]
+            )
+            command = [
+                "/usr/bin/clang",
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-fblocks",
+                *flags,
+                str(source),
+                "-framework",
+                "AppKit",
+                "-framework",
+                "CoreGraphics",
+                "-o",
+                str(executable),
+            ]
+            environment = apple_environment() | {"UBSAN_OPTIONS": "halt_on_error=1"}
+            built = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=60)
+            assert built.returncode == 0, built.stdout + built.stderr
+            symbols = subprocess.check_output(["/usr/bin/nm", "-u", str(executable)], text=True, timeout=30)
+            assert "_CGEventPost" not in symbols, "The headless scheduler must intercept every input post"
+            for scenario in ("complete", "cancel", "late"):
+                result = subprocess.run(
+                    [str(executable), scenario], env=environment, capture_output=True, text=True, timeout=10
+                )
+                records.append(
+                    {
+                        "sanitized": sanitized,
+                        "scenario": scenario,
+                        "build_command": command,
+                        "driver_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                        "tracking_sha256": hashlib.sha256((FIXTURES / "Tracking.m").read_bytes()).hexdigest(),
+                        "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+                        "returncode": result.returncode,
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                    }
+                )
+                (directory / "results.json").write_text(json.dumps(records, indent=2))
+                assert result.returncode == 0, result.stdout + result.stderr
+                assert f"PASS: resize stimulus {scenario}" in result.stdout
+        return records
+
+    return check
+
+
 class E40LoopDiagnostic:
     """Observe one existing native trial without changing its timeout or result."""
 
@@ -331,11 +392,12 @@ def test_macos_ui2_e40_boundary_compile(e40_program):
 
 
 @pytest.mark.parametrize("trial", ["load"])
-def test_macos_ui2_e40_load_compile(e40_program, trial, build_native_controls):
+def test_macos_ui2_e40_load_compile(e40_program, trial, build_native_controls, check_tracking_stimulus):
     """Build the workload without starting its worker, windows or run loop."""
     executable, _ = e40_program
     assert executable.is_file()
     assert all(control.executable.is_file() for control in build_native_controls())
+    check_tracking_stimulus()
 
 
 @pytest.mark.e40_qualification
