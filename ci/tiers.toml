@@ -1085,7 +1085,7 @@ selected_tiers = { lane = "lane-macos" }
 job = "macos.yml/native-gui"
 cell = "macos-0"
 index = "0"
-count = "2"
+count = "4"
 tiers = ["main", "extended", "native-gui", "release"]
 selected_tiers = { lane = "lane-macos" }
 
@@ -1093,7 +1093,23 @@ selected_tiers = { lane = "lane-macos" }
 job = "macos.yml/native-gui"
 cell = "macos-1"
 index = "1"
-count = "2"
+count = "4"
+tiers = ["main", "extended", "native-gui", "release"]
+selected_tiers = { lane = "lane-macos" }
+
+[[shards]]
+job = "macos.yml/native-gui"
+cell = "macos-2"
+index = "2"
+count = "4"
+tiers = ["main", "extended", "native-gui", "release"]
+selected_tiers = { lane = "lane-macos" }
+
+[[shards]]
+job = "macos.yml/native-gui"
+cell = "macos-3"
+index = "3"
+count = "4"
 tiers = ["main", "extended", "native-gui", "release"]
 selected_tiers = { lane = "lane-macos" }
 

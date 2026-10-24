@@ -510,7 +510,7 @@ jobs:
           path: build/gui-partitions/macos
       - name: Prove the complete disjoint session coverage
         if: always()
-        run: python3 -m tools.ui.gui_shards aggregate --session macos --count 2 --revision "$GITHUB_SHA" --input build/gui-partitions/macos --output build/gui-union-macos.json
+        run: python3 -m tools.ui.gui_shards aggregate --session macos --count 4 --revision "$GITHUB_SHA" --input build/gui-partitions/macos --output build/gui-union-macos.json
       - name: Retain the session coverage proof
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
