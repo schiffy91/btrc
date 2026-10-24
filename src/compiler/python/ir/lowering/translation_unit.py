@@ -387,11 +387,15 @@ class TranslationUnitLowerer:
                 )
 
     def _emit_enums(self):
-        """Emit every enum. In module-unit lowering an enum's group owns its
-        `_toString` and rich-enum functions, whose names are program-wide, so
-        that group defines them once with external linkage."""
+        """Emit this group's enums; the shared unit supplies foreign declarations.
+
+        The owning group defines `_toString` and rich-enum functions once
+        with external linkage because their names are program-wide.
+        """
         for decl in self._analyzed.program.declarations:
             if isinstance(decl, EnumDecl | RichEnumDecl):
+                if self._session.declarations_elsewhere and self._foreign(decl):
+                    continue
                 with self._owning(decl):
                     self._declarations.emit_enum_decl(decl)
 
