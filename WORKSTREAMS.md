@@ -2017,3 +2017,20 @@ source/binary hashes and timeout outcomes beside the existing Metal control.
 No programmatic resize may satisfy the observation, and no diagnostic result
 changes E40 acceptance. Build locally without launching a window; native
 runtime evidence comes from hosted CI. Preserve the existing E40 thresholds.
+
+### 2026-10-24 CX-GUI-GATES-108: retain unfinished test phases
+
+PR114 also owns `src/tests/skip_ledger.py`,
+`src/tests/python/test_skip_ledger.py`, `.github/workflows/macos.yml`, and
+`src/tests/python/test_ci_workflow_contracts.py` for an optional progress
+journal on the macOS native-GUI job. Job `120768445071` on `c3bdcd75`
+reached its 90-minute limit after reporting 82% progress. Its reader remained
+usable, but no final JUnit or skip report identified the unfinished tests.
+
+Record test starts, completed phases and finishes immediately in the pytest
+controller. Preserve canonical and scheduled identities without stripping
+group suffixes from source IDs. Retain the journal and existing failure
+records in hosted artifacts. Prove normal outcomes and forced controller
+termination during setup and call, both sequentially and with grouped xdist.
+Keep the current selection, workers, job limit, skip policy and acceptance
+checks. These records diagnose incomplete execution; they do not qualify it.
