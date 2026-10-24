@@ -3890,3 +3890,23 @@ def test_callback_declaration_order_preserves_nested_dependencies(tmp_path, immu
     (source / "Main.btrc").write_text(main)
     generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("called", [False, True], ids=["unused", "called"])
+def test_runtime_helper_locals_do_not_retain_application_prototypes(tmp_path, immutable_btrcc, module_units, called):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Graph.btrc").write_text(
+        'int mark(int value) { return value; }\nvoid exercise(bool fail) { if (fail) { throw "leaf"; } }\n'
+    )
+    direct_call = "assert(mark(7) == 7);" if called else ""
+    (source / "Main.btrc").write_text(
+        "import ./Graph.btrc;\nint main() { bool caught = false; "
+        'try { exercise(true); } catch (string error) { assert(error == "leaf"); caught = true; } '
+        f'assert(caught); {direct_call} print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

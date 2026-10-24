@@ -2601,3 +2601,17 @@ plan in both frontends. Keep the original IR lists, nested callback discovery,
 named-alias dependencies and duplicate-provider validation intact. Dependencies
 still determine which declarations can be emitted. Require paired strict and
 sanitized native output, the full application comparison, and final gates.
+
+
+### CX runtime helper extern references (2026-10-24)
+
+Owner: Codex, branch `codex/runtime-helper-extern-references-20261024`.
+Owned paths: `src/compiler/python/ir/optimizer.py`,
+`src/tests/python/test_optimizer_declarations.py`,
+`src/tests/python/test_module_units.py`.
+
+Trace the unused `mark` prototype retained in module output when the canonical
+exception runtime contains a local parameter with that name. Preserve real
+structured references and opaque helper dependencies. Establish failing
+regressions before changing production, then prove paired C output and native
+behavior. No final qualification is claimed.
