@@ -419,10 +419,10 @@ class ExpressionLowerer {
 		Node concreteLeftType = leftType;
 		self.operandPlanner.requireType(concreteLeftType, expression.left);
 		OwnershipBoundary boundary = self.callOwnership.boundary();
-		boundary.addLoweredOperand(expression.left, concreteLeftType, self.lowerExpr(expression.left, varTypes, callableFlow), leftOwned, leftPinned);
+		boundary.addLoweredOperand(expression.left, self.operandStorageType(expression.left, concreteLeftType, varTypes), self.lowerExpr(expression.left, varTypes, callableFlow), leftOwned, leftPinned);
 		if (rightType != null || rightTargetType != null) {
 			PreparedValue prepared = self.prepareCallTargetValue(expression.right, rightTargetType, varTypes, callableFlow);
-			Node preparedType = self.operandPlanner.requireType(prepared.effectiveType, expression.right);
+			Node preparedType = self.operandStorageType(expression.right, self.operandPlanner.requireType(prepared.effectiveType, expression.right), varTypes);
 			boundary.addLoweredOperand(expression.right, preparedType, prepared.value, prepared.owned, rightKeep);
 		}
 		IRNode lowered = self.lowerBinaryCore(expression, varTypes, callableFlow);
@@ -558,17 +558,20 @@ class ExpressionLowerer {
 			return;
 		}
 		PreparedValue prepared = self.prepareCallTargetValue(operand.expression, operand.targetType, varTypes, callableFlow);
-		Node storageType = self.callOperandStorageType(operand, self.operandPlanner.requireType(prepared.effectiveType, operand.expression), varTypes);
+		Node storageType = self.operandStorageType(operand.expression, self.operandPlanner.requireType(prepared.effectiveType, operand.expression), varTypes);
 		boundary.addLoweredCallOperand(operand.expression, storageType, prepared.value, prepared.owned, operand.keepValue, prepared.owned && operand.transferred);
 	}
 
-	private Node callOperandStorageType(OwnershipCallOperand operand, Node effectiveType, Map<string, Node> varTypes) {
-		Node? declared = self.operandPlanner.expressionStorageType(operand.expression, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
+	private Node operandStorageType(Node expression, Node effectiveType, Map<string, Node> varTypes) {
+		Node? declared = self.operandPlanner.expressionStorageType(expression, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
 		if (declared == null) { return effectiveType; }
 		Node sourceType = self.cTypes.resolveBodyType(declared, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		Node concreteEffective = self.cTypes.resolveBodyType(effectiveType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		Node? canonicalSource = SemanticTypeSystem.resolveTypedefType(sourceType, self.analyzed.typedefTable);
 		Node? canonicalEffective = SemanticTypeSystem.resolveTypedefType(concreteEffective, self.analyzed.typedefTable);
+		/* Managed local identifiers have canonical value types; field and call
+		 * results retain their declared storage spelling. */
+		if (expression.kind == NK_IDENTIFIER && self.managedValues.isManaged(canonicalSource)) { return effectiveType; }
 		if (canonicalSource != null && canonicalEffective != null && TypeIdentity.shapeKey(canonicalSource) == TypeIdentity.shapeKey(canonicalEffective)) {
 			/* A named alias can be the only spelling that retains qualifiers
              * applied to an intermediate pointer layer. */

@@ -855,6 +855,8 @@ class CTypeLowerer:
         value: IRExpr,
     ) -> IRExpr:
         """Preserve receiver identity through a checked class/interface upcast."""
+        target_type = self.canonical_type(target_type)
+        source_type = self.canonical_type(source_type)
         if target_type is None or source_type is None:
             return value
         ct = self._analyzed.class_table

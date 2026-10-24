@@ -664,7 +664,8 @@ class StatementLowerer {
 				out.push(IRNode.expressionStatement(IRNode.call("__btrc_thread_free", freeArgs)));
 			} else if (self.managedValues.isManaged(self.cTypes.resolveBodyType(discardedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && self.ownershipSemantics.expressionOwnsResult(e, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow)) {
 				string discardedName = self.context.freshTemporary("__btrc_discarded");
-				IRNode discardedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(discardedType), discardedName, loweredExpression);
+				Node? storageType = self.operandPlanner.expressionStorageType(e, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
+				IRNode discardedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(storageType == null ? discardedType : storageType), discardedName, loweredExpression);
 				self.context.recordLocal(discardedDeclaration);
 				out.push(discardedDeclaration);
 				Node concreteDiscarded = self.cTypes.resolveBodyType(discardedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
