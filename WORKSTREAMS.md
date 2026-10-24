@@ -2022,3 +2022,18 @@ The qualified-string regression also exposes a planner gap: a language string
 has zero explicit pointer depth but lowers to a C pointer. Its pointee's const
 qualifier must survive copying. Both planners distinguish that physical pointer
 representation before dropping a copied scalar's storage qualifiers.
+
+### 2026-10-24 CX-FSTRING-VALUE-STAGING: prepared assignment values
+
+This packet also owns `src/tests/btrc/test_assignment_lifetime_contract.py`
+for the prepared field-conversion repair transferred from PR #124. Its existing
+`Expressions.btrc` ownership covers the source change. Isolated field validation
+passed 28 assignment/interface, 816 parity/ownership, and 184 architecture
+checks. Both compilers execute the borrowed struct/array reproduction correctly
+under strict C11 and ASan/UBSan, but self-hosted assignment repeats an already
+prepared pointer conversion. Cover that shared assignment path as well.
+
+Preserve prepared type and ownership, borrowed storage semantics, assignment
+results, single evaluation and exception cleanup. The f-string changes and
+assignment repair must pass together before source publication. The isolated
+field implementation branch is evidence only, not a second source packet.
