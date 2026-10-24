@@ -2043,7 +2043,7 @@ and their native symbol declaration in
 `src/tests/python/test_native_ui2_fairness_linux.py` for issues109 and110.
 The c3 self-hosted sanitized diagnostic and the 606 reference sanitized
 600-second qualification both timed out with empty stdout, no native result
-rows and no presentation CSV. The latter passed all16 burst cases first.
+rows and no presentation CSV. The latter passed all 16 burst cases first.
 
 Record and flush entry/return phases for startup operations and warmup pumps.
 Retain them through the existing stderr artifact when the parent kills a
