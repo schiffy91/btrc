@@ -2966,6 +2966,7 @@ class ExpressionLowerer:
                 provenance,
                 materialization=BinaryMaterialization(node),
                 result_type=self._session.type_of(node),
+                result_owned=self._ownership.owns_result(node, provenance=provenance),
                 keep_nodes=keep_nodes,
                 pin_nodes=pin_nodes,
                 force=self._operand_order.operands_require_order([node.left, node.right]),

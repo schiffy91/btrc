@@ -12,6 +12,7 @@ from src.compiler.python.ir.nodes import IRCommaExpr, IRStmtExpr
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitized_build_and_run
 from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
@@ -298,3 +299,32 @@ def test_borrowed_receiver_is_pinned_only_across_later_effects(
             tmp_path / f"receiver-pin-minimal-{index}",
             optimization="-O3",
         )
+
+
+def test_owned_binary_result_handoff_agrees_with_and_without_unwinding(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    sanitizer = require_sanitizers(tmp_path)
+    comparisons = {}
+    for context in ("ordinary", "unwinding"):
+        directory = tmp_path / context
+        directory.mkdir()
+        statement = 'assert(combined().equals("alphabetagamma"));'
+        if context == "unwinding":
+            statement = f"try {{ {statement} }} catch (string error) {{ print(error); return 1; }}"
+        source = (
+            """
+            #include <assert.h>
+            string combined() { return "alpha" + "beta" + "gamma"; }
+            int main() {
+        """
+            + statement
+            + "return 0; }"
+        )
+        generated_pair = _compile_both(semantic_btrcc, directory, source)
+        for index, generated in enumerate(generated_pair):
+            strict_build_and_run(generated, directory / f"strict-{index}", optimization="-O2")
+            sanitized_build_and_run(generated, directory / f"sanitized-{index}", sanitizer)
+        comparisons[context] = generated_pair[0].read_bytes() == generated_pair[1].read_bytes()
+    assert comparisons == {"ordinary": True, "unwinding": True}
