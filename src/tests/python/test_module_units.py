@@ -46,6 +46,7 @@ from src.compiler.python.ir.nodes import (
 from src.tests import runner
 from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
+from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
@@ -2364,3 +2365,141 @@ def test_shared_span_callback_layouts_keep_frontend_order(tmp_path, immutable_bt
         assert len(spans) == 2, (frontend, layouts)
         assert "const int* data;" in text and "int* data;" in text
     assert local_units["reference"] == local_units["selfhost"]
+
+
+@pytest.mark.parametrize(
+    "header_order,symbol_order,resource_order",
+    [
+        (("Gamma", "Beta", "Alpha"), ("Alpha", "Beta", "Gamma"), ("Beta", "Gamma", "Alpha")),
+        (("Alpha", "Beta", "Gamma"), ("Alpha", "Beta", "Gamma"), ("Beta", "Gamma", "Alpha")),
+        (("Gamma", "Beta", "Alpha"), ("Gamma", "Beta", "Alpha"), ("Beta", "Gamma", "Alpha")),
+        (("Gamma", "Beta", "Alpha"), ("Alpha", "Beta", "Gamma"), ("Alpha", "Gamma", "Beta")),
+    ],
+    ids=["mixed-order", "reverse-header", "reverse-symbols", "reverse-resources"],
+)
+def test_native_resource_shared_declarations_keep_frontend_order(
+    tmp_path, immutable_btrcc, header_order, symbol_order, resource_order
+):
+    NativeBindingPackage.require_reader()
+    sanitizer = require_sanitizers(tmp_path)
+    root = tmp_path.resolve()
+    source = root / "src"
+    source.mkdir()
+    header = "#include <stdlib.h>\n#include <assert.h>\n"
+    for resource in header_order:
+        header += (
+            f"typedef struct {resource}Storage {{ int references; int value; }} *{resource}Ref;\n"
+            f"static inline {resource}Ref {resource}Create(int value) {{\n"
+            f"    {resource}Ref item = malloc(sizeof(*item)); assert(item);\n"
+            "    item->references = 1; item->value = value; return item;\n}\n"
+            f"static inline void {resource}Retain({resource}Ref item) {{\n"
+            "    assert(item && item->references > 0); ++item->references;\n}\n"
+            f"static inline void {resource}Release({resource}Ref item) {{\n"
+            "    assert(item && item->references > 0); if (--item->references == 0) { free(item); }\n}\n"
+            f"static inline int {resource}Read({resource}Ref item) {{ assert(item); return item->value; }}\n"
+        )
+    (root / "Resources.h").write_text(header)
+    symbols = [name + suffix for name in symbol_order for suffix in ("Ref", "Create", "Read", "Retain", "Release")]
+    manifest = (
+        'manifest-version = 1\n[package]\nname = "nativeOrder"\n'
+        '[[native.bindings]]\nmodule = "Resources"\nheader = "Resources.h"\n'
+        'language = "c"\nstandard = "c11"\n'
+        f"symbols = {json.dumps(symbols)}\n"
+        f"owned-results = {json.dumps([name + 'Create' for name in symbol_order])}\n"
+        f"borrowed-parameters = {json.dumps([name + 'Read.item' for name in symbol_order])}\n"
+    )
+    for resource in resource_order:
+        manifest += (
+            f"[native.bindings.resources.{resource}Ref]\n"
+            'ownership = "reference-counted"\n'
+            f'retain = "{resource}Retain"\nrelease = "{resource}Release"\n'
+        )
+    (root / "btrc.toml").write_text(manifest)
+    (source / "Resources.btrc").write_text("// Declarations come from Resources.h.\n")
+    (source / "Shared.btrc").write_text(
+        "import ./Resources.btrc;\n"
+        "class Holder {\n"
+        "    public GammaRef? gamma; public BetaRef? beta; public AlphaRef? alpha; public int value;\n"
+        "    public Holder() {\n"
+        "        self.gamma = GammaCreate(7); self.beta = BetaCreate(15); self.alpha = AlphaCreate(20);\n"
+        "        self.value = GammaRead(self.gamma) + BetaRead(self.beta) + AlphaRead(self.alpha);\n"
+        "    }\n}\n"
+        "Holder makeHolder() { return new Holder(); }\n"
+    )
+    (source / "Local.btrc").write_text(
+        "import ./Shared.btrc;\nint sample() { Holder holder = makeHolder(); return holder.value; }\n"
+    )
+    (source / "Main.btrc").write_text("import ./Local.btrc;\nint main() { print(sample()); return 0; }\n")
+    generated = []
+    for frontend, compiler in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = root / frontend
+        output.mkdir()
+        c_source, plan = output / "program.c", output / "program.json"
+        compiled = subprocess.run(
+            [
+                *compiler,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                "--module-units",
+                "--jobs",
+                "1",
+                "--emit-units",
+                str(output / "program"),
+                "--emit-link-plan",
+                str(plan),
+                "-o",
+                str(c_source),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        local = next(output.glob("program.unit-Local-*.c")).read_bytes()
+        forwards = re.findall(rb"^typedef struct (__btrc_native_\w+) ", local, re.MULTILINE)
+        assert set(forwards) == {b"__btrc_native_AlphaRef", b"__btrc_native_BetaRef", b"__btrc_native_GammaRef"}
+        generated.append(local)
+        for mode, compiler, optimization, flags, environment in (
+            ("strict", C_COMPILER, 2, [], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                1,
+                ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "native module qualification requires a C compiler"
+
+            def run_build(command, *, environment=environment, **kwargs):
+                kwargs["timeout"] = 180
+                if environment is not None:
+                    kwargs["env"] = environment
+                return subprocess.run(command, **kwargs)
+
+            executable = output / mode
+            NativePlanBuilder(runner=run_build).build(
+                plan_path=plan,
+                generated_c=c_source,
+                output=executable,
+                cc=compiler,
+                optimization=optimization,
+                jobs=1,
+                compile_flags=["-pedantic-errors", "-Wall", "-Wextra", "-Werror", *flags],
+                link_flags=flags,
+            )
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0 and ran.stdout == "42\n", (frontend, mode, ran.stdout, ran.stderr)
+    assert generated[0] == generated[1]
