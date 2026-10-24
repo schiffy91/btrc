@@ -2674,7 +2674,6 @@ class ExpressionLowerer {
 	private IRNode lowerSpanConstructor(Node node, Vector<IRNode> args, Map<string, Node> varTypes, CallableFlowState callableFlow) {
 		Node? resultType = self.resolvedExpressionType(node, varTypes);
 		Node spanType = self.operandPlanner.requireType(resultType, node);
-		Node element = spanType.genericArgs().get(0);
 		IRNode extent = IRNode.literal("0");
 		if (args.len == 1) {
 			Node? sourceType = self.resolvedExpressionType(node.args().get(0), varTypes);
@@ -2688,26 +2687,16 @@ class ExpressionLowerer {
 				extent = IRNode.cast("size_t", self.lowerExpr(arraySize, varTypes, callableFlow));
 			}
 		} else {
-			extent = IRNode.cast("size_t", args.get(1));
+			extent = args.get(1);
 		}
-		string dataName = self.context.freshTemporary("__btrc_span_data");
-		string lengthName = self.context.freshTemporary("__btrc_span_length");
-		IRNode data = IRNode.variable(dataName);
-		IRNode length = IRNode.variable(lengthName);
-		Vector<IRNode> declarations = [];
-		declarations.push(IRNode.variableDeclaration(self.cTypes.lower(element) + "*", dataName, null));
-		declarations.push(IRNode.variableDeclaration("size_t", lengthName, null));
-		Vector<IRNode> sequence = [];
-		sequence.push(IRNode.binary(data, "=", args.get(0)));
-		sequence.push(IRNode.binary(length, "=", extent));
+		/* The call boundary has already sequenced effectful operands. */
 		Vector<string> fields = [];
 		fields.push("data");
 		fields.push("length");
 		Vector<IRNode> values = [];
-		values.push(data);
-		values.push(length);
-		sequence.push(IRNode.compoundLiteral(self.cTypes.lower(spanType), fields, values));
-		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
+		values.push(args.get(0));
+		values.push(extent);
+		return IRNode.compoundLiteral(self.cTypes.lower(spanType), fields, values);
 	}
 
 	private IRNode lowerSpanMethod(IRNode receiver, string method, Node receiverType, Vector<IRNode> args) {
@@ -2744,15 +2733,15 @@ class ExpressionLowerer {
 				condition = IRNode.binary(condition, "&&", IRNode.binary(output, "!=", IRNode.literal("NULL")));
 				Vector<IRNode> successSequence = [];
 				successSequence.push(IRNode.binary(IRNode.dereference(output), "=", IRNode.indexAccess(data, index)));
-				successSequence.push(IRNode.literal("1"));
+				successSequence.push(IRNode.literal("true"));
 				success = IRNode.commaExpression(successSequence);
 			} else {
 				Vector<IRNode> successSequence = [];
 				successSequence.push(IRNode.binary(IRNode.indexAccess(data, index), "=", args.get(1)));
-				successSequence.push(IRNode.literal("1"));
+				successSequence.push(IRNode.literal("true"));
 				success = IRNode.commaExpression(successSequence);
 			}
-			sequence.push(IRNode.ternary(condition, success, IRNode.literal("0")));
+			sequence.push(IRNode.ternary(condition, success, IRNode.literal("false")));
 		}
 		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 	}

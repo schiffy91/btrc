@@ -2303,3 +2303,26 @@ fixtures exercise try/catch and use that header.
 
 Selected validation, composition/application qualification and final integrated
 gates remain required. No performance or issue-completion claim is made here.
+
+### 2026-10-24: Span argument evaluation (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Calls.btrc`,
+`src/compiler/btrc/ir/lowering/Expressions.btrc`, and
+`src/tests/python/test_module_units.py`. Base: `d3ad1d67`.
+
+Self-hosted `Span.trySet(index(), value())` skipped the value argument when
+bounds or backing-storage checks failed, including an exception thrown by
+that argument. Span signatures now feed the existing typed call-argument
+planner so operands are evaluated before the method guard. Construction uses
+those prepared operands and retains fixed-array extent analysis. Boolean
+results use the reference compiler's literal spelling.
+
+Sixteen regression cases exercise mutable and const elements, plain and
+effectful operands, fixed-array bounds, valid and rejected accesses, and
+throwing constructor/method arguments in whole-program and module-unit modes.
+The corrected baseline has fourteen failures and two passes: six raw C
+comparison failures and eight self-hosted argument-evaluation failures. The
+exception fixture uses static backing storage to satisfy the existing
+setjmp escape restriction. Strict C11 and ASan/UBSan executions precede raw C
+comparison. Validation, composition/application qualification and final
+integrated gates remain required.

@@ -2916,3 +2916,125 @@ int main() {
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("readonly", [False, True], ids=["mutable", "readonly"])
+@pytest.mark.parametrize("effectful", [False, True], ids=["plain", "ordered"])
+def test_span_construction_and_arguments_match_frontends(tmp_path, immutable_btrcc, module_units, readonly, effectful):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "spanOrder"\n')
+    element = "const int" if readonly else "int"
+    data = "selectData(values)" if effectful else "values"
+    extent = "selectExtent()" if effectful else "(size_t)3"
+    index = "nextIndex()" if effectful else "indexValue"
+    output = "selectOutput()" if effectful else "&output"
+    value = "nextValue()" if effectful else "41"
+    writes = (
+        ""
+        if readonly
+        else f"""
+    trace = 0;
+    assert(view.trySet({index}, {value}));
+    assert(trace == {35 if effectful else 0} && values[1] == 41);
+    indexValue = (size_t)3;
+    trace = 0;
+    assert(!view.trySet({index}, {value}));
+    assert(trace == {35 if effectful else 0} && values[1] == 41);
+    trace = 0;
+    assert(!missing.trySet({index}, {value}));
+    assert(trace == {35 if effectful else 0});
+"""
+    )
+    (source / "Operations.btrc").write_text(
+        """int trace = 0;
+int output = 0;
+size_t indexValue = (size_t)1;
+int* selectData(int* storage) { trace = trace * 10 + 1; return storage; }
+size_t selectExtent() { trace = trace * 10 + 2; return (size_t)3; }
+size_t nextIndex() { trace = trace * 10 + 3; return indexValue; }
+int* selectOutput() { trace = trace * 10 + 4; return &output; }
+int nextValue() { trace = trace * 10 + 5; return 41; }
+void probe() {
+    int values[3] = {11, 13, 17};
+"""
+        + f"""    Span<{element}> view = Span(({element}*){data}, {extent});
+    assert(trace == {12 if effectful else 0} && view.length() == (size_t)3);
+    trace = 0;
+    assert(view.tryGet({index}, {output}));
+    assert(trace == {34 if effectful else 0} && output == 13);
+    indexValue = (size_t)3;
+    trace = 0;
+    assert(!view.tryGet({index}, {output}));
+    assert(trace == {34 if effectful else 0} && output == 13);
+    Span<{element}> missing = Span(({element}*)null, (size_t)1);
+    indexValue = (size_t)0;
+    trace = 0;
+    assert(!missing.tryGet({index}, {output}));
+    assert(trace == {34 if effectful else 0} && output == 13);
+    indexValue = (size_t)1;
+"""
+        + writes
+        + """
+    int fixed[2 + 1] = {7, 11, 19};
+    Span<int> fixedView = Span(fixed);
+    assert(fixedView.length() == (size_t)3);
+    output = 0;
+    assert(fixedView.tryGet((size_t)2, &output) && output == 19);
+}
+"""
+    )
+    (source / "Main.btrc").write_text('import ./Operations.btrc;\nint main() { probe(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize(
+    "backing, extent, index",
+    [("values", 3, 1), ("values", 3, 3), ("null", 3, 1), ("values", 0, 0)],
+    ids=["valid", "out-of-bounds", "null", "empty"],
+)
+def test_span_argument_exceptions_precede_bounds_checks(
+    tmp_path, immutable_btrcc, module_units, backing, extent, index
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "spanThrows"\n')
+    (source / "Operations.btrc").write_text(
+        """int trace = 0;
+int caught = 0;
+int values[3] = {11, 13, 17};
+int* selectData(int* storage) { trace = trace * 10 + 1; return storage; }
+size_t throwingExtent() { trace = trace * 10 + 2; throw "extent"; }
+int throwingValue() { trace = trace * 10 + 5; throw "value"; }
+"""
+        + f"size_t nextIndex() {{ trace = trace * 10 + 3; return (size_t){index}; }}\n"
+        + """void probe() {
+    try {
+        Span<int> impossible = Span(selectData(values), throwingExtent());
+        assert(impossible.length() == (size_t)3);
+    } catch (string error) {
+        assert(error == "extent" && trace == 12);
+        caught++;
+    }
+    assert(caught == 1);
+    trace = 0;
+"""
+        + f"    Span<int> view = Span((int*){backing}, (size_t){extent});\n"
+        + """    try {
+        bool stored = view.trySet(nextIndex(), throwingValue());
+        assert(!stored);
+    } catch (string error) {
+        assert(error == "value");
+        caught++;
+    }
+    assert(caught == 2 && trace == 35 && values[1] == 13);
+}
+"""
+    )
+    (source / "Main.btrc").write_text('import ./Operations.btrc;\nint main() { probe(); print("PASS"); return 0; }\n')
+    _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units)

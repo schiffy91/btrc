@@ -403,6 +403,29 @@ class CallTargetResolver {
 			signature.parameters.push(self.syntheticParameter("value", payload));
 			return signature;
 		}
+		if (callee != null && callee.kind == NK_IDENTIFIER && callee.name == "Span" && !variableTypes.has(callee.name) && !self.analyzed.funcNames.has(callee.name) && !self.analyzed.isClass(callee.name)) {
+			Node? spanType = signature.returnType;
+			if (spanType != null && spanType.base == "Span" && spanType.genericArgs().len == 1) {
+				signature.parameters.push(self.syntheticParameter("data", TypeShape.withOuterPointer(spanType.genericArgs().get(0))));
+				if (call.args().len == 2) { signature.parameters.push(self.syntheticParameter("length", SemanticTypeSystem.primitive("size_t"))); }
+			}
+			return signature;
+		}
+		if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR && receiverType != null && receiverType.base == "Span" && receiverType.genericArgs().len == 1) {
+			Node element = receiverType.genericArgs().get(0);
+			if (callee.field == "tryGet" || callee.field == "trySet") {
+				signature.parameters.push(self.syntheticParameter("index", SemanticTypeSystem.primitive("size_t")));
+				if (callee.field == "tryGet") {
+					Node outputElement = TypeShape.copy(element);
+					outputElement.isConst = false;
+					outputElement.isVolatile = false;
+					signature.parameters.push(self.syntheticParameter("output", TypeShape.withOuterPointer(outputElement)));
+				} else {
+					signature.parameters.push(self.syntheticParameter("value", element));
+				}
+			}
+			return signature;
+		}
 		if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR && SemanticTypeSystem.isString(receiverType)) {
 			if (CallValidator.oneStringArgMethod(callee.field)) {
 				signature.parameters.push(self.syntheticParameter("value", SemanticTypeSystem.primitive("string")));
