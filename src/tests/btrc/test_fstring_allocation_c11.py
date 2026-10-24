@@ -22,10 +22,14 @@ FIXTURES = (
         Path(__file__).with_name("fixtures") / "FstringAllocationC11.btrc",
         "\nPASS: formatted string allocation is non-null\n",
     ),
+    (
+        Path(__file__).with_name("fixtures") / "FstringQualifiedValues.btrc",
+        "7|11|1.500000|true|pointer|text|converted|12\n",
+    ),
 )
 
 
-@pytest.mark.parametrize(("fixture", "expected_stdout"), FIXTURES)
+@pytest.mark.parametrize(("fixture", "expected_stdout"), FIXTURES, ids=[fixture.stem for fixture, _ in FIXTURES])
 def test_fstring_allocation_is_warning_clean_after_optimization(
     semantic_btrcc: Path,
     tmp_path: Path,
