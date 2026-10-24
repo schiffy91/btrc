@@ -2016,3 +2016,12 @@ and static storage, and borrowed and owned values before changing production.
 This independent parity repair does not establish shared cache compatibility
 or complete application byte parity. Source publication waits for CI capacity;
 review and final integrated gates remain required.
+
+### CX-FIELD-UPCAST-PARITY claim transfer
+
+The implementation scope above transfers to `CX-FSTRING-VALUE-STAGING`
+(PR #120), which already owns `Expressions.btrc`. This packet releases its
+source and test claims. PR #124 remains a documentation-only reproduction and
+transfer record; its isolated implementation branch is evidence only and must
+not be merged. The existing packet will carry the fix and regression, extend
+its test claim, and qualify the combined tree before source publication.
