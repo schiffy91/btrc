@@ -3171,3 +3171,50 @@ void exercise() {
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("kind", ["independent", "dependent", "forward", "callback", "qualified"])
+def test_owned_typedefs_precede_shared_aliases(tmp_path, immutable_btrcc, module_units, kind):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "aliasOrder"\n')
+    imported = "typedef int ImportedCount;\nImportedCount increment(ImportedCount value) { return value + 1; }\n"
+    local = {
+        "independent": "typedef int LocalCount;",
+        "dependent": "typedef ImportedCount LocalCount;",
+        "forward": "typedef LocalTail LocalCount; typedef ImportedCount LocalTail;",
+    }.get(kind, "")
+    operation = (
+        local
+        + "\nLocalCount combine(ImportedCount value) { LocalCount result = increment(value); return result + 1; }\n"
+    )
+    setup = ""
+    argument = "39"
+    if kind == "callback":
+        imported = "typedef CFunction<int, int> ImportedTransform;\nint twice(int value) { return value * 2; }\n"
+        operation = (
+            "typedef CFunction<int, int> LocalTransform;\n"
+            "int combine(ImportedTransform callback) { LocalTransform local = callback; return local(20) + 1; }\n"
+        )
+        argument = "twice"
+    elif kind == "qualified":
+        imported = (
+            "typedef const int* ImportedPointer;\nImportedPointer identity(ImportedPointer value) { return value; }\n"
+        )
+        operation = (
+            "typedef const int* LocalPointer;\n"
+            "int combine(ImportedPointer value) { LocalPointer local = identity(value); return *local + 1; }\n"
+        )
+        setup = "int storage = 40; "
+        argument = "&storage"
+    (source / "Imported.btrc").write_text(imported)
+    (source / "Operations.btrc").write_text("import ./Imported.btrc;\n" + operation)
+    (source / "Main.btrc").write_text(
+        "import ./Imported.btrc;\nimport ./Operations.btrc;\n"
+        f'int main() {{ {setup}assert(combine({argument}) == 41); print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

@@ -2374,3 +2374,23 @@ qualification remain required.
 The earlier direct-field-assignment reduction also exposed canonicalized
 assignment-result and discarded-value temporaries. Those raw differences are
 preserved separately; method-based mutations isolate the visitor repair here.
+
+
+### 2026-10-24: owned module typedef order (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc` and
+`src/tests/python/test_module_units.py`. Base: `b992e385`.
+
+The reference compiler emits a module's own aliases before merging imported
+aliases. Self-hosted module lowering skips that declaration step and receives
+all aliases in the shared program order. The saved four-case reduction passes
+sixteen native executions and differs only in the independent module's typedef
+order. Dependent aliases already agree because the typed declaration planner
+orders their prerequisites.
+
+Emit owned aliases through the existing declaration ownership filter, using
+structured typedef IR. Keep the whole-program alias pass and the shared merge
+owners. Ten regression cases cover independent, dependent and forward aliases,
+callbacks and qualified pointers in whole-program and module-unit modes. Recheck
+the baseline before production edits, then verify strict/sanitized execution,
+raw C parity, module reuse and the full application composition.

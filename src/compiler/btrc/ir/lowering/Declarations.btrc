@@ -5260,7 +5260,13 @@ class DeclarationLowerer {
 		} else if (d.kind == NK_ENUM_DECL || d.kind == NK_RICH_ENUM_DECL) {
 			/* Emitted ahead of every other declaration by emitEnums. */
 		} else if (d.kind == NK_TYPEDEF_DECL) {
-			/* Already lowered above in dependency order. */
+			/* Whole-program aliases were emitted in dependency order above.
+             * A module emits its own aliases before shared declarations merge. */
+			if (self.context.declarationsElsewhere) {
+				IRTypedefDef definition = IRTypedefDef(self.cTypes.lower(d.original), d.alias);
+				definition.isVolatile = d.original.isVolatile;
+				m.typedefDefs.push(definition);
+			}
 		} else if (d.kind == NK_VAR_DECL_STMT) {
 			bool redundantExtern = d.type != null && d.type.isExtern && d.initializer == null && self.analyzed.globalHasDefinition.has(d.name);
 			if (!redundantExtern) {
