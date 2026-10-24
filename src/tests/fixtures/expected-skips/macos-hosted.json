@@ -123,6 +123,34 @@
       "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows, GPU view and scrollbar regression. Required Linux execution is tracked separately from these Mac platform skips."
     },
     {
+      "id": "linux-ui2-native-reader",
+      "files": [
+        "src/tests/python/test_native_ui2_capture_linux.py",
+        "src/tests/python/test_native_ui2_fairness_linux.py",
+        "src/tests/python/test_native_ui2_images.py",
+        "src/tests/python/test_native_ui2_linux_resource_lifetime.py",
+        "src/tests/python/test_native_ui_core_linux.py"
+      ],
+      "nodes": [
+        "src/tests/python/test_native_ui2_capture_linux.py::test_linux_capture_admission[[]*]",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_repeated_bursts[[]*]",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_sustained_load[[]*]",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_diagnostic[[]*]",
+        "src/tests/python/test_native_ui2_images.py::test_linux_image_publication[[]*]",
+        "src/tests/python/test_native_ui2_images.py::test_linux_image_lifetime[[]*]",
+        "src/tests/python/test_native_ui2_linux_resource_lifetime.py::test_linux_ui2_native_resource_lifetime[[]*]",
+        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_executor_and_lifecycle[[]*]",
+        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_callback_scope_release_requires_executor[[]*]",
+        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_final_release_requires_executor[[]*]"
+      ],
+      "reason": "^requires Linux and the explicitly built native header reader$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "These named UI2 fixtures require the Linux native reader before building SDL capture, images, resource lifetimes, executor/lifecycle or E40 programs. Linux GUI and E40 shards remain required; this rule classifies only their absence on Mac runners."
+    },
+    {
       "id": "linux-glibc-call-shapes",
       "files": [
         "src/tests/python/test_native_linux_call_shapes.py"
