@@ -2223,3 +2223,21 @@ groups must share one C counter, with exactly one implementation include.
 Require strict C11 and sanitizer execution through both frontends, module
 cache and ownership checks, and the final composed integration gates.
 The new regression and candidate remain unqualified until those checks run.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: inferred callback class signatures
+
+PR115 also owns `src/compiler/btrc/analyzer/Expressions.btrc` and the
+ordered callback regression in `src/tests/python/test_module_units.py`.
+A direct function argument with a class parameter passes strict and sanitized
+execution through both compilers, but the self-hosted inferred callback keeps
+the class at source pointer depth zero and creates a second callback identity.
+The declared callback type already normalizes that class to pointer depth one.
+
+Normalize the inferred signature through the existing semantic type owner.
+Preserve declaration storage flags, typedef qualifiers, explicit pointers and
+lexically shadowing generic parameters. Establish failing regressions on this
+packet base for direct and addressed function values, with regular and
+generic class arguments, in whole and module builds. Require native execution before
+raw C comparison, then callback, generic, module, parity and structure checks.
+The remaining pointer aliases and full application comparison stay separate.
