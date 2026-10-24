@@ -2351,3 +2351,26 @@ to require the headers whose unused emission is covered by PR119.
 
 Focused, broader, composition/application and final integrated qualification
 remain required. This change does not complete application C parity.
+
+
+### 2026-10-24: aliases in ARC field visitors (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/ownership/CycleBoundaries.btrc`
+and `src/tests/python/test_module_units.py`. Base: `3f4c3540`.
+
+Field stores request an ARC slot adapter using the field's declared typedef,
+but self-hosted visitors requested another adapter using its expanded class
+type. Visitor lowering now uses the declared field type for the exact-typed
+slot adapter, retaining the canonical type for the runtime descriptor.
+
+Four regressions cover whole-program and module-unit emission for acyclic
+replacement and a collected two-object cycle. Destructor counts verify both
+paths. The managed cases in the owned-field regression now compare every C
+unit, removing their narrower consumer-function comparison. The combined
+baseline passes all 48 strict C11 and ASan/UBSan executions, with six C parity
+failures and six passes. Focused, broader, full application and final integrated
+qualification remain required.
+
+The earlier direct-field-assignment reduction also exposed canonicalized
+assignment-result and discarded-value temporaries. Those raw differences are
+preserved separately; method-based mutations isolate the visitor repair here.

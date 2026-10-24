@@ -3118,16 +3118,56 @@ Entry createEntry(bool fail) {
     generated = _compile_and_run_native_frontends(
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
-    if not managed:
-        assert generated["reference"] == generated["selfhost"]
-        return
-    # Alias and concrete class fields still select distinct ARC visitor helpers.
-    # Compare the complete field-access consumer here; native runs cover the
-    # generated visitors and destruction of both the owner and its payload.
-    pattern = re.compile(rb"^void probe\(void\) \{\n.*?^\}", re.MULTILINE | re.DOTALL)
-    bodies = {}
-    for frontend, units in generated.items():
-        matches = [match.group() for unit in units.values() if (match := pattern.search(unit)) is not None]
-        assert len(matches) == 1, frontend
-        bodies[frontend] = matches[0]
-    assert bodies["reference"] == bodies["selfhost"]
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("cyclic", [False, True], ids=["acyclic", "cycle"])
+def test_alias_field_cycle_visitors_match_frontends(tmp_path, immutable_btrcc, module_units, cyclic):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "visitorAlias"\n')
+    acyclic = """int alive = 0;
+class Payload {
+ public int number;
+ public Payload(int value) { self.number = value; alive++; }
+ public void __del__() { alive--; }
+}
+typedef Payload Value;
+class Holder {
+ public Value value;
+ public Holder(Value value) { self.value = value; }
+ public void replace(Value value) { self.value = value; }
+}
+void exercise() {
+ var first = new Holder(new Payload(41));
+ assert(first.value.number == 41 && alive == 1);
+ first.replace(new Payload(42));
+ assert(first.value.number == 42 && alive == 1);
+}
+"""
+    cycle = """int alive = 0;
+class Link {
+ public LinkAlias? next;
+ public Link() { alive++; }
+ public void connect(LinkAlias value) { self.next = value; }
+ public void __del__() { alive--; }
+}
+typedef Link LinkAlias;
+void exercise() {
+ var first = new Link();
+ var second = new Link();
+ first.connect(second);
+ second.connect(first);
+ assert(alive == 2 && first.next == second && second.next == first);
+}
+"""
+    (source / "Operations.btrc").write_text(cycle if cyclic else acyclic)
+    (source / "Main.btrc").write_text(
+        'import ./Operations.btrc;\nint main() { try { exercise(); assert(alive == 0); print("PASS"); } '
+        "catch (string error) { assert(false); } return 0; }\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
