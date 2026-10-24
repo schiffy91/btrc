@@ -2095,3 +2095,28 @@ Keep other interaction routes' acknowledgment rules. Neither post return nor
 a geometry notification may stand in for input dequeue. Hosted runtime and
 the full platform matrix remain necessary; the headless test proves only the
 fixture's stimulus scheduling and accounting.
+
+### 2026-10-24 CX-GUI-GATES-108: complete hosted macOS GUI coverage
+
+The retained hosted journal on `60685688` records 759 finished tests and one
+interrupted test at the 90-minute limit. Collection against the same selection
+and identity owners contains 881 tests, leaving 121 unstarted. No failed phase
+was recorded, and setup completed just before cancellation.
+
+PR114 now owns `tools/ui/gui_shards.py`, `src/tests/python/test_gui_shards.py`,
+`src/tests/python/test_ci_workflow_contracts.py`,
+`src/tests/python/test_qualification_bundle.py`, and
+`docs/qualification/ui-agent-runbook.md` for two hosted macOS partitions.
+Workflow, Makefile and `ci/tiers.toml` changes remain isolated fragments.
+Reuse the existing partition owner, preserve the full native-GUI selection,
+three workers per cell and all timeouts and skip rules. Require Darwin and the
+macos-hosted runner. Every cell retains its complete collection and exact test
+outcomes; a scheduled coverage job must prove the disjoint complete union.
+Unit delegation requires both execution and coverage jobs. Standalone native
+GUI runs retain the full selection. Linux partitions also retain controller
+journals to identify unfinished work after cancellation.
+
+The baseline partition, workflow and qualification suites pass 228 tests.
+Prove admission, missing/overlapping/wrong-revision evidence rejection and
+real subprocess partition execution with synthetic fixtures before publication.
+These local checks cannot establish hosted AppKit runtime acceptance.
