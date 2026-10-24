@@ -598,7 +598,15 @@ class CycleMetadata:
     def _runtime_type_candidates(self, static_type: TypeExpr) -> list[TypeExpr]:
         static_type = self._graph_values.canonical(static_type) or static_type
         if static_type.base in self._analyzed.interface_table:
-            return [TypeExpr(base=name) for name in self._subclasses_of(static_type.base)]
+            candidates = []
+            for name in self._subclasses_of(static_type.base):
+                candidates.append(TypeExpr(base=name))
+                if self._analyzed.class_table[name].generic_params:
+                    candidates.extend(
+                        TypeExpr(base=name, generic_args=list(arguments))
+                        for arguments in self._analyzed.generic_instances.get(name, ())
+                    )
+            return candidates
         candidates = [static_type]
         if static_type.generic_args or static_type.base not in self._analyzed.class_table:
             return candidates

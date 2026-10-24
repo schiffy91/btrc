@@ -1,5 +1,7 @@
 """Structured-IR contracts for concrete runtime ARC metadata."""
 
+import pytest
+
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.analyzer.types import TypeIdentity
 from src.compiler.python.ir.lowering.generics import SpecializedDeclarationView, TypeSubstitution
@@ -152,3 +154,23 @@ def test_cycle_graph_does_not_capture_runtime_class_names_as_outer_type_paramete
         {"Receiver": TypeExpr(base="IReceiver", pointer_depth=1)},
     )
     assert cycles.type_may_cycle(TypeExpr(base="Receiver"))
+
+
+@pytest.mark.parametrize("shape", ["cycle", "scalar", "phantom"])
+def test_interface_cycle_edges_preserve_concrete_generic_arguments(shape):
+    argument = "int" if shape == "scalar" else "Owner"
+    field = "" if shape == "phantom" else "public T value;"
+    cycles = _cycles(f"""
+        interface ILink {{ int tag(); }}
+        class Box<T> implements ILink {{
+            {field}
+            public int tag() {{ return 1; }}
+        }}
+        class Owner {{ public ILink? edge = null; }}
+        class Holder {{ public Owner value; }}
+        int main() {{ Box<{argument}> box = new Box<{argument}>(); return 0; }}
+    """)
+    concrete_argument = TypeExpr(base=argument, pointer_depth=0 if argument == "int" else 1)
+    assert cycles.type_may_cycle(TypeExpr(base="Owner")) == (shape == "cycle")
+    assert cycles.type_may_cycle(TypeExpr(base="Box", generic_args=[concrete_argument])) == (shape == "cycle")
+    assert not cycles.type_may_cycle(TypeExpr(base="Holder"))

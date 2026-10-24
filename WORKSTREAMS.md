@@ -2581,3 +2581,22 @@ field order remain with their existing owners. The eight regression cases
 cover independent and nested records, two manifest orders, and whole-program
 and module output. Require the combined prototype repair to pass complete C
 comparisons, then recheck the full application and final integration gates.
+
+
+### 2026-10-24: concrete generic interface cycle edges (Codex follow-up)
+
+Owned paths: `src/compiler/python/ir/lowering/ownership.py`,
+`src/tests/python/test_polymorphic_arc_metadata.py` and
+`src/tests/python/test_module_units.py`. Base: `c22c5a59`.
+
+A native reduction exposes an unreachable Owner -> ILink -> Box<Owner> ->
+Owner cycle. In whole-program and module output, strict and sanitized Python
+builds destroy neither object; all four self-hosted executions destroy both.
+The Python runtime-type expansion keeps only the generic implementer's name,
+losing the concrete arguments needed to follow its managed fields.
+
+Preserve the existing conservative interface query and expand its instantiated
+generic implementers with their actual arguments. Record failing regressions
+before production edits. Check retained owners, scalar payloads and unused type
+parameters, paired strict and sanitized execution, and complete C parity.
+Broader ownership, application and final integrated gates remain required.
