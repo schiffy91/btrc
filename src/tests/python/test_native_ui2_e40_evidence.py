@@ -608,14 +608,15 @@ def test_loop_diagnostic_thread_start_failure_reaps_child_and_preserves_error(tm
     assert receipt["samples"] == []
 
 
+@pytest.mark.parametrize("control_name", ["metal", "resize"])
 @pytest.mark.parametrize("exit_code", [0, 7])
-def test_metal_control_retains_native_outcome_and_runs_once(tmp_path, exit_code):
+def test_native_control_retains_native_outcome_and_runs_once(tmp_path, exit_code, control_name):
     import hashlib
     import json
     import os
     import sys
 
-    from src.tests.python.test_native_ui2_macos_e40 import E40MetalControl
+    from src.tests.python.test_native_ui2_macos_e40 import E40NativeControl
 
     executable = tmp_path / "control"
     executable.write_text(
@@ -625,10 +626,12 @@ def test_metal_control_retains_native_outcome_and_runs_once(tmp_path, exit_code)
         f"raise SystemExit({exit_code})\n"
     )
     digest = hashlib.sha256(executable.read_bytes()).hexdigest()
-    control = E40MetalControl([sys.executable, str(executable)], [], digest)
+    control = E40NativeControl(control_name, [sys.executable, str(executable)], [], digest)
     control.record(tmp_path, os.environ.copy())
-    directory = tmp_path / "metal-control"
+    directory = tmp_path / f"{control_name}-control"
     receipt = json.loads((directory / "execution.json").read_text())
+    assert receipt["schema"] == f"btrc.ui2.{control_name}-control-execution/1"
+    assert receipt["source_sha256"] == digest
     assert receipt["status"] == "completed" and receipt["returncode"] == exit_code
     assert receipt["report_written"] is True
     assert json.loads((directory / "observations.json").read_text()) == {"presented": 0}
@@ -639,7 +642,8 @@ def test_metal_control_retains_native_outcome_and_runs_once(tmp_path, exit_code)
     assert json.loads((directory / "execution.json").read_text()) == receipt
 
 
-def test_metal_control_timeout_reaps_child_and_discards_stale_report(tmp_path, monkeypatch):
+@pytest.mark.parametrize("control_name", ["metal", "resize"])
+def test_native_control_timeout_reaps_child_and_discards_stale_report(tmp_path, monkeypatch, control_name):
     import hashlib
     import json
     import os
@@ -650,11 +654,11 @@ def test_metal_control_timeout_reaps_child_and_discards_stale_report(tmp_path, m
 
     executable = tmp_path / "control"
     executable.write_text("import time\nprint('started', flush=True)\ntime.sleep(30)\n")
-    control = driver.E40MetalControl(
-        [sys.executable, str(executable)], [], hashlib.sha256(executable.read_bytes()).hexdigest()
+    control = driver.E40NativeControl(
+        control_name, [sys.executable, str(executable)], [], hashlib.sha256(executable.read_bytes()).hexdigest()
     )
     monkeypatch.setattr(control, "TIMEOUT_SECONDS", 0.5)
-    directory = tmp_path / "metal-control"
+    directory = tmp_path / f"{control_name}-control"
     directory.mkdir()
     (directory / "observations.json").write_text('{"presented": 20}')
     children = []
