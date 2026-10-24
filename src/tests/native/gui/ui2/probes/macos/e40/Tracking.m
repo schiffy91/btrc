@@ -244,6 +244,7 @@ static void postResize(CGEventType type, CGPoint point) {
     CGEventSetIntegerValueField(event, kCGEventSourceUserData, (int64_t)(TRACK_INPUT_ID + sequence));
     CGEventPost(kCGHIDEventTap, event); CFRelease(event);
 }
+static void beginResizeStimulus(void) { postResize(kCGEventLeftMouseDown, resizeBegin); }
 static void postMenuKey(bool finish) {
     assert(NSThread.isMainThread && NSApp.active && NSApp.keyWindow);
     NSMenuItem *item = popup.menu.highlightedItem;
@@ -334,7 +335,7 @@ static void beginNativeTracking(void) {
         postMouse(NSEventTypeLeftMouseDown, sliderBegin, targetNumber);
     } else if (trialKind == 3) {
         if (!CGPreflightPostEventAccess()) { unavailable = [@"CGPreflightPostEventAccess is false" copy]; return; }
-        postResize(kCGEventLeftMouseDown, resizeBegin);
+        beginResizeStimulus();
     } else if (trialKind == 4) {
         sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 180, 80) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
         [target beginSheet:sheet completionHandler:^(NSModalResponse response) { (void)response; exitTracking(); }];
