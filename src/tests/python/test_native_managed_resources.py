@@ -1,13 +1,14 @@
 """Managed C and CoreFoundation resources: record outputs and inputs, borrowed results and projections."""
 
 import json
+import re
 
 import pytest
 
+from src.tests.python.native_import_fixtures import compile_source, run_native_executable
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.native_import_fixtures import resource_project as resource_project
-from src.tests.python.native_import_fixtures import run_native_executable
 
 
 @pytest.mark.parametrize("sanitize", [False, True])
@@ -465,6 +466,57 @@ int main() {
     compiled = native_compile(source)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)
     run_native_executable(compiled.c_source, source.parent.parent, sdk, triple, sanitized, frameworks=())
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_native_argument_handoff_has_the_same_cleanup_in_both_compilers(resource_project, native_compile, sanitized):
+    source, sdk, triple = resource_project
+    source.write_text("""import ./Foundation.btrc;
+class NativeRoots {
+	class WidgetRef? value = null;
+}
+int clearOwner(bool fail) {
+	NativeRoots.value = null;
+	if (fail) { throw "later argument"; }
+	return 5;
+}
+int observeResource(WidgetRef? value, int marker) {
+	if (value == null) { return marker; }
+	return WidgetRead(value) + marker;
+}
+int invokeWithHeldResource(bool fail) {
+	return observeResource(NativeRoots.value, clearOwner(fail));
+}
+int main() {
+	for (int index = 0; index < 10; index++) {
+		NativeRoots.value = WidgetCreate(7);
+		assert(invokeWithHeldResource(false) == 12);
+		assert(WidgetLive() == 0 && WidgetDestroyed() == index * 2 + 1);
+		assert(invokeWithHeldResource(false) == 5);
+		NativeRoots.value = WidgetCreate(9);
+		bool caught = false;
+		try { invokeWithHeldResource(true); }
+		catch (string error) { caught = error == "later argument"; }
+		assert(caught && WidgetLive() == 0 && WidgetDestroyed() == (index + 1) * 2);
+		caught = false;
+		try { invokeWithHeldResource(true); }
+		catch (string error) { caught = error == "later argument"; }
+		assert(caught && WidgetLive() == 0 && WidgetDestroyed() == (index + 1) * 2);
+	}
+	return 0;
+}
+""")
+    compiled = native_compile(source, use_cache=False)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, source.parent.parent, sdk, triple, sanitized, frameworks=())
+    reference = compile_source(source, use_cache=False)
+    assert reference.successful, (reference.failure, reference.diagnostics)
+    body = r"^int invokeWithHeldResource\([^\n]*\) \{\n.*?^\}"
+    expected = re.search(body, reference.c_source, re.MULTILINE | re.DOTALL)
+    actual = re.search(body, compiled.c_source, re.MULTILINE | re.DOTALL)
+    assert expected is not None and actual is not None
+    assert "__btrc_released_operand" in actual.group()
+    assert actual.group() == expected.group()
 
 
 @pytest.mark.parametrize(
