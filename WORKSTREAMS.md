@@ -1998,3 +1998,19 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+## 2026-10-24 CX-MODULE-RUNTIME-HEADERS: derived include parity
+
+Reserved: Codex owns `codex/module-runtime-header-parity-20261024` from
+`b800bb0` under D29. The same-source BTRSmith comparison found five units
+whose only C differences are reference-only `setjmp.h` and `stdatomic.h`
+includes. Reproduce and repair runtime-header ownership across module-unit
+composition while preserving source directives and live dependencies.
+
+Owned paths are `src/compiler/python/application/modules.py`,
+`src/tests/python/test_module_units.py`, and this claim. Expand the claim
+before changing another owner if the reproduction requires it. Both frontends
+must retain required headers, compile as strict C11 and execute the regression.
+This packet is independent of the native-header and f-string repairs. Full
+application byte parity and integrated gates remain required; publication waits
+for CI capacity.
+
