@@ -15,6 +15,11 @@ on:
         type: choice
         options: [full, native-gui, extended, e40-diagnostic]
         default: full
+      diagnostic_trial:
+        description: Native tracking route for the E40 diagnostic
+        type: choice
+        options: [slider, resize]
+        default: slider
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
     inputs:
@@ -641,6 +646,7 @@ jobs:
           CI: 'true'
           BTRC_UI2_HOSTED_E40: '1'
           BTRC_UI2_E40_TRACE: '1'
+          BTRC_UI2_E40_TRIAL: ${{ inputs.diagnostic_trial || 'slider' }}
           BTRC_UI2_E40_ARTIFACTS: build/e40-diagnostic/native
           BTRC_TEST_TRANSPILE_TIMEOUT: '600'
         run: |
@@ -658,9 +664,13 @@ jobs:
                      "build": "nix develop --command make NIX= generated-check gpu-required btrcc"}
           Path("build/e40-diagnostic/compiler.json").write_text(json.dumps(receipt, indent=2))
           PYCODE
+          case "$BTRC_UI2_E40_TRIAL" in
+            slider|resize) ;;
+            *) echo "Unsupported E40 diagnostic trial" >&2; exit 2 ;;
+          esac
           nodes=(
-            'src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-desktop-slider]'
-            'src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-host-slider]'
+            "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-desktop-${BTRC_UI2_E40_TRIAL}]"
+            "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-host-${BTRC_UI2_E40_TRIAL}]"
           )
           printf '%s\n' "${nodes[@]}" > build/e40-diagnostic/expected-nodes.txt
           nix develop --command python3 -m pytest --collect-only -q -n 0 -m e40_qualification \
