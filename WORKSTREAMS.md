@@ -2260,6 +2260,23 @@ side effects, strict C11 and sanitizer execution before exact C comparison.
 The baseline ran 76 native executions; ten frontend/case combinations failed
 strict C. Full application composition and final gates remain required.
 
+
+## 2026-10-24 local issue-parity composition diagnostic
+
+The current harmonization owner composes the qualified local repairs from
+PRs #118, #119, #120, #122 and #123 on the PR #115 stdlib-analysis candidate.
+This is a local diagnostic branch, not a publication or integration packet.
+Existing PR owners and branches remain intact. In particular, module-unit
+source and test edits shared with PR #115 are composed here for interaction
+checks; this record does not transfer their ownership or claim final gates.
+
+The exact donor revisions, paths and application results are recorded in the
+commit message and the local composition evidence. Preserve all donor tests,
+strict imports, generated-source policy and raw emitted-C comparisons. Run
+combined behavior and application checks before using this candidate's output
+to diagnose remaining differences. Do not merge this diagnostic branch as a
+substitute for reviewed source packets and the final integration matrix.
+
 ### 2026-10-24 CX-STDLIB-ANALYSIS: collection construction cleanup parity
 
 PR115 also owns `src/compiler/python/ir/lowering/collections.py` and its
