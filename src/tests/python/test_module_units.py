@@ -2648,3 +2648,101 @@ def test_ordered_function_values_normalize_class_signatures(
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["selfhost"] == generated["reference"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("volatile", [False, True], ids=["plain", "volatile"])
+@pytest.mark.parametrize(
+    "declaration,local,argument",
+    [
+        ("", "Value value = 42;", "&value"),
+        ("", "Value value = 42; Pointer pointer = &value;", "pointer"),
+        ("", "Value value = 42; Pointer pointer = &value; Pointer* outer = &pointer;", "*outer"),
+        (
+            "struct Record { Pointer output; };",
+            "Value value = 42; Record record = {&value};",
+            "record.output",
+        ),
+        ("Pointer read(Pointer value) { return value; }", "Value value = 42;", "read(&value)"),
+        (
+            "",
+            "Value value = 42; bool condition = true; Pointer first = &value; Pointer second = &value;",
+            "condition ? first : second",
+        ),
+        ("", "Value values[2] = {42, 43};", "values"),
+    ],
+    ids=["address", "identifier", "dereference", "field", "call-result", "conditional", "array"],
+)
+def test_ordered_pointer_aliases_preserve_qualifiers(
+    tmp_path, immutable_btrcc, module_units, volatile, declaration, local, argument
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "orderedPointer"\n')
+    value_type = "volatile int" if volatile else "unsigned long"
+    (source / "Main.btrc").write_text(
+        f"""
+        typedef {value_type} Value;
+        typedef Value* Pointer;
+        {declaration}
+        static int calls = 0;
+        int next() {{ calls++; return calls; }}
+        bool capture(int first, int second, Pointer input) {{
+            assert(first == 1 && second == 2);
+            return *input == 42;
+        }}
+        int main() {{
+            {local}
+            assert(capture(next(), next(), {argument}));
+            assert(calls == 2);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["selfhost"] == generated["reference"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize(
+    "local,argument",
+    [
+        ("", "&handle"),
+        ("Slot* pointer = &handle;", "pointer"),
+        ("Slot* first = &handle; Slot* second = &handle; bool condition = true;", "condition ? first : second"),
+    ],
+    ids=["address", "identifier", "conditional"],
+)
+def test_ordered_const_handle_slots_preserve_mutable_pointees(tmp_path, immutable_btrcc, module_units, local, argument):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "orderedConstSlot"\n')
+    (source / "Main.btrc").write_text(
+        f"""
+        typedef int* Handle;
+        typedef const Handle Slot;
+        static int calls = 0;
+        int next() {{ calls++; return calls; }}
+        bool capture(int first, int second, Slot* input) {{
+            assert(first == 1 && second == 2 && **input == 42);
+            **input = 43;
+            return true;
+        }}
+        int main() {{
+            int value = 42;
+            Slot handle = &value;
+            {local}
+            assert(capture(next(), next(), {argument}));
+            assert(calls == 2 && value == 43);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["selfhost"] == generated["reference"]

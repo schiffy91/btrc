@@ -1496,12 +1496,17 @@ class ExpressionAnalyzer:
             sym = self.session.scope.lookup(expr.name)
             if sym:
                 value_type = self.types.canonical_type(sym.type) or sym.type
-                # Managed/builtin dispatch uses canonical types. Raw pointer
-                # aliases retain their declarator only when flattening would
-                # move const from a handle slot to the opaque pointee.
-                if self.storage.is_raw_pointer_value(value_type) and self.storage.const_qualifier_depths(
-                    sym.type, self.index.typedef_table
-                ) != self.storage.const_qualifier_depths(value_type, self.index.typedef_table):
+                # Typedefs carry qualifier layers that a flattened type cannot
+                # represent. Keep volatile scalar aliases too: taking their
+                # address must move that qualifier below the new pointer.
+                if value_type is not sym.type and (
+                    self.storage.volatile_qualifier_depths(sym.type, self.index.typedef_table)
+                    or (
+                        self.storage.is_raw_pointer_value(value_type)
+                        and self.storage.const_qualifier_depths(sym.type, self.index.typedef_table)
+                        != self.storage.const_qualifier_depths(value_type, self.index.typedef_table)
+                    )
+                ):
                     value_type = sym.type
                 if value_type is not None and (value_type.is_extern or value_type.is_static):
                     value_type = replace(value_type, is_extern=False, is_static=False)

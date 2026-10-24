@@ -2241,3 +2241,21 @@ packet base for direct and addressed function values, with regular and
 generic class arguments, in whole and module builds. Require native execution before
 raw C comparison, then callback, generic, module, parity and structure checks.
 The remaining pointer aliases and full application comparison stay separate.
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: ordered pointer qualifier inference
+
+PR115 also owns identifier and conditional inference in both analyzer
+expression owners, with regression coverage in `test_module_units.py`.
+On `26e3711c`, strict C rejects reference output for volatile pointer
+identifiers, addresses and dereferences; both frontends lose the qualifier
+when selecting between two volatile pointers. Unqualified pointer and array
+aliases also produce different temporary declarations across the frontends.
+
+Resolve ordinary identifier aliases consistently while retaining typedef
+spelling that carries qualifier layers. Keep volatile scalar aliases intact
+so taking their address preserves pointee qualification. Conditional inference
+must retain the selected branch's qualifier provenance while using canonical
+types for numeric promotion. Prove whole and module output with ordered
+side effects, strict C11 and sanitizer execution before exact C comparison.
+The baseline ran 76 native executions; ten frontend/case combinations failed
+strict C. Full application composition and final gates remain required.
