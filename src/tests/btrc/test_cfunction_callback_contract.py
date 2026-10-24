@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitized_build_and_run
 from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, compile_source, strict_build_and_run
 
 _RECURSIVE_CONST_ALIAS_SOURCE = Path(__file__).parents[1] / "basics" / "CfunctionRecursiveConstAlias.btrc"
@@ -214,3 +215,66 @@ def test_exact_qsort_declaration_accepts_only_cfunction_shape(
     assert reference_bad.returncode != 0
     assert "does not match compiler-owned C ABI" in selfhost_bad.stderr
     assert "does not match compiler-owned C ABI" in reference_bad.stderr
+
+
+@pytest.mark.parametrize("payload", ["Item", "ItemAlias"])
+@pytest.mark.parametrize(
+    ("declaration", "binding", "invocation"),
+    [
+        pytest.param("", "CFunction<void, PAYLOAD> handler = receive;", "handler(item);", id="local"),
+        pytest.param(
+            "typedef CFunction<void, PAYLOAD> Handler;", "Handler handler = receive;", "handler(item);", id="typedef"
+        ),
+        pytest.param(
+            "struct Dispatch { CFunction<void, PAYLOAD> handler; };",
+            "Dispatch dispatch = {receive};",
+            "dispatch.handler(item);",
+            id="record",
+        ),
+        pytest.param(
+            "struct Slot { CFunction<void, PAYLOAD> handler; }; struct Dispatch { Slot slot; };",
+            "Dispatch dispatch = {{receive}};",
+            "dispatch.slot.handler(item);",
+            id="nested-record",
+        ),
+    ],
+)
+def test_class_callback_identity_matches_across_declaration_owners(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    payload: str,
+    declaration: str,
+    binding: str,
+    invocation: str,
+) -> None:
+    source = (
+        """
+        #include <assert.h>
+        class Item {
+            public int value;
+            public Item(int value) { self.value = value; }
+        }
+        typedef Item ItemAlias;
+        DECLARATION
+        int seen = 0;
+        void receive(Item item) { seen = item.value; }
+        int main() {
+            BINDING
+            Item item = new Item(7);
+            INVOCATION
+            assert(seen == 7);
+            return 0;
+        }
+    """.replace("DECLARATION", declaration)
+        .replace("BINDING", binding)
+        .replace("INVOCATION", invocation)
+    )
+    source = source.replace("PAYLOAD", payload)
+    sanitizer = require_sanitizers(tmp_path)
+    (selfhost, selfhost_c), (reference, reference_c) = _compile_pair(semantic_btrcc, tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    for frontend, generated in (("selfhost", selfhost_c), ("reference", reference_c)):
+        strict_build_and_run(generated, tmp_path / (frontend + "-strict"), optimization="-O2")
+        sanitized_build_and_run(generated, tmp_path / (frontend + "-sanitized"), sanitizer)
+    assert selfhost_c.read_text() == reference_c.read_text()

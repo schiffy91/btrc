@@ -1457,6 +1457,12 @@ class GenericSpecializer {
 				}
 				i = i + 1;
 			}
+		} else if (d.kind == NK_TYPEDEF_DECL) {
+			SemanticTypeSystem.upgradeConcreteTypeGenericArgs(d.original, a);
+		} else if (d.kind == NK_STRUCT_DECL) {
+			for field in SemanticTypeSystem.recordFields(d) {
+				SemanticTypeSystem.upgradeConcreteTypeGenericArgs(field.type, a);
+			}
 		} else if (d.kind == NK_VAR_DECL_STMT) {
 			Map<string, bool> unresolved = {};
 			SemanticTypeSystem.upgradeTypeGenericArgs(d.type, a, unresolved);
