@@ -2175,3 +2175,30 @@ comparison. Preserve native resource ownership, release behavior, declaration
 identity and module boundaries. Refresh the full application comparison and
 qualify native-import, module, parity and structure paths before publication.
 This repair does not establish complete application parity or performance.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: unique resource helper parity
+
+PR115 also owns `src/compiler/python/ir/lowering/functions.py` and its
+unique-resource regression in `src/tests/python/test_module_units.py`.
+A reduced native package preserves explicit close, alias state, borrowed
+access, automatic cleanup and exception cleanup through both compilers.
+Void and status-returning release variants pass all sixteen strict C11 and
+sanitized executions across whole-program and module builds, while their
+raw helper declarations and definitions differ in owner parameter names.
+
+Keep the repair in structured lifetime lowering. Align local and parameter
+names consistently, including ARC header initialization; retain message
+text, synchronization, borrow handling and release outcomes. Compare whole
+generated files without normalization after native execution. Reuse a
+cohesive native-plan test harness for the existing resource-order test and
+this regression. Establish its failing baseline before changing production
+code, then qualify native ownership kinds, module behavior and C parity.
+The full application comparison and final integrated gates remain required.
+
+The reduction also exposed a separate module-build defect: a C source
+imported from a native binding module is omitted, causing unresolved native
+symbols in both frontends. Its failing inputs and plans are preserved under
+`build/native-plan-parity/imported-c-module-link-reproduction.json` in the
+application diagnostic clone. Using an explicit native source declaration
+isolates helper parity; it does not resolve or remove that issue7 defect.
