@@ -1998,3 +1998,30 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+## 2026-10-24 CX-FIELD-UPCAST-PARITY: prepared field assignment types
+
+Reserved: Codex owns `codex/field-upcast-parity-20261024` from `b800bb0`
+under D29. BTRSmith's ApplicationScheduler and GUI modules expose duplicate
+interface casts in self-hosted managed field assignments. A paired snippet
+runs correctly through both compilers, plain and with ASan/UBSan, but differs
+in its emitted C at the instance and class-static stores.
+
+Owned paths are `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/tests/btrc/test_assignment_lifetime_contract.py`, and this claim.
+Use the prepared value's effective type when materializing field assignments.
+Preserve conversion ownership, single evaluation, null handling, assignment
+results and exception cleanup. Cover class and interface targets, instance
+and static storage, and borrowed and owned values before changing production.
+This independent parity repair does not establish shared cache compatibility
+or complete application byte parity. Source publication waits for CI capacity;
+review and final integrated gates remain required.
+
+### CX-FIELD-UPCAST-PARITY claim transfer
+
+The implementation scope above transfers to `CX-FSTRING-VALUE-STAGING`
+(PR #120), which already owns `Expressions.btrc`. This packet releases its
+source and test claims. PR #124 remains a documentation-only reproduction and
+transfer record; its isolated implementation branch is evidence only and must
+not be merged. The existing packet will carry the fix and regression, extend
+its test claim, and qualify the combined tree before source publication.
