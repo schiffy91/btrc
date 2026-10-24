@@ -2259,3 +2259,24 @@ types for numeric promotion. Prove whole and module output with ordered
 side effects, strict C11 and sanitizer execution before exact C comparison.
 The baseline ran 76 native executions; ten frontend/case combinations failed
 strict C. Full application composition and final gates remain required.
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: collection construction cleanup parity
+
+PR115 also owns `src/compiler/python/ir/lowering/collections.py` and its
+collection regressions in `src/tests/python/test_module_units.py`.
+Eight reduced Vector/Map factory cases pass 32 strict and sanitized native
+executions on `12dfb907`, but their construction cleanup differs between
+frontends. Keep the change in structured collection lowering and reuse the
+existing typed cleanup-slot owner. Initialize the protected slot before
+registration, register before allocation, and clear it when transferring
+the constructed value to its consumer.
+
+Require a failing tracked baseline before the repair. Compare whole generated
+C for whole-program cases and unchanged factory function bytes in module
+cases, after building and executing every unit. Separate module declaration
+ordering and unused Vector-body differences remain recorded in the baseline;
+this regression does not qualify full application C parity. Check repeated
+try scopes with successful, throwing, and successful constructions, including
+managed-element destruction. Preserve empty literals and paths without
+exception cleanup. Ownership, setjmp, parity, structure, generated-source,
+full application and final integrated gates remain required.

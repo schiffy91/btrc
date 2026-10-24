@@ -2746,3 +2746,116 @@ def test_ordered_const_handle_slots_preserve_mutable_pointees(tmp_path, immutabl
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["selfhost"] == generated["reference"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("method", [False, True], ids=["function", "method"])
+@pytest.mark.parametrize(
+    "kind,collection,literal,assertion",
+    [
+        (
+            "Vector",
+            "Vector<string>",
+            '["first", "second"]',
+            'values.len == 2 && values.get(0) == "first" && values.get(1) == "second"',
+        ),
+        (
+            "Map",
+            "Map<string, int>",
+            '{"first": 41, "second": 42}',
+            'values.get("first") == 41 && values.get("second") == 42',
+        ),
+    ],
+    ids=["vector", "map"],
+)
+def test_collection_construction_cleanup_matches_frontends(
+    tmp_path, immutable_btrcc, module_units, method, kind, collection, literal, assertion
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "collectionConstruction"\n')
+    declaration = f"{collection} makeValues() {{ return {literal}; }}"
+    if method:
+        declaration = "class Factory { public Factory() {} public " + declaration + " }"
+    setup = "var factory = new Factory();" if method else ""
+    call = "factory.makeValues()" if method else "makeValues()"
+    (source / "Main.btrc").write_text(
+        f"""
+        import Library.{kind};
+        {declaration}
+        int main() {{
+            {setup}
+            try {{
+                for (int index = 0; index < 3; index++) {{
+                    {collection} values = {call};
+                    assert({assertion});
+                }}
+            }} catch (string error) {{ print(error); return 1; }}
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    if not module_units:
+        assert generated["reference"] == generated["selfhost"]
+        return
+    function_name = "Factory_makeValues" if method else "makeValues"
+    pattern = re.compile(rb"^\w+\* " + function_name.encode() + rb"\([^;\n]*\) \{\n.*?^\}", re.MULTILINE | re.DOTALL)
+    bodies = {}
+    for frontend, units in generated.items():
+        main = next(text for name, text in units.items() if ".unit-Main-" in name)
+        match = pattern.search(main)
+        assert match is not None, (frontend, function_name)
+        bodies[frontend] = match.group()
+    assert bodies["reference"] == bodies["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize(
+    "kind,collection,literal",
+    [
+        ("Vector", "Vector<Item>", "[new Item(), makeItem(iteration)]"),
+        ("Map", "Map<int, Item>", "{1: new Item(), 2: makeItem(iteration)}"),
+    ],
+    ids=["vector", "map"],
+)
+def test_collection_construction_cleanup_survives_try_reentry(
+    tmp_path, immutable_btrcc, module_units, kind, collection, literal
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "collectionReentry"\n')
+    (source / "Main.btrc").write_text(
+        f"""
+        import Library.{kind};
+        int alive = 0;
+        class Item {{
+            public Item() {{ alive++; }}
+            public void __del__() {{ alive--; }}
+        }}
+        Item makeItem(int iteration) {{
+            if (iteration == 1) {{ throw "expected"; }}
+            return new Item();
+        }}
+        int main() {{
+            int caught = 0;
+            for (int iteration = 0; iteration < 3; iteration++) {{
+                try {{
+                    {collection} values = {literal};
+                    assert(values.len == 2 && alive == 2);
+                }} catch (string error) {{
+                    assert(error == "expected");
+                    caught++;
+                }}
+                assert(alive == 0);
+            }}
+            assert(caught == 1);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units)

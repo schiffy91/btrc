@@ -743,13 +743,12 @@ class CollectionLowerer:
         sequence = [IRBinOp(left=collection, op="=", right=IRCall(callee=f"{mangled}_new", args=[]))]
         result = collection
         if self._cleanup_scope.exception_cleanup_active():
-            cleanup_decls, cleanup_exprs = self._lifetime.cleanup_registration(
-                temporary, type_expr, "__btrc_collection_cleanup"
-            )
-            declarations.extend(cleanup_decls)
-            sequence.extend(cleanup_exprs)
+            temporary.init = IRLiteral(text="NULL")
+            sequence.insert(0, self._lifetime.register_cleanup_slot(temporary, type_expr))
             result_decl = IRVarDecl(
-                c_type=CType(text=f"{mangled}*"), name=self._session.fresh_temp("__btrc_collection_result")
+                c_type=CType(text=f"{mangled}*"),
+                name=self._session.fresh_temp("__btrc_construction_handoff"),
+                init=IRLiteral(text="NULL"),
             )
             self._session.function_declarations.append(result_decl)
             declarations.append(result_decl)
