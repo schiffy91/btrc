@@ -2638,3 +2638,39 @@ generic implementers with their actual arguments. Record failing regressions
 before production edits. Check retained owners, scalar payloads and unused type
 parameters, paired strict and sanitized execution, and complete C parity.
 Broader ownership, application and final integrated gates remain required.
+
+
+### 2026-10-24: collection literal evaluation order (Codex follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc` if its typed API needs
+extending, and `src/tests/python/test_module_units.py`. Base: `3887a8be`.
+
+A portable reduction exposes different constructor, element and insertion
+orders for Vector and Map literals. All twelve whole-program/module cases
+compile and run through both frontends in strict and sanitizer modes, but their
+traces differ. Throwing elements and constructors also expose different work
+before the exception. Python stages the literal's leaves before construction;
+the self-hosted compiler constructs first and evaluates each insertion's
+operands separately.
+
+Use the existing typed operand and ownership boundary owners to preserve
+source-order leaf evaluation before collection construction. Keep prepared
+storage types, borrowed-value protection, owned-result cleanup and exception
+unwinding. Add tracked baseline cases before production edits, then check
+managed elements, throwing leaves, constructor failures, whole/module C parity,
+and the remaining application differences. Final integration gates still apply.
+
+
+### CX runtime helper extern references (2026-10-24)
+
+Owner: Codex, branch `codex/runtime-helper-extern-references-20261024`.
+Owned paths: `src/compiler/python/ir/optimizer.py`,
+`src/tests/python/test_optimizer_declarations.py`,
+`src/tests/python/test_module_units.py`.
+
+Trace the unused `mark` prototype retained in module output when the canonical
+exception runtime contains a local parameter with that name. Preserve real
+structured references and opaque helper dependencies. Establish failing
+regressions before changing production, then prove paired C output and native
+behavior. No final qualification is claimed.
