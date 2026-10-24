@@ -380,3 +380,74 @@ def test_staged_field_assignment_retains_declared_result_type(
         strict_build_and_run(path, tmp_path / f"assignment-alias-{index}")
         sanitized_build_and_run(path, tmp_path / f"assignment-alias-sanitized-{index}", sanitizer)
     assert generated[0].read_text() == generated[1].read_text()
+
+
+@pytest.mark.parametrize(
+    ("declaration", "inheritance", "field"),
+    [
+        ("class Value { public int number; public int read() { return self.number; } }", "extends", ""),
+        ("interface Value { int read(); }", "implements", "public int number;"),
+    ],
+    ids=["class", "interface"],
+)
+@pytest.mark.parametrize("ownership", ["borrowed", "owned"])
+def test_prepared_call_upcasts_retain_effective_type(
+    semantic_btrcc, tmp_path, declaration, inheritance, field, ownership
+):
+    source = (
+        """
+        int liveValues = 0;
+        int trace = 0;
+        TARGET
+        class Concrete INHERITANCE Value {
+            FIELD
+            public Concrete(int number) { self.number = number; liveValues++; }
+            public void __del__() { liveValues--; }
+            public int read() { return self.number; }
+        }
+        Concrete makeValue() { assert(trace == 0); trace++; return Concrete(7); }
+        int mark(bool fail) {
+            assert(trace == PREFIX);
+            trace++;
+            if (fail) { throw "sibling"; }
+            return 9;
+        }
+        int consume(Value value, int second) {
+            assert(trace == PREFIX + 1);
+            assert(value.read() == 7 && liveValues == 1);
+            return second;
+        }
+        int main() {
+            for (int iteration = 0; iteration < 5; iteration++) {
+                {
+                    SETUP
+                    trace = 0;
+                    assert(consume(ARGUMENT, mark(false)) == 9);
+                    assert(liveValues == REMAINING);
+                    trace = 0;
+                    bool caught = false;
+                    try { consume(ARGUMENT, mark(true)); }
+                    catch (string error) { caught = error == "sibling"; }
+                    assert(caught && liveValues == REMAINING);
+                }
+                assert(liveValues == 0);
+            }
+            return 0;
+        }
+    """.replace("TARGET", declaration)
+        .replace("INHERITANCE", inheritance)
+        .replace("FIELD", field)
+    )
+    source = source.replace("SETUP", "var existing = Concrete(7);" if ownership == "borrowed" else "")
+    source = source.replace("ARGUMENT", "existing" if ownership == "borrowed" else "makeValue()")
+    source = source.replace("PREFIX", "0" if ownership == "borrowed" else "1")
+    source = source.replace("REMAINING", "1" if ownership == "borrowed" else "0")
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    sanitizer = require_sanitizers(tmp_path)
+    for frontend, generated in [("selfhost", selfhost_c), ("reference", reference_c)]:
+        strict_build_and_run(generated, tmp_path / frontend, optimization="-O2")
+        sanitized_build_and_run(generated, tmp_path / f"{frontend}-sanitized", sanitizer)
+    assert selfhost_c.read_bytes() == reference_c.read_bytes()
