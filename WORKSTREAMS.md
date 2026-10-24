@@ -2014,3 +2014,15 @@ still retain their headers. Full emitted-C parity, shared-cache acceptance and
 real-application performance remain required by issues 3 and 8. Publication
 waits for the existing heavy CI runs to release capacity.
 
+### 2026-10-24 CX-MODULE-HEADER-PARITY: runtime-header composition
+
+This packet also owns `src/compiler/python/application/modules.py` and the
+runtime-header regressions in its existing `test_module_units.py` owner,
+transferred from PR #121 by `e0055cfe`. The native-header scanner and generated
+runtime-header repairs will be validated together. The isolated runtime repair
+`06f62254` remains evidence only and is not a separate integration packet.
+
+Keep actual native references, required runtime headers and explicit source
+includes. Both frontends must compile and execute the regression programs and
+pass the module, staleness, runtime and architecture checks on the combined
+source. Full application comparison and final hosted gates remain required.
