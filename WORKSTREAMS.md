@@ -2638,3 +2638,24 @@ generic implementers with their actual arguments. Record failing regressions
 before production edits. Check retained owners, scalar payloads and unused type
 parameters, paired strict and sanitized execution, and complete C parity.
 Broader ownership, application and final integrated gates remain required.
+
+
+### CX module ARC descriptor reachability (2026-10-24)
+
+Owner: Codex, branch `codex/module-arc-descriptor-reachability-20261024`.
+Owned paths: `src/compiler/python/ir/optimizer.py`,
+`src/compiler/python/application/modules.py`,
+`src/tests/python/test_optimizer_declarations.py`,
+`src/tests/python/test_module_units.py`.
+
+Python retains unused generic-class ARC descriptors after module partitioning
+gives them external linkage. The self-hosted optimizer keeps descriptors only
+when live code references them. Establish whole-program and module regressions
+with unused and allocated generic classes, including destructor accounting.
+Preserve reachable descriptors, external user globals and their dependencies.
+Keep collection release batching unchanged. Final integration gates still apply.
+
+The native baseline also exposes a runtime-helper field named `destroyed`
+retaining an unrelated extern global in shared declaration merging. Add direct
+canonical, custom-source and structured-reference controls before repairing
+that scan. The optimizer prototype repair belongs to its existing packet.
