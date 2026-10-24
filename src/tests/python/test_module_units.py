@@ -2367,6 +2367,78 @@ def test_shared_span_callback_layouts_keep_frontend_order(tmp_path, immutable_bt
     assert local_units["reference"] == local_units["selfhost"]
 
 
+def _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, expected_stdout, *, module_units):
+    NativeBindingPackage.require_reader()
+    sanitizer = require_sanitizers(tmp_path)
+    root = tmp_path.resolve()
+    generated = {}
+    for frontend, compiler in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = root / frontend
+        output.mkdir()
+        c_source, plan = output / "program.c", output / "program.json"
+        compiled = subprocess.run(
+            [
+                *compiler,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                *(["--module-units", "--jobs", "1", "--emit-units", str(output / "program")] if module_units else []),
+                "--emit-link-plan",
+                str(plan),
+                "-o",
+                str(c_source),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        generated[frontend] = {path.name: path.read_bytes() for path in output.glob("program*.c")}
+        for mode, compiler, optimization, flags, environment in (
+            ("strict", C_COMPILER, 2, [], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                1,
+                ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "native module qualification requires a C compiler"
+
+            def run_build(command, *, environment=environment, **kwargs):
+                kwargs["timeout"] = 180
+                if environment is not None:
+                    kwargs["env"] = environment
+                return subprocess.run(command, **kwargs)
+
+            executable = output / mode
+            NativePlanBuilder(runner=run_build).build(
+                plan_path=plan,
+                generated_c=c_source,
+                output=executable,
+                cc=compiler,
+                optimization=optimization,
+                jobs=1,
+                compile_flags=["-pedantic-errors", "-Wall", "-Wextra", "-Werror", *flags],
+                link_flags=flags,
+            )
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0 and ran.stdout == expected_stdout, (frontend, mode, ran.stdout, ran.stderr)
+    return generated
+
+
 @pytest.mark.parametrize(
     "header_order,symbol_order,resource_order",
     [
@@ -2380,8 +2452,6 @@ def test_shared_span_callback_layouts_keep_frontend_order(tmp_path, immutable_bt
 def test_native_resource_shared_declarations_keep_frontend_order(
     tmp_path, immutable_btrcc, header_order, symbol_order, resource_order
 ):
-    NativeBindingPackage.require_reader()
-    sanitizer = require_sanitizers(tmp_path)
     root = tmp_path.resolve()
     source = root / "src"
     source.mkdir()
@@ -2430,76 +2500,80 @@ def test_native_resource_shared_declarations_keep_frontend_order(
         "import ./Shared.btrc;\nint sample() { Holder holder = makeHolder(); return holder.value; }\n"
     )
     (source / "Main.btrc").write_text("import ./Local.btrc;\nint main() { print(sample()); return 0; }\n")
-    generated = []
-    for frontend, compiler in (
-        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
-        ("selfhost", [str(immutable_btrcc)]),
-    ):
-        output = root / frontend
-        output.mkdir()
-        c_source, plan = output / "program.c", output / "program.json"
-        compiled = subprocess.run(
-            [
-                *compiler,
-                str(source / "Main.btrc"),
-                "--strict-imports",
-                "--no-cache",
-                "--module-units",
-                "--jobs",
-                "1",
-                "--emit-units",
-                str(output / "program"),
-                "--emit-link-plan",
-                str(plan),
-                "-o",
-                str(c_source),
-            ],
-            cwd=ROOT,
-            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        assert compiled.returncode == 0, compiled.stderr
-        local = next(output.glob("program.unit-Local-*.c")).read_bytes()
-        forwards = re.findall(rb"^typedef struct (__btrc_native_\w+) ", local, re.MULTILINE)
+    generated = _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "42\n", module_units=True)
+    local_units = {
+        frontend: next(text for name, text in units.items() if ".unit-Local-" in name)
+        for frontend, units in generated.items()
+    }
+    for text in local_units.values():
+        forwards = re.findall(rb"^typedef struct (__btrc_native_\w+) ", text, re.MULTILINE)
         assert set(forwards) == {b"__btrc_native_AlphaRef", b"__btrc_native_BetaRef", b"__btrc_native_GammaRef"}
-        generated.append(local)
-        for mode, compiler, optimization, flags, environment in (
-            ("strict", C_COMPILER, 2, [], None),
-            (
-                "sanitized",
-                sanitizer.command,
-                1,
-                ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
-                sanitizer.environment,
-            ),
-        ):
-            assert compiler is not None, "native module qualification requires a C compiler"
+    assert local_units["reference"] == local_units["selfhost"]
 
-            def run_build(command, *, environment=environment, **kwargs):
-                kwargs["timeout"] = 180
-                if environment is not None:
-                    kwargs["env"] = environment
-                return subprocess.run(command, **kwargs)
 
-            executable = output / mode
-            NativePlanBuilder(runner=run_build).build(
-                plan_path=plan,
-                generated_c=c_source,
-                output=executable,
-                cc=compiler,
-                optimization=optimization,
-                jobs=1,
-                compile_flags=["-pedantic-errors", "-Wall", "-Wextra", "-Werror", *flags],
-                link_flags=flags,
-            )
-            ran = subprocess.run(
-                [str(executable)],
-                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            assert ran.returncode == 0 and ran.stdout == "42\n", (frontend, mode, ran.stdout, ran.stderr)
-    assert generated[0] == generated[1]
+@pytest.mark.parametrize("status_release", [False, True], ids=["void", "status"])
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_unique_resource_lifetime_helpers_match_frontends(tmp_path, immutable_btrcc, status_release, module_units):
+    folder = tmp_path.resolve()
+    source = folder / "src"
+    source.mkdir()
+    close_type = "int" if status_release else "void"
+    (folder / "Resource.h").write_text(
+        "#ifndef RESOURCE_H\n#define RESOURCE_H\n"
+        "typedef struct WidgetStorage { int value; } *WidgetRef;\n"
+        "WidgetRef WidgetCreate(int value);\n"
+        f"{close_type} WidgetRelease(WidgetRef widget);\n"
+        "int WidgetRead(WidgetRef widget);\nint WidgetLive(void);\nint WidgetDestroyed(void);\n#endif\n"
+    )
+    (source / "Resource.c").write_text(
+        '#include "../Resource.h"\n#include <assert.h>\n#include <stdlib.h>\n'
+        "static int live = 0, destroyed = 0;\n"
+        "WidgetRef WidgetCreate(int value) { if (value < 0) return NULL; WidgetRef widget = malloc(sizeof(*widget)); assert(widget); widget->value = value; ++live; return widget; }\n"
+        f"{close_type} WidgetRelease(WidgetRef widget) {{ assert(widget && live > 0); --live; ++destroyed; free(widget);"
+        + (" return -37;" if status_release else "")
+        + " }\n"
+        "int WidgetRead(WidgetRef widget) { return widget ? widget->value : -1; }\n"
+        "int WidgetLive(void) { return live; }\nint WidgetDestroyed(void) { return destroyed; }\n"
+    )
+    (folder / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "uniqueNames"\n'
+        '[[native.sources]]\npath = "src/Resource.c"\nlanguage = "c"\nstandard = "c11"\nmodules = ["Resource"]\n'
+        '[[native.bindings]]\nmodule = "Resource"\nheader = "Resource.h"\nlanguage = "c"\nstandard = "c11"\n'
+        'symbols = ["WidgetRef", "WidgetCreate", "WidgetRelease", "WidgetRead", "WidgetLive", "WidgetDestroyed"]\n'
+        'owned-results = ["WidgetCreate"]\nborrowed-parameters = ["WidgetRead.widget"]\n'
+        '[native.bindings.resources.WidgetRef]\nownership = "unique"\nrelease = "WidgetRelease"\n'
+        + ('release-consumption = "always"\ncleanup-status = "discard"\n' if status_release else "")
+    )
+    (source / "Resource.btrc").write_text("// Resource.h declarations with a manifest-owned implementation.\n")
+    (source / "Shared.btrc").write_text(
+        "import ./Resource.btrc;\n"
+        "class Holder { public WidgetRef? value; public Holder(int value) { self.value = WidgetCreate(value); } }\n"
+        "Holder makeHolder(int value) { return new Holder(value); }\n"
+    )
+    close = (
+        "assert(holder.value.close() == -37 && alias.close() == -37);"
+        if status_release
+        else "holder.value.close(); alias.close();"
+    )
+    (source / "Local.btrc").write_text(
+        "import ./Resource.btrc;\nimport ./Shared.btrc;\n"
+        "void sample() {\n"
+        " for (int index = 0; index < 3; index++) { var holder = makeHolder(42); var alias = holder.value;\n"
+        "  assert(alias != null && alias.isOpen() && WidgetRead(alias) == 42 && WidgetLive() == 1);\n"
+        f"  {close}\n"
+        "  assert(!alias.isOpen() && WidgetLive() == 0 && WidgetDestroyed() == index + 1);\n"
+        " }\n"
+        " assert(WidgetDestroyed() == 3);\n"
+        " { var holder = makeHolder(7); assert(WidgetRead(holder.value) == 7 && WidgetLive() == 1); }\n"
+        " assert(WidgetLive() == 0 && WidgetDestroyed() == 4);\n"
+        ' try { var holder = makeHolder(8); assert(holder.value.isOpen()); throw "expected"; }\n'
+        ' catch (string error) { assert(error == "expected"); }\n'
+        " assert(WidgetLive() == 0 && WidgetDestroyed() == 5);\n"
+        " var absent = WidgetCreate(-1); assert(absent == null && WidgetRead(absent) == -1); WidgetCreate(9);\n"
+        " assert(WidgetLive() == 0 && WidgetDestroyed() == 6);\n}\n"
+    )
+    (source / "Main.btrc").write_text('import ./Local.btrc;\nint main() { sample(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
