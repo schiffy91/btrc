@@ -5,6 +5,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <string.h>
 
 /* A direct Metal control for hosted E40 failures. It records native results;
  * it neither substitutes for WebGPU presentation nor qualifies E40. */
@@ -13,7 +14,8 @@ static unsigned completed, commandErrors, presented, skipped, invalid;
 static double firstPresentation, lastPresentation;
 
 int main(int argc, const char *argv[]) {
-    assert(argc == 2);
+    assert(argc == 2 || (argc == 3 && strcmp(argv[1], "--vsync") == 0));
+    BOOL displaySync = argc == 3;
     @autoreleasepool {
         NSApplication *application = NSApplication.sharedApplication;
         [application setActivationPolicy:NSApplicationActivationPolicyRegular];
@@ -31,7 +33,7 @@ int main(int argc, const char *argv[]) {
         CAMetalLayer *layer = [CAMetalLayer layer];
         layer.device = device; layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         layer.framebufferOnly = YES; layer.presentsWithTransaction = NO;
-        layer.displaySyncEnabled = NO; layer.drawableSize = CGSizeMake(320, 200);
+        layer.displaySyncEnabled = displaySync; layer.drawableSize = CGSizeMake(320, 200);
         view.wantsLayer = YES; view.layer = layer; window.contentView = view;
         [window makeKeyAndOrderFront:nil]; [application activateIgnoringOtherApps:YES];
         double started = CACurrentMediaTime();
@@ -97,7 +99,7 @@ int main(int argc, const char *argv[]) {
         NSError *error = nil;
         NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:&error];
         assert(data && !error);
-        BOOL saved = [data writeToFile:[NSString stringWithUTF8String:argv[1]] options:NSDataWritingAtomic error:&error];
+        BOOL saved = [data writeToFile:[NSString stringWithUTF8String:argv[argc - 1]] options:NSDataWritingAtomic error:&error];
         assert(saved && !error); [window close];
     }
     return 0;

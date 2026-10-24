@@ -2182,3 +2182,18 @@ partition, workflow and qualification contracts, including grouped synthetic
 pytest execution with two and four cells. This is headless configuration
 qualification. Hosted execution and the final integrated platform matrix
 remain required; publish after the current CI train finishes.
+
+### 2026-10-24: paired Metal presentation control (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/native/gui/ui2/probes/macos/e40/MetalPresentation.m`,
+`src/tests/python/test_native_ui2_macos_e40.py`, and
+`src/tests/python/test_native_ui2_e40_evidence.py`.
+
+The hosted direct control completed 20 GPU commands but reported no presented
+frames with display synchronization disabled. Run the same binary once more
+with synchronization enabled, retaining separate commands, reports and native
+outcomes. This isolates one presentation setting. Keep the existing control,
+frame count, deadlines and positive-timestamp requirement. The paired control
+is diagnostic only; it cannot substitute for E40 acceptance. Verify the runner
+with synthetic subprocesses and compile the native control without launching
+it locally. Publish after the current hosted train finishes.

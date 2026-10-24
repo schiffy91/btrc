@@ -676,3 +676,48 @@ def test_native_control_timeout_reaps_child_and_discards_stale_report(tmp_path, 
     assert not (directory / "observations.json").exists()
     assert len(children) == 1 and children[0].poll() is not None
     assert (directory / "stdout.txt").read_text() in {"", "started\n"}
+
+
+def test_native_metal_controls_share_binary_and_keep_distinct_receipts(tmp_path, tmp_path_factory, monkeypatch):
+    import hashlib
+    import json
+    import os
+    import sys
+
+    from src.tests.python import test_native_ui2_macos_e40 as driver
+
+    built = []
+
+    def build_control(cls, directory, name, source, frameworks):
+        built.append((name, source, frameworks))
+        script = directory / "control.py"
+        script.write_text(
+            "import json, sys\nfrom pathlib import Path\n"
+            "assert len(sys.argv) == 2 or sys.argv[1] == '--vsync'\n"
+            "Path(sys.argv[-1]).write_text(json.dumps({'display_sync_enabled': '--vsync' in sys.argv, 'presented': 0}))\n"
+        )
+        return cls(
+            name, [sys.executable, str(script)], ["build", source], hashlib.sha256(script.read_bytes()).hexdigest()
+        )
+
+    monkeypatch.setattr(driver.E40NativeControl, "build", classmethod(build_control))
+    factory = driver.build_native_controls.__wrapped__(tmp_path_factory)
+    controls = factory()
+    assert factory() is controls and [row[0] for row in built] == ["metal", "resize"]
+    metal, synchronized, resize = controls
+    assert synchronized.command == [*metal.command, "--vsync"]
+    assert synchronized.executable == metal.executable
+    assert synchronized.source_sha256 == metal.source_sha256
+    assert synchronized.build_command == metal.build_command
+    assert synchronized.TIMEOUT_SECONDS == metal.TIMEOUT_SECONDS == 15
+    for control in controls:
+        control.record(tmp_path, os.environ.copy())
+    for control, expected in ((metal, False), (synchronized, True), (resize, False)):
+        directory = tmp_path / f"{control.name}-control"
+        receipt = json.loads((directory / "execution.json").read_text())
+        assert receipt["status"] == "completed" and receipt["returncode"] == 0
+        assert receipt["command"] == [*control.command, str(directory.resolve() / "observations.json")]
+        assert json.loads((directory / "observations.json").read_text()) == {
+            "display_sync_enabled": expected,
+            "presented": 0,
+        }

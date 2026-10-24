@@ -97,13 +97,22 @@ class E40NativeControl:
 def build_native_controls(tmp_path_factory):
     @cache
     def build():
-        return tuple(
-            E40NativeControl.build(tmp_path_factory.mktemp(f"e40-{name}-control"), name, source, frameworks)
-            for name, source, frameworks in (
-                ("metal", "MetalPresentation", ("AppKit", "Metal", "QuartzCore")),
-                ("resize", "NativeResize", ("AppKit", "CoreGraphics", "QuartzCore")),
-            )
+        metal = E40NativeControl.build(
+            tmp_path_factory.mktemp("e40-metal-control"),
+            "metal",
+            "MetalPresentation",
+            ("AppKit", "Metal", "QuartzCore"),
         )
+        synchronized = E40NativeControl(
+            "metal-vsync", [*metal.command, "--vsync"], metal.build_command, metal.source_sha256
+        )
+        resize = E40NativeControl.build(
+            tmp_path_factory.mktemp("e40-resize-control"),
+            "resize",
+            "NativeResize",
+            ("AppKit", "CoreGraphics", "QuartzCore"),
+        )
+        return metal, synchronized, resize
 
     return build
 
