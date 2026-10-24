@@ -3988,7 +3988,7 @@ class ExpressionLowerer {
 		if (staticFieldStore != null) {
 			ManagedStaticFieldStorePlan concreteStore = staticFieldStore;
 			PreparedValue prepared = self.prepareTargetValue(assignment.valueNode, concreteStore.fieldType, variableTypes, callableFlow);
-			IRNode value = self.strings.upcastClassPointer(concreteStore.fieldType, plan.valueType, prepared.value);
+			IRNode value = self.strings.upcastClassPointer(concreteStore.fieldType, prepared.effectiveType, prepared.value);
 			return self.managedTypes.materializeStaticFieldStore(concreteStore, value, prepared.owned);
 		}
 		ManagedInstanceFieldStorePlan? fieldStore = self.managedTypes.planInstanceFieldStore(assignment, receiverType);
@@ -3996,7 +3996,7 @@ class ExpressionLowerer {
 			ManagedInstanceFieldStorePlan concreteStore = fieldStore;
 			IRNode loweredReceiver = self.lowerExpr(assignment.target.obj, variableTypes, callableFlow);
 			PreparedValue prepared = self.prepareTargetValue(assignment.valueNode, concreteStore.fieldType, variableTypes, callableFlow);
-			IRNode value = self.strings.upcastClassPointer(concreteStore.fieldType, plan.valueType, prepared.value);
+			IRNode value = self.strings.upcastClassPointer(concreteStore.fieldType, prepared.effectiveType, prepared.value);
 			return self.managedTypes.materializeInstanceFieldStore(concreteStore, loweredReceiver, value, prepared.owned);
 		}
 		IRNode? indirect = self.lowerIndirectAssignment(assignment, variableTypes, callableFlow);
@@ -4025,7 +4025,7 @@ class ExpressionLowerer {
          * the value is lowered exactly once, through whichever path applies. */
 		Node? coercedType = plan.targetType;
 		bool coercedValue = assignment.op == "=" && coercedType != null;
-		IRNode value = coercedValue ? self.strings.upcastClassPointer(plan.targetType, plan.valueType, self.lowerAssignedValue(assignment.valueNode, plan.targetType, variableTypes, callableFlow)) : self.lowerExpr(assignment.valueNode, variableTypes, callableFlow);
+		IRNode value = coercedValue ? self.lowerAssignedValue(assignment.valueNode, plan.targetType, variableTypes, callableFlow) : self.lowerExpr(assignment.valueNode, variableTypes, callableFlow);
 		if (coercedValue && assignment.target.kind != NK_IDENTIFIER) {
 			return self.assignments.wrapPhysical(storage, IRNode.binary(target, "=", value));
 		}

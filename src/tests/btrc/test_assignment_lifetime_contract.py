@@ -1246,3 +1246,127 @@ def test_compound_update_loads_before_mutating_rhs(
         tmp_path / "reference-compound-order",
         toolchain,
     )
+
+
+@pytest.mark.parametrize(
+    ("declaration", "inheritance", "field"),
+    [
+        ("interface Value { int read(); }", "implements", "public int number;"),
+        ("class Value { public int number; public int read() { return self.number; } }", "extends", ""),
+    ],
+    ids=["interface", "class"],
+)
+@pytest.mark.parametrize("slot", ["holder.value", "Holder.shared"], ids=["instance", "static"])
+def test_managed_field_upcasts_preserve_prepared_value_type(
+    semantic_btrcc, tmp_path, declaration, inheritance, field, slot
+):
+    source = (
+        """
+        int liveValues = 0;
+        int factoryCalls = 0;
+        TARGET_DECLARATION
+        class Concrete INHERITANCE Value {
+            CONCRETE_FIELD
+            public Concrete(int number) { self.number = number; liveValues++; }
+            public void __del__() { liveValues--; }
+            public int read() { return self.number; }
+        }
+        class Holder {
+            public Value? value = null;
+            class Value? shared = null;
+        }
+        int readValue(Value? value) {
+            assert(value != null);
+            return value.read();
+        }
+        Concrete makeValue(bool fail) {
+            factoryCalls++;
+            var value = Concrete(9);
+            if (fail) { throw "replacement failed"; }
+            return value;
+        }
+        Value? assignBorrowed(Holder holder, Concrete? value) {
+            return SLOT = value;
+        }
+        Value? assignOwned(Holder holder, bool fail) {
+            return SLOT = makeValue(fail);
+        }
+        int main() {
+            var holder = Holder();
+            for (int index = 0; index < 5; index++) {
+                Concrete? value = Concrete(7);
+                Value? assigned = assignBorrowed(holder, value);
+                assert(assigned == SLOT && readValue(assigned) == 7);
+                assigned = null;
+                value = null;
+                assert(liveValues == 1 && readValue(SLOT) == 7);
+                assigned = assignOwned(holder, false);
+                assert(assigned == SLOT && readValue(assigned) == 9);
+                assigned = null;
+                assert(liveValues == 1 && factoryCalls == index * 2 + 1);
+                bool caught = false;
+                try { assignOwned(holder, true); }
+                catch (string error) { caught = error == "replacement failed"; }
+                assert(caught && liveValues == 1 && factoryCalls == (index + 1) * 2);
+                assert(readValue(SLOT) == 9);
+                assert(assignBorrowed(holder, null) == null);
+                assert(SLOT == null && liveValues == 0);
+            }
+            return 0;
+        }
+    """.replace("TARGET_DECLARATION", declaration)
+        .replace("INHERITANCE", inheritance)
+        .replace("CONCRETE_FIELD", field)
+        .replace("SLOT", slot)
+    )
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    toolchain = require_sanitizers(tmp_path)
+    for name, generated in (("selfhost", selfhost_c), ("reference", reference_c)):
+        strict_build_and_run(generated, tmp_path / name, optimization="-O2")
+        sanitized_build_and_run(generated, tmp_path / f"{name}-sanitized", toolchain)
+    assert selfhost_c.read_bytes() == reference_c.read_bytes()
+
+
+def test_borrowed_storage_upcasts_preserve_prepared_value_type(semantic_btrcc, tmp_path):
+    source = """
+        int liveValues = 0;
+        int targetEvaluations = 0;
+        interface Value { int read(); }
+        class Concrete implements Value {
+            public int number;
+            public Concrete(int number) { self.number = number; liveValues++; }
+            public void __del__() { liveValues--; }
+            public int read() { return self.number; }
+        }
+        struct Borrowed { Value value; };
+        int nextIndex() { targetEvaluations++; return 0; }
+        int main() {
+            {
+                var owner = Concrete(7);
+                struct Borrowed borrowed = {null};
+                Value values[1] = {null};
+                borrowed.value = owner;
+                Value? assigned = (values[nextIndex()] = owner);
+                assert(targetEvaluations == 1 && assigned == values[0]);
+                assert(borrowed.value.read() == 7 && values[0].read() == 7);
+                assigned = null;
+                borrowed.value = null;
+                values[nextIndex()] = null;
+                assert(targetEvaluations == 2 && liveValues == 1);
+            }
+            assert(liveValues == 0);
+            return 0;
+        }
+    """
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    toolchain = require_sanitizers(tmp_path)
+    for name, generated in (("selfhost", selfhost_c), ("reference", reference_c)):
+        strict_build_and_run(generated, tmp_path / name, optimization="-O2")
+        sanitized_build_and_run(generated, tmp_path / f"{name}-sanitized", toolchain)
+    assert selfhost_c.read_bytes() == reference_c.read_bytes()
