@@ -2052,3 +2052,22 @@ Preserve operand order, result handoff, cleanup and the path without exception
 handling. Both frontends must execute strict C11 and sanitizer regressions
 before their generated C is compared unchanged. This extends PR #120 rather
 than creating another owner of the expression lowerers.
+
+
+### 2026-10-24 CX-FSTRING-VALUE-STAGING: managed field targets
+
+This packet also owns
+`src/compiler/btrc/ir/lowering/ownership/ManagedTypes.btrc` for preparing a
+managed instance-field target before its replacement value is lowered.
+`Expressions.btrc` and the assignment-lifetime tests are already held here.
+The full application and a reduced conditional string assignment expose
+receiver-temporary allocation after right-hand temporaries in the self-hosted
+compiler. Both frontends execute the reduced program correctly, including
+single receiver evaluation and a throwing replacement that preserves the old
+field value, but their generated C differs.
+
+Keep target declarations, setup, receiver and slot together under the managed
+storage owner. Preserve assignment results, prepared-value ownership, source
+order, ARC publication and exception cleanup. Do not reserve temporary numbers
+to imitate output. Validate the field-target change together with this packet's
+formatting, conversion and owned binary-result repairs before publication.
