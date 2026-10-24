@@ -2111,7 +2111,10 @@ class FeNativeDeclarationImporter {
 		for name in binding.borrowedParameters { self.resourceBorrows.put(name, true); }
 		Map<string, NativeNode> exports = {};
 		for declaration in header.exports { exports.put(declaration.name, declaration); }
-		for name in binding.resources.keys() {
+		Vector<string> resourceNames = [];
+		for name in binding.resources.keys() { resourceNames.push(name); }
+		resourceNames.sortBy((string left, string right) => Strings.lessThan(left, right));
+		for name in resourceNames {
 			FeNativeResourceBinding resource = binding.resources.get(name);
 			if (resource.ownership == "com") {
 				/* A COM interface is a record typedef: `typedef struct IStream IStream;`
