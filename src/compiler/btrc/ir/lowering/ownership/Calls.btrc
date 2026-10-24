@@ -135,7 +135,7 @@ class OwnershipBoundary {
 		IRNode saved = IRNode.variable(savedName);
 		self.suffix.push(IRNode.binary(saved, "=", value));
 		self.suffix.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
-		self.suffix.push(self.lifetime.releaseAfterHandoff(saved, runtimeType));
+		self.suffix.push(self.lifetime.releaseValue(saved, resolvedType));
 		if (self.lifetime.releaseMayEnqueue(runtimeType)) { self.suffix.push(self.lifetime.pollCycles()); }
 	}
 
