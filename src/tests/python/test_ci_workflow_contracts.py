@@ -1383,7 +1383,22 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
     assert steps[suite] == {
         "run": "nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 "
         "BTRC_TEST_RUN_TIMEOUT=60 test-native-gui",
-        "env": {"PYTEST_ADDOPTS": "--dist=loadgroup --junitxml=build/junit/native-gui.xml"},
+        "env": {
+            "PYTEST_ADDOPTS": "--dist=loadgroup --junitxml=build/junit/native-gui.xml "
+            "--progress-report=build/progress-report-native-gui.jsonl "
+            "--failure-report=build/failure-report-native-gui.jsonl"
+        },
+    }
+
+    assert macos["native-gui"]["timeout-minutes"] == "90"
+    journals = next(step for step in steps if step.get("name") == "Retain test progress and failures")
+    assert journals["if"] == "always()"
+    assert journals["uses"] == UPLOAD_ARTIFACT
+    assert journals["with"] == {
+        "name": "test-journals-macos-native-gui",
+        "path": "build/progress-report-native-gui.jsonl\nbuild/failure-report-native-gui.jsonl\n",
+        "if-no-files-found": "warn",
+        "retention-days": "14",
     }
 
     # Each keeps its JUnit results, then (the skip-report contract) its skip report.
