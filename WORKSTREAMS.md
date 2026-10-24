@@ -1998,3 +1998,20 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+## 2026-10-24 CX-FSTRING-VALUE-STAGING: copied qualifiers
+
+Reserved: Codex owns `codex/fstring-value-staging-20261024` from `b800bb0`
+under D29. Both frontends stage a native enum interpolation as `const int`
+and then assign to it, producing invalid strict C11. F-string lowering bypasses
+the operand planners that already distinguish copied values from source slots.
+
+Owned paths are `src/compiler/python/ir/lowering/expressions.py`,
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/tests/btrc/test_fstring_allocation_c11.py`,
+`src/tests/btrc/fixtures/FstringQualifiedValues.btrc`, and
+`src/tests/python/test_native_c_values.py`, plus this claim. Preserve native
+read-only validation, pointer qualifiers, evaluation order, conversions and
+managed lifetimes. Prove both frontends against real strict-C compilation and
+execution. Full integration gates remain required; publication waits for CI
+capacity. This packet is independent of the module-header repair.
