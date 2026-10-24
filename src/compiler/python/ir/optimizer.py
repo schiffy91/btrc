@@ -931,13 +931,16 @@ class IROptimizer:
     def _order_prototypes(self) -> None:
         """Order prototypes independently of the lowering phase that declared them.
 
-        Prototypes with no definition in this module keep their relative order
-        and come first; the rest follow their definitions' order. btrcc's
+        Prototypes with no definition in this module come first, ordered by
+        name; the rest follow their definitions' order. btrcc's
         optimizer applies the same rule, so both compilers emit one prototype
         block for one set of definitions.
         """
         positions = {function.name: index for index, function in enumerate(self._module.function_defs)}
-        external = [declaration for declaration in self._module.function_decls if declaration.name not in positions]
+        external = sorted(
+            (declaration for declaration in self._module.function_decls if declaration.name not in positions),
+            key=lambda declaration: declaration.name,
+        )
         defined = sorted(
             (declaration for declaration in self._module.function_decls if declaration.name in positions),
             key=lambda declaration: positions[declaration.name],

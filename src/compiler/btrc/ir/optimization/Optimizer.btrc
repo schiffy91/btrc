@@ -1393,24 +1393,26 @@ class IROptimizer {
 	}
 
 	/* Order prototypes independently of the lowering phase that declared
-	 * them: those with no definition in this module keep their relative order
-	 * and come first, the rest follow their definitions' order. Mirrors
+	 * them: those with no definition in this module come first, ordered by
+	 * name; the rest follow their definitions' order. Mirrors
 	 * IROptimizer._order_prototypes in the Python owner. */
 	private void orderPrototypes(IRModule module) {
 		Map<string, Vector<IRFunctionDecl>> byName = {};
 		Map<string, bool> defined = {};
 		for definition in module.functions { defined.put(definition.name, true); }
-		Vector<IRFunctionDecl> ordered = [];
+		Vector<string> externalNames = [];
 		for declaration in module.functionDecls {
-			if (!defined.has(declaration.name)) {
-				ordered.push(declaration);
-				continue;
-			}
 			if (!byName.has(declaration.name)) {
 				Vector<IRFunctionDecl> group = [];
 				byName.put(declaration.name, group);
+				if (!defined.has(declaration.name)) { externalNames.push(declaration.name); }
 			}
 			byName.get(declaration.name).push(declaration);
+		}
+		externalNames.sort();
+		Vector<IRFunctionDecl> ordered = [];
+		for name in externalNames {
+			for declaration in byName.get(name) { ordered.push(declaration); }
 		}
 		for definition in module.functions {
 			if (!byName.has(definition.name)) { continue; }
