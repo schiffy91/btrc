@@ -2052,3 +2052,20 @@ and preserve all durations, thresholds and qualification requirements. These
 records locate an unfinished call; they cannot establish a cause by themselves.
 Local checks may compile and inspect the fixture without opening windows;
 actual Linux provider execution remains a hosted gate.
+
+
+### 2026-10-24 CX-GUI-GATES-108: native resize dequeue observation
+
+The plain reference and self-hosted controls on `60685688` each submit 23
+mouse events, return from all posts, enter live resize after the second drag,
+observe 18 geometry changes and exit. Their local event monitors see only
+move and down. This does not establish that the NSApplication dequeue hook
+used by E40 can observe the remaining native input.
+
+The existing `NativeResize.m` claim now includes bounded observation of that
+same nextEventMatchingMask:untilDate:inMode:dequeue: boundary. Retain each
+returned event's identity, mode, mask and dequeue flag alongside the separate
+local monitor and notification records. Preserve the independent drag and all
+E40 acceptance rules. Compile locally without launching the control; runtime
+observations require hosted CI. Tracking stimulus changes remain a separate
+step requiring a headless execution proof before native publication.
