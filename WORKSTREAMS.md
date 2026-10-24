@@ -2037,3 +2037,18 @@ Preserve prepared type and ownership, borrowed storage semantics, assignment
 results, single evaluation and exception cleanup. The f-string changes and
 assignment repair must pass together before source publication. The isolated
 field implementation branch is evidence only, not a second source packet.
+
+
+### 2026-10-24 CX-FSTRING-VALUE-STAGING: owned binary results
+
+This packet also owns `src/tests/btrc/test_operand_sequencing_contract.py`
+for the owned binary-result boundary. Its existing Python expression-lowering
+claim covers the repair. Full-application composition and a reduced three-string
+concatenation agree on native behavior but differ in result protection when
+exception cleanup is enabled. Python does not pass the existing ownership
+classification to its operand boundary; self-hosted lowering does.
+
+Preserve operand order, result handoff, cleanup and the path without exception
+handling. Both frontends must execute strict C11 and sanitizer regressions
+before their generated C is compared unchanged. This extends PR #120 rather
+than creating another owner of the expression lowerers.
