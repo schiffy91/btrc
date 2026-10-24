@@ -2581,3 +2581,23 @@ field order remain with their existing owners. The eight regression cases
 cover independent and nested records, two manifest orders, and whole-program
 and module output. Require the combined prototype repair to pass complete C
 comparisons, then recheck the full application and final integration gates.
+
+
+### 2026-10-24: callback declaration ordering (Codex follow-up)
+
+Owned paths: `src/compiler/python/ir/optimizer.py`,
+`src/compiler/btrc/ir/optimization/Optimizer.btrc`,
+`src/tests/python/test_declaration_order_planner.py`, and paired module tests
+under `src/tests/python/test_module_units.py`. Base: `c22c5a59`.
+
+The full application at `9b321568` retains a GUIProvider difference consisting
+only of three callback typedefs in different orders. The typed declaration
+planner preserves callback discovery order. Two reduced planner tests fail
+when the same callback declarations arrive in different permutations; all
+15 existing planner and nested callback rendering checks pass on that base.
+
+Canonicalize callback names when constructing the optimizer's dependency
+plan in both frontends. Keep the original IR lists, nested callback discovery,
+named-alias dependencies and duplicate-provider validation intact. Dependencies
+still determine which declarations can be emitted. Require paired strict and
+sanitized native output, the full application comparison, and final gates.

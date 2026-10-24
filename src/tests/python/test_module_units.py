@@ -3855,3 +3855,38 @@ def test_native_record_input_declarations_match_frontends(
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("named_alias", [False, True], ids=["nested-callback", "named-alias"])
+def test_callback_declaration_order_preserves_nested_dependencies(tmp_path, immutable_btrcc, named_alias):
+    source = tmp_path / "source"
+    source.mkdir()
+    transform = "Transform" if named_alias else "CFunction<int, int>"
+    aliases = "typedef CFunction<int, int> Transform;\n" if named_alias else ""
+    (source / "Shared.btrc").write_text(
+        aliases
+        + "class Alpha { public int value = 42; }\n"
+        + "class Beta { public int value = 42; }\n"
+        + "class Gamma { public int value = 42; }\n"
+        + "class Handle<T> {\n"
+        + " public T value; public CFunction<bool, T> callback;\n"
+        + " public Handle(T value, CFunction<bool, T> callback) { self.value = value; self.callback = callback; }\n"
+        + " public bool run() { return self.callback(self.value); }\n}\n"
+        + "int increment(int value) { return value + 1; }\n"
+        + f"{transform} identity({transform} callback) {{ return callback; }}\n"
+    )
+    main = "import ./Shared.btrc;\n"
+    for name in ("Gamma", "Alpha", "Beta"):
+        main += f"bool accept{name}({name} value) {{ return value.value == 42; }}\n"
+    main += "int main() {\n"
+    for name in ("Gamma", "Alpha", "Beta"):
+        main += f" var {name.lower()} = new Handle<{name}>(new {name}(), accept{name});\n"
+        main += f" assert({name.lower()}.run());\n"
+    main += (
+        f" CFunction<{transform}, {transform}> factory = identity;\n"
+        f" {transform} callback = factory(increment);\n"
+        ' assert(callback(41) == 42); print("PASS"); return 0; }\n'
+    )
+    (source / "Main.btrc").write_text(main)
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
+    assert generated["reference"] == generated["selfhost"]
