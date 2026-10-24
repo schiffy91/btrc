@@ -1431,3 +1431,46 @@ def test_wait(name, hold):
             process.wait(timeout=10)
     assert not final_report.exists()
     assert [json.loads(line) for line in journal.read_text().splitlines()] == records
+
+
+@pytest.mark.parametrize("runner", ["macos", "macos-hosted"])
+@pytest.mark.parametrize(
+    "node",
+    [
+        "src/tests/python/test_native_ui2_capture_linux.py::test_linux_capture_admission",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_repeated_bursts",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_sustained_load",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_diagnostic",
+        "src/tests/python/test_native_ui2_images.py::test_linux_image_publication",
+        "src/tests/python/test_native_ui2_images.py::test_linux_image_lifetime",
+        "src/tests/python/test_native_ui2_linux_resource_lifetime.py::test_linux_ui2_native_resource_lifetime",
+        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_executor_and_lifecycle",
+        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_callback_scope_release_requires_executor",
+        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_final_release_requires_executor",
+    ],
+)
+def test_macos_classifies_linux_ui2_provider_skips(runner, node):
+    reason = "requires Linux and the explicitly built native header reader"
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+    rule = manifest.classify(node + "[case]", reason)
+    assert rule is not None
+    assert rule.id == "linux-ui2-native-reader"
+    assert rule.category == "platform" and rule.covered_by == ("linux-devcontainer",)
+    assert manifest.classify(node + "[case]", "native GUI backend is unavailable: no DISPLAY") is None
+    for linux_runner in ("linux-hosted", "linux-devcontainer"):
+        assert (
+            ExpectedSkipManifest.load(MANIFEST_ROOT / f"{linux_runner}.json").classify(node + "[case]", reason) is None
+        )
+
+
+@pytest.mark.parametrize("runner", ["macos", "macos-hosted"])
+def test_linux_ui2_platform_skip_does_not_cover_other_tests(runner):
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+    reason = "requires Linux and the explicitly built native header reader"
+    for node in (
+        "src/tests/python/test_native_ui2_images.py::test_macos_image_publication[case]",
+        "src/tests/python/test_native_ui_core_linux.py::test_new_unreviewed_case[case]",
+        "src/tests/python/test_native_tray_runtime.py::test_linux_capture_admission[case]",
+    ):
+        rule = manifest.classify(node, reason)
+        assert rule is None or rule.id != "linux-ui2-native-reader"

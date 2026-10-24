@@ -2219,3 +2219,20 @@ all 100 close/quit cycles. Headless native geometry checks cover the recorded
 transition, translated frames, flipped documents and actual scroll movement.
 They create no application or views. Hosted lifecycle execution and the final
 matrix remain required; publication waits for the current CI train.
+
+
+### 2026-10-24: Linux UI2 skips on Mac runners (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/python/test_skip_ledger.py` and final data fragments
+in `src/tests/fixtures/expected-skips/macos.json` and `macos-hosted.json`.
+Base: `45988274`. Hosted macos-2 job `120943540547` passed 159 tests and
+skipped 61, then its ledger rejected 16 Linux-only skips. The downloaded
+partition artifact reproduces that exact gate failure.
+
+Name the ten Linux UI2 test functions across their five concrete files and
+match only their explicit Linux-reader requirement. Each enters the existing
+platform guard directly or through the observed-provider builder. Linux
+execution remains assigned to its required runner; a missing reader on Linux,
+missing display, Mac fixture or unreviewed test must still fail classification.
+Commit the reviewed manifest data in a final `fragment:` commit. Keep the
+source-matched hosted replay and strict negative controls with the evidence.
