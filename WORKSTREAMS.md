@@ -2394,3 +2394,23 @@ owners. Ten regression cases cover independent, dependent and forward aliases,
 callbacks and qualified pointers in whole-program and module-unit modes. Recheck
 the baseline before production edits, then verify strict/sanitized execution,
 raw C parity, module reuse and the full application composition.
+
+
+### 2026-10-24: native callback receiver generic identity (Codex follow-up)
+
+Owned paths: `src/compiler/btrc/analyzer/Generics.btrc`,
+`src/tests/python/test_native_objective_c_super_admission.py` and
+`src/tests/python/test_native_objective_c_subclasses.py`. Base: `698f5d0f`.
+
+The full application and a headless Foundation reduction give generated
+CallbackContext and CallbackRoot instances different interface receiver
+identities across the two compilers. The reference uses the managed reference
+shape; the self-hosted native dependency collector can register a newly built
+generic type with an unnormalized receiver argument. The reduction passes all
+eight native executions and fails both whole-program and module C comparisons.
+
+Use the existing semantic generic-argument normalization before registering
+these generated instances. Cover scoped superclass admission and instance
+factory roots, with strict and sanitized native execution. Keep the already
+normalized per-instance receiver as a control. Preserve all lifecycle assertions
+and verify module output in the combined application tree.

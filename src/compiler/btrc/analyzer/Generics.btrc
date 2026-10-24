@@ -419,6 +419,7 @@ class GenericSpecializer {
 						Node token = Node(); token.kind = NK_TYPE_EXPR; token.base = "void"; token.pointerDepth = 1;
 						Node context = Node(); context.kind = NK_TYPE_EXPR; context.base = "CallbackContext"; context.pointerDepth = 1;
 						context.genericArgsStorage = [member.params().get(0).type, token];
+						SemanticTypeSystem.upgradeConcreteTypeGenericArgs(context, self.analyzed);
 						if (!self.analyzed.genericClassTable.has(context.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(context.base))) { throw "Stored native callbacks require import Library.Callback"; }
 						for name in ["activate", "publish", "abortActivation", "enter", "leave", "close", "cancel", "pollCompletion", "isOpen"] {
 							Node? method = self.analyzed.genericClassMethod(context.base, name);
@@ -451,6 +452,7 @@ class GenericSpecializer {
 							root.base = "CallbackRoot";
 							root.genericArgsStorage = [receiver];
 							root.pointerDepth = 1;
+							SemanticTypeSystem.upgradeConcreteTypeGenericArgs(root, self.analyzed);
 							self.registerGenericInstanceWithUnresolved(root, self.analyzed, {});
 						}
 						continue;

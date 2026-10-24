@@ -6,8 +6,10 @@ import subprocess
 
 import pytest
 
+from src.compiler.python.analyzer.types import TypeIdentity
 from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.results import CompilerOptions
+from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.tests.process_limits import TRANSPILE_TIMEOUT
 from src.tests.python.native_import_fixtures import REPO
 from src.tests.python.native_import_fixtures import native_compile as native_compile
@@ -863,3 +865,20 @@ int main() {
     assert successful == sdk_bool, failure
     if not sdk_bool:
         assert "super-admission requires void or BOOL" in failure
+
+
+@pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
+def test_scoped_super_receiver_generic_identity(admission_project, native_compile, sanitize):
+    source = admission_project
+    source.write_text(PROGRAM.replace("MODE", "0"))
+    completed = _build_and_run(source, native_compile, sanitize)
+    assert completed.returncode == 0, (completed.stdout, completed.stderr)
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+    generated = (source.parent.parent / "Program.c").read_text()
+    arguments = [TypeExpr(base="IAdmission", pointer_depth=1), TypeExpr(base="void", pointer_depth=1)]
+    expected = TypeIdentity().generic_symbol("CallbackContext", arguments)
+    arguments[0].pointer_depth = 0
+    unnormalized = TypeIdentity().generic_symbol("CallbackContext", arguments)
+    assert f"struct {expected} {{" in generated
+    assert f"struct {unnormalized} {{" not in generated

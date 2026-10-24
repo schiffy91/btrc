@@ -21,6 +21,8 @@ import subprocess
 
 import pytest
 
+from src.compiler.python.analyzer.types import TypeIdentity
+from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
@@ -989,3 +991,19 @@ def test_sdk_slider_overrides_require_the_selected_class(slider_accessibility_pr
     assert f"overrides require a method of the superclass NSSlider: {symbol}" in str(compiled.failure) + str(
         compiled.diagnostics
     )
+
+
+@pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
+def test_native_factory_receiver_generic_identity(subclass_project, native_compile, sanitize):
+    source = subclass_project
+    source.write_text(PROGRAM.replace("MODE", "0"))
+    completed = _build_and_run(source, native_compile, sanitize)
+    assert completed.returncode == 0, (completed.stdout, completed.stderr)
+    assert "ERROR: AddressSanitizer" not in completed.stderr
+    assert "runtime error:" not in completed.stderr
+    generated = (source.parent.parent / "Program.c").read_text()
+    for receiver in ("IViewFactory", "IView"):
+        expected = TypeIdentity().generic_symbol("CallbackRoot", [TypeExpr(base=receiver, pointer_depth=1)])
+        unnormalized = TypeIdentity().generic_symbol("CallbackRoot", [TypeExpr(base=receiver)])
+        assert f"struct {expected} {{" in generated
+        assert f"struct {unnormalized} {{" not in generated
