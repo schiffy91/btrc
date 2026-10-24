@@ -2414,3 +2414,150 @@ Shared frontend cache reuse, performance targets and final integrated gates
 remain unqualified. The hunk will be composed with PR119 before publication; no competing
 source claim or standalone green status is asserted. Publication waits for
 the current hosted CI train.
+
+
+### 2026-10-24: native callback receiver generic identity (Codex follow-up)
+
+Owned paths: `src/compiler/btrc/analyzer/Generics.btrc`,
+`src/tests/python/test_native_objective_c_super_admission.py` and
+`src/tests/python/test_native_objective_c_subclasses.py`. Base: `698f5d0f`.
+
+The full application and a headless Foundation reduction give generated
+CallbackContext and CallbackRoot instances different interface receiver
+identities across the two compilers. The reference uses the managed reference
+shape; the self-hosted native dependency collector can register a newly built
+generic type with an unnormalized receiver argument. The reduction passes all
+eight native executions and fails both whole-program and module C comparisons.
+
+Use the existing semantic generic-argument normalization before registering
+these generated instances. Cover scoped superclass admission and instance
+factory roots, with strict and sanitized native execution. Keep the already
+normalized per-instance receiver as a control. Preserve all lifecycle assertions
+and verify module output in the combined application tree.
+
+### 2026-10-24: shared Span declaration ownership (Codex, PR115 follow-up)
+
+Branch `codex/span-declaration-ownership-20261024` starts at `b992e385` in
+the reused checked-override clone. The completed assignment packet remains
+at `21b57e1a` in the hub; composition reads that pinned commit. This packet
+owns `src/compiler/btrc/ir/lowering/Lowerer.btrc`,
+`src/compiler/btrc/ir/lowering/Types.btrc`, a separate regression in
+`src/tests/python/test_module_units.py`, and this appended claim. D29
+allows the work; the existing typedef and Python demand test additions
+remain separate and must be preserved when composing them.
+
+Self-hosted module units emit Span forwards before merging shared class
+forwards. The reference compiler obtains Span declarations from the shared
+catalog, preserving its declaration order. Whole-program output agrees.
+Separate Span declaration emission from atomic lock-free proofs so module
+units use the shared Span catalog while retaining their atomic proofs.
+The baseline covers explicit, inferred and inline borrows. Test local-only
+Span discovery too, and retain the existing shared callback-layout checks.
+Focused, broader, application and final integrated gates remain required.
+Publication waits for the current hosted CI train.
+
+The declaration-only pass also needs Span shapes found by the existing body
+and specialization type walk. Register those concrete shapes during collection
+so the shared catalog covers local-only views. The first candidate omitted this
+step and failed module native compilation; its patch and results are retained.
+This extends the owned paths to `src/compiler/btrc/ir/lowering/Declarations.btrc`.
+
+The shared Span inventory also needs stable symbol order. Broader validation
+found that a local reorder moves shared declarations and forces three groups
+to lower. Canonicalize Span declaration order in both frontends, preserving
+per-unit reuse for unchanged shapes. Extend ownership to
+`src/compiler/python/ir/lowering/translation_unit.py` and
+`src/tests/python/test_module_unit_staleness.py`. The strengthened regression
+checks release/debug output, exact changed units, one lowered group and a
+zero-lowering warm rebuild. The failed second candidate remains in evidence.
+
+### 2026-10-24: unary-update receiver lifetime (Codex, PR120 follow-up)
+
+Branch `codex/unary-update-ownership-20261024` starts at `39af6ea` in
+`~/.cache/btrc/unary-update-20261024`, the sixth writer clone. Owned paths are
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Semantics.btrc`, and
+`src/tests/btrc/test_operand_sequencing_contract.py`, plus this claim.
+D29 authorizes this harmonization work. The discarded-assignment packet owns
+separate test additions and analyzer changes; preserve both on composition.
+
+Nested managed-field increments retain their receiver in the self-hosted
+compiler even when no later operand can invalidate it. The reference compiler
+omits that boundary. Baseline reductions pass native execution but differ in
+emitted C. The repair must preserve temporary-receiver lifetime, index side
+effects, exception cleanup and virtual storage updates. Assignment target
+retention remains a separate contract. Focused, broader and application
+qualification are required before publication, which waits for the active
+hosted CI train.
+
+
+### 2026-10-24: discarded assignment aliases (Codex, PR120 follow-up)
+
+Owned paths: `src/compiler/btrc/analyzer/Expressions.btrc` and
+`src/tests/btrc/test_operand_sequencing_contract.py`. Base: `39af6ea1`.
+
+PR120 preserves declared storage for staged assignment results and ARC field
+visitors. A source-matched application composition still expands aliases in
+discarded assignment-result declarations. Its four whole-program and module
+cases pass sixteen strict C11 and sanitizer executions; their only C differences
+are six declarations spelling `Payload*` or `Link*` instead of the field alias.
+
+Raw assignment inference currently asks for the target's specialization type,
+which resolves the outer typedef. Keep the target's raw type here; callers
+that need canonical classification already use the explicit resolved queries.
+Four new regressions cover plain, generic and chained aliases, nested assignment
+and cycle collection, with repeated lifetime checks and full emitted-C comparison.
+Establish the PR120 baseline before production edits. Focused, broader, module,
+application and final integrated qualification remain required.
+
+
+### 2026-10-24: owned module typedef order (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc` and
+`src/tests/python/test_module_units.py`. Base: `b992e385`.
+
+The reference compiler emits a module's own aliases before merging imported
+aliases. Self-hosted module lowering skips that declaration step and receives
+all aliases in the shared program order. The saved four-case reduction passes
+sixteen native executions and differs only in the independent module's typedef
+order. Dependent aliases already agree because the typed declaration planner
+orders their prerequisites.
+
+Emit owned aliases through the existing declaration ownership filter, using
+structured typedef IR. Keep the whole-program alias pass and the shared merge
+owners. Ten regression cases cover independent, dependent and forward aliases,
+callbacks and qualified pointers in whole-program and module-unit modes. Recheck
+the baseline before production edits, then verify strict/sanitized execution,
+raw C parity, module reuse and the full application composition.
+
+
+### 2026-10-24: Python module instance demand (Codex, issue8)
+
+Reserved: `codex/module-instance-demand-20261024`, based on `5926c6f0`,
+in a fifth writer clone outside Drive. This is a local follow-up to the
+session's PR115 work. Publication waits for the hosted resize diagnostic and
+required validation. No independent packet's changes are replaced.
+
+Owned paths: `src/compiler/python/application/modules.py`,
+`src/compiler/python/application/pipeline.py`,
+`src/compiler/python/ir/lowering/session.py`,
+`src/compiler/python/ir/lowering/lowerer.py`,
+`src/compiler/python/ir/lowering/translation_unit.py`,
+`src/compiler/python/ir/optimizer.py`, and the module-unit, staleness and
+optimizer tests. A shared reference-graph repair may also require
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`; record its reproducer first.
+
+Python module optimization currently roots every external generic definition.
+The self-hosted compiler instead records each unit's references and retains
+only demanded instances. The repair must preserve ordinary exports, native
+callback and macro roots, whole-program behavior, and explicit DCE opt-out.
+Classify instances while lowering their owning specialization. Pass facts
+through a declared transport; do not infer ownership from generated names.
+
+Require cold/warm, caller-addition, warm, caller-removal and warm checks with
+one and two workers. Every phase must run strict and sanitized native output,
+reuse unchanged units, and match a clean compile. Preserve effect summaries
+for pruned exports and reject old or malformed cache records. Combined C and
+native-plan parity, final integration gates and shared-cache performance
+acceptance remain required. No production source changes precede the failing
+baseline.

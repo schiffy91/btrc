@@ -248,7 +248,8 @@ class IRLowerer {
 		self.functions.materializeDeferredClosure();
 		if (self.context.declarationsElsewhere) { self.declarations.emitReferencedInterfaces(program, module); }
 		self.cTypes.appendFunctionPointerTypedefs(module);
-		self.cTypes.emitRealtimeTypeDeclarations(module, shared ? module.structForwards.len : spanForwardPosition, shared ? module.structDefs.len : spanLayoutPosition);
+		if (!shared) { self.cTypes.emitSpanTypeDeclarations(module, spanForwardPosition, spanLayoutPosition); }
+		self.cTypes.emitAtomicLockFreeProofs(module);
 		self.cleanupSlots.finalize(module);
 		self.expressionTypes.disableMemo();
 		if (self.context.moduleUnits) { self.partitionModuleUnit(module); }

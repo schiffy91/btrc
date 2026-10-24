@@ -424,6 +424,8 @@ class TranslationUnitLowerer:
             if owner is not None:
                 for function in functions[before:]:
                     self._session.definition_owners.setdefault(function.name, owner)
+                    if self._session.active_specialization is not None and self._session.unit_facts is not None:
+                        self._session.unit_facts.instance_functions.add(function.name)
                 for global_declaration in globals_[globals_before:]:
                     self._session.definition_owners.setdefault(global_declaration.name, owner)
 
@@ -1069,7 +1071,8 @@ class TranslationUnitLowerer:
 
     def _emit_span_types(self) -> None:
         """Emit concrete borrowed-view layouts."""
-        for symbol, element in self._span_types.items():
+        for symbol in sorted(self._span_types):
+            element = self._span_types[symbol]
             definition = IRStructDef(
                 name=symbol,
                 fields=[

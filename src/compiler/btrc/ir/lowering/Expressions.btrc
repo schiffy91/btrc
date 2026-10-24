@@ -224,7 +224,7 @@ class ExpressionLowerer {
 			return null;
 		}
 		OwnershipOperandEnvironment environment = self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive());
-		OwnershipProjectionPlan plan = self.ownershipSemantics.assignmentTargetOperands(expression.operand, environment, self.context.currentPropertyBacking, callableFlow);
+		OwnershipProjectionPlan plan = self.ownershipSemantics.unaryTargetOperands(expression.operand, environment, callableFlow);
 		if (!plan.requiresBoundary()) { return null; }
 		OwnershipBoundary boundary = self.callOwnership.boundary();
 		self.addProjectionOperands(boundary, plan, "expression", varTypes, callableFlow);

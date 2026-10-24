@@ -367,7 +367,7 @@ class ExpressionTypeResolver {
 			return self.inferBinaryType(node, a, operators, varTypes);
 		}
 		if (node.kind == NK_ASSIGN_EXPR) {
-			return self.inferSpecializationType(node.target, a, operators, varTypes);
+			return self.inferTypeRawMemoized(node.target, a, operators, varTypes);
 		}
 		// C's comma operator (for headers only): the last operand's value.
 		if (node.kind == NK_COMMA_EXPR) {

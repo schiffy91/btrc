@@ -283,6 +283,27 @@ class OwnershipSemantics {
 		return member != null && member.kind == NK_PROPERTY_DECL && !DeclarationRegistry.propertyTargetUsesBacking(target.obj, target.field, currentPropertyBacking);
 	}
 
+	public OwnershipProjectionPlan unaryTargetOperands(Node? target, OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
+		OwnershipProjectionPlan result = OwnershipProjectionPlan();
+		if (target == null || (target.kind != NK_FIELD_ACCESS_EXPR && target.kind != NK_INDEX_EXPR)) {
+			return result;
+		}
+		Node receiver = target.obj;
+		bool receiverOwned = self.unconsumedOwnedResult(receiver, environment, callableFlow);
+		/* Unary updates have no RHS. Only a later index expression can
+		 * invalidate a borrowed receiver, as Python's source-order pins decide. */
+		bool receiverPinned = target.kind == NK_INDEX_EXPR && self.operandPlanner.hasEffect(target.index, environment) && !receiverOwned && self.isManaged(self.expressionType(receiver, environment), environment) && receiver.kind != NK_SELF_EXPR && receiver.kind != NK_SUPER_EXPR && !self.context.hasExpressionOverride(receiver);
+		result.expressions.push(receiver);
+		result.owned.push(receiverOwned);
+		result.retained.push(receiverPinned);
+		if (target.kind == NK_INDEX_EXPR) {
+			result.expressions.push(target.index);
+			result.owned.push(self.unconsumedOwnedResult(target.index, environment, callableFlow));
+			result.retained.push(false);
+		}
+		return result;
+	}
+
 	public OwnershipProjectionPlan assignmentTargetOperands(Node? target, OwnershipOperandEnvironment environment, string currentPropertyBacking, CallableFlowState callableFlow) {
 		OwnershipProjectionPlan result = OwnershipProjectionPlan();
 		self.collectAssignmentTargetOperands(target, environment, currentPropertyBacking, result, false, callableFlow);

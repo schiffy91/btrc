@@ -258,7 +258,8 @@ class CTypeLowerer {
 		return "ATOMIC_INT_LOCK_FREE";
 	}
 
-	public void emitRealtimeTypeDeclarations(IRModule module, int spanForwardPosition, int spanLayoutPosition) {
+	public void emitSpanTypeDeclarations(IRModule module, int spanForwardPosition, int spanLayoutPosition) {
+		self.spanTypeOrder.sort();
 		int spanIndex = 0;
 		while (spanIndex < self.spanTypeOrder.len) {
 			string name = self.spanTypeOrder.get(spanIndex);
@@ -271,6 +272,9 @@ class CTypeLowerer {
 			module.structDefs.insert(spanLayoutPosition + spanIndex, definition);
 			spanIndex = spanIndex + 1;
 		}
+	}
+
+	public void emitAtomicLockFreeProofs(IRModule module) {
 		/* Lock-free proofs precede every declared enum, where Python's
 		 * CTypeLowerer.atomic_lock_free_proofs places them. */
 		Vector<IREnumDef> enums = [];
