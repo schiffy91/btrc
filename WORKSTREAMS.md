@@ -2169,3 +2169,11 @@ never infer it from the destination parameter. Preserve source order, cleanup,
 variadic promotion, default arguments and the exact emitted-C comparison.
 Prove the reduced regression before production edits and then run the broader
 ownership, call, module, structure and parity suites on a fresh compiler.
+
+
+The prepared-call claim also covers the existing boundary-owner assertion in
+`src/tests/btrc/test_immediate_lambda_call_contract.py`. The added cascade
+suites passed 118 executable/contract cases; one structural assertion still
+expects the old untyped rememberOverride call. Update that assertion to require
+the actual staged type. Production candidate behavior, reference and emitted-C
+checks already passed; rerun the immediate-lambda contract after this test edit.
