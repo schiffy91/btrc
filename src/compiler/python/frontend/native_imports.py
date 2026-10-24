@@ -4900,7 +4900,8 @@ class NativeDeclarationImporter:
                 raise NativeImportError(
                     f"{binding.module}: unknown projected object field {next(iter(object_fields))!r}"
                 )
-            for projection in projections.values():
+            for name in sorted(projections):
+                projection = projections[name]
                 if projection.input_name in generated or any(
                     key[1] == projection.input_name for key in self._declarations
                 ):

@@ -4141,7 +4141,9 @@ class FeNativeDeclarationImporter {
 			Vector<string> active = [];
 			for name in binding.ownedRecords { self.recordInput(binding, name, projections, objectFields, callbackFields, active); }
 			if (objectFields.len > 0) { self.fail("unknown projected object field"); }
-			for name in projections.keys() {
+			Vector<string> projectionNames = projections.keys();
+			projectionNames.sort();
+			for name in projectionNames {
 				FeNativeRecordInput projection = projections.get(name);
 				string inputName = projection.inputName();
 				if (generated.has(inputName)) { self.fail(f"conflicting native input class '{inputName}'"); }
