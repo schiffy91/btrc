@@ -304,3 +304,74 @@ def test_macos_ui2_provider_native_bindings(native_project, native_compile, gui_
     source.write_text(f"import Library.GUI.MacOS.{module};\nint main() {{ return 0; }}\n")
     result = native_compile(source, data_root=gui_provider_root)
     assert result.successful, str(result.failure) + str(result.diagnostics)
+
+
+@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
+def test_macos_cancel_state_document_anchor(native_project, sanitized):
+    source, sdk, triple = native_project
+    package = source.parent.parent
+    probe = Path(__file__).resolve().parents[3] / "src/tests/native/gui/ui2/probes/macos"
+    harness = package / "CancelAnchor.m"
+    harness.write_text(
+        """#include "UI2MacOSCancelState.m"
+int main(void) {
+    NSPoint expected = NSMakePoint(50, 60);
+    NSRect document = NSMakeRect(0, 0, 400, 400);
+    NSRect overlay = NSMakeRect(50, 240, 200, 100);
+    NSRect legacy = NSMakeRect(50, 255, 185, 85);
+    assert(!NSEqualPoints(overlay.origin, legacy.origin));
+    assert(NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:overlay documentFrame:document flipped:NO], expected));
+    assert(NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:legacy documentFrame:document flipped:NO], expected));
+
+    NSRect translated = NSMakeRect(10, 20, 400, 400);
+    NSRect bounds = NSMakeRect(60, 275, 185, 85);
+    assert(NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:bounds documentFrame:translated flipped:NO], expected));
+    bounds.origin.y -= 10;
+    assert(!NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:bounds documentFrame:translated flipped:NO], expected));
+    assert(NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:bounds documentFrame:translated flipped:NO], NSMakePoint(50, 70)));
+    bounds.origin.x += 1;
+    assert(!NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:bounds documentFrame:translated flipped:NO], NSMakePoint(50, 70)));
+
+    NSRect flipped = NSMakeRect(60, 80, 200, 100);
+    assert(NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:flipped documentFrame:translated flipped:YES], expected));
+    flipped.size = NSMakeSize(185, 85);
+    assert(NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:flipped documentFrame:translated flipped:YES], expected));
+    flipped.origin.y += 10;
+    assert(NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:flipped documentFrame:translated flipped:YES], NSMakePoint(50, 70)));
+    assert(!NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:flipped documentFrame:translated flipped:YES], expected));
+    return 0;
+}
+"""
+    )
+    executable = package / "CancelAnchor"
+    flags = ["-O1", "-g", "-fsanitize=address,undefined"] if sanitized else ["-O2"]
+    built = subprocess.run(
+        [
+            "/usr/bin/clang",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            *flags,
+            "-isysroot",
+            sdk,
+            "-target",
+            triple,
+            "-I",
+            str(probe),
+            str(harness),
+            "-framework",
+            "AppKit",
+            "-o",
+            str(executable),
+        ],
+        env=apple_environment(),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+    ran = subprocess.run([str(executable)], env=apple_environment(), capture_output=True, text=True, timeout=10)
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    assert "ERROR: AddressSanitizer" not in ran.stderr
+    assert "runtime error:" not in ran.stderr

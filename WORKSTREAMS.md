@@ -2197,3 +2197,25 @@ frame count, deadlines and positive-timestamp requirement. The paired control
 is diagnostic only; it cannot substitute for E40 acceptance. Verify the runner
 with synthetic subprocesses and compile the native control without launching
 it locally. Publish after the current hosted train finishes.
+
+
+### 2026-10-24: cancellation scroll observation coordinates (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/native/gui/ui2/probes/macos/UI2MacOSCancelState.m`
+and `src/tests/python/test_native_ui_core_macos.py`. Base: `d6136bf9`.
+
+Hosted job `120943540546` fails native quit cancellation on both compilers.
+Its recorded scroller-style change reduces the clip height from 100 to 85
+and moves the unflipped origin from 240 to 255. The document remains 400
+points high, so both positions put document y=60 at the viewport top. The
+public offset assertion passes; the native observer's raw-origin comparison
+fails. This probe source is identical on the failed CI head and this base.
+
+Observe the document point at the viewport top, accounting for document
+origin and flipped coordinates. Continue native input from the current clip
+position so a changed viewport cannot restore a stale origin. Preserve the
+identity, focus, draft, selection and subsequent event assertions, including
+all 100 close/quit cycles. Headless native geometry checks cover the recorded
+transition, translated frames, flipped documents and actual scroll movement.
+They create no application or views. Hosted lifecycle execution and the final
+matrix remain required; publication waits for the current CI train.

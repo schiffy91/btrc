@@ -16,6 +16,7 @@
     NSTextView *_editor;
     NSRange _selection;
     NSPoint _offset;
+    NSPoint _anchor;
     NSRect _clipBounds;
     NSRect _documentFrame;
     NSRect _scrollFrame;
@@ -23,9 +24,16 @@
     BOOL _horizontalScroller;
     BOOL _verticalScroller;
 }
++ (NSPoint)documentAnchorForClipBounds:(NSRect)bounds documentFrame:(NSRect)frame flipped:(BOOL)flipped;
 @end
 
 @implementation BTRCUI2CancelState
++ (NSPoint)documentAnchorForClipBounds:(NSRect)bounds documentFrame:(NSRect)frame flipped:(BOOL)flipped {
+    // Preserve the document point at the viewport's top when scroller style
+    // changes the clip height. Raw unflipped origins describe its bottom.
+    return NSMakePoint(NSMinX(bounds) - NSMinX(frame),
+        flipped ? NSMinY(bounds) - NSMinY(frame) : NSMaxY(frame) - NSMaxY(bounds));
+}
 + (void)prepareHost {
     [NSApplication sharedApplication];
     assert([NSThread isMainThread]);
@@ -48,6 +56,7 @@
     [_editor insertText:@"draft" replacementRange:NSMakeRange(0, _editor.string.length)];
     [_editor setSelectedRange:NSMakeRange(1, 3)];
     _selection = _editor.selectedRange; _offset = _clip.bounds.origin;
+    _anchor = [BTRCUI2CancelState documentAnchorForClipBounds:_clip.bounds documentFrame:_document.frame flipped:_document.isFlipped];
     _clipBounds = _clip.bounds; _documentFrame = _document.frame; _scrollFrame = _scroll.frame;
     _scrollerStyle = _scroll.scrollerStyle;
     _horizontalScroller = _scroll.hasHorizontalScroller; _verticalScroller = _scroll.hasVerticalScroller;
@@ -62,15 +71,17 @@
         _scroll.contentView == _clip && _scroll.documentView == _document && _child.superview == _document &&
         _window.firstResponder == _editor && _field.currentEditor == _editor &&
         [_editor.string isEqualToString:@"draft"] && NSEqualRanges(_editor.selectedRange, _selection) &&
-        NSEqualPoints(_clip.bounds.origin, _offset);
+        NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:_clip.bounds documentFrame:_document.frame flipped:_document.isFlipped], _anchor);
     if (!unchanged) {
-        fprintf(stderr, "UI2 native cancel state changed: visible=%d content=%d root_window=%d field_parent=%d scroll_parent=%d clip=%d document=%d child_parent=%d responder=%d editor=%d text=%s selection=%s expected_selection=%s offset=%s expected_offset=%s\n",
+        fprintf(stderr, "UI2 native cancel state changed: visible=%d content=%d root_window=%d field_parent=%d scroll_parent=%d clip=%d document=%d child_parent=%d responder=%d editor=%d text=%s selection=%s expected_selection=%s offset=%s expected_offset=%s anchor=%s expected_anchor=%s\n",
             (int)_window.visible, _window.contentView == _content, _root.window == _window,
             _field.superview == _fieldParent, _scroll.superview == _scrollParent,
             _scroll.contentView == _clip, _scroll.documentView == _document, _child.superview == _document,
             _window.firstResponder == _editor, _field.currentEditor == _editor, _editor.string.UTF8String,
             NSStringFromRange(_editor.selectedRange).UTF8String, NSStringFromRange(_selection).UTF8String,
-            NSStringFromPoint(_clip.bounds.origin).UTF8String, NSStringFromPoint(_offset).UTF8String);
+            NSStringFromPoint(_clip.bounds.origin).UTF8String, NSStringFromPoint(_offset).UTF8String,
+            NSStringFromPoint([BTRCUI2CancelState documentAnchorForClipBounds:_clip.bounds documentFrame:_document.frame flipped:_document.isFlipped]).UTF8String,
+            NSStringFromPoint(_anchor).UTF8String);
         fprintf(stderr, "UI2 native cancel geometry: clip_bounds=%s expected_clip_bounds=%s document_frame=%s expected_document_frame=%s scroll_frame=%s expected_scroll_frame=%s scroller_style=%ld expected_scroller_style=%ld horizontal_scroller=%d expected_horizontal_scroller=%d vertical_scroller=%d expected_vertical_scroller=%d document_flipped=%d clip_flipped=%d\n",
             NSStringFromRect(_clip.bounds).UTF8String, NSStringFromRect(_clipBounds).UTF8String,
             NSStringFromRect(_document.frame).UTF8String, NSStringFromRect(_documentFrame).UTF8String,
@@ -86,7 +97,7 @@
     assert([self unchanged]);
     [_editor insertText:@"Z" replacementRange:_selection];
     // This is native clip movement, not a claimed physical wheel gesture.
-    NSPoint next = _offset; next.y -= 10.0;
+    NSPoint next = _clip.bounds.origin; next.y += _document.isFlipped ? 10.0 : -10.0;
     [_clip scrollToPoint:next]; [_scroll reflectScrolledClipView:_clip];
     assert([self continued]);
 }
@@ -94,7 +105,8 @@
     assert([NSThread isMainThread]);
     return _window.firstResponder == _editor && _field.currentEditor == _editor &&
         [_editor.string isEqualToString:@"dZt"] && NSEqualRanges(_editor.selectedRange, NSMakeRange(2, 0)) &&
-        _clip.bounds.origin.x == _offset.x && _clip.bounds.origin.y == _offset.y - 10.0;
+        NSEqualPoints([BTRCUI2CancelState documentAnchorForClipBounds:_clip.bounds documentFrame:_document.frame flipped:_document.isFlipped],
+            NSMakePoint(_anchor.x, _anchor.y + 10.0));
 }
 - (void)finish {
     assert([NSThread isMainThread]);
