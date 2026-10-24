@@ -2130,6 +2130,8 @@ generic discovery pass currently omits them.
 Use the existing semantic type normalization and recursive record-field walk.
 Preserve alias spelling, const layers, native callback ABI and lexical generic
 parameters. Add executable regressions before changing production code,
-including local and alias controls and anonymous record members. Qualify the
+including local and alias controls and nested named records. Anonymous-member
+syntax is not available on this packet base; the existing record-field owner
+still preserves its recursive traversal for future composition. Qualify the
 callback, generic, realtime and module paths, then refresh the application
 comparison. This extension does not establish full application parity.
