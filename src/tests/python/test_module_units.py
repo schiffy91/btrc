@@ -1073,6 +1073,62 @@ def test_native_includes_are_include_once_blocks(compiler: str, tmp_path, reques
     assert all("BTRC_INCLUDE_" not in line for text in units.values() for line in text.split("\n") if "<" in line)
 
 
+def test_external_prototypes_have_the_same_order_in_both_compilers(tmp_path, immutable_btrcc):
+    """Foreign class callables and cycle visitors have one declaration order."""
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Model.btrc").write_text(
+        "class Item { public Item? child; public int value;\n"
+        "public Item(int value) { self.value = value; } }\n"
+        "class Factory { public Item make(int value) { return new Item(value); } }\n"
+    )
+    (workspace.modules / "Use.btrc").write_text(
+        "import ./Model.btrc;\n"
+        "int zLocal(int value) { return value + 1; }\n"
+        "int aLocal(int value) { return value + 1; }\n"
+        "int use() { var factory = new Factory(); var item = factory.make(7); return aLocal(zLocal(item.value)); }\n"
+    )
+    (workspace.modules / "Main.btrc").write_text("import ./Use.btrc;\nint main() { print(use()); return 0; }\n")
+    declarations = []
+    for frontend, command in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = workspace.root / frontend
+        units = _cli_units(command, workspace, "Main.btrc", output, 1)
+        if C_COMPILER is None:
+            pytest.skip("module-unit execution needs a C compiler")
+        executable = output / "program"
+        built = subprocess.run(
+            [
+                *C_COMPILER,
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                *(str(output / name) for name in units),
+                "-o",
+                str(executable),
+                "-lm",
+                "-lpthread",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        assert built.returncode == 0, built.stderr
+        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0 and ran.stdout == "9\n", (frontend, ran)
+        use = next(text for name, text in units.items() if ".unit-Use-" in name)
+        prototypes = [line for line in use.splitlines() if line.endswith(");") and line[0].isalpha()]
+        assert any("Factory_make(" in line for line in prototypes)
+        assert any("__btrc_arc_visit_Item(" in line for line in prototypes)
+        assert prototypes.index("int zLocal(int value);") < prototypes.index("int aLocal(int value);")
+        declarations.append(prototypes)
+    assert sorted(declarations[0]) == sorted(declarations[1])
+    assert declarations[0] == declarations[1]
+
+
 _CYCLE_PROGRAM = {
     "Model/Node.btrc": """import Library.Vector;
 
