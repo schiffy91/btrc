@@ -2071,3 +2071,25 @@ storage owner. Preserve assignment results, prepared-value ownership, source
 order, ARC publication and exception cleanup. Do not reserve temporary numbers
 to imitate output. Validate the field-target change together with this packet's
 formatting, conversion and owned binary-result repairs before publication.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: assignment-result alias storage
+
+The existing PR #120 expression-lowering packet also covers declared aliases
+in staged assignment-result storage, with regressions in
+`src/tests/btrc/test_operand_sequencing_contract.py`. Its owned production path
+remains `src/compiler/btrc/ir/lowering/Expressions.btrc`.
+
+A reduced native handle field assignment produces identical behavior in twelve
+strict C11 and sanitizer executions, but all three variants differ in raw C:
+the reference retains the field's typedef in the outer assignment temporary,
+while the self-hosted compiler uses its canonical pointer type. The nested
+native call's result type already agrees. Callback field assignment in the
+application shows the same outer-result symptom.
+
+Use the existing declared-storage type owner at the assignment boundary.
+Preserve target conversions, ownership and evaluation order. Add executable
+pointer, callback and class-conversion regressions before the source change,
+then qualify sequencing, ownership, callback, module and raw C parity paths.
+The prior combined application candidate remains on its separate diagnostic
+branch with all evidence preserved; refresh that composition after qualification.
