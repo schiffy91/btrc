@@ -2303,3 +2303,26 @@ fixtures exercise try/catch and use that header.
 
 Selected validation, composition/application qualification and final integrated
 gates remain required. No performance or issue-completion claim is made here.
+
+### 2026-10-24: generic module effect-summary cache (Codex, issue8)
+
+Branch `codex/generic-summary-cache-20261024` starts at `d3ad1d67` in the
+reused checked-override checkout. The preserved override branch remains at
+`7118ec76`. This local follow-up for the session's PR115/PR119 work changes
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+the separate generic-summary regression and optional worker-count argument
+in `src/tests/python/test_module_units.py`, and this appended claim. The
+concurrent Span packet keeps its existing hunks in the test module. D29
+authorizes this harmonization work; no other packet's hunks are replaced.
+
+Cold module compilation records Map's consultation of Vector constructor
+and push effects, then drops those effects when their definitions are
+pruned. The first unchanged warm build therefore lowers Map again. The
+repair must retain the solved producer facts, preserve emitted code, and
+continue to rebuild the provider when caller edits change generic demand.
+Baseline and candidate checks cover inline and forked workers, exact cold
+and warm C, constructor-demand edits, and strict/sanitized native execution.
+Shared frontend cache reuse, performance targets and final integrated gates
+remain unqualified. The hunk will be composed with PR119 before publication; no competing
+source claim or standalone green status is asserted. Publication waits for
+the current hosted CI train.

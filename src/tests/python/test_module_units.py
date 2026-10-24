@@ -299,6 +299,7 @@ def _btrcc_build_logged(
     environment: dict[str, str] | None = None,
     *,
     stdlib_strict=False,
+    jobs=None,
 ) -> tuple[dict[str, int], dict[str, str], str, str]:
     """`_btrcc_build`, also returning the compiler's diagnostic output."""
     output.mkdir(parents=True, exist_ok=True)
@@ -311,6 +312,7 @@ def _btrcc_build_logged(
             "--emit-units",
             str(output / "program"),
             "--module-units",
+            *(["--jobs", str(jobs)] if jobs is not None else []),
             *(["--stdlib-strict"] if stdlib_strict else []),
         ],
         cwd=workspace.modules,
@@ -342,6 +344,88 @@ def _validation_records(stderr: str) -> dict[str, int]:
     match = re.search(r"a-records-stored\(replayed=(\d+),journaled=(\d+)\)", stderr)
     assert match, stderr
     return {"replayed": int(match.group(1)), "journaled": int(match.group(2))}
+
+
+@pytest.mark.parametrize("jobs", [1, 2])
+def test_selfhost_generic_summaries_survive_demand_pruning(tmp_path, immutable_btrcc, jobs):
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("self-hosted artifact reuse needs the native header reader identity")
+    assert C_COMPILER is not None
+    sanitizer = require_sanitizers(tmp_path)
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Main.btrc").write_text(
+        'import ./Operations.btrc;\nint main() { assert(probe() == 41); print("PASS"); return 0; }\n'
+    )
+    body = """import Library.Map;
+import Library.Vector;
+int probe() {
+    try {
+        Map<int, int> values = {7: 41, 9: 43};
+        Vector<int>? spare = /* demand */;
+        assert(spare == null || spare.len == 0);
+        return values.get(7);
+    } catch (string message) { assert(false); }
+    return 0;
+}
+"""
+    previous = None
+    baseline = None
+    for phase, demand, expected in (
+        ("cold", False, {"lowered": 5, "reused": 0}),
+        ("warm", False, {"lowered": 0, "reused": 5}),
+        ("add", True, {"lowered": 2, "reused": 3}),
+        ("added-warm", True, {"lowered": 0, "reused": 5}),
+        ("remove", False, {"lowered": 1, "reused": 4}),
+        ("removed-warm", False, {"lowered": 0, "reused": 5}),
+    ):
+        constructor = "new Vector<int>()" if demand else "null"
+        (workspace.modules / "Operations.btrc").write_text(body.replace("/* demand */", constructor))
+        output = tmp_path / phase
+        counters, units, primary, _ = _btrcc_build_logged(immutable_btrcc, workspace, "Main.btrc", output, jobs=jobs)
+        assert counters == expected, phase
+        generated = {"program.c": primary, **units}
+        if phase == "cold":
+            baseline = generated
+        if "warm" in phase:
+            assert generated == previous
+        if phase == "remove":
+            assert generated == baseline
+        vector = next(text for name, text in units.items() if name.startswith("program.unit-Vector-"))
+        assert ("btrc_Vector_int* btrc_Vector_int_new(void) {" in vector) == demand
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer_environment(sanitizer),
+            ),
+        ):
+            executable = output / mode
+            compiled = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *[str(output / name) for name in sorted(generated)],
+                    "-o",
+                    str(executable),
+                    "-lm",
+                    "-lpthread",
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert compiled.returncode == 0, compiled.stderr
+            ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+            assert ran.returncode == 0 and ran.stdout == "PASS\n", (phase, mode, ran.stdout, ran.stderr)
+        previous = generated
 
 
 def test_selfhost_private_body_edit_relowers_only_its_group(tmp_path, immutable_btrcc):
