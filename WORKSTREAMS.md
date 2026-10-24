@@ -1998,3 +1998,20 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+## 2026-10-24 CX-EXTERNAL-PROTOTYPE-PARITY: stable external declarations
+
+Reserved: Codex owns `codex/external-prototype-parity-20261024` from
+`b800bb0` under D29. Twenty BTRSmith C files have differences confined to
+prototype-like lines; `SystemImageDecoderProvider` differs only in the position
+of a cycle visitor declaration. Both optimizers already order local prototypes
+by definitions, but preserve the lowering-dependent order of external ones.
+
+Owned paths are `src/compiler/python/ir/optimizer.py`,
+`src/compiler/btrc/ir/optimization/Optimizer.btrc`,
+`src/tests/python/test_module_units.py`, and this claim. Reproduce the difference
+before changing the structured prototype normalization owner. Preserve all
+declarations and the existing local-definition order; validate strict C11,
+execution, module reuse and the existing byte-parity set. This packet is
+independent of the header and f-string repairs. Full integrated gates remain
+required, and publication waits for CI capacity.
+
