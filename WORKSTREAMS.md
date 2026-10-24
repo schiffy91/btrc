@@ -2110,3 +2110,25 @@ regression's whole-C comparison, extend it to generic holders, and run cycle,
 polymorphic ARC, assignment, callback, module and parity checks. The separate
 class-alias upcast defect is preserved in reproduction `8d7433bf`; it remains
 open and is not covered by this storage repair.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: typedef-aware reference upcasts
+
+This packet also owns `CTypeLowerer.upcast_class_pointer` in
+`src/compiler/python/ir/lowering/types.py` and the alias variants of the
+existing managed-field conversion cascade in
+`src/tests/btrc/test_assignment_lifetime_contract.py`.
+
+The 16-case diagnostic passes direct and source-only alias cases. All eight
+cases with a destination alias fail strict C compilation of the reference
+output; self-hosted strict and sanitizer executions pass before those failures.
+The matrix covers class/interface targets, instance/static storage, borrowed
+and owned replacements, throwing replacements, null assignment and destruction.
+Resolve aliases in the existing conversion owner before classifying an upcast;
+preserve qualifiers, storage shape, source order and ownership.
+
+PR #115 retains its separate atomic-type registration and lock-free proof
+changes in the same Python file. This extension changes only the upcast method.
+Compose those disjoint changes by patch and verify both methods survive;
+never replace the file wholesale from either branch. Full application parity
+and the separate staged-call effective-type investigation remain open.
