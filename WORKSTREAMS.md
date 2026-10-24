@@ -2069,3 +2069,29 @@ local monitor and notification records. Preserve the independent drag and all
 E40 acceptance rules. Compile locally without launching the control; runtime
 observations require hosted CI. Tracking stimulus changes remain a separate
 step requiring a headless execution proof before native publication.
+
+
+### 2026-10-24 CX-GUI-GATES-108: independent native resize stimulus
+
+The headless driver includes the actual `Tracking.m` implementation and
+intercepts every CGEventPost call. It records one initial post before native
+entry, still one after entry without acknowledgment, and a second only after
+acknowledgment. No native application, window or event loop is started, and
+no system input-posting symbol is linked. Hosted controls independently prove
+that this native route needs drag input before its entry notification.
+
+This packet owns `src/tests/native/gui/ui2/probes/macos/e40/Tracking.m`,
+`TrackingStimulus.m` in the same directory, and the existing compile fixture
+in `src/tests/python/test_native_ui2_macos_e40.py` for the regression. Compile
+and execute the intercepted scheduler once per session through that fixture;
+retain strict plain and sanitizer checks. It must schedule cursor positioning,
+down, twenty drags and up without entry or acknowledgment, preserve event
+identities and actual post-return timestamps, and stop after completion or
+forced cleanup. Delayed entry must not reset the stimulus clock.
+
+Retain all E40 runtime requirements: exactly 22 native input receipts with
+actual dequeue observations, live-resize entry/exit and geometry changes.
+Keep other interaction routes' acknowledgment rules. Neither post return nor
+a geometry notification may stand in for input dequeue. Hosted runtime and
+the full platform matrix remain necessary; the headless test proves only the
+fixture's stimulus scheduling and accounting.
