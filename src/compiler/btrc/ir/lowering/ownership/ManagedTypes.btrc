@@ -32,6 +32,23 @@ class ManagedInstanceFieldStorePlan {
 	}
 }
 
+/* Physical target prepared before lowering the replacement expression. */
+class ManagedInstanceFieldStore {
+	public ManagedInstanceFieldStorePlan plan;
+	public Vector<IRNode> declarations;
+	public Vector<IRNode> sequence;
+	public IRNode receiver;
+	public IRNode slot;
+
+	public ManagedInstanceFieldStore(ManagedInstanceFieldStorePlan plan, IRNode receiver) {
+		self.plan = plan;
+		self.declarations = [];
+		self.sequence = [];
+		self.receiver = receiver;
+		self.slot = IRNode.fieldAccess(receiver, plan.storageName, true);
+	}
+}
+
 class ManagedStaticFieldStorePlan {
 	public Node fieldType;
 	public string storageCType;
@@ -441,23 +458,26 @@ class ManagedTypeLowerer {
 		return self.managedValues.isManaged(self.canonicalStorageType(targetType));
 	}
 
-	/* Evaluate receiver and replacement once, then commit exactly one
-     * persistent ownership unit. ARC fields publish one protected caller
-     * reference through the topology transaction; managed strings use the
-     * strong-slot replacement. The final slot load preserves source
-     * assignment-value semantics. Shapes match Python's StorageLowerer. */
-	public IRNode materializeInstanceFieldStore(ManagedInstanceFieldStorePlan plan, IRNode loweredReceiver, IRNode loweredValue, bool valueOwned) {
+	public ManagedInstanceFieldStore prepareInstanceFieldStore(ManagedInstanceFieldStorePlan plan, IRNode loweredReceiver) {
 		string receiverName = self.context.freshTemporary("__btrc_storage_receiver");
 		IRNode receiverDeclaration = IRNode.variableDeclaration(plan.receiverCType, receiverName, null);
 		self.context.recordLocal(receiverDeclaration);
-		Vector<IRNode> declarations = [];
-		declarations.push(receiverDeclaration);
-		IRNode receiver = IRNode.variable(receiverName);
-		IRNode slot = IRNode.fieldAccess(receiver, plan.storageName, true);
-		/* The receiver is stabilized first; the store follows as its own
-		 * expression, as StorageLowerer wraps a materialized target. */
-		Vector<IRNode> sequence = [];
-		sequence.push(IRNode.binary(receiver, "=", loweredReceiver));
+		ManagedInstanceFieldStore target = ManagedInstanceFieldStore(plan, IRNode.variable(receiverName));
+		target.declarations.push(receiverDeclaration);
+		target.sequence.push(IRNode.binary(target.receiver, "=", loweredReceiver));
+		return target;
+	}
+
+	/* Commit exactly one persistent ownership unit after the receiver setup.
+	 * ARC fields publish one protected caller reference through the topology
+	 * transaction; strings use strong-slot replacement. Yield the final slot
+	 * to preserve assignment-value semantics. */
+	public IRNode materializeInstanceFieldStore(ManagedInstanceFieldStore target, IRNode loweredValue, bool valueOwned) {
+		ManagedInstanceFieldStorePlan plan = target.plan;
+		Vector<IRNode> declarations = target.declarations;
+		Vector<IRNode> sequence = target.sequence;
+		IRNode receiver = target.receiver;
+		IRNode slot = target.slot;
 		if (!self.managedValues.isArc(plan.fieldType)) {
 			sequence.push(self.replaceManagedSlot(slot, plan.fieldType, plan.storageCType, loweredValue, valueOwned));
 			return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));

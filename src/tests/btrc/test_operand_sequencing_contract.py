@@ -6,12 +6,15 @@ import re
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
+import pytest
+
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRCommaExpr, IRStmtExpr
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.btrc.dual_frontend_harness import compile_ownership_reference
+from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitized_build_and_run
 from src.tests.btrc.selfhost_snippet_harness import compile_source, strict_build_and_run
 
 
@@ -298,3 +301,153 @@ def test_borrowed_receiver_is_pinned_only_across_later_effects(
             tmp_path / f"receiver-pin-minimal-{index}",
             optimization="-O3",
         )
+
+
+def test_owned_binary_result_handoff_agrees_with_and_without_unwinding(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    sanitizer = require_sanitizers(tmp_path)
+    comparisons = {}
+    for context in ("ordinary", "unwinding"):
+        directory = tmp_path / context
+        directory.mkdir()
+        statement = 'assert(combined().equals("alphabetagamma"));'
+        if context == "unwinding":
+            statement = f"try {{ {statement} }} catch (string error) {{ print(error); return 1; }}"
+        source = (
+            """
+            #include <assert.h>
+            string combined() { return "alpha" + "beta" + "gamma"; }
+            int main() {
+        """
+            + statement
+            + "return 0; }"
+        )
+        generated_pair = _compile_both(semantic_btrcc, directory, source)
+        for index, generated in enumerate(generated_pair):
+            strict_build_and_run(generated, directory / f"strict-{index}", optimization="-O2")
+            sanitized_build_and_run(generated, directory / f"sanitized-{index}", sanitizer)
+        comparisons[context] = generated_pair[0].read_bytes() == generated_pair[1].read_bytes()
+    assert comparisons == {"ordinary": True, "unwinding": True}
+
+
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+@pytest.mark.parametrize("kind", ["pointer", "callback", "managed"])
+def test_staged_field_assignment_retains_declared_result_type(
+    semantic_btrcc: Path, tmp_path: Path, kind: str, generic: bool
+) -> None:
+    sanitizer = require_sanitizers(tmp_path)
+    declarations, result_check = {
+        "pointer": (
+            "typedef int* Value; int payload = 42; "
+            "Value makeValue(int first, int second) { assert(first == 1 && second == 2); return &payload; }",
+            "assert(*result == 42);",
+        ),
+        "callback": (
+            "typedef CFunction<int, int> Value; int twice(int value) { return value * 2; } "
+            "Value makeValue(int first, int second) { assert(first == 1 && second == 2); return twice; }",
+            "assert(result(21) == 42);",
+        ),
+        "managed": (
+            "class Base { public int payload; public Base() { self.payload = 42; } } "
+            "typedef Base Value; "
+            "Value makeValue(int first, int second) { assert(first == 1 && second == 2); return new Base(); }",
+            "assert(result.payload == 42);",
+        ),
+    }[kind]
+    source = """
+        #include <assert.h>
+        DECLARATIONS
+        int trace = 0;
+        int mark(int expected) { assert(trace == expected); trace++; return expected; }
+        HOLDER_DECLARATION
+        HOLDER_TYPE receiver(HOLDER_TYPE holder) { assert(trace == 0); trace++; return holder; }
+        int main() {
+            HOLDER_TYPE holder = new HOLDER_TYPE();
+            Value result = (receiver(holder).value = makeValue(mark(1), mark(2)));
+            assert(trace == 3);
+            RESULT_CHECK
+            return 0;
+        }
+    """.replace("DECLARATIONS", declarations).replace("RESULT_CHECK", result_check)
+    source = source.replace(
+        "HOLDER_DECLARATION",
+        "class Holder<T> { public T value; }" if generic else "class Holder { public Value value; }",
+    ).replace("HOLDER_TYPE", "Holder<Value>" if generic else "Holder")
+    generated = _compile_both(semantic_btrcc, tmp_path, source)
+    for index, path in enumerate(generated):
+        strict_build_and_run(path, tmp_path / f"assignment-alias-{index}")
+        sanitized_build_and_run(path, tmp_path / f"assignment-alias-sanitized-{index}", sanitizer)
+    assert generated[0].read_text() == generated[1].read_text()
+
+
+@pytest.mark.parametrize(
+    ("declaration", "inheritance", "field"),
+    [
+        ("class Value { public int number; public int read() { return self.number; } }", "extends", ""),
+        ("interface Value { int read(); }", "implements", "public int number;"),
+    ],
+    ids=["class", "interface"],
+)
+@pytest.mark.parametrize("ownership", ["borrowed", "owned"])
+def test_prepared_call_upcasts_retain_effective_type(
+    semantic_btrcc, tmp_path, declaration, inheritance, field, ownership
+):
+    source = (
+        """
+        int liveValues = 0;
+        int trace = 0;
+        TARGET
+        class Concrete INHERITANCE Value {
+            FIELD
+            public Concrete(int number) { self.number = number; liveValues++; }
+            public void __del__() { liveValues--; }
+            public int read() { return self.number; }
+        }
+        Concrete makeValue() { assert(trace == 0); trace++; return Concrete(7); }
+        int mark(bool fail) {
+            assert(trace == PREFIX);
+            trace++;
+            if (fail) { throw "sibling"; }
+            return 9;
+        }
+        int consume(Value value, int second) {
+            assert(trace == PREFIX + 1);
+            assert(value.read() == 7 && liveValues == 1);
+            return second;
+        }
+        int main() {
+            for (int iteration = 0; iteration < 5; iteration++) {
+                {
+                    SETUP
+                    trace = 0;
+                    assert(consume(ARGUMENT, mark(false)) == 9);
+                    assert(liveValues == REMAINING);
+                    trace = 0;
+                    bool caught = false;
+                    try { consume(ARGUMENT, mark(true)); }
+                    catch (string error) { caught = error == "sibling"; }
+                    assert(caught && liveValues == REMAINING);
+                }
+                assert(liveValues == 0);
+            }
+            return 0;
+        }
+    """.replace("TARGET", declaration)
+        .replace("INHERITANCE", inheritance)
+        .replace("FIELD", field)
+    )
+    source = source.replace("SETUP", "var existing = Concrete(7);" if ownership == "borrowed" else "")
+    source = source.replace("ARGUMENT", "existing" if ownership == "borrowed" else "makeValue()")
+    source = source.replace("PREFIX", "0" if ownership == "borrowed" else "1")
+    source = source.replace("REMAINING", "1" if ownership == "borrowed" else "0")
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    sanitizer = require_sanitizers(tmp_path)
+    for frontend, generated in [("selfhost", selfhost_c), ("reference", reference_c)]:
+        strict_build_and_run(generated, tmp_path / frontend, optimization="-O2")
+        sanitized_build_and_run(generated, tmp_path / f"{frontend}-sanitized", sanitizer)
+    assert selfhost_c.read_bytes() == reference_c.read_bytes()
