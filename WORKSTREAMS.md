@@ -2014,3 +2014,13 @@ This packet is independent of the native-header and f-string repairs. Full
 application byte parity and integrated gates remain required; publication waits
 for CI capacity.
 
+### 2026-10-24 CX-MODULE-RUNTIME-HEADERS: transfer to PR #119
+
+This packet releases its source and test ownership to the existing
+CX-MODULE-HEADER-PARITY packet in PR #119. Both repairs change
+`src/tests/python/test_module_units.py`; one packet will carry and validate
+those changes together. PR #119 also takes ownership of
+`src/compiler/python/application/modules.py`. PR #121 remains a documentation
+record only. The isolated implementation `06f62254` and reproduction `9d6a3ab6`
+remain evidence, not separate integration branches. Combined validation and
+final hosted gates are still required before integration.
