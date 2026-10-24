@@ -273,7 +273,11 @@ class FunctionLowerer:
                 if contract.copied_input and index == contract.copied_input.owner_index:
                     continue
                 arguments[index] = (
-                    IRTernary(arguments[index], IRFieldAccess(arguments[index], "value", arrow=True), IRLiteral("NULL"))
+                    IRTernary(
+                        IRBinOp(arguments[index], "==", IRLiteral("NULL")),
+                        IRLiteral("NULL"),
+                        IRFieldAccess(arguments[index], "value", arrow=True),
+                    )
                     if self._unique_resource(resource)
                     else IRCast(target_type=CType(text=self._native_spellings[resource]), expr=arguments[index])
                 )
@@ -1550,7 +1554,9 @@ class FunctionLowerer:
             statements.append(IRExprStmt(IRCall(prefix + "_begin_" + operation, [value])))
             registration.args[2] = IRFunctionRef(prefix + "_end_" + operation)
             statements.append(IRExprStmt(registration))
-            released = name + "_released"
+            released = f"__btrc_native_released_{index}"
+            while any(parameter.name == released for parameter in parameters):
+                released += "_"
             releases[:0] = [
                 IRVarDecl(slot.c_type, released, init=value),
                 IRAssign(value, IRLiteral("NULL")),
@@ -2730,7 +2736,7 @@ class FunctionLowerer:
             self._session.module.struct_forwards.append(forward)
         pointer_type = f"struct {native_prefix}*"
         pointer = CType(pointer_type)
-        owner = IRVar("owner")
+        owner = IRVar("self")
         value = IRFieldAccess(owner, "value", arrow=True)
         borrows = IRFieldAccess(owner, "borrows", arrow=True)
         closing = IRFieldAccess(owner, "closing", arrow=True)
@@ -2738,7 +2744,7 @@ class FunctionLowerer:
         closing_thread = IRFieldAccess(owner, "closingThread", arrow=True)
         mutex = IRAddressOf(IRFieldAccess(owner, "lock", arrow=True))
         completed = IRAddressOf(IRFieldAccess(owner, "completed", arrow=True))
-        parameters = [IRParam(pointer, "owner")]
+        parameters = [IRParam(pointer, "self")]
         self._session.module.struct_defs.append(
             IRStructDef(
                 native_prefix,
@@ -2860,7 +2866,7 @@ class FunctionLowerer:
             "void",
             [IRParam(CType("void*"), "raw")],
             [
-                IRVarDecl(pointer, "owner", init=IRCast(pointer, IRVar("raw"))),
+                IRVarDecl(pointer, "self", init=IRCast(pointer, IRVar("raw"))),
                 destroy_check if resource.cleanup_status == "abort" else IRExprStmt(destroy_close),
                 *(
                     [
@@ -2883,7 +2889,7 @@ class FunctionLowerer:
             [
                 IRVarDecl(
                     pointer,
-                    "owner",
+                    "self",
                     init=IRCast(
                         pointer,
                         IRCall(
@@ -2893,7 +2899,7 @@ class FunctionLowerer:
                 ),
                 self._native_unique_checked("pthread_mutex_init", [mutex, IRLiteral("NULL")]),
                 self._native_unique_checked("pthread_cond_init", [completed, IRLiteral("NULL")]),
-                *self._ownership.arc_header_initialization(prefix, "owner"),
+                *self._ownership.arc_header_initialization(prefix, "self"),
                 IRReturn(owner),
             ],
         )
@@ -2957,7 +2963,7 @@ class FunctionLowerer:
             [IRParam(CType("void*"), "raw")],
             [
                 IRIf(IRBinOp(IRVar("raw"), "==", IRLiteral("NULL")), IRBlock([IRReturn()])),
-                IRVarDecl(pointer, "owner", init=IRCast(pointer, IRVar("raw"))),
+                IRVarDecl(pointer, "self", init=IRCast(pointer, IRVar("raw"))),
                 lock,
                 IRAssign(borrows, IRBinOp(borrows, "-", IRLiteral("1"))),
                 unlock,
@@ -2995,7 +3001,7 @@ class FunctionLowerer:
                 [IRParam(CType("void*"), "raw")],
                 [
                     IRIf(IRBinOp(IRVar("raw"), "==", IRLiteral("NULL")), IRBlock([IRReturn()])),
-                    IRVarDecl(pointer, "owner", init=IRCast(pointer, IRVar("raw"))),
+                    IRVarDecl(pointer, "self", init=IRCast(pointer, IRVar("raw"))),
                     lock,
                     IRAssign(closing, IRLiteral("false")),
                     self._native_unique_checked("pthread_cond_broadcast", [completed]),
