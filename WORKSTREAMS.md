@@ -2236,3 +2236,17 @@ execution remains assigned to its required runner; a missing reader on Linux,
 missing display, Mac fixture or unreviewed test must still fail classification.
 Commit the reviewed manifest data in a final `fragment:` commit. Keep the
 source-matched hosted replay and strict negative controls with the evidence.
+
+### CX Linux E40 window-show observer (2026-10-24)
+
+Owner: Codex, branch `codex/issue-gui-gates-20261023`.
+Owned paths: `src/tests/native/gui/ui2/probes/linux/Fairness.c`,
+`src/tests/python/test_native_ui2_fairness_linux.py`.
+
+PR114 job120996941228 passed all sixteen burst cases but timed out before the
+sustained load started. The last phase was the second window's show entry,
+after the first window completed warmup. Add native SDL_ShowWindow entry/exit
+phases to separate that call from the remaining interaction and layout work.
+Keep native arguments, return values, workload and qualification limits intact.
+This records a diagnostic boundary; the blocking call and repair still need
+hosted evidence. Do not publish while the current CI train is active.

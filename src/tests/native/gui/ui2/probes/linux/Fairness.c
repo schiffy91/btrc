@@ -47,6 +47,14 @@ void e40Phase(const char *phase, int window) {
     fflush(stderr);
 }
 
+bool __real_SDL_ShowWindow(SDL_Window *window);
+bool __wrap_SDL_ShowWindow(SDL_Window *window) {
+    e40Phase("sdl-window-show-begin", -1);
+    bool result = __real_SDL_ShowWindow(window);
+    e40Phase("sdl-window-show-end", -1);
+    return result;
+}
+
 static void requireKind(int kind) { assert(kind >= 0 && kind < CLASSES); }
 /* Buckets cover the exact declared load interval. Setup, close and final drain
  * cannot fill a missing load bucket. This helper is called under the mutex. */
