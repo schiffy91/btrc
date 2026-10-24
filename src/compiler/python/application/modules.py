@@ -26,7 +26,7 @@ from ..backend.c_emitter import CEmitter
 from ..frontend.native_imports import NativeHeaderSource
 from ..frontend.sources import CompilationGroups, ResolvedSource, SourceDependencyGraph
 from ..ir.lowering.exceptions import ExceptionLowerer, FunctionEffect, ParameterEffect, SetjmpUnitSolver
-from ..ir.lowering.session import ProgramLoweringFacts
+from ..ir.lowering.session import ModuleLoweringFacts, ProgramLoweringFacts
 from ..ir.lowering.types import CodegenError
 from ..ir.nodes import CType, IRCall, IRFunctionRef, IRInclude, IRModule, IRNode, IRVar
 from ..ir.optimizer import IROptimizer
@@ -35,7 +35,7 @@ from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
 from .results import CompilerOptions
 
-_RECORD_SCHEMA = 6
+_RECORD_SCHEMA = 7
 # The unit that defines every runtime helper of a module-unit program; a
 # group's unit is named for its path hash and so never takes this name.
 RUNTIME_UNIT_NAME = "unit-runtime"
@@ -73,6 +73,71 @@ class DisabledModuleUnitStore:
 
 
 @dataclass(frozen=True)
+class ModuleUnitGraph:
+    """Pre-optimization references and roots used to demand generic bodies."""
+
+    edges: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    roots: tuple[str, ...] = ()
+    instances: frozenset[str] = frozenset()
+
+    @staticmethod
+    def references(value: object) -> tuple[str, ...]:
+        names: set[str] = set()
+        for node in IRNode.walk_value(value):
+            if isinstance(node, IRCall) and isinstance(node.callee, str):
+                names.add(node.callee)
+            elif isinstance(node, IRFunctionRef | IRVar):
+                names.add(node.name)
+        return tuple(sorted(names))
+
+    @classmethod
+    def from_unit(cls, unit: IRModule, facts: ModuleLoweringFacts) -> ModuleUnitGraph:
+        edges = {function.name: cls.references(function.body) for function in unit.function_defs}
+        instances = frozenset(
+            function.name
+            for function in unit.function_defs
+            if not function.is_static and function.name in facts.instance_functions
+        )
+        roots = {
+            function.name
+            for function in unit.function_defs
+            if function.name in {"main", "btrc_main"} or (not function.is_static and function.name not in instances)
+        }
+        for declaration in unit.global_decls:
+            if not declaration.is_extern:
+                roots.update(cls.references(declaration.init))
+        for declaration in unit.objective_c_classes:
+            roots.update(cls.references(declaration))
+        for declaration in unit.preprocessor_decls:
+            replacement = getattr(declaration, "replacement", None)
+            if isinstance(replacement, str):
+                roots.update(IROptimizer.identifier_tokens(replacement))
+        return cls(edges, tuple(sorted(roots)), instances)
+
+    def to_json(self) -> dict:
+        return {
+            "edges": {name: list(targets) for name, targets in self.edges.items()},
+            "roots": list(self.roots),
+            "instances": sorted(self.instances),
+        }
+
+    @classmethod
+    def from_json(cls, value: object) -> ModuleUnitGraph:
+        if not isinstance(value, dict) or set(value) != {"edges", "roots", "instances"}:
+            raise ValueError("malformed module reference graph")
+        edges = value["edges"]
+        if not isinstance(edges, dict) or not all(isinstance(name, str) for name in edges):
+            raise ValueError("malformed module reference graph")
+        lists = [value["roots"], value["instances"], *edges.values()]
+        if any(not isinstance(items, list) or not all(isinstance(item, str) for item in items) for items in lists):
+            raise ValueError("malformed module reference graph")
+        instances = frozenset(value["instances"])
+        if not instances <= edges.keys() or len(instances) != len(value["instances"]):
+            raise ValueError("malformed module instance set")
+        return cls({name: tuple(targets) for name, targets in edges.items()}, tuple(value["roots"]), instances)
+
+
+@dataclass(frozen=True)
 class ModuleUnitRecord:
     """Everything later builds need from one group's finished unit.
 
@@ -102,6 +167,8 @@ class ModuleUnitRecord:
     # WGSL, an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__`
     # position. None of them is in the program interface.
     consulted_sources: Mapping[str, str] = field(default_factory=dict)
+    graph: ModuleUnitGraph = field(default_factory=ModuleUnitGraph)
+    kept_instances: frozenset[str] = frozenset()
 
     @staticmethod
     def _effect_json(effect: FunctionEffect) -> dict:
@@ -157,6 +224,8 @@ class ModuleUnitRecord:
                 "realtime-roots": list(self.realtime_roots),
                 "realtime-proofs": {name: sorted(callees) for name, callees in self.realtime_proofs.items()},
                 "consulted-sources": dict(self.consulted_sources),
+                "graph": self.graph.to_json(),
+                "kept-instances": sorted(self.kept_instances),
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -185,6 +254,8 @@ class ModuleUnitRecord:
                 "realtime-roots",
                 "realtime-proofs",
                 "consulted-sources",
+                "graph",
+                "kept-instances",
             }
             if not isinstance(value, dict) or set(value) != expected or value["schema"] != _RECORD_SCHEMA:
                 return None
@@ -202,8 +273,18 @@ class ModuleUnitRecord:
                 return None
             if not all(isinstance(digest, str) for digest in sources.values()):
                 return None
-            names = value["helpers"], value["realtime-roots"], value["exports"], *proofs.values()
+            names = (
+                value["helpers"],
+                value["realtime-roots"],
+                value["exports"],
+                value["kept-instances"],
+                *proofs.values(),
+            )
             if any(not isinstance(items, list) or not all(isinstance(item, str) for item in items) for items in names):
+                return None
+            graph = ModuleUnitGraph.from_json(value["graph"])
+            kept = frozenset(value["kept-instances"])
+            if not kept <= graph.instances or len(kept) != len(value["kept-instances"]):
                 return None
             return cls(
                 group=group,
@@ -225,6 +306,8 @@ class ModuleUnitRecord:
                 realtime_roots=tuple(value["realtime-roots"]),
                 realtime_proofs={name: tuple(callees) for name, callees in proofs.items()},
                 consulted_sources=dict(sources),
+                graph=graph,
+                kept_instances=kept,
             )
         except (ValueError, RecursionError):
             return None
@@ -266,6 +349,8 @@ class _GroupState:
     analyzed_round: int = -1
     consulted: set[str] = field(default_factory=set)
     realtime_proofs: dict[str, list[str]] = field(default_factory=dict)
+    graph: ModuleUnitGraph = field(default_factory=ModuleUnitGraph)
+    kept_instances: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -888,10 +973,19 @@ class ModuleUnitCompiler:
         shared.configure_native_headers(analyzed.program.declarations)
         # The program unit is always lowered: it owns native adapters and
         # gathers every helper any unit uses, which the runtime unit defines.
+        program_facts = ModuleLoweringFacts()
         program_unit = self.lower_group(
-            analyzed, filename, options, source_map, groups, CompilationGroups.PROGRAM, facts
+            analyzed,
+            filename,
+            options,
+            source_map,
+            groups,
+            CompilationGroups.PROGRAM,
+            facts,
+            unit_facts=program_facts,
         )
         shared.merge_into(program_unit)
+        program_graph = ModuleUnitGraph.from_unit(program_unit, program_facts)
         program_setjmp = self.setjmp_functions(program_unit)
         program_releases = IROptimizer.releases_cyclable_values(program_unit)
         interface = ProgramInterface().digest(analyzed.program.declarations)
@@ -992,6 +1086,11 @@ class ModuleUnitCompiler:
                 if relower:
                     self._mark_stale(relower)
                     continue
+                self._demand_instances(states, program_graph, dce=options.dce)
+                relower = [state for state in reused if state.kept_instances != state.record.kept_instances]
+                if relower:
+                    self._mark_stale(relower)
+                    continue
                 break
             timed(profile, "lower", start)
 
@@ -1026,6 +1125,7 @@ class ModuleUnitCompiler:
                             "solved": delta,
                             "reset": reset,
                             "realtime_safe": state.realtime_reached,
+                            "unneeded_instances": state.graph.instances - state.kept_instances,
                         },
                     )
                 )
@@ -1042,13 +1142,15 @@ class ModuleUnitCompiler:
                     exports=reply["exports"],
                     has_setjmp=state.has_setjmp,
                     effects_solved=needs_solve,
-                    exported_effects={name: solved[name] for name in reply["exports"] if name in solved},
+                    exported_effects={name: solved[name] for name in state.exports if name in solved},
                     consulted_effects={name: solved[name] for name in sorted(state.consulted) if name in solved},
                     releases_cyclable=state.releases_cyclable,
                     defines_entry=reply["entry"],
                     program_release=releases,
                     helpers=reply["helpers"],
                     realtime_roots=state.realtime_roots,
+                    graph=state.graph,
+                    kept_instances=state.kept_instances,
                     realtime_proofs={name: tuple(sorted(callees)) for name, callees in state.realtime_proofs.items()},
                     consulted_sources={
                         group: group_sources[group]
@@ -1174,6 +1276,7 @@ class ModuleUnitCompiler:
             state.stale = True
             state.worker = worker
             state.exports = reply["exports"]
+            state.graph = reply["graph"]
             state.has_setjmp = reply["setjmp"]
             state.releases_cyclable = reply["releases"]
             state.realtime_roots = reply["realtime_roots"]
@@ -1181,6 +1284,29 @@ class ModuleUnitCompiler:
             state.calls = reply["calls"]
             state.analyzed_round = -1
             state.consulted = set()
+
+    @staticmethod
+    def _demand_instances(states: Sequence[_GroupState], program: ModuleUnitGraph, *, dce: bool) -> None:
+        graphs = {state.name: state.graph if state.stale else state.record.graph for state in states}
+        owners = {name: group for group, graph in graphs.items() for name in graph.instances}
+        graphs[CompilationGroups.PROGRAM] = program
+        reached: dict[str, set[str]] = {group: set() for group in graphs}
+        pending = [(group, name) for group, graph in graphs.items() for name in graph.roots]
+        while pending:
+            group, name = pending.pop()
+            graph = graphs[group]
+            if name not in graph.edges:
+                owner = owners.get(name)
+                if owner is not None and owner != group:
+                    pending.append((owner, name))
+                continue
+            if name in reached[group]:
+                continue
+            reached[group].add(name)
+            pending.extend((group, target) for target in graph.edges[name])
+        for state in states:
+            instances = graphs[state.name].instances
+            state.kept_instances = instances & reached[state.name] if dce else instances
 
     @staticmethod
     def external_calls(unit: IRModule) -> frozenset[str]:
@@ -1475,7 +1601,18 @@ class ModuleUnitCompiler:
                     stack.append(successor)
                     positions.append(0)
 
-    def lower_group(self, analyzed, filename, options, source_map, groups, name, facts) -> IRModule:
+    def lower_group(
+        self,
+        analyzed,
+        filename,
+        options,
+        source_map,
+        groups,
+        name,
+        facts,
+        *,
+        unit_facts: ModuleLoweringFacts | None = None,
+    ) -> IRModule:
         """Lower only what one group owns; shared declarations are merged later."""
         return self._lower(
             analyzed,
@@ -1485,6 +1622,7 @@ class ModuleUnitCompiler:
             groups,
             name,
             facts,
+            unit_facts=unit_facts,
             declarations_elsewhere=True,
             native_defines=self._native_defines,
         )
@@ -1507,7 +1645,14 @@ class ModuleUnitCompiler:
         for state in states:
             state.record = None
 
-    def optimize_unit(self, unit: IRModule, options: CompilerOptions, releases: bool) -> None:
+    def optimize_unit(
+        self,
+        unit: IRModule,
+        options: CompilerOptions,
+        releases: bool,
+        *,
+        unneeded_instances: frozenset[str] = frozenset(),
+    ) -> None:
         """Stage-five optimization of one module unit."""
         IRVerifier(unit).validate_schema()
         IROptimizer(
@@ -1517,6 +1662,7 @@ class ModuleUnitCompiler:
             freestanding_runtime=self._freestanding_runtime,
             module_unit=True,
             program_cyclable_release=releases,
+            unneeded_instances=unneeded_instances,
         ).optimize()
 
     def finalize_unit(self, unit: IRModule) -> None:
@@ -1670,7 +1816,10 @@ class ModuleUnitWorker:
 
     def _lower(self, group: str) -> dict:
         analyzed, filename, options, source_map, groups, facts = self._lowering
-        unit = self._compiler.lower_group(analyzed, filename, options, source_map, groups, group, facts)
+        unit_facts = ModuleLoweringFacts()
+        unit = self._compiler.lower_group(
+            analyzed, filename, options, source_map, groups, group, facts, unit_facts=unit_facts
+        )
         # Only the program unit's adapter units reach the link plan; one a
         # group lowered would be dropped and fail the link.
         if unit.native_units:
@@ -1682,6 +1831,7 @@ class ModuleUnitWorker:
         self._units[group] = (unit, setjmp_functions)
         return {
             "exports": tuple(function.name for function in unit.function_defs if not function.is_static),
+            "graph": ModuleUnitGraph.from_unit(unit, unit_facts),
             "setjmp": bool(setjmp_functions),
             "releases": IROptimizer.releases_cyclable_values(unit),
             "realtime_roots": tuple(function.name for function in unit.function_defs if function.is_realtime),
@@ -1720,7 +1870,9 @@ class ModuleUnitWorker:
         solved = self._solved if request["solve"] else {}
         effects = self._effects.get(group, {}) if request["solve"] else {}
         ExceptionLowerer.apply_setjmp_volatility(unit, solved, call_effects=effects, setjmp_functions=setjmp_functions)
-        self._compiler.optimize_unit(unit, options, request["releases"])
+        self._compiler.optimize_unit(
+            unit, options, request["releases"], unneeded_instances=request["unneeded_instances"]
+        )
         # The owner refuses these over the whole program; a worker only reports.
         hosted = IROptimizer.unavailable_hosted_references(unit, self._compiler.unavailable_hosted())
         helpers = tuple(sorted(helper.name for helper in unit.helper_decls))

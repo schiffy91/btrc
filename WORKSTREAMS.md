@@ -2326,3 +2326,35 @@ Shared frontend cache reuse, performance targets and final integrated gates
 remain unqualified. The hunk will be composed with PR119 before publication; no competing
 source claim or standalone green status is asserted. Publication waits for
 the current hosted CI train.
+
+
+### 2026-10-24: Python module instance demand (Codex, issue8)
+
+Reserved: `codex/module-instance-demand-20261024`, based on `5926c6f0`,
+in a fifth writer clone outside Drive. This is a local follow-up to the
+session's PR115 work. Publication waits for the hosted resize diagnostic and
+required validation. No independent packet's changes are replaced.
+
+Owned paths: `src/compiler/python/application/modules.py`,
+`src/compiler/python/application/pipeline.py`,
+`src/compiler/python/ir/lowering/session.py`,
+`src/compiler/python/ir/lowering/lowerer.py`,
+`src/compiler/python/ir/lowering/translation_unit.py`,
+`src/compiler/python/ir/optimizer.py`, and the module-unit, staleness and
+optimizer tests. A shared reference-graph repair may also require
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`; record its reproducer first.
+
+Python module optimization currently roots every external generic definition.
+The self-hosted compiler instead records each unit's references and retains
+only demanded instances. The repair must preserve ordinary exports, native
+callback and macro roots, whole-program behavior, and explicit DCE opt-out.
+Classify instances while lowering their owning specialization. Pass facts
+through a declared transport; do not infer ownership from generated names.
+
+Require cold/warm, caller-addition, warm, caller-removal and warm checks with
+one and two workers. Every phase must run strict and sanitized native output,
+reuse unchanged units, and match a clean compile. Preserve effect summaries
+for pruned exports and reject old or malformed cache records. Combined C and
+native-plan parity, final integration gates and shared-cache performance
+acceptance remain required. No production source changes precede the failing
+baseline.

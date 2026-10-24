@@ -113,12 +113,14 @@ class IROptimizer:
         freestanding_runtime: FreestandingRuntime | None = None,
         module_unit: bool = False,
         program_cyclable_release: bool | None = None,
+        unneeded_instances: frozenset[str] = frozenset(),
     ) -> None:
         self._module = module
         self._dce = dce
         # A module unit's external definitions are reachable from other units,
         # and whether any unit releases a cyclable value is a program fact.
         self._module_unit = module_unit
+        self._unneeded_instances = unneeded_instances
         self._program_cyclable_release = program_cyclable_release
         self._runtime_catalog = runtime_catalog or RuntimeHelperCatalog()
         self._freestanding_runtime = freestanding_runtime or FreestandingRuntime()
@@ -508,7 +510,11 @@ class IROptimizer:
         self._global_names = set(self._globals_by_name)
         live_functions = self._function_names & _ENTRY_POINTS
         if self._module_unit:
-            live_functions |= {function.name for function in self._module.function_defs if not function.is_static}
+            live_functions |= {
+                function.name
+                for function in self._module.function_defs
+                if not function.is_static and function.name not in self._unneeded_instances
+            }
         live_globals = {
             name
             for name, declarations in self._globals_by_name.items()
