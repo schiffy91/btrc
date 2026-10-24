@@ -2280,3 +2280,26 @@ try scopes with successful, throwing, and successful constructions, including
 managed-element destruction. Preserve empty literals and paths without
 exception cleanup. Ownership, setjmp, parity, structure, generated-source,
 full application and final integrated gates remain required.
+
+### 2026-10-24: interface declaration order parity (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/compiler/btrc/ir/lowering/Lowerer.btrc`, and
+`src/tests/python/test_module_units.py`. Base: `27ba10ae`.
+
+The reference compiler emits interface tables and dispatchers in registration
+order. The self-hosted compiler used map iteration for whole-program lowering
+and sorted names for module dispatchers. The typed program already preserves
+registration order, so both self-hosted emission sites now walk its interface
+declarations. Runtime lookup directories retain their required sorted order.
+
+Eight regression cases cover two declaration orders, independent and inherited
+interfaces, and whole-program and module-unit compilation. Both interface
+aliases observe the same mutable object; a destructor counter checks final
+release. Every generated unit runs under strict C11 and ASan/UBSan before exact
+raw C comparison. Baseline: four source-order failures and four reverse-order
+passes. A separate unused header difference remains covered by PR119; these
+fixtures exercise try/catch and use that header.
+
+Selected validation, composition/application qualification and final integrated
+gates remain required. No performance or issue-completion claim is made here.

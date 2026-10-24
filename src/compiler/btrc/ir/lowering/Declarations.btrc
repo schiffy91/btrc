@@ -5300,8 +5300,10 @@ class DeclarationLowerer {
 		 * are lowered (emitReferencedInterfaces); the tables come with the
 		 * shared declarations. */
 		if (!self.context.declarationsElsewhere) {
-			for name in self.analyzed.interfaceTable.keys() {
-				if (interfaceReachability == null || interfaceReachability.reachesName(name)) { self.emitInterface(name, m); }
+			/* Registration follows source order; map iteration does not. */
+			for declaration in prog.declarations() {
+				if (declaration.kind != NK_INTERFACE_DECL) { continue; }
+				if (interfaceReachability == null || interfaceReachability.reachesName(declaration.name)) { self.emitInterface(declaration.name, m); }
 			}
 		}
 		Map<string, bool> nativeAdapters = {};
@@ -5904,12 +5906,14 @@ class DeclarationLowerer {
 
 	/* Module units: the static dispatchers of every interface this unit's
 	 * lowered IR calls. Dispatchers call only the runtime method lookup. */
-	public void emitReferencedInterfaces(IRModule module) {
+	public void emitReferencedInterfaces(Node program, IRModule module) {
 		Map<string, bool> callees = {};
 		for definition in module.functions { self.collectCallees(definition.body, callees); }
 		for global in module.globalDecls { self.collectCallees(global.init, callees); }
 		StdlibReachability? reachability = self.context.reachability;
-		for name in self.analyzed.interfaceTable.keys().sorted() {
+		for declaration in program.declarations() {
+			if (declaration.kind != NK_INTERFACE_DECL) { continue; }
+			string name = declaration.name;
 			if (reachability != null && !reachability.reachesName(name)) { continue; }
 			bool referenced = false;
 			for method in self.analyzed.interfaceMethods(name) {

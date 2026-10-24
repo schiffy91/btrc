@@ -2859,3 +2859,60 @@ def test_collection_construction_cleanup_survives_try_reentry(
         """
     )
     _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["source", "reverse"])
+@pytest.mark.parametrize("inherited", [False, True], ids=["independent", "inherited"])
+def test_interface_declarations_preserve_source_order(tmp_path, immutable_btrcc, module_units, reverse, inherited):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "interfaceOrder"\n')
+    parent = " extends IShort" if inherited else ""
+    declarations = ["interface IShort { int read(); }", f"interface ILongName{parent} {{ int write(int value); }}"]
+    if reverse:
+        declarations.reverse()
+    (source / "Owners.btrc").write_text(
+        "\n".join(declarations)
+        + """
+int alive = 0;
+class Buffer implements IShort, ILongName {
+    public int stored;
+    public Buffer() { self.stored = 1; alive++; }
+    public void __del__() { alive--; }
+    public int read() { return self.stored; }
+    public int write(int value) { self.stored = value; return value; }
+}
+"""
+    )
+    inherited_check = "assert(writer.read() == 41);" if inherited else ""
+    (source / "Main.btrc").write_text(
+        """import ./Owners.btrc;
+int consume(IShort reader, ILongName writer) {
+    int initial = reader.read();
+    int changed = writer.write(41);
+"""
+        + inherited_check
+        + """
+    return initial + changed;
+}
+int main() {
+    try {
+        var buffer = new Buffer();
+        IShort reader = buffer;
+        ILongName writer = buffer;
+        assert(consume(reader, writer) == 42);
+        assert(reader.read() == 41 && alive == 1);
+    } catch (string message) {
+        assert(false);
+    }
+    assert(alive == 0);
+    print("PASS");
+    return 0;
+}
+"""
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
