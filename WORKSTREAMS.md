@@ -2712,3 +2712,20 @@ baselines for constants, side effects and fixed arrays before changing the
 planner. Preserve source evaluation order, contextual types, array storage
 and existing ownership boundaries. Require paired strict and sanitized
 native execution, complete C equality, broader checks and application evidence.
+
+
+### Constructor parameter isolation (Codex, 2026-10-24)
+
+Branch: `codex/constructor-parameter-isolation-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Generic constructor declarations, initializers, and allocation wrappers share
+mutable IR parameters. Setjmp analysis of the initializer changes qualifiers
+on the other functions. Give each function its own parameter copies using the
+existing CTypeLowerer operation, preserving explicit qualifiers. Whole-program
+and module regressions cover ordinary and generic constructors, inferred and
+explicit volatile parameters, exception recovery, and managed payload cleanup.
+Baseline evidence and validation are under
+`build/issue-gates/constructor-parameter-isolation/`. This work does not claim
+application parity, performance qualification, or issue completion.
