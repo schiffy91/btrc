@@ -2712,3 +2712,26 @@ baselines for constants, side effects and fixed arrays before changing the
 planner. Preserve source evaluation order, contextual types, array storage
 and existing ownership boundaries. Require paired strict and sanitized
 native execution, complete C equality, broader checks and application evidence.
+
+
+### CX stable self argument pins (2026-10-24)
+
+Owner: Codex, branch `codex/stable-self-argument-pins-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/ownership/Calls.btrc` and
+`src/tests/python/test_module_units.py`.
+
+The self-hosted argument planner adds a stabilization retain for `self` before
+later effects or default arguments. Python excludes `self` and `super` from
+those pins, as the self-hosted receiver planner already does. Six reductions
+pass 24 strict and sanitized native runs; the two `self` cases differ in C,
+while ordinary bindings and explicit `keep` parameters match.
+Establish whole-program and module regressions with exceptional later arguments
+before changing the argument plan. Preserve explicit parameter ownership and
+pins for ordinary borrowed values. Full application and integration gates remain.
+
+The initial candidate changed only operand planning; fresh validation still
+reported eight self-argument C mismatches because completeCallPlan repeated
+the pin decision. Both passes now call CallOwnershipLowerer.canPinBorrowedOperand.
+This extends the owned paths to `src/compiler/btrc/ir/lowering/Expressions.btrc`.
+The failed first candidate remains under `first-candidate/` in the evidence
+folder. Explicit parameter keep decisions remain separate from automatic pins.
