@@ -2715,3 +2715,23 @@ physical-slot validation, and the existing stable-owner rejection tests.
 Include `src/tests/python/test_delete_take_clear.py` to update the owned-slot
 temporary name. Preserve its checks that release and delete evaluate each
 owner once and share that owner between the physical slot and ARC edge.
+
+
+### CX borrowed hosted string arguments (2026-10-24)
+
+Owner: Codex, branch `codex/borrowed-hosted-string-arguments-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Borrowed string parameters accept raw character pointers without creating an
+owned managed string. The self-hosted compiler still copies recognized hosted
+alias and independent results at those boundaries. Keep parameters must retain
+their owned conversion. Owned values with a keep also allocate and release their
+temporary guards in a different order from the reference compiler.
+
+Regressions cover both hosted effects, borrowed and keep parameters, plain and
+throwing calls, and whole-program and module output. They check live managed
+string counts and cleanup before comparing complete C. Evidence is under
+`build/issue-gates/borrowed-hosted-string-arguments/`. No application parity,
+performance qualification, or issue completion is claimed.

@@ -482,7 +482,7 @@ class ExpressionLowerer {
 		while (index < plan.operands.len) {
 			OwnershipCallOperand operand = plan.operands.get(index);
 			if (!operand.defaultArgument) {
-				if (!operand.keepValue && !operand.transferred && self.strings.hostedStringConversionMode(operand.expression, operand.targetType, operand.typeExpr) == "reject") {
+				if (!operand.keepValue && !operand.transferred && self.strings.hostedStringConversionMode(operand.expression, operand.targetType, operand.typeExpr) != "") {
 					operand.targetType = operand.typeExpr;
 				}
 				operand.needsConversion = self.strings.requiresTargetValueConversion(operand.expression, operand.targetType, operand.typeExpr);
