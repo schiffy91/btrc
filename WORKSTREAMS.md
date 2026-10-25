@@ -2735,3 +2735,20 @@ the pin decision. Both passes now call CallOwnershipLowerer.canPinBorrowedOperan
 This extends the owned paths to `src/compiler/btrc/ir/lowering/Expressions.btrc`.
 The failed first candidate remains under `first-candidate/` in the evidence
 folder. Explicit parameter keep decisions remain separate from automatic pins.
+
+
+### Cleanup adapter ordering (Codex, 2026-10-24)
+
+Branch: `codex/cleanup-adapter-order-20261024`. Owned paths:
+`src/compiler/python/ir/optimizer.py`,
+`src/compiler/btrc/ir/optimization/Optimizer.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+An unused generic method changes cleanup adapter creation order before a live
+method is lowered. Ranking only by the first surviving function leaves ties
+that retain this frontend-specific order. Establish whole-program and module
+regressions with normal and exceptional cleanup, then order adapters by their
+first structured reference in surviving function bodies. Preserve typed cleanup
+metadata and every renamed reference. Native lifetime, complete C comparison,
+optimizer, parity, structure and generated-source checks are required before
+a checkpoint; application composition and final gates remain separate.
