@@ -254,7 +254,9 @@ class ClassLowerer:
         """Emit ``Class_init`` and allocating ``Class_new`` functions."""
         name = decl.name
         constructor = cls_info.constructor
-        init_provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        init_provenance = CallableProvenance(
+            self._analyzed, self._session, self._types, self._signatures, self._expressions
+        )
         init_constructor_params = [
             init_provenance.lower_source_param(param) for param in (constructor.params if constructor else [])
         ]
@@ -346,7 +348,9 @@ class ClassLowerer:
                 is_static=self._specialized_linkage(),
             )
         )
-        new_provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        new_provenance = CallableProvenance(
+            self._analyzed, self._session, self._types, self._signatures, self._expressions
+        )
         new_constructor_params = [
             new_provenance.lower_source_param(param) for param in (constructor.params if constructor else [])
         ]
@@ -621,7 +625,9 @@ class ClassLowerer:
             # `source_file` is a declaration attribute the frontend also stamps
             # on class members; a member lowered without the frontend has none.
             self._session.consult_source(getattr(dtor, "source_file", None))
-            provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+            provenance = CallableProvenance(
+                self._analyzed, self._session, self._types, self._signatures, self._expressions
+            )
             self._session.function_declarations = []
             previous_return_type = self._session.current_return_type
             previous_return_c_type = self._session.current_return_c_type
@@ -682,7 +688,7 @@ class ClassLowerer:
 
     def emit_method(self, decl: ClassDecl, method: MethodDecl):
         """Emit ClassName_methodname(self, ...) as a free function."""
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         name = decl.name
         is_static = method.access == "class"
         collection_instance_method = not is_static and self._collections.owns_persistent_element_edges(
@@ -756,7 +762,9 @@ class ClassLowerer:
                 if method.is_abstract or method.body is None:
                     continue
                 own_methods.add(mname)
-                provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+                provenance = CallableProvenance(
+                    self._analyzed, self._session, self._types, self._signatures, self._expressions
+                )
                 params = []
                 call_args = []
                 if method.access != "class":
@@ -816,7 +824,9 @@ class ClassLowerer:
         prop_type = self._types.render(prop.type) if prop.type else "int"
         backing = f"_prop_{prop.name}"
         if prop.has_getter and (selected_callables is None or ("get", prop.name) in selected_callables):
-            provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+            provenance = CallableProvenance(
+                self._analyzed, self._session, self._types, self._signatures, self._expressions
+            )
             body = self._getter_body(
                 prop,
                 backing,
@@ -833,7 +843,9 @@ class ClassLowerer:
                 )
             )
         if prop.has_setter and (selected_callables is None or ("set", prop.name) in selected_callables):
-            provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+            provenance = CallableProvenance(
+                self._analyzed, self._session, self._types, self._signatures, self._expressions
+            )
             value_name = provenance.source_binding_c_name("value")
             body = self._setter_body(
                 prop,
@@ -884,7 +896,9 @@ class ClassLowerer:
                     )
                 )
             if prop.has_setter and (selected_callables is None or ("set", name) in selected_callables):
-                provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+                provenance = CallableProvenance(
+                    self._analyzed, self._session, self._types, self._signatures, self._expressions
+                )
                 value_name = provenance.source_binding_c_name("value")
                 self._session.module.function_defs.append(
                     IRFunctionDef(
@@ -1009,7 +1023,9 @@ class ClassLowerer:
         for field in declaration.members:
             if not isinstance(field, FieldDecl) or field.access != "class":
                 continue
-            provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+            provenance = CallableProvenance(
+                self._analyzed, self._session, self._types, self._signatures, self._expressions
+            )
             field_type, array_size = self._static_field_type(
                 field,
                 provenance,
@@ -1163,7 +1179,7 @@ class ClassLowerer:
         """Emit a plain struct (not class) definition."""
         if decl.is_forward:
             return
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         fields = []
         for f in TypeSystem.record_declarators(decl):
             flexible = TypeSystem.is_flexible_array_member(f)
@@ -1313,7 +1329,7 @@ class ClassLowerer:
         source_declaration: ClassDecl,
     ) -> None:
         """Emit the struct definition for a class."""
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         fields: list[IRStructField] = []
         fields.append(self._ownership.arc_header_field())
         for storage_name, member in cls_info.instance_storage:

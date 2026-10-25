@@ -2659,3 +2659,39 @@ The native baseline also exposes a runtime-helper field named `destroyed`
 retaining an unrelated extern global in shared declaration merging. Add direct
 canonical, custom-source and structured-reference controls before repairing
 that scan. The optimizer prototype repair belongs to its existing packet.
+
+
+### CX conditional result ownership (2026-10-24)
+
+Owner: Codex, branch `codex/conditional-result-ownership-20261024`.
+Owned paths: `src/compiler/python/ir/lowering/ownership.py`,
+`src/tests/btrc/test_conditional_result_ownership.py`, and paired module tests
+in `src/tests/python/test_module_units.py`.
+
+The application retains a ternary string ownership difference: Python adds
+a retain after a selected managed call has been normalized to an owned result;
+the self-hosted compiler promotes the borrowed alternate branch instead.
+Establish allocation-counted native baselines before changing classification.
+Cover borrowed and owned string calls, managed objects, selected branches and
+exception cleanup. Preserve lazy branch evaluation and callee ABI ownership.
+
+The generic nullable-class control exposes missing branch types: analysis keeps
+`null*` for the conditional while the existing call plan resolves `Item*`.
+Extend this packet to the calls and expression owners, callable construction
+in classes, functions, declarations and translation units, and the two existing
+callable provenance test fixtures. Supply exact expression types through the
+per-body facts port; do not infer call ownership from an expected type.
+
+Include `src/compiler/python/ir/lowering/types.py` for concrete conditional
+branch compatibility. The expanded reductions cover two deferred call branches,
+casts of normalized call results and borrowed-cast controls. Preserve checked
+native cast ownership and explicit operand ownership overrides.
+
+Opaque coalescing operands also expose a strict-C failure: the unresolved C
+operand fallback can emit raw `??`. Include
+`src/tests/python/test_typed_operator_contract.py` and route coalescing through
+its existing typed validator. Explicitly cast opaque operands remain supported.
+
+Update `src/tests/python/test_lowering_architecture.py` to require the exact
+expression-type port at all existing callable provenance construction sites.
+The per-body lifetime and acyclic owner graph contracts remain unchanged.
