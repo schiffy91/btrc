@@ -2695,3 +2695,20 @@ The native baseline also exposes a runtime-helper field named `destroyed`
 retaining an unrelated extern global in shared declaration merging. Add direct
 canonical, custom-source and structured-reference controls before repairing
 that scan. The optimizer prototype repair belongs to its existing packet.
+
+
+### CX nested aggregate operands (2026-10-24)
+
+Owner: Codex, branch `codex/nested-aggregate-operands-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Aggregates.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Operands.btrc`,
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/tests/python/test_module_units.py`.
+
+The full application retains three C differences involving nested C struct
+initializers. Python stages each typed child aggregate; the self-hosted
+planner flattens their leaves. Establish portable whole-program and module
+baselines for constants, side effects and fixed arrays before changing the
+planner. Preserve source evaluation order, contextual types, array storage
+and existing ownership boundaries. Require paired strict and sanitized
+native execution, complete C equality, broader checks and application evidence.
