@@ -4154,3 +4154,52 @@ def test_shared_declarations_ignore_canonical_helper_locals(helper_kind, referen
     assert ("destroyed" in {declaration.name for declaration in unit.global_decls}) == (
         referenced or helper_kind != "canonical"
     )
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("cyclic", [False, True], ids=["acyclic", "cycle"])
+@pytest.mark.parametrize("receiver", ["self", "variable"])
+@pytest.mark.parametrize("guarded", [False, True], ids=["plain", "unwind"])
+def test_explicit_field_release_preserves_owner_and_cleanup(
+    tmp_path, immutable_btrcc, module_units, cyclic, receiver, guarded
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    edge = "public Owner? owner = null;" if cyclic else ""
+    connect = "self.child.owner = self;" if cyclic else ""
+    method = "public void clear() { release self.child; }" if receiver == "self" else ""
+    clear = "owner.clear();" if receiver == "self" else "release owner.child;"
+    operation = (
+        f'try {{ {clear} throw "done"; }} catch (string error) {{ assert(error == "done"); }}' if guarded else clear
+    )
+    (source / "Owners.btrc").write_text(f"""
+int children = 0;
+int owners = 0;
+class Child {{
+    {edge}
+    public Child() {{ children++; }}
+    public void __del__() {{ children--; }}
+}}
+class Owner {{
+    public Child? child = null;
+    public Owner() {{ owners++; }}
+    public void __del__() {{ owners--; }}
+    public void attach() {{ self.child = new Child(); {connect} }}
+    {method}
+}}
+void exercise() {{
+    Owner owner = new Owner();
+    owner.attach();
+    assert(owners == 1 && children == 1);
+    {operation}
+    assert(owner.child == null && children == 0 && owners == 1);
+}}
+""")
+    (source / "Main.btrc").write_text(
+        "import ./Owners.btrc;\nint main() { for (int i = 0; i < 20; i++) { exercise(); "
+        'assert(children == 0 && owners == 0); } print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

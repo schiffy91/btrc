@@ -2695,3 +2695,23 @@ The native baseline also exposes a runtime-helper field named `destroyed`
 retaining an unrelated extern global in shared declaration merging. Add direct
 canonical, custom-source and structured-reference controls before repairing
 that scan. The optimizer prototype repair belongs to its existing packet.
+
+
+### CX explicit managed-slot materialization (2026-10-24)
+
+Owner: Codex, branch `codex/managed-release-slot-shape-20261024`.
+Owned paths: `src/compiler/python/ir/lowering/storage.py`,
+`src/compiler/python/ir/lowering/expressions.py`, and
+`src/tests/python/test_module_units.py`.
+
+Explicit field release produces different C: Python stages `self`, while the
+self-hosted compiler uses it directly; other stable owners use different
+temporary declarations. The four whole-program reductions pass allocation
+tracking in both compilers. Both reject temporary owners consistently.
+Establish whole-program and module regressions with cyclic values and exception
+cleanup before changing materialization. Preserve assignment evaluation order,
+physical-slot validation, and the existing stable-owner rejection tests.
+
+Include `src/tests/python/test_delete_take_clear.py` to update the owned-slot
+temporary name. Preserve its checks that release and delete evaluate each
+owner once and share that owner between the physical slot and ARC edge.
