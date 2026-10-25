@@ -36,6 +36,7 @@ class E40BoundaryRun implements IApplicationWork {
 	}
 
 	public void run() {
+		if (MacOSRunLoopSignal.now() >= self._deadline) { BTRCE40Boundary.diagnoseDeadline(); }
 		assert(MacOSRunLoopSignal.now() < self._deadline);
 		if (!self._ready) { self._ready = BTRCE40Boundary.ready(); }
 		if (self._ready) {

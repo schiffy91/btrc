@@ -16,7 +16,17 @@ class E40ApplicationHost implements IApplicationHost, IAppKitNotificationObserve
 
 	public void scheduleTurn(unsigned long long deadline) { self._signal.scheduleDeadline(deadline); }
 
-	public void invoke(NSNotification notification) { var attached = self.attachment; if (attached != null) { attached.serviceTurn(); } }
+	public void invoke(NSNotification notification) {
+		var attached = self.attachment; if (attached == null) { return; }
+		attached.serviceTurn();
+		var completion = attached.pollCompletion();
+		if (completion == CALLBACK_CANCELLATION_COMPLETE) {
+			// Detaching closes the application; this host owns the native loop.
+			self.attachment = null; assert(MacOSRunLoopSignal.stopApplication(NSApplication.sharedApplication()));
+		} else if (completion == CALLBACK_CANCELLATION_PENDING) {
+			self._signal.scheduleDeadline(MacOSRunLoopSignal.now() + 1000000ULL);
+		} else { assert(completion == CALLBACK_CANCELLATION_NOT_REQUESTED); }
+	}
 
 	public void close() { assert(self._callbacks.cancel() == CALLBACK_CANCELLATION_COMPLETE); assert(self._signal.close()); self.attachment = null; }
 }

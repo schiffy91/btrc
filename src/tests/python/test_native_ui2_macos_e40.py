@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,160 @@ from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "src/tests/native/gui/ui2/probes/macos/e40"
+
+
+class E40NativeControl:
+    """Retain a bounded native control independently of E40 acceptance."""
+
+    TIMEOUT_SECONDS = 15
+
+    def __init__(self, name, command, build_command, source_sha256):
+        self.name = name
+        self.command = command
+        self.executable = Path(command[0])
+        self.build_command = build_command
+        self.source_sha256 = source_sha256
+        self.recorded = set()
+
+    @classmethod
+    def build(cls, directory, name, source_name, frameworks):
+        executable = directory / source_name
+        source = FIXTURES / f"{source_name}.m"
+        command = [
+            "/usr/bin/clang",
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-fobjc-arc",
+            "-O0",
+            str(source),
+        ]
+        for framework in frameworks:
+            command.extend(["-framework", framework])
+        command.extend(["-o", str(executable)])
+        subprocess.run(command, env=apple_environment(), capture_output=True, text=True, check=True, timeout=60)
+        return cls(name, [str(executable)], command, hashlib.sha256(source.read_bytes()).hexdigest())
+
+    def record(self, artifact_root, environment):
+        directory = (artifact_root / f"{self.name}-control").resolve()
+        if directory in self.recorded:
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        report = directory / "observations.json"
+        report.unlink(missing_ok=True)
+        command = [*self.command, str(report)]
+        receipt = {
+            "schema": f"btrc.ui2.{self.name}-control-execution/1",
+            "scope": f"direct {self.name} diagnostic; E40 outcomes are checked independently",
+            "build_command": self.build_command,
+            "source_sha256": self.source_sha256,
+            "executable_sha256": hashlib.sha256(self.executable.read_bytes()).hexdigest(),
+            "command": command,
+            "timeout_seconds": self.TIMEOUT_SECONDS,
+        }
+        stdout, stderr = "", ""
+        try:
+            result = subprocess.run(
+                command, env=environment, capture_output=True, text=True, timeout=self.TIMEOUT_SECONDS
+            )
+            receipt.update(status="completed", returncode=result.returncode)
+            stdout, stderr = result.stdout, result.stderr
+        except (OSError, subprocess.TimeoutExpired) as error:
+            receipt.update(status="failed", error=str(error))
+            if isinstance(error, subprocess.TimeoutExpired):
+                stdout, stderr = error.stdout or b"", error.stderr or b""
+        for name, text in (("stdout", stdout), ("stderr", stderr)):
+            (directory / f"{name}.txt").write_text(text.decode(errors="replace") if isinstance(text, bytes) else text)
+        receipt["report_written"] = report.is_file()
+        (directory / "execution.json").write_text(json.dumps(receipt, indent=2))
+        self.recorded.add(directory)
+
+
+@pytest.fixture(scope="session")
+def build_native_controls(tmp_path_factory):
+    @cache
+    def build():
+        metal = E40NativeControl.build(
+            tmp_path_factory.mktemp("e40-metal-control"),
+            "metal",
+            "MetalPresentation",
+            ("AppKit", "Metal", "QuartzCore"),
+        )
+        synchronized = E40NativeControl(
+            "metal-vsync", [*metal.command, "--vsync"], metal.build_command, metal.source_sha256
+        )
+        resize = E40NativeControl.build(
+            tmp_path_factory.mktemp("e40-resize-control"),
+            "resize",
+            "NativeResize",
+            ("AppKit", "CoreGraphics", "QuartzCore"),
+        )
+        return metal, synchronized, resize
+
+    return build
+
+
+@pytest.fixture(scope="session")
+def check_tracking_stimulus(tmp_path_factory):
+    @cache
+    def check():
+        directory = tmp_path_factory.mktemp("e40-tracking-stimulus")
+        source = FIXTURES / "TrackingStimulus.m"
+        records = []
+        for sanitized in (False, True):
+            executable = directory / ("sanitized" if sanitized else "plain")
+            flags = (
+                ["-O1", "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
+                if sanitized
+                else ["-O2"]
+            )
+            command = [
+                "/usr/bin/clang",
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-fblocks",
+                *flags,
+                str(source),
+                "-framework",
+                "AppKit",
+                "-framework",
+                "CoreGraphics",
+                "-o",
+                str(executable),
+            ]
+            environment = apple_environment() | {"UBSAN_OPTIONS": "halt_on_error=1"}
+            built = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=60)
+            assert built.returncode == 0, built.stdout + built.stderr
+            symbols = subprocess.check_output(["/usr/bin/nm", "-u", str(executable)], text=True, timeout=30)
+            assert "_CGEventPost" not in symbols, "The headless scheduler must intercept every input post"
+            for scenario in ("complete", "cancel", "late"):
+                result = subprocess.run(
+                    [str(executable), scenario], env=environment, capture_output=True, text=True, timeout=10
+                )
+                records.append(
+                    {
+                        "sanitized": sanitized,
+                        "scenario": scenario,
+                        "build_command": command,
+                        "driver_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                        "tracking_sha256": hashlib.sha256((FIXTURES / "Tracking.m").read_bytes()).hexdigest(),
+                        "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+                        "returncode": result.returncode,
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                    }
+                )
+                (directory / "results.json").write_text(json.dumps(records, indent=2))
+                assert result.returncode == 0, result.stdout + result.stderr
+                assert f"PASS: resize stimulus {scenario}" in result.stdout
+        return records
+
+    return check
 
 
 class E40LoopDiagnostic:
@@ -122,6 +277,7 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
     for suffix in ("h", "m"):
         name = f"{stem}.{suffix}"
         (package / name).write_text((FIXTURES / name).read_text())
+    (package / "KeyTimestamp.h").write_text((FIXTURES / "KeyTimestamp.h").read_text())
     symbols = [
         "+[BTRCE40Boundary requireHosted]",
         "+[BTRCE40Boundary setup:output:]",
@@ -131,6 +287,7 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         "+[BTRCE40Boundary text:]",
         "+[BTRCE40Boundary close]",
         "+[BTRCE40Boundary complete]",
+        "+[BTRCE40Boundary diagnoseDeadline]",
         "+[BTRCE40Boundary finish]",
         "+[BTRCE40Boundary report]",
         "+[BTRCE40Boundary cleanup]",
@@ -182,13 +339,11 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         f'[[native.sources]]\npath = "{stem}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         '[[native.frameworks]]\nname = "QuartzCore"\nmodules = ["Main"]\nos = ["macos"]\n'
         '[[native.frameworks]]\nname = "Metal"\nmodules = ["Main"]\nos = ["macos"]\n'
+        '[[native.frameworks]]\nname = "CoreGraphics"\nmodules = ["Main"]\nos = ["macos"]\n'
     )
     if stem == "Load":
         with manifest.open("a") as stream:
-            stream.write(
-                '[[native.sources]]\npath = "Tracking.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
-                '[[native.frameworks]]\nname = "CoreGraphics"\nmodules = ["Main"]\nos = ["macos"]\n'
-            )
+            stream.write('[[native.sources]]\npath = "Tracking.m"\nlanguage = "objective-c"\nstandard = "c11"\n')
     (source.parent / "Host.btrc").write_text((FIXTURES / "Host.btrc").read_text())
     source.write_text((FIXTURES / f"{stem}.btrc").read_text())
     plan = package / f"{stem}.link.json"
@@ -246,10 +401,12 @@ def test_macos_ui2_e40_boundary_compile(e40_program):
 
 
 @pytest.mark.parametrize("trial", ["load"])
-def test_macos_ui2_e40_load_compile(e40_program, trial):
+def test_macos_ui2_e40_load_compile(e40_program, trial, build_native_controls, check_tracking_stimulus):
     """Build the workload without starting its worker, windows or run loop."""
     executable, _ = e40_program
     assert executable.is_file()
+    assert all(control.executable.is_file() for control in build_native_controls())
+    check_tracking_stimulus()
 
 
 @pytest.mark.e40_qualification
@@ -260,7 +417,7 @@ def test_macos_ui2_e40_load_compile(e40_program, trial):
 )
 @pytest.mark.parametrize("trial", ["bursts", "load", "popup", "slider", "resize", "sheet"])
 @pytest.mark.parametrize("entry", ["desktop", "host"])
-def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path):
+def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_native_controls):
     executable, provenance = e40_program
     artifact_root = Path(os.environ.get("BTRC_UI2_E40_ARTIFACTS", str(tmp_path / "e40")))
     directory = artifact_root / provenance["frontend"] / ("sanitized" if sanitized else "plain") / entry / trial
@@ -268,7 +425,7 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path):
     report = directory / "observations.json"
     diagnostic = E40LoopDiagnostic(directory) if os.environ.get("BTRC_UI2_E40_TRACE") == "1" else None
     if diagnostic is not None:
-        assert sanitized and provenance["frontend"] == "selfhost" and trial == "slider"
+        assert sanitized and provenance["frontend"] == "selfhost" and trial in {"slider", "resize"}
         provenance["diagnostic"] = diagnostic.retain_build(executable)
         provenance["diagnostic"]["full_e40_qualification"] = False
         compiler = Path(os.environ["BTRC_TEST_BTRCC"]).resolve(strict=True)
@@ -276,6 +433,9 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path):
     (directory / "provenance.json").write_text(json.dumps(provenance, indent=2))
     environment = apple_environment() | {"UBSAN_OPTIONS": "halt_on_error=1"}
     environment.pop("BTRC_GUI_BACKGROUND", None)
+    if trial == "load":
+        for control in build_native_controls():
+            control.record(artifact_root, environment)
     command = [str(executable), entry, *([] if trial == "bursts" else [trial]), str(report.resolve())]
     timeout = 1800 if trial == "bursts" else 900 if trial == "load" else 60
     try:
