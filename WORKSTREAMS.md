@@ -2712,3 +2712,34 @@ baselines for constants, side effects and fixed arrays before changing the
 planner. Preserve source evaluation order, contextual types, array storage
 and existing ownership boundaries. Require paired strict and sanitized
 native execution, complete C equality, broader checks and application evidence.
+
+
+### Mutex intrinsic ownership (Codex, 2026-10-24)
+
+Branch: `codex/mutex-intrinsic-boundaries-20261024`.
+Owned paths: `src/compiler/btrc/analyzer/ownership/Cycles.btrc`,
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/Concurrency.btrc`,
+`src/compiler/btrc/ir/lowering/Calls.btrc`,
+`src/compiler/btrc/ir/lowering/Statements.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/ManagedTypes.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+The application image handle differs in mutex receiver/result staging and in
+release selection after storing a mutex with an acyclic payload. Establish a
+portable baseline with acyclic and cyclic payloads, get/null comparisons,
+get/return, set/null, exception recovery, and destructor counts. Preserve the
+concrete payload type when choosing a release path; opaque mutex handles must
+remain conservative. Require strict and sanitized native execution and full C
+comparison before claiming parity. Evidence lives under
+`build/issue-gates/mutex-intrinsic-boundaries/`. The candidate forces the existing get/set ownership boundary and uses the
+concrete mutex topology for typed releases and field-store polling. The set
+lowerer stages its receiver before boxing the payload. Opaque runtime releases stay
+conservative. Fresh compiler validation and application qualification remain.
+
+The expanded baseline passes all 40 native executions and fails four complete-C
+comparisons for shared and mixed payload aliases. Preserve declared payload
+spelling in get-result storage and inferred typedef locals; keep canonical types
+for ownership and operators. Fresh validation is required for this repair.

@@ -511,7 +511,9 @@ class ExpressionLowerer {
 		bool orderedBuiltin = plan.call.callee != null && plan.call.callee.kind == NK_IDENTIFIER && (plan.call.callee.name == "Mutex" || plan.call.callee.name == "print" || plan.call.callee.name == "printf");
 		bool languageCall = plan.declaration != null || plan.parameters.len > 0 || orderedFieldCall || orderedBuiltin || self.analyzed.hostedCallKeys.has(AstIdentity.key(plan.call)) || SemanticTypeSystem.directFunctionPointer(calleeType, self.analyzed) != null;
 		bool materializeEffectfulCallee = plan.receiver != null && plan.receiver == plan.call.callee && self.operandPlanner.hasEffect(plan.receiver, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
-		plan.forceOrder = languageCall && (materializeEffectfulCallee || (self.callOwnership.requiresOrder(plan.receiver, plan.operands, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive())) && plan.operands.len + (plan.receiver == null ? 0 : 1) > 1));
+		/* Mutex get/set always stage their receiver and payload, as the typed synchronization path does in the reference. */
+		bool mutexBoundary = plan.call.callee != null && plan.call.callee.kind == NK_FIELD_ACCESS_EXPR && (plan.call.callee.field == "get" || plan.call.callee.field == "set") && plan.receiverType != null && self.managedValues.isMutex(self.cTypes.resolveBodyType(plan.receiverType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+		plan.forceOrder = mutexBoundary || languageCall && (materializeEffectfulCallee || (self.callOwnership.requiresOrder(plan.receiver, plan.operands, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive())) && plan.operands.len + (plan.receiver == null ? 0 : 1) > 1));
 	}
 
 	private IRNode lowerDefaultArgumentCall(Node call, OwnershipCallPlan plan, OwnershipCallOperand operand, Map<string, Node> varTypes, CallableFlowState callableFlow) {

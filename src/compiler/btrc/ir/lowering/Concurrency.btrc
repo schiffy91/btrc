@@ -390,13 +390,22 @@ class ConcurrencyLowerer {
 			return getCall;
 		}
 		if (method == "set") {
+			string receiverName = self.context.freshTemporary("__btrc_mutex_receiver");
+			IRNode receiverDeclaration = IRNode.variableDeclaration(self.cTypes.lower(ot), receiverName, null);
+			self.context.recordLocal(receiverDeclaration);
+			IRNode receiver = IRNode.variable(receiverName);
 			self.context.referenceHelper("__btrc_mutex_val_set");
 			Vector<IRNode> sargs = [];
-			sargs.push(obj);
+			sargs.push(receiver);
 			if (args.len > 0) {
 				sargs.push(self.boxExactValue(args.get(0), valType, "__btrc_mutex"));
 			}
-			return IRNode.call("__btrc_mutex_val_set", sargs);
+			Vector<IRNode> declarations = [];
+			declarations.push(receiverDeclaration);
+			Vector<IRNode> sequence = [];
+			sequence.push(IRNode.binary(receiver, "=", obj));
+			sequence.push(IRNode.call("__btrc_mutex_val_set", sargs));
+			return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 		}
 		if (method == "destroy") {
 			fprintf(stderr, "error: Mutex.destroy() must be a standalone expression statement\n");
