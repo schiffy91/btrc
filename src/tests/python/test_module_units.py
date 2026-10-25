@@ -4210,3 +4210,318 @@ def test_nested_tuple_operands_preserve_effects(tmp_path, immutable_btrcc, modul
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("cyclic", [False, True], ids=["acyclic", "cycle"])
+@pytest.mark.parametrize("receiver", ["self", "variable"])
+@pytest.mark.parametrize("guarded", [False, True], ids=["plain", "unwind"])
+def test_explicit_field_release_preserves_owner_and_cleanup(
+    tmp_path, immutable_btrcc, module_units, cyclic, receiver, guarded
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    edge = "public Owner? owner = null;" if cyclic else ""
+    connect = "self.child.owner = self;" if cyclic else ""
+    method = "public void clear() { release self.child; }" if receiver == "self" else ""
+    clear = "owner.clear();" if receiver == "self" else "release owner.child;"
+    operation = (
+        f'try {{ {clear} throw "done"; }} catch (string error) {{ assert(error == "done"); }}' if guarded else clear
+    )
+    (source / "Owners.btrc").write_text(f"""
+int children = 0;
+int owners = 0;
+class Child {{
+    {edge}
+    public Child() {{ children++; }}
+    public void __del__() {{ children--; }}
+}}
+class Owner {{
+    public Child? child = null;
+    public Owner() {{ owners++; }}
+    public void __del__() {{ owners--; }}
+    public void attach() {{ self.child = new Child(); {connect} }}
+    {method}
+}}
+void exercise() {{
+    Owner owner = new Owner();
+    owner.attach();
+    assert(owners == 1 && children == 1);
+    {operation}
+    assert(owner.child == null && children == 0 && owners == 1);
+}}
+""")
+    (source / "Main.btrc").write_text(
+        "import ./Owners.btrc;\nint main() { for (int i = 0; i < 20; i++) { exercise(); "
+        'assert(children == 0 && owners == 0); } print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("receiver", ["self", "variable", "keep"])
+@pytest.mark.parametrize("default", [False, True], ids=["explicit", "default"])
+@pytest.mark.parametrize("throws", [False, True], ids=["plain", "throws"])
+def test_call_argument_pins_preserve_self_and_owned_bindings(
+    tmp_path, immutable_btrcc, module_units, receiver, default, throws
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "selfArgumentPins"\n')
+    binding = "Owner alias = self;" if receiver == "variable" else ""
+    argument = "alias" if receiver == "variable" else "self"
+    later = "" if default else ", touch()"
+    qualifier = "keep " if receiver == "keep" else ""
+    effect = 'throw "later";' if throws else "return 7;"
+    invoke = (
+        'try { owner.exercise(); assert(false); } catch (string error) { assert(error.equals("later")); }'
+        if throws
+        else "owner.exercise();"
+    )
+    (source / "Main.btrc").write_text(
+        f"""
+        int alive = 0;
+        int calls = 0;
+        int observations = 0;
+        int touch() {{ calls++; {effect} }}
+        class Owner {{
+            public int value = 9;
+            public Owner() {{ alive++; }}
+            public void __del__() {{ alive--; }}
+            public void exercise() {{ {binding} observe({argument}{later}); assert(alive == 1); }}
+        }}
+        void observe({qualifier}Owner owner, int later = touch()) {{
+            observations++;
+            assert(owner.value == 9 && later == 7 && calls == 1);
+        }}
+        void exercise() {{
+            calls = 0;
+            observations = 0;
+            Owner owner = new Owner();
+            {invoke}
+            assert(calls == 1 && alive == 1 && observations == {0 if throws else 1});
+        }}
+        int main() {{
+            for (int round = 0; round < 20; round++) {{ exercise(); assert(alive == 0); }}
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+@pytest.mark.parametrize("volatile", [False, True], ids=["inferred", "explicit"])
+def test_constructor_parameter_qualifiers_belong_to_each_function(
+    tmp_path, immutable_btrcc, module_units, generic, volatile
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    parameters = "<T>" if generic else ""
+    instance = "Box<int>" if generic else "Box"
+    qualifier = "volatile " if volatile else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+class Payload {{ public Payload() {{ alive++; }} public void __del__() {{ alive--; }} }}
+class Box{parameters} {{
+ public int value = 0;
+ public Payload? payload = null;
+ public Box({qualifier}int number, Payload input) {{
+  try {{ number++; throw "adjust"; }}
+  catch (string error) {{ assert(error.equals("adjust")); self.value = number; }}
+  self.payload = input;
+ }}
+}}
+void exercise() {{
+ Payload payload = new Payload();
+ {instance} box = new {instance}(3, payload);
+ assert(box.value == 4 && box.payload == payload && alive == 1);
+}}
+int main() {{
+ for (int round = 0; round < 20; round++) {{ exercise(); assert(alive == 0); }}
+ print("PASS"); return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("kind", ["alias", "independent"])
+@pytest.mark.parametrize("keep", [False, True], ids=["borrow", "keep"])
+@pytest.mark.parametrize("throws", [False, True], ids=["plain", "throws"])
+def test_hosted_string_arguments_preserve_borrow_and_keep(tmp_path, immutable_btrcc, module_units, kind, keep, throws):
+    source = tmp_path / "src"
+    source.mkdir()
+    expression = "strchr(raw, 'b')" if kind == "alias" else "strerror(1)"
+    qualifier = "keep " if keep else ""
+    call = f"observe({expression});"
+    invoke = (
+        ("try { " + call + ' assert(false); } catch (string error) { assert(error.equals("stop")); }')
+        if throws
+        else call
+    )
+    (source / "Main.btrc").write_text(f"""
+#include <string.h>
+#include <stdlib.h>
+size_t baseline = 0;
+int observations = 0;
+void observe({qualifier}string value) {{
+    assert(value != null && strlen(value) > (size_t)0);
+    assert(__btrc_string_live_count() == baseline + (size_t){1 if keep else 0});
+    observations++;
+    {'throw "stop";' if throws else ""}
+}}
+int main() {{
+    baseline = __btrc_string_live_count();
+    char* raw = (char*)"borrowed";
+    (void)raw;
+    for (int round = 0; round < 20; round++) {{
+        {invoke}
+        assert(__btrc_string_live_count() == baseline);
+    }}
+    assert(observations == 20);
+    print("PASS");
+    return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_stored_callback_prototypes_keep_declared_parameter_qualifiers(
+    tmp_path, native_project, immutable_btrcc, module_units
+):
+    from src.tests.python.test_native_objective_c_delegates import stored_objective_c_project
+
+    source = native_project[0].parent
+    stored_objective_c_project.__wrapped__(native_project)
+    generated = _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "", module_units=module_units)
+    expected = {
+        "retain": "void* rawContext",
+        "release": "void* rawContext",
+        "0_invoke": "int argument0, void* argument1",
+    }
+    for frontend, units in generated.items():
+        declarations = 0
+        definitions = 0
+        for text in units.values():
+            for suffix, parameters in expected.items():
+                pattern = rb"^.* __btrc_objc_NativeSubscription_listen_" + suffix.encode() + rb"\(([^)]*)\)([; {]+)$"
+                for match in re.finditer(pattern, text, re.MULTILINE):
+                    if match[2] == b";":
+                        assert match[1].decode() == parameters, (frontend, suffix, match[0])
+                        declarations += 1
+                    else:
+                        assert b"volatile" in match[1], (frontend, suffix, match[0])
+                        definitions += 1
+        assert definitions == 3, (frontend, definitions)
+        if module_units:
+            assert declarations >= 3, (frontend, declarations)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+def test_conditional_return_from_nullable_receiver_releases_result(tmp_path, immutable_btrcc, module_units, generic):
+    source = tmp_path / "src"
+    source.mkdir()
+    generic_parameters = "<T>" if generic else ""
+    receiver_type = "T" if generic else "Holder"
+    generic_arguments = "<Holder>" if generic else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+class Item {{
+ public Item() {{ alive++; }}
+ public void __del__() {{ alive--; }}
+ class Item idle() {{ return new Item(); }}
+}}
+class Holder {{ public Item read() {{ return new Item(); }} }}
+class Choice{generic_parameters} {{
+ private {receiver_type}? current;
+ public Choice({receiver_type}? current) {{ self.current = current; }}
+ public Item read(bool closed) {{
+  {receiver_type}? optional = self.current;
+  return closed || optional == null ? Item.idle() : optional.read();
+ }}
+}}
+void visit(bool present, bool closed) {{
+ Holder? holder = null;
+ if (present) {{ holder = new Holder(); }}
+ Choice{generic_arguments} choice = new Choice{generic_arguments}(holder);
+ Item item = choice.read(closed);
+ assert(alive == 1);
+}}
+int main() {{
+ for(int i = 0; i < 12; i++) {{ visit(i % 2 == 0, i % 3 == 0); assert(alive == 0); }}
+ print("PASS"); return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["acyclic", "payload-cycle", "mutex-cycle", "shared-alias", "mixed-alias"])
+def test_mutex_payload_calls_preserve_typed_ownership(tmp_path, immutable_btrcc, module_units, shape):
+    source = tmp_path / "src"
+    source.mkdir()
+    edge = {
+        "acyclic": "",
+        "payload-cycle": "public Payload? next = null;",
+        "mutex-cycle": "public Mutex<Payload?> owner;",
+        "shared-alias": "public Mutex<PayloadAlias?> owner;",
+        "mixed-alias": "public Mutex<Payload?> owner;",
+    }[shape]
+    connect = "self.next = self;" if shape == "payload-cycle" else ""
+    alias = shape in {"shared-alias", "mixed-alias"}
+    payload = "PayloadAlias" if alias else "Payload"
+    typedef = "typedef Payload PayloadAlias;" if alias else ""
+    link = "value.owner = self.slot;" if shape in {"mutex-cycle", "shared-alias", "mixed-alias"} else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+{typedef}
+class Payload {{
+ {edge}
+ public int number = 7;
+ public Payload() {{ alive++; {connect} }}
+ public void __del__() {{ alive--; }}
+}}
+class Holder {{
+ private Mutex<{payload}?> slot;
+ public Holder() {{ {payload}? value = new Payload(); self.slot = Mutex(value); {link} }}
+ public bool isOpen() {{ return self.slot.get() != null; }}
+ public int read() {{ var value = self.slot.get(); if (value == null) {{ throw "closed"; }} return value.number; }}
+ public void close() {{ self.slot.set(null); }}
+}}
+void exercise() {{
+ Holder holder = new Holder();
+ assert(alive == 1 && holder.isOpen() && holder.read() == 7);
+ holder.close();
+ assert(alive == 0 && !holder.isOpen());
+ bool caught = false;
+ try {{ holder.read(); }} catch (string error) {{ assert(error.equals("closed")); caught = true; }}
+ assert(caught);
+ holder.close();
+}}
+void abandon() {{ Holder holder = new Holder(); assert(alive == 1 && holder.read() == 7); }}
+int main() {{ for (int i = 0; i < 20; i++) {{ exercise(); assert(alive == 0); abandon(); assert(alive == 0); }} print("PASS"); return 0; }}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

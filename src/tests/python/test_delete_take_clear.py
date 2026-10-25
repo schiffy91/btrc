@@ -181,7 +181,7 @@ def test_effectful_edge_owner_is_one_shared_ir_value_in_ordinary_and_generic_bod
         assert len(owner_calls) == 2
         assert len(addressed_owners) == 2
         assert addressed_owners == edge_owners
-        assert all(name.startswith("__btrc_storage_receiver_") for name in edge_owners)
+        assert all(name.startswith("__btrc_release_owner_") for name in edge_owners)
 
 
 @requires_host_c_compiler

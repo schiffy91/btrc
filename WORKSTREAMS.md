@@ -2712,3 +2712,187 @@ baselines for constants, side effects and fixed arrays before changing the
 planner. Preserve source evaluation order, contextual types, array storage
 and existing ownership boundaries. Require paired strict and sanitized
 native execution, complete C equality, broader checks and application evidence.
+
+
+### CX conditional result ownership (2026-10-24)
+
+Owner: Codex, branch `codex/conditional-result-ownership-20261024`.
+Owned paths: `src/compiler/python/ir/lowering/ownership.py`,
+`src/tests/btrc/test_conditional_result_ownership.py`, and paired module tests
+in `src/tests/python/test_module_units.py`.
+
+The application retains a ternary string ownership difference: Python adds
+a retain after a selected managed call has been normalized to an owned result;
+the self-hosted compiler promotes the borrowed alternate branch instead.
+Establish allocation-counted native baselines before changing classification.
+Cover borrowed and owned string calls, managed objects, selected branches and
+exception cleanup. Preserve lazy branch evaluation and callee ABI ownership.
+
+The generic nullable-class control exposes missing branch types: analysis keeps
+`null*` for the conditional while the existing call plan resolves `Item*`.
+Extend this packet to the calls and expression owners, callable construction
+in classes, functions, declarations and translation units, and the two existing
+callable provenance test fixtures. Supply exact expression types through the
+per-body facts port; do not infer call ownership from an expected type.
+
+Include `src/compiler/python/ir/lowering/types.py` for concrete conditional
+branch compatibility. The expanded reductions cover two deferred call branches,
+casts of normalized call results and borrowed-cast controls. Preserve checked
+native cast ownership and explicit operand ownership overrides.
+
+Opaque coalescing operands also expose a strict-C failure: the unresolved C
+operand fallback can emit raw `??`. Include
+`src/tests/python/test_typed_operator_contract.py` and route coalescing through
+its existing typed validator. Explicitly cast opaque operands remain supported.
+
+Update `src/tests/python/test_lowering_architecture.py` to require the exact
+expression-type port at all existing callable provenance construction sites.
+The per-body lifetime and acyclic owner graph contracts remain unchanged.
+
+### CX explicit managed-slot materialization (2026-10-24)
+
+Owner: Codex, branch `codex/managed-release-slot-shape-20261024`.
+Owned paths: `src/compiler/python/ir/lowering/storage.py`,
+`src/compiler/python/ir/lowering/expressions.py`, and
+`src/tests/python/test_module_units.py`.
+
+Explicit field release produces different C: Python stages `self`, while the
+self-hosted compiler uses it directly; other stable owners use different
+temporary declarations. The four whole-program reductions pass allocation
+tracking in both compilers. Both reject temporary owners consistently.
+Establish whole-program and module regressions with cyclic values and exception
+cleanup before changing materialization. Preserve assignment evaluation order,
+physical-slot validation, and the existing stable-owner rejection tests.
+
+Include `src/tests/python/test_delete_take_clear.py` to update the owned-slot
+temporary name. Preserve its checks that release and delete evaluate each
+owner once and share that owner between the physical slot and ARC edge.
+
+### CX stable self argument pins (2026-10-24)
+
+Owner: Codex, branch `codex/stable-self-argument-pins-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/ownership/Calls.btrc` and
+`src/tests/python/test_module_units.py`.
+
+The self-hosted argument planner adds a stabilization retain for `self` before
+later effects or default arguments. Python excludes `self` and `super` from
+those pins, as the self-hosted receiver planner already does. Six reductions
+pass 24 strict and sanitized native runs; the two `self` cases differ in C,
+while ordinary bindings and explicit `keep` parameters match.
+Establish whole-program and module regressions with exceptional later arguments
+before changing the argument plan. Preserve explicit parameter ownership and
+pins for ordinary borrowed values. Full application and integration gates remain.
+
+The initial candidate changed only operand planning; fresh validation still
+reported eight self-argument C mismatches because completeCallPlan repeated
+the pin decision. Both passes now call CallOwnershipLowerer.canPinBorrowedOperand.
+This extends the owned paths to `src/compiler/btrc/ir/lowering/Expressions.btrc`.
+The failed first candidate remains under `first-candidate/` in the evidence
+folder. Explicit parameter keep decisions remain separate from automatic pins.
+
+### Constructor parameter isolation (Codex, 2026-10-24)
+
+Branch: `codex/constructor-parameter-isolation-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Generic constructor declarations, initializers, and allocation wrappers share
+mutable IR parameters. Setjmp analysis of the initializer changes qualifiers
+on the other functions. Give each function its own parameter copies using the
+existing CTypeLowerer operation, preserving explicit qualifiers. Whole-program
+and module regressions cover ordinary and generic constructors, inferred and
+explicit volatile parameters, exception recovery, and managed payload cleanup.
+Baseline evidence and validation are under
+`build/issue-gates/constructor-parameter-isolation/`. This work does not claim
+application parity, performance qualification, or issue completion.
+
+### CX borrowed hosted string arguments (2026-10-24)
+
+Owner: Codex, branch `codex/borrowed-hosted-string-arguments-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Borrowed string parameters accept raw character pointers without creating an
+owned managed string. The self-hosted compiler still copies recognized hosted
+alias and independent results at those boundaries. Keep parameters must retain
+their owned conversion. Owned values with a keep also allocate and release their
+temporary guards in a different order from the reference compiler.
+
+Regressions cover both hosted effects, borrowed and keep parameters, plain and
+throwing calls, and whole-program and module output. They check live managed
+string counts and cleanup before comparing complete C. Evidence is under
+`build/issue-gates/borrowed-hosted-string-arguments/`. No application parity,
+performance qualification, or issue completion is claimed.
+
+### Function prototype parameter isolation (Codex, 2026-10-24)
+
+Branch: `codex/function-parameter-isolation-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Types.btrc`,
+`src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/compiler/btrc/ir/lowering/Lowerer.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Stored callback definitions and their separate prototypes share mutable IR
+parameters. Setjmp analysis adds body-local qualifiers to the prototypes.
+Copy parameter records when creating a separate declaration, preserving source
+qualifiers. A Foundation-only fixture exercises registration, cancellation,
+inline delivery, and failure cleanup in whole-program and module builds under
+strict C11 and sanitizers before checking prototype and definition qualifiers.
+Its complete C still differs for other recorded reasons; this regression does
+not claim complete callback parity. Portable ordinary, generic-method, and
+lambda diagnostics are preserved as passing controls. Evidence lives under
+`build/issue-gates/function-parameter-isolation/`.
+
+
+### Generic conditional return ownership (Codex, 2026-10-24)
+
+The six-owner application comparison exposed extra self-host retains in
+`SwappablePreviewPort`. The portable regression passes ordinary receivers but
+leaks generic-receiver call results in whole-program and module builds. The
+reference compiler passes both. Owned paths for this repair are
+`src/compiler/btrc/ir/lowering/ownership/Semantics.btrc`,
+`src/tests/python/test_module_units.py`, and this claim. When expression
+inference cannot resolve a call result, use its specialized call signature
+before classifying ownership. Validate native lifetime, full C equality,
+conditional ownership coverage, and the application comparison before saving
+the combined candidate. The first application candidate remains unqualified.
+
+The same packet also owns conditional branch classification in
+`src/compiler/btrc/ir/lowering/Expressions.btrc` and extends
+`src/tests/btrc/test_conditional_result_ownership.py`. Allocation-tracked
+ordinary and generic baselines reproduce a self-host leak for a conditional
+with an empty Vector branch; reference executions pass. Propagate the
+conditional result type into branch ownership so contextual literals retain
+their allocation ownership. Both repairs require fresh combined validation.
+
+
+### Mutex intrinsic ownership (Codex, 2026-10-24)
+
+Branch: `codex/mutex-intrinsic-boundaries-20261024`.
+Owned paths: `src/compiler/btrc/analyzer/ownership/Cycles.btrc`,
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/Concurrency.btrc`,
+`src/compiler/btrc/ir/lowering/Calls.btrc`,
+`src/compiler/btrc/ir/lowering/Statements.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/ManagedTypes.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+The application image handle differs in mutex receiver/result staging and in
+release selection after storing a mutex with an acyclic payload. Establish a
+portable baseline with acyclic and cyclic payloads, get/null comparisons,
+get/return, set/null, exception recovery, and destructor counts. Preserve the
+concrete payload type when choosing a release path; opaque mutex handles must
+remain conservative. Require strict and sanitized native execution and full C
+comparison before claiming parity. Evidence lives under
+`build/issue-gates/mutex-intrinsic-boundaries/`. The candidate forces the existing get/set ownership boundary and uses the
+concrete mutex topology for typed releases and field-store polling. The set
+lowerer stages its receiver before boxing the payload. Opaque runtime releases stay
+conservative. Fresh compiler validation and application qualification remain.
+
+The expanded baseline passes all 40 native executions and fails four complete-C
+comparisons for shared and mixed payload aliases. Preserve declared payload
+spelling in get-result storage and inferred typedef locals; keep canonical types
+for ownership and operators. Fresh validation is required for this repair.

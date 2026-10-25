@@ -342,7 +342,7 @@ class DeclarationLowerer {
 		}
 		adapter.body = IRNode.block(statements);
 		var prototype = IRFunctionDecl(name, adapter.returnType, true);
-		prototype.params = adapter.params;
+		prototype.params = self.cTypes.copyParameters(adapter.params);
 		module.functionDecls.push(prototype);
 		module.functions.push(adapter);
 	}
@@ -503,7 +503,7 @@ class DeclarationLowerer {
 		]), null);
 		adapter.body = IRNode.block([contextDeclaration, wrongThread, self.nativeCallbackBoundary(body, module)]);
 		var prototype = IRFunctionDecl(adapter.name, adapter.returnType, true);
-		prototype.params = adapter.params;
+		prototype.params = self.cTypes.copyParameters(adapter.params);
 		module.functionDecls.push(prototype);
 		module.functions.push(adapter);
 		return IRNode.functionReference(adapter.name);
@@ -559,7 +559,7 @@ class DeclarationLowerer {
 			IRNode call = IRNode.call(operation == "retain" ? resource.retainFunction : resource.releaseFunction, [IRNode.cast(resource.name, value)]);
 			adapter.body = IRNode.block([IRNode.ifStatement(IRNode.binary(value, "!=", IRNode.literal("NULL")), IRNode.block([IRNode.expressionStatement(IRNode.cast("void", call))]), null)]);
 			var prototype = IRFunctionDecl(adapter.name, "void", true);
-			prototype.params = adapter.params;
+			prototype.params = self.cTypes.copyParameters(adapter.params);
 			module.functionDecls.push(prototype);
 			module.functions.push(adapter);
 		}
@@ -3028,7 +3028,7 @@ class DeclarationLowerer {
 		adapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([IRNode.objectiveCExceptionBoundary(body, failureBody)]))]);
 		native.functions.push(adapter);
 		var external = IRFunctionDecl(adapter.name, "int", false);
-		external.params = adapter.params;
+		external.params = self.cTypes.copyParameters(adapter.params);
 		module.functionDecls.push(external);
 		self.context.referenceHelper("__btrc_throw");
 		IRNode failure = IRNode.call("__btrc_throw", [IRNode.literal("\"Objective-C exception reading " + declaration.name + "\"")]);
@@ -3173,7 +3173,7 @@ class DeclarationLowerer {
 			adapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([IRNode.objectiveCExceptionBoundary(IRNode.block(body), IRNode.block([IRNode.returnStatement(IRNode.literal("1"))]))]))]);
 			native.functions.push(adapter);
 			var external = IRFunctionDecl(adapter.name, "int", false);
-			external.params = adapter.params;
+			external.params = self.cTypes.copyParameters(adapter.params);
 			module.functionDecls.push(external);
 			Vector<IRNode> statements = [];
 			Vector<IRNode> callArguments = [];
@@ -3242,7 +3242,7 @@ class DeclarationLowerer {
 			}
 			wrapper.body = IRNode.block(statements);
 			var prototype = IRFunctionDecl(name, wrapper.returnType, true);
-			prototype.params = wrapper.params;
+			prototype.params = self.cTypes.copyParameters(wrapper.params);
 			module.functionDecls.push(prototype);
 			module.functions.push(wrapper);
 		}
@@ -3725,7 +3725,7 @@ class DeclarationLowerer {
 		]))]);
 		native.functions.push(adapter);
 		var external = IRFunctionDecl(prefix, "int", false);
-		external.params = adapter.params;
+		external.params = self.cTypes.copyParameters(adapter.params);
 		module.functionDecls.push(external);
 		Vector<IRNode> body = [];
 		Map<string, bool> parameterNames = {};
@@ -3952,7 +3952,7 @@ class DeclarationLowerer {
 		]))]);
 		native.functions.push(unregisterAdapter);
 		var unregisterExternal = IRFunctionDecl(unregisterAdapter.name, "void", false);
-		unregisterExternal.params = unregisterAdapter.params;
+		unregisterExternal.params = self.cTypes.copyParameters(unregisterAdapter.params);
 		module.functionDecls.push(unregisterExternal);
 		var unregister = IRFunction();
 		unregister.name = prefix + "_unregister";
@@ -4070,7 +4070,7 @@ class DeclarationLowerer {
 		]))]);
 		native.functions.push(adapter);
 		var external = IRFunctionDecl(adapter.name, "int", false);
-		external.params = adapter.params;
+		external.params = self.cTypes.copyParameters(adapter.params);
 		module.functionDecls.push(external);
 		Vector<IRNode> body = [];
 		Map<string, bool> parameterNames = {};
@@ -4277,7 +4277,7 @@ class DeclarationLowerer {
 		]))]);
 		native.functions.push(adapter);
 		var external = IRFunctionDecl(adapter.name, resultType, false);
-		external.params = adapter.params;
+		external.params = self.cTypes.copyParameters(adapter.params);
 		module.functionDecls.push(external);
 		var wrapper = IRFunction();
 		wrapper.name = contract.adapterSymbol(declaration.name);
@@ -4603,7 +4603,7 @@ class DeclarationLowerer {
 			IRNode.returnStatement(IRNode.objectiveCMessage(IRNode.cast(holderC, IRNode.variable("token"), "borrow"), "btrcUnregister", noArguments))
 		]), IRNode.block([self.abortStatement()]))]);
 		native.functions.push(unregister);
-		var unregisterPrototype = IRFunctionDecl(unregister.name, unregister.returnType, false); unregisterPrototype.params = unregister.params;
+		var unregisterPrototype = IRFunctionDecl(unregister.name, unregister.returnType, false); unregisterPrototype.params = self.cTypes.copyParameters(unregister.params);
 		module.functionDecls.push(unregisterPrototype);
 		Vector<IRParam> sourceParameters = []; for parameter in method.params() { sourceParameters.push(self.cTypes.lowerParameter(parameter)); }
 		string resultC = self.cTypes.lower(method.returnType);
@@ -4625,7 +4625,7 @@ class DeclarationLowerer {
 			IRNode.assignment(IRNode.dereference(IRNode.variable("nativeResult")), IRNode.cast(resultC, IRNode.variable("created"), "retain")), IRNode.returnStatement(IRNode.literal("0"))
 		]), IRNode.block([IRNode.returnStatement(IRNode.literal("1"))]))]))]);
 		native.functions.push(adapter);
-		var adapterPrototype = IRFunctionDecl(prefix, "int", false); adapterPrototype.params = adapter.params; module.functionDecls.push(adapterPrototype);
+		var adapterPrototype = IRFunctionDecl(prefix, "int", false); adapterPrototype.params = self.cTypes.copyParameters(adapter.params); module.functionDecls.push(adapterPrototype);
 		var wrapper = IRFunction(); wrapper.name = owner + "_" + method.name; wrapper.returnType = resultC; wrapper.params = sourceParameters; wrapper.isStatic = true;
 		IRNode resultSlot = IRNode.variableDeclaration(resultC, "nativeResult", IRNode.literal("NULL"));
 		Vector<IRNode> body = [resultSlot]; Map<string, bool> names = {}; for parameter in sourceParameters { names.put(parameter.name, true); }
@@ -4878,7 +4878,7 @@ class DeclarationLowerer {
 		]))]);
 		native.functions.push(adapter);
 		var external = IRFunctionDecl(adapter.name, "void", false);
-		external.params = adapter.params;
+		external.params = self.cTypes.copyParameters(adapter.params);
 		module.functionDecls.push(external);
 		var wrapper = IRFunction();
 		wrapper.name = owner + "_" + method.name;
@@ -4936,7 +4936,7 @@ class DeclarationLowerer {
 		}
 		wrapper.body = IRNode.block(statements);
 		var prototype = IRFunctionDecl(wrapper.name, wrapper.returnType, true);
-		prototype.params = wrapper.params;
+		prototype.params = self.cTypes.copyParameters(wrapper.params);
 		module.functionDecls.push(prototype);
 		module.functions.push(wrapper);
 	}
@@ -4966,7 +4966,7 @@ class DeclarationLowerer {
 		]);
 		native.functions.push(resolver);
 		var resolverPrototype = IRFunctionDecl(lookup, "void*", false);
-		resolverPrototype.params = resolver.params;
+		resolverPrototype.params = self.cTypes.copyParameters(resolver.params);
 		module.functionDecls.push(resolverPrototype);
 		Node factoryType = factoryRoot.genericArgs().get(0);
 		string factorySymbol = TypeIdentity.mangleGenericSymbol(factoryRoot.base, factoryRoot.genericArgs());
@@ -5060,7 +5060,7 @@ class DeclarationLowerer {
 			adapter.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([boundary]))]);
 			native.functions.push(adapter);
 			var prototype = IRFunctionDecl(adapter.name, "void", false);
-			prototype.params = adapter.params;
+			prototype.params = self.cTypes.copyParameters(adapter.params);
 			module.functionDecls.push(prototype);
 		}
 	}
@@ -5171,7 +5171,7 @@ class DeclarationLowerer {
 		test.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([boundary]))]);
 		native.functions.push(test);
 		var prototype = IRFunctionDecl(name, "int", false);
-		prototype.params = test.params;
+		prototype.params = self.cTypes.copyParameters(test.params);
 		module.functionDecls.push(prototype);
 		return name;
 	}
@@ -5197,7 +5197,7 @@ class DeclarationLowerer {
 		test.body = IRNode.block([IRNode.objectiveCAutoreleasePool(IRNode.block([boundary]))]);
 		native.functions.push(test);
 		var prototype = IRFunctionDecl(name, "int", false);
-		prototype.params = test.params;
+		prototype.params = self.cTypes.copyParameters(test.params);
 		module.functionDecls.push(prototype);
 		return name;
 	}
@@ -5660,7 +5660,7 @@ class DeclarationLowerer {
 		initDeclaration.params.push(IRParam(mangled + "*", "self"));
 		int cp = 0;
 		while (cp < ctorParams.len) {
-			initDeclaration.params.push(ctorParams.get(cp));
+			initDeclaration.params.push(self.cTypes.copyParameter(ctorParams.get(cp)));
 			cp = cp + 1;
 		}
 		m.functionDecls.push(initDeclaration);
@@ -5668,7 +5668,7 @@ class DeclarationLowerer {
 		IRFunctionDecl newDeclaration = IRFunctionDecl(mangled + "_new", mangled + "*", true);
 		int q = 0;
 		while (q < ctorParams.len) {
-			newDeclaration.params.push(ctorParams.get(q));
+			newDeclaration.params.push(self.cTypes.copyParameter(ctorParams.get(q)));
 			q = q + 1;
 		}
 		m.functionDecls.push(newDeclaration);
@@ -5718,7 +5718,7 @@ class DeclarationLowerer {
 		initFn.isStatic = true;
 		initFn.params.push(IRParam(mangled + "*", "self"));
 		int ip = 0;
-		while (ip < ctorParams.len) { initFn.params.push(ctorParams.get(ip)); ip = ip + 1; }
+		while (ip < ctorParams.len) { initFn.params.push(self.cTypes.copyParameter(ctorParams.get(ip))); ip = ip + 1; }
 		Vector<IRNode> ibody = [];
 		/* An instance whose class another group defines shares only its
 		 * signatures here; that group's unit lowers the bodies. */
@@ -5765,7 +5765,7 @@ class DeclarationLowerer {
 		newFn.returnType = mangled + "*";
 		newFn.isStatic = true;
 		int np = 0;
-		while (np < ctorParams.len) { newFn.params.push(ctorParams.get(np)); np = np + 1; }
+		while (np < ctorParams.len) { newFn.params.push(self.cTypes.copyParameter(ctorParams.get(np))); np = np + 1; }
 		Vector<IRNode> nbody = [];
 		if (!foreign) {
 			self.context.referenceHelper("__btrc_safe_calloc");
@@ -5905,7 +5905,7 @@ class DeclarationLowerer {
      * Mirrors generics.methods_mono.emit_generic_method_instances. */
 	private void appendFunction(IRFunction callable, IRModule module) {
 		var prototype = IRFunctionDecl(callable.name, callable.returnType, true);
-		prototype.params = callable.params;
+		prototype.params = self.cTypes.copyParameters(callable.params);
 		module.functionDecls.push(prototype);
 		module.functions.push(callable);
 	}

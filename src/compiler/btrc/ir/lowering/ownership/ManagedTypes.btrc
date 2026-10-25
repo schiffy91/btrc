@@ -371,9 +371,7 @@ class ManagedTypeLowerer {
 		sequence.push(IRNode.binary(slot, "=", replacement));
 		sequence.push(IRNode.binary(replacement, "=", IRNode.literal("NULL")));
 		sequence.push(self.lifetime.releaseValue(old, valueType));
-		if (self.cycles.runtimeTypeMayCycle(self.managedValues.runtimeType(valueType))) {
-			sequence.push(self.lifetime.pollCycles());
-		}
+		self.appendCyclePoll(sequence, valueType);
 		sequence.push(slot);
 		return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
 	}
@@ -507,7 +505,7 @@ class ManagedTypeLowerer {
 	}
 
 	private void appendCyclePoll(Vector<IRNode> sequence, Node valueType) {
-		if (self.cycles.runtimeTypeMayCycle(self.managedValues.runtimeType(valueType))) {
+		if (self.lifetime.releaseMayEnqueue(valueType)) {
 			sequence.push(self.lifetime.pollCycles());
 		}
 	}

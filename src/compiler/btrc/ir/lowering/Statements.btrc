@@ -502,11 +502,11 @@ class StatementLowerer {
 					ct = self.cTypes.lowerGeneric(node.type, self.context.activeTypeMap);
 				}
 			}
-			/* Preserve the SDK's storage spelling without changing the canonical
+			/* Preserve inferred typedef storage spelling without changing the canonical
 			 * type used for operators, null comparisons or ownership decisions. */
-			if (self.analyzed.nativeDeclarations.len > 0 && node.type == null && node.initializer != null) {
+			if (node.type == null && node.initializer != null) {
 				Node? storageType = self.operandPlanner.expressionStorageType(node.initializer, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
-				if (storageType != null && self.analyzed.isNativeTypedef(storageType.base)) { ct = self.cTypes.lower(storageType); }
+				if (storageType != null && (self.analyzed.typedefTable.has(storageType.base) || self.analyzed.isNativeTypedef(storageType.base))) { ct = self.cTypes.lower(storageType); }
 			}
 			IRNode? init = null;
 			CallableLambdaPlan? lambdaPlan = null;
