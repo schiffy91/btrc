@@ -2743,3 +2743,26 @@ The expanded baseline passes all 40 native executions and fails four complete-C
 comparisons for shared and mixed payload aliases. Preserve declared payload
 spelling in get-result storage and inferred typedef locals; keep canonical types
 for ownership and operators. Fresh validation is required for this repair.
+
+
+### Native lease cleanup parity (2026-10-24, Codex)
+
+Branch `codex/native-lease-cleanup-parity-20261024` starts at `f584fc6d`.
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/{Calls,Lifetime}.btrc`,
+`src/tests/python/test_native_managed_resources.py`, and this claim.
+
+Native reference-counted resource adapters assembled their own release and
+clear statements while ordinary calls used a separate lifetime sequence. The
+reference compiler uses the same operation for both. A reduced C resource
+fixture passes eight strict and sanitized executions but produces different C
+for one and two borrowed arguments. The tracked regression covers distinct and
+aliased owners, normal returns, and throwing exits: all twelve native executions
+pass, while six self-hosted C comparisons fail on the unchanged compiler.
+
+`ManagedLifetimeLowerer.releaseAndClear` now owns that structured operation.
+Ordinary calls and non-unique native leases use it, including typed cycle polling.
+Unique-resource borrow and attachment releases keep their separate operation.
+Fresh compiler, native resource, call cleanup, parity, structure, and generated
+checks remain required. Evidence is in `build/issue-gates/native-lease-parity/`.
+No application execution, performance result, or final qualification is claimed.
