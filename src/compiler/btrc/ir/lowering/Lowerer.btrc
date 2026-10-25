@@ -280,7 +280,7 @@ class IRLowerer {
 				definitions.push(definition);
 			} else if (!declared.has(definition.name)) {
 				IRFunctionDecl prototype = IRFunctionDecl(definition.name, definition.returnType, false);
-				prototype.params = definition.params;
+				prototype.params = self.cTypes.copyParameters(definition.params);
 				prototype.cLinkage = definition.cLinkage;
 				module.functionDecls.push(prototype);
 				declared.put(definition.name, true);

@@ -2729,3 +2729,23 @@ explicit volatile parameters, exception recovery, and managed payload cleanup.
 Baseline evidence and validation are under
 `build/issue-gates/constructor-parameter-isolation/`. This work does not claim
 application parity, performance qualification, or issue completion.
+
+
+### Function prototype parameter isolation (Codex, 2026-10-24)
+
+Branch: `codex/function-parameter-isolation-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Types.btrc`,
+`src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/compiler/btrc/ir/lowering/Lowerer.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Stored callback definitions and their separate prototypes share mutable IR
+parameters. Setjmp analysis adds body-local qualifiers to the prototypes.
+Copy parameter records when creating a separate declaration, preserving source
+qualifiers. A Foundation-only fixture exercises registration, cancellation,
+inline delivery, and failure cleanup in whole-program and module builds under
+strict C11 and sanitizers before checking prototype and definition qualifiers.
+Its complete C still differs for other recorded reasons; this regression does
+not claim complete callback parity. Portable ordinary, generic-method, and
+lambda diagnostics are preserved as passing controls. Evidence lives under
+`build/issue-gates/function-parameter-isolation/`.
