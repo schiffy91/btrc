@@ -2977,3 +2977,28 @@ The regression includes a real cross-module reference and whole-program controls
 Preserve existing declaration dependencies and prove full emitted C equality.
 Evidence is in `build/issue-gates/module-literal-dependencies/`. Final application
 composition and integration gates remain separate.
+
+
+### Native adapter declaration parity (2026-10-26, Codex)
+
+Branch `codex/native-adapter-structure-20261026` starts at `9c0399b8`.
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+The application primary unit still differs in imported header order, realtime
+forward declarations and prototypes, stored callback status guards, and scoped
+super-cancellation blocks. Imported headers now precede adapter-required headers.
+Realtime operation and registration definitions retain external linkage without
+unconditional prototypes; module dependency analysis supplies declarations where
+referenced. Callback guards and cancellation blocks use the reference compiler's
+structured IR shape.
+
+The synthetic realtime baseline passes sixteen strict and sanitized native runs
+but fails four complete primary-unit comparisons. A Foundation-only scoped-super
+baseline passes eight native runs and fails two primary-unit comparisons. The
+latter also exposes the separate literal dependency defect; compose its repair
+before qualifying these tests. The stored callback qualifier test now also
+compares its complete module primary unit. Evidence is under
+`build/issue-gates/native-adapter-structure/`. Fresh compiler, native behavior,
+parity, structure, generated-source, and application checks remain required.
+No application execution, performance result, or final qualification is claimed.

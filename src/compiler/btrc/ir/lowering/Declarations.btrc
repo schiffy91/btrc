@@ -620,8 +620,9 @@ class DeclarationLowerer {
 		var contextDefinition = IRStructDef(); contextDefinition.name = contextName;
 		Node atomic = Node(); atomic.kind = NK_TYPE_EXPR; atomic.base = "Atomic"; atomic.pointerDepth = 1; Node unsignedType = Node(); unsignedType.kind = NK_TYPE_EXPR; unsignedType.base = "uint"; atomic.genericArgsMut().push(unsignedType);
 		contextDefinition.fields = [IRStructField(self.cTypes.lower(receiverType), "receiver"), IRStructField(self.cTypes.lower(ownerType), "owner"), IRStructField(self.cTypes.lower(atomic), "gate"), IRStructField(fallbackName, "denied"), IRStructField(interfaceTable + "_invoke_fn", "invoke")];
-		module.structDefs.push(contextDefinition); module.structForwards.push(IRStructForward(contextName));
+		module.structDefs.push(contextDefinition);
 		var capabilityDefinition = IRStructDef(); capabilityDefinition.name = shape.invocation; capabilityDefinition.fields.push(IRStructField("void*", "_context")); module.structDefs.push(capabilityDefinition); module.structForwards.push(IRStructForward(shape.invocation));
+		module.structForwards.push(IRStructForward(contextName));
 		IRNode loadContext = IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.variable("raw")));
 		self.nativeUniqueFunction(module, prefix + "_destroy", "void", [IRParam("void*", "raw")], [loadContext, IRNode.expressionStatement(IRNode.call(uniquePrefix + "_end_borrow", [owner])), IRNode.expressionStatement(self.managedLifetime.releaseValue(receiver, receiverType)), IRNode.expressionStatement(IRNode.call("free", [context]))]);
 		self.nativeUniqueFunction(module, prefix + "_unregister", "bool", [IRParam("void*", "raw")], [loadContext, IRNode.returnStatement(IRNode.binary(IRNode.call(unregister.name, [unit]), "==", IRNode.literal("0")))]);
@@ -644,8 +645,10 @@ class DeclarationLowerer {
 				if (position == operation.ownerIndex) { arguments.push(unit); }
 				else { Node parameter = operation.parameters.get(position < operation.ownerIndex ? position : position - 1); var lowered = self.cTypes.lowerParameter(parameter); operationParameters.push(lowered); arguments.push(IRNode.variable(lowered.name)); }
 			}
-			self.nativeUniqueFunction(module, shape.invocation + "_" + operation.name, self.cTypes.lower(operation.returnType), operationParameters, [IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.fieldAccess(IRNode.variable("self"), "_context", true))), IRNode.returnStatement(IRNode.call(operation.nativeFunction, arguments))]);
-			module.functions.get(module.functions.len - 1).isRealtime = true; module.realtimeSafeExternals.put(operation.nativeFunction, true);
+			var definition = IRFunction(); definition.name = shape.invocation + "_" + operation.name;
+			definition.returnType = self.cTypes.lower(operation.returnType); definition.params = operationParameters;
+			definition.body = IRNode.block([IRNode.variableDeclaration(contextType, "context", IRNode.cast(contextType, IRNode.fieldAccess(IRNode.variable("self"), "_context", true))), IRNode.returnStatement(IRNode.call(operation.nativeFunction, arguments))]);
+			definition.isRealtime = true; module.functions.push(definition); module.realtimeSafeExternals.put(operation.nativeFunction, true);
 		}
 		Vector<IRParam> adapterParameters = []; for parameter in declaration.params() { adapterParameters.push(self.cTypes.lowerParameter(parameter)); }
 		Vector<int> visible = []; for index in range(shape.nativeParameters.len) { if (index != callback.parameterIndex && index != shape.sizeIndex) { visible.push(index); } }
@@ -673,7 +676,8 @@ class DeclarationLowerer {
 		statements.push(IRNode.variableDeclaration(self.cTypes.lower(shape.statusType), "status", IRNode.call(shape.nativeFunction, nativeArguments)));
 		IRNode failure = self.nativeNullGuard(IRNode.literal("NULL"), "Realtime callback activation failed with indeterminate publication"); ((IRControlPayload)failure.payload).condition = IRNode.binary(IRNode.variable("status"), "!=", IRNode.literal("0")); statements.push(failure);
 		statements.push(IRNode.expressionStatement(IRNode.call("CallbackState_finishActivation", [IRNode.variable("registration"), IRNode.literal("true")]))); statements.push(IRNode.returnStatement(IRNode.variable("registration")));
-		self.nativeUniqueFunction(module, prefix, self.cTypes.lower(declaration.returnType), adapterParameters, statements);
+		var adapter = IRFunction(); adapter.name = prefix; adapter.returnType = self.cTypes.lower(declaration.returnType);
+		adapter.params = adapterParameters; adapter.body = IRNode.block(statements); module.functions.push(adapter);
 	}
 
 	private IRNode tableHolder(string holderType, IRNode context) { return IRNode.variableDeclaration(holderType, "holder", IRNode.cast(holderType, context)); }
@@ -3766,7 +3770,7 @@ class DeclarationLowerer {
 			} else { adapterArguments.push(arguments.get(index)); }
 		}
 		body.push(IRNode.variableDeclaration("int", "activationStatus", IRNode.call(prefix, adapterArguments)));
-		body.push(IRNode.ifStatement(IRNode.variable("activationStatus"), self.storedActivationFailure(callback, contextSymbol, context, f"One-shot {descriptor.name}: activation failed before publication"), null));
+		body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable("activationStatus"), "!=", IRNode.literal("0")), self.storedActivationFailure(callback, contextSymbol, context, f"One-shot {descriptor.name}: activation failed before publication"), null));
 		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [context])));
 		for (int index = releases.len - 1; index >= 0; index--) { body.extend(releases.get(index)); }
 		body.push(cleanup);
@@ -4137,7 +4141,7 @@ class DeclarationLowerer {
 				self.objectiveCNullGuard(IRNode.literal("NULL"), action ? "Native action slots are already occupied" : "Native delegate slot is already occupied")
 			]), null));
 		}
-		body.push(IRNode.ifStatement(IRNode.variable("activationStatus"), self.storedActivationFailure(callback, contextSymbol, context, f"Stored callback {descriptor.name}: activation failed before publication"), null));
+		body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable("activationStatus"), "!=", IRNode.literal("0")), self.storedActivationFailure(callback, contextSymbol, context, f"Stored callback {descriptor.name}: activation failed before publication"), null));
 		body.push(IRNode.ifStatement(IRNode.binary(result, "==", IRNode.literal("NULL")), self.storedActivationFailure(callback, contextSymbol, context, f"Stored callback {descriptor.name}: null cancellation token"), null));
 		if (paired) { body.push(IRNode.expressionStatement(IRNode.call(tokenSymbol + "_publish", [pair, result]))); }
 		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [context, paired ? pair : result])));
@@ -4469,10 +4473,10 @@ class DeclarationLowerer {
 		self.appendFunction(finish, module);
 		var cancel = IRFunction(); cancel.name = prefix + "_cancelContext"; cancel.returnType = "void"; cancel.isStatic = true;
 		cancel.params = [IRParam("void*", "rawContext")];
-		cancel.body = self.nativeCallbackBoundary([
+		cancel.body = IRNode.block([self.nativeCallbackBoundary([
 			IRNode.expressionStatement(IRNode.call(contextSymbol + "_cancel", [context])),
 			IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))
-		], module);
+		], module)]);
 		self.appendFunction(cancel, module);
 		var failure = IRFunction(); failure.name = prefix + "_failed"; failure.returnType = "void"; failure.isStatic = true;
 		failure.params = [IRParam(entryType, "entry")];
@@ -5332,6 +5336,9 @@ class DeclarationLowerer {
 			if (!self.validIncludeHeader(imported.header)) { self.preprocessorFail("invalid native include header"); }
 			/* A Java class's adapters call JNI through Library.Java's JNI.h. */
 			if (imported.language == "c" || imported.language == "java") { self.appendPreprocessorDecl(m, IRPreprocessorDecl.include(imported.header, false)); }
+		}
+		/* Imported headers precede the headers required by their adapters. */
+		for imported in self.analyzed.nativeDeclarations {
 			/* Native declarations belong to the program unit. */
 			if (self.context.declarationsElsewhere && !self.context.ownedGroup.isEmpty()) { continue; }
 			DeclarationOwnershipScope nativeScope = self.context.beginOwnership(m, "");
