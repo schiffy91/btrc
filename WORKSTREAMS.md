@@ -2936,3 +2936,20 @@ Unique-resource borrow and attachment releases keep their separate operation.
 Fresh compiler, native resource, call cleanup, parity, structure, and generated
 checks remain required. Evidence is in `build/issue-gates/native-lease-parity/`.
 No application execution, performance result, or final qualification is claimed.
+
+
+### Literal text and module dependencies (2026-10-26, Codex)
+
+Branch `codex/module-literal-dependencies-20261026` starts at `45a9a437`.
+Owned paths: `src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+A module that prints `"argument"` receives an extra `extern int argument`
+declaration from the self-hosted compiler when another module defines that
+global. The reduced program passes four strict and sanitized native executions;
+its only C difference is the extra declaration. Shared module declarations must
+follow structured references, without treating literal data as a variable use.
+The regression includes a real cross-module reference and whole-program controls.
+Preserve existing declaration dependencies and prove full emitted C equality.
+Evidence is in `build/issue-gates/module-literal-dependencies/`. Final application
+composition and integration gates remain separate.

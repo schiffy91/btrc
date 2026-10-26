@@ -4589,3 +4589,24 @@ int main() { for (int i = 0; i < 8; i++) { for (int fail = 0; fail < 4; fail++) 
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("reference_global", [False, True], ids=["literal", "reference"])
+def test_literal_text_does_not_add_module_dependencies(tmp_path, immutable_btrcc, module_units, reference_global):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Data.btrc").write_text("int argument = 7;\nint readArgument() { return argument; }\n")
+    (source / "Text.btrc").write_text(
+        ("import ./Data.btrc;\n" if reference_global else "")
+        + "void display() { "
+        + ("assert(argument == 7); " if reference_global else "")
+        + 'print("argument"); }\n'
+    )
+    (source / "Main.btrc").write_text(
+        "import ./Data.btrc;\nimport ./Text.btrc;\nint main() { assert(readArgument() == 7); display(); return 0; }\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "argument\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
