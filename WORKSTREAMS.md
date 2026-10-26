@@ -2960,3 +2960,20 @@ native executions, with three callback units equal and one remaining naming
 difference: owned payloads after an ABI context slot used the ABI index for
 local names. Stored invokers now use the visible payload index for leases,
 string views, and null-argument diagnostics. Fresh validation remains required.
+
+
+### Literal text and module dependencies (2026-10-26, Codex)
+
+Branch `codex/module-literal-dependencies-20261026` starts at `45a9a437`.
+Owned paths: `src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+A module that prints `"argument"` receives an extra `extern int argument`
+declaration from the self-hosted compiler when another module defines that
+global. The reduced program passes four strict and sanitized native executions;
+its only C difference is the extra declaration. Shared module declarations must
+follow structured references, without treating literal data as a variable use.
+The regression includes a real cross-module reference and whole-program controls.
+Preserve existing declaration dependencies and prove full emitted C equality.
+Evidence is in `build/issue-gates/module-literal-dependencies/`. Final application
+composition and integration gates remain separate.

@@ -539,15 +539,14 @@ class ModuleUnitDeclarations {
 		}
 	}
 
-	/* Every name and C type an IR subtree mentions. */
+	/* Referenced symbols and C types in an IR subtree. */
 	class void collectNode(IRNode? node, Map<string, bool> out) {
 		if (node == null) { return; }
 		int domain = node.payloadDomain();
-		if (!node.name.isEmpty()) { out.put(node.name, true); }
+		if ((node.kind == IRK_VAR || node.kind == IRK_FUNCTION_REF) && !node.name.isEmpty()) { out.put(node.name, true); }
 		if (!(domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "").isEmpty()) { out.put((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""), true); }
 		ModuleUnitDeclarations.collectText((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : ""), out);
 		ModuleUnitDeclarations.collectText((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : ""), out);
-		ModuleUnitDeclarations.collectText(node.text, out);
 		Vector<IRParam>? parameters = (domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null);
 		if (parameters != null) { for parameter in parameters { ModuleUnitDeclarations.collectText(parameter.cType, out); } }
 		ModuleUnitDeclarations.collectNode(node.left, out);
