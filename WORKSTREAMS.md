@@ -1998,3 +1998,17 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+## 2026-10-23 CX-NATIVE-PLAN-PARITY: issue 7 adapter headers
+
+Codex owns `codex/native-plan-parity-20261023` from `b800bb0` under D29.
+The real BTRSmith module-unit build exposed repeated pthread includes in
+Python's scoped-superclass adapter. The self-hosted lowerer already deduplicates
+that include. This packet restores canonical adapter-source parity without
+changing the approved native callback or GUI contracts.
+
+Owned paths are `src/compiler/python/ir/lowering/functions.py` and
+`src/tests/python/test_native_objective_c_super_admission.py`, plus this claim.
+Verification covers multiple scoped superclass factories, native lifetime
+behavior and emitted link-plan headers. Full integration gates and the
+real-application performance requirements remain separate acceptance work.
