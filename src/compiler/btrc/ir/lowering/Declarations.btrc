@@ -1822,7 +1822,7 @@ class DeclarationLowerer {
 				IRNode.assignment(result, IRNode.cast(method.nativeReturn, IRNode.call(sink.handler + "_" + method.name, callArguments))),
 				IRNode.expressionStatement(IRNode.call(contextSymbol + "_leave", [context]))
 			]), null));
-			self.releaseStoredLocal(eventReceiver, receiverType, "releasedReceiver", inner);
+			self.releaseStoredLocal(eventReceiver, receiverType, inner);
 			inner.push(eventCleanup);
 			inner.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
 			inner.push(IRNode.expressionStatement(IRNode.call(prefix + "_slot_Release", [IRNode.variable("This")])));
@@ -1944,7 +1944,7 @@ class DeclarationLowerer {
 		}
 		body.push(IRNode.ifStatement(IRNode.binary(registrationStatus, "<", IRNode.literal("0")), IRNode.block(failed), null));
 		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [contextValue, token])));
-		self.releaseStoredLocal(token, tokenType, "releasedToken", body);
+		self.releaseStoredLocal(token, tokenType, body);
 		body.push(cleanup);
 		body.push(IRNode.returnStatement(contextValue));
 		self.nativeUniqueFunction(module, contract.adapterSymbol(declaration.name), contextC, parameters, body);
@@ -2149,7 +2149,7 @@ class DeclarationLowerer {
 		body.push(IRNode.assignment(pins, IRNode.literal("1u")));
 		body.push(self.nativeUniqueChecked("pthread_mutex_unlock", [lockAddress]));
 		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [contextValue, token])));
-		self.releaseStoredLocal(token, tokenType, "releasedToken", body);
+		self.releaseStoredLocal(token, tokenType, body);
 		body.push(cleanup);
 		body.push(IRNode.returnStatement(contextValue));
 		self.nativeUniqueFunction(module, contract.adapterSymbol(declaration.name), contextC, parameters, body);
@@ -2354,8 +2354,12 @@ class DeclarationLowerer {
 		if (throwing) { enteredBody.push(IRNode.assignment(admitted, IRNode.literal("0"))); }
 		inner.push(IRNode.ifStatement(entered, IRNode.block(enteredBody), null));
 		inner.extend(self.javaReleaseSpans(spanArrays, spanElements, spanFamilies, spanWritable, entered));
-		self.releaseStoredLocal(receiver, receiverType, "__btrc_java_released_receiver", inner);
-		for index in range(managedValues.len) { self.releaseStoredLocal(managedValues.get(index), managedTypes.get(index), f"__btrc_java_released_{index}", inner); }
+		Vector<IRNode> releaseExpressions = self.managedLifetime.releaseAndClear(receiver, receiverType, self.cTypes.lower(receiverType), inner);
+		for index in range(managedValues.len) {
+			Node valueType = managedTypes.get(index);
+			releaseExpressions.extend(self.managedLifetime.releaseAndClear(managedValues.get(index), valueType, self.cTypes.lower(valueType), inner));
+		}
+		for expression in releaseExpressions { inner.push(IRNode.expressionStatement(expression)); }
 		Vector<IRNode> leaving = [cleanup, IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false))];
 		IRNode out = IRNode.variable("__btrc_java_out");
 		if (returnsManaged) {
@@ -3371,17 +3375,18 @@ class DeclarationLowerer {
 		Vector<Vector<IRNode>> releases = [];
 		for index in range(valueTypes.len) {
 			if (callback.isContext(index)) { continue; }
+			int argumentIndex = arguments.len - 1;
 			Node valueType = valueTypes.get(index);
 			IRNode value = IRNode.variable(thunk.params.get(index).name);
 			if (callback.stringArguments.has(index)) {
-				arguments.push(self.nativeStringView(index, callback.stringArguments.get(index), value, receiver, valueType, parameterNames, body, releases));
+				arguments.push(self.nativeStringView(argumentIndex, callback.stringArguments.get(index), value, receiver, valueType, parameterNames, body, releases));
 				continue;
 			}
 			bool owned = callback.ownedArguments.contains(index);
 			if (owned) { value = IRNode.cast(self.cTypes.lower(valueType), value); }
 			if (self.managedValues.isNative(valueType)) {
-				if (!valueType.isNullable) { body.push(self.objectiveCNullGuard(value, f"Stored callback {prefix}: null argument {index}")); }
-				value = self.emitNativeLease(index, valueType, value, parameterNames, body, releases, owned);
+				if (!valueType.isNullable) { body.push(self.objectiveCNullGuard(value, f"Stored callback {prefix}: null argument {argumentIndex}")); }
+				value = self.emitNativeLease(argumentIndex, valueType, value, parameterNames, body, releases, owned);
 			}
 			arguments.push(value);
 		}
@@ -3391,7 +3396,7 @@ class DeclarationLowerer {
 			IRNode.expressionStatement(IRNode.call(contextSymbol + "_leave", [context]))
 		]), null));
 		for (int index = releases.len - 1; index >= 0; index--) { body.extend(releases.get(index)); }
-		self.releaseStoredLocal(receiver, receiverType, "releasedReceiver", body);
+		self.releaseStoredLocal(receiver, receiverType, body);
 		if (callback.oneShot) { body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_complete", [context]))); }
 		if (consumeNativeClaim) { body.push(IRNode.expressionStatement(self.managedLifetime.releaseValue(context, contextType))); }
 		body.push(cleanup);
@@ -3476,7 +3481,7 @@ class DeclarationLowerer {
 			body.push(IRNode.assignment(IRNode.fieldAccess(result, "value", true), nativeCall));
 		} else { body.push(IRNode.expressionStatement(nativeCall)); }
 		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [context])));
-		if (returnsValue) { body.push(IRNode.expressionStatement(self.managedLifetime.releaseValue(context, contextType))); body.push(IRNode.assignment(context, IRNode.literal("NULL"))); }
+		if (returnsValue) { self.releaseStoredLocal(context, contextType, body); }
 		for (int index = releases.len - 1; index >= 0; index--) { body.extend(releases.get(index)); }
 		body.push(cleanup);
 		body.push(IRNode.returnStatement(result));
@@ -3634,7 +3639,7 @@ class DeclarationLowerer {
 			body.push(IRNode.ifStatement(IRNode.unary("!", self.storedStatusSucceeds(IRNode.variable("registrationStatus"), callback.registrationStatus), true), self.storedActivationFailure(callback, contextSymbol, context, f"Stored callback {declaration.name}: registration failed"), null));
 		} else { body.push(IRNode.expressionStatement(registration)); }
 		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [context, token])));
-		self.releaseStoredLocal(token, tokenType, "releasedToken", body);
+		self.releaseStoredLocal(token, tokenType, body);
 		for (int index = releases.len - 1; index >= 0; index--) { body.extend(releases.get(index)); }
 		body.push(cleanup);
 		body.push(IRNode.returnStatement(context));
@@ -3835,10 +3840,9 @@ class DeclarationLowerer {
 		return configure.selector;
 	}
 
-	private void releaseStoredLocal(IRNode value, Node valueType, string name, Vector<IRNode> body) {
-		body.push(IRNode.variableDeclaration(self.cTypes.lower(valueType), name, value));
-		body.push(IRNode.assignment(value, IRNode.literal("NULL")));
-		body.push(IRNode.expressionStatement(self.managedLifetime.releaseValue(IRNode.variable(name), valueType)));
+	private void releaseStoredLocal(IRNode value, Node valueType, Vector<IRNode> body) {
+		Vector<IRNode> releaseExpressions = self.managedLifetime.releaseAndClear(value, valueType, self.cTypes.lower(valueType), body);
+		for expression in releaseExpressions { body.push(IRNode.expressionStatement(expression)); }
 	}
 
 	private void emitStoredObjectiveCAdapter(FeNativeImportedDeclaration imported, Node method, FeNativeCallContract contract, IRModule module, IRModule native) {
@@ -3969,6 +3973,7 @@ class DeclarationLowerer {
 		Map<string, bool> unregisterNames = {"token": true};
 		IRNode unregisterCleanup = self.nativeCleanupScope(unregisterNames, unregisterBody);
 		Vector<IRNode> unregisterValues = [token];
+		Vector<Vector<IRNode>> unregisterReleases = [];
 		if (paired) {
 			unregisterValues = [];
 			Vector<string> accessors = ["source", "value"];
@@ -3980,13 +3985,13 @@ class DeclarationLowerer {
 				unregisterBody.push(slot);
 				unregisterBody.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(slot, self.managedValues.runtimeType(valueType))));
 				unregisterValues.push(IRNode.variable(accessor));
+				Vector<IRNode> releaseStatements = [];
+				self.releaseStoredLocal(IRNode.variable(accessor), valueType, releaseStatements);
+				unregisterReleases.push(releaseStatements);
 			}
 		}
 		unregisterBody.push(IRNode.expressionStatement(IRNode.call(unregisterAdapter.name, unregisterValues)));
-		if (paired) {
-			self.releaseStoredLocal(IRNode.variable("value"), nativeTokenType, "releasedValue", unregisterBody);
-			self.releaseStoredLocal(IRNode.variable("source"), sourceType, "releasedSource", unregisterBody);
-		}
+		for (int index = unregisterReleases.len - 1; index >= 0; index--) { unregisterBody.extend(unregisterReleases.get(index)); }
 		unregisterBody.extend([unregisterCleanup, IRNode.returnStatement(IRNode.literal("true"))]);
 		unregister.body = IRNode.block(unregisterBody);
 		self.appendFunction(unregister, module);
@@ -4136,8 +4141,9 @@ class DeclarationLowerer {
 		body.push(IRNode.ifStatement(IRNode.binary(result, "==", IRNode.literal("NULL")), self.storedActivationFailure(callback, contextSymbol, context, f"Stored callback {descriptor.name}: null cancellation token"), null));
 		if (paired) { body.push(IRNode.expressionStatement(IRNode.call(tokenSymbol + "_publish", [pair, result]))); }
 		body.push(IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [context, paired ? pair : result])));
-		self.releaseStoredLocal(result, nativeTokenType, "releasedToken", body);
-		if (paired) { self.releaseStoredLocal(pair, tokenType, "releasedPair", body); }
+		Vector<IRNode> releaseExpressions = self.managedLifetime.releaseAndClear(result, nativeTokenType, self.cTypes.lower(nativeTokenType), body);
+		if (paired) { releaseExpressions.extend(self.managedLifetime.releaseAndClear(pair, tokenType, self.cTypes.lower(tokenType), body)); }
+		for expression in releaseExpressions { body.push(IRNode.expressionStatement(expression)); }
 		for (int index = releases.len - 1; index >= 0; index--) { body.extend(releases.get(index)); }
 		body.push(cleanup);
 		body.push(IRNode.returnStatement(context));
@@ -4379,8 +4385,9 @@ class DeclarationLowerer {
 		]), null));
 		body.push(self.nativeNullGuard(receiver, "Instantiated adapter factory returned no receiver"));
 		body.push(IRNode.variableDeclaration(self.cTypes.lower(receiverRoot), "root", IRNode.call(receiverSymbol + "_new", [receiver])));
-		self.releaseStoredLocal(receiver, receiverType, "releasedReceiver", body);
-		self.releaseStoredLocal(factory, factoryType, "releasedFactory", body);
+		Vector<IRNode> releaseExpressions = self.managedLifetime.releaseAndClear(receiver, receiverType, self.cTypes.lower(receiverType), body);
+		releaseExpressions.extend(self.managedLifetime.releaseAndClear(factory, factoryType, self.cTypes.lower(factoryType), body));
+		for expression in releaseExpressions { body.push(IRNode.expressionStatement(expression)); }
 		body.push(cleanup);
 		body.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
 		body.push(IRNode.returnStatement(IRNode.cast("void*", IRNode.variable("root"))));
@@ -4662,7 +4669,7 @@ class DeclarationLowerer {
 			IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(resultSlot, self.managedValues.runtimeType(method.returnType))),
 			IRNode.expressionStatement(IRNode.call(contextSymbol + "_publish", [context, IRNode.cast("void*", IRNode.variable("nativeResult"))]))
 		]);
-		self.releaseStoredLocal(context, contextType, "releasedContext", body);
+		self.releaseStoredLocal(context, contextType, body);
 		for (int releaseIndex = releases.len - 1; releaseIndex >= 0; releaseIndex--) { body.extend(releases.get(releaseIndex)); } body.push(cleanup); body.push(IRNode.returnStatement(IRNode.variable("nativeResult")));
 		wrapper.body = IRNode.block(body); self.appendFunction(wrapper, module);
 	}
@@ -4933,7 +4940,7 @@ class DeclarationLowerer {
 		}
 		statements.push(IRNode.expressionStatement(IRNode.call(prefix, adapterArguments)));
 		if (subclass) { statements.push(IRNode.expressionStatement(self.managedLifetime.registerCleanupSlot(statements.get(0), self.managedValues.runtimeType(method.returnType)))); }
-		self.releaseStoredLocal(IRNode.variable("root"), factoryRoot, "releasedRoot", statements);
+		self.releaseStoredLocal(IRNode.variable("root"), factoryRoot, statements);
 		for (int index = releases.len - 1; index >= 0; index--) { statements.extend(releases.get(index)); }
 		statements.push(cleanup);
 		if (subclass) {
@@ -5002,8 +5009,9 @@ class DeclarationLowerer {
 		]), null));
 		body.push(self.nativeNullGuard(name, "Objective-C override " + nativeMethod.name + " returned no class name"));
 		body.push(IRNode.variableDeclaration("void*", "type", IRNode.call(lookup, [name])));
-		self.releaseStoredLocal(name, textType, "releasedName", body);
-		self.releaseStoredLocal(factory, factoryType, "releasedFactory", body);
+		Vector<IRNode> releaseExpressions = self.managedLifetime.releaseAndClear(name, textType, self.cTypes.lower(textType), body);
+		releaseExpressions.extend(self.managedLifetime.releaseAndClear(factory, factoryType, self.cTypes.lower(factoryType), body));
+		for expression in releaseExpressions { body.push(IRNode.expressionStatement(expression)); }
 		body.push(cleanup);
 		body.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
 		body.push(IRNode.returnStatement(IRNode.variable("type")));
