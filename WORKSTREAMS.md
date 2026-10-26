@@ -2953,3 +2953,26 @@ The regression includes a real cross-module reference and whole-program controls
 Preserve existing declaration dependencies and prove full emitted C equality.
 Evidence is in `build/issue-gates/module-literal-dependencies/`. Final application
 composition and integration gates remain separate.
+
+
+### Native release slots (2026-10-26, Codex, PR120 follow-up)
+
+Branch `codex/native-slot-release-20261026` starts at `935a7cbd`.
+Owned paths: `src/compiler/btrc/ir/lowering/Statements.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Explicit release of a native resource in an object field or Vector element
+emits an unnecessary ARC unlink no-op before clearing the slot. Native
+resources and strings have no BTRC ARC edge. Persistent ARC slots already
+use the separate replacement path; the remaining path should save, clear,
+and release the value through its existing lifetime operation.
+
+A synthetic C-resource probe passes sixteen strict and sanitized native
+executions across field/Vector and whole/module builds. All four generated
+outputs differ only in the unnecessary no-op. Establish the tracked baseline
+before editing production code, preserve native retain/release counts and
+null-slot behavior, then require complete C equality and broader ownership
+checks. Evidence lives under `build/issue-gates/native-slot-release/`.
+The collection flush policy, full application parity and final gates remain
+separate. Return this repair to PR120 before publication; this branch starts
+from a local composition and is not an integration packet.
