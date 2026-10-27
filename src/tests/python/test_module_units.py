@@ -4440,6 +4440,8 @@ def test_stored_callback_prototypes_keep_declared_parameter_qualifiers(
         assert definitions == 3, (frontend, definitions)
         if module_units:
             assert declarations >= 3, (frontend, declarations)
+    if module_units:
+        assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
 
 
 @pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
@@ -4532,4 +4534,106 @@ def test_native_completion_cleanup_matches_frontends(tmp_path, immutable_btrcc, 
     generated = _compile_and_run_native_frontends(source.parent, tmp_path, immutable_btrcc, expected, module_units=True)
     # Compare the complete unit that owns the native adapters. Imported generic
     # collection units have their own release-boundary parity coverage.
+    assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
+
+
+@pytest.mark.parametrize("header_name", ["Extra", "Zeta"])
+@pytest.mark.parametrize("in_flight", [False, True], ids=["normal", "in-flight"])
+def test_realtime_native_declarations_match_frontends(
+    tmp_path, native_project, immutable_btrcc, header_name, in_flight
+):
+    from src.tests.python.native_import_fixtures import resource_project, unique_project
+    from src.tests.python.test_native_realtime_callbacks import realtime_project
+
+    source, _sdk, _triple = realtime_project.__wrapped__(
+        unique_project.__wrapped__(resource_project.__wrapped__(native_project))
+    )
+    header = tmp_path / "Foundation.h"
+    text = header.read_text()
+    widget_counts = "static int widgetLive = 0, widgetDestroyed = 0;"
+    assert text.count(widget_counts) == 1
+    text = text.replace(widget_counts, "extern int widgetLive, widgetDestroyed;")
+    definitions = ["int widgetLive, widgetDestroyed;"]
+    for declaration in (
+        "RenderRecord savedRender;",
+        "int stopResult;",
+        "int stopCalls;",
+        "int inputCalls;",
+        "_Atomic int asyncEntered;",
+        "_Atomic int asyncReleased;",
+        "_Atomic int asyncEnabled;",
+        "pthread_t renderThread;",
+    ):
+        assert text.count("static " + declaration) == 1
+        text = text.replace("static " + declaration, "extern " + declaration)
+        definitions.append(declaration)
+    header.write_text(text)
+    (tmp_path / "Render.c").write_text('#include "Foundation.h"\n' + "\n".join(definitions) + "\n")
+    (tmp_path / (header_name + ".h")).write_text("static inline int extraValue(void) { return 14; }\n")
+    (source.parent / (header_name + ".btrc")).write_text("")
+    manifest = tmp_path / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        + '\n[[native.bindings]]\nmodule = "'
+        + header_name
+        + '"\nheader = "'
+        + header_name
+        + '.h"\nlanguage = "c"\nstandard = "c11"\nsymbols = ["extraValue"]\n'
+        + '\n[[native.sources]]\npath = "Render.c"\nlanguage = "c"\nstandard = "c11"\n'
+    )
+    delivery = (
+        "StartAsyncRender(); assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); "
+        "assert(WidgetLive() == 1); ReleaseAsyncRender(); "
+        "assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);"
+        if in_flight
+        else "assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);"
+    )
+    source.write_text(
+        "import ./Foundation.btrc;\nimport ./"
+        + header_name
+        + ".btrc;\n"
+        + """import Library.Callback;
+class Renderer implements IRender {
+    public @realtime int invoke(RenderInvocation invocation, unsigned int frames, float* samples) {
+        return invocation.input(frames, samples);
+    }
+}
+@realtime int silence(unsigned int frames, float* samples) { samples[0] = 0.0f; return 0; }
+int main() {
+    assert(extraValue() == 14);
+    var owner = WidgetCreate(7);
+    var scope = new CallbackScope();
+    var receiver = new Renderer();
+    var registration = installRender(owner, 1u, receiver, silence, scope);
+    assert(registration.isOpen());
+"""
+        + delivery
+        + """
+    assert(scope.pendingCount() == 0);
+    owner.close();
+    assert(WidgetLive() == 0 && WidgetDestroyed() == 1);
+    print("PASS");
+    return 0;
+}
+"""
+    )
+    generated = _compile_and_run_native_frontends(source.parent, tmp_path, immutable_btrcc, "PASS\n", module_units=True)
+    # The native adapter unit owns the declarations under test. Collection
+    # release batching and the caller's cycle classification have separate tests.
+    assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
+
+
+@pytest.mark.parametrize("mode", [0, 3], ids=["normal", "cancel-during-call"])
+def test_scoped_super_native_unit_matches_frontends(tmp_path, native_project, immutable_btrcc, mode):
+    from src.tests.python.test_native_objective_c_super_admission import PROGRAM, admission_project
+
+    source = admission_project.__wrapped__(native_project)
+    source.write_text(PROGRAM.replace("MODE", str(mode)))
+    generated = _compile_and_run_native_frontends(
+        source.parent,
+        tmp_path,
+        immutable_btrcc,
+        "after press\nnative released\nreceiver released\n",
+        module_units=True,
+    )
     assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
