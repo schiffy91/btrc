@@ -4071,3 +4071,44 @@ record. Validate the generator, policy, synthetic object-cache behavior and
 both frontends' transpilation. No application execution, performance
 measurement, GUI/audio work or guest operation is authorized here. No timing
 baseline is promoted. Keep PR125 at `1ca47cb9` while hosted CI runs.
+
+
+### CX-APP-SCALE-BENCH (2026-10-23)
+
+Codex reserves `codex/app-scale-benchmark-20261023` for issues #5 and #9 under D29.
+Owned paths: `tools/bench/{app_scale,suite,baseline}.py`, the generated
+`src/tests/benchmarks/CompileAppScale.btrc`, focused benchmark tests under
+`src/tests/python/`, and benchmark documentation.
+
+The fixture reaches the GUI, Audio, Image, GPU, HTTP, FileSystem and
+BackgroundJobs packages and a bounded family of distinct generic instances.
+Both frontends must produce an executable with the same checked output.
+Phase timings use the existing compiler-stage aggregation owner; the four
+app-scale stages use the normal 35% tolerance only after a recorded baseline
+qualifies at at most 10 seconds. The reference timing stays informational.
+Existing per-mark attribution metrics retain their policy.
+
+Local work verifies generation, compilation, output and comparison policy.
+Timing acceptance requires the existing quiet-host protocol or hosted CI;
+no new baseline or performance claim is inferred from correctness runs.
+
+The same workload packet supplies #9's `incremental.edit_ms` measurement.
+Each sample changes the scratch app module's main body and expected checksum,
+then compiles module units, links through the native object cache at -O1 and
+runs the result. Cache priming and source editing are outside the timed span.
+Every sampled source revision is new; checking its distinct output rejects
+stale executables. Existing per-platform timing comparisons apply. Real
+BTRSmith measurements and platform baseline promotion remain outstanding.
+
+Application-scale composition validation: all 51 selected benchmark/generator,
+policy and diagnostic tests pass, including a synthetic program that checks
+real native object reuse and stale-output rejection. Two real memory-measurement
+tests remain excluded. Both frontends transpile the full 64-model fixture
+under strict imports without warnings; their native link plans are byte-identical.
+Raw C differs only in 128 Vector free and 64 Vector pop functions at cycle-flush
+and return-staging sites. Collection release policy is unchanged. The initial
+self-host invocation lacked BTRC_HOME; the corrected invocation uses this
+checkout's src data root. Generated-source, lint and both formatting gates pass.
+Evidence is in `build/issue-gates/app-scale-composition/`. No application was
+executed, no performance was measured, and no timing baseline was promoted.
+Final integrated and hosted qualification remain open.
