@@ -122,6 +122,7 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
     for suffix in ("h", "m"):
         name = f"{stem}.{suffix}"
         (package / name).write_text((FIXTURES / name).read_text())
+    (package / "KeyTimestamp.h").write_text((FIXTURES / "KeyTimestamp.h").read_text())
     symbols = [
         "+[BTRCE40Boundary requireHosted]",
         "+[BTRCE40Boundary setup:output:]",
@@ -131,6 +132,7 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         "+[BTRCE40Boundary text:]",
         "+[BTRCE40Boundary close]",
         "+[BTRCE40Boundary complete]",
+        "+[BTRCE40Boundary diagnoseDeadline]",
         "+[BTRCE40Boundary finish]",
         "+[BTRCE40Boundary report]",
         "+[BTRCE40Boundary cleanup]",
@@ -182,13 +184,11 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         f'[[native.sources]]\npath = "{stem}.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
         '[[native.frameworks]]\nname = "QuartzCore"\nmodules = ["Main"]\nos = ["macos"]\n'
         '[[native.frameworks]]\nname = "Metal"\nmodules = ["Main"]\nos = ["macos"]\n'
+        '[[native.frameworks]]\nname = "CoreGraphics"\nmodules = ["Main"]\nos = ["macos"]\n'
     )
     if stem == "Load":
         with manifest.open("a") as stream:
-            stream.write(
-                '[[native.sources]]\npath = "Tracking.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
-                '[[native.frameworks]]\nname = "CoreGraphics"\nmodules = ["Main"]\nos = ["macos"]\n'
-            )
+            stream.write('[[native.sources]]\npath = "Tracking.m"\nlanguage = "objective-c"\nstandard = "c11"\n')
     (source.parent / "Host.btrc").write_text((FIXTURES / "Host.btrc").read_text())
     source.write_text((FIXTURES / f"{stem}.btrc").read_text())
     plan = package / f"{stem}.link.json"

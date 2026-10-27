@@ -3366,3 +3366,21 @@ Baseline evidence is under `build/issue-gates/native-adapter-owner-return/`.
 The intervening collection return does not change either analyzer. Its known
 release-batching parity failures remain open. Fresh compiler, diagnostic,
 behavior, parity and structural checks are still required.
+
+
+### 2026-10-27: E40 strict-C and keyboard identity source return
+
+Owner: Codex, branch `codex/e40-keyboard-source-return-20261027`. Owned paths:
+`src/tests/native/gui/ui2/probes/macos/e40/{Boundary.btrc,Boundary.h,Boundary.m,KeyTimestamp.h,Load.m}`,
+`src/tests/python/test_native_ui2_macos_e40.py`, and this claim.
+
+Return the strict-C conditional repair, failure diagnostics and native integer
+keyboard timestamp matching from `be474d14`, `972a6fba` and `279d21ae`. Existing
+test assertions, event delivery and acceptance limits are unchanged. The
+current compiler reproduces four load build failures at the omitted-middle
+conditional; four boundary builds pass. No fixture executable was launched.
+
+Evidence is under `build/issue-gates/union-source-diagnostics/e40-next-integration/`.
+The candidate must pass all eight compile-only variants and the headless
+evidence checks. Hosted runtime qualification remains required; the later
+tracking and rendering failures are separate unresolved work.

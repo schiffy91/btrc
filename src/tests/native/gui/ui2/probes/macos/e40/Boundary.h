@@ -10,6 +10,7 @@
 + (void)text:(NSString *)text;
 + (void)close;
 + (BOOL)complete;
++ (void)diagnoseDeadline;
 + (void)finish;
 + (void)report;
 + (void)cleanup;
