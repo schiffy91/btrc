@@ -44,7 +44,9 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.tests import runner
+from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
+from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
@@ -2111,3 +2113,142 @@ def test_unit_flow_roots_cover_every_setjmp_safety_location(location):
         IRFunctionDef("ordinary", CType("void"), body=IRBlock([])),
     ]
     assert ModuleUnitCompiler.setjmp_flow_functions(module) == {"protected"}
+
+
+def _compile_and_run_native_frontends(
+    source, tmp_path, immutable_btrcc, expected_stdout, *, module_units, no_stdlib=False
+):
+    NativeBindingPackage.require_reader()
+    sanitizer = require_sanitizers(tmp_path)
+    root = tmp_path.resolve()
+    generated = {}
+    for frontend, compiler in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = root / frontend
+        output.mkdir()
+        c_source, plan = output / "program.c", output / "program.json"
+        compiled = subprocess.run(
+            [
+                *compiler,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                *(["--no-stdlib"] if no_stdlib else []),
+                *(["--module-units", "--jobs", "1", "--emit-units", str(output / "program")] if module_units else []),
+                "--emit-link-plan",
+                str(plan),
+                "-o",
+                str(c_source),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        generated[frontend] = {path.name: path.read_bytes() for path in output.glob("program*.c")}
+        for mode, compiler, optimization, flags, environment in (
+            ("strict", C_COMPILER, 2, [], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                1,
+                ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "native module qualification requires a C compiler"
+
+            def run_build(command, *, environment=environment, **kwargs):
+                kwargs["timeout"] = 180
+                if environment is not None:
+                    kwargs["env"] = environment
+                return subprocess.run(command, **kwargs)
+
+            executable = output / mode
+            NativePlanBuilder(runner=run_build).build(
+                plan_path=plan,
+                generated_c=c_source,
+                output=executable,
+                cc=compiler,
+                optimization=optimization,
+                jobs=1,
+                compile_flags=["-pedantic-errors", "-Wall", "-Wextra", "-Werror", *flags],
+                link_flags=flags,
+            )
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0 and ran.stdout == expected_stdout, (frontend, mode, ran.stdout, ran.stderr)
+    return generated
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+def test_cleanup_adapters_ignore_dead_generic_method_order(tmp_path, immutable_btrcc, module_units, generic):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Data.btrc").write_text("""int alive = 0;
+int failure = 0;
+class Payload { public Payload() { alive++; } public void __del__() { alive--; } }
+class Model {
+ private Payload payload;
+ public Model() { alive++; self.payload = new Payload(); }
+ public void __del__() { alive--; }
+ public Payload read() { if (failure == 1) { throw "read"; } return self.payload; }
+}
+class Result {
+ private Model model;
+ private Payload payload;
+ public Result(Model model, Payload payload) { alive++; self.model = model; self.payload = payload; }
+ public void __del__() { alive--; }
+ class Result done(Model model, Payload payload) { if (failure == 2) { throw "done"; } return new Result(model, payload); }
+}
+class Request {
+ private Payload payload;
+ public Request(Payload payload) { alive++; self.payload = payload; }
+ public void __del__() { alive--; }
+ public Payload read() { if (failure == 3) { throw "request"; } return self.payload; }
+}
+class Provider { public Request get(Model model) { return new Request(model.read()); } }
+""")
+    worker = """import ./Data.btrc;
+class WorkerGENERIC {
+ private PROVIDER provider;
+ public Worker(PROVIDER provider) { self.provider = provider; }
+ public Result start(Model model) { return self.complete(model, self.provider.get(model)); }
+ public Result complete(Model model, Request input) {
+  Payload local = model.read();
+  assert(input.read() == local);
+  return Result.done(model, input.read());
+ }
+}
+"""
+    worker = worker.replace("GENERIC", "<T>" if generic else "").replace("PROVIDER", "T" if generic else "Provider")
+    (source / "Worker.btrc").write_text(worker)
+    main = """import ./Data.btrc;
+import ./Worker.btrc;
+void exercise(int fail) {
+ failure = fail;
+ Model model = new Model(); Provider provider = new Provider(); WorkerINSTANCE worker = new WorkerINSTANCE(provider);
+ bool caught = false;
+ try { Result value = worker.complete(model, provider.get(model)); assert(alive == 3); }
+ catch (string error) { caught = true; assert(error == (fail == 1 ? "read" : fail == 2 ? "done" : "request")); }
+ assert(caught == (fail != 0));
+ failure = 0;
+ assert(alive == 2);
+}
+int main() { for (int i = 0; i < 8; i++) { for (int fail = 0; fail < 4; fail++) { exercise(fail); assert(alive == 0); } } print("PASS"); return 0; }
+"""
+    (source / "Main.btrc").write_text(main.replace("INSTANCE", "<Provider>" if generic else ""))
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

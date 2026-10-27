@@ -2015,3 +2015,23 @@ execution, module reuse and the existing byte-parity set. This packet is
 independent of the header and f-string repairs. Full integrated gates remain
 required, and publication waits for CI capacity.
 
+
+
+### 2026-10-27 PR122 cleanup adapter owner return
+
+Branch: `codex/adapter-owner-return-20261027`, based on the existing PR122
+implementation `84d91bd1`. Owned paths remain both optimizer implementations,
+`src/tests/python/test_module_units.py`, and this record. Return the reviewed
+cleanup adapter repair `593e698d` without merging its diagnostic history.
+
+The regression preserves all existing tests and compares complete C after
+strict and sanitized native execution, for ordinary and generic classes in
+whole-program and module modes. Establish the baseline on this owner before
+returning production changes. Rank adapters by their first structured
+reference, preserving typed cleanup metadata and renamed references.
+
+Selected local gates, hosted source CI and final integration remain required.
+Dependencies found on this isolated owner must remain visible as failing
+assertions; do not normalize generated C or weaken the regression. No local
+GUI, application execution, audio installation, bootstrap or performance
+measurements are authorized by this return.
