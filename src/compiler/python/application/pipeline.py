@@ -11,6 +11,7 @@ from typing import Protocol
 from src.compiler.python.analyzer.types import NumericLiteralSemantics, TypeIdentity
 from src.compiler.python.backend.runtime_state import RuntimeUnitState
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.lowering.session import ModuleLoweringFacts
 from src.compiler.python.ir.lowering.types import CodegenError
 
 from ..abi.freestanding import FreestandingRuntime
@@ -649,6 +650,7 @@ class CompilationPipeline:
         groups=None,
         owned_group=None,
         program_facts=None,
+        unit_facts: ModuleLoweringFacts | None = None,
         declarations_elsewhere=False,
         native_defines=(),
     ) -> IRLowerer:
@@ -669,6 +671,7 @@ class CompilationPipeline:
             groups=groups,
             owned_group=owned_group,
             program_facts=program_facts,
+            unit_facts=unit_facts,
             declarations_elsewhere=declarations_elsewhere,
             native_defines=native_defines,
         )

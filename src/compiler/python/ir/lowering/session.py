@@ -53,6 +53,13 @@ class ProgramLoweringFacts:
 
 
 @dataclass(slots=True)
+class ModuleLoweringFacts:
+    """Facts a module-unit owner consumes after its lowering session finishes."""
+
+    instance_functions: set[str] = field(default_factory=set)
+
+
+@dataclass(slots=True)
 class LoweringSession:
     """State for one lowering run, deliberately free of collaborators."""
 
@@ -104,6 +111,7 @@ class LoweringSession:
     # so this session skips them entirely instead of lowering them bodiless.
     declarations_elsewhere: bool = False
     definition_owners: dict[str, str] = field(default_factory=dict)
+    unit_facts: ModuleLoweringFacts | None = None
     # Name index over the append-only `module.function_decls` prefix it covers.
     _declaration_index: dict[str, list[IRFunctionDecl]] = field(default_factory=dict)
     _declaration_indexed: int = 0

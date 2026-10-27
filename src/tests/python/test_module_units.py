@@ -14,13 +14,19 @@ import sys
 import threading
 import time
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.application.compiler import Compiler
-from src.compiler.python.application.modules import ForkedModuleUnitWorkers, ModuleUnitCompiler, ModuleUnitRecord
+from src.compiler.python.application.modules import (
+    ForkedModuleUnitWorkers,
+    ModuleUnitCompiler,
+    ModuleUnitGraph,
+    ModuleUnitRecord,
+    _GroupState,
+)
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
@@ -31,6 +37,7 @@ from src.compiler.python.ir.lowering.exceptions import (
     ParameterEffect,
     SetjmpUnitSolver,
 )
+from src.compiler.python.ir.lowering.session import ModuleLoweringFacts
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -38,11 +45,17 @@ from src.compiler.python.ir.nodes import (
     IRExprStmt,
     IRFunctionDecl,
     IRFunctionDef,
+    IRFunctionRef,
+    IRGlobalDecl,
+    IRMacroDef,
     IRModule,
+    IRObjectiveCClass,
+    IRObjectiveCMethod,
     IRParam,
     IRVar,
     IRVarDecl,
 )
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.tests import runner
 from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
@@ -3307,3 +3320,285 @@ void exercise() {{
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("jobs", [1, 2])
+def test_reference_generic_demand_tracks_cached_caller_edits(tmp_path, monkeypatch, jobs):
+    assert C_COMPILER is not None
+    sanitizer = require_sanitizers(tmp_path)
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Main.btrc").write_text(
+        'import ./Operations.btrc;\nint main() { assert(probe() == 41); print("PASS"); return 0; }\n'
+    )
+    body = """import Library.Map;
+import Library.Vector;
+int probe() {
+    try {
+        Map<int, int> values = {7: 41, 9: 43};
+        Vector<int>? spare = /* demand */;
+        assert(spare == null || spare.len == 0);
+        return values.get(7);
+    } catch (string message) { assert(false); }
+    return 0;
+}
+"""
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(workspace.cache))
+    previous = None
+    baseline = None
+    observed = []
+    expected_states = []
+    for phase, demand, expected in (
+        ("cold", False, {"lowered": 5, "reused": 0}),
+        ("warm", False, {"lowered": 0, "reused": 5}),
+        ("add", True, {"lowered": 2, "reused": 3}),
+        ("added-warm", True, {"lowered": 0, "reused": 5}),
+        ("remove", False, {"lowered": 1, "reused": 4}),
+        ("removed-warm", False, {"lowered": 0, "reused": 5}),
+    ):
+        constructor = "new Vector<int>()" if demand else "null"
+        (workspace.modules / "Operations.btrc").write_text(body.replace("/* demand */", constructor))
+        output = tmp_path / phase
+        output.mkdir()
+        entry = workspace.modules / "Main.btrc"
+        result = Compiler(cache=CompilerCache()).compile(
+            entry.read_text(),
+            str(entry),
+            CompilerOptions(
+                units_prefix=str(output / "program"),
+                module_units=True,
+                module_jobs=jobs,
+                generated_c_path=str(output / "program.c"),
+            ),
+        )
+        assert result.successful, (result.failure, result.diagnostics)
+        counters = {"lowered": len(result.module_units_lowered), "reused": len(result.module_units_reused)}
+        units = {f"program.{name}.c": text for name, text in zip(result.unit_names, result.c_units, strict=True)}
+        generated = {"program.c": result.c_source, **units}
+        for name, text in generated.items():
+            (output / name).write_text(text)
+        if phase == "cold":
+            baseline = generated
+        if "warm" in phase:
+            assert generated == previous
+        if phase == "remove":
+            assert generated == baseline
+        vector = next(text for name, text in units.items() if name.startswith("program.unit-Vector-"))
+        present = "btrc_Vector_int* btrc_Vector_int_new(void) {" in vector
+        observed.append((phase, counters, present))
+        expected_states.append((phase, expected, demand))
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer_environment(sanitizer),
+            ),
+        ):
+            executable = output / mode
+            compiled = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *[str(output / name) for name in sorted(generated)],
+                    "-o",
+                    str(executable),
+                    "-lm",
+                    "-lpthread",
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert compiled.returncode == 0, compiled.stderr
+            ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+            assert ran.returncode == 0 and ran.stdout == "PASS\n", (phase, mode, ran.stdout, ran.stderr)
+        if phase in {"add", "remove"}:
+            with monkeypatch.context() as clean_environment:
+                clean_environment.setenv("BTRC_CACHE_DIR", str(tmp_path / f"fresh-{phase}"))
+                clean = Compiler(cache=CompilerCache()).compile(entry.read_text(), str(entry), result.options)
+            assert clean.successful, (clean.failure, clean.diagnostics)
+            fresh = {
+                "program.c": clean.c_source,
+                **{f"program.{name}.c": text for name, text in zip(clean.unit_names, clean.c_units, strict=True)},
+            }
+            assert fresh == generated, phase
+            assert len(clean.module_units_lowered) == 5 and not clean.module_units_reused
+        previous = generated
+
+    assert observed == expected_states
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("cycle", [False, True], ids=["acyclic", "cycle"])
+def test_generic_class_method_demand_matches_frontends(tmp_path, immutable_btrcc, module_units, cycle):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "classDemand"\n')
+    (source / "Box.btrc").write_text(
+        ("import ./Reader.btrc;\n" if cycle else "")
+        + """
+class Box<T> {
+    public T value;
+    public Box(T value) { self.value = value; }
+    public T read() { return self.value; }
+    public T unused() { return self.value; }
+    public U select<U>(U value) { return value; }
+}
+"""
+    )
+    (source / "Reader.btrc").write_text("""import ./Box.btrc;
+int readBox(Box<int> value) { return value.read(); }
+int selected(Box<int> value) { return value.select(2); }
+""")
+    (source / "Main.btrc").write_text("""import ./Box.btrc;
+import ./Reader.btrc;
+int main() {
+    var value = new Box<int>(40);
+    CFunction<int, Box<int>> reader = readBox;
+    assert(reader(value) + selected(value) == 42);
+    print("PASS");
+    return 0;
+}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    bodies = {
+        frontend: _function_bodies(text.decode() for text in units.values()) for frontend, units in generated.items()
+    }
+    assert bodies["reference"] == bodies["selfhost"]
+    assert not any("unused" in name for name in bodies["reference"])
+    assert any("select" in name for name in bodies["reference"])
+    assert generated["reference"] == generated["selfhost"]
+
+
+def _instance_graph_record(graph, kept=frozenset()):
+    return ModuleUnitRecord(
+        group="owner",
+        text="int marker;\n",
+        kept=True,
+        exports=tuple(graph.edges),
+        has_setjmp=False,
+        effects_solved=False,
+        exported_effects={},
+        consulted_effects={},
+        releases_cyclable=False,
+        defines_entry=False,
+        program_release=False,
+        helpers=(),
+        realtime_roots=(),
+        realtime_proofs={},
+        graph=graph,
+        kept_instances=kept,
+    )
+
+
+@pytest.mark.parametrize("route", ["call", "callback", "global", "macro", "native-method"])
+@pytest.mark.parametrize("cached", [False, True], ids=["lowered", "cached"])
+@pytest.mark.parametrize("dce", [True, False], ids=["pruned", "all"])
+def test_instance_demand_keeps_cross_unit_roots_and_cycles(route, cached, dce):
+    consumer = IRModule()
+    if route in {"call", "callback"}:
+        reference = IRCall("genericA") if route == "call" else IRCall("registerCallback", [IRFunctionRef("genericA")])
+        consumer.function_defs = [
+            IRFunctionDef("entry", CType("void"), body=IRBlock([IRExprStmt(IRCall("dispatch"))])),
+            IRFunctionDef("dispatch", CType("void"), body=IRBlock([IRExprStmt(reference)]), is_static=True),
+        ]
+    elif route == "global":
+        consumer.global_decls = [
+            IRGlobalDecl(CType("Callback"), "registration", IRFunctionRef("genericA"), is_static=False)
+        ]
+    elif route == "macro":
+        consumer.preprocessor_decls = [IRMacroDef(name="REGISTERED", replacement="&genericA /* genericUnused */")]
+    else:
+        consumer.objective_c_classes = [
+            IRObjectiveCClass(
+                "NativeOwner",
+                "NSObject",
+                methods=[IRObjectiveCMethod("invoke", CType("void"), [], IRBlock([IRExprStmt(IRCall("genericA"))]))],
+            )
+        ]
+    left = IRModule(
+        function_defs=[
+            IRFunctionDef("genericA", CType("void"), body=IRBlock([IRExprStmt(IRCall("dispatch"))])),
+            IRFunctionDef("dispatch", CType("void"), body=IRBlock([IRExprStmt(IRCall("genericB"))]), is_static=True),
+            IRFunctionDef("genericUnused", CType("void"), body=IRBlock()),
+        ]
+    )
+    right = IRModule(
+        function_defs=[
+            IRFunctionDef("genericB", CType("void"), body=IRBlock([IRExprStmt(IRCall("genericA"))])),
+        ]
+    )
+    units = [consumer, left, right]
+    facts = [
+        ModuleLoweringFacts(),
+        ModuleLoweringFacts({"genericA", "genericUnused", "dispatch"}),
+        ModuleLoweringFacts({"genericB"}),
+    ]
+    states = []
+    for name, unit, metadata in zip(["consumer", "left", "right"], units, facts, strict=True):
+        graph = ModuleUnitGraph.from_unit(unit, metadata)
+        state = _GroupState(name, name, stale=not cached, graph=graph if not cached else ModuleUnitGraph())
+        if cached:
+            record = replace(_instance_graph_record(graph), group=name)
+            state.record = ModuleUnitRecord.from_json(record.to_json(), name)
+            assert state.record is not None
+        states.append(state)
+    ModuleUnitCompiler._demand_instances(states, ModuleUnitGraph(), dce=dce)
+    assert states[0].kept_instances == frozenset()
+    assert states[1].kept_instances == ({"genericA"} if dce else {"genericA", "genericUnused"})
+    assert states[2].kept_instances == {"genericB"}
+    for state, unit, metadata in zip(states, units, facts, strict=True):
+        graph = ModuleUnitGraph.from_unit(unit, metadata)
+        IROptimizer(
+            unit, dce=dce, module_unit=True, unneeded_instances=graph.instances - state.kept_instances
+        ).optimize()
+    assert {function.name for function in left.function_defs} == (
+        {"genericA", "dispatch"} if dce else {"genericA", "dispatch", "genericUnused"}
+    )
+    assert {function.name for function in right.function_defs} == {"genericB"}
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "old-schema",
+        "missing-graph",
+        "edge-scalar",
+        "root-scalar",
+        "instance-without-body",
+        "duplicate-instance",
+        "unknown-kept",
+        "duplicate-kept",
+    ],
+)
+def test_instance_graph_records_reject_invalid_cache_payloads(damage):
+    graph = ModuleUnitGraph({"genericA": ("external",)}, ("genericA",), frozenset({"genericA"}))
+    record = _instance_graph_record(graph, frozenset({"genericA"}))
+    assert ModuleUnitRecord.from_json(record.to_json(), "owner") == record
+    payload = json.loads(record.to_json())
+    if damage == "old-schema":
+        payload["schema"] = 6
+    elif damage == "missing-graph":
+        del payload["graph"]
+    elif damage == "edge-scalar":
+        payload["graph"]["edges"]["genericA"] = "external"
+    elif damage == "root-scalar":
+        payload["graph"]["roots"] = "genericA"
+    elif damage == "instance-without-body":
+        payload["graph"]["instances"] = ["missing"]
+    elif damage == "duplicate-instance":
+        payload["graph"]["instances"] *= 2
+    elif damage == "unknown-kept":
+        payload["kept-instances"] = ["missing"]
+    else:
+        payload["kept-instances"] *= 2
+    assert ModuleUnitRecord.from_json(json.dumps(payload), "owner") is None

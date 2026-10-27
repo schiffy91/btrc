@@ -2456,3 +2456,35 @@ dependencies as failures; do not weaken tests to obtain a green checkpoint.
 Selected local checks, hosted source CI, application acceptance and final
 integration remain required. This return does not authorize local GUI, audio
 installation, application execution, bootstrap or performance measurements.
+
+
+### 2026-10-27 PR115: return module instance-demand graph
+
+Branch `codex/instance-demand-owner-return-20261027` starts from PR115's
+saved generic-cycle checkpoint `61ec1443`. Return original PR115 follow-up
+`d0c7e3f8` without its diagnostic compositions. Its six Python production
+owners are application modules/pipeline, lowering lowerer/session/translation
+unit, and the IR optimizer. Tests remain in `test_module_units.py`.
+Preserve current strict-mode semantic selection, native-resource repairs,
+atomic type registration and generic-interface cycle handling.
+
+Capture generic function membership during specialization lowering, carry
+pre-optimization reference graphs through explicit module facts and cache
+schema 7, and recompute demand across fresh and reused units. Rebuild affected
+units when kept instances change. Preserve ordinary exports, callback/global/
+macro/native-method roots, cycles, DCE opt-out and effects for pruned exports.
+
+Stage the two native/cache regressions before production changes. Add the
+new graph-type imports and API contracts after that baseline, when the API
+exists. Preserve every old test body. Strengthen the donor class-demand test
+with a complete generated-C dictionary comparison after its existing body
+checks; body-only equality does not establish issue 3 acceptance.
+
+PR119 separately owns runtime-header scoping, canonical helper filtering and
+ARC descriptor roots. PR122 owns prototype/callback ordering. Compose these
+shared-file changes by ownership; never overwrite an owner's repair or
+normalize raw C differences. Qualify cache edits with one and two workers,
+strict/sanitized native runs, corrupt-record controls, parity, structure and
+generated-source checks. Hosted source CI and final application/platform
+acceptance remain required. No local GUI, application, audio installation,
+bootstrap, guest or performance execution is authorized by this claim.
