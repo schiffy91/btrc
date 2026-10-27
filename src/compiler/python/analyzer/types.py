@@ -18,6 +18,7 @@ from src.compiler.python.analyzer.program import (
     InitializerSlot,
     InitializerSlotPlan,
 )
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.lexer.lexer import LiteralDecoder
 from src.compiler.python.syntax.ast.generated import (
     AnonymousMember,
@@ -1197,6 +1198,19 @@ class TypeSystem:
         return base
 
     @classmethod
+    def is_identity_typedef(cls, declaration, records, enums) -> bool:
+        """A plain source alias of its own declared C tag is a redeclaration."""
+        if not isinstance(declaration, TypedefDecl) or isinstance(declaration.source_file, NativeHeaderSource):
+            return False
+        original = declaration.original
+        if original != TypeExpr(base=original.base):
+            return False
+        record = records.get(declaration.alias)
+        if record is not None and not isinstance(record.source_file, NativeHeaderSource):
+            return original.base == f"{cls.record_keyword(record)} {declaration.alias}"
+        return declaration.alias in enums and original.base == f"enum {declaration.alias}"
+
+    @classmethod
     def record_declarators(cls, record) -> tuple:
         """Every member declarator of a record or anonymous member, in source
         order: named fields, unnamed bit-fields and anonymous members. Only
@@ -1384,6 +1398,22 @@ class TypeSystem:
             return plan
         return cls.plan_initializer_slots(record, initializer, tables)
 
+    @classmethod
+    def initializer_leaf_slots(cls, plans, tables, record, initializer) -> tuple[InitializerSlot, ...]:
+        """Typed leaves in evaluation order, with anonymous brace slots expanded."""
+        result = []
+        for slot in cls.initializer_slots(plans, tables, record, initializer).slots:
+            if isinstance(slot.member, AnonymousMember) and isinstance(slot.element, BraceInitializer):
+                for nested in cls.initializer_leaf_slots(plans, tables, slot.member, slot.element):
+                    result.append(InitializerSlot(nested.element, (*slot.path, *nested.path), nested.type))
+            else:
+                result.append(slot)
+        return tuple(result)
+
+    @classmethod
+    def record_has_anonymous_members(cls, record) -> bool:
+        return any(isinstance(member, AnonymousMember) for member in cls.record_members(record))
+
     def function_pointer_signature(self, type_expr):
         """Return the canonical callable shape: return type followed by parameters."""
         canonical = self.canonical_type(type_expr)
@@ -1424,10 +1454,21 @@ class TypeSystem:
         A ``CFunction<...>?`` is callable once the flow proves it non-null; the
         call site, not this shape, checks that.
         """
-        signature = self.function_pointer_signature(type_expr)
-        if signature is None and self.is_nullable_function_pointer(type_expr):
-            return self.canonical_type(type_expr).generic_args
-        return signature
+        return self.declaration_callable_signature(type_expr, self.index.typedef_table)
+
+    @classmethod
+    def declaration_callable_signature(cls, type_expr, typedefs):
+        """Resolve a declared callable without mutable analysis state."""
+        canonical = cls.canonical_declaration_type(type_expr, typedefs)
+        if (
+            canonical is None
+            or canonical.base not in _FUNCTION_POINTER_BASES
+            or canonical.is_array
+            or not canonical.generic_args
+        ):
+            return None
+        depth = canonical.pointer_depth - int(cls.nullable_collapses_reference_layer(canonical, base_is_reference=True))
+        return canonical.generic_args if depth == 0 else None
 
     def function_object_pointer_hint(self, target, source) -> str:
         """Explain a refused conversion between a function pointer and ``void*``.

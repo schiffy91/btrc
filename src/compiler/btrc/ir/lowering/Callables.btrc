@@ -339,8 +339,8 @@ class CallableValueSemantics {
 		return declaration;
 	}
 
-	/* The slot plan of a record initializer (the initializer-slot owner). */
-	public SemanticInitializerPlan recordInitializerSlots(Node declaration, Node value) { return SemanticTypeSystem.initializerSlots(declaration, value, self.analysis); }
+	/* Typed record leaves include storage nested in anonymous members. */
+	public Vector<SemanticInitializerSlot> recordInitializerLeafSlots(Node declaration, Node value) { return SemanticTypeSystem.initializerLeafSlots(declaration, value, self.analysis); }
 
 	private bool typeContainsManagedSeen(Node? typeExpr, CallableBoundaryContext context, Map<string, bool> active) {
 		Node? canonicalType = self.canonicalType(typeExpr, context);
@@ -423,7 +423,7 @@ class CallableValueSemantics {
 			}
 			Node? declaration = self.structDeclaration(canonical);
 			if (declaration != null) {
-				for slot in self.recordInitializerSlots(declaration, value).slots {
+				for slot in self.recordInitializerLeafSlots(declaration, value) {
 					if (self.valueRequiresEnvironment(slot.type, slot.element, context)) {
 						return true;
 					}
@@ -519,7 +519,7 @@ class CallableBoundaryPolicy {
 			}
 			Node? declaration = self.values.structDeclaration(canonical);
 			if (declaration != null) {
-				for slot in self.values.recordInitializerSlots(declaration, value).slots {
+				for slot in self.values.recordInitializerLeafSlots(declaration, value) {
 					if (self.unsafeValue(slot.type, slot.element, context)) {
 						return true;
 					}

@@ -1797,6 +1797,11 @@ class IRTypeDeclarationPlanner {
 			bool requiresComplete = completeTypeContext && text.indexOf("*") < 0;
 			for provider in IRTypeDeclarationPlanner.typeReferences(text, providers) {
 				IRTypeDeclarationRef provided = declarations.get(provider);
+				if (provider == declarationIndex && declaration.group == IR_TYPE_DECLARATION_TYPEDEF) {
+					string name = IRTypeDeclarationPlanner.declarationName(module, declaration);
+					/* A foreign tag and its typedef live in separate C namespaces. */
+					if (text == "struct " + name || text == "union " + name) { continue; }
+				}
 				if (!IRTypeDeclarationPlanner.isAggregate(provided) || requiresComplete) { dependencies.push(provider); }
 				if (requiresComplete && provided.group == IR_TYPE_DECLARATION_TYPEDEF) {
 					for target in aliasTargets.get(provider) { dependencies.push(target); }

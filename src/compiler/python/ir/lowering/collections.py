@@ -19,6 +19,7 @@ from src.compiler.python.ir.nodes import (
     IRCommaExpr,
     IRCompoundLiteral,
     IRDeref,
+    IRDesignation,
     IRDoWhile,
     IRExpr,
     IRExprStmt,
@@ -66,6 +67,7 @@ class AggregatePlan:
     c_type: str | None
     field_names: tuple[str, ...]
     constructor: str | None = None
+    elements: tuple[object, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +81,8 @@ class StaticAggregatePlan:
 
     element_types: tuple[TypeExpr | None, ...] | None
     padding: tuple[TypeExpr, ...] = ()
+    elements: tuple[object, ...] | None = None
+    field_names: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -380,13 +384,14 @@ class CollectionLowerer:
             struct_name = TypeSystem.record_tag_name(canonical.base)
             declaration = self._analyzed.struct_table.get(struct_name)
             if declaration is not None and not declaration.is_forward:
-                slots = TypeSystem.initializer_slots(
+                slots = TypeSystem.initializer_leaf_slots(
                     self._analyzed.initializer_slot_plans, self._analyzed, declaration, node
                 )
                 return AggregatePlan(
                     source=node,
                     c_type=self._types.render(node_type),
-                    field_names=tuple(slot.member.name for slot in slots.slots),
+                    field_names=tuple(slot.member.name for slot in slots),
+                    elements=tuple(slot.element for slot in slots),
                 )
             if canonical.base == "Tuple":
                 return AggregatePlan(
@@ -434,6 +439,15 @@ class CollectionLowerer:
         canonical = self._types.canonical_type(node_type)
         declaration = self._static_record(canonical)
         if declaration is not None and isinstance(node, BraceInitializer):
+            if TypeSystem.record_has_anonymous_members(declaration):
+                slots = TypeSystem.initializer_leaf_slots(
+                    self._analyzed.initializer_slot_plans, self._analyzed, declaration, node
+                )
+                return StaticAggregatePlan(
+                    element_types=tuple(slot.type for slot in slots),
+                    elements=tuple(slot.element for slot in slots),
+                    field_names=tuple(slot.member.name for slot in slots),
+                )
             plan = TypeSystem.initializer_slots(
                 self._analyzed.initializer_slot_plans, self._analyzed, declaration, node
             )
@@ -458,6 +472,10 @@ class CollectionLowerer:
         elements: list[IRExpr],
     ) -> IRInitializerList:
         """Materialize a static aggregate from already lowered elements."""
+        if plan.field_names is not None:
+            return IRInitializerList(
+                elements=[IRDesignation(field=name, value=value) for name, value in zip(plan.field_names, elements)]
+            )
         if plan.element_types is not None and elements:
             elements.extend(self._zero_static_initializer(member_type) for member_type in plan.padding)
         return IRInitializerList(elements=elements)

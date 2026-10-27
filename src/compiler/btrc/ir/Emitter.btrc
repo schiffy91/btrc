@@ -457,7 +457,7 @@ class CEmitter {
 
 	private void emitEnum(IREnumDef definition) {
 		if (definition.name == "") { self.line("enum {"); }
-		else { self.line("typedef enum {"); }
+		else { self.line("typedef enum " + definition.name + " {"); }
 		self.indent = self.indent + 1;
 		int index = 0;
 		while (index < definition.values.len) {

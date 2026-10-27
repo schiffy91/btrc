@@ -170,6 +170,10 @@ class AggregateValueLowerer {
 	}
 
 	private Node? contextualElementType(Node? aggregateType, Node aggregate, int index, OwnershipOperandEnvironment environment) {
+		string initializerKey = AstIdentity.key(aggregate);
+		if (self.analyzed.initializerPlans.has(initializerKey)) {
+			return SemanticTypeSystem.initializerSlotType(self.analyzed.initializerPlans.get(initializerKey), aggregate.elements().get(index));
+		}
 		if (aggregateType == null) { return null; }
 		Node concrete = self.operandPlanner.resolveType(aggregateType, environment);
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(concrete, self.analyzed.typedefTable);
@@ -196,21 +200,39 @@ class AggregateValueLowerer {
 	}
 
 	private void collectOperands(Node aggregate, Node? aggregateType, OwnershipOperandEnvironment environment, Vector<AggregateOperandPlan> operands, bool flatten) {
+		Node? expected = aggregateType;
+		if (expected == null) { expected = self.operandPlanner.expressionType(aggregate, environment); }
+		if (expected != null) {
+			Node concrete = self.operandPlanner.resolveType(expected, environment);
+			string name = StorageValidator.structTypeName(concrete, self.analyzed);
+			if (!concrete.isArray && concrete.pointerDepth == 0 && name != "" && self.analyzed.structTable.has(name)) {
+				Node declaration = self.analyzed.structTable.get(name);
+				if (!declaration.isForward) {
+					for slot in SemanticTypeSystem.initializerLeafSlots(declaration, aggregate, self.analyzed) {
+						self.collectOperand(slot.element, slot.type, environment, operands, flatten);
+					}
+					return;
+				}
+			}
+		}
 		int index = 0;
 		while (index < aggregate.elements().len) {
-			Node element = aggregate.elements().get(index);
-			Node? contextualType = self.contextualElementType(aggregateType, aggregate, index, environment);
-			Node? elementType = self.operandPlanner.expressionType(element, environment);
-			if (elementType == null) {
-				elementType = contextualType;
-			}
-			bool nested = (element.kind == NK_BRACE_INITIALIZER || element.kind == NK_TUPLE_LITERAL || element.kind == NK_LIST_LITERAL) && self.valueAggregate(elementType, environment);
-			if (flatten && nested) {
-				self.collectOperands(element, elementType, environment, operands, true);
-			} else {
-				operands.push(AggregateOperandPlan(element, contextualType));
-			}
+			self.collectOperand(aggregate.elements().get(index), self.contextualElementType(expected, aggregate, index, environment), environment, operands, flatten);
 			index = index + 1;
+		}
+	}
+
+	private void collectOperand(Node element, Node? contextualType, OwnershipOperandEnvironment environment, Vector<AggregateOperandPlan> operands, bool flatten) {
+		Node? elementType = self.operandPlanner.expressionType(element, environment);
+		if (elementType == null) { elementType = contextualType; }
+		bool nested = (element.kind == NK_BRACE_INITIALIZER || element.kind == NK_TUPLE_LITERAL || element.kind == NK_LIST_LITERAL) && self.valueAggregate(elementType, environment);
+		/* Arrays have no assignable value temporary. Named records and tuples
+		 * keep their own value boundary unless an outer array needs leaves. */
+		bool array = elementType != null && self.operandPlanner.resolveType(elementType, environment).isArray;
+		if (nested && (flatten || array)) {
+			self.collectOperands(element, elementType, environment, operands, true);
+		} else {
+			operands.push(AggregateOperandPlan(element, contextualType));
 		}
 	}
 

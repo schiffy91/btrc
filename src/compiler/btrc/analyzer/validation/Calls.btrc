@@ -18,15 +18,14 @@ import ./Ownership.btrc;
 import ./Storage.btrc;
 import ./Types.btrc;
 
-/* A list or map literal argument bound to a Vector or Map parameter. Its
- * elements are checked against the parameter as a declared initializer's
- * are, by the expression validator that owns that check. */
-class CallCollectionArgument {
+/* A contextual aggregate argument checked against its parameter type by
+ * the expression validator that owns declared initializer validation. */
+class CallInitializerArgument {
 	public Node expected;
 	public Node argument;
 	public string subject;
 
-	public CallCollectionArgument(Node expected, Node argument, string subject) {
+	public CallInitializerArgument(Node expected, Node argument, string subject) {
 		self.expected = expected;
 		self.argument = argument;
 		self.subject = subject;
@@ -44,7 +43,7 @@ class CallValidator {
 	private StorageValidator storage;
 	private OwnershipValidator ownership;
 	private BorrowValidator borrows;
-	private Vector<CallCollectionArgument> collectionArguments = [];
+	private Vector<CallInitializerArgument> initializerArguments = [];
 
 	public CallValidator(SemanticValidationState state, HostedAbiRepository hostedAbi, OperatorSemantics operators, GpuSemantics gpu, SourceMacroNamespace sourceMacros, SourceRuntimeSymbols sourceRuntimeSymbols, TypeValidator types, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows) {
 		self.state = state;
@@ -59,13 +58,13 @@ class CallValidator {
 		self.borrows = borrows;
 	}
 
-	public bool hasCollectionArguments() { return self.collectionArguments.len > 0; }
+	public bool hasInitializerArguments() { return self.initializerArguments.len > 0; }
 
-	/* The collection literal arguments the last signatures bound, handed to
+	/* The aggregate arguments the last signatures bound, handed to
 	 * the caller once. */
-	public Vector<CallCollectionArgument> takeCollectionArguments() {
-		Vector<CallCollectionArgument> taken = self.collectionArguments;
-		self.collectionArguments = [];
+	public Vector<CallInitializerArgument> takeInitializerArguments() {
+		Vector<CallInitializerArgument> taken = self.initializerArguments;
+		self.initializerArguments = [];
 		return taken;
 	}
 
@@ -801,10 +800,14 @@ class CallValidator {
 				expected = SemanticTypeSystem.resolveGenericType(expected, substitutions, self.state.analyzed);
 			}
 			Node argument = call.args().get(argumentIndex);
-			if (argument.kind == NK_LIST_LITERAL || argument.kind == NK_MAP_LITERAL) {
-				Node? collection = self.types.resolveAliases(expected);
-				if (collection != null && !collection.isArray && ((argument.kind == NK_LIST_LITERAL && collection.base == "Vector") || (argument.kind == NK_MAP_LITERAL && collection.base == "Map"))) {
-					self.collectionArguments.push(CallCollectionArgument(expected, argument, "Argument '" + parameter.name + "' to '" + label + "()'"));
+			if (argument.kind == NK_LIST_LITERAL || argument.kind == NK_MAP_LITERAL || argument.kind == NK_BRACE_INITIALIZER) {
+				Node? aggregate = self.types.resolveAliases(expected);
+				if (aggregate != null && !aggregate.isArray && aggregate.pointerDepth == 0) {
+					bool collection = (argument.kind == NK_LIST_LITERAL && aggregate.base == "Vector") || (argument.kind == NK_MAP_LITERAL && aggregate.base == "Map");
+					bool record = argument.kind == NK_BRACE_INITIALIZER && self.state.analyzed.structTable.has(SemanticTypeSystem.recordTagName(aggregate.base));
+					if (collection || record) {
+						self.initializerArguments.push(CallInitializerArgument(expected, argument, "Argument '" + parameter.name + "' to '" + label + "()'"));
+					}
 				}
 			}
 			self.types.validateRealtimeFunctionValue(expected, argument, vars);

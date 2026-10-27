@@ -339,6 +339,7 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 
 | Packet | Agent | Branch | Holds | State |
 |---|---|---|---|---|
+| Reserved: `CX-C2-RECORDS` | Codex under D29 | `codex/c2-records-20261023` | Record declarations, initializer validation/lowering, callable slot consumers, LSP record navigation and paired evidence; full path scope in the 2026-10-23 claim below | Implementation `5d817dd0`, regenerated probes `d6403573`; 263 paired/structural checks, four corpus cases, eight editor cases and four row-8 probes pass. Generated-source, lint and format pass. PR creation awaits CI capacity under §3.2; full hosted qualification remains open. |
 | Canonical tuple declaration order | Codex integrator under D29 | `codex/compiler-tuple-canonical-order` | `src/compiler/python/ir/lowering/translation_unit.py`; `src/compiler/python/ir/lowering/generics.py`; `src/compiler/btrc/ir/lowering/Declarations.btrc`; `src/tests/python/test_native_link_reuse.py`; `src/tests/python/test_generic_tuple_declarations.py`; `src/tests/btrc/test_tuple_typedef_parity.py`; `docs/workstreams/compiler-tuple-canonical-order.md` | Active 2026-10-08: hosted root71 exposes one tuple-order parity failure after canonical generic ordering. Preserve complete discovery and nested by-value dependencies; implement paired canonical tuple ordering under G12, with source-frozen fixtures and full boundary recapture before integration. |
 | Interface-parent reachability | Codex integrator under D29 | `codex/compiler-interface-parent-reachability` | `src/compiler/python/ir/lowering/reachability.py`; `src/compiler/btrc/ir/lowering/Reachability.btrc`; `src/tests/python/test_stdlib_reachability.py`; `src/tests/btrc/test_interface_inheritance_reachability.py`; `docs/workstreams/interface-parent-reachability.md` | Active 2026-10-08: fixture-only `72be5947` proves three failures/eight passes; reviewed paired fix `808592c9` passes ten reference checks. Fresh Linux self-host and all 11 compiler regressions pass; Grid04 four native rows pass and four genuine negative controls reach the intended identity assertion; other96 rerun remains active after an isolated fixture typing correction. Initial four strict-C failures and original archives retained; no emitter fallback or gate waiver. |
 
@@ -3608,6 +3609,29 @@ changes CI ownership and compiler reuse; it does not establish that the
 previous four sanitized compile timeouts or the unit deadline are resolved.
 
 
+## 2026-10-23 CX-C2-RECORDS: issue 17 prerequisites
+
+Codex owns `codex/c2-records-20261023` from `b800bb0` under D29 for
+Stage 17 r08, a prerequisite of the remaining issue 17 keyword work.
+The approved contract is `docs/design/c-compatibility.md`: typedef record
+and enum definitions, identity typedefs, file-scope record object declarators,
+and plain-value anonymous struct/union members with flattened lookup and
+structured initialization. The existing shared schema and record-member
+owners remain authoritative.
+
+Owned paths are the two parsers, declaration registration and validation,
+record type and initializer owners, structured record lowering and emission,
+typed-declaration dependency planning, module-unit record collection, affected LSP symbols/navigation and record-chain resolution, focused
+paired tests, C2 probe records, corpus/layout mirrors and documentation.
+No raw C lowering or new generated AST fields are planned. Any necessary
+generated output will be regenerated in a separate derived commit.
+
+This packet does not claim C2 integration, memory acceptance or keyword
+completion from focused tests. The full reviewed matrix and the approved
+quiet-host memory comparison remain required; no local GUI, bootstrap or
+performance measurement runs under the current host restrictions.
+
+
 ### 2026-10-27 C2 record composition for issue #17
 
 Packet: CX-C2-RECORD-COMPOSITION. Compose the reviewed local C2 r08
@@ -3624,3 +3648,33 @@ sources. Build a fresh self-host compiler after resolving production
 changes. Keep published PR125 fixed while its macOS unit job runs. No
 local GUI, application execution, bootstrap or measurements are authorized.
 Full C2, keyword completion, hosted gates and memory acceptance remain open.
+
+The composed reference baseline passes 793 checks after the existing tree's
+671-test baseline. The first fresh self-host compiler passes 12 nested
+record/tuple boundary cases. Two added whole/module cases pass all strict
+and sanitizer executions but expose different C for an array of anonymous
+records: the reference emits flattened designators, while self-host emits
+positional braces. Route runtime array initializer shapes through the same
+typed declaration-initializer owner as static storage, while keeping normal
+runtime scalar lowering. Extend the regression to static, global and
+constant automatic arrays. This repair requires a fresh compiler rebuild.
+
+The rebuilt array fix passes all 14 complete-C boundary cases. The broader
+run passes 882 cases and exposes four failures: module-unit declaration
+lowering bypasses the identity-typedef guard, and three old refusal cases
+now describe accepted r08 syntax. Reuse the semantic identity predicate in
+module declaration lowering and move those three cases into the strict-C
+acceptance matrix. Added before/after typedef cases for structs, unions and
+enums across imported modules reproduce the defect: both whole-program
+controls pass, and both module cases fail before the guard is applied.
+
+Final selected validation passes on fresh compiler fingerprint
+`8ff0dc3441ebad7fe829ba95c3bccde4`: 18 complete-C boundary cases,
+893 paired C-compatibility/ownership/layout/structure/naming checks,
+496 LSP cases and six corpus cases. All 1,413 pass without skips. The
+LSP run reports 104 upstream deprecation warnings. The boundary cases
+also pass strict-C and ASan/UBSan execution through both frontends.
+Generated-source validation, lint, both formatters and diff checks pass.
+Source hashes and compiler identity are retained under
+`build/issue-gates/c2-record-composition/`. This local composition remains
+unqualified for the full hosted matrix and C2 memory acceptance.

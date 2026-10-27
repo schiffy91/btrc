@@ -214,7 +214,7 @@ class CTypeLowerer {
 		int index = 0;
 		while (index < program.declarations().len) {
 			Node declaration = program.declarations().get(index);
-			if (declaration.kind == NK_TYPEDEF_DECL && !self.analyzed.isNativeDeclaration(declaration) && (reachability == null || reachability.reaches(declaration))) {
+			if (declaration.kind == NK_TYPEDEF_DECL && !self.analyzed.isNativeDeclaration(declaration) && !SemanticTypeSystem.isIdentityTypedef(declaration, self.analyzed) && (reachability == null || reachability.reaches(declaration))) {
 				declarations.put(declaration.alias, declaration);
 				sourceOrder.push(declaration.alias);
 			}

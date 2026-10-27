@@ -1005,7 +1005,7 @@ class CEmitter:
             raise TypeError(f"unsupported typed declaration {type(declaration).__name__}")
 
     def _emit_enum_def(self, enum: IREnumDef):
-        self._line("typedef enum {" if enum.name is not None else "enum {")
+        self._line(f"typedef enum {enum.name} {{" if enum.name is not None else "enum {")
         self._indent += 1
         for index, value in enumerate(enum.values):
             comma = "," if index < len(enum.values) - 1 else ""

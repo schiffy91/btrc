@@ -2409,12 +2409,12 @@ class ExpressionLowerer {
 		AggregateDeclarationPlan declarationPlan = AggregateDeclarationPlan();
 		AggregateEvaluationPlan evaluation = self.aggregateValues.plan(initializer, arrayType, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
 		if (!evaluation.ordered) {
-			declarationPlan.initializer = self.lowerArrayInitializerPlain(initializer, varTypes, callableFlow);
+			declarationPlan.initializer = self.lowerInitializerValue(initializer, arrayType, varTypes, callableFlow, false);
 			return declarationPlan;
 		}
 		OwnershipBoundary boundary = self.prepareAggregateBoundary(evaluation, varTypes, callableFlow);
 		self.aggregateValues.beginBuild();
-		declarationPlan.initializer = self.lowerArrayInitializerPlain(initializer, varTypes, callableFlow);
+		declarationPlan.initializer = self.lowerInitializerValue(initializer, arrayType, varTypes, callableFlow, false);
 		self.aggregateValues.endBuild();
 		boundary.restore();
 		declarationPlan.declarations = boundary.declarations;
@@ -2430,16 +2430,6 @@ class ExpressionLowerer {
 		}
 		declarationPlan.suffix = boundary.suffix;
 		return declarationPlan;
-	}
-
-	public IRNode lowerArrayInitializerPlain(Node initializer, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		Vector<IRNode> values = [];
-		int index = 0;
-		while (index < initializer.elements().len) {
-			values.push(self.lowerExpr(initializer.elements().get(index), varTypes, callableFlow));
-			index = index + 1;
-		}
-		return IRNode.initializerList(values);
 	}
 
 	/* Lower {k: v, ...} -> Map_new() + put calls (mirrors lower_map_literal).
@@ -2569,7 +2559,7 @@ class ExpressionLowerer {
 				Node declaration = self.analyzed.structTable.get(structName);
 				Vector<string> fields = [];
 				Vector<IRNode> values = [];
-				for slot in SemanticTypeSystem.initializerSlots(declaration, node, self.analyzed).slots {
+				for slot in SemanticTypeSystem.initializerLeafSlots(declaration, node, self.analyzed) {
 					Node field = slot.member();
 					fields.push(field.name);
 					values.push(self.lowerAssignedValue(slot.element, field.type, varTypes, callableFlow));
@@ -3600,34 +3590,50 @@ class ExpressionLowerer {
 		return IRNode.literal(Strings.fromInt(length + 1));
 	}
 
-	public IRNode lowerStaticInitializer(Node node, Node? expected, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		if (node.kind == NK_BINARY_EXPR) {
+	public IRNode lowerStaticInitializer(Node node, Node? expected, Map<string, Node> varTypes, CallableFlowState callableFlow) { return self.lowerInitializerValue(node, expected, varTypes, callableFlow, true); }
+
+	/* Declaration initializers share one typed shape. Runtime scalar leaves
+	 * retain normal operand lowering; static leaves preserve C constants. */
+	private IRNode lowerInitializerValue(Node node, Node? expected, Map<string, Node> varTypes, CallableFlowState callableFlow, bool constantExpression) {
+		if (constantExpression && node.kind == NK_BINARY_EXPR) {
 			return self.lowerStaticBinaryInitializer(node, varTypes, callableFlow);
 		}
-		if (node.kind == NK_UNARY_EXPR) {
+		if (constantExpression && node.kind == NK_UNARY_EXPR) {
 			return self.lowerStaticUnaryInitializer(node, varTypes, callableFlow);
 		}
-		if (node.kind == NK_CAST_EXPR) {
+		if (constantExpression && node.kind == NK_CAST_EXPR) {
 			return self.lowerStaticCastInitializer(node, varTypes, callableFlow);
 		}
-		if (node.kind == NK_TERNARY_EXPR) {
+		if (constantExpression && node.kind == NK_TERNARY_EXPR) {
 			return self.lowerStaticTernaryInitializer(node, varTypes, callableFlow);
 		}
-		if (node.kind == NK_INDEX_EXPR) {
+		if (constantExpression && node.kind == NK_INDEX_EXPR) {
 			return self.lowerStaticIndexInitializer(node, varTypes, callableFlow);
 		}
-		if (node.kind == NK_FIELD_ACCESS_EXPR) {
+		if (constantExpression && node.kind == NK_FIELD_ACCESS_EXPR) {
 			return self.lowerFieldAccessCore(node, varTypes, callableFlow);
 		}
 		if (node.kind != NK_BRACE_INITIALIZER && node.kind != NK_LIST_LITERAL) {
 			return self.lowerExpr(node, varTypes, callableFlow);
 		}
 
+		Node? canonical = self.canonicalStaticInitializerType(expected);
+		Node? record = canonical == null ? null : self.staticInitializerRecord(canonical);
+		if (record != null && !SemanticTypeSystem.recordIsFlat(record)) {
+			Vector<IRNode> designated = [];
+			for slot in SemanticTypeSystem.initializerLeafSlots(record, node, self.analyzed) {
+				IRNode value = self.lowerInitializerValue(slot.element, slot.type, varTypes, callableFlow, constantExpression);
+				designated.push(IRNode.designation(slot.member().name, null, value));
+			}
+			if (designated.len == 0) { designated.push(IRNode.literal("0")); }
+			return IRNode.initializerList(designated);
+		}
+
 		Vector<IRNode> elements = [];
 		int index = 0;
 		while (index < node.elements().len) {
 			Node? elementType = self.staticInitializerElementType(expected, node, index);
-			elements.push(self.lowerStaticInitializer(node.elements().get(index), elementType, varTypes, callableFlow));
+			elements.push(self.lowerInitializerValue(node.elements().get(index), elementType, varTypes, callableFlow, constantExpression));
 			index = index + 1;
 		}
 		if (elements.len > 0) {

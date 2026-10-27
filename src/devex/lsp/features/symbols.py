@@ -105,7 +105,7 @@ class SymbolProvider:
             return []
         source_lines = self.resolver.structural_source(result).split("\n")
         symbols: list[lsp.DocumentSymbol] = []
-        for decl in self.resolver.active_decls(result):
+        for decl in self._preferred_declarations(self.resolver.active_decls(result)):
             if isinstance(decl, ClassDecl):
                 decl_range = self._range_from_node(result, decl, source_lines)
                 decl_selection = self._selection_range(result, decl)
@@ -330,8 +330,9 @@ class SymbolProvider:
         return units
 
     def _preferred_declarations(self, declarations: list) -> list:
-        """Use a struct definition when a file also contains forward declarations."""
+        """Publish record definitions once, omitting their identity typedefs."""
         structs = {}
+        enums = {declaration.name for declaration in declarations if isinstance(declaration, EnumDecl)}
         for declaration in declarations:
             if not isinstance(declaration, StructDecl):
                 continue
@@ -341,7 +342,8 @@ class SymbolProvider:
         return [
             declaration
             for declaration in declarations
-            if not isinstance(declaration, StructDecl) or structs.get(declaration.name) is declaration
+            if (not isinstance(declaration, StructDecl) or structs.get(declaration.name) is declaration)
+            and not TypeSystem.is_identity_typedef(declaration, structs, enums)
         ]
 
     def get_workspace_symbols(self, workspace: Workspace, query: str, limit: int = 500) -> list[lsp.WorkspaceSymbol]:

@@ -776,7 +776,7 @@ class CallableFlowState {
 			}
 			Node? declaration = values.structDeclaration(canonical);
 			if (declaration != null) {
-				for slot in values.recordInitializerSlots(declaration, value).slots {
+				for slot in values.recordInitializerLeafSlots(declaration, value) {
 					if (self.unsafePersistentValue(slot.type, slot.element, values, currentContext)) {
 						unsafe = true;
 					}

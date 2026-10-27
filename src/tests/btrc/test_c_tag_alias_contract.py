@@ -104,7 +104,7 @@ def test_one_owner_per_compiler_writes_tag_rows() -> None:
     """Only the registry's tag owner writes a row keyed by a tag spelling."""
 
     python = (REPO / "src/compiler/python/analyzer/declarations.py").read_text(encoding="utf-8")
-    owner = python[python.index("    def _alias_native_tag(") :]
+    owner = python[python.index("    def alias_tag(") :]
     owner = owner[: owner.index("\n    def ", 1)]
     assert "self.index.typedef_table.setdefault(spelling" in owner
     writers = [
@@ -116,7 +116,7 @@ def test_one_owner_per_compiler_writes_tag_rows() -> None:
     assert python.count("typedef_table.setdefault(") == 1
 
     btrc = (BTRC_ROOT / "analyzer/Declarations.btrc").read_text(encoding="utf-8")
-    owner = btrc[btrc.index("	private void aliasNativeTag(") :]
+    owner = btrc[btrc.index("	private void aliasTag(") :]
     owner = owner[: owner.index("\n	}\n") + 3]
     assert "typedefTable.put(spelling" in owner
     assert btrc.count("typedefTable.put(spelling") == 1

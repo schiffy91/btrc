@@ -17,6 +17,21 @@ class SemanticTypeSystem {
 
 	public Node? canonical(Node? typeExpr) { return SemanticTypeSystem.resolveTypedefType(typeExpr, self.analyzed.typedefTable); }
 
+	/* A plain source alias of its own declared C tag is a redeclaration. */
+	class bool isIdentityTypedef(Node declaration, Analyzed analyzed) {
+		if (declaration.kind != NK_TYPEDEF_DECL || analyzed.isNativeDeclaration(declaration)) { return false; }
+		Node original = declaration.original;
+		if (original.pointerDepth != 0 || original.isArray || original.arraySize != null || original.elements().len != 0 || original.arrayPointerDepth != 0 || original.genericArgs().len != 0 || original.isNullable || original.nullableOuterDepth != 0 || TypeIdentity.qualifierBits(original) != 0) { return false; }
+		if (analyzed.structTable.has(declaration.alias)) {
+			Node record = analyzed.structTable.get(declaration.alias);
+			return !analyzed.isNativeDeclaration(record) && original.base == SemanticTypeSystem.recordKeyword(record) + " " + declaration.alias;
+		}
+		if (analyzed.enumTable.has(declaration.alias)) {
+			return !analyzed.isNativeDeclaration(analyzed.enumTable.get(declaration.alias)) && original.base == "enum " + declaration.alias;
+		}
+		return false;
+	}
+
 	class Node? directFunctionPointer(Node? typeExpr, Analyzed analyzed) {
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
 		if (resolved == null || (resolved.base != "__fn_ptr" && resolved.base != "__realtime_fn_ptr") || resolved.pointerDepth != 0 || resolved.isArray || resolved.genericArgs().len == 0) {
@@ -506,6 +521,24 @@ class SemanticTypeSystem {
 		string key = AstIdentity.key(initializer);
 		if (analyzed.initializerPlans.has(key)) { return analyzed.initializerPlans.get(key); }
 		return SemanticTypeSystem.planInitializerSlots(record, initializer, analyzed);
+	}
+
+	/* Typed leaves in evaluation order, with anonymous brace slots expanded. */
+	class Vector<SemanticInitializerSlot> initializerLeafSlots(Node record, Node initializer, Analyzed analyzed) {
+		Vector<SemanticInitializerSlot> result = [];
+		for slot in SemanticTypeSystem.initializerSlots(record, initializer, analyzed).slots {
+			if (slot.member().kind == NK_ANONYMOUS_MEMBER && slot.element.kind == NK_BRACE_INITIALIZER) {
+				for nested in SemanticTypeSystem.initializerLeafSlots(slot.member(), slot.element, analyzed) {
+					Vector<Node> path = [];
+					for step in slot.path { path.push(step); }
+					for step in nested.path { path.push(step); }
+					result.push(SemanticInitializerSlot(nested.element, path, nested.type));
+				}
+			} else {
+				result.push(slot);
+			}
+		}
+		return result;
 	}
 
 	class Node? structFieldFor(Node? typeExpr, string fieldName, Analyzed analyzed) {

@@ -533,6 +533,8 @@ class TranslationUnitLowerer:
                         decl,
                     )
                 elif isinstance(decl, TypedefDecl):
+                    if TypeSystem.is_identity_typedef(decl, self._analyzed.struct_table, self._analyzed.enum_table):
+                        continue
                     self._session.module.typedef_defs.append(
                         IRTypedefDef(
                             target_type=CType(text=self._types.render(decl.original)),

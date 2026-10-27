@@ -160,9 +160,9 @@ class ExpressionValidator {
 	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
 	/* Collection literal arguments take their parameter's element types. */
-	private void validateCollectionArguments(Map<string, Node> vars) {
-		if (!self.calls.hasCollectionArguments()) { return; }
-		for check in self.calls.takeCollectionArguments() { self.validateTypedInitializer(check.expected, check.argument, check.subject, vars); }
+	private void validateInitializerArguments(Map<string, Node> vars) {
+		if (!self.calls.hasInitializerArguments()) { return; }
+		for check in self.calls.takeInitializerArguments() { self.validateTypedInitializer(check.expected, check.argument, check.subject, vars); }
 	}
 
 	/* A collection literal whose type is inferred takes it from its first
@@ -307,6 +307,11 @@ class ExpressionValidator {
 		if (initializer.kind != NK_BRACE_INITIALIZER) {
 			TypeValidator.fail(subject + " requires a brace initializer for " + SemanticTypeSystem.recordKeyword(declaration) + " '" + name + "'", initializer);
 		}
+		self.validateRecordInitializer(declaration, initializer, subject, vars, declaration);
+	}
+
+	private void validateRecordInitializer(Node declaration, Node initializer, string subject, Map<string, Node> vars, Node enclosing) {
+		string name = enclosing.name;
 		/* The initializer-slot owner: each element's member path, recorded for
 		 * every later reader (SemanticTypeSystem.initializerSlots). */
 		SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(declaration, initializer, self.state.analyzed);
@@ -315,11 +320,18 @@ class ExpressionValidator {
 			TypeValidator.fail("Union '" + name + "' initializer has " + Strings.fromInt(initializer.elements().len) + " elements; a positional union initializer sets only the first member (use a designator such as {.f = ...})", initializer);
 		}
 		if (plan.excess > 0) {
-			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(plan.capacity) + " fields", initializer);
+			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but " + SemanticTypeSystem.recordKeyword(enclosing) + " '" + name + "' has " + Strings.fromInt(plan.capacity) + " fields", initializer);
 		}
 		if (initializer.elements().len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
 		for slot in plan.slots {
 			Node field = slot.member();
+			if (field.kind == NK_ANONYMOUS_MEMBER) {
+				if (slot.element.kind != NK_BRACE_INITIALIZER) {
+					TypeValidator.fail("The anonymous " + SemanticTypeSystem.recordKeyword(field) + " member of " + SemanticTypeSystem.recordKeyword(enclosing) + " '" + enclosing.name + "' requires its own braces in a positional initializer", slot.element);
+				}
+				self.validateRecordInitializer(field, slot.element, subject, vars, enclosing);
+				continue;
+			}
 			Node? fieldValueType = self.storage.arrayFieldValueType(field);
 			if (fieldValueType == null) { fieldValueType = field.type; }
 			self.validateInitializerValue(fieldValueType, slot.element, subject + " field '" + field.name + "'", vars);
@@ -829,7 +841,7 @@ class ExpressionValidator {
 			self.validateFlexibleArrayArguments(expression.args(), vars);
 			self.names.deferGeneratedSymbolCall(expression, vars);
 			self.calls.validateCall(expression,  vars);
-			self.validateCollectionArguments(vars);
+			self.validateInitializerArguments(vars);
 			self.rejectNonescapingMethodArguments(expression);
 		} else if (expression.kind == NK_INDEX_EXPR) {
 			self.validateExpr(expression.obj,  vars);
@@ -1224,7 +1236,7 @@ class ExpressionValidator {
 		}
 		self.calls.validateConstructorAccess(className, constructor, expression);
 		self.calls.validateSignature(className, constructor.params(), expression, substitutions, false, vars);
-		self.validateCollectionArguments(vars);
+		self.validateInitializerArguments(vars);
 		if (className == "CallbackRegistration") {
 			self.calls.validateDirectRealtimeCallback(className, constructor, expression, vars, "invoke");
 		} else if (className == "RealtimeAudioProgram") {

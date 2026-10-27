@@ -4887,3 +4887,69 @@ int main() {{
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_anonymous_record_children_keep_value_and_array_boundaries(tmp_path, immutable_btrcc, module_units):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Records.btrc").write_text("""
+struct Pair { int first; int second; };
+struct Frame {
+ union { struct { Pair pair; int values[2]; }; double unused; };
+ int tail;
+};
+Frame globalFrames[1] = {{{{{1, 2}, {3, 4}}}, 5}};
+int calls = 0;
+int nextValue() { calls++; return calls; }
+int sum(Frame frame) {
+ return frame.pair.first + frame.pair.second + frame.values[0] + frame.values[1] + frame.tail;
+}
+void exercise() {
+ static Frame staticFrames[1] = {{{{{1, 2}, {3, 4}}}, 5}};
+ Frame constantFrames[1] = {{{{{1, 2}, {3, 4}}}, 5}};
+ assert(sum(globalFrames[0]) == 15 && sum(staticFrames[0]) == 15 && sum(constantFrames[0]) == 15);
+ Frame frame = {{{{nextValue(), nextValue()}, {nextValue(), nextValue()}}}, nextValue()};
+ assert(frame.pair.first == 1 && frame.pair.second == 2);
+ assert(frame.values[0] == 3 && frame.values[1] == 4 && frame.tail == 5);
+ assert(sum(frame) == 15 && calls == 5);
+ Frame frames[2] = {
+  {{{{nextValue(), nextValue()}, {nextValue(), nextValue()}}}, nextValue()},
+  {{{{nextValue(), nextValue()}, {nextValue(), nextValue()}}}, nextValue()}
+ };
+ assert(sum(frames[0]) == 40 && sum(frames[1]) == 65 && calls == 15);
+ assert(sum({{{{nextValue(), nextValue()}, {nextValue(), nextValue()}}}, nextValue()}) == 90);
+ assert(calls == 20);
+}
+""")
+    (source / "Main.btrc").write_text('import ./Records.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("aliases_first", [False, True], ids=["aliases-after", "aliases-before"])
+def test_identity_typedefs_share_record_providers(tmp_path, immutable_btrcc, module_units, aliases_first):
+    source = tmp_path / "src"
+    source.mkdir()
+    aliases = "typedef struct Point Point; typedef union Number Number; typedef enum Color Color;\n"
+    records = "struct Point { int x; }; union Number { int integer; float real; }; enum Color { RED, GREEN };\n"
+    (source / "Records.btrc").write_text(
+        (aliases + records if aliases_first else records + aliases)
+        + "typedef struct Point Pair, *PairPtr;\n"
+        + "int sum(Point point, Number number, Color color) { return point.x + number.integer + (int)color; }\n"
+    )
+    (source / "Main.btrc").write_text("""
+import ./Records.btrc;
+int main() {
+ Pair point = {2}; PairPtr pointer = &point; Number number = {3}; Color color = GREEN;
+ assert(pointer->x == 2 && sum(point, number, color) == 6);
+ print("PASS"); return 0;
+}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

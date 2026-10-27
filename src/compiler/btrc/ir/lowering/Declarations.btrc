@@ -5280,7 +5280,7 @@ class DeclarationLowerer {
 		} else if (d.kind == NK_TYPEDEF_DECL) {
 			/* Whole-program aliases were emitted in dependency order above.
              * A module emits its own aliases before shared declarations merge. */
-			if (self.context.declarationsElsewhere) {
+			if (self.context.declarationsElsewhere && !SemanticTypeSystem.isIdentityTypedef(d, self.analyzed)) {
 				IRTypedefDef definition = IRTypedefDef(self.cTypes.lower(d.original), d.alias);
 				definition.isVolatile = d.original.isVolatile;
 				m.typedefDefs.push(definition);
@@ -5537,10 +5537,25 @@ class DeclarationLowerer {
 		if (self.context.packAlignments.has(declarationKey)) {
 			sd.packAlignment = self.context.packAlignments.get(declarationKey);
 		}
-		Vector<Node> declarators = SemanticTypeSystem.recordDeclarators(d);
+		Vector<IRStructField> fields = self.recordFields(d, callableFlow);
+		sd.fields = fields;
+		m.structDefs.push(sd);
+	}
+
+	private Vector<IRStructField> recordFields(Node record, CallableFlowState callableFlow) {
+		Vector<IRStructField> fields = [];
+		Vector<Node> declarators = SemanticTypeSystem.recordDeclarators(record);
 		int i = 0;
 		while (i < declarators.len) {
 			Node f = declarators.get(i);
+			if (f.kind == NK_ANONYMOUS_MEMBER) {
+				IRStructField field = IRStructField(SemanticTypeSystem.recordKeyword(f), "");
+				Vector<IRStructField> nested = self.recordFields(f, callableFlow);
+				field.recordFields = nested;
+				fields.push(field);
+				i++;
+				continue;
+			}
 			bool flexible = SemanticTypeSystem.flexibleArrayMember(f);
 			if (f.type != null && f.type.isArray && (f.type.arraySize != null || flexible)) {
 				Node baseType = TypeShape.withoutOuterArray(f.type);
@@ -5553,16 +5568,16 @@ class DeclarationLowerer {
 				}
 				field.isVolatile = f.type.isVolatile;
 				field.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(f.type, self.analyzed.typedefTable);
-				sd.fields.push(field);
+				fields.push(field);
 			} else {
 				IRStructField field = IRStructField(self.cTypes.lower(f.type), f.name);
 				field.isVolatile = f.type != null && f.type.isVolatile;
 				field.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(f.type, self.analyzed.typedefTable);
-				sd.fields.push(field);
+				fields.push(field);
 			}
 			i = i + 1;
 		}
-		m.structDefs.push(sd);
+		return fields;
 	}
 
 	/* Top-level variable -> file-scope C global (mirrors _emit_declarations'
