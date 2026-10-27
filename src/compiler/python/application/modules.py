@@ -600,6 +600,7 @@ class SharedDeclarations:
     )
 
     def __init__(self, module: IRModule) -> None:
+        self._runtime_catalog = RuntimeHelperCatalog()
         # This declaration inventory spans every group. Its derived runtime
         # headers do not belong to each unit: the optimizer rematerializes them
         # from that unit's surviving declarations and bodies after the merge.
@@ -724,6 +725,12 @@ class SharedDeclarations:
         for root in (*unit.function_defs, *unit.objective_c_classes, *unit.gpu_kernels):
             roots.update(self._referenced(root))
         for helper in unit.helper_decls:
+            # Catalog assets cannot reference application declarations merely
+            # by sharing a local name. Custom helper source remains opaque.
+            if self._runtime_catalog.contains(helper.name):
+                definition = self._runtime_catalog.definition(helper.name)
+                if helper.c_source == definition.c_source:
+                    continue
             roots.update(IROptimizer.identifier_tokens(helper.c_source))
         for declaration in (*self._preprocessor, *unit.preprocessor_decls):
             replacement = getattr(declaration, "replacement", None)

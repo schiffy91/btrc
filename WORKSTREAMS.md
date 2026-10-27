@@ -2047,3 +2047,30 @@ Fresh compiler, module, parity, structure and generated-source checks precede
 publication. PR118 currently holds the hosted CI slot. Existing PR115 analysis
 and lowering changes remain with that owner; this does not merge the diagnostic
 composition or qualify shared cross-frontend cache storage.
+
+
+### 2026-10-27 PR119: module ARC descriptor reachability
+
+Branch `codex/module-arc-owner-return-20261027` starts from PR119's saved
+module header/cache checkpoint `0dd0f9bf`. Return donor `7a81076b` to the
+module-dependency owner while preserving existing header selection and solved
+generic-effect cache behavior. This packet extends its claim to
+`src/compiler/python/ir/optimizer.py` and
+`src/tests/python/test_optimizer_declarations.py`; module code and its tests
+are already owned here. PR115 retains its analysis and lowering repairs.
+
+Exported ARC descriptors follow live constructors and structured references.
+Linkage alone must not keep an unused descriptor and its destructor reachable.
+Keep side-effecting initializer rules and all other global-root behavior.
+Canonical runtime-helper local identifiers must not create application roots;
+require both catalog identity and exact source equality before excluding those
+text references. Opaque or overridden helpers retain conservative scanning.
+
+Establish the old compiler's baseline with exact donor regressions before
+production changes. Preserve existing test bodies and all raw C comparisons.
+Qualify live/dead generic descriptors with strict/sanitized native execution,
+then run optimizer, module/cache, parity, structure and generated-source checks.
+No local GUI, application, bootstrap, guest or performance acceptance is
+claimed. Publish the reviewed source after hosted CI capacity is available;
+this extends the previous local candidate rather than integrating diagnostic
+composition history.
