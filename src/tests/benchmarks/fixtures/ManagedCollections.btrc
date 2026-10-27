@@ -1,0 +1,105 @@
+import Library.Vector;
+import Library.Map;
+import Library.List;
+
+int alive = 0;
+int destroyed = 0;
+
+class CycleNode {
+	public int id;
+	public CycleNode? next = null;
+	public CycleNode(int id) { self.id = id; alive++; }
+
+	public void __del__() { alive--; destroyed++; }
+}
+
+long long fillVector(Vector<CycleNode> values, int size, bool cyclic) {
+	long long checksum = 0LL;
+	for (int index = 0; index < size; index++) {
+		CycleNode node = new CycleNode(index);
+		if (cyclic) { node.next = node; }
+		values.push(node);
+		checksum += (long long)node.id;
+	}
+	return checksum;
+}
+
+long long exerciseVector(int size, bool cyclic, bool readValues) {
+	Vector<CycleNode> values = [];
+	long long checksum = fillVector(values, size, cyclic);
+	assert(values.len == size && alive == size);
+	if (readValues) {
+		checksum = 0LL;
+		for (int pass = 0; pass < 4; pass++) {
+			for (int index = 0; index < size; index++) {
+				CycleNode node = values.get(index);
+				checksum += (long long)node.id;
+			}
+		}
+		assert(alive == size);
+	}
+	values.free();
+	assert(values.len == 0 && alive == 0);
+	return checksum;
+}
+
+long long fillMap(Map<int, CycleNode> values, int size, bool cyclic) {
+	long long checksum = 0LL;
+	for (int index = 0; index < size; index++) {
+		CycleNode node = new CycleNode(index);
+		if (cyclic) { node.next = node; }
+		values.put(index, node);
+		checksum += (long long)node.id;
+	}
+	return checksum;
+}
+
+long long exerciseMap(int size, bool cyclic) {
+	Map<int, CycleNode> values = {};
+	long long checksum = fillMap(values, size, cyclic);
+	assert(values.len == size && alive == size);
+	values.clear();
+	assert(values.len == 0 && alive == 0);
+	return checksum;
+}
+
+long long fillList(List<CycleNode> values, int size, bool cyclic) {
+	long long checksum = 0LL;
+	for (int index = 0; index < size; index++) {
+		CycleNode node = new CycleNode(index);
+		if (cyclic) { node.next = node; }
+		values.pushBack(node);
+		checksum += (long long)node.id;
+	}
+	return checksum;
+}
+
+long long exerciseList(int size, bool cyclic) {
+	List<CycleNode> values = new List<CycleNode>();
+	long long checksum = fillList(values, size, cyclic);
+	assert(values.len == size && alive == size);
+	values.clear();
+	assert(values.len == 0 && alive == 0);
+	return checksum;
+}
+
+int main(int argc, char** argv) {
+	if (argc != 5) { return 2; }
+	int mode = atoi(argv[1]);
+	int size = atoi(argv[2]);
+	int rounds = atoi(argv[3]);
+	int cycle = atoi(argv[4]);
+	if (mode < 0 || mode > 3 || size < 1 || size > 32768 || rounds < 1 || rounds > 16 || cycle < 0 || cycle > 1) { return 2; }
+	long long checksum = 0LL;
+	for (int round = 0; round < rounds; round++) {
+		assert(alive == 0);
+		if (mode < 2) { checksum += exerciseVector(size, cycle == 1, mode == 1); }
+		else if (mode == 2) { checksum += exerciseMap(size, cycle == 1); }
+		else { checksum += exerciseList(size, cycle == 1); }
+		assert(alive == 0 && destroyed == (round + 1) * size);
+	}
+	print(checksum);
+	print(destroyed);
+	print(alive);
+	return 0;
+}

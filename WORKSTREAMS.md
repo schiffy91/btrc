@@ -3409,3 +3409,37 @@ Fresh composed baseline: all 32 strict and sanitized native executions pass,
 while four generic complete-C comparisons fail; four ordinary controls match.
 Returned the exact four-copy production patch from `c8ea413f`. Fresh compiler
 and integration validation remain required.
+
+
+### 2026-10-27: collection release policy diagnostic
+
+Owner: Codex, branch `codex/collection-release-diagnostic-20261027`.
+Owned paths: `tools/bench/collection_release.py`,
+`src/tests/benchmarks/fixtures/ManagedCollections.btrc`,
+`src/tests/python/test_bench_collection_release.py`,
+`src/tests/python/test_ci_workflow_contracts.py`, `.github/workflows/macos.yml`,
+and this claim.
+
+The constructor repair at `92829cde` passes eight complete-C regressions and
+32 native executions. The application now matches 433 of 435 C files, with
+ControlEventQueue newly identical and no lost matches. Map and Vector still
+differ in collection release batching. Selected validation has 5,570 passes
+and ten unresolved complete-C failures. The unchanged product link-plan
+validator passes; it does not establish raw plan identity.
+
+Preserve both release policies while comparing their managed collection work
+on one hosted Mac with the same C compiler. A fixed-size probe already passes
+64 strict and sanitized executions across both frontends and output modes,
+including acyclic and cyclic payload destruction at public clearing boundaries.
+The dedicated diagnostic must repeat those controls before measuring instruction
+counts and peak memory, retain raw C differences and failures, and leave ordinary
+benchmark budgets unchanged. Measurements remain hosted only. The existing
+workflow and benchmark diagnostic baseline passes 126 tests.
+
+Local diagnostic validation passes 150 tests and all 64 native controls.
+Lint, Python/BTRC formatting and diff checks pass. The fixture is excluded from
+both automatic corpus and benchmark discovery. Its C differences contain only
+cycle flush/poll calls, their declaration and closing-brace diff alignment.
+Evidence is under `build/issue-gates/collection-release-policy/`, including
+`integrated-proof.json`. No measurements have run and neither release policy
+has changed. The two active PR #125 unit jobs retain their published revision.

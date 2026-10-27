@@ -626,7 +626,8 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
             actual_scope.pop("if")
         if workflow == "macos.yml":
             assert actual_scope.pop("if") == (
-                "github.event_name != 'workflow_dispatch' || inputs.focus != 'e40-diagnostic'"
+                "github.event_name != 'workflow_dispatch' || "
+                "(inputs.focus != 'e40-diagnostic' && inputs.focus != 'collection-release-diagnostic')"
             )
         if workflow == "windows.yml":
             assert actual_scope.pop("if") == (
@@ -641,7 +642,7 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         if workflow == "ci.yml":
             untiered.update({"bench-diagnostic", "unit-diagnostic"})
         if workflow == "macos.yml":
-            untiered.add("macos-e40-diagnostic")
+            untiered.update({"macos-e40-diagnostic", "collection-release-diagnostic"})
         if workflow == "windows.yml":
             untiered.update({"user-census-build", "user-census-diagnostic"})
         assert set(jobs) - untiered == listed, workflow
@@ -1347,7 +1348,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                     "type": "choice",
                     "options": ["full", "native-gui", "extended"]
                     + (["bench-diagnostic", "unit-diagnostic"] if workflow == "ci.yml" else [])
-                    + (["e40-diagnostic"] if workflow == "macos.yml" else [])
+                    + (["e40-diagnostic", "collection-release-diagnostic"] if workflow == "macos.yml" else [])
                     + (["user-census-diagnostic"] if workflow == "windows.yml" else []),
                     "default": "full",
                 }
@@ -2263,3 +2264,21 @@ def test_workflow_retains_raw_image_inspect_and_stops_on_failure(tmp_path: Path,
     assert json.loads((tmp_path / "build/bench-diagnostic/image.json").read_text()) == image
     if not inspect_status:
         assert "python3 -m tools.bench.diagnostic" in shlex.join(calls[1])
+
+
+def test_collection_release_diagnostic_is_manual_and_separate_from_benchmark_budgets() -> None:
+    document = _parsed("macos.yml")
+    job = document["jobs"]["collection-release-diagnostic"]
+    assert job["if"] == ("github.event_name == 'workflow_dispatch' && inputs.focus == 'collection-release-diagnostic'")
+    assert "needs" not in job and "strategy" not in job
+    assert job["runs-on"] == "macos-15"
+    assert all(entry.job != "collection-release-diagnostic" for entry in TIERS.jobs)
+    run = next(step["run"] for step in job["steps"] if "tools.bench.collection_release" in step.get("run", ""))
+    assert '--profile "$RUNNER_TEMP/btrc-dev-shell-root"' in run
+    assert "--check-only" not in run and "--btrcc" not in run
+    assert "--output build/collection-release-diagnostic" in run
+    upload = job["steps"][-1]
+    assert upload["if"] == "always()"
+    assert upload["with"]["path"] == "build/collection-release-diagnostic/"
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert _parsed("ci.yml")["jobs"]["bench"]["if"] == f"contains({PLAN}.jobs, 'bench')"
