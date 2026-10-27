@@ -3896,3 +3896,180 @@ def test_shared_declarations_ignore_canonical_helper_locals(helper_kind, referen
     assert ("destroyed" in {declaration.name for declaration in unit.global_decls}) == (
         referenced or helper_kind != "canonical"
     )
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("storage", ["field", "vector"])
+def test_native_release_slots_have_no_arc_edges(tmp_path, native_project, immutable_btrcc, module_units, storage):
+    from src.tests.python.native_import_fixtures import resource_project
+
+    source, _sdk, _triple = resource_project.__wrapped__(native_project)
+    header = tmp_path / "Foundation.h"
+    text = header.read_text()
+    counts = "static int widgetLive = 0, widgetDestroyed = 0;"
+    assert text.count(counts) == 1
+    header.write_text(text.replace(counts, "extern int widgetLive, widgetDestroyed;"))
+    (source.parent / "Resource.c").write_text("int widgetLive = 0, widgetDestroyed = 0;\n")
+    manifest = tmp_path / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        + '\n[[native.sources]]\npath = "src/Resource.c"\nlanguage = "c"\nstandard = "c11"\nmodules = ["Foundation"]\n'
+    )
+    declaration = (
+        "class Holder { public WidgetRef? value; public Holder(WidgetRef? value) { self.value = value; } }\n"
+        if storage == "field"
+        else ""
+    )
+    operation = (
+        "var holder = Holder(owner); release owner; release holder.value; "
+        "assert(holder.value == null); release holder.value; release holder;"
+        if storage == "field"
+        else "Vector<WidgetRef> values = []; values.push(owner); release owner; values.free(); release values;"
+    )
+    source.write_text(
+        "import ./Foundation.btrc;\n"
+        + ("import Library.Vector;\n" if storage == "vector" else "")
+        + declaration
+        + "int main() {\nfor (int index = 0; index < 4; index++) {\n"
+        + "var owner = WidgetCreate(41); assert(owner != null);\n"
+        + operation
+        + "\nassert(WidgetLive() == 0 && WidgetDestroyed() == index + 1);\n}\nreturn 0;\n}\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source.parent, tmp_path, immutable_btrcc, "", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("cyclic", [False, True], ids=["acyclic", "cycle"])
+@pytest.mark.parametrize("receiver", ["self", "variable"])
+@pytest.mark.parametrize("guarded", [False, True], ids=["plain", "unwind"])
+def test_explicit_field_release_preserves_owner_and_cleanup(
+    tmp_path, immutable_btrcc, module_units, cyclic, receiver, guarded
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    edge = "public Owner? owner = null;" if cyclic else ""
+    connect = "self.child.owner = self;" if cyclic else ""
+    method = "public void clear() { release self.child; }" if receiver == "self" else ""
+    clear = "owner.clear();" if receiver == "self" else "release owner.child;"
+    operation = (
+        f'try {{ {clear} throw "done"; }} catch (string error) {{ assert(error == "done"); }}' if guarded else clear
+    )
+    (source / "Owners.btrc").write_text(f"""
+int children = 0;
+int owners = 0;
+class Child {{
+    {edge}
+    public Child() {{ children++; }}
+    public void __del__() {{ children--; }}
+}}
+class Owner {{
+    public Child? child = null;
+    public Owner() {{ owners++; }}
+    public void __del__() {{ owners--; }}
+    public void attach() {{ self.child = new Child(); {connect} }}
+    {method}
+}}
+void exercise() {{
+    Owner owner = new Owner();
+    owner.attach();
+    assert(owners == 1 && children == 1);
+    {operation}
+    assert(owner.child == null && children == 0 && owners == 1);
+}}
+""")
+    (source / "Main.btrc").write_text(
+        "import ./Owners.btrc;\nint main() { for (int i = 0; i < 20; i++) { exercise(); "
+        'assert(children == 0 && owners == 0); } print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("kind", ["interface", "base"])
+@pytest.mark.parametrize("static", [False, True], ids=["free", "class-method"])
+def test_default_helpers_use_stabilized_argument_types(tmp_path, immutable_btrcc, kind, static):
+    source = tmp_path / "source"
+    source.mkdir()
+    parent = "IBackend" if kind == "interface" else "Base"
+    declarations = (
+        "interface IBackend { int number(); }\n"
+        "class Backend implements IBackend { public int number() { return 42; } }\n"
+        if kind == "interface"
+        else "class Base { public int number() { return 42; } }\nclass Backend extends Base {}\n"
+    )
+    setup = (
+        "class Setup {\n"
+        f" public {parent}? backend; public string message;\n"
+        f" public Setup({parent}? backend, string message) {{ self.backend = backend; self.message = message; }}\n"
+    )
+    method = f'Setup failed({parent}? backend, string message = "ok") {{ return Setup(backend, message); }}\n'
+    (source / "Shared.btrc").write_text(
+        declarations + setup + (" class " + method + "}\n" if static else "}\n" + method)
+    )
+    callee = "Setup.failed" if static else "failed"
+    (source / "Main.btrc").write_text(
+        "import ./Shared.btrc;\nint main() {\n"
+        " Backend backend = new Backend();\n"
+        f" Setup result = {callee}(backend);\n"
+        " assert(result.backend != null); assert(result.backend.number() == 42);\n"
+        ' assert(result.message == "ok"); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["acyclic", "payload-cycle", "mutex-cycle", "shared-alias", "mixed-alias"])
+def test_mutex_payload_calls_preserve_typed_ownership(tmp_path, immutable_btrcc, module_units, shape):
+    source = tmp_path / "src"
+    source.mkdir()
+    edge = {
+        "acyclic": "",
+        "payload-cycle": "public Payload? next = null;",
+        "mutex-cycle": "public Mutex<Payload?> owner;",
+        "shared-alias": "public Mutex<PayloadAlias?> owner;",
+        "mixed-alias": "public Mutex<Payload?> owner;",
+    }[shape]
+    connect = "self.next = self;" if shape == "payload-cycle" else ""
+    alias = shape in {"shared-alias", "mixed-alias"}
+    payload = "PayloadAlias" if alias else "Payload"
+    typedef = "typedef Payload PayloadAlias;" if alias else ""
+    link = "value.owner = self.slot;" if shape in {"mutex-cycle", "shared-alias", "mixed-alias"} else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+{typedef}
+class Payload {{
+ {edge}
+ public int number = 7;
+ public Payload() {{ alive++; {connect} }}
+ public void __del__() {{ alive--; }}
+}}
+class Holder {{
+ private Mutex<{payload}?> slot;
+ public Holder() {{ {payload}? value = new Payload(); self.slot = Mutex(value); {link} }}
+ public bool isOpen() {{ return self.slot.get() != null; }}
+ public int read() {{ var value = self.slot.get(); if (value == null) {{ throw "closed"; }} return value.number; }}
+ public void close() {{ self.slot.set(null); }}
+}}
+void exercise() {{
+ Holder holder = new Holder();
+ assert(alive == 1 && holder.isOpen() && holder.read() == 7);
+ holder.close();
+ assert(alive == 0 && !holder.isOpen());
+ bool caught = false;
+ try {{ holder.read(); }} catch (string error) {{ assert(error.equals("closed")); caught = true; }}
+ assert(caught);
+ holder.close();
+}}
+void abandon() {{ Holder holder = new Holder(); assert(alive == 1 && holder.read() == 7); }}
+int main() {{ for (int i = 0; i < 20; i++) {{ exercise(); assert(alive == 0); abandon(); assert(alive == 0); }} print("PASS"); return 0; }}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

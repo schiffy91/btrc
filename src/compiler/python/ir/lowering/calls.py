@@ -950,6 +950,12 @@ class CallableSignatureLowerer:
         )
 
 
+class LoweredExpressionTypes(Protocol):
+    """Exact expression types supplied by the expression lowering owner."""
+
+    def resolved_expression_type(self, expression: object) -> TypeExpr | None: ...
+
+
 class CallableProvenance:
     """Own callable bindings and their abstract flow for one emitted function."""
 
@@ -959,11 +965,13 @@ class CallableProvenance:
         session: LoweringSession,
         types: CTypeLowerer,
         signatures: CallableSignatureLowerer,
+        expression_types: LoweredExpressionTypes,
     ) -> None:
         self._analyzed = analyzed
         self._session = session
         self._types = types
         self._signatures = signatures
+        self._expression_types = expression_types
         self._bindings: dict[str, CallableBinding] = {}
         self._scopes: list[CallableLexicalScope] = []
         self._exception_captures: list[ExceptionalCallableCapture] = []
@@ -975,6 +983,9 @@ class CallableProvenance:
 
     def type_of(self, expression: object) -> TypeExpr | None:
         return self._session.type_of(expression)
+
+    def resolved_type(self, expression: object) -> TypeExpr | None:
+        return self._expression_types.resolved_expression_type(expression)
 
     def is_local(self, name: str) -> bool:
         if self._declaration_scope_bases:

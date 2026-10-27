@@ -2565,3 +2565,298 @@ No local GUI, application, bootstrap, guest or performance acceptance is
 claimed. Publish the reviewed source after hosted CI capacity is available;
 this extends the previous local candidate rather than integrating diagnostic
 composition history.
+
+## 2026-10-24 CX-FSTRING-VALUE-STAGING: copied qualifiers
+
+Reserved: Codex owns `codex/fstring-value-staging-20261024` from `b800bb0`
+under D29. Both frontends stage a native enum interpolation as `const int`
+and then assign to it, producing invalid strict C11. F-string lowering bypasses
+the operand planners that already distinguish copied values from source slots.
+
+Owned paths are `src/compiler/python/ir/lowering/expressions.py`,
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/python/ir/lowering/ownership.py`,
+`src/compiler/btrc/ir/lowering/ownership/Operands.btrc`,
+`src/tests/btrc/test_fstring_allocation_c11.py`,
+`src/tests/btrc/fixtures/FstringQualifiedValues.btrc`, and
+`src/tests/python/test_native_c_values.py`, plus this claim. Preserve native
+read-only validation, pointer qualifiers, evaluation order, conversions and
+managed lifetimes. Prove both frontends against real strict-C compilation and
+execution. Full integration gates remain required; publication waits for CI
+capacity. This packet is independent of the module-header repair.
+
+The qualified-string regression also exposes a planner gap: a language string
+has zero explicit pointer depth but lowers to a C pointer. Its pointee's const
+qualifier must survive copying. Both planners distinguish that physical pointer
+representation before dropping a copied scalar's storage qualifiers.
+
+### 2026-10-24 CX-FSTRING-VALUE-STAGING: prepared assignment values
+
+This packet also owns `src/tests/btrc/test_assignment_lifetime_contract.py`
+for the prepared field-conversion repair transferred from PR #124. Its existing
+`Expressions.btrc` ownership covers the source change. Isolated field validation
+passed 28 assignment/interface, 816 parity/ownership, and 184 architecture
+checks. Both compilers execute the borrowed struct/array reproduction correctly
+under strict C11 and ASan/UBSan, but self-hosted assignment repeats an already
+prepared pointer conversion. Cover that shared assignment path as well.
+
+Preserve prepared type and ownership, borrowed storage semantics, assignment
+results, single evaluation and exception cleanup. The f-string changes and
+assignment repair must pass together before source publication. The isolated
+field implementation branch is evidence only, not a second source packet.
+
+
+### 2026-10-24 CX-FSTRING-VALUE-STAGING: owned binary results
+
+This packet also owns `src/tests/btrc/test_operand_sequencing_contract.py`
+for the owned binary-result boundary. Its existing Python expression-lowering
+claim covers the repair. Full-application composition and a reduced three-string
+concatenation agree on native behavior but differ in result protection when
+exception cleanup is enabled. Python does not pass the existing ownership
+classification to its operand boundary; self-hosted lowering does.
+
+Preserve operand order, result handoff, cleanup and the path without exception
+handling. Both frontends must execute strict C11 and sanitizer regressions
+before their generated C is compared unchanged. This extends PR #120 rather
+than creating another owner of the expression lowerers.
+
+
+### 2026-10-24 CX-FSTRING-VALUE-STAGING: managed field targets
+
+This packet also owns
+`src/compiler/btrc/ir/lowering/ownership/ManagedTypes.btrc` for preparing a
+managed instance-field target before its replacement value is lowered.
+`Expressions.btrc` and the assignment-lifetime tests are already held here.
+The full application and a reduced conditional string assignment expose
+receiver-temporary allocation after right-hand temporaries in the self-hosted
+compiler. Both frontends execute the reduced program correctly, including
+single receiver evaluation and a throwing replacement that preserves the old
+field value, but their generated C differs.
+
+Keep target declarations, setup, receiver and slot together under the managed
+storage owner. Preserve assignment results, prepared-value ownership, source
+order, ARC publication and exception cleanup. Do not reserve temporary numbers
+to imitate output. Validate the field-target change together with this packet's
+formatting, conversion and owned binary-result repairs before publication.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: assignment-result alias storage
+
+The existing PR #120 expression-lowering packet also covers declared aliases
+in staged assignment-result storage, with regressions in
+`src/tests/btrc/test_operand_sequencing_contract.py`. Its owned production path
+remains `src/compiler/btrc/ir/lowering/Expressions.btrc`.
+
+A reduced native handle field assignment produces identical behavior in twelve
+strict C11 and sanitizer executions, but all three variants differ in raw C:
+the reference retains the field's typedef in the outer assignment temporary,
+while the self-hosted compiler uses its canonical pointer type. The nested
+native call's result type already agrees. Callback field assignment in the
+application shows the same outer-result symptom.
+
+Use the existing declared-storage type owner at the assignment boundary.
+Preserve target conversions, ownership and evaluation order. Add executable
+pointer, callback and class-conversion regressions before the source change,
+then qualify sequencing, ownership, callback, module and raw C parity paths.
+The prior combined application candidate remains on its separate diagnostic
+branch with all evidence preserved; refresh that composition after qualification.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: declared cycle-visitor storage
+
+The assignment-alias follow-up also owns
+`src/compiler/btrc/ir/lowering/ownership/CycleBoundaries.btrc`. Its managed-value
+regression still differs after assignment-result typing is repaired: the class
+visitor creates a canonical `Base*` accessor beside the declared `Value`
+accessor already used by the field's store. Both frontends pass strict C11 and
+sanitizer execution. The reference visitor uses the field's declared C type.
+
+Use that declared storage type for the visitor's existing slot-adapter request;
+retain canonical type classification and runtime descriptors. Keep the
+regression's whole-C comparison, extend it to generic holders, and run cycle,
+polymorphic ARC, assignment, callback, module and parity checks. The separate
+class-alias upcast defect is preserved in reproduction `8d7433bf`; it remains
+open and is not covered by this storage repair.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: typedef-aware reference upcasts
+
+This packet also owns `CTypeLowerer.upcast_class_pointer` in
+`src/compiler/python/ir/lowering/types.py` and the alias variants of the
+existing managed-field conversion cascade in
+`src/tests/btrc/test_assignment_lifetime_contract.py`.
+
+The 16-case diagnostic passes direct and source-only alias cases. All eight
+cases with a destination alias fail strict C compilation of the reference
+output; self-hosted strict and sanitizer executions pass before those failures.
+The matrix covers class/interface targets, instance/static storage, borrowed
+and owned replacements, throwing replacements, null assignment and destruction.
+Resolve aliases in the existing conversion owner before classifying an upcast;
+preserve qualifiers, storage shape, source order and ownership.
+
+PR #115 retains its separate atomic-type registration and lock-free proof
+changes in the same Python file. This extension changes only the upcast method.
+Compose those disjoint changes by patch and verify both methods survive;
+never replace the file wholesale from either branch. Full application parity
+and the separate staged-call effective-type investigation remain open.
+
+### 2026-10-24 CX-FSTRING-STAGING: aliased call results in value storage
+
+The reference upcast candidate passes 144 reference checks and all 64 strict
+C11 and sanitizer executions in the 16-case field conversion matrix. Eight
+destination-alias cases still differ in raw C: the self-hosted compiler drops
+the declared alias in discarded call results and binary operands, creating
+different cleanup slot adapters. Preserve that failure and its emitted files.
+
+This packet extends its claim to the discarded-expression storage declaration
+in `src/compiler/btrc/ir/lowering/Statements.btrc`. Its existing
+`Expressions.btrc` claim covers binary operand storage. Reuse the declared
+storage selection already used by call arguments, retaining the prepared
+effective type whenever a conversion changes the value's type. Keep canonical
+classification for ownership and runtime descriptors. Do not change the test's
+whole-C comparison or normalize its output. Validate the combined reference
+conversion and self-hosted storage repair through the alias matrix, ownership,
+interface, module and emitted-C parity suites before committing production code.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: prepared call argument types
+
+The four class/interface and borrowed/owned call diagnostics pass all sixteen
+strict O2 and sanitizer executions but differ in raw C. Argument preparation
+performs an upcast, then the expression override retains only its IR value.
+Final argument lowering infers the original expression type and casts again.
+
+This packet adds `src/compiler/btrc/ir/lowering/Context.btrc` and
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc` to its owned paths.
+Existing claims cover Expressions, Statements and operand-sequencing tests.
+Store the optional effective type with the overridden IR value in one record.
+Preserve that complete record through call boundaries, optional receivers and
+array projection save/restore paths. Use the prepared type only where present;
+never infer it from the destination parameter. Preserve source order, cleanup,
+variadic promotion, default arguments and the exact emitted-C comparison.
+Prove the reduced regression before production edits and then run the broader
+ownership, call, module, structure and parity suites on a fresh compiler.
+
+
+The prepared-call claim also covers the existing boundary-owner assertion in
+`src/tests/btrc/test_immediate_lambda_call_contract.py`. The added cascade
+suites passed 118 executable/contract cases; one structural assertion still
+expects the old untyped rememberOverride call. Update that assertion to require
+the actual staged type. Production candidate behavior, reference and emitted-C
+checks already passed; rerun the immediate-lambda contract after this test edit.
+
+
+### 2026-10-27 PR120: return the native release-slot repair
+
+Branch `codex/native-slot-owner-return-20261027` starts directly from this
+packet's qualified implementation `39af6ea1`. It returns the release-slot
+repair from diagnostic donor `6d8829cf`. Owned paths are
+`src/compiler/btrc/ir/lowering/Statements.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Native resources have no BTRC ARC edge. Their explicit slot release must
+save the value, clear the slot, and call the existing native lifetime
+operation. Persistent ARC slots keep their separate replacement path.
+The donor's field/Vector regression checks destruction counts, repeated
+null-field release, strict and sanitized execution through both compilers,
+and complete emitted-C equality in whole and module builds.
+
+Establish the regression baseline on this owning branch before applying the
+production change, preserve all existing tests, and qualify the combined
+packet again. The synthetic C fixture needs no GUI or application execution.
+Evidence is in `build/issue-gates/native-slot-owner-return/`. Hosted source
+CI, application acceptance and final integration gates remain required.
+
+The owning-branch baseline also exposes the earlier managed-field storage
+repair `4fabcdd0`. Return it in this packet, extending ownership to
+`src/compiler/python/ir/lowering/storage.py` and
+`src/tests/python/test_delete_take_clear.py`; Python expression lowering is
+already owned here. Preserve the sixteen field-release regressions covering
+cyclic and acyclic values, self and variable owners, exception cleanup, and
+whole/module builds. The native-call cleanup difference belongs to PR123;
+module header and declaration dependencies remain with their existing owners.
+Do not remove full-C comparisons to hide those dependencies.
+
+
+### 2026-10-27 PR120: return default helper argument types
+
+Branch `codex/default-argument-owner-return-20261027` starts from this
+packet's saved native-slot and field-storage source `b7c48d52`. It returns
+`274f9818` in the existing owned paths
+`src/compiler/python/ir/lowering/expressions.py` and
+`src/tests/python/test_module_units.py`, plus this claim.
+
+A default helper must receive the actual type of an argument that has already
+been converted and stabilized. Keeping the source type can insert a second
+interface or base-class cast. Preserve evaluation order, ownership and typed
+upcasts. The returned regression covers free functions and class methods with
+interface and base-class arguments, through strict and sanitized native builds
+and a complete emitted-C comparison from both frontends.
+
+Establish the owning baseline before changing production code. Retain all
+existing tests and the packet's earlier native-slot and storage fixes. The
+known module dependencies on PR119, PR122 and PR123 remain failed comparisons
+until their repairs are integrated. Local headless checks do not establish
+GUI, application, physical-device, bootstrap or performance qualification.
+
+
+### 2026-10-27 PR120: return typed mutex ownership
+
+Branch `codex/mutex-owner-return-20261027` starts from the saved PR120
+source `0dc189c4`, preserving its native-slot, field-storage and default-helper
+repairs. Return donor `f584fc6d` to the prepared-value and typed-release packet.
+Extend this packet's existing claims to
+`src/compiler/btrc/analyzer/ownership/Cycles.btrc`,
+`src/compiler/btrc/ir/lowering/{Calls,Concurrency}.btrc`, and
+`src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`.
+The remaining changed lowerers, module regression and this claim are already
+owned by PR120.
+
+Mutex get/set must stage their receiver and payload in source order. Typed
+release and field-store polling must retain the concrete payload topology,
+while erased runtime handles stay conservative. Keep declared payload aliases
+in result storage and inferred locals, and canonical types for ownership.
+Establish the ten-case baseline before applying production changes. Preserve
+all existing tests and require strict/sanitized native execution, destructor
+checks, raw C comparisons, ownership regressions and structural checks.
+
+PR123's isolated native-lease return uses the earlier string-based
+`releaseMayEnqueue` API. Integration must keep this donor's typed Node API and
+pass the resolved type from native lease cleanup. The existing PR119/122/123
+module dependencies remain failed comparisons until their owners are combined.
+No local GUI, application, bootstrap, guest or performance qualification is
+claimed by these headless checks.
+
+The owner still has a native NULL guard in `releaseAfterHandoff`, absent
+from the donor base. Retain that guard and change its input to Node; non-native
+values use typed `releaseValue`, while native values keep guarded release.
+Six production files match the donor patch exactly. The two ownership files
+retain only this documented API adaptation around the same typed release
+and poll decisions. Reconcile the guard with PR123 during integration.
+
+
+### 2026-10-27 PR120: return conditional-result ownership
+
+Branch `codex/conditional-owner-return-20261027` starts from PR120's saved
+mutex checkpoint `5b6dddbe`. Return donor `34db659d` while preserving the
+existing staged-value, native-slot, default-helper and typed-mutex repairs.
+Extend Python lowering ownership to `{calls,classes,declarations,functions,
+translation_unit}.py` alongside this packet's existing expressions, ownership
+and types modules. Own the new conditional-result regression, the typed-operator
+regressions and the callable-provenance/architecture test contracts changed by
+this repair.
+
+Conditional branches consume the ownership of their normalized lowered value.
+Supply exact resolved expression types through a narrow per-body provenance
+interface, keeping the callee ABI ownership contract unchanged. Preserve
+managed cast ownership, deferred generic result types and the typed rejection
+of unresolved coalescing operands. Reuse existing numeric and compatibility
+owners; do not lower source text or bypass the structured IR pipeline.
+
+Establish the allocation-tracked native and complete-C baseline before
+production changes. Keep the old callable test setup during that baseline;
+then update its two constructor stubs and strengthen the architecture check
+for the required expression-type interface. Preserve all other test behavior.
+Native execution is headless; no GUI, application, bootstrap, guest or
+performance qualification is claimed. Existing PR119/122/123 dependencies
+remain failed comparisons until integration.

@@ -399,6 +399,10 @@ class CallTargetResolver {
 			method = callee.field;
 		}
 		Node? payload = SemanticTypeSystem.mutexPayloadFor(self.analyzed, mutexType);
+		if (payload != null && method == "get" && mutexType != null) {
+			signature.returnType = mutexType.genericArgs().get(0);
+			return signature;
+		}
 		if (payload != null && (method == "" || method == "set")) {
 			signature.parameters.push(self.syntheticParameter("value", payload));
 			return signature;

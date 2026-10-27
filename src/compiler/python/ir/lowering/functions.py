@@ -8294,7 +8294,7 @@ class FunctionLowerer:
         if method.body is None:
             return
         declaration = self.specialization_declaration(view)
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         previous_class = self._session.current_class
         previous_class_name = self._session.current_class_name
         self._session.current_class = self._analyzed.class_table.get(view.owner_name)
@@ -8360,7 +8360,9 @@ class FunctionLowerer:
             target = plan.target
             parameters = list(plan.parameters)
             parameter = parameters[plan.parameter_index]
-            provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+            provenance = CallableProvenance(
+                self._analyzed, self._session, self._types, self._signatures, self._expressions
+            )
             previous_class = self._session.current_class
             previous_class_name = self._session.current_class_name
             self._session.current_class = self._analyzed.class_table.get(target.owner_name)
@@ -8422,7 +8424,9 @@ class FunctionLowerer:
             )
         while self._session.pending_thread_spawns:
             plan = self._session.pending_thread_spawns.pop(0)
-            provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+            provenance = CallableProvenance(
+                self._analyzed, self._session, self._types, self._signatures, self._expressions
+            )
             body_plan = self._concurrency.plan_spawn_wrapper_body(
                 plan,
                 provenance,
@@ -8450,7 +8454,7 @@ class FunctionLowerer:
 
     def emit_function_decl(self, decl: FunctionDecl):
         """Lower a top-level FunctionDecl to an IRFunctionDef or forward decl."""
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         if decl.is_gpu:
             if decl.name in self._emitted_gpu_functions:
                 return
@@ -8542,7 +8546,7 @@ class FunctionLowerer:
 
         Returns a structured function-name reference for function-pointer use.
         """
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         if function_name is None:
             lambda_id = self._session.fresh_lambda_id()
             fn_name = f"__btrc_lambda_{lambda_id}"

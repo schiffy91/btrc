@@ -200,7 +200,8 @@ class ExpressionLowerer {
 		self.addProjectionOperands(boundary, plan, "assignment target", varTypes, callableFlow);
 		IRNode lowered = self.materializeAssignmentCore(assignmentPlan, varTypes, callableFlow);
 		boundary.restore();
-		Node? resultType = self.resolvedExpressionType(expression, varTypes);
+		/* The stored result has the target's declared type, including aliases. */
+		Node? resultType = self.operandPlanner.expressionStorageType(expression.target, environment);
 		Node? virtualType = self.ownershipSemantics.virtualAssignmentValueType(expression.target, environment, self.context.currentPropertyBacking);
 		bool rhsSuppliesResult = virtualType != null && self.ownershipSemantics.virtualAssignmentRhsOwnsResult(expression, virtualType, environment);
 		boundary.resultOwned = rhsSuppliesResult;
@@ -418,10 +419,10 @@ class ExpressionLowerer {
 		Node concreteLeftType = leftType;
 		self.operandPlanner.requireType(concreteLeftType, expression.left);
 		OwnershipBoundary boundary = self.callOwnership.boundary();
-		boundary.addLoweredOperand(expression.left, concreteLeftType, self.lowerExpr(expression.left, varTypes, callableFlow), leftOwned, leftPinned);
+		boundary.addLoweredOperand(expression.left, self.operandStorageType(expression.left, concreteLeftType, varTypes), self.lowerExpr(expression.left, varTypes, callableFlow), leftOwned, leftPinned);
 		if (rightType != null || rightTargetType != null) {
 			PreparedValue prepared = self.prepareCallTargetValue(expression.right, rightTargetType, varTypes, callableFlow);
-			Node preparedType = self.operandPlanner.requireType(prepared.effectiveType, expression.right);
+			Node preparedType = self.operandStorageType(expression.right, self.operandPlanner.requireType(prepared.effectiveType, expression.right), varTypes);
 			boundary.addLoweredOperand(expression.right, preparedType, prepared.value, prepared.owned, rightKeep);
 		}
 		IRNode lowered = self.lowerBinaryCore(expression, varTypes, callableFlow);
@@ -510,7 +511,9 @@ class ExpressionLowerer {
 		bool orderedBuiltin = plan.call.callee != null && plan.call.callee.kind == NK_IDENTIFIER && (plan.call.callee.name == "Mutex" || plan.call.callee.name == "print" || plan.call.callee.name == "printf");
 		bool languageCall = plan.declaration != null || plan.parameters.len > 0 || orderedFieldCall || orderedBuiltin || self.analyzed.hostedCallKeys.has(AstIdentity.key(plan.call)) || SemanticTypeSystem.directFunctionPointer(calleeType, self.analyzed) != null;
 		bool materializeEffectfulCallee = plan.receiver != null && plan.receiver == plan.call.callee && self.operandPlanner.hasEffect(plan.receiver, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
-		plan.forceOrder = languageCall && (materializeEffectfulCallee || (self.callOwnership.requiresOrder(plan.receiver, plan.operands, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive())) && plan.operands.len + (plan.receiver == null ? 0 : 1) > 1));
+		/* Mutex get/set always stage their receiver and payload, as the typed synchronization path does in the reference. */
+		bool mutexBoundary = plan.call.callee != null && plan.call.callee.kind == NK_FIELD_ACCESS_EXPR && (plan.call.callee.field == "get" || plan.call.callee.field == "set") && plan.receiverType != null && self.managedValues.isMutex(self.cTypes.resolveBodyType(plan.receiverType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+		plan.forceOrder = mutexBoundary || languageCall && (materializeEffectfulCallee || (self.callOwnership.requiresOrder(plan.receiver, plan.operands, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive())) && plan.operands.len + (plan.receiver == null ? 0 : 1) > 1));
 	}
 
 	private IRNode lowerDefaultArgumentCall(Node call, OwnershipCallPlan plan, OwnershipCallOperand operand, Map<string, Node> varTypes, CallableFlowState callableFlow) {
@@ -557,17 +560,20 @@ class ExpressionLowerer {
 			return;
 		}
 		PreparedValue prepared = self.prepareCallTargetValue(operand.expression, operand.targetType, varTypes, callableFlow);
-		Node storageType = self.callOperandStorageType(operand, self.operandPlanner.requireType(prepared.effectiveType, operand.expression), varTypes);
+		Node storageType = self.operandStorageType(operand.expression, self.operandPlanner.requireType(prepared.effectiveType, operand.expression), varTypes);
 		boundary.addLoweredCallOperand(operand.expression, storageType, prepared.value, prepared.owned, operand.keepValue, prepared.owned && operand.transferred);
 	}
 
-	private Node callOperandStorageType(OwnershipCallOperand operand, Node effectiveType, Map<string, Node> varTypes) {
-		Node? declared = self.operandPlanner.expressionStorageType(operand.expression, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
+	private Node operandStorageType(Node expression, Node effectiveType, Map<string, Node> varTypes) {
+		Node? declared = self.operandPlanner.expressionStorageType(expression, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
 		if (declared == null) { return effectiveType; }
 		Node sourceType = self.cTypes.resolveBodyType(declared, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		Node concreteEffective = self.cTypes.resolveBodyType(effectiveType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		Node? canonicalSource = SemanticTypeSystem.resolveTypedefType(sourceType, self.analyzed.typedefTable);
 		Node? canonicalEffective = SemanticTypeSystem.resolveTypedefType(concreteEffective, self.analyzed.typedefTable);
+		/* Managed local identifiers have canonical value types; field and call
+		 * results retain their declared storage spelling. */
+		if (expression.kind == NK_IDENTIFIER && self.managedValues.isManaged(canonicalSource)) { return effectiveType; }
 		if (canonicalSource != null && canonicalEffective != null && TypeIdentity.shapeKey(canonicalSource) == TypeIdentity.shapeKey(canonicalEffective)) {
 			/* A named alias can be the only spelling that retains qualifiers
              * applied to an intermediate pointer layer. */
@@ -855,11 +861,11 @@ class ExpressionLowerer {
 
 		string receiverKey = AstIdentity.key(receiverExpression);
 		bool receiverHadOverride = self.context.hasExpressionOverrideKey(receiverKey);
-		IRNode receiverPrevious = IRNode.literal("0");
+		ExpressionOverride receiverPrevious = ExpressionOverride(IRNode.literal("0"));
 		if (receiverHadOverride) {
-			receiverPrevious = self.context.expressionOverrideForKey(receiverKey);
+			receiverPrevious = self.context.expressionOverrideStateForKey(receiverKey);
 		}
-		self.context.setExpressionOverrideKey(receiverKey, receiver);
+		self.context.setExpressionOverrideKey(receiverKey, receiver, concreteReceiverType);
 
 		bool callableField = call.callee != null && call.callee.kind == NK_FIELD_ACCESS_EXPR && plan.target.kind == CALL_TARGET_CALLABLE_VALUE;
 		bool callableOrder = callableField && operandsComplete && self.callOwnership.requiresOrder(call.callee, plan.operands, environment);
@@ -893,7 +899,7 @@ class ExpressionLowerer {
 		IRNode lowered = self.lowerMethodCallCore(call, varTypes, callableFlow);
 		if (argumentBoundary) { boundary.restore(); }
 		if (receiverHadOverride) {
-			self.context.setExpressionOverrideKey(receiverKey, receiverPrevious);
+			self.context.restoreExpressionOverrideKey(receiverKey, receiverPrevious);
 		} else {
 			self.context.removeExpressionOverrideKey(receiverKey);
 		}
@@ -2651,16 +2657,16 @@ class ExpressionLowerer {
 		while (index < plan.evaluations.len) {
 			CallArgumentSlot slot = plan.evaluations.get(index);
 			Node? expected = slot.parameter.type;
-			Node? sourceType = null;
+			Node? sourceType = self.context.expressionOverrideType(slot.expression);
 			IRNode value = IRNode.literal("0");
 			if (slot.usesDefault) {
 				Map<string, Node> saved = self.calls.beginDefaultTypeScope(target.signature.substitutions);
 				value = self.lowerAssignedValueRaw(slot.expression, expected, varTypes, callableFlow);
 				self.calls.endDefaultTypeScope(saved);
-				sourceType = self.callTargets.defaultExpressionType(slot.expression, target.signature.substitutions, varTypes);
+				if (sourceType == null) { sourceType = self.callTargets.defaultExpressionType(slot.expression, target.signature.substitutions, varTypes); }
 			} else {
 				value = self.lowerAssignedValueRaw(slot.expression, expected, varTypes, callableFlow);
-				sourceType = self.resolvedExpressionType(slot.expression, varTypes);
+				if (sourceType == null) { sourceType = self.resolvedExpressionType(slot.expression, varTypes); }
 			}
 			if (expected == null && target.signature.variadic && !slot.usesDefault) {
 				value = self.strings.promoteVariadicArgument(sourceType, value);
@@ -3241,7 +3247,7 @@ class ExpressionLowerer {
 			string spec = prepared.converted ? "%s" : self.strings.printfFormatSpec(sourceType);
 			if (sourceType == null) { spec = self.untrackedFormat(interpolation, spec); }
 			string valueCType = spec == "%s" ? "char*" : "int";
-			if (prepared.effectiveType != null) { valueCType = self.cTypes.lower(prepared.effectiveType); }
+			if (prepared.effectiveType != null) { valueCType = self.operandPlanner.operandCType(interpolation, prepared.effectiveType); }
 			interpolations.push(interpolation);
 			preparedValues.push(prepared);
 			valueCTypes.push(valueCType);
@@ -3977,16 +3983,17 @@ class ExpressionLowerer {
 		if (staticFieldStore != null) {
 			ManagedStaticFieldStorePlan concreteStore = staticFieldStore;
 			PreparedValue prepared = self.prepareTargetValue(assignment.valueNode, concreteStore.fieldType, variableTypes, callableFlow);
-			IRNode value = self.strings.upcastClassPointer(concreteStore.fieldType, plan.valueType, prepared.value);
+			IRNode value = self.strings.upcastClassPointer(concreteStore.fieldType, prepared.effectiveType, prepared.value);
 			return self.managedTypes.materializeStaticFieldStore(concreteStore, value, prepared.owned);
 		}
 		ManagedInstanceFieldStorePlan? fieldStore = self.managedTypes.planInstanceFieldStore(assignment, receiverType);
 		if (fieldStore != null) {
 			ManagedInstanceFieldStorePlan concreteStore = fieldStore;
 			IRNode loweredReceiver = self.lowerExpr(assignment.target.obj, variableTypes, callableFlow);
+			ManagedInstanceFieldStore target = self.managedTypes.prepareInstanceFieldStore(concreteStore, loweredReceiver);
 			PreparedValue prepared = self.prepareTargetValue(assignment.valueNode, concreteStore.fieldType, variableTypes, callableFlow);
-			IRNode value = self.strings.upcastClassPointer(concreteStore.fieldType, plan.valueType, prepared.value);
-			return self.managedTypes.materializeInstanceFieldStore(concreteStore, loweredReceiver, value, prepared.owned);
+			IRNode value = self.strings.upcastClassPointer(concreteStore.fieldType, prepared.effectiveType, prepared.value);
+			return self.managedTypes.materializeInstanceFieldStore(target, value, prepared.owned);
 		}
 		IRNode? indirect = self.lowerIndirectAssignment(assignment, variableTypes, callableFlow);
 		if (indirect != null) { return indirect; }
@@ -4014,7 +4021,7 @@ class ExpressionLowerer {
          * the value is lowered exactly once, through whichever path applies. */
 		Node? coercedType = plan.targetType;
 		bool coercedValue = assignment.op == "=" && coercedType != null;
-		IRNode value = coercedValue ? self.strings.upcastClassPointer(plan.targetType, plan.valueType, self.lowerAssignedValue(assignment.valueNode, plan.targetType, variableTypes, callableFlow)) : self.lowerExpr(assignment.valueNode, variableTypes, callableFlow);
+		IRNode value = coercedValue ? self.lowerAssignedValue(assignment.valueNode, plan.targetType, variableTypes, callableFlow) : self.lowerExpr(assignment.valueNode, variableTypes, callableFlow);
 		if (coercedValue && assignment.target.kind != NK_IDENTIFIER) {
 			return self.assignments.wrapPhysical(storage, IRNode.binary(target, "=", value));
 		}

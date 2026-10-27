@@ -372,8 +372,12 @@ class ManagedLifetimeLowerer {
 			arguments.push(value);
 			return IRNode.call("__btrc_string_release", arguments);
 		}
+		return self.releaseArc(value, runtimeType, self.cycles.runtimeTypeMayCycle(runtimeType));
+	}
+
+	private IRNode releaseArc(IRNode value, string runtimeType, bool mayCycle) {
 		string helper = "__btrc_arc_release_acyclic";
-		if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
+		if (mayCycle) {
 			helper = "__btrc_arc_release";
 		}
 		self.context.referenceHelper(helper);
@@ -383,7 +387,11 @@ class ManagedLifetimeLowerer {
 		return IRNode.call(helper, arguments);
 	}
 
-	public IRNode releaseValue(IRNode value, Node resolvedType) { return self.releaseRuntime(value, self.managedValues.runtimeType(resolvedType)); }
+	public IRNode releaseValue(IRNode value, Node resolvedType) {
+		string runtimeType = self.managedValues.runtimeType(resolvedType);
+		if (self.managedValues.isMutex(resolvedType)) { return self.releaseArc(value, runtimeType, self.cycles.typeMayCycle(resolvedType)); }
+		return self.releaseRuntime(value, runtimeType);
+	}
 
 	public IRNode releaseEdge(IRNode value, Node resolvedType, IRNode replacement) {
 		if (self.managedValues.isString(resolvedType) || self.managedValues.isNative(resolvedType)) {
@@ -448,16 +456,17 @@ class ManagedLifetimeLowerer {
 
 	/* The collector poll Python's poll_release_batch appends after releasing
 	 * a handed-off value whose type may join a cycle. */
-	public bool releaseMayEnqueue(string runtimeType) {
-		if (runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType)) { return false; }
-		return self.cycles.runtimeTypeMayCycle(runtimeType);
+	public bool releaseMayEnqueue(Node resolvedType) {
+		if (!self.managedValues.isArc(resolvedType)) { return false; }
+		return self.cycles.typeMayCycle(resolvedType);
 	}
 
 	/* Release a value a call boundary handed off. String and ARC releases
 	 * accept NULL, so they run unconditionally, as Python's release_and_clear
 	 * spells them; a native release keeps its NULL guard. */
-	public IRNode releaseAfterHandoff(IRNode target, string runtimeType) {
-		if (!self.managedValues.isNativeName(runtimeType)) { return self.releaseRuntime(target, runtimeType); }
+	public IRNode releaseAfterHandoff(IRNode target, Node resolvedType) {
+		string runtimeType = self.managedValues.runtimeType(resolvedType);
+		if (!self.managedValues.isNativeName(runtimeType)) { return self.releaseValue(target, resolvedType); }
 		return self.optionalRelease(target, runtimeType);
 	}
 

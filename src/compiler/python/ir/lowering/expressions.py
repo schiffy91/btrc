@@ -1064,6 +1064,7 @@ class ExpressionLowerer:
                 ),
             )
             row_values[key] = evaluation.values[id(source)]
+            fact_types[id(source)] = type_expr
 
         lowered_callee = row_values.get("callee", callee)
         lowered_receiver = row_values.get("receiver", receiver)
@@ -1785,6 +1786,15 @@ class ExpressionLowerer:
         type_expr = self._session.type_of(node)
         if isinstance(node, NewExpr):
             type_expr = type_expr or node.type
+        if isinstance(node, TernaryExpr) and (type_expr is None or type_expr.base == "null"):
+            type_expr = self._types.conditional_result_type(
+                self.resolved_expression_type(node.true_expr),
+                self.resolved_expression_type(node.false_expr),
+            )
+        if isinstance(node, BinaryExpr) and node.op == "??" and (type_expr is None or type_expr.base == "null"):
+            left_type = self.resolved_expression_type(node.left)
+            right_type = self.resolved_expression_type(node.right)
+            type_expr = right_type if left_type is not None and left_type.base == "null" else left_type or right_type
         return self._types.resolve_active_type(self._default_arguments.resolve_type(type_expr))
 
     def prepare_lowered_value(
@@ -2480,7 +2490,7 @@ class ExpressionLowerer:
             computed_owned=computed_owned,
         )
 
-    def _materialize_storage_target(self, plan, provenance: CallableProvenance):
+    def _materialize_storage_target(self, plan, provenance: CallableProvenance, *, ownership_operation: bool = False):
         """Lower target operands while leaving stabilization and storage shape to StorageLowerer."""
         target = plan.target
         if plan.kind is StorageKind.STATIC_FIELD:
@@ -2497,6 +2507,7 @@ class ExpressionLowerer:
             return self._storage.materialize_target(
                 plan,
                 lowered_receiver=self.lower_expr(target.obj, provenance),
+                ownership_operation=ownership_operation,
             )
         return self._storage.materialize_target(
             plan,
@@ -2510,7 +2521,7 @@ class ExpressionLowerer:
     ) -> ManagedSlotTarget:
         """Stabilize one physical slot for an ownership-consuming statement."""
         plan = self._storage.plan_store(source, provenance=provenance)
-        materialized = self._materialize_storage_target(plan, provenance)
+        materialized = self._materialize_storage_target(plan, provenance, ownership_operation=True)
         if plan.kind in {StorageKind.PROPERTY, StorageKind.INDEXED} or materialized.target is None:
             raise CodegenError("ownership operation requires a physical storage target")
         return ManagedSlotTarget(
@@ -2812,7 +2823,7 @@ class ExpressionLowerer:
             if source_type is None:
                 spec = ExpressionLowerer._untracked_format(expression, spec)
             c_type = (
-                self._types.render(prepared.effective_type)
+                self._operand_order.operand_c_type(expression, prepared.effective_type)
                 if prepared.effective_type is not None
                 else "char*"
                 if spec == "%s"
@@ -2966,6 +2977,7 @@ class ExpressionLowerer:
                 provenance,
                 materialization=BinaryMaterialization(node),
                 result_type=self._session.type_of(node),
+                result_owned=self._ownership.owns_result(node, provenance=provenance),
                 keep_nodes=keep_nodes,
                 pin_nodes=pin_nodes,
                 force=self._operand_order.operands_require_order([node.left, node.right]),
@@ -3028,8 +3040,8 @@ class ExpressionLowerer:
                 provenance,
                 source_owned=branch_ownership[1],
             )
-        left_type = self._session.type_of(node.left)
-        right_type = self._session.type_of(node.right)
+        left_type = self.resolved_expression_type(node.left) if node.op == "??" else self._session.type_of(node.left)
+        right_type = self.resolved_expression_type(node.right) if node.op == "??" else self._session.type_of(node.right)
         op = node.op
         overloaded = self.lower_overloaded_values(
             left_type,

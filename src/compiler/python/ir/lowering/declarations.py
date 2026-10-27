@@ -75,7 +75,7 @@ class DeclarationLowerer:
 
     def _emit_enum(self, decl: EnumDecl):
         """Emit a simple enum and, for named enums, its toString helper."""
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         values = []
         prior_members = set()
         for v in decl.values:
@@ -148,7 +148,9 @@ class DeclarationLowerer:
             IRTaggedUnionDef(name=name, tag_type=CType(text=f"{name}_Tag"), variants=variants)
         )
         for v in decl.variants:
-            provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+            provenance = CallableProvenance(
+                self._analyzed, self._session, self._types, self._signatures, self._expressions
+            )
             if v.params:
                 params = [provenance.lower_source_param(parameter) for parameter in v.params]
                 body_stmts = [
