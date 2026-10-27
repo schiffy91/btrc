@@ -308,7 +308,7 @@ class IROptimizer:
 
         declarations: tuple[TypeDeclaration, ...] = (
             *module.enum_defs,
-            *module.function_pointer_typedefs,
+            *sorted(module.function_pointer_typedefs, key=lambda declaration: declaration.name),
             *module.typedef_defs,
             *module.tagged_union_defs,
             *module.struct_defs,

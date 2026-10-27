@@ -1572,7 +1572,18 @@ class IRTypeDeclarationPlanner {
 	class Vector<IRTypeDeclarationRef> plan(IRModule module) {
 		Vector<IRTypeDeclarationRef> declarations = [];
 		for (int index = 0; index < module.enumDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_ENUM, index)); }
-		for (int index = 0; index < module.functionPointerTypedefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_FUNCTION_POINTER, index)); }
+		Vector<string> callbackNames = [];
+		Map<string, Vector<int>> callbackIndices = {};
+		for (int index = 0; index < module.functionPointerTypedefs.len; index++) {
+			string name = module.functionPointerTypedefs.get(index).name;
+			if (!callbackIndices.has(name)) { callbackNames.push(name); callbackIndices.put(name, []); }
+			callbackIndices.get(name).push(index);
+		}
+		callbackNames.sort();
+		for name in callbackNames {
+			/* Retain duplicates for the common provider validation below. */
+			for index in callbackIndices.get(name) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_FUNCTION_POINTER, index)); }
+		}
 		for (int index = 0; index < module.typedefDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_TYPEDEF, index)); }
 		for (int index = 0; index < module.taggedUnionDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_TAGGED_UNION, index)); }
 		for (int index = 0; index < module.structDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_STRUCT, index)); }

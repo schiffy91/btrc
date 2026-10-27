@@ -2035,3 +2035,24 @@ Dependencies found on this isolated owner must remain visible as failing
 assertions; do not normalize generated C or weaken the regression. No local
 GUI, application execution, audio installation, bootstrap or performance
 measurements are authorized by this return.
+
+
+### 2026-10-27 PR122 callback declaration owner return
+
+Branch: `codex/callback-order-owner-return-20261027`, based on the saved
+PR122 owner `b2ae4491`. Owned paths extend the existing optimizer packet to
+`src/tests/python/test_declaration_order_planner.py`; both optimizers,
+`src/tests/python/test_module_units.py` and this record remain owned.
+
+Return callback declaration repair `3887a8be` without its diagnostic history.
+The declaration plan must be independent of callback discovery order while
+retaining dependencies, original IR lists and duplicate-provider rejection.
+Preserve all existing test functions and the already returned prototype and
+cleanup adapter repairs. Establish the baseline on this owner before changing
+production code. The nested-callback and named-alias programs must retain
+strict and sanitized native execution and complete emitted-C comparisons.
+
+Selected local checks, hosted source CI, application acceptance and final
+integration remain required. Record isolated dependencies as failures; do not
+normalize generated C or weaken assertions. This return does not authorize
+local GUI, audio installation, application execution, bootstrap or measurements.
