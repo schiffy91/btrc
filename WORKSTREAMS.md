@@ -2026,3 +2026,24 @@ Keep actual native references, required runtime headers and explicit source
 includes. Both frontends must compile and execute the regression programs and
 pass the module, staleness, runtime and architecture checks on the combined
 source. Full application comparison and final hosted gates remain required.
+
+
+### 2026-10-26 CX-MODULE-HEADER-PARITY: return module cache repairs
+
+Local branch `codex/module-header-return-20261026` starts from the existing
+PR119 source candidate `1898a1d2`, ahead of published claim `877a8dd5`.
+PR119 owns `src/compiler/btrc/pipeline/ModuleUnits.btrc` and these regressions
+in `src/tests/python/test_module_units.py`. Return the generic effect-summary
+repair from `5926c6f0` and literal-dependency repair from `935a7cbd` to this
+packet. The shared native frontend test helper is copied unchanged from the
+validated diagnostic; no other diagnostic compiler changes are included.
+
+First prove both failures on this packet's source. Then retain solved effects
+for every lowered export, including generics whose emitted definitions were
+pruned, and collect dependency names only from structured symbol references.
+Keep genuine cross-module references, warm-cache output and edit invalidation
+covered through both whole/module output and strict/sanitized execution.
+Fresh compiler, module, parity, structure and generated-source checks precede
+publication. PR118 currently holds the hosted CI slot. Existing PR115 analysis
+and lowering changes remain with that owner; this does not merge the diagnostic
+composition or qualify shared cross-frontend cache storage.

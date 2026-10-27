@@ -44,6 +44,7 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.tests import runner
+from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import TOOL_TIMEOUT
@@ -290,7 +291,7 @@ def _btrcc_build(btrcc, workspace: _Workspace, entry: str, output: Path) -> tupl
 
 
 def _btrcc_build_logged(
-    btrcc, workspace: _Workspace, entry: str, output: Path, environment: dict[str, str] | None = None
+    btrcc, workspace: _Workspace, entry: str, output: Path, environment: dict[str, str] | None = None, *, jobs=None
 ) -> tuple[dict[str, int], dict[str, str], str, str]:
     """`_btrcc_build`, also returning the compiler's diagnostic output."""
     output.mkdir(parents=True, exist_ok=True)
@@ -303,6 +304,7 @@ def _btrcc_build_logged(
             "--emit-units",
             str(output / "program"),
             "--module-units",
+            *(["--jobs", str(jobs)] if jobs is not None else []),
         ],
         cwd=workspace.modules,
         env={
@@ -2175,3 +2177,181 @@ def test_unit_flow_roots_cover_every_setjmp_safety_location(location):
         IRFunctionDef("ordinary", CType("void"), body=IRBlock([])),
     ]
     assert ModuleUnitCompiler.setjmp_flow_functions(module) == {"protected"}
+
+
+@pytest.mark.parametrize("jobs", [1, 2])
+def test_selfhost_generic_summaries_survive_demand_pruning(tmp_path, immutable_btrcc, jobs):
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("self-hosted artifact reuse needs the native header reader identity")
+    assert C_COMPILER is not None
+    sanitizer = require_sanitizers(tmp_path)
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Main.btrc").write_text(
+        'import ./Operations.btrc;\nint main() { assert(probe() == 41); print("PASS"); return 0; }\n'
+    )
+    body = """import Library.Map;
+import Library.Vector;
+int probe() {
+    try {
+        Map<int, int> values = {7: 41, 9: 43};
+        Vector<int>? spare = /* demand */;
+        assert(spare == null || spare.len == 0);
+        return values.get(7);
+    } catch (string message) { assert(false); }
+    return 0;
+}
+"""
+    previous = None
+    baseline = None
+    for phase, demand, expected in (
+        ("cold", False, {"lowered": 5, "reused": 0}),
+        ("warm", False, {"lowered": 0, "reused": 5}),
+        ("add", True, {"lowered": 2, "reused": 3}),
+        ("added-warm", True, {"lowered": 0, "reused": 5}),
+        ("remove", False, {"lowered": 1, "reused": 4}),
+        ("removed-warm", False, {"lowered": 0, "reused": 5}),
+    ):
+        constructor = "new Vector<int>()" if demand else "null"
+        (workspace.modules / "Operations.btrc").write_text(body.replace("/* demand */", constructor))
+        output = tmp_path / phase
+        counters, units, primary, _ = _btrcc_build_logged(immutable_btrcc, workspace, "Main.btrc", output, jobs=jobs)
+        assert counters == expected, phase
+        generated = {"program.c": primary, **units}
+        if phase == "cold":
+            baseline = generated
+        if "warm" in phase:
+            assert generated == previous
+        if phase == "remove":
+            assert generated == baseline
+        vector = next(text for name, text in units.items() if name.startswith("program.unit-Vector-"))
+        assert ("btrc_Vector_int* btrc_Vector_int_new(void) {" in vector) == demand
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer_environment(sanitizer),
+            ),
+        ):
+            executable = output / mode
+            compiled = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *[str(output / name) for name in sorted(generated)],
+                    "-o",
+                    str(executable),
+                    "-lm",
+                    "-lpthread",
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert compiled.returncode == 0, compiled.stderr
+            ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+            assert ran.returncode == 0 and ran.stdout == "PASS\n", (phase, mode, ran.stdout, ran.stderr)
+        previous = generated
+
+
+def _compile_and_run_native_frontends(
+    source, tmp_path, immutable_btrcc, expected_stdout, *, module_units, no_stdlib=False
+):
+    NativeBindingPackage.require_reader()
+    sanitizer = require_sanitizers(tmp_path)
+    root = tmp_path.resolve()
+    generated = {}
+    for frontend, compiler in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = root / frontend
+        output.mkdir()
+        c_source, plan = output / "program.c", output / "program.json"
+        compiled = subprocess.run(
+            [
+                *compiler,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                *(["--no-stdlib"] if no_stdlib else []),
+                *(["--module-units", "--jobs", "1", "--emit-units", str(output / "program")] if module_units else []),
+                "--emit-link-plan",
+                str(plan),
+                "-o",
+                str(c_source),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        generated[frontend] = {path.name: path.read_bytes() for path in output.glob("program*.c")}
+        for mode, compiler, optimization, flags, environment in (
+            ("strict", C_COMPILER, 2, [], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                1,
+                ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "native module qualification requires a C compiler"
+
+            def run_build(command, *, environment=environment, **kwargs):
+                kwargs["timeout"] = 180
+                if environment is not None:
+                    kwargs["env"] = environment
+                return subprocess.run(command, **kwargs)
+
+            executable = output / mode
+            NativePlanBuilder(runner=run_build).build(
+                plan_path=plan,
+                generated_c=c_source,
+                output=executable,
+                cc=compiler,
+                optimization=optimization,
+                jobs=1,
+                compile_flags=["-pedantic-errors", "-Wall", "-Wextra", "-Werror", *flags],
+                link_flags=flags,
+            )
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0 and ran.stdout == expected_stdout, (frontend, mode, ran.stdout, ran.stderr)
+    return generated
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("reference_global", [False, True], ids=["literal", "reference"])
+def test_literal_text_does_not_add_module_dependencies(tmp_path, immutable_btrcc, module_units, reference_global):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Data.btrc").write_text("int argument = 7;\nint readArgument() { return argument; }\n")
+    (source / "Text.btrc").write_text(
+        ("import ./Data.btrc;\n" if reference_global else "")
+        + "void display() { "
+        + ("assert(argument == 7); " if reference_global else "")
+        + 'print("argument"); }\n'
+    )
+    (source / "Main.btrc").write_text(
+        "import ./Data.btrc;\nimport ./Text.btrc;\nint main() { assert(readArgument() == 7); display(); return 0; }\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "argument\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
