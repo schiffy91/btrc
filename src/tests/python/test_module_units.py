@@ -4266,7 +4266,6 @@ def test_span_declarations_follow_shared_catalog_order(tmp_path, immutable_btrcc
     assert generated["reference"] == generated["selfhost"]
 
 
-
 @pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
 @pytest.mark.parametrize("kind", ["alias", "independent"])
 @pytest.mark.parametrize("keep", [False, True], ids=["borrow", "keep"])
@@ -4310,4 +4309,3 @@ int main() {{
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
-
