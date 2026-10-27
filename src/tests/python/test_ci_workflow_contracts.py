@@ -1251,7 +1251,7 @@ def test_unit_shards_preserve_partial_failures_before_final_reports() -> None:
         assert upload["uses"] == UPLOAD_ARTIFACT
         assert upload["with"] == {
             "name": f"failure-report-{workflow}-tests-unit",
-            "path": "build/failure-report-unit.jsonl",
+            "path": "build/failure-report-unit.jsonl\nbuild/failure-report-unit.progress.json\n",
             "if-no-files-found": "ignore",
             "retention-days": "14",
         }

@@ -3529,3 +3529,44 @@ ASan/UBSan executions. The two new cases cover whole-program and module
 output. Lint, formatting and diff checks pass. This repairs the stale
 assertion; the four Linux sanitized compilation timeouts and the unfinished
 unit job remain open.
+
+### 2026-10-27: partial unit progress evidence
+
+Owner: Codex, branch `codex/unit-progress-snapshot-20261027`.
+Owned paths: `src/tests/skip_ledger.py`,
+`src/tests/python/test_skip_ledger.py`,
+`src/tests/python/test_ci_workflow_contracts.py`,
+`.github/workflows/ci.yml`, `.github/workflows/macos.yml`, and this claim.
+
+PR #125's Linux unit job exceeded its three-hour deadline after its last
+99% progress line. The failure journal preserved five failures but cannot
+identify the tests still active at cancellation. The existing ledger and
+workflow baseline passes 191 tests. A new assertion reproduces the missing
+progress snapshot.
+
+With partial failure diagnostics enabled, atomically replace an adjacent
+snapshot at test-protocol boundaries. Retain the invocation identity,
+completed protocol count, active scheduled IDs, canonical IDs when reported,
+and last received phase and outcome. A saved snapshot is evidence of the
+last observation, not evidence that a process remains alive. Preserve both
+files in the existing Linux and macOS unit artifacts. Verify serial and
+xdist cancellation with and without an earlier failure. Keep final skip
+classification, selectors, deadlines and skip policy unchanged.
+
+The timeout audit also found one unbounded Git query in the earlier
+`tools/bench/collection_release.py` diagnostic. This packet additionally owns
+that call and bounds it at 60 seconds; measurement policy is unchanged.
+The first broad run passed 240 tests and failed that timeout check. The
+progress snapshot correctly recorded all 241 completed test protocols and
+the terminal failing exit status.
+
+Final validation passes 249 tests under four xdist workers with progress
+reporting enabled. The outer snapshot records 249 completed protocols,
+no active cases and exit status zero. Twelve interrupted inner sessions cover
+setup, call and teardown, serial or two active xdist workers, with or without
+an earlier failure. Their atomic snapshots survive process-group termination;
+none produces a final skip report. Consecutive sessions retain distinct
+identities, and completed sessions retain their original skip/failure results.
+Lint, formatting and diff checks pass. Evidence, including earlier failed
+attempts, is under `build/issue-gates/unit-progress-snapshot/`. This diagnostic
+does not resolve or qualify the hosted unit timeout itself.

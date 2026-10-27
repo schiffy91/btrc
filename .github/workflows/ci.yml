@@ -273,7 +273,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: failure-report-ci-tests-unit
-          path: build/failure-report-unit.jsonl
+          path: |
+            build/failure-report-unit.jsonl
+            build/failure-report-unit.progress.json
           if-no-files-found: ignore
           retention-days: 14
       # The bootstrap shard's boundary-check writes build/boundary-report.json;

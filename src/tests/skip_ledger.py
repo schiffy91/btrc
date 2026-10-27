@@ -20,6 +20,9 @@ each report's user properties.
 ``--failure-report=PATH`` also appends each failed report immediately to JSONL
 and prints its traceback and captured sections. These partial diagnostics can
 survive an interrupted session; they never replace the final classified report.
+The adjacent ``.progress.json`` snapshot records active test protocols and their
+last received reports. It is replaced atomically on each protocol event. A
+snapshot left after cancellation describes the last observation, not liveness.
 """
 
 from __future__ import annotations
@@ -178,6 +181,9 @@ class SkipLedger:
             self.failure_path = Path(config.invocation_params.dir) / self.failure_path
         self.failure_session = uuid.uuid4().hex if self.failure_path is not None else None
         self.failure_revision = self._revision() if self.failure_path is not None else None
+        self.progress_path = self.failure_path.with_suffix(".progress.json") if self.failure_path is not None else None
+        self.active_tests: dict[str, dict[str, Any]] = {}
+        self.completed_tests = 0
         self.collection_failures: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
         # The environment the session was started with, before any fixture changes it.
         self.environment = {
@@ -217,6 +223,7 @@ class SkipLedger:
 
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         self._failure(report)
+        self._progress_report(report)
         self._gates(report)
         nodeid = report.nodeid
         current = self.tests.get(nodeid)
@@ -225,6 +232,72 @@ class SkipLedger:
             self.tests[nodeid] = outcome
         if report.skipped and not hasattr(report, "wasxfail"):
             self._skip(nodeid, report.when, report.longrepr)
+
+    def pytest_sessionstart(self, session: pytest.Session) -> None:
+        self._write_progress()
+
+    def pytest_runtest_logstart(self, nodeid: str, location) -> None:
+        if self.progress_path is None:
+            return
+        self.active_tests[nodeid] = {
+            "nodeid": nodeid,
+            "started_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "waiting_for": "setup report",
+            "last_report": None,
+        }
+        self._write_progress()
+
+    def pytest_runtest_logfinish(self, nodeid: str, location) -> None:
+        if self.progress_path is None:
+            return
+        if self.active_tests.pop(nodeid, None) is not None:
+            self.completed_tests += 1
+        self._write_progress()
+
+    def _progress_report(self, report: pytest.TestReport) -> None:
+        if self.progress_path is None:
+            return
+        scheduled = report.nodeid
+        for name, value in report.user_properties:
+            if name == GUI_IDENTITY_PROPERTY:
+                scheduled = json.loads(value)["scheduled"]
+        active = self.active_tests.get(scheduled)
+        if active is None:
+            return
+        active["nodeid"] = report.nodeid
+        active["last_report"] = {
+            "phase": report.when,
+            "outcome": report.outcome,
+            "recorded_at": datetime.datetime.now(datetime.UTC).isoformat(),
+        }
+        active["waiting_for"] = (
+            "finish notification"
+            if report.when == "teardown"
+            else "call report"
+            if report.when == "setup" and report.passed
+            else "teardown report"
+        )
+        self._write_progress()
+
+    def _write_progress(self, *, exitstatus: int | None = None) -> None:
+        if self.progress_path is None:
+            return
+        snapshot = {
+            "schema": "btrc.test-progress/1",
+            "session": self.failure_session,
+            "revision": self.failure_revision,
+            "pid": os.getpid(),
+            "started_at": self.started.isoformat(),
+            "recorded_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "status": "running" if exitstatus is None else "finished",
+            "exitstatus": exitstatus,
+            "completed_tests": self.completed_tests,
+            "active_tests": self.active_tests,
+        }
+        self.progress_path.parent.mkdir(parents=True, exist_ok=True)
+        staged = self.progress_path.with_name(f".{self.progress_path.name}.{os.getpid()}.partial")
+        staged.write_text(json.dumps(snapshot, sort_keys=True) + "\n", encoding="utf-8")
+        staged.replace(self.progress_path)
 
     def pytest_collectreport(self, report: pytest.CollectReport) -> None:
         self._failure(report)
@@ -288,6 +361,7 @@ class SkipLedger:
         staged = self.path.with_name(f".{self.path.name}.{os.getpid()}.partial")
         staged.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         staged.replace(self.path)
+        self._write_progress(exitstatus=int(exitstatus))
 
     def report(self, exitstatus: int) -> dict[str, Any]:
         counts = Counter(self.tests.values())

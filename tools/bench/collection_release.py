@@ -53,7 +53,7 @@ class CollectionReleaseDiagnostic:
         temporary.replace(self.output / "receipt.json")
 
     def git(self, *args: str) -> str:
-        return subprocess.check_output(["git", *args], cwd=self.repository, text=True).strip()
+        return subprocess.check_output(["git", *args], cwd=self.repository, text=True, timeout=60).strip()
 
     @staticmethod
     def require_host(*, check_only: bool) -> None:
