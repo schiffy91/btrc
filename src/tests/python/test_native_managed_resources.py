@@ -1447,3 +1447,58 @@ def test_corefoundation_create_query_release_without_signature_wrappers(
     assert "typedef const __CFString* CFStringRef" not in result.c_source
     assert "typedef long CFIndex" not in result.c_source
     run_native_executable(result.c_source, tmp_path, sdk, triple, sanitized)
+
+
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.parametrize("scenario", ["single", "pair", "aliased"])
+def test_native_leases_share_call_cleanup(resource_project, native_compile, sanitized, scenario):
+    source, sdk, triple = resource_project
+    root = source.parent.parent
+    if scenario != "single":
+        header = root / "Foundation.h"
+        header.write_text(
+            header.read_text() + "static inline int ReadPair(WidgetRef first, WidgetRef second) { "
+            "return WidgetRead(first) + WidgetRead(second); }\n"
+        )
+        manifest = root / "btrc.toml"
+        manifest.write_text(
+            manifest.read_text()
+            .replace("symbols = [", 'symbols = ["ReadPair", ')
+            .replace("borrowed-parameters = [", 'borrowed-parameters = ["ReadPair.first", "ReadPair.second", ')
+        )
+    second = (
+        ""
+        if scenario == "single"
+        else "var second = first;"
+        if scenario == "aliased"
+        else "var second = WidgetCreate(9);"
+    )
+    call = "WidgetRead(first)" if scenario == "single" else "ReadPair(first, second)"
+    expected = {"single": 7, "pair": 16, "aliased": 14}[scenario]
+    owners = 2 if scenario == "pair" else 1
+    source.write_text(f"""import ./Foundation.btrc;
+int exercise(bool fail) {{
+ var first = WidgetCreate(7); {second}
+ int result = {call}; assert(result == {expected});
+ if (fail) {{ throw "after native call"; }}
+ return result;
+}}
+int main() {{
+ for (int index = 0; index < 20; index++) {{
+  for (int attempt = 0; attempt < 2; attempt++) {{
+   bool caught = false;
+   try {{ assert(exercise(attempt == 1) == {expected}); }}
+   catch (string error) {{ caught = true; assert(error == "after native call"); }}
+   assert(caught == (attempt == 1));
+   assert(WidgetLive() == 0 && WidgetDestroyed() == (index * 2 + attempt + 1) * {owners});
+  }}
+ }}
+ return 0;
+}}
+""")
+    compiled = native_compile(source, use_cache=False)
+    assert compiled.successful, (compiled.failure, compiled.diagnostics)
+    run_native_executable(compiled.c_source, root, sdk, triple, sanitized, frameworks=())
+    reference = compile_source(source, use_cache=False)
+    assert reference.successful, (reference.failure, reference.diagnostics)
+    assert compiled.c_source == reference.c_source

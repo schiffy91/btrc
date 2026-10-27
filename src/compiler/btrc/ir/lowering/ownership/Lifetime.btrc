@@ -446,6 +446,21 @@ class ManagedLifetimeLowerer {
 		return IRNode.call("__btrc_poll_cycles", arguments);
 	}
 
+	public Vector<IRNode> releaseAndClear(IRNode value, Node resolvedType, string storageCType, Vector<IRNode> declarations) {
+		string savedName = self.context.freshTemporary("__btrc_released_operand");
+		IRNode savedDeclaration = IRNode.variableDeclaration(storageCType, savedName, null);
+		declarations.push(savedDeclaration);
+		self.context.recordLocal(savedDeclaration);
+		IRNode saved = IRNode.variable(savedName);
+		Vector<IRNode> sequence = [
+			IRNode.binary(saved, "=", value),
+			IRNode.binary(value, "=", IRNode.literal("NULL")),
+			self.releaseValue(saved, resolvedType)
+		];
+		if (self.releaseMayEnqueue(self.managedValues.runtimeType(resolvedType))) { sequence.push(self.pollCycles()); }
+		return sequence;
+	}
+
 	/* The collector poll Python's poll_release_batch appends after releasing
 	 * a handed-off value whose type may join a cycle. */
 	public bool releaseMayEnqueue(string runtimeType) {

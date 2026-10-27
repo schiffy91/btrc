@@ -2015,3 +2015,30 @@ release, and exception cleanup. Verify the generated adapters' null contracts,
 including Objective-C and COM, before removing any guard. This is an
 independent parity packet; it does not change collection cycle batching.
 Full integrated gates remain required. Publication waits for CI capacity.
+
+
+### 2026-10-27 PR123: return shared native lease cleanup
+
+Branch `codex/native-lease-owner-return-20261027` starts directly from this
+packet's implementation `f2a55043`. It returns repair `773e1129`, extending
+PR123's ownership to the native lease cleanup in
+`src/compiler/btrc/ir/lowering/Declarations.btrc`. Existing claims cover
+`ownership/Calls.btrc`, `ownership/Lifetime.btrc`, and
+`src/tests/python/test_native_managed_resources.py`.
+
+Non-unique native leases and ordinary calls should use the same structured
+save, clear and release operation. Unique-resource borrow and attachment
+cleanup retain their separate operation. Preserve the donor regression for
+single, distinct and aliased native owners, normal and throwing paths,
+strict and sanitized native execution, and complete generated-C comparison.
+Establish the baseline on this owning branch, then qualify the source and
+existing ownership tests again. Evidence is in
+`build/issue-gates/native-lease-owner-return/`. Hosted source CI and final
+integration gates remain required; no application or GUI execution is claimed.
+
+This branch still exposes `releaseMayEnqueue(string runtimeType)`. The shared
+helper calls that existing interface through `managedValues.runtimeType`,
+preserving this branch's cycle-polling policy. When integrating typed-mutex
+repair `f584fc6d`, retain its typed `releaseMayEnqueue(Node)` interface and
+pass `resolvedType` directly, as the qualified diagnostic composition does.
+This backport does not claim the typed-mutex repair or replace its tests.
