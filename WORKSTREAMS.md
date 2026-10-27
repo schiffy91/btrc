@@ -3606,3 +3606,21 @@ head remains unchanged while its macOS unit job is active.
 and both language formatters. `git diff --check` is clean. This packet
 changes CI ownership and compiler reuse; it does not establish that the
 previous four sanitized compile timeouts or the unit deadline are resolved.
+
+
+### 2026-10-27 C2 record composition for issue #17
+
+Packet: CX-C2-RECORD-COMPOSITION. Compose the reviewed local C2 r08
+implementation at `92d5391d` with the current repair tree at `d68eba16`.
+This packet owns the union of the original CX-C2-RECORDS paths and the
+existing aggregate/operand ownership paths where the branches overlap,
+plus focused regression tests and this integration record. Preserve both
+branches' behavior and regenerate probe evidence only through its owner.
+The designated-initializer reproduction branch is excluded.
+
+Validate record declarations, anonymous members, layout, callable paths,
+operand order, compiler structure and editor behavior on the composed
+sources. Build a fresh self-host compiler after resolving production
+changes. Keep published PR125 fixed while its macOS unit job runs. No
+local GUI, application execution, bootstrap or measurements are authorized.
+Full C2, keyword completion, hosted gates and memory acceptance remain open.
