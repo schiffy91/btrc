@@ -3384,3 +3384,23 @@ Evidence is under `build/issue-gates/union-source-diagnostics/e40-next-integrati
 The candidate must pass all eight compile-only variants and the headless
 evidence checks. Hosted runtime qualification remains required; the later
 tracking and rendering failures are separate unresolved work.
+
+
+### 2026-10-27: generic constructor parameter source return
+
+Owner: Codex, branch `codex/constructor-parameter-owner-return-20261027`.
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+The current application still has 21 signature differences in ControlEventQueue:
+setjmp qualifiers inferred for generic initializers also appear on their new
+wrappers and prototypes. These functions share mutable IRParam objects. The
+four-copy repair and eight regression cases from `c8ea413f` were omitted from
+the earlier source returns. Bring over that patch without its diagnostic
+ancestry, preserving every existing test definition.
+
+Reproduce the donor cases on the current compiler before applying production
+changes. Then build a fresh compiler and check strict and sanitized behavior,
+complete C equality, broader compiler tests and application output. Evidence
+is under `build/issue-gates/constructor-parameter-owner-return/`. Collection
+release batching and final integration qualification remain open.

@@ -4757,3 +4757,42 @@ def test_runtime_helper_locals_do_not_retain_application_prototypes(tmp_path, im
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+@pytest.mark.parametrize("volatile", [False, True], ids=["inferred", "explicit"])
+def test_constructor_parameter_qualifiers_belong_to_each_function(
+    tmp_path, immutable_btrcc, module_units, generic, volatile
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    parameters = "<T>" if generic else ""
+    instance = "Box<int>" if generic else "Box"
+    qualifier = "volatile " if volatile else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+class Payload {{ public Payload() {{ alive++; }} public void __del__() {{ alive--; }} }}
+class Box{parameters} {{
+ public int value = 0;
+ public Payload? payload = null;
+ public Box({qualifier}int number, Payload input) {{
+  try {{ number++; throw "adjust"; }}
+  catch (string error) {{ assert(error.equals("adjust")); self.value = number; }}
+  self.payload = input;
+ }}
+}}
+void exercise() {{
+ Payload payload = new Payload();
+ {instance} box = new {instance}(3, payload);
+ assert(box.value == 4 && box.payload == payload && alive == 1);
+}}
+int main() {{
+ for (int round = 0; round < 20; round++) {{ exercise(); assert(alive == 0); }}
+ print("PASS"); return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
