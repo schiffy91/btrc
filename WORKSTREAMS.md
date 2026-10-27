@@ -3474,3 +3474,21 @@ schema, including JUnit/skip membership. The new schema covers the same 876
 nodes with four 219-node partitions. Historical and current schemas cannot be
 mixed in one aggregate. `rotation-proof.json` retains the timing replay and
 its limits. No new hosted session has run.
+
+### 2026-10-27: module cache output-path framing
+
+Owner: Codex, branch `codex/module-cache-framing-20261027`.
+Owned paths: `src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Issue #8's cache identity audit found an ambiguous debug context: an output
+prefix containing `;output=` can serialize identically to a different prefix
+and primary output pair. The self-hosted compiler reuses two module records
+and emits the first prefix in generated `#line` directives. A fresh build
+uses the requested prefix. The regression fails in both build orders; six
+reference/release controls pass. Evidence is under
+`build/issue-gates/module-cache-framing/`.
+
+Frame variable-length key fields and change the module key version. Preserve
+release-mode reuse across output paths. Shared frontend cache storage and
+the application warm-build budget remain separate, unmet issue #8 work.

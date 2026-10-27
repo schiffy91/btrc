@@ -392,6 +392,75 @@ def test_selfhost_private_body_edit_relowers_only_its_group(tmp_path, immutable_
     assert fresh_primary == edited_primary
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
+@pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
+def test_module_cache_distinguishes_delimiters_in_output_paths(
+    tmp_path, monkeypatch, request, frontend, reverse, debug
+):
+    """A path containing a key delimiter must not borrow another output's debug lines."""
+    root = tmp_path.resolve()
+    source = root / "Main.btrc"
+    source.write_text('import "./Leaf.btrc";\nint main() { return answer() == 42 ? 0 : 1; }\n')
+    (root / "Leaf.btrc").write_text(
+        "class Value { public int number; public Value(int number) { self.number = number; } }\n"
+        "int answer() { var value = Value(42); return value.number; }\n"
+    )
+    prefix, middle, output = (str(root / name) for name in ("units", "middle", "primary.c"))
+    configurations = [(prefix + ";output=" + middle, output), (prefix, middle + ";output=" + output)]
+    if reverse:
+        configurations.reverse()
+    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+
+    def build(configuration, cache):
+        prefix, output = configuration
+        monkeypatch.setenv("BTRC_CACHE_DIR", str(cache))
+        if frontend == "python":
+            result = Compiler(cache=CompilerCache()).compile(
+                source.read_text(),
+                str(source),
+                CompilerOptions(debug=debug, module_units=True, units_prefix=prefix, generated_c_path=output),
+            )
+            assert result.failure is None, result.failure
+            counts = (len(result.module_units_lowered), len(result.module_units_reused))
+            return counts, result.c_source, dict(zip(result.unit_names, result.c_units, strict=True))
+        Path(prefix).parent.mkdir(parents=True, exist_ok=True)
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        process = subprocess.run(
+            [
+                str(btrcc),
+                str(source),
+                "--module-units",
+                "--jobs",
+                "1",
+                "--emit-units",
+                prefix,
+                "-o",
+                output,
+                *(["--debug"] if debug else []),
+            ],
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "BTRC_TIMING": "1"},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert process.returncode == 0, process.stderr
+        match = re.search(r"module-units=lowered:(\d+),reused:(\d+)", process.stderr)
+        assert match, process.stderr
+        stem = Path(prefix).name + "."
+        units = {path.name.removeprefix(stem): path.read_text() for path in Path(prefix).parent.glob(stem + "unit-*.c")}
+        return (int(match[1]), int(match[2])), Path(output).read_text(), units
+
+    first, _, _ = build(configurations[0], root / "shared-cache")
+    warm, warm_primary, warm_units = build(configurations[1], root / "shared-cache")
+    clean, clean_primary, clean_units = build(configurations[1], root / "fresh-cache")
+    assert first == clean == (2, 0)
+    assert len(warm_units) == len(clean_units) == 3
+    assert warm_primary == clean_primary
+    assert warm_units == clean_units
+    assert warm == ((2, 0) if debug else (0, 2))
+
+
 def test_selfhost_unchanged_groups_replay_validation_records(tmp_path, immutable_btrcc):
     """Stage B: a body edit validates only its group; the others replay their
     records, and the build matches a fresh one byte for byte. Verify mode then
