@@ -501,7 +501,7 @@ class ExpressionLowerer {
 				}
 				laterIndex = laterIndex + 1;
 			}
-			if (laterEffect && !operand.owned && self.managedValues.isManaged(self.cTypes.resolveBodyType(operand.typeExpr, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+			if (laterEffect && self.callOwnership.canPinBorrowedOperand(operand, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()))) {
 				operand.keepValue = true;
 			}
 			index = index + 1;

@@ -3165,3 +3165,31 @@ application and final integrated qualification remain required.
 Returned the production patch and exact regression definitions from `21b57e1abf5d9057ffef4e71eafa4e1d5d53bce9` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/btrc/analyzer/Expressions.btrc`, `src/tests/btrc/test_operand_sequencing_contract.py`.
 
 The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
+
+### CX stable self argument pins (2026-10-24)
+
+Owner: Codex, branch `codex/stable-self-argument-pins-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/ownership/Calls.btrc` and
+`src/tests/python/test_module_units.py`.
+
+The self-hosted argument planner adds a stabilization retain for `self` before
+later effects or default arguments. Python excludes `self` and `super` from
+those pins, as the self-hosted receiver planner already does. Six reductions
+pass 24 strict and sanitized native runs; the two `self` cases differ in C,
+while ordinary bindings and explicit `keep` parameters match.
+Establish whole-program and module regressions with exceptional later arguments
+before changing the argument plan. Preserve explicit parameter ownership and
+pins for ordinary borrowed values. Full application and integration gates remain.
+
+The initial candidate changed only operand planning; fresh validation still
+reported eight self-argument C mismatches because completeCallPlan repeated
+the pin decision. Both passes now call CallOwnershipLowerer.canPinBorrowedOperand.
+This extends the owned paths to `src/compiler/btrc/ir/lowering/Expressions.btrc`.
+The failed first candidate remains under `first-candidate/` in the evidence
+folder. Explicit parameter keep decisions remain separate from automatic pins.
+
+### 2026-10-27: source return, Preserve stable self arguments across later call effects
+
+Returned the production patch and exact regression definitions from `51d788d3b0ef47fce50fced09e58c9ce92143113` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`, `src/compiler/btrc/ir/lowering/ownership/Calls.btrc`, `src/tests/python/test_module_units.py`.
+
+The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.

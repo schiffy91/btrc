@@ -392,13 +392,15 @@ class CallOwnershipLowerer {
 				}
 				laterIndex = laterIndex + 1;
 			}
-			if (laterEffect && !operand.owned && self.semantics.isManaged(operand.typeExpr, environment)) {
+			if (laterEffect && self.canPinBorrowedOperand(operand, environment)) {
 				operand.keepValue = true;
 			}
 			pinIndex = pinIndex + 1;
 		}
 		return result;
 	}
+
+	public bool canPinBorrowedOperand(OwnershipCallOperand operand, OwnershipOperandEnvironment environment) { return !operand.owned && operand.expression.kind != NK_SELF_EXPR && operand.expression.kind != NK_SUPER_EXPR && self.semantics.isManaged(operand.typeExpr, environment); }
 
 	public bool operandsHaveConcreteTypes(Vector<OwnershipCallOperand> operands) {
 		int index = 0;

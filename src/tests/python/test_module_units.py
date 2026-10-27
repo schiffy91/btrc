@@ -4351,3 +4351,59 @@ int main() {{
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("receiver", ["self", "variable", "keep"])
+@pytest.mark.parametrize("default", [False, True], ids=["explicit", "default"])
+@pytest.mark.parametrize("throws", [False, True], ids=["plain", "throws"])
+def test_call_argument_pins_preserve_self_and_owned_bindings(
+    tmp_path, immutable_btrcc, module_units, receiver, default, throws
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "selfArgumentPins"\n')
+    binding = "Owner alias = self;" if receiver == "variable" else ""
+    argument = "alias" if receiver == "variable" else "self"
+    later = "" if default else ", touch()"
+    qualifier = "keep " if receiver == "keep" else ""
+    effect = 'throw "later";' if throws else "return 7;"
+    invoke = (
+        'try { owner.exercise(); assert(false); } catch (string error) { assert(error.equals("later")); }'
+        if throws
+        else "owner.exercise();"
+    )
+    (source / "Main.btrc").write_text(
+        f"""
+        int alive = 0;
+        int calls = 0;
+        int observations = 0;
+        int touch() {{ calls++; {effect} }}
+        class Owner {{
+            public int value = 9;
+            public Owner() {{ alive++; }}
+            public void __del__() {{ alive--; }}
+            public void exercise() {{ {binding} observe({argument}{later}); assert(alive == 1); }}
+        }}
+        void observe({qualifier}Owner owner, int later = touch()) {{
+            observations++;
+            assert(owner.value == 9 && later == 7 && calls == 1);
+        }}
+        void exercise() {{
+            calls = 0;
+            observations = 0;
+            Owner owner = new Owner();
+            {invoke}
+            assert(calls == 1 && alive == 1 && observations == {0 if throws else 1});
+        }}
+        int main() {{
+            for (int round = 0; round < 20; round++) {{ exercise(); assert(alive == 0); }}
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
