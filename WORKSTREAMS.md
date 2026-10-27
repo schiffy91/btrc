@@ -4112,3 +4112,22 @@ checkout's src data root. Generated-source, lint and both formatting gates pass.
 Evidence is in `build/issue-gates/app-scale-composition/`. No application was
 executed, no performance was measured, and no timing baseline was promoted.
 Final integrated and hosted qualification remain open.
+
+
+### 2026-10-27 Linux unit failure repairs for PR125
+
+Packet: CX-LINUX-UNIT-REPAIRS, based on composed head `abf08fc9`.
+Own the enum/constructor regression cases in
+`src/tests/python/test_module_units.py`, any demonstrated constructor
+setjmp repair in the paired lowering owners, and this record.
+
+Hosted Linux unit at PR125 head `1ca47cb9` reports 13 failures: two enum
+assertions, ten collection raw-C parity differences and one inferred generic
+constructor runtime assertion. Current-tree Mac baseline has two enum
+failures and eight constructor cases passing with Clang. Inspection shows
+the enum declarations remain in their module units but now carry C tags;
+the test still expects anonymous enum declarations. Current constructor
+initializer parameters already carry volatile qualifiers. Compare GCC
+before choosing a compiler repair. Retain strict/sanitizer execution and
+raw-C parity checks. Collection release policy remains unchanged pending
+qualified measurements. Published PR125 stays fixed while its CI is active.
