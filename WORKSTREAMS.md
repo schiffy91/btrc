@@ -4053,3 +4053,21 @@ selection cases failed before this repair. Missing, optional or inconsistent
 partitions retain the full unit selection. The published PR125 source remains
 unchanged. Native GUI, E40, Linux/provider and full integrated qualification
 still require hosted evidence; these local checks do not close the issues.
+
+
+### 2026-10-27 Application-scale benchmark composition for issue #5
+
+Packet: CX-APP-SCALE-COMPOSITION. Compose the corrected PR117 candidate
+`06d99370` with the GUI/override/module/C2 tree at `cd9c6dd6`, under D29.
+Own `tools/bench/{app_scale,baseline,suite}.py`, the generated
+`CompileAppScale.btrc` fixture, its focused tests, README benchmark guidance
+and this record. Preserve the original generated commits, corrected facade
+imports, incremental edit-to-run contract and individual timing marks.
+
+Baseline: 36 benchmark policy, diagnostic and collection-control tests pass;
+two tests that take real memory measurements are excluded under the current
+execution restriction. The merge preview conflicts only in this append-only
+record. Validate the generator, policy, synthetic object-cache behavior and
+both frontends' transpilation. No application execution, performance
+measurement, GUI/audio work or guest operation is authorized here. No timing
+baseline is promoted. Keep PR125 at `1ca47cb9` while hosted CI runs.
