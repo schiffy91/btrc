@@ -4953,3 +4953,34 @@ int main() {
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("anonymous", [False, True], ids=["named", "anonymous"])
+def test_record_pointer_array_operands_keep_source_order(tmp_path, immutable_btrcc, module_units, anonymous):
+    source = tmp_path / "src"
+    source.mkdir()
+    fields = "int* pointers[2];"
+    if anonymous:
+        fields = "struct { " + fields + " };"
+    pair = "{nextPointer(), nextPointer()}"
+    if anonymous:
+        pair = "{" + pair + "}"
+    initializer = "{" + pair + ", nextValue()}"
+    (source / "Records.btrc").write_text(
+        "struct Frame { " + fields + " int tail; };\n"
+        "int values[12] = {}; int calls = 0;\n"
+        "int* nextPointer() { values[calls] = calls + 1; calls++; return &values[calls - 1]; }\n"
+        "int nextValue() { calls++; return calls; }\n"
+        "int sum(Frame frame) { return *frame.pointers[0] + *frame.pointers[1] + frame.tail; }\n"
+        "void exercise() { Frame frame = " + initializer + ";\n"
+        "assert(*frame.pointers[0] == 1 && *frame.pointers[1] == 2 && frame.tail == 3);\n"
+        "Frame frames[1] = {" + initializer + "};\n"
+        "assert(*frames[0].pointers[0] == 4 && *frames[0].pointers[1] == 5 && frames[0].tail == 6);\n"
+        "assert(sum(" + initializer + ") == 24 && calls == 9); }\n"
+    )
+    (source / "Main.btrc").write_text('import ./Records.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

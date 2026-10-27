@@ -3678,3 +3678,31 @@ Generated-source validation, lint, both formatters and diff checks pass.
 Source hashes and compiler identity are retained under
 `build/issue-gates/c2-record-composition/`. This local composition remains
 unqualified for the full hosted matrix and C2 memory acceptance.
+
+
+### 2026-10-27 C2 review: pointer-array operand storage
+
+Review of `4cb94485` found that the self-hosted aggregate operand planner
+checked scalar pointer depth before recognizing array storage. Four added
+whole/module cases with ordinary and anonymous record members reproduce
+an ordered-initializer error; the reference compiler passes their strict-C
+and sanitizer executions. The shared AST contract places `pointer_depth`
+inside the array, so recognize the array before testing scalar pointer depth.
+The regression covers record variables, arrays of records and call arguments,
+with observable evaluation order and complete emitted-C comparison.
+
+Fresh compiler fingerprint `bb19298c69cdecf6d417a82a21a06393` passes all
+22 selected module boundary cases and 130 aggregate regression cases.
+No cases fail or skip. Generated-source validation, lint and both formatters
+pass. Evidence and before/after reports are in
+`build/issue-gates/c2-pointer-arrays/`. The application proof on `4cb94485`
+predates this follow-up; full final-tree and hosted qualification remain open.
+
+The separate hosted collection diagnostic on `d68eba16`, run `40489214420`,
+passes all 64 strict/sanitized lifetime controls and all 480 execution checks.
+Every sample lacks an instructions-retired counter, so measurement remains
+unqualified. The downloaded artifact digest, exact sample matrix, 558 command
+log pairs and eight native binary digests were verified. Final source/compiler
+stability checks were not reached after the missing-counter exception.
+Collection release policy remains unchanged. Evidence is in
+`build/issue-gates/collection-release-hosted-d68/`.
