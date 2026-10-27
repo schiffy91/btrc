@@ -2488,3 +2488,80 @@ strict/sanitized native runs, corrupt-record controls, parity, structure and
 generated-source checks. Hosted source CI and final application/platform
 acceptance remain required. No local GUI, application, audio installation,
 bootstrap, guest or performance execution is authorized by this claim.
+
+## 2026-10-24 CX-MODULE-HEADER-PARITY: issue 3 C dependencies
+
+Reserved: Codex owns `codex/module-header-parity-20261024` from `b800bb0`
+under D29. The full BTRSmith comparison found unnecessary native headers in
+self-hosted module units. A reduced program confirms that a native type name
+inside a runtime comment or string keeps its header in the self-hosted output;
+the reference compiler already excludes comments and literals from this scan.
+
+Owned paths are `src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+`src/compiler/btrc/ir/runtime/References.btrc`, and
+`src/tests/python/test_module_units.py`, plus this claim. Reuse the runtime
+reference collector's C token scan and prove that actual native references
+still retain their headers. Full emitted-C parity, shared-cache acceptance and
+real-application performance remain required by issues 3 and 8. Publication
+waits for the existing heavy CI runs to release capacity.
+
+### 2026-10-24 CX-MODULE-HEADER-PARITY: runtime-header composition
+
+This packet also owns `src/compiler/python/application/modules.py` and the
+runtime-header regressions in its existing `test_module_units.py` owner,
+transferred from PR #121 by `e0055cfe`. The native-header scanner and generated
+runtime-header repairs will be validated together. The isolated runtime repair
+`06f62254` remains evidence only and is not a separate integration packet.
+
+Keep actual native references, required runtime headers and explicit source
+includes. Both frontends must compile and execute the regression programs and
+pass the module, staleness, runtime and architecture checks on the combined
+source. Full application comparison and final hosted gates remain required.
+
+
+### 2026-10-26 CX-MODULE-HEADER-PARITY: return module cache repairs
+
+Local branch `codex/module-header-return-20261026` starts from the existing
+PR119 source candidate `1898a1d2`, ahead of published claim `877a8dd5`.
+PR119 owns `src/compiler/btrc/pipeline/ModuleUnits.btrc` and these regressions
+in `src/tests/python/test_module_units.py`. Return the generic effect-summary
+repair from `5926c6f0` and literal-dependency repair from `935a7cbd` to this
+packet. The shared native frontend test helper is copied unchanged from the
+validated diagnostic; no other diagnostic compiler changes are included.
+
+First prove both failures on this packet's source. Then retain solved effects
+for every lowered export, including generics whose emitted definitions were
+pruned, and collect dependency names only from structured symbol references.
+Keep genuine cross-module references, warm-cache output and edit invalidation
+covered through both whole/module output and strict/sanitized execution.
+Fresh compiler, module, parity, structure and generated-source checks precede
+publication. PR118 currently holds the hosted CI slot. Existing PR115 analysis
+and lowering changes remain with that owner; this does not merge the diagnostic
+composition or qualify shared cross-frontend cache storage.
+
+
+### 2026-10-27 PR119: module ARC descriptor reachability
+
+Branch `codex/module-arc-owner-return-20261027` starts from PR119's saved
+module header/cache checkpoint `0dd0f9bf`. Return donor `7a81076b` to the
+module-dependency owner while preserving existing header selection and solved
+generic-effect cache behavior. This packet extends its claim to
+`src/compiler/python/ir/optimizer.py` and
+`src/tests/python/test_optimizer_declarations.py`; module code and its tests
+are already owned here. PR115 retains its analysis and lowering repairs.
+
+Exported ARC descriptors follow live constructors and structured references.
+Linkage alone must not keep an unused descriptor and its destructor reachable.
+Keep side-effecting initializer rules and all other global-root behavior.
+Canonical runtime-helper local identifiers must not create application roots;
+require both catalog identity and exact source equality before excluding those
+text references. Opaque or overridden helpers retain conservative scanning.
+
+Establish the old compiler's baseline with exact donor regressions before
+production changes. Preserve existing test bodies and all raw C comparisons.
+Qualify live/dead generic descriptors with strict/sanitized native execution,
+then run optimizer, module/cache, parity, structure and generated-source checks.
+No local GUI, application, bootstrap, guest or performance acceptance is
+claimed. Publish the reviewed source after hosted CI capacity is available;
+this extends the previous local candidate rather than integrating diagnostic
+composition history.

@@ -539,15 +539,14 @@ class ModuleUnitDeclarations {
 		}
 	}
 
-	/* Every name and C type an IR subtree mentions. */
+	/* Referenced symbols and C types in an IR subtree. */
 	class void collectNode(IRNode? node, Map<string, bool> out) {
 		if (node == null) { return; }
 		int domain = node.payloadDomain();
-		if (!node.name.isEmpty()) { out.put(node.name, true); }
+		if ((node.kind == IRK_VAR || node.kind == IRK_FUNCTION_REF) && !node.name.isEmpty()) { out.put(node.name, true); }
 		if (!(domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "").isEmpty()) { out.put((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""), true); }
 		ModuleUnitDeclarations.collectText((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : ""), out);
 		ModuleUnitDeclarations.collectText((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : ""), out);
-		ModuleUnitDeclarations.collectText(node.text, out);
 		Vector<IRParam>? parameters = (domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null);
 		if (parameters != null) { for parameter in parameters { ModuleUnitDeclarations.collectText(parameter.cType, out); } }
 		ModuleUnitDeclarations.collectNode(node.left, out);
@@ -640,7 +639,7 @@ class ModuleUnitDeclarations {
 		if (others.len == all.len) { return; }
 		unit.preprocessorDecls = others;
 		Map<string, bool> used = {};
-		ModuleUnitDeclarations.collectText(CEmitter().emitModuleUnit(unit), used);
+		RuntimeReferenceCollector.collectIdentifiers(CEmitter().emitModuleUnit(unit), used);
 		Vector<IRPreprocessorDecl> kept = [];
 		for declaration in all {
 			if (self.nativeInclude(declaration)) {
@@ -2082,7 +2081,10 @@ class ModuleUnitCompiler {
 			record.text = reply.substring(newline + 1 + headerLength, reply.length() - newline - 1 - headerLength);
 			record.hasSetjmp = state.hasSetjmp;
 			record.effectsSolved = needsSolve;
-			for name in record.exports { if (solved.has(name)) { record.exportedEffects.put(name, solved.get(name)); } }
+			/* Other units solved against every lowered export, including generic
+			 * members whose code demand pruning removed. Keep those summaries
+			 * so an unchanged build can reproduce the same solve. */
+			for name in state.exports { if (solved.has(name)) { record.exportedEffects.put(name, solved.get(name)); } }
 			for name in state.consulted.keys() { if (solved.has(name)) { record.consultedEffects.put(name, solved.get(name)); } }
 			record.releasesCyclable = header.get("releases").asBool();
 			record.definesEntry = header.get("entry").asBool();

@@ -25,6 +25,7 @@ from src.compiler.python.application.modules import (
     ModuleUnitCompiler,
     ModuleUnitGraph,
     ModuleUnitRecord,
+    SharedDeclarations,
     _GroupState,
 )
 from src.compiler.python.application.results import CompilerOptions
@@ -47,6 +48,7 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRFunctionRef,
     IRGlobalDecl,
+    IRHelperDecl,
     IRMacroDef,
     IRModule,
     IRObjectiveCClass,
@@ -56,6 +58,7 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.tests import runner
 from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
@@ -312,6 +315,7 @@ def _btrcc_build_logged(
     environment: dict[str, str] | None = None,
     *,
     stdlib_strict=False,
+    jobs=None,
 ) -> tuple[dict[str, int], dict[str, str], str, str]:
     """`_btrcc_build`, also returning the compiler's diagnostic output."""
     output.mkdir(parents=True, exist_ok=True)
@@ -325,6 +329,7 @@ def _btrcc_build_logged(
             str(output / "program"),
             "--module-units",
             *(["--stdlib-strict"] if stdlib_strict else []),
+            *(["--jobs", str(jobs)] if jobs is not None else []),
         ],
         cwd=workspace.modules,
         env={
@@ -2380,7 +2385,9 @@ def test_shared_span_callback_layouts_keep_frontend_order(tmp_path, immutable_bt
     assert local_units["reference"] == local_units["selfhost"]
 
 
-def _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, expected_stdout, *, module_units):
+def _compile_and_run_native_frontends(
+    source, tmp_path, immutable_btrcc, expected_stdout, *, module_units, no_stdlib=False
+):
     NativeBindingPackage.require_reader()
     sanitizer = require_sanitizers(tmp_path)
     root = tmp_path.resolve()
@@ -2398,6 +2405,7 @@ def _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, expecte
                 str(source / "Main.btrc"),
                 "--strict-imports",
                 "--no-cache",
+                *(["--no-stdlib"] if no_stdlib else []),
                 *(["--module-units", "--jobs", "1", "--emit-units", str(output / "program")] if module_units else []),
                 "--emit-link-plan",
                 str(plan),
@@ -3602,3 +3610,289 @@ def test_instance_graph_records_reject_invalid_cache_payloads(damage):
     else:
         payload["kept-instances"] *= 2
     assert ModuleUnitRecord.from_json(json.dumps(payload), "owner") is None
+
+
+@pytest.mark.parametrize("reference_kind", ["comment", "literal", "reference"])
+def test_native_headers_follow_code_references(compiler, tmp_path, request, reference_kind):
+    NativeBindingPackage.require_reader()
+    root = tmp_path.resolve()
+    sources = root / "src"
+    sources.mkdir()
+    if reference_kind == "comment":
+        # The string runtime's declaration comment says "Byte length".
+        header = "typedef unsigned char Byte;\nstatic inline Byte nativeByte(void) { return 7; }\n"
+        symbol, native_value, body = "nativeByte", "nativeByte()", 'return "hello";'
+        expected = "hello\n"
+    else:
+        header = "enum { ProbeToken = 7 };\n"
+        symbol, native_value = "ProbeToken", "ProbeToken"
+        if reference_kind == "literal":
+            body = r'return "prefix \"ProbeToken\" /* ProbeToken */";'
+            expected = 'prefix "ProbeToken" /* ProbeToken */\n'
+        else:
+            body, expected = 'return f"{(int)ProbeToken}";', "7\n"
+    (root / "Probe.h").write_text(header)
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "headerReferences"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Probe.h"\n'
+        f'language = "c"\nstandard = "c11"\nsymbols = ["{symbol}"]\n'
+    )
+    (sources / "Foundation.btrc").write_text("// Declarations come from Probe.h.\n")
+    (sources / "Text.btrc").write_text(f"import ./Foundation.btrc;\nstring message() {{ {body} }}\n")
+    source = sources / "Main.btrc"
+    source.write_text(
+        "import ./Foundation.btrc;\nimport ./Text.btrc;\n"
+        f"int main() {{ assert({native_value} == 7); print(message()); return 0; }}\n"
+    )
+    generated, plan = root / "Program.c", root / "Program.json"
+    compiled = subprocess.run(
+        [
+            *_native_command(compiler, request),
+            "--no-cache",
+            "--strict-imports",
+            "--module-units",
+            "--jobs",
+            "1",
+            "--emit-units",
+            str(root / "Program"),
+            "--emit-link-plan",
+            str(plan),
+            "-o",
+            str(generated),
+            str(source),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "BTRC_HOME": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    units = list(root.glob("Program.unit-Text-*.c"))
+    assert len(units) == 1
+    text = units[0].read_text()
+    executable = root / "program"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc=C_COMPILER)
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0 and ran.stdout == expected, ran.stdout + ran.stderr
+    includes_probe = any("Probe.h" in line for line in text.splitlines() if line.startswith("#include "))
+    assert includes_probe == (reference_kind == "reference")
+
+
+@pytest.mark.parametrize("explicit_headers", [False, True])
+def test_runtime_headers_follow_live_unit_dependencies(compiler: str, tmp_path, request, explicit_headers):
+    """Derived headers stay with their live uses; source includes stay in every unit."""
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Leaf.btrc").write_text("int leaf() { return 7; }\n")
+    (workspace.modules / "Work.btrc").write_text(
+        'int checked(int value) { if (value < 0) { throw "negative"; } return value; }\n'
+        "int work() { Atomic<uint> value = Atomic(5u);\n"
+        "try { return checked((int)value.load(MemoryOrder.ACQUIRE)); }\n"
+        "catch (string error) { return -1; } }\n"
+    )
+    (workspace.modules / "Main.btrc").write_text(
+        ("#include <setjmp.h>\n#include <stdatomic.h>\n" if explicit_headers else "")
+        + "import ./Leaf.btrc;\nimport ./Work.btrc;\n"
+        + "int main() { return leaf() == 7 && work() == 5 ? 0 : 1; }\n"
+    )
+    output = workspace.root / "out"
+    units = _cli_units(_timing_command(compiler, request), workspace, "Main.btrc", output, 1)
+    if C_COMPILER is None:
+        pytest.skip("module-unit execution needs a C compiler")
+    executable = output / "program"
+    build = subprocess.run(
+        [
+            *C_COMPILER,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            *(str(output / name) for name in units),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert build.returncode == 0, build.stderr
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0, ran.stderr
+    leaf = next(text for name, text in units.items() if ".unit-Leaf-" in name)
+    work = next(text for name, text in units.items() if ".unit-Work-" in name)
+    for header in ("setjmp.h", "stdatomic.h"):
+        include = f"#include <{header}>"
+        assert (include in leaf) == explicit_headers, (compiler, header, leaf)
+        assert include in work
+        if explicit_headers:
+            assert all(include in text for text in units.values())
+
+
+@pytest.mark.parametrize("jobs", [1, 2])
+def test_selfhost_generic_summaries_survive_demand_pruning(tmp_path, immutable_btrcc, jobs):
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("self-hosted artifact reuse needs the native header reader identity")
+    assert C_COMPILER is not None
+    sanitizer = require_sanitizers(tmp_path)
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Main.btrc").write_text(
+        'import ./Operations.btrc;\nint main() { assert(probe() == 41); print("PASS"); return 0; }\n'
+    )
+    body = """import Library.Map;
+import Library.Vector;
+int probe() {
+    try {
+        Map<int, int> values = {7: 41, 9: 43};
+        Vector<int>? spare = /* demand */;
+        assert(spare == null || spare.len == 0);
+        return values.get(7);
+    } catch (string message) { assert(false); }
+    return 0;
+}
+"""
+    previous = None
+    baseline = None
+    for phase, demand, expected in (
+        ("cold", False, {"lowered": 5, "reused": 0}),
+        ("warm", False, {"lowered": 0, "reused": 5}),
+        ("add", True, {"lowered": 2, "reused": 3}),
+        ("added-warm", True, {"lowered": 0, "reused": 5}),
+        ("remove", False, {"lowered": 1, "reused": 4}),
+        ("removed-warm", False, {"lowered": 0, "reused": 5}),
+    ):
+        constructor = "new Vector<int>()" if demand else "null"
+        (workspace.modules / "Operations.btrc").write_text(body.replace("/* demand */", constructor))
+        output = tmp_path / phase
+        counters, units, primary, _ = _btrcc_build_logged(immutable_btrcc, workspace, "Main.btrc", output, jobs=jobs)
+        assert counters == expected, phase
+        generated = {"program.c": primary, **units}
+        if phase == "cold":
+            baseline = generated
+        if "warm" in phase:
+            assert generated == previous
+        if phase == "remove":
+            assert generated == baseline
+        vector = next(text for name, text in units.items() if name.startswith("program.unit-Vector-"))
+        assert ("btrc_Vector_int* btrc_Vector_int_new(void) {" in vector) == demand
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer_environment(sanitizer),
+            ),
+        ):
+            executable = output / mode
+            compiled = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *[str(output / name) for name in sorted(generated)],
+                    "-o",
+                    str(executable),
+                    "-lm",
+                    "-lpthread",
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert compiled.returncode == 0, compiled.stderr
+            ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+            assert ran.returncode == 0 and ran.stdout == "PASS\n", (phase, mode, ran.stdout, ran.stderr)
+        previous = generated
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("reference_global", [False, True], ids=["literal", "reference"])
+def test_literal_text_does_not_add_module_dependencies(tmp_path, immutable_btrcc, module_units, reference_global):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Data.btrc").write_text("int argument = 7;\nint readArgument() { return argument; }\n")
+    (source / "Text.btrc").write_text(
+        ("import ./Data.btrc;\n" if reference_global else "")
+        + "void display() { "
+        + ("assert(argument == 7); " if reference_global else "")
+        + 'print("argument"); }\n'
+    )
+    (source / "Main.btrc").write_text(
+        "import ./Data.btrc;\nimport ./Text.btrc;\nint main() { assert(readArgument() == 7); display(); return 0; }\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "argument\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("allocated", [False, True], ids=["unused", "allocated"])
+def test_module_arc_descriptors_follow_live_constructors(tmp_path, immutable_btrcc, module_units, allocated):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Cell.btrc").write_text(
+        """
+int alive = 0;
+int destroyed = 0;
+class Cell<T> {
+    public T value;
+    public Cell(T value) { self.value = value; alive++; }
+    public void __del__() { alive--; destroyed++; }
+    public T read() { return self.value; }
+}
+"""
+    )
+    initializer = "new Cell<int>(7)" if allocated else "null"
+    result = 7 if allocated else 0
+    (source / "Graph.btrc").write_text(
+        "import ./Cell.btrc;\n"
+        f"int exercise() {{ Cell<int>? value = {initializer}; "
+        "if (value == null) { return 0; } return value.read(); }\n"
+    )
+    (source / "Main.btrc").write_text(
+        "import ./Cell.btrc;\nimport ./Graph.btrc;\n"
+        f"int main() {{ for (int i = 0; i < 20; i++) {{ assert(exercise() == {result}); "
+        f"assert(alive == 0 && destroyed == {'i + 1' if allocated else '0'}); }} "
+        'print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("helper_kind", ["canonical", "opaque", "catalog-name-override"])
+@pytest.mark.parametrize("referenced", [False, True], ids=["unused", "referenced"])
+def test_shared_declarations_ignore_canonical_helper_locals(helper_kind, referenced):
+    shared = SharedDeclarations(
+        IRModule(global_decls=[IRGlobalDecl(CType("int"), "destroyed", is_static=False, is_extern=True)])
+    )
+    helper = IRHelperDecl.from_runtime(RuntimeHelperCatalog().definition("__btrc_tls_state"))
+    if helper_kind != "canonical":
+        if helper_kind == "opaque":
+            helper.name = "custom_helper"
+        helper.c_source = "static int custom_helper(void) { return destroyed; }"
+    unit = IRModule(helper_decls=[helper])
+    if referenced:
+        unit.function_defs.append(
+            IRFunctionDef(
+                name="read_destroyed",
+                return_type=CType("int"),
+                body=IRBlock([IRExprStmt(IRVar("destroyed"))]),
+            )
+        )
+
+    shared.merge_into(unit)
+
+    assert ("destroyed" in {declaration.name for declaration in unit.global_decls}) == (
+        referenced or helper_kind != "canonical"
+    )
