@@ -2999,3 +2999,28 @@ operands, and retain PR120's `Node resolvedType` interface for cycle polling.
 PR123 deliberately removes the old handoff-only native NULL guard to match
 the reference release operation. Unique resource borrow-end cleanup stays
 separate. Native ownership and lease regressions must qualify this boundary.
+
+### 2026-10-24: unary-update receiver lifetime (Codex, PR120 follow-up)
+
+Branch `codex/unary-update-ownership-20261024` starts at `39af6ea` in
+`~/.cache/btrc/unary-update-20261024`, the sixth writer clone. Owned paths are
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Semantics.btrc`, and
+`src/tests/btrc/test_operand_sequencing_contract.py`, plus this claim.
+D29 authorizes this harmonization work. The discarded-assignment packet owns
+separate test additions and analyzer changes; preserve both on composition.
+
+Nested managed-field increments retain their receiver in the self-hosted
+compiler even when no later operand can invalidate it. The reference compiler
+omits that boundary. Baseline reductions pass native execution but differ in
+emitted C. The repair must preserve temporary-receiver lifetime, index side
+effects, exception cleanup and virtual storage updates. Assignment target
+retention remains a separate contract. Focused, broader and application
+qualification are required before publication, which waits for the active
+hosted CI train.
+
+
+The 2026-10-27 source integration retains this unary owner as an ancestor.
+On integration335f7e2f, its exact twelve regressions passed native execution
+and four failed complete-C comparison. Preserve these assertions and the
+eight lifetime controls when qualifying the combined source.
