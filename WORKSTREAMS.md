@@ -3706,3 +3706,28 @@ log pairs and eight native binary digests were verified. Final source/compiler
 stability checks were not reached after the missing-counter exception.
 Collection release policy remains unchanged. Evidence is in
 `build/issue-gates/collection-release-hosted-d68/`.
+
+
+### 2026-10-27 Checked override composition for issue #17
+
+Packet: CX-CHECKED-OVERRIDE-COMPOSITION. Compose PR116 at `7118ec76`
+with the published compiler and C2 repair tree at `1ca47cb9`, under D29.
+Own the original checked-override packet's parser, hierarchy validation,
+ASDL/grammar, canonical AST, generated AST, LSP completion and test paths,
+plus overlapping record/parser integration tests and this workstream record.
+Preserve the donor's separate derived commit and regenerate only through the
+catalog owner if the composed schema needs it. The designated-initializer
+reproduction branch remains excluded.
+
+The published base passes 152 latest focused checks and static gates. Its
+full application transpilation retains 433/435 raw C matches, equal native
+adapters, the same 17 warnings and the unchanged product plan validator.
+All 26 checked-override regressions fail on that base, confirming that the
+separate PR116 implementation has not reached the combined source. A merge
+preview reports only an append-only WORKSTREAMS conflict; parser and
+validation source hunks were reviewed. Validate the composed annotation,
+signatures, generic substitutions, cached parent changes, C2 syntax and
+canonical AST with a fresh compiler before committing the implementation.
+Keep PR125 at `1ca47cb9` while its hosted jobs run. No additional heavy CI
+train or local GUI/application execution/audio/bootstrap/performance/guest
+work is part of this packet. Full issue17 and integrated gates remain open.
