@@ -3246,3 +3246,32 @@ The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-i
 Returned the production patch and exact regression definitions from `736eebd99958b9a37976a27a81c7959eead4aeb3` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/python/ir/lowering/functions.py`, `src/tests/python/test_native_objective_c_super_admission.py`.
 
 The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
+
+### Stored callback cleanup (2026-10-26, Codex)
+
+Branch `codex/native-callback-cleanup-20261026` starts at `45a9a437`.
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Stored callback adapters still assemble local release sequences separately from
+`ManagedLifetimeLowerer.releaseAndClear`. Module diagnostics pass eight strict
+and sanitized native runs but differ in receiver cleanup and returned request
+cleanup. Establish regressions for both callback context positions, immediate
+and deferred delivery, cancellation, and owned completion results. Compare the
+entire primary native unit; imported Vector release-boundary differences remain
+separately unresolved. Evidence is in `build/issue-gates/native-callback-cleanup/`.
+Fresh compiler and broader native callback checks are required before saving a
+checkpoint. Application composition and final gates remain incomplete.
+
+The four-case baseline passes all sixteen native executions and fails every
+primary-unit C comparison. The first candidate passes all thirty-six focused
+native executions, with three callback units equal and one remaining naming
+difference: owned payloads after an ABI context slot used the ABI index for
+local names. Stored invokers now use the visible payload index for leases,
+string views, and null-argument diagnostics. Fresh validation remains required.
+
+### 2026-10-27: source return, Share stored callback cleanup and payload numbering
+
+Returned the production patch and regression definitions from `9c0399b8c655a58b6566cbcce216c9aa947f9e0b`; the donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`, `src/tests/python/test_module_units.py`.
+
+Baseline logs and outputs remain in `build/issue-gates/native-adapter-owner-return/`. These regressions compare the complete native adapter unit; collection output differences remain separately tracked. Fresh compiler, expanded native behavior, parity, structure and application checks remain required. No final qualification is claimed.

@@ -68,6 +68,7 @@ from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.pugixml_fixtures import pugixml_project as pugixml_project
+from src.tests.python.test_native_c_completions import c_one_shot_project as c_one_shot_project
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -4495,3 +4496,40 @@ def test_nested_tuple_operands_preserve_effects(tmp_path, immutable_btrcc, modul
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("future", [False, True], ids=["one-shot", "future"])
+def test_native_completion_cleanup_matches_frontends(tmp_path, immutable_btrcc, c_one_shot_project, future):
+    from src.tests.python.test_native_c_completions import c_future_project, c_owned_completion_project
+
+    source = c_one_shot_project
+    if future:
+        source = c_future_project.__wrapped__(c_owned_completion_project.__wrapped__(source))
+    # The callback adapter and caller are separate translation units. Both must
+    # observe the same pending callback and live resource count.
+    header = tmp_path / "Completion.h"
+    header.write_text(
+        header.read_text()
+        .replace(
+            "static Completion pending; static void *pendingContext;",
+            "extern Completion pending; extern void *pendingContext;",
+        )
+        .replace("static int liveWidgets;", "extern int liveWidgets;")
+    )
+    (tmp_path / "Completion.c").write_text(
+        '#include "Completion.h"\nCompletion pending; void *pendingContext;\n'
+        + ("int liveWidgets;\n" if future else "")
+    )
+    manifest = tmp_path / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text() + '\n[[native.sources]]\npath = "Completion.c"\nlanguage = "c"\nstandard = "c11"\n'
+    )
+    expected = (
+        "PASS: claimed and abandoned native resource completions\n"
+        if future
+        else "PASS: C one-shot native completion and cancellation\n"
+    )
+    generated = _compile_and_run_native_frontends(source.parent, tmp_path, immutable_btrcc, expected, module_units=True)
+    # Compare the complete unit that owns the native adapters. Imported generic
+    # collection units have their own release-boundary parity coverage.
+    assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
