@@ -4228,3 +4228,40 @@ def test_callback_declaration_order_preserves_nested_dependencies(tmp_path, immu
     (source / "Main.btrc").write_text(main)
     generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["inline", "inferred", "explicit", "local-only"])
+def test_span_declarations_follow_shared_catalog_order(tmp_path, immutable_btrcc, module_units, shape):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (source / "Shared.btrc").write_text(
+        "class Marker { public int value; public Marker(int value) { self.value = value; } }\n"
+        + (
+            ""
+            if shape == "local-only"
+            else "int consume(Span<const int> samples, Marker marker) {\n"
+            " int value = 0; assert(samples.tryGet((size_t)0, &value)); return value + marker.value;\n}\n"
+        )
+    )
+    span = "Span((const int*)values, (size_t)1)"
+    if shape == "inline":
+        statement = f"return consume({span}, marker);"
+    elif shape == "local-only":
+        statement = (
+            f"var view = {span}; int value = 0; assert(view.tryGet((size_t)0, &value)); return value + marker.value;"
+        )
+    else:
+        declaration = "var" if shape == "inferred" else "Span<const int>"
+        statement = f"{declaration} view = {span}; return consume(view, marker);"
+    (source / "Reader.btrc").write_text(
+        "import ./Shared.btrc;\nint read() { int values[1] = {35}; var marker = new Marker(7); " + statement + " }\n"
+    )
+    (source / "Main.btrc").write_text(
+        'import ./Reader.btrc;\nint main() { assert(read() == 42); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+

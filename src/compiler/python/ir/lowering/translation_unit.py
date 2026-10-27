@@ -1071,7 +1071,8 @@ class TranslationUnitLowerer:
 
     def _emit_span_types(self) -> None:
         """Emit concrete borrowed-view layouts."""
-        for symbol, element in self._span_types.items():
+        for symbol in sorted(self._span_types):
+            element = self._span_types[symbol]
             definition = IRStructDef(
                 name=symbol,
                 fields=[

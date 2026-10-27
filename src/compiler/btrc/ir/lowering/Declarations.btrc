@@ -6883,6 +6883,9 @@ class DeclarationLowerer {
 			self.recordTupleShapes(t.genericArgs().get(i), scan);
 			i = i + 1;
 		}
+		if (t.base == "Span" && t.genericArgs().len == 1 && !scan.namesUnbound(t)) {
+			self.cTypes.lower(t);
+		}
 		if (t.base == "Tuple" && t.genericArgs().len > 0 && !scan.namesUnbound(t)) {
 			string mangled = TypeIdentity.mangleGenericSymbol("Tuple", t.genericArgs());
 			if (!scan.seen.has(mangled)) {
