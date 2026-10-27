@@ -5681,7 +5681,7 @@ class DeclarationLowerer {
 		initDeclaration.params.push(IRParam(mangled + "*", "self"));
 		int cp = 0;
 		while (cp < ctorParams.len) {
-			initDeclaration.params.push(ctorParams.get(cp));
+			initDeclaration.params.push(self.cTypes.copyParameter(ctorParams.get(cp)));
 			cp = cp + 1;
 		}
 		m.functionDecls.push(initDeclaration);
@@ -5689,7 +5689,7 @@ class DeclarationLowerer {
 		IRFunctionDecl newDeclaration = IRFunctionDecl(mangled + "_new", mangled + "*", true);
 		int q = 0;
 		while (q < ctorParams.len) {
-			newDeclaration.params.push(ctorParams.get(q));
+			newDeclaration.params.push(self.cTypes.copyParameter(ctorParams.get(q)));
 			q = q + 1;
 		}
 		m.functionDecls.push(newDeclaration);
@@ -5739,7 +5739,7 @@ class DeclarationLowerer {
 		initFn.isStatic = true;
 		initFn.params.push(IRParam(mangled + "*", "self"));
 		int ip = 0;
-		while (ip < ctorParams.len) { initFn.params.push(ctorParams.get(ip)); ip = ip + 1; }
+		while (ip < ctorParams.len) { initFn.params.push(self.cTypes.copyParameter(ctorParams.get(ip))); ip = ip + 1; }
 		Vector<IRNode> ibody = [];
 		/* An instance whose class another group defines shares only its
 		 * signatures here; that group's unit lowers the bodies. */
@@ -5786,7 +5786,7 @@ class DeclarationLowerer {
 		newFn.returnType = mangled + "*";
 		newFn.isStatic = true;
 		int np = 0;
-		while (np < ctorParams.len) { newFn.params.push(ctorParams.get(np)); np = np + 1; }
+		while (np < ctorParams.len) { newFn.params.push(self.cTypes.copyParameter(ctorParams.get(np))); np = np + 1; }
 		Vector<IRNode> nbody = [];
 		if (!foreign) {
 			self.context.referenceHelper("__btrc_safe_calloc");

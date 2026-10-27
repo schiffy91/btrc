@@ -3404,3 +3404,8 @@ changes. Then build a fresh compiler and check strict and sanitized behavior,
 complete C equality, broader compiler tests and application output. Evidence
 is under `build/issue-gates/constructor-parameter-owner-return/`. Collection
 release batching and final integration qualification remain open.
+
+Fresh composed baseline: all 32 strict and sanitized native executions pass,
+while four generic complete-C comparisons fail; four ordinary controls match.
+Returned the exact four-copy production patch from `c8ea413f`. Fresh compiler
+and integration validation remain required.
