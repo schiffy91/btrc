@@ -230,7 +230,7 @@ def test_run_records_original_outcome_and_keeps_all_selected_evidence(tmp_path, 
         run.run()
     record = json.loads((output / "partition.json").read_text())
     assert record["status"] == ("failed" if failure else "passed")
-    selected = sorted(NODES)[1::4]
+    selected = [NODES[10], NODES[2], NODES[9]]
     assert record["selected"] == selected
     assert "--collect-only" in calls[0][1]
     worker_arguments = [calls[0][1][i + 1] for i, value in enumerate(calls[0][1]) if value == "-n"]
@@ -380,3 +380,51 @@ def test_linux_provider_groups_build_each_configuration_once_and_preserve_nodes(
         for frontend in ("python", "selfhost")
         for sanitized in (False, True)
     )
+
+
+def test_repeated_parameter_matrices_do_not_pin_each_configuration_to_one_cell():
+    variants = ["plain-python", "plain-selfhost", "sanitized-python", "sanitized-selfhost"]
+    nodes = [f"test_controls.py::test_control_{family}[{variant}]" for family in range(4) for variant in variants]
+    partitions = [GUIPartition.create(nodes, "wayland", index, 4, HEAD)["selected"] for index in range(4)]
+    assert sorted(node for selected in partitions for node in selected) == sorted(nodes)
+    for selected in partitions:
+        assert len(selected) == 4
+        assert sorted(node.split("[")[1][:-1] for node in selected) == variants
+
+
+@pytest.mark.parametrize("count,size", [(1, 1), (2, 19), (3, 20), (4, 19), (8, 19)])
+def test_rotated_cells_cover_irregular_collections_once(count, size):
+    nodes = [f"test_cases.py::test_value[{index:03}]" for index in range(size)]
+    parts = [GUIPartition.create(list(reversed(nodes)), "x11", index, count, HEAD) for index in range(count)]
+    assert all(part["schema"] == "btrc.gui-partition/2" for part in parts)
+    selected = [part["selected"] for part in parts]
+    assert sorted(node for part in selected for node in part) == nodes
+    assert all(part == sorted(part) for part in selected)
+    assert max(map(len, selected)) - min(map(len, selected)) <= 1
+
+
+def test_complete_historical_stride_receipts_remain_verifiable(cells):
+    for path in cells.glob("*/partition.json"):
+        record = json.loads(path.read_text())
+        record["schema"] = "btrc.gui-partition/1"
+        record["selected"] = record["whole"][record["index"] :: record["count"]]
+        write_json(path, record)
+        evidence(path.parent, record["selected"], skipped=record["index"] == 0)
+    assert GUIPartition.aggregate(cells, "x11", 4, HEAD)["status"] == "passed"
+
+
+def test_partition_schemas_cannot_be_mixed_in_one_session(cells):
+    path = cells / "x11-0/partition.json"
+    record = json.loads(path.read_text())
+    record["schema"] = "btrc.gui-partition/1"
+    write_json(path, record)
+    with pytest.raises(ValueError, match="mix partition assignment"):
+        GUIPartition.aggregate(cells, "x11", 4, HEAD)
+
+
+@pytest.mark.parametrize("schema", ["btrc.gui-partition/999", None, [], {}])
+def test_unknown_partition_assignment_schema_is_not_guessed(schema):
+    record = GUIPartition.create(NODES, "x11", 0, 4, HEAD)
+    record.update(schema=schema, status="passed")
+    with pytest.raises(ValueError, match="Unsupported"):
+        GUIPartition.validate(record, "x11", 4, HEAD)

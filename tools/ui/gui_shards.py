@@ -19,7 +19,8 @@ from pathlib import Path
 from tools.qualification.skips import SkipGate, SkipReport
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = "btrc.gui-partition/1"
+SCHEMA = "btrc.gui-partition/2"
+LEGACY_SCHEMA = "btrc.gui-partition/1"
 NODE_PROPERTY = "btrc.gui-shard-nodeid"
 
 
@@ -53,12 +54,25 @@ class GUIPartition:
         return hashlib.sha256(json.dumps(nodes, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
 
     @classmethod
-    def create(cls, whole: list[str], session: str, index: int, count: int, revision: str) -> dict:
+    def create(
+        cls, whole: list[str], session: str, index: int, count: int, revision: str, *, schema: str = SCHEMA
+    ) -> dict:
         whole = cls.nodes(whole)
         if count < 1 or not 0 <= index < count or len(whole) < count:
             raise ValueError("GUI partition index/count must describe nonempty cells")
+        if schema not in (SCHEMA, LEGACY_SCHEMA):
+            raise ValueError("Unsupported GUI partition schema")
+        # Fixed strides align repeated parameter matrices with individual cells.
+        # Rotate each block while retaining sorted invocation order and full coverage.
+        selected = (
+            whole[index::count]
+            if schema == LEGACY_SCHEMA
+            else [
+                node for position, node in enumerate(whole) if (position % count + position // count) % count == index
+            ]
+        )
         return {
-            "schema": SCHEMA,
+            "schema": schema,
             "session": session,
             "cell": f"{session}-{index}",
             "index": index,
@@ -66,13 +80,13 @@ class GUIPartition:
             "revision": revision,
             "whole": whole,
             "whole_sha256": cls.digest(whole),
-            "selected": whole[index::count],
+            "selected": selected,
             "status": "collected",
         }
 
     @classmethod
     def validate(cls, record: dict, session: str, count: int, revision: str) -> list[str]:
-        expected = cls.create(record["whole"], session, record["index"], count, revision)
+        expected = cls.create(record["whole"], session, record["index"], count, revision, schema=record.get("schema"))
         if any(record.get(key) != value for key, value in expected.items() if key != "status"):
             raise ValueError("GUI partition source, manifest, hash or membership differs")
         if record.get("status") != "passed":
@@ -114,6 +128,8 @@ class GUIPartition:
         records = [(path, json.loads(path.read_text())) for path in paths]
         if len(records) != count:
             raise ValueError(f"GUI session needs exactly {count} cell receipts, got {len(records)}")
+        if any(record.get("schema") != records[0][1].get("schema") for _, record in records):
+            raise ValueError("GUI cells mix partition assignment schemas")
         indexes: set[int] = set()
         union: set[str] = set()
         whole: list[str] | None = None

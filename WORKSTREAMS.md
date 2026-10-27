@@ -3443,3 +3443,34 @@ cycle flush/poll calls, their declaration and closing-brace diff alignment.
 Evidence is under `build/issue-gates/collection-release-policy/`, including
 `integrated-proof.json`. No measurements have run and neither release policy
 has changed. The two active PR #125 unit jobs retain their published revision.
+
+### 2026-10-27: GUI partition parameter balance
+
+Owner: Codex, branch `codex/gui-partition-balance-20261027`.
+Owned paths: `tools/ui/gui_shards.py`, `src/tests/python/test_gui_shards.py`,
+and this claim.
+
+PR #125's Wayland cell 1 continued completing GUI tests near its 90-minute
+job deadline. Complete X11 receipts show that the serial `linux_gui` group
+sets each partition's execution time. Sorted stride assignment repeatedly
+puts the same frontend/sanitizer variants together. A hash shuffle barely
+changes the worst observed group in a scheduling replay. Rotating assignments
+between blocks reduces that replay's maximum from 3,831 to 3,094 seconds,
+with all 876 X11 nodes still split into four 219-node cells. These are replayed
+case durations, including fixture costs, not a new runtime measurement.
+
+First reproduce parameter concentration with a small matrix. Then rotate
+assignment without changing selectors, worker isolation, deadlines or skip
+policy. Version the partition receipts and preserve validation of complete
+historical receipts. Hosted X11 and Wayland runs remain required before this
+change qualifies either session. Evidence is under
+`build/issue-gates/ci125-gui-balance/`; the existing 26 shard tests pass.
+
+The parameter-concentration regression failed on the original stride. The
+rotation now passes 38 shard tests; the unchanged workflow contracts passed
+116 tests. Lint, formatting and diff checks pass. All four downloaded X11
+receipts retain their exact archive hashes and validate under the historical
+schema, including JUnit/skip membership. The new schema covers the same 876
+nodes with four 219-node partitions. Historical and current schemas cannot be
+mixed in one aggregate. `rotation-proof.json` retains the timing replay and
+its limits. No new hosted session has run.
