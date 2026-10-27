@@ -399,14 +399,17 @@ def test_module_cache_distinguishes_delimiters_in_output_paths(
     tmp_path, monkeypatch, request, frontend, reverse, debug
 ):
     """A path containing a key delimiter must not borrow another output's debug lines."""
+    if frontend == "selfhost" and os.name == "nt":
+        pytest.skip("self-hosted artifact cache requires POSIX private directories")
     root = tmp_path.resolve()
+    monkeypatch.chdir(root)
     source = root / "Main.btrc"
     source.write_text('import "./Leaf.btrc";\nint main() { return answer() == 42 ? 0 : 1; }\n')
     (root / "Leaf.btrc").write_text(
         "class Value { public int number; public Value(int number) { self.number = number; } }\n"
         "int answer() { var value = Value(42); return value.number; }\n"
     )
-    prefix, middle, output = (str(root / name) for name in ("units", "middle", "primary.c"))
+    prefix, middle, output = "units", "middle", "primary.c"
     configurations = [(prefix + ";output=" + middle, output), (prefix, middle + ";output=" + output)]
     if reverse:
         configurations.reverse()

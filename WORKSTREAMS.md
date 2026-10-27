@@ -3492,3 +3492,14 @@ reference/release controls pass. Evidence is under
 Frame variable-length key fields and change the module key version. Preserve
 release-mode reuse across output paths. Shared frontend cache storage and
 the application warm-build budget remain separate, unmet issue #8 work.
+
+The key now frames the output paths and outer identity fields by length,
+under `module-unit-v7`. A fresh self-host compiler passes all eight regression
+cases and the existing module-reuse checks. The final relative-path baseline
+still fails both self-host debug cases with the old compiler. Selected cache
+validation has 235 passes, no failures or errors, and one explicit platform
+skip: XDG cache-directory selection is only tested off macOS. The validation
+driver rejected that skip; its exit and the missing coverage remain recorded
+in `proof.json`. Lint, formatting, generated-source and diff checks pass.
+The module-worker tests emitted six Python `fork()` deprecation warnings.
+Full integration remains unqualified, and no GitHub revision changed.

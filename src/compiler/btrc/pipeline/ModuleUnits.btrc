@@ -1896,13 +1896,16 @@ class ModuleUnitCompiler {
 		BtrccPhaseTimer.mark("u-digest");
 		Map<string, string> sources = self.groupSourceDigests();
 		BtrccPhaseTimer.mark("u-sources");
-		string context = f"debug={self.options.debug};dce={self.options.runDce};stdlib-strict={self.options.stdlibStrict};target={input.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
+		string prefix = self.options.debug ? self.options.unitsPrefix : "";
+		string output = self.options.debug ? self.options.outputPath : "";
+		/* Paths can contain the separators between context fields. */
+		string context = f"debug={self.options.debug};dce={self.options.runDce};stdlib-strict={self.options.stdlibStrict};target={input.target};prefix={prefix.len()}:{prefix};output={output.len()}:{output}";
 		Vector<string> defineNames = input.nativeDefines.keys(); defineNames.sort();
 		for name in defineNames { string value = input.nativeDefines.get(name); context += f";define={name.len()}:{name}{value.len()}:{value}"; }
 		Vector<ModuleUnitGroupState> states = [];
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";
-			string identity = SHA256.digest("module-unit-v6\n" + context + "\n" + name + "\n" + source + "\n" + programIdentity);
+			string identity = SHA256.digest(f"module-unit-v7:{context.len()}:{context}{name.len()}:{name}{source.len()}:{source}{programIdentity.len()}:{programIdentity}");
 			ModuleUnitGroupState state = ModuleUnitGroupState(name, identity);
 			if (self.groupLines.has(name)) { state.lines = self.groupLines.get(name); }
 			IBtrccArtifactCache? store = self.store;
