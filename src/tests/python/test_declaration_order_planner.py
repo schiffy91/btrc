@@ -1,5 +1,7 @@
 """White-box contracts for heterogeneous typed declaration planning."""
 
+from itertools import permutations
+
 import pytest
 
 from src.compiler.python.backend.c_emitter import CEmitter
@@ -284,3 +286,34 @@ def test_archive_header_formats_the_module_ordered_view():
     IROptimizer.refresh_type_declarations(module)
     header = CEmitter().emit_header(module)
     assert header.index("struct Pair {") < header.index("struct Outer {")
+
+
+@pytest.mark.parametrize("named_alias", [False, True], ids=["nested-callback", "named-alias"])
+def test_callback_declaration_plan_is_independent_of_discovery_order(named_alias):
+    inner = IRFunctionPointerTypedef("ZInner", CType("int"), [CType("int")])
+    outer = IRFunctionPointerTypedef("AOuter", CType("Alias" if named_alias else "ZInner"), [CType("ZInner")])
+    independent = IRFunctionPointerTypedef("MIndependent", CType("bool"), [CType("int")])
+    plans = set()
+    for discovered in permutations((inner, outer, independent)):
+        module = IRModule(
+            function_pointer_typedefs=list(discovered),
+            typedef_defs=[IRTypedefDef(CType("ZInner"), "Alias")] if named_alias else [],
+        )
+        plan = _names(module)
+        assert plan.index("ZInner") < plan.index("AOuter")
+        if named_alias:
+            assert plan.index("ZInner") < plan.index("Alias") < plan.index("AOuter")
+        assert module.function_pointer_typedefs == list(discovered)
+        plans.add(tuple(plan))
+    assert len(plans) == 1, plans
+
+
+def test_duplicate_callback_providers_fail_closed():
+    module = IRModule(
+        function_pointer_typedefs=[
+            IRFunctionPointerTypedef("Callback", CType("int")),
+            IRFunctionPointerTypedef("Callback", CType("bool")),
+        ]
+    )
+    with pytest.raises(ValueError, match="duplicate typed C declaration provider 'Callback'"):
+        IROptimizer.plan_type_declarations(module)

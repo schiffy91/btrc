@@ -2860,3 +2860,89 @@ for the required expression-type interface. Preserve all other test behavior.
 Native execution is headless; no GUI, application, bootstrap, guest or
 performance qualification is claimed. Existing PR119/122/123 dependencies
 remain failed comparisons until integration.
+
+## 2026-10-24 CX-EXTERNAL-PROTOTYPE-PARITY: stable external declarations
+
+Reserved: Codex owns `codex/external-prototype-parity-20261024` from
+`b800bb0` under D29. Twenty BTRSmith C files have differences confined to
+prototype-like lines; `SystemImageDecoderProvider` differs only in the position
+of a cycle visitor declaration. Both optimizers already order local prototypes
+by definitions, but preserve the lowering-dependent order of external ones.
+
+Owned paths are `src/compiler/python/ir/optimizer.py`,
+`src/compiler/btrc/ir/optimization/Optimizer.btrc`,
+`src/tests/python/test_module_units.py`, and this claim. Reproduce the difference
+before changing the structured prototype normalization owner. Preserve all
+declarations and the existing local-definition order; validate strict C11,
+execution, module reuse and the existing byte-parity set. This packet is
+independent of the header and f-string repairs. Full integrated gates remain
+required, and publication waits for CI capacity.
+
+
+
+### 2026-10-27 PR122 cleanup adapter owner return
+
+Branch: `codex/adapter-owner-return-20261027`, based on the existing PR122
+implementation `84d91bd1`. Owned paths remain both optimizer implementations,
+`src/tests/python/test_module_units.py`, and this record. Return the reviewed
+cleanup adapter repair `593e698d` without merging its diagnostic history.
+
+The regression preserves all existing tests and compares complete C after
+strict and sanitized native execution, for ordinary and generic classes in
+whole-program and module modes. Establish the baseline on this owner before
+returning production changes. Rank adapters by their first structured
+reference, preserving typed cleanup metadata and renamed references.
+
+Selected local gates, hosted source CI and final integration remain required.
+Dependencies found on this isolated owner must remain visible as failing
+assertions; do not normalize generated C or weaken the regression. No local
+GUI, application execution, audio installation, bootstrap or performance
+measurements are authorized by this return.
+
+
+### 2026-10-27 PR122 callback declaration owner return
+
+Branch: `codex/callback-order-owner-return-20261027`, based on the saved
+PR122 owner `b2ae4491`. Owned paths extend the existing optimizer packet to
+`src/tests/python/test_declaration_order_planner.py`; both optimizers,
+`src/tests/python/test_module_units.py` and this record remain owned.
+
+Return callback declaration repair `3887a8be` without its diagnostic history.
+The declaration plan must be independent of callback discovery order while
+retaining dependencies, original IR lists and duplicate-provider rejection.
+Preserve all existing test functions and the already returned prototype and
+cleanup adapter repairs. Establish the baseline on this owner before changing
+production code. The nested-callback and named-alias programs must retain
+strict and sanitized native execution and complete emitted-C comparisons.
+
+Selected local checks, hosted source CI, application acceptance and final
+integration remain required. Record isolated dependencies as failures; do not
+normalize generated C or weaken assertions. This return does not authorize
+local GUI, audio installation, application execution, bootstrap or measurements.
+
+
+### 2026-10-27: integrate reviewed module and ownership source branches
+
+`codex/module-owner-integration-20261027` combines PR115 `9c9c2e5b`,
+PR119 `1269214e`, PR120 `c10a3f83` and PR122 `b264a7bc` under D29.
+Each source branch remains an ancestor. Diagnostic application compositions
+are comparison evidence only and are not merged into this branch.
+
+The baseline is PR115's exact committed tree: 787 broader checks passed,
+fourteen complete-C comparisons failed, and all 56 native executions inside
+those comparisons passed. Raw differences identify runtime headers, prepared
+casts and prototype order. All existing test assertions remain in force.
+Shared helpers combine strict-mode, worker-count and no-stdlib options;
+regression functions from every owner remain unchanged.
+
+Keep the instance-demand graph and cache schema 7 alongside canonical-helper
+filtering, live ARC descriptor roots and runtime-header scoping. Preserve
+resolved ownership types, declared field storage, stabilized conversions,
+callback dependencies and deterministic prototype/adapter ordering. Qualify
+these contracts together through the existing native, cache, parity,
+structure and generated-source checks before broader final-tree gates.
+
+This branch is a source integration candidate, not completion evidence.
+No main push, hosted publication or issue closure follows from a local pass.
+The current restrictions on local GUI, application, audio installation,
+bootstrap, guests and performance execution remain in force.

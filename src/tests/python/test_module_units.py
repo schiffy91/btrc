@@ -4073,3 +4073,158 @@ int main() {{ for (int i = 0; i < 20; i++) {{ exercise(); assert(alive == 0); ab
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+def test_external_prototypes_have_the_same_order_in_both_compilers(tmp_path, immutable_btrcc):
+    """Foreign class callables and cycle visitors have one declaration order."""
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Model.btrc").write_text(
+        "class Item { public Item? child; public int value;\n"
+        "public Item(int value) { self.value = value; } }\n"
+        "class Factory { public Item make(int value) { return new Item(value); } }\n"
+    )
+    (workspace.modules / "Use.btrc").write_text(
+        "import ./Model.btrc;\n"
+        "int zLocal(int value) { return value + 1; }\n"
+        "int aLocal(int value) { return value + 1; }\n"
+        "int use() { var factory = new Factory(); var item = factory.make(7); return aLocal(zLocal(item.value)); }\n"
+    )
+    (workspace.modules / "Main.btrc").write_text("import ./Use.btrc;\nint main() { print(use()); return 0; }\n")
+    declarations = []
+    for frontend, command in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = workspace.root / frontend
+        units = _cli_units(command, workspace, "Main.btrc", output, 1)
+        if C_COMPILER is None:
+            pytest.skip("module-unit execution needs a C compiler")
+        executable = output / "program"
+        built = subprocess.run(
+            [
+                *C_COMPILER,
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                *(str(output / name) for name in units),
+                "-o",
+                str(executable),
+                "-lm",
+                "-lpthread",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        assert built.returncode == 0, built.stderr
+        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0 and ran.stdout == "9\n", (frontend, ran)
+        use = next(text for name, text in units.items() if ".unit-Use-" in name)
+        prototypes = [line for line in use.splitlines() if line.endswith(");") and line[0].isalpha()]
+        assert any("Factory_make(" in line for line in prototypes)
+        assert any("__btrc_arc_visit_Item(" in line for line in prototypes)
+        assert prototypes.index("int zLocal(int value);") < prototypes.index("int aLocal(int value);")
+        declarations.append(prototypes)
+    assert sorted(declarations[0]) == sorted(declarations[1])
+    assert declarations[0] == declarations[1]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+def test_cleanup_adapters_ignore_dead_generic_method_order(tmp_path, immutable_btrcc, module_units, generic):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Data.btrc").write_text("""int alive = 0;
+int failure = 0;
+class Payload { public Payload() { alive++; } public void __del__() { alive--; } }
+class Model {
+ private Payload payload;
+ public Model() { alive++; self.payload = new Payload(); }
+ public void __del__() { alive--; }
+ public Payload read() { if (failure == 1) { throw "read"; } return self.payload; }
+}
+class Result {
+ private Model model;
+ private Payload payload;
+ public Result(Model model, Payload payload) { alive++; self.model = model; self.payload = payload; }
+ public void __del__() { alive--; }
+ class Result done(Model model, Payload payload) { if (failure == 2) { throw "done"; } return new Result(model, payload); }
+}
+class Request {
+ private Payload payload;
+ public Request(Payload payload) { alive++; self.payload = payload; }
+ public void __del__() { alive--; }
+ public Payload read() { if (failure == 3) { throw "request"; } return self.payload; }
+}
+class Provider { public Request get(Model model) { return new Request(model.read()); } }
+""")
+    worker = """import ./Data.btrc;
+class WorkerGENERIC {
+ private PROVIDER provider;
+ public Worker(PROVIDER provider) { self.provider = provider; }
+ public Result start(Model model) { return self.complete(model, self.provider.get(model)); }
+ public Result complete(Model model, Request input) {
+  Payload local = model.read();
+  assert(input.read() == local);
+  return Result.done(model, input.read());
+ }
+}
+"""
+    worker = worker.replace("GENERIC", "<T>" if generic else "").replace("PROVIDER", "T" if generic else "Provider")
+    (source / "Worker.btrc").write_text(worker)
+    main = """import ./Data.btrc;
+import ./Worker.btrc;
+void exercise(int fail) {
+ failure = fail;
+ Model model = new Model(); Provider provider = new Provider(); WorkerINSTANCE worker = new WorkerINSTANCE(provider);
+ bool caught = false;
+ try { Result value = worker.complete(model, provider.get(model)); assert(alive == 3); }
+ catch (string error) { caught = true; assert(error == (fail == 1 ? "read" : fail == 2 ? "done" : "request")); }
+ assert(caught == (fail != 0));
+ failure = 0;
+ assert(alive == 2);
+}
+int main() { for (int i = 0; i < 8; i++) { for (int fail = 0; fail < 4; fail++) { exercise(fail); assert(alive == 0); } } print("PASS"); return 0; }
+"""
+    (source / "Main.btrc").write_text(main.replace("INSTANCE", "<Provider>" if generic else ""))
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("named_alias", [False, True], ids=["nested-callback", "named-alias"])
+def test_callback_declaration_order_preserves_nested_dependencies(tmp_path, immutable_btrcc, named_alias):
+    source = tmp_path / "source"
+    source.mkdir()
+    transform = "Transform" if named_alias else "CFunction<int, int>"
+    aliases = "typedef CFunction<int, int> Transform;\n" if named_alias else ""
+    (source / "Shared.btrc").write_text(
+        aliases
+        + "class Alpha { public int value = 42; }\n"
+        + "class Beta { public int value = 42; }\n"
+        + "class Gamma { public int value = 42; }\n"
+        + "class Handle<T> {\n"
+        + " public T value; public CFunction<bool, T> callback;\n"
+        + " public Handle(T value, CFunction<bool, T> callback) { self.value = value; self.callback = callback; }\n"
+        + " public bool run() { return self.callback(self.value); }\n}\n"
+        + "int increment(int value) { return value + 1; }\n"
+        + f"{transform} identity({transform} callback) {{ return callback; }}\n"
+    )
+    main = "import ./Shared.btrc;\n"
+    for name in ("Gamma", "Alpha", "Beta"):
+        main += f"bool accept{name}({name} value) {{ return value.value == 42; }}\n"
+    main += "int main() {\n"
+    for name in ("Gamma", "Alpha", "Beta"):
+        main += f" var {name.lower()} = new Handle<{name}>(new {name}(), accept{name});\n"
+        main += f" assert({name.lower()}.run());\n"
+    main += (
+        f" CFunction<{transform}, {transform}> factory = identity;\n"
+        f" {transform} callback = factory(increment);\n"
+        ' assert(callback(41) == 42); print("PASS"); return 0; }\n'
+    )
+    (source / "Main.btrc").write_text(main)
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
+    assert generated["reference"] == generated["selfhost"]
