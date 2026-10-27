@@ -397,29 +397,44 @@ class TierManifest:
                 reports = [name for shard, row in rows for name in self.report_names(job, row, shard.reports)]
             plan["jobs"].append(job.job)
             plan["reports"][job.job] = reports
-        if workflow == "ci.yml":
-            delegated = self._required_x11_coverage(plan["matrix"])
+        if workflow in ("ci.yml", "macos.yml"):
+            delegated = self._required_gui_coverage(workflow, plan)
             for row in plan["matrix"].get("tests", {}).get("include", []):
                 if row.get("shard") == "unit":
                     row["unit_gui_delegated"] = "1" if delegated else "0"
         return plan
 
-    @staticmethod
-    def _required_x11_coverage(matrix: Mapping[str, Any]) -> bool:
-        """Only a complete gating X11 suite may replace unit's native GUI files."""
+    @classmethod
+    def _required_gui_coverage(cls, workflow: str, plan: Mapping[str, Any]) -> bool:
+        """Only complete required partitions and their union may replace unit's GUI files."""
 
+        matrix = plan["matrix"]
+        if workflow == "macos.yml":
+            return "native-gui-coverage" in plan["jobs"] and cls._complete_gui_partitions(
+                matrix.get("native-gui", {}).get("include", []), "macos"
+            )
         partitions = [row for row in matrix.get("linux-gui", {}).get("include", []) if row.get("session") == "x11"]
-        coverage = matrix.get("linux-gui-coverage", {}).get("include", [])
-        if not partitions or not any(
-            row.get("session") == "x11" and row.get("report_only") == "false" for row in coverage
-        ):
-            return False
+        coverage = [
+            row for row in matrix.get("linux-gui-coverage", {}).get("include", []) if row.get("session") == "x11"
+        ]
+        return (
+            len(coverage) == 1
+            and coverage[0].get("report_only") == "false"
+            and cls._complete_gui_partitions(partitions, "x11")
+        )
+
+    @staticmethod
+    def _complete_gui_partitions(partitions: list[Mapping[str, str]], session: str) -> bool:
         count = len(partitions)
-        return {row.get("index") for row in partitions} == {str(index) for index in range(count)} and all(
-            row.get("count") == str(count)
-            and row.get("report_only") == "false"
-            and row.get("cell") == f"x11-{row['index']}"
-            for row in partitions
+        return (
+            bool(partitions)
+            and {row.get("index") for row in partitions} == {str(index) for index in range(count)}
+            and all(
+                row.get("count") == str(count)
+                and row.get("report_only", "false") == "false"
+                and row.get("cell") == f"{session}-{row['index']}"
+                for row in partitions
+            )
         )
 
     @staticmethod

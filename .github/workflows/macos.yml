@@ -15,6 +15,11 @@ on:
         type: choice
         options: [full, native-gui, extended, e40-diagnostic, collection-release-diagnostic]
         default: full
+      diagnostic_trial:
+        description: Native tracking route for the E40 diagnostic
+        type: choice
+        options: [slider, resize]
+        default: slider
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
     inputs:
@@ -299,10 +304,11 @@ jobs:
           fi
           /usr/sbin/DevToolsSecurity -status | grep -q "currently enabled"
 
-      # The unit shard also owns native GUI cases. Keep those on one worker,
-      # retaining the row's selection flags and parallel execution elsewhere.
+      # Delegate only when the planner verifies all required GUI partitions.
+      # Any AppKit cases remaining in unit still share one worker.
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
+          UNIT_GUI_DELEGATED: ${{ matrix.unit_gui_delegated }}
           PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
 
       - name: Recheck native reader prerequisites
@@ -398,6 +404,10 @@ jobs:
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui')
     runs-on: macos-15
     timeout-minutes: 90
+    name: native-gui (${{ matrix.cell }})
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['native-gui'] }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
@@ -425,10 +435,10 @@ jobs:
         run: |
           /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
 
-      - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui
+      - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui-macos
         env:
           # One AppKit worker avoids starvation between valid successive lease holders.
-          PYTEST_ADDOPTS: --dist=loadgroup --junitxml=build/junit/native-gui.xml
+          PYTEST_ADDOPTS: --dist=loadgroup --progress-report=build/progress-report-native-gui.jsonl --failure-report=build/failure-report-native-gui.jsonl
 
       - name: Recheck native reader prerequisites
         if: always()
@@ -440,8 +450,33 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: native-reader-macos-native-gui
+          name: native-reader-macos-native-gui-${{ matrix.cell }}
           path: build/native-reader/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Retain test progress and failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-journals-macos-native-gui-${{ matrix.cell }}
+          path: |
+            build/progress-report-native-gui.jsonl
+            build/failure-report-native-gui.jsonl
+            build/failure-report-native-gui.progress.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Retain the exact partition proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gui-partition-macos-native-gui-${{ matrix.cell }}
+          path: |
+            build/macos-gui/${{ matrix.cell }}/partition.json
+            build/macos-gui/${{ matrix.cell }}/collection.json
+            build/macos-gui/${{ matrix.cell }}/junit.xml
+            build/macos-gui/${{ matrix.cell }}/skip-report.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -449,8 +484,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-macos-native-gui
-          path: build/junit/native-gui.xml
+          name: junit-macos-native-gui-${{ matrix.cell }}
+          path: build/macos-gui/${{ matrix.cell }}/junit.xml
           if-no-files-found: warn
           retention-days: 14
 
@@ -458,8 +493,34 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: skip-report-macos-native-gui
-          path: build/skip-report*.json
+          name: skip-report-macos-native-gui-${{ matrix.cell }}
+          path: build/skip-report-native-gui-${{ matrix.cell }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  native-gui-coverage:
+    needs: [scope, native-gui]
+    if: ${{ always() && contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui-coverage') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: gui-partition-macos-native-gui-macos-*
+          path: build/gui-partitions/macos
+      - name: Prove the complete disjoint session coverage
+        if: always()
+        run: python3 -m tools.ui.gui_shards aggregate --session macos --count 4 --revision "$GITHUB_SHA" --input build/gui-partitions/macos --output build/gui-union-macos.json
+      - name: Retain the session coverage proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gui-union-macos-native-gui
+          path: build/gui-union-macos.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -615,6 +676,7 @@ jobs:
           CI: 'true'
           BTRC_UI2_HOSTED_E40: '1'
           BTRC_UI2_E40_TRACE: '1'
+          BTRC_UI2_E40_TRIAL: ${{ inputs.diagnostic_trial || 'slider' }}
           BTRC_UI2_E40_ARTIFACTS: build/e40-diagnostic/native
           BTRC_TEST_TRANSPILE_TIMEOUT: '600'
         run: |
@@ -632,9 +694,13 @@ jobs:
                      "build": "nix develop --command make NIX= generated-check gpu-required btrcc"}
           Path("build/e40-diagnostic/compiler.json").write_text(json.dumps(receipt, indent=2))
           PYCODE
+          case "$BTRC_UI2_E40_TRIAL" in
+            slider|resize) ;;
+            *) echo "Unsupported E40 diagnostic trial" >&2; exit 2 ;;
+          esac
           nodes=(
-            'src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-desktop-slider]'
-            'src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-host-slider]'
+            "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-desktop-${BTRC_UI2_E40_TRIAL}]"
+            "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-host-${BTRC_UI2_E40_TRIAL}]"
           )
           printf '%s\n' "${nodes[@]}" > build/e40-diagnostic/expected-nodes.txt
           nix develop --command python3 -m pytest --collect-only -q -n 0 -m e40_qualification \

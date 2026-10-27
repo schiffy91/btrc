@@ -196,6 +196,29 @@ def test_macos_classifies_only_the_linux_main_stack_limit_cases(runner):
     assert manifest.classify("src/tests/btrc/test_other.py::test_limit[64]", reason) is None
 
 
+@pytest.mark.parametrize("runner", ["macos", "macos-hosted"])
+def test_macos_classifies_only_the_linux_child_subreaper_case(runner):
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+    nodeid = "src/tests/python/test_android_executor.py::test_a_descendant_that_leaves_the_session_is_still_reaped"
+    reason = "the child subreaper is Linux's"
+    rule = manifest.classify(nodeid, reason)
+
+    assert rule is not None
+    assert rule.category == "platform"
+    assert rule.covered_by == ("linux-devcontainer",)
+    assert manifest.classify(nodeid, "requires a host C compiler") is None
+    assert manifest.classify(nodeid + "_unrelated", reason) is None
+    assert (
+        manifest.classify(
+            "src/tests/python/test_android_executor.py::test_descendants_die_with_the_program_even_holding_its_stderr",
+            reason,
+        )
+        is None
+    )
+    for linux in ("linux-devcontainer", "linux-hosted"):
+        assert ExpectedSkipManifest.load(MANIFEST_ROOT / f"{linux}.json").classify(nodeid, reason) is None
+
+
 def test_the_macos_manifest_expects_a_dap_session_skip_only_for_developer_mode():
     """The DAP sessions skip under a reason per cause; on a Mac only developer mode being off is expected.
 
@@ -1323,3 +1346,201 @@ def test_every_windows_pytest_step_writes_its_own_skip_report_and_gates_it():
     assert "src/tests/python/test_artifact_reparse.py" in workflow
     upload = workflow.split("name: Retain the skip report", 1)[1]
     assert "if: always()" in upload and "path: build/skip-report*.json" in upload
+
+
+@pytest.mark.parametrize("workers", [None, "2"])
+def test_progress_journal_reconstructs_completed_test_outcomes(tmp_path, workers):
+    suite = _failure_suite(tmp_path)
+    (suite / "test_cases.py").write_text(
+        """
+import pytest
+pytestmark = [pytest.mark.macos_gui, pytest.mark.xdist_group(name="macos_gui")]
+
+def test_pass():
+    pass
+
+@pytest.mark.parametrize("name", ["value"], ids=["literal@macos_gui"])
+def test_failure(name):
+    assert False, "body failure"
+
+@pytest.fixture
+def broken_teardown():
+    yield
+    raise RuntimeError("teardown failure")
+
+def test_teardown(broken_teardown):
+    pass
+"""
+    )
+    journal = tmp_path / "progress.jsonl"
+    failures = tmp_path / "failures.jsonl"
+    options = ("-n", workers, "--dist=loadgroup") if workers else ("-p", "no:xdist")
+    completed, final_report = _run_inner(
+        tmp_path, *options, f"--progress-report={journal}", f"--failure-report={failures}"
+    )
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    records = [json.loads(line) for line in journal.read_text().splitlines()]
+    snapshot = json.loads(failures.with_suffix(".progress.json").read_text())
+    assert snapshot["active_tests"] == {} and snapshot["completed_tests"] == 3
+    assert snapshot["status"] == "finished" and snapshot["exitstatus"] == 1
+    assert snapshot["session"] == records[0]["session"]
+    assert snapshot["revision"] == records[0]["revision"]
+    failures = [json.loads(line) for line in failures.read_text().splitlines()]
+    expected = {
+        "test_cases.py::test_pass": ["passed", "passed", "passed"],
+        "test_cases.py::test_failure[literal@macos_gui]": ["passed", "failed", "passed"],
+        "test_cases.py::test_teardown": ["passed", "passed", "failed"],
+    }
+    assert set(final_report["tests"]) == set(expected)
+    assert len({row["session"] for row in [*records, *failures]}) == 1
+    assert len({row["revision"] for row in [*records, *failures]}) == 1
+    assert len([row for row in records if row["event"] == "start"]) == 3
+    assert len([row for row in records if row["event"] == "finish"]) == 3
+    for nodeid, outcomes in expected.items():
+        scheduled = nodeid + ("@macos_gui" if workers else "")
+        trace = [row for row in records if row["scheduled_nodeid"] == scheduled]
+        assert [row["event"] for row in trace] == ["start", "phase", "phase", "phase", "finish"]
+        phases = trace[1:-1]
+        assert [row["phase"] for row in phases] == ["setup", "call", "teardown"]
+        assert [row["outcome"] for row in phases] == outcomes
+        assert all(row["nodeid"] == nodeid and row["duration_seconds"] >= 0 for row in phases)
+
+
+@pytest.mark.parametrize("workers", [None, "2"])
+@pytest.mark.parametrize("waiting_phase", ["setup", "call"])
+def test_progress_journal_identifies_unfinished_phase_after_controller_kill(tmp_path, workers, waiting_phase):
+    suite = _failure_suite(tmp_path)
+    (suite / "test_cases.py").write_text(
+        """
+import os
+import time
+from pathlib import Path
+import pytest
+pytestmark = [pytest.mark.macos_gui, pytest.mark.xdist_group(name="macos_gui")]
+
+def wait_for_release():
+    Path("waiting").touch()
+    deadline = time.monotonic() + 30
+    while not Path("release").exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    os._exit(0)
+
+@pytest.fixture
+def hold():
+    WAIT_IN_SETUP
+
+@pytest.mark.parametrize("name", ["value"], ids=["literal@macos_gui"])
+def test_wait(name, hold):
+    WAIT_IN_CALL
+""".replace("WAIT_IN_SETUP", "wait_for_release()" if waiting_phase == "setup" else "pass").replace(
+            "WAIT_IN_CALL", "wait_for_release()" if waiting_phase == "call" else "pass"
+        )
+    )
+    journal = tmp_path / "progress.jsonl"
+    final_report = tmp_path / "skip-report.json"
+    console = tmp_path / "console.log"
+    environment = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join(filter(None, (str(REPO), os.environ.get("PYTHONPATH")))),
+        "BTRC_TEST_RUNNER": "macos",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    environment.pop("PYTEST_ADDOPTS", None)
+    options = ("-n", workers, "--dist=loadgroup") if workers else ("-p", "no:xdist")
+    nodeid = "test_cases.py::test_wait[literal@macos_gui]"
+    scheduled = nodeid + ("@macos_gui" if workers else "")
+    with console.open("w") as output:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                *options,
+                f"--skip-report={final_report}",
+                f"--progress-report={journal}",
+                ".",
+            ],
+            cwd=suite,
+            env=environment,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=os.name != "nt",
+        )
+        try:
+            deadline = time.monotonic() + 20
+            while True:
+                records = [json.loads(line) for line in journal.read_text().splitlines()] if journal.exists() else []
+                started = any(row["event"] == "start" and row["scheduled_nodeid"] == scheduled for row in records)
+                setup_done = any(row["event"] == "phase" and row["phase"] == "setup" for row in records)
+                if (suite / "waiting").exists() and started and (waiting_phase == "setup" or setup_done):
+                    break
+                assert process.poll() is None, console.read_text()
+                assert time.monotonic() < deadline, console.read_text()
+                time.sleep(0.01)
+            assert all(row["schema"] == "btrc.test-progress/1" for row in records)
+            assert {row["scheduled_nodeid"] for row in records} == {scheduled}
+            assert len({row["session"] for row in records}) == 1
+            assert len({row["revision"] for row in records}) == 1
+            assert not any(row["event"] == "finish" for row in records)
+            phases = [row for row in records if row["event"] == "phase"]
+            assert [row["phase"] for row in phases] == (["setup"] if waiting_phase == "call" else [])
+            assert all(row["nodeid"] == nodeid and row["outcome"] == "passed" for row in phases)
+            assert all(row["duration_seconds"] >= 0 for row in phases)
+            assert f"BTRC test started {scheduled}" in console.read_text()
+            assert not final_report.exists()
+        finally:
+            if os.name != "nt":
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+            elif process.poll() is None:
+                process.kill()
+            (suite / "release").touch()
+            process.wait(timeout=10)
+    assert not final_report.exists()
+    assert [json.loads(line) for line in journal.read_text().splitlines()] == records
+
+
+@pytest.mark.parametrize("runner", ["macos", "macos-hosted"])
+@pytest.mark.parametrize(
+    "node",
+    [
+        "src/tests/python/test_native_ui2_capture_linux.py::test_linux_capture_admission",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_repeated_bursts",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_sustained_load",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_diagnostic",
+        "src/tests/python/test_native_ui2_images.py::test_linux_image_publication",
+        "src/tests/python/test_native_ui2_images.py::test_linux_image_lifetime",
+        "src/tests/python/test_native_ui2_linux_resource_lifetime.py::test_linux_ui2_native_resource_lifetime",
+        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_executor_and_lifecycle",
+        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_callback_scope_release_requires_executor",
+        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_final_release_requires_executor",
+    ],
+)
+def test_macos_classifies_linux_ui2_provider_skips(runner, node):
+    reason = "requires Linux and the explicitly built native header reader"
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+    rule = manifest.classify(node + "[case]", reason)
+    assert rule is not None
+    assert rule.id == "linux-ui2-native-reader"
+    assert rule.category == "platform" and rule.covered_by == ("linux-devcontainer",)
+    assert manifest.classify(node + "[case]", "native GUI backend is unavailable: no DISPLAY") is None
+    for linux_runner in ("linux-hosted", "linux-devcontainer"):
+        assert (
+            ExpectedSkipManifest.load(MANIFEST_ROOT / f"{linux_runner}.json").classify(node + "[case]", reason) is None
+        )
+
+
+@pytest.mark.parametrize("runner", ["macos", "macos-hosted"])
+def test_linux_ui2_platform_skip_does_not_cover_other_tests(runner):
+    manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
+    reason = "requires Linux and the explicitly built native header reader"
+    for node in (
+        "src/tests/python/test_native_ui2_images.py::test_macos_image_publication[case]",
+        "src/tests/python/test_native_ui_core_linux.py::test_new_unreviewed_case[case]",
+        "src/tests/python/test_native_tray_runtime.py::test_linux_capture_admission[case]",
+    ):
+        rule = manifest.classify(node, reason)
+        assert rule is None or rule.id != "linux-ui2-native-reader"

@@ -179,8 +179,13 @@ class SkipLedger:
         self.failure_path = Path(raw_failure_path) if raw_failure_path else None
         if self.failure_path is not None and not self.failure_path.is_absolute():
             self.failure_path = Path(config.invocation_params.dir) / self.failure_path
-        self.failure_session = uuid.uuid4().hex if self.failure_path is not None else None
-        self.failure_revision = self._revision() if self.failure_path is not None else None
+        raw_progress_path = config.getoption("--progress-report")
+        self.progress_journal_path = Path(raw_progress_path) if raw_progress_path else None
+        if self.progress_journal_path is not None and not self.progress_journal_path.is_absolute():
+            self.progress_journal_path = Path(config.invocation_params.dir) / self.progress_journal_path
+        journal_enabled = self.failure_path is not None or self.progress_journal_path is not None
+        self.journal_session = uuid.uuid4().hex if journal_enabled else None
+        self.journal_revision = self._revision() if journal_enabled else None
         self.progress_path = self.failure_path.with_suffix(".progress.json") if self.failure_path is not None else None
         self.active_tests: dict[str, dict[str, Any]] = {}
         self.completed_tests = 0
@@ -208,6 +213,12 @@ class SkipLedger:
             action="store",
             default=None,
             help="append failed reports to diagnostic JSONL and print them immediately (controller only)",
+        )
+        parser.addoption(
+            "--progress-report",
+            action="store",
+            default=None,
+            help="append test starts, completed phases and finishes to diagnostic JSONL (controller only)",
         )
 
     @classmethod
@@ -237,6 +248,7 @@ class SkipLedger:
         self._write_progress()
 
     def pytest_runtest_logstart(self, nodeid: str, location) -> None:
+        self._progress("start", nodeid)
         if self.progress_path is None:
             return
         self.active_tests[nodeid] = {
@@ -248,6 +260,7 @@ class SkipLedger:
         self._write_progress()
 
     def pytest_runtest_logfinish(self, nodeid: str, location) -> None:
+        self._progress("finish", nodeid)
         if self.progress_path is None:
             return
         if self.active_tests.pop(nodeid, None) is not None:
@@ -255,12 +268,23 @@ class SkipLedger:
         self._write_progress()
 
     def _progress_report(self, report: pytest.TestReport) -> None:
-        if self.progress_path is None:
+        if self.progress_path is None and self.progress_journal_path is None:
             return
         scheduled = report.nodeid
         for name, value in report.user_properties:
             if name == GUI_IDENTITY_PROPERTY:
-                scheduled = json.loads(value)["scheduled"]
+                identity = json.loads(value)
+                if identity["original"] != report.nodeid:
+                    raise ValueError("Inconsistent grouped progress identity")
+                scheduled = identity["scheduled"]
+        self._progress(
+            "phase",
+            scheduled,
+            nodeid=report.nodeid,
+            phase=report.when,
+            outcome=report.outcome,
+            duration_seconds=report.duration,
+        )
         active = self.active_tests.get(scheduled)
         if active is None:
             return
@@ -284,8 +308,8 @@ class SkipLedger:
             return
         snapshot = {
             "schema": "btrc.test-progress/1",
-            "session": self.failure_session,
-            "revision": self.failure_revision,
+            "session": self.journal_session,
+            "revision": self.journal_revision,
             "pid": os.getpid(),
             "started_at": self.started.isoformat(),
             "recorded_at": datetime.datetime.now(datetime.UTC).isoformat(),
@@ -306,6 +330,27 @@ class SkipLedger:
             self._skip(report.nodeid, "collect", report.longrepr)
         elif report.failed:
             self.tests[report.nodeid] = "error"
+
+    def _progress(self, event: str, scheduled_nodeid: str, **details: Any) -> None:
+        if self.progress_journal_path is None:
+            return
+        record = {
+            "schema": "btrc.test-progress/1",
+            "session": self.journal_session,
+            "started_at": self.started.isoformat(),
+            "recorded_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "revision": self.journal_revision,
+            "pid": os.getpid(),
+            "event": event,
+            "scheduled_nodeid": scheduled_nodeid,
+            **details,
+        }
+        self.progress_journal_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.progress_journal_path.open("a", encoding="utf-8") as journal:
+            journal.write(json.dumps(record, ensure_ascii=True) + "\n")
+            journal.flush()
+        if event == "start":
+            print(f"\nBTRC test started {scheduled_nodeid}", flush=True)
 
     def _failure(self, report: pytest.TestReport | pytest.CollectReport) -> None:
         if self.failure_path is None or not report.failed:
@@ -328,10 +373,10 @@ class SkipLedger:
         print("\n".join(lines), flush=True)
         record = {
             "schema": "btrc.failure-report/1",
-            "session": self.failure_session,
+            "session": self.journal_session,
             "started_at": self.started.isoformat(),
             "recorded_at": datetime.datetime.now(datetime.UTC).isoformat(),
-            "revision": self.failure_revision,
+            "revision": self.journal_revision,
             "pid": os.getpid(),
             "nodeid": report.nodeid,
             "phase": phase,

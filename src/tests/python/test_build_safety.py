@@ -29,6 +29,8 @@ def _make_dry_run(*args: str) -> str:
         "PYTEST_WORKERS",
         "PYTEST_ARGS",
         "PYTEST_SERIAL_ARGS",
+        "UNIT_GUI_DELEGATED",
+        "GUI_PYTEST_WORKERS",
         "MAKEFLAGS",
         "MFLAGS",
         "MAKEOVERRIDES",
@@ -77,6 +79,45 @@ def test_default_pytest_parallelism_is_bounded_and_configurable():
     assert " -n 8" in default
     assert " -n auto" not in default
     assert " -n 2" in constrained
+
+
+def test_unit_shard_builds_and_shares_the_selfhost_compiler():
+    output = _make_dry_run("test-shard-unit", "NIX=", "--always-make")
+    commands = output.splitlines()
+    compiler = next(index for index, line in enumerate(commands) if "Built bin/btrcc" in line)
+    tests = next(index for index, line in enumerate(commands) if "-m pytest src/tests/" in line)
+
+    assert compiler < tests
+    assert f'BTRC_TEST_BTRCC="{REPO_ROOT / "bin/btrcc"}"' in commands[tests]
+    assert "--ignore=src/tests/btrc --ignore=src/tests/runner.py" in output
+
+
+@pytest.mark.parametrize("inherited_delegation", ["0", "1"])
+def test_separate_gui_shard_owns_exactly_the_unit_exclusions(monkeypatch, inherited_delegation):
+    monkeypatch.setenv("UNIT_GUI_DELEGATED", inherited_delegation)
+
+    def pytest_arguments(target, *options):
+        output = _make_dry_run(target, "NIX=", *options).replace("\\\n", "")
+        command = next(line for line in output.splitlines() if "-m pytest " in line)
+        return shlex.split(command)
+
+    standalone = pytest_arguments("test-shard-unit")
+    separated = pytest_arguments("test-shard-unit", "UNIT_GUI_DELEGATED=1")
+    gui = pytest_arguments("test-native-gui")
+    original_ignores = {arg for arg in standalone if arg.startswith("--ignore=")}
+    separated_ignores = {arg for arg in separated if arg.startswith("--ignore=")}
+    selectors = {arg for arg in gui if arg.startswith("src/tests/")}
+
+    assert original_ignores == {"--ignore=src/tests/btrc", "--ignore=src/tests/runner.py"}
+    assert separated_ignores - original_ignores == {f"--ignore={path}" for path in selectors}
+    assert selectors and all((REPO_ROOT / path).is_file() for path in selectors)
+
+
+def test_linux_gui_shard_bounds_compile_concurrency():
+    output = _make_dry_run("test-shard-gui", "NIX=", "PYTEST_WORKERS=4")
+    assert ' -n 4 -n 1 -m "not e40_qualification"' in output
+    custom = _make_dry_run("test-shard-gui", "NIX=", "GUI_PYTEST_WORKERS=2")
+    assert ' -n 8 -n 2 -m "not e40_qualification"' in custom
 
 
 def test_python_runtime_executes_native_callbacks() -> None:

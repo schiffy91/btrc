@@ -533,7 +533,7 @@ jobs:
           retention-days: 14
 
   # The Linux GUI and audio shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
-  # `make test-shard-gui` in four disjoint partitions per protocol, each in its own
+  # `make test-shard-gui` in eight disjoint partitions per protocol, each in its own
   # tools/ui/headless-session.sh session (Xvfb, or weston's headless backend)
   # with lavapipe as the GPU adapter and the null ALSA PCM as the sound card.
   # Unlike the native-gui job it runs on every push, and under Wayland too.
@@ -558,7 +558,9 @@ jobs:
           use-flakehub: false
       - run: make devcontainer
       - run: chmod -R a+w .
-      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui
+      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui
+        env:
+          PYTEST_ADDOPTS: --progress-report=build/linux-gui/${{ matrix.cell }}/progress.jsonl --failure-report=build/linux-gui/${{ matrix.cell }}/failures.jsonl
       # pytest makes its working directories private (0700) as the container's
       # user, which the runner cannot read back to upload.
       - name: Open the session evidence to the runner
@@ -584,6 +586,7 @@ jobs:
           name: gui-evidence-ci-linux-gui-${{ matrix.cell }}
           path: |
             build/linux-gui/${{ matrix.cell }}/*.json
+            build/linux-gui/${{ matrix.cell }}/*.jsonl
             build/linux-gui/${{ matrix.cell }}/*.txt
             build/ui-shell/
             build/linux-gui/${{ matrix.cell }}/pytest/**/*.stdout
@@ -635,7 +638,7 @@ jobs:
           path: build/gui-partitions/${{ matrix.session }}
       - name: Prove the complete disjoint session coverage
         if: always()
-        run: python3 -m tools.ui.gui_shards aggregate --session ${{ matrix.session }} --count 4 --revision "$GITHUB_SHA" --input build/gui-partitions/${{ matrix.session }} --output build/gui-union-${{ matrix.session }}.json
+        run: python3 -m tools.ui.gui_shards aggregate --session ${{ matrix.session }} --count 8 --revision "$GITHUB_SHA" --input build/gui-partitions/${{ matrix.session }} --output build/gui-union-${{ matrix.session }}.json
       - name: Retain the session coverage proof
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
