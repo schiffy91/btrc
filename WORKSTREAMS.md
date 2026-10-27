@@ -2266,3 +2266,30 @@ values use typed `releaseValue`, while native values keep guarded release.
 Six production files match the donor patch exactly. The two ownership files
 retain only this documented API adaptation around the same typed release
 and poll decisions. Reconcile the guard with PR123 during integration.
+
+
+### 2026-10-27 PR120: return conditional-result ownership
+
+Branch `codex/conditional-owner-return-20261027` starts from PR120's saved
+mutex checkpoint `5b6dddbe`. Return donor `34db659d` while preserving the
+existing staged-value, native-slot, default-helper and typed-mutex repairs.
+Extend Python lowering ownership to `{calls,classes,declarations,functions,
+translation_unit}.py` alongside this packet's existing expressions, ownership
+and types modules. Own the new conditional-result regression, the typed-operator
+regressions and the callable-provenance/architecture test contracts changed by
+this repair.
+
+Conditional branches consume the ownership of their normalized lowered value.
+Supply exact resolved expression types through a narrow per-body provenance
+interface, keeping the callee ABI ownership contract unchanged. Preserve
+managed cast ownership, deferred generic result types and the typed rejection
+of unresolved coalescing operands. Reuse existing numeric and compatibility
+owners; do not lower source text or bypass the structured IR pipeline.
+
+Establish the allocation-tracked native and complete-C baseline before
+production changes. Keep the old callable test setup during that baseline;
+then update its two constructor stubs and strengthen the architecture check
+for the required expression-type interface. Preserve all other test behavior.
+Native execution is headless; no GUI, application, bootstrap, guest or
+performance qualification is claimed. Existing PR119/122/123 dependencies
+remain failed comparisons until integration.

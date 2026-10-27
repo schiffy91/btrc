@@ -401,6 +401,29 @@ class CTypeLowerer:
             return self._identity.specialization_is_subtype(source, target, classes, interfaces)
         return True
 
+    def conditional_result_type(
+        self,
+        true_type: TypeExpr | None,
+        false_type: TypeExpr | None,
+    ) -> TypeExpr | None:
+        """Resolve deferred conditional branches after concrete specialization."""
+        if true_type is None or false_type is None:
+            return None
+        if true_type.base == "null":
+            return replace(false_type, is_nullable=True)
+        if false_type.base == "null":
+            return replace(true_type, is_nullable=True)
+        numeric = TypeSystem.numeric_result_type(
+            self.canonical_type(true_type), self.canonical_type(false_type), self._analyzed.enum_table
+        )
+        if numeric is not None:
+            return numeric
+        if self.concrete_value_compatible(true_type, false_type):
+            return true_type
+        if self.concrete_value_compatible(false_type, true_type):
+            return false_type
+        raise CodegenError("Incompatible concrete conditional branches")
+
     def _resolve_typedef(
         self,
         type_expr: TypeExpr | None,
@@ -531,7 +554,7 @@ class CTypeLowerer:
         """Lower an operation owned by the shared portable type contract."""
         left_type = self.canonical_type(left_type)
         right_type = self.canonical_type(right_type)
-        if allow_unresolved_c_operands and (left_type is None or right_type is None):
+        if allow_unresolved_c_operands and operator != "??" and (left_type is None or right_type is None):
             return IRBinOp(left=left, op=operator, right=right)
         if (
             operator == "+"

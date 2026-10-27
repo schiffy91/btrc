@@ -155,3 +155,24 @@ def test_typed_operator_runtime_contains_shared_lowering():
     assert "callback == callback" not in generated
     assert "__btrc_fn_left" in generated
     assert "__btrc_fn_right" in generated
+
+
+@pytest.mark.parametrize("expression", ["OPAQUE_POINTER ?? null", "null ?? OPAQUE_POINTER"])
+def test_opaque_null_coalescing_requires_explicit_operand_types(expression):
+    source = f"""
+        #define OPAQUE_POINTER getPointer()
+        void* getPointer() {{ return null; }}
+        int main() {{ void* value = {expression}; return (int)(value != null); }}
+    """
+    with pytest.raises(CodegenError, match="cannot resolve null-coalescing operand types"):
+        emit_c(source)
+
+
+@pytest.mark.parametrize("expression", ["(void*)OPAQUE_POINTER ?? null", "null ?? (void*)OPAQUE_POINTER"])
+def test_typed_opaque_null_coalescing_lowers_to_c(expression):
+    source = f"""
+        #define OPAQUE_POINTER getPointer()
+        void* getPointer() {{ return null; }}
+        int main() {{ void* value = {expression}; return (int)(value != null); }}
+    """
+    assert "??" not in emit_c(source)

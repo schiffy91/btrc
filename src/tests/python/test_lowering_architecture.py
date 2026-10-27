@@ -758,6 +758,13 @@ def test_callable_provenance_is_fresh_per_body_and_never_a_retained_service() ->
         "TranslationUnitLowerer",
     }
 
+    assert {owner for owner, dependencies in retained.items() if "LoweredExpressionTypes" in dependencies} == {
+        "CallableProvenance"
+    }
+    port = _class_registry()["LoweredExpressionTypes"][1]
+    assert len(port.bases) == 1 and _annotation_names(port.bases[0]) == {"Protocol"}
+    assert {node.name for node in port.body if isinstance(node, ast.FunctionDef)} == {"resolved_expression_type"}
+
     construction_sites: Counter[tuple[str, str]] = Counter()
     for path in _paths():
         tree = _tree(path)
@@ -767,11 +774,12 @@ def test_callable_provenance_is_fresh_per_body_and_never_a_retained_service() ->
             for node in ast.walk(tree)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "CallableProvenance"
         ):
-            assert len(call.args) == 4
-            assert isinstance(call.args[3], ast.Attribute)
-            assert isinstance(call.args[3].value, ast.Name)
-            assert call.args[3].value.id == "self"
-            assert call.args[3].attr == "_signatures"
+            assert len(call.args) == 5
+            for argument, field in zip(call.args[3:], ("_signatures", "_expressions")):
+                assert isinstance(argument, ast.Attribute)
+                assert isinstance(argument.value, ast.Name)
+                assert argument.value.id == "self"
+                assert argument.attr == field
             parent = parents[call]
             assert isinstance(parent, ast.Assign)
             function = parents[parent]

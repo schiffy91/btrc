@@ -1786,6 +1786,15 @@ class ExpressionLowerer:
         type_expr = self._session.type_of(node)
         if isinstance(node, NewExpr):
             type_expr = type_expr or node.type
+        if isinstance(node, TernaryExpr) and (type_expr is None or type_expr.base == "null"):
+            type_expr = self._types.conditional_result_type(
+                self.resolved_expression_type(node.true_expr),
+                self.resolved_expression_type(node.false_expr),
+            )
+        if isinstance(node, BinaryExpr) and node.op == "??" and (type_expr is None or type_expr.base == "null"):
+            left_type = self.resolved_expression_type(node.left)
+            right_type = self.resolved_expression_type(node.right)
+            type_expr = right_type if left_type is not None and left_type.base == "null" else left_type or right_type
         return self._types.resolve_active_type(self._default_arguments.resolve_type(type_expr))
 
     def prepare_lowered_value(
@@ -3031,8 +3040,8 @@ class ExpressionLowerer:
                 provenance,
                 source_owned=branch_ownership[1],
             )
-        left_type = self._session.type_of(node.left)
-        right_type = self._session.type_of(node.right)
+        left_type = self.resolved_expression_type(node.left) if node.op == "??" else self._session.type_of(node.left)
+        right_type = self.resolved_expression_type(node.right) if node.op == "??" else self._session.type_of(node.right)
         op = node.op
         overloaded = self.lower_overloaded_values(
             left_type,

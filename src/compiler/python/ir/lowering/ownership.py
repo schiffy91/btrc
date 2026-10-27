@@ -810,6 +810,8 @@ class CallableBodyFacts(Protocol):
 
     def call_returns_owned(self, expression, effect=None) -> bool: ...
 
+    def resolved_type(self, expression: object) -> TypeExpr | None: ...
+
     def conditional_branch_entries(self, expression): ...
 
     def at_flow(self, state): ...
@@ -1672,11 +1674,20 @@ class OwnershipLowerer:
         resolved_result_type = result_type or self._session.type_of(expression)
         if self._values.is_managed(resolved_result_type) and isinstance(expression, CallExpr):
             return True
-        return self.owns_result(
+        source_owned = self.owns_result(
             expression,
             provenance=provenance,
             result_type=resolved_result_type,
         )
+        if source_owned:
+            return True
+        if isinstance(expression, CastExpr) and self._values.is_managed(resolved_result_type):
+            return self.lowered_result_is_owned(
+                expression.expr,
+                provenance=provenance,
+                result_type=provenance.resolved_type(expression.expr),
+            )
+        return False
 
     def source_call_owns_result(
         self,
@@ -1796,25 +1807,30 @@ class OwnershipLowerer:
         )
 
     def _conditional_result_is_owned(self, expression, branches, provenance: CallableBodyFacts) -> bool:
-        result_type = self._session.type_of(expression)
+        result_type = provenance.resolved_type(expression)
         branch_ownership = self.conditional_branch_ownership(expression, provenance)
         return bool(
             self._values.is_managed(result_type)
             and any(branch_ownership)
             and all(
                 (
-                    owned or isinstance(branch, NullLiteral) or self._values.is_managed(self._session.type_of(branch))
+                    owned
+                    or isinstance(branch, NullLiteral)
+                    or self._values.is_managed(provenance.resolved_type(branch))
                     for branch, owned in zip(branches, branch_ownership)
                 )
             )
         )
 
     def conditional_branch_ownership(self, expression, provenance: CallableBodyFacts) -> tuple[bool, ...]:
-        """Classify each selected value at that branch's semantic entry."""
+        """Classify the lowered selected value at its branch's semantic entry."""
         branch_ownership = []
         for branch, entry in provenance.conditional_branch_entries(expression):
             with provenance.at_flow(entry):
-                branch_ownership.append(self.owns_result(branch, provenance=provenance))
+                branch_type = provenance.resolved_type(branch)
+                branch_ownership.append(
+                    self.lowered_result_is_owned(branch, provenance=provenance, result_type=branch_type)
+                )
         return tuple(branch_ownership)
 
     def _is_string_concat(self, expression: BinaryExpr, result_type) -> bool:

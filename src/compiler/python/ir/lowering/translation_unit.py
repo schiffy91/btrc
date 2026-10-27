@@ -801,7 +801,7 @@ class TranslationUnitLowerer:
         )
 
     def emit_global_var(self, declaration, *, force_external=False) -> None:
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         if declaration.initializer is not None:
             self._callable_boundaries.reject_persistent_escape(
                 declaration.type,
