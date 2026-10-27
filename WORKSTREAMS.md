@@ -2434,3 +2434,25 @@ field order remain with their existing owners. The eight regression cases
 cover independent and nested records, two manifest orders, and whole-program
 and module output. Require the combined prototype repair to pass complete C
 comparisons, then recheck the full application and final integration gates.
+
+
+### 2026-10-27 PR115 generic interface cycle owner return
+
+Branch: `codex/generic-cycle-owner-return-20261027`, based on the existing
+PR115 source owner `c0668650`. Preserve its collection, interface, Span, alias,
+callback identity and native input repairs. Owned paths for this return are
+`src/compiler/python/ir/lowering/ownership.py`,
+`src/tests/python/test_polymorphic_arc_metadata.py`,
+`src/tests/python/test_module_units.py`, and this record.
+
+Return the concrete generic interface cycle repair `183f006d` without its
+diagnostic composition history. Establish the leak and metadata baseline on
+this owner, then preserve actual generic arguments when traversing interface
+implementers. Retained-owner, scalar and unused-type-parameter controls must
+keep their native lifetime assertions and complete C comparisons. Existing
+test functions remain unchanged. Record any isolated header or prototype
+dependencies as failures; do not weaken tests to obtain a green checkpoint.
+
+Selected local checks, hosted source CI, application acceptance and final
+integration remain required. This return does not authorize local GUI, audio
+installation, application execution, bootstrap or performance measurements.

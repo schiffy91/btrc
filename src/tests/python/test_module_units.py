@@ -3266,3 +3266,44 @@ def test_native_record_input_declarations_match_frontends(
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["cycle", "scalar", "phantom"])
+def test_generic_interface_cycles_preserve_retained_owners(tmp_path, immutable_btrcc, module_units, shape):
+    source = tmp_path / "src"
+    source.mkdir()
+    argument, value = ("int", "7") if shape == "scalar" else ("Owner", "owner")
+    field = "" if shape == "phantom" else "public T value;"
+    initialize = "" if shape == "phantom" else "self.value = value;"
+    (source / "Graph.btrc").write_text(f"""int destroyed = 0;
+interface ILink {{ int tag(); }}
+class Box<T> implements ILink {{
+ public Box(T value) {{ {initialize} }}
+ {field}
+ public int tag() {{ return 1; }}
+ public void __del__() {{ destroyed++; }}
+}}
+class Owner {{
+ public ILink? edge = null;
+ public void __del__() {{ destroyed++; }}
+}}
+Owner build() {{
+ Owner owner = new Owner();
+ Box<{argument}> link = new Box<{argument}>({value});
+ owner.edge = link;
+ return owner;
+}}
+void exercise() {{
+ Owner retained = build();
+ assert(destroyed == 0);
+ assert(retained.edge.tag() == 1);
+}}
+""")
+    (source / "Main.btrc").write_text(
+        'import ./Graph.btrc;\nint main() { exercise(); assert(destroyed == 2); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
