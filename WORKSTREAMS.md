@@ -2946,3 +2946,56 @@ This branch is a source integration candidate, not completion evidence.
 No main push, hosted publication or issue closure follows from a local pass.
 The current restrictions on local GUI, application, audio installation,
 bootstrap, guests and performance execution remain in force.
+
+## 2026-10-24 CX-NATIVE-HANDOFF-PARITY: native call-boundary cleanup
+
+Reserved: Codex owns `codex/native-handoff-parity-20261024` from
+`b800bb0` under D29. BTRSmith's AppKitText unit exposes different release
+expressions after a call: the self-hosted compiler adds a null guard around
+its generated native lifetime helper, while the reference compiler calls the
+helper directly. Establish a paired baseline before changing that path.
+
+Owned paths are `src/compiler/btrc/ir/lowering/ownership/Calls.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`,
+`src/tests/python/test_native_managed_resources.py`, and this claim.
+Preserve nullable-resource safety, retained argument lifetime, clearing before
+release, and exception cleanup. Verify the generated adapters' null contracts,
+including Objective-C and COM, before removing any guard. This is an
+independent parity packet; it does not change collection cycle batching.
+Full integrated gates remain required. Publication waits for CI capacity.
+
+
+### 2026-10-27 PR123: return shared native lease cleanup
+
+Branch `codex/native-lease-owner-return-20261027` starts directly from this
+packet's implementation `f2a55043`. It returns repair `773e1129`, extending
+PR123's ownership to the native lease cleanup in
+`src/compiler/btrc/ir/lowering/Declarations.btrc`. Existing claims cover
+`ownership/Calls.btrc`, `ownership/Lifetime.btrc`, and
+`src/tests/python/test_native_managed_resources.py`.
+
+Non-unique native leases and ordinary calls should use the same structured
+save, clear and release operation. Unique-resource borrow and attachment
+cleanup retain their separate operation. Preserve the donor regression for
+single, distinct and aliased native owners, normal and throwing paths,
+strict and sanitized native execution, and complete generated-C comparison.
+Establish the baseline on this owning branch, then qualify the source and
+existing ownership tests again. Evidence is in
+`build/issue-gates/native-lease-owner-return/`. Hosted source CI and final
+integration gates remain required; no application or GUI execution is claimed.
+
+This branch still exposes `releaseMayEnqueue(string runtimeType)`. The shared
+helper calls that existing interface through `managedValues.runtimeType`,
+preserving this branch's cycle-polling policy. When integrating typed-mutex
+repair `f584fc6d`, retain its typed `releaseMayEnqueue(Node)` interface and
+pass `resolvedType` directly, as the qualified diagnostic composition does.
+This backport does not claim the typed-mutex repair or replace its tests.
+
+
+The source integration also includes PR123 `4fce0f39`. PR120's saved raw
+output audit identifies native lease cleanup as a remaining dependency.
+Use PR123's shared save-clear-release sequence for leases and ordinary call
+operands, and retain PR120's `Node resolvedType` interface for cycle polling.
+PR123 deliberately removes the old handoff-only native NULL guard to match
+the reference release operation. Unique resource borrow-end cleanup stays
+separate. Native ownership and lease regressions must qualify this boundary.

@@ -404,15 +404,21 @@ class DeclarationLowerer {
 			string prefix = "__btrc_unique_" + valueType.base;
 			statements.push(IRNode.expressionStatement(IRNode.call(prefix + "_begin_" + operation, [value])));
 			registration.argsMut().set(2, IRNode.functionReference(prefix + "_end_" + operation));
+			statements.push(IRNode.expressionStatement(registration));
+			string releasedName = f"__btrc_native_released_{index}";
+			while (parameterNames.has(releasedName)) { releasedName = releasedName + "_"; }
+			releases.push([
+				IRNode.variableDeclaration(valueCType, releasedName, value),
+				IRNode.assignment(value, IRNode.literal("NULL")),
+				IRNode.expressionStatement(IRNode.call(prefix + "_end_" + operation, [IRNode.variable(releasedName)]))
+			]);
+			return value;
 		}
 		statements.push(IRNode.expressionStatement(registration));
-		string releasedName = f"__btrc_native_released_{index}";
-		while (parameterNames.has(releasedName)) { releasedName = releasedName + "_"; }
-		releases.push([
-			IRNode.variableDeclaration(valueCType, releasedName, value),
-			IRNode.assignment(value, IRNode.literal("NULL")),
-			IRNode.expressionStatement(self.uniqueResource(valueType.base) ? IRNode.call("__btrc_unique_" + valueType.base + "_end_" + operation, [IRNode.variable(releasedName)]) : self.managedLifetime.releaseValue(IRNode.variable(releasedName), valueType))
-		]);
+		Vector<IRNode> releaseStatements = [];
+		Vector<IRNode> releaseExpressions = self.managedLifetime.releaseAndClear(value, valueType, valueCType, releaseStatements);
+		for expression in releaseExpressions { releaseStatements.push(IRNode.expressionStatement(expression)); }
+		releases.push(releaseStatements);
 		return value;
 	}
 
