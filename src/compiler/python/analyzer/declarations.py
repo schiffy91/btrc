@@ -620,15 +620,21 @@ class HierarchyValidator:
 
     def _validate_overrides(self, program: Program) -> None:
         for declaration in self.context.declarations(program):
-            if not isinstance(declaration, ClassDecl) or not declaration.parent:
+            if not isinstance(declaration, ClassDecl):
                 continue
             parent = self.index.class_table.get(declaration.parent)
-            if parent is None:
-                continue
             for member in declaration.members:
                 if not isinstance(member, MethodDecl) or member.is_constructor:
                     continue
-                parent_method = parent.methods.get(member.name)
+                parent_method = parent.methods.get(member.name) if parent is not None else None
+                if parent_method is not None and parent_method.is_constructor:
+                    parent_method = None
+                if member.is_override and parent_method is None:
+                    self.context.error(
+                        f"Method '{declaration.name}.{member.name}' is marked override but no inherited method exists",
+                        member.line,
+                        member.col,
+                    )
                 if parent_method is not None:
                     self._validate_signature(
                         declaration.name, member, parent_method, f"parent class '{declaration.parent}'"
@@ -674,6 +680,10 @@ class HierarchyValidator:
             )
         if bool(getattr(implementation, "is_gpu", False)) != bool(getattr(expected, "is_gpu", False)):
             self.context.error(f"Override '{name}' in '{class_name}' changes @gpu execution from {source}", line, col)
+        if isinstance(expected, MethodDecl) and implementation.is_realtime != expected.is_realtime:
+            self.context.error(
+                f"Override '{name}' in '{class_name}' changes @realtime execution from {source}", line, col
+            )
         expected_return = getattr(expected, "return_type", None)
         if substitutions:
             expected_return = self._signature_types.substitute(expected_return, substitutions)

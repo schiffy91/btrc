@@ -468,6 +468,7 @@ class Parser {
 			self.advance();
 		}
 
+		bool isOverride = self.matchTok("OVERRIDE");
 		bool isGpu = false;
 		if (self.check("AT_GPU")) {
 			isGpu = true;
@@ -492,6 +493,7 @@ class Parser {
 		Node typeExpr = self.parseType();
 
 		if (self.isFunctionPointerDeclarator(self.pos)) {
+			if (isOverride) { self.failAt("override can only be applied to non-constructor methods", self.peek()); }
 			if (isRealtime) {
 				self.failAt("@realtime cannot be applied to fields or properties", self.peek());
 			}
@@ -502,7 +504,8 @@ class Parser {
 		}
 		// Constructor: next is '(' -> the "type" is the name.
 		if (self.check("LPAREN")) {
-			Node constructor = self.parseMethodRest(access, typeExpr, typeExpr.base, isGpu, isRealtime, tok.line, tok.col, typeExpr.line, typeExpr.col, isAbstractMethod, keepReturn);
+			if (isOverride) { self.failAt("override can only be applied to non-constructor methods", self.peek()); }
+			Node constructor = self.parseMethodRest(access, typeExpr, typeExpr.base, isGpu, isRealtime, tok.line, tok.col, typeExpr.line, typeExpr.col, isAbstractMethod, isOverride, keepReturn);
 			constructor.isConstructor = true;
 			members.push(constructor);
 			return;
@@ -512,9 +515,10 @@ class Parser {
 		string name = nameTok.value;
 
 		if (self.check("LT") || self.check("LPAREN")) {
-			members.push(self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, keepReturn));
+			members.push(self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, isOverride, keepReturn));
 			return;
 		}
+		if (isOverride) { self.failAt("override can only be applied to non-constructor methods", nameTok); }
 		if (isRealtime) {
 			self.failAt("@realtime cannot be applied to fields or properties", nameTok);
 		}
@@ -542,7 +546,7 @@ class Parser {
 		}
 	}
 
-	public Node parseMethodRest(string access, Node returnType, string name, bool isGpu, bool isRealtime, int line, int col, int nameLine, int nameCol, bool isAbstract, bool keepReturn) {
+	public Node parseMethodRest(string access, Node returnType, string name, bool isGpu, bool isRealtime, int line, int col, int nameLine, int nameCol, bool isAbstract, bool isOverride, bool keepReturn) {
 		Node n = Node();
 		n.kind = NK_METHOD_DECL;
 		n.access = access;
@@ -551,6 +555,7 @@ class Parser {
 		n.isGpu = isGpu;
 		n.isRealtime = isRealtime;
 		n.isAbstract = isAbstract;
+		n.isOverride = isOverride;
 		n.keepReturn = keepReturn;
 		n.line = line;
 		n.col = col;

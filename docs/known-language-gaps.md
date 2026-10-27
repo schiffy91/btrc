@@ -53,6 +53,16 @@ Grammar keywords are reserved and cannot be used as source identifiers. Code
 generators escape schema field names that collide with those keywords, but that
 internal escaping does not create quoted identifiers in the language.
 
+`override` is an optional checked method modifier: write
+`public override int value() { ... }`. It requires a compatible method in a
+parent class, including an ancestor reached through intermediate classes.
+The existing signature and static/instance checks apply, and class dispatch
+remains static. It can follow `abstract` and precedes execution and ownership
+modifiers. Constructors, fields, properties and methods that only implement
+an interface cannot use it. Existing overrides without the modifier remain
+valid. `auto`, `register` and `goto` still await the approved C vocabulary
+and control-flow work in PLAN.md Stages 19 and 20 (issue #17).
+
 Tuple element names such as `_0` and `_1` are ordinary postfix members, and
 `value.1.0` selects twice: digits after a `.` lex as a field index alone, so
 the next `.` is a selector, not a fraction. A `.` after an operand never starts

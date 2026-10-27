@@ -579,17 +579,49 @@ class NameValidator {
 		}
 	}
 
+	/* Overrides compare callable types after renaming the inherited method's
+	 * generic parameters. Parameter names and defaults belong to each statically
+	 * selected declaration, unlike two declarations of the same free function. */
+	private bool overrideSignatureSame(Node implementation, Node inherited) {
+		if (implementation.returnType == null || inherited.returnType == null || implementation.genericParams().len != inherited.genericParams().len || implementation.params().len != inherited.params().len || implementation.keepReturn != inherited.keepReturn || implementation.isGpu != inherited.isGpu || implementation.isRealtime != inherited.isRealtime || (implementation.access == "class") != (inherited.access == "class")) {
+			return false;
+		}
+		Map<string, Node> substitutions = {};
+		int index = 0;
+		while (index < inherited.genericParams().len) {
+			substitutions.put(inherited.genericParams().get(index), SemanticTypeSystem.primitive(implementation.genericParams().get(index)));
+			index++;
+		}
+		Node expectedReturn = SemanticTypeSystem.resolveGenericType(inherited.returnType, substitutions, self.state.analyzed);
+		if (!self.types.aliasTypesSame(implementation.returnType, expectedReturn)) { return false; }
+		Map<int, bool> expectedTransfers = DeclarationRegistry.ownedTransferParameters(inherited);
+		Map<int, bool> actualTransfers = DeclarationRegistry.ownedTransferParameters(implementation);
+		if (expectedTransfers.len != actualTransfers.len) { return false; }
+		for transfer in expectedTransfers.keys() { if (!actualTransfers.has(transfer)) { return false; } }
+		index = 0;
+		while (index < inherited.params().len) {
+			Node expected = inherited.params().get(index);
+			Node actual = implementation.params().get(index);
+			Node expectedType = SemanticTypeSystem.resolveGenericType(expected.type, substitutions, self.state.analyzed);
+			if (!self.types.aliasTypesSame(actual.type, expectedType) || actual.keep_ != expected.keep_) { return false; }
+			index++;
+		}
+		return true;
+	}
+
 	public void validateClassOverrides(Node declaration) {
 		string parent = DeclarationRegistry.parentName(declaration);
-		if (parent == "" || !self.state.analyzed.classTable.has(parent)) { return; }
 		int index = 0;
 		while (index < declaration.members().len) {
 			Node member = declaration.members().get(index);
 			if (member.kind == NK_METHOD_DECL && !member.isConstructor) {
-				Node? inherited = self.storage.inheritedClassMember(parent, member.name, self.state.analyzed);
-				if (inherited != null && inherited.kind == NK_METHOD_DECL) {
+				Node? inherited = self.state.analyzed.classMethod(parent, member.name);
+				if (member.isOverride && inherited == null) {
+					TypeValidator.fail("Method '" + declaration.name + "." + member.name + "' is marked override but no inherited method exists", member);
+				}
+				if (inherited != null) {
 					Node inheritedMethod = inherited;
-					if (!self.callableSignatureSame(member, inheritedMethod) || (member.access == "class") != (inheritedMethod.access == "class")) {
+					if (!self.overrideSignatureSame(member, inheritedMethod)) {
 						TypeValidator.fail("Override '" + declaration.name + "." + member.name + "' does not match inherited signature", member);
 					}
 				}

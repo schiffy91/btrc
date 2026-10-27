@@ -196,6 +196,25 @@ def test_keyword_member_names_match_reference_ast(selfhost_drivers: dict[str, Pa
     assert parsed.stdout == reference.stdout
 
 
+def test_checked_override_matches_reference_ast(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
+    program = tmp_path / "CheckedOverride.btrc"
+    program.write_text(
+        "abstract class Child extends Parent {\n"
+        " public override int value() { return 1; }\n"
+        " public abstract override keep Item make();\n"
+        " static override @realtime int tag() { return 2; }\n"
+        " public int ordinary() { return 3; }\n"
+        "}\n"
+    )
+    parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
+    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "dump-ast", str(program)], timeout=15)
+    assert parsed.returncode == 0, parsed.stderr
+    assert reference.returncode == 0, reference.stderr
+    assert parsed.stdout == reference.stdout
+    assert parsed.stdout.count("is_override=true") == 3
+    assert parsed.stdout.count("is_override=false") == 1
+
+
 def test_concatenation_opening_with_macro_pieces_matches_reference_ast(
     selfhost_drivers: dict[str, Path], tmp_path: Path
 ) -> None:

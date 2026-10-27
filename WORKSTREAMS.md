@@ -3708,6 +3708,26 @@ Collection release policy remains unchanged. Evidence is in
 `build/issue-gates/collection-release-hosted-d68/`.
 
 
+## 2026-10-23 CX-CHECKED-OVERRIDE: issue 17
+
+Codex owns `codex/checked-override-20261023` from
+`b800bb07798b95e5d3c02692db998652437698d2` under the D29 harmonization
+exception. Owned paths: `src/language/{ast.asdl,grammar.ebnf}`, both parser
+owners, Python `analyzer/declarations.py`, btrc `analyzer/validation/Names.btrc`
+and `syntax/Identity.btrc`, their generated AST catalogs, focused parser and
+paired compiler tests, LSP keyword completion and its tests, class corpus fixtures and goldens, and
+`docs/known-language-gaps.md`. This is an append-only WORKSTREAMS claim.
+
+The optional method modifier checks that a parent class supplies a compatible
+method. It keeps existing signature checks and static dispatch. Constructors,
+fields, properties and interface-only implementations cannot claim an override.
+The approved storage-class and goto designs remain separate issue 17 work.
+
+Baseline: 709 reference parser/analyzer tests pass on the unchanged base.
+Generated output is regenerated in a derived commit. Full draft-PR CI and
+review remain required; local focused tests do not establish final acceptance.
+
+
 ### 2026-10-27 Checked override composition for issue #17
 
 Packet: CX-CHECKED-OVERRIDE-COMPOSITION. Compose PR116 at `7118ec76`
@@ -3731,3 +3751,14 @@ canonical AST with a fresh compiler before committing the implementation.
 Keep PR125 at `1ca47cb9` while its hosted jobs run. No additional heavy CI
 train or local GUI/application execution/audio/bootstrap/performance/guest
 work is part of this packet. Full issue17 and integrated gates remain open.
+
+The composed source passes 1,982 compiler/editor tests, with one expected
+macOS skip for the `/dev/full` parser-driver case. The fresh compiler
+fingerprint is `d92eadf6760cb6193ea8e12d08906c39`. Generated-source checks,
+lint, Python/BTRC formatting and extension packaging pass; extension tests
+report 83 passed and two skipped. Source hashes stayed unchanged through
+validation. Evidence is in
+`build/issue-gates/checked-override-composition/validation.json`.
+The application transpilation proof above remains specific to `1ca47cb9`;
+this merge has not passed the full integrated or hosted qualification gates.
+PR125 remains fixed while its jobs run.

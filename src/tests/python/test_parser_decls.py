@@ -13,6 +13,21 @@ def parse(src):
     return Parser(Lexer(src, "<t>").tokenize()).parse()
 
 
+@pytest.mark.parametrize("modifiers, body", [("override", "{ return 1; }"), ("abstract override", ";")])
+def test_checked_override_method(modifiers, body):
+    program = parse(f"abstract class Child extends Parent {{ public {modifiers} int value() {body} }}")
+    method = program.declarations[0].members[0]
+    assert method.is_override
+    assert method.is_abstract == modifiers.startswith("abstract")
+    assert method.name == "value"
+
+
+@pytest.mark.parametrize("member", ["int value;", "int value { get; }", "int (*callback)(int);", "Child() {}"])
+def test_override_refuses_non_method(member):
+    with pytest.raises(ParseError, match="override can only be applied to non-constructor methods"):
+        parse(f"class Child {{ public override {member} }}")
+
+
 def test_struct_declaration():
     prog = parse("struct Point { int x; int y; };\nint main() { return 0; }")
     assert any(isinstance(d, StructDecl) for d in prog.declarations)
