@@ -2480,7 +2480,7 @@ class ExpressionLowerer:
             computed_owned=computed_owned,
         )
 
-    def _materialize_storage_target(self, plan, provenance: CallableProvenance):
+    def _materialize_storage_target(self, plan, provenance: CallableProvenance, *, ownership_operation: bool = False):
         """Lower target operands while leaving stabilization and storage shape to StorageLowerer."""
         target = plan.target
         if plan.kind is StorageKind.STATIC_FIELD:
@@ -2497,6 +2497,7 @@ class ExpressionLowerer:
             return self._storage.materialize_target(
                 plan,
                 lowered_receiver=self.lower_expr(target.obj, provenance),
+                ownership_operation=ownership_operation,
             )
         return self._storage.materialize_target(
             plan,
@@ -2510,7 +2511,7 @@ class ExpressionLowerer:
     ) -> ManagedSlotTarget:
         """Stabilize one physical slot for an ownership-consuming statement."""
         plan = self._storage.plan_store(source, provenance=provenance)
-        materialized = self._materialize_storage_target(plan, provenance)
+        materialized = self._materialize_storage_target(plan, provenance, ownership_operation=True)
         if plan.kind in {StorageKind.PROPERTY, StorageKind.INDEXED} or materialized.target is None:
             raise CodegenError("ownership operation requires a physical storage target")
         return ManagedSlotTarget(

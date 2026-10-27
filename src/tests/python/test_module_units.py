@@ -44,7 +44,9 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.tests import runner
+from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
+from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
@@ -2055,3 +2057,170 @@ def test_unit_flow_roots_cover_every_setjmp_safety_location(location):
         IRFunctionDef("ordinary", CType("void"), body=IRBlock([])),
     ]
     assert ModuleUnitCompiler.setjmp_flow_functions(module) == {"protected"}
+
+
+def _compile_and_run_native_frontends(
+    source, tmp_path, immutable_btrcc, expected_stdout, *, module_units, no_stdlib=False
+):
+    NativeBindingPackage.require_reader()
+    sanitizer = require_sanitizers(tmp_path)
+    root = tmp_path.resolve()
+    generated = {}
+    for frontend, compiler in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = root / frontend
+        output.mkdir()
+        c_source, plan = output / "program.c", output / "program.json"
+        compiled = subprocess.run(
+            [
+                *compiler,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                *(["--no-stdlib"] if no_stdlib else []),
+                *(["--module-units", "--jobs", "1", "--emit-units", str(output / "program")] if module_units else []),
+                "--emit-link-plan",
+                str(plan),
+                "-o",
+                str(c_source),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        generated[frontend] = {path.name: path.read_bytes() for path in output.glob("program*.c")}
+        for mode, compiler, optimization, flags, environment in (
+            ("strict", C_COMPILER, 2, [], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                1,
+                ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "native module qualification requires a C compiler"
+
+            def run_build(command, *, environment=environment, **kwargs):
+                kwargs["timeout"] = 180
+                if environment is not None:
+                    kwargs["env"] = environment
+                return subprocess.run(command, **kwargs)
+
+            executable = output / mode
+            NativePlanBuilder(runner=run_build).build(
+                plan_path=plan,
+                generated_c=c_source,
+                output=executable,
+                cc=compiler,
+                optimization=optimization,
+                jobs=1,
+                compile_flags=["-pedantic-errors", "-Wall", "-Wextra", "-Werror", *flags],
+                link_flags=flags,
+            )
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0 and ran.stdout == expected_stdout, (frontend, mode, ran.stdout, ran.stderr)
+    return generated
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("storage", ["field", "vector"])
+def test_native_release_slots_have_no_arc_edges(tmp_path, native_project, immutable_btrcc, module_units, storage):
+    from src.tests.python.native_import_fixtures import resource_project
+
+    source, _sdk, _triple = resource_project.__wrapped__(native_project)
+    header = tmp_path / "Foundation.h"
+    text = header.read_text()
+    counts = "static int widgetLive = 0, widgetDestroyed = 0;"
+    assert text.count(counts) == 1
+    header.write_text(text.replace(counts, "extern int widgetLive, widgetDestroyed;"))
+    (source.parent / "Resource.c").write_text("int widgetLive = 0, widgetDestroyed = 0;\n")
+    manifest = tmp_path / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        + '\n[[native.sources]]\npath = "src/Resource.c"\nlanguage = "c"\nstandard = "c11"\nmodules = ["Foundation"]\n'
+    )
+    declaration = (
+        "class Holder { public WidgetRef? value; public Holder(WidgetRef? value) { self.value = value; } }\n"
+        if storage == "field"
+        else ""
+    )
+    operation = (
+        "var holder = Holder(owner); release owner; release holder.value; "
+        "assert(holder.value == null); release holder.value; release holder;"
+        if storage == "field"
+        else "Vector<WidgetRef> values = []; values.push(owner); release owner; values.free(); release values;"
+    )
+    source.write_text(
+        "import ./Foundation.btrc;\n"
+        + ("import Library.Vector;\n" if storage == "vector" else "")
+        + declaration
+        + "int main() {\nfor (int index = 0; index < 4; index++) {\n"
+        + "var owner = WidgetCreate(41); assert(owner != null);\n"
+        + operation
+        + "\nassert(WidgetLive() == 0 && WidgetDestroyed() == index + 1);\n}\nreturn 0;\n}\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source.parent, tmp_path, immutable_btrcc, "", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("cyclic", [False, True], ids=["acyclic", "cycle"])
+@pytest.mark.parametrize("receiver", ["self", "variable"])
+@pytest.mark.parametrize("guarded", [False, True], ids=["plain", "unwind"])
+def test_explicit_field_release_preserves_owner_and_cleanup(
+    tmp_path, immutable_btrcc, module_units, cyclic, receiver, guarded
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    edge = "public Owner? owner = null;" if cyclic else ""
+    connect = "self.child.owner = self;" if cyclic else ""
+    method = "public void clear() { release self.child; }" if receiver == "self" else ""
+    clear = "owner.clear();" if receiver == "self" else "release owner.child;"
+    operation = (
+        f'try {{ {clear} throw "done"; }} catch (string error) {{ assert(error == "done"); }}' if guarded else clear
+    )
+    (source / "Owners.btrc").write_text(f"""
+int children = 0;
+int owners = 0;
+class Child {{
+    {edge}
+    public Child() {{ children++; }}
+    public void __del__() {{ children--; }}
+}}
+class Owner {{
+    public Child? child = null;
+    public Owner() {{ owners++; }}
+    public void __del__() {{ owners--; }}
+    public void attach() {{ self.child = new Child(); {connect} }}
+    {method}
+}}
+void exercise() {{
+    Owner owner = new Owner();
+    owner.attach();
+    assert(owners == 1 && children == 1);
+    {operation}
+    assert(owner.child == null && children == 0 && owners == 1);
+}}
+""")
+    (source / "Main.btrc").write_text(
+        "import ./Owners.btrc;\nint main() { for (int i = 0; i < 20; i++) { exercise(); "
+        'assert(children == 0 && owners == 0); } print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

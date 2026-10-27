@@ -2177,3 +2177,35 @@ suites passed 118 executable/contract cases; one structural assertion still
 expects the old untyped rememberOverride call. Update that assertion to require
 the actual staged type. Production candidate behavior, reference and emitted-C
 checks already passed; rerun the immediate-lambda contract after this test edit.
+
+
+### 2026-10-27 PR120: return the native release-slot repair
+
+Branch `codex/native-slot-owner-return-20261027` starts directly from this
+packet's qualified implementation `39af6ea1`. It returns the release-slot
+repair from diagnostic donor `6d8829cf`. Owned paths are
+`src/compiler/btrc/ir/lowering/Statements.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Native resources have no BTRC ARC edge. Their explicit slot release must
+save the value, clear the slot, and call the existing native lifetime
+operation. Persistent ARC slots keep their separate replacement path.
+The donor's field/Vector regression checks destruction counts, repeated
+null-field release, strict and sanitized execution through both compilers,
+and complete emitted-C equality in whole and module builds.
+
+Establish the regression baseline on this owning branch before applying the
+production change, preserve all existing tests, and qualify the combined
+packet again. The synthetic C fixture needs no GUI or application execution.
+Evidence is in `build/issue-gates/native-slot-owner-return/`. Hosted source
+CI, application acceptance and final integration gates remain required.
+
+The owning-branch baseline also exposes the earlier managed-field storage
+repair `4fabcdd0`. Return it in this packet, extending ownership to
+`src/compiler/python/ir/lowering/storage.py` and
+`src/tests/python/test_delete_take_clear.py`; Python expression lowering is
+already owned here. Preserve the sixteen field-release regressions covering
+cyclic and acyclic values, self and variable owners, exception cleanup, and
+whole/module builds. The native-call cleanup difference belongs to PR123;
+module header and declaration dependencies remain with their existing owners.
+Do not remove full-C comparisons to hide those dependencies.

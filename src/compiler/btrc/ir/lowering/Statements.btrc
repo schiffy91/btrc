@@ -1025,18 +1025,10 @@ class StatementLowerer {
 		} else {
 			string valueName = self.context.freshTemporary("__btrc_release_value");
 			out.push(IRNode.variableDeclaration(self.cTypes.lower(et), valueName, slot));
-			/* A string slot holds no ARC edge, so it is taken, cleared and
-			 * released, as Python's _take_clear_release spells it. */
-			bool edgeSlot = persistentSlot && runtimeType != self.managedValues.stringRuntimeType();
-			if (edgeSlot) {
-				out.push(IRNode.expressionStatement(self.managedLifetime.unlinkEdge(IRNode.variable(valueName), et, releaseSlot.owner)));
-			}
+			/* Native resources and strings have no ARC edge. Persistent ARC
+			 * slots use replaceEdge above; other slots are taken and cleared. */
 			out.push(IRNode.assignment(slot, IRNode.literal("NULL")));
-			if (edgeSlot) {
-				out.push(IRNode.expressionStatement(self.managedLifetime.releaseEdge(IRNode.variable(valueName), et, IRNode.literal("NULL"))));
-			} else {
-				out.push(IRNode.expressionStatement(self.managedLifetime.releaseRuntime(IRNode.variable(valueName), runtimeType)));
-			}
+			out.push(IRNode.expressionStatement(self.managedLifetime.releaseRuntime(IRNode.variable(valueName), runtimeType)));
 		}
 		releaseSlot.emitAfter(out);
 		if (self.cycles.runtimeTypeMayCycle(runtimeType)) {

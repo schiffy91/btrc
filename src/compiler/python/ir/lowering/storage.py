@@ -305,6 +305,7 @@ class StorageLowerer:
         lowered_target: IRExpr | None = None,
         lowered_receiver: IRExpr | None = None,
         lowered_index: IRExpr | None = None,
+        ownership_operation: bool = False,
     ) -> MaterializedStorageTarget:
         """Evaluate a target's receiver/key once and retain its assignable shape."""
         declarations: list[IRVarDecl] = []
@@ -318,7 +319,17 @@ class StorageLowerer:
                 raise ValueError("static field storage requires its lowered symbol")
             target = IRVar(name=plan.storage_field)
 
-        if self._opaque_index_target(plan):
+        if ownership_operation and plan.kind is StorageKind.INSTANCE_FIELD:
+            if lowered_receiver is None or plan.receiver_type is None:
+                raise ValueError("owned field storage requires a typed lowered receiver")
+            if isinstance(plan.target.obj, SelfExpr):
+                receiver = lowered_receiver
+            else:
+                receiver_decl = self._temporary(plan.receiver_type, "__btrc_release_owner")
+                receiver_decl.init = lowered_receiver
+                declarations.append(receiver_decl)
+                receiver = IRVar(name=receiver_decl.name)
+        elif self._opaque_index_target(plan):
             # An opaque C receiver, such as an array member of a record a C
             # header declares, has no type to hold in a temporary: its
             # element is stored through as written, as a read of it lowers
