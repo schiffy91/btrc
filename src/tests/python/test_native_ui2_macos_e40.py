@@ -183,8 +183,10 @@ class E40LoopDiagnostic:
 
     SAMPLE_TIMES = (3.0, 7.0)
 
-    def __init__(self, directory):
+    def __init__(self, directory, *, after_report=None):
         self.directory = directory
+        self.after_report = after_report
+        self.report_observed_seconds = None
         self.stopped = threading.Event()
         self.samples = []
         self.observer_error = None
@@ -203,6 +205,15 @@ class E40LoopDiagnostic:
 
     def _observe(self, process, started):
         try:
+            if self.after_report is not None:
+                # Boundary publishes this file atomically after all 1,200
+                # trials. Stack sampling starts only after that publication.
+                while not self.after_report.is_file():
+                    if process.poll() is not None or self.stopped.wait(0.05):
+                        return
+                observed = time.monotonic()
+                self.report_observed_seconds = observed - started
+                started = observed
             for scheduled in self.SAMPLE_TIMES:
                 if self.stopped.wait(max(0.0, started + scheduled - time.monotonic())):
                     break
@@ -213,6 +224,8 @@ class E40LoopDiagnostic:
             self.observer_error = repr(error)
 
     def run(self, command, *, env, timeout):
+        if self.after_report is not None:
+            self.after_report.unlink(missing_ok=True)
         started = time.monotonic()
         with subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
             observer = threading.Thread(target=self._observe, args=(process, started), name="e40-stack-samples")
@@ -240,9 +253,12 @@ class E40LoopDiagnostic:
                     "native_returncode": process.returncode,
                     "elapsed_seconds": time.monotonic() - started,
                     "sample_schedule_seconds": list(self.SAMPLE_TIMES),
+                    "sample_origin": "report publication" if self.after_report is not None else "process start",
+                    "report_observed_seconds": self.report_observed_seconds,
+                    "report": str(self.after_report) if self.after_report is not None else None,
                     "samples": self.samples,
                     "observer_error": self.observer_error,
-                    "trace": "observations.json.loop-trace.jsonl",
+                    "trace": None if self.after_report is not None else "observations.json.loop-trace.jsonl",
                     "timing_evidence": "instrumented; not an acceptance latency measurement",
                 }
                 (self.directory / "loop-diagnostic.json").write_text(json.dumps(receipt, indent=2))
@@ -430,6 +446,9 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_nat
         provenance["diagnostic"]["full_e40_qualification"] = False
         compiler = Path(os.environ["BTRC_TEST_BTRCC"]).resolve(strict=True)
         provenance["diagnostic"]["compiler_sha256"] = hashlib.sha256(compiler.read_bytes()).hexdigest()
+    elif entry == "host" and trial == "bursts":
+        diagnostic = E40LoopDiagnostic(directory, after_report=report)
+        provenance["shutdown_diagnostic"] = "bounded stack samples after the burst report; original timeout and result"
     (directory / "provenance.json").write_text(json.dumps(provenance, indent=2))
     environment = apple_environment() | {"UBSAN_OPTIONS": "halt_on_error=1"}
     environment.pop("BTRC_GUI_BACKGROUND", None)

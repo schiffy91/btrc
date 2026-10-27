@@ -608,6 +608,77 @@ def test_loop_diagnostic_thread_start_failure_reaps_child_and_preserves_error(tm
     assert receipt["samples"] == []
 
 
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_shutdown_diagnostic_waits_for_current_report_before_sampling(tmp_path, monkeypatch, exit_code):
+    import json
+    import os
+    import sys
+
+    from src.tests.python.test_native_ui2_macos_e40 import E40LoopDiagnostic
+
+    report = tmp_path / "observations.json"
+    report.write_text("stale report")
+    released = tmp_path / "sampled"
+    diagnostic = E40LoopDiagnostic(tmp_path, after_report=report)
+    monkeypatch.setattr(diagnostic, "SAMPLE_TIMES", (0.0, 0.01))
+    observed = []
+
+    def sample(process, scheduled):
+        assert report.read_text() == "current report" and process.poll() is None
+        observed.append(process.pid)
+        if len(observed) == 2:
+            released.touch()
+        return {"scheduled_seconds": scheduled, "status": "test-observation"}
+
+    monkeypatch.setattr(diagnostic, "_sample", sample)
+    command = [
+        sys.executable,
+        "-c",
+        "import time\nfrom pathlib import Path\n"
+        f"report = Path({str(report)!r})\nassert not report.exists()\ntime.sleep(0.1)\n"
+        "report.write_text('current report')\nprint('burst report complete', flush=True)\n"
+        f"while not Path({str(released)!r}).exists(): time.sleep(0.005)\nraise SystemExit({exit_code})",
+    ]
+    result = diagnostic.run(command, env=os.environ.copy(), timeout=5)
+    assert result.returncode == exit_code and result.stdout == "burst report complete\n"
+    receipt = json.loads((tmp_path / "loop-diagnostic.json").read_text())
+    assert observed == [receipt["pid"], receipt["pid"]]
+    assert receipt["sample_origin"] == "report publication" and receipt["report_observed_seconds"] is not None
+    assert receipt["native_timeout_seconds"] == 5 and receipt["native_returncode"] == exit_code
+    assert receipt["trace"] is None and receipt["observer_error"] is None
+
+
+@pytest.mark.parametrize("publish", [False, True])
+def test_shutdown_diagnostic_preserves_timeout_with_or_without_report(tmp_path, monkeypatch, publish):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    from src.tests.python.test_native_ui2_macos_e40 import E40LoopDiagnostic
+
+    report = tmp_path / "observations.json"
+    report.write_text("stale report")
+    diagnostic = E40LoopDiagnostic(tmp_path, after_report=report)
+    monkeypatch.setattr(diagnostic, "SAMPLE_TIMES", (0.0,))
+    monkeypatch.setattr(diagnostic, "_sample", lambda *args: {"status": "test-observation"})
+    command = [
+        sys.executable,
+        "-c",
+        "import time\nfrom pathlib import Path\n"
+        + (f"Path({str(report)!r}).write_text('current report')\n" if publish else "")
+        + "print('native output', flush=True)\ntime.sleep(30)",
+    ]
+    with pytest.raises(subprocess.TimeoutExpired) as caught:
+        diagnostic.run(command, env=os.environ.copy(), timeout=1)
+    assert caught.value.timeout == 1 and caught.value.stdout == b"native output\n"
+    receipt = json.loads((tmp_path / "loop-diagnostic.json").read_text())
+    assert receipt["native_returncode"] is not None
+    assert len(receipt["samples"]) == int(publish)
+    assert (receipt["report_observed_seconds"] is not None) == publish
+    assert receipt["observer_error"] is None
+
+
 @pytest.mark.parametrize("control_name", ["metal", "resize"])
 @pytest.mark.parametrize("exit_code", [0, 7])
 def test_native_control_retains_native_outcome_and_runs_once(tmp_path, exit_code, control_name):

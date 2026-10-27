@@ -4163,3 +4163,18 @@ claimed module-unit tests. Collection release policy is unchanged. Full
 integrated and hosted qualification remain open; PR125 still publishes
 `1ca47cb9` while its CI runs. No application, GUI or audio execution,
 bootstrap, guest operation or performance measurement was performed.
+
+**2026-10-27 E40 host shutdown diagnostic (Codex).** Reserved private repair
+`codex/e40-host-shutdown-diagnostic-20261027`, base `b6d636a0`.
+Owned paths: `src/tests/python/test_native_ui2_macos_e40.py`,
+`src/tests/python/test_native_ui2_e40_evidence.py`, and this claim.
+PR125 job `122150557434` on published `1ca47cb9` recorded all 1,200
+host burst trials, and their report passes the unchanged evidence validator,
+but the native process exceeded its 1,800-second timeout. Its exact stall
+location is unproved. The diagnostic waits for a fresh report and takes at most
+two bounded stack samples during shutdown, preserving the original timeout,
+process result, and acceptance checks. Synthetic child-process tests cover
+report publication, stale evidence, nonzero exit, and timeout before/after
+publication. No local AppKit execution or runtime repair is claimed.
+The published head remains fixed while its CI jobs run; this branch is backed
+up only to the local hub.
