@@ -4752,3 +4752,46 @@ def test_scoped_super_native_unit_matches_frontends(tmp_path, native_project, im
         module_units=True,
     )
     assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("storage", ["field", "vector"])
+def test_native_release_slots_have_no_arc_edges(tmp_path, native_project, immutable_btrcc, module_units, storage):
+    from src.tests.python.native_import_fixtures import resource_project
+
+    source, _sdk, _triple = resource_project.__wrapped__(native_project)
+    header = tmp_path / "Foundation.h"
+    text = header.read_text()
+    counts = "static int widgetLive = 0, widgetDestroyed = 0;"
+    assert text.count(counts) == 1
+    header.write_text(text.replace(counts, "extern int widgetLive, widgetDestroyed;"))
+    (source.parent / "Resource.c").write_text("int widgetLive = 0, widgetDestroyed = 0;\n")
+    manifest = tmp_path / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        + '\n[[native.sources]]\npath = "src/Resource.c"\nlanguage = "c"\nstandard = "c11"\nmodules = ["Foundation"]\n'
+    )
+    declaration = (
+        "class Holder { public WidgetRef? value; public Holder(WidgetRef? value) { self.value = value; } }\n"
+        if storage == "field"
+        else ""
+    )
+    operation = (
+        "var holder = Holder(owner); release owner; release holder.value; "
+        "assert(holder.value == null); release holder.value; release holder;"
+        if storage == "field"
+        else "Vector<WidgetRef> values = []; values.push(owner); release owner; values.free(); release values;"
+    )
+    source.write_text(
+        "import ./Foundation.btrc;\n"
+        + ("import Library.Vector;\n" if storage == "vector" else "")
+        + declaration
+        + "int main() {\nfor (int index = 0; index < 4; index++) {\n"
+        + "var owner = WidgetCreate(41); assert(owner != null);\n"
+        + operation
+        + "\nassert(WidgetLive() == 0 && WidgetDestroyed() == index + 1);\n}\nreturn 0;\n}\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source.parent, tmp_path, immutable_btrcc, "", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
