@@ -3762,3 +3762,24 @@ validation. Evidence is in
 The application transpilation proof above remains specific to `1ca47cb9`;
 this merge has not passed the full integrated or hosted qualification gates.
 PR125 remains fixed while its jobs run.
+
+
+### 2026-10-27 GUI qualification composition for issues #108–#110
+
+Packet: CX-GUI-COMPOSITION. Compose PR114 at `7f16c5be` with the
+checked-override/module/C2 tree at `8b788caa`, under D29. Own the donor's
+GUI probes and tests, skip classification, workflows, Makefile, tier manifest,
+partition runner and qualification documentation, plus the tier planner and
+its integration tests. Preserve active-test snapshots, schema-2 parameter
+rotation, compiler reuse, E40 conditional/key timestamp repairs and the
+collection diagnostic workflow. Use one computed GUI delegation flag for
+complete required Linux or macOS partition plans; partial or optional plans
+retain the full unit selection.
+
+Baseline: all 395 workflow, qualification, partition, build-safety and skip
+ledger checks pass on `8b788caa`. A merge preview identifies seven conflicts
+in overlapping coordination code and workstream history. Validate routing,
+exact coverage, skip policy and headless controls before saving the merge.
+No local GUI/application/audio execution, bootstrap, performance measurement
+or guest work is authorized here. PR125 stays at `1ca47cb9` while CI runs;
+this packet's local checks cannot establish full integrated qualification.
