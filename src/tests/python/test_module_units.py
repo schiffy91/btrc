@@ -4637,3 +4637,123 @@ def test_scoped_super_native_unit_matches_frontends(tmp_path, native_project, im
         module_units=True,
     )
     assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("kind", ["Vector", "Map"])
+@pytest.mark.parametrize("failure", ["none", "leaf", "constructor"])
+def test_collection_literals_evaluate_leaves_before_construction(
+    tmp_path, immutable_btrcc, module_units, kind, failure
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    fail_leaf = 'if (value == 2) { throw "leaf"; }' if failure == "leaf" else ""
+    fail_constructor = 'throw "constructor";' if failure == "constructor" else ""
+    declarations = f"int trace = 0;\nint mark(int value) {{ trace = trace * 10 + value; {fail_leaf} return value; }}\n"
+    if kind == "Vector":
+        declarations += (
+            "class Vector<T> { public T* data; public int len; public int cap; "
+            f"public Vector() {{ trace = trace * 10 + 9; {fail_constructor} }} "
+            "public void push(T value) { trace = trace * 10 + 8; self.len++; } }\n"
+        )
+        collection, literal = "Vector<int>", "[mark(1), mark(2)]"
+        expected = {"none": 12988, "leaf": 12, "constructor": 129}[failure]
+    else:
+        declarations += (
+            "class Map<K, V> { public K* keys; public V* values; public bool* occupied; "
+            "public int len; public int cap; "
+            f"public Map() {{ trace = trace * 10 + 9; {fail_constructor} }} "
+            "public void put(K key, V value) { trace = trace * 10 + 8; self.len++; } }\n"
+        )
+        collection, literal = "Map<int, int>", "{mark(1): mark(2), mark(3): mark(4)}"
+        expected = {"none": 1234988, "leaf": 12, "constructor": 12349}[failure]
+    (source / "Graph.btrc").write_text(
+        declarations
+        + f"{collection} build() {{ return {literal}; }}\n"
+        + f"void exercise() {{ {collection} values = build(); assert(values.len == 2); }}\n"
+    )
+    caught = "false" if failure == "none" else "true"
+    (source / "Main.btrc").write_text(
+        "import ./Graph.btrc;\nint main() { bool caught = false; "
+        f'try {{ exercise(); }} catch (string error) {{ assert(error == "{failure}"); caught = true; }} '
+        f'assert(caught == {caught} && trace == {expected}); print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units, no_stdlib=True
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("kind", ["Vector", "List", "Map"])
+@pytest.mark.parametrize("operation", ["throwing-leaf", "borrowed-rebind"])
+def test_collection_literal_operand_lifetimes(tmp_path, immutable_btrcc, module_units, kind, operation):
+    source = tmp_path / "src"
+    source.mkdir()
+    collection = f"{kind}<Box>" if kind != "Map" else "Map<int, Box>"
+    leaves = ["new Box(1)", "fail()"] if operation == "throwing-leaf" else ["holder.value", "replace(holder)"]
+    literal = f"[{', '.join(leaves)}]" if kind != "Map" else f"{{0: {leaves[0]}, 1: {leaves[1]}}}"
+    declarations = f"""
+import Library.{kind};
+int alive = 0;
+int evaluations = 0;
+class Box {{
+    public int value;
+    public Box(int value) {{ self.value = value; alive++; }}
+    public void __del__() {{ alive--; }}
+}}
+class Holder {{
+    public Box value;
+    public Holder() {{ self.value = new Box(1); }}
+}}
+Box replace(Holder holder) {{ holder.value = new Box(2); return holder.value; }}
+Box fail() {{ evaluations++; if (evaluations > 0) {{ throw "leaf"; }} return new Box(3); }}
+"""
+    if operation == "throwing-leaf":
+        exercise = f"""
+void exercise() {{
+    bool caught = false;
+    try {{ {collection} values = {literal}; (void)values; }}
+    catch (string error) {{ assert(error == "leaf"); caught = true; }}
+    assert(caught && alive == 0);
+}}
+"""
+    else:
+        exercise = f"""
+void exercise() {{
+    Holder holder = new Holder();
+    {collection} values = {literal};
+    assert(values.len == 2 && values.get(0).value == 1 && values.get(1).value == 2);
+    assert(alive == 2);
+}}
+"""
+    (source / "Graph.btrc").write_text(declarations + exercise)
+    expected = 20 if operation == "throwing-leaf" else 0
+    (source / "Main.btrc").write_text(
+        "import ./Graph.btrc;\nint main() { for (int i = 0; i < 20; i++) { exercise(); assert(alive == 0); } "
+        f'assert(evaluations == {expected}); print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("called", [False, True], ids=["unused", "called"])
+def test_runtime_helper_locals_do_not_retain_application_prototypes(tmp_path, immutable_btrcc, module_units, called):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Graph.btrc").write_text(
+        'int mark(int value) { return value; }\nvoid exercise(bool fail) { if (fail) { throw "leaf"; } }\n'
+    )
+    direct_call = "assert(mark(7) == 7);" if called else ""
+    (source / "Main.btrc").write_text(
+        "import ./Graph.btrc;\nint main() { bool caught = false; "
+        'try { exercise(true); } catch (string error) { assert(error == "leaf"); caught = true; } '
+        f'assert(caught); {direct_call} print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

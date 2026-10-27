@@ -694,6 +694,12 @@ class IROptimizer:
             self._collect_callable_references(root, names, referenced)
         self._scan_macro_replacements(pattern, self._module.preprocessor_decls, referenced)
         for helper in self._module.helper_decls:
+            # Canonical runtime assets own their dependencies in the catalog;
+            # their local names do not reference application declarations.
+            if self._runtime_catalog.contains(helper.name):
+                definition = self._runtime_catalog.definition(helper.name)
+                if helper.c_source == definition.c_source:
+                    continue
             self._scan_identifiers(pattern, helper.c_source, referenced)
         dead = names - referenced
         self._module.function_decls = [

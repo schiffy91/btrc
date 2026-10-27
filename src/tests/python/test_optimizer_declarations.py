@@ -309,3 +309,33 @@ def test_module_arc_descriptor_reachability_preserves_live_dependencies(root):
     assert ("destroy_cell" in {function.name for function in module.function_defs}) == (root != "unused")
     if root == "global":
         assert "exported_descriptor" in {declaration.name for declaration in module.global_decls}
+
+
+@pytest.mark.parametrize("called", [False, True])
+def test_catalog_helper_local_name_does_not_root_application_extern(called):
+    body = [
+        IRExprStmt(IRCall("__btrc_discard_cleanups_to", [IRLiteral("-1")], helper_ref="__btrc_discard_cleanups_to"))
+    ]
+    if called:
+        body.append(IRExprStmt(IRCall("mark", [IRLiteral("1")])))
+    body.append(IRReturn(IRLiteral("0")))
+    module = IRModule(
+        function_decls=[_extern("mark", [IRParam(CType("int"), "value")])],
+        function_defs=[_main(body)],
+    )
+    IROptimizer(module).optimize()
+    assert any(helper.name == "__btrc_discard_cleanups_to" for helper in module.helper_decls)
+    assert [declaration.name for declaration in module.function_decls] == (["mark"] if called else [])
+
+
+def test_custom_source_under_catalog_helper_name_keeps_opaque_references():
+    name = "__btrc_discard_cleanups_to"
+    module = IRModule(
+        function_decls=[_extern("helper_extern")],
+        helper_decls=[
+            IRHelperDecl(category="custom", name=name, c_source=f"static void {name}(void) {{ helper_extern(); }}")
+        ],
+        function_defs=[_main([IRExprStmt(IRCall(name, helper_ref=name)), IRReturn(IRLiteral("0"))])],
+    )
+    IROptimizer(module).optimize()
+    assert [declaration.name for declaration in module.function_decls] == ["helper_extern"]

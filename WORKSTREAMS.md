@@ -3305,3 +3305,44 @@ No application execution, performance result, or final qualification is claimed.
 Returned the production patch and regression definitions from `2e5a0b88d8167a72a9d5a788c79ad0027b1669d1`; the donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`, `src/tests/python/test_module_units.py`.
 
 Baseline logs and outputs remain in `build/issue-gates/native-adapter-owner-return/`. These regressions compare the complete native adapter unit; collection output differences remain separately tracked. Fresh compiler, expanded native behavior, parity, structure and application checks remain required. No final qualification is claimed.
+
+### 2026-10-24: collection literal evaluation order (Codex follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc` if its typed API needs
+extending, and `src/tests/python/test_module_units.py`. Base: `3887a8be`.
+
+A portable reduction exposes different constructor, element and insertion
+orders for Vector and Map literals. All twelve whole-program/module cases
+compile and run through both frontends in strict and sanitizer modes, but their
+traces differ. Throwing elements and constructors also expose different work
+before the exception. Python stages the literal's leaves before construction;
+the self-hosted compiler constructs first and evaluates each insertion's
+operands separately.
+
+Use the existing typed operand and ownership boundary owners to preserve
+source-order leaf evaluation before collection construction. Keep prepared
+storage types, borrowed-value protection, owned-result cleanup and exception
+unwinding. Add tracked baseline cases before production edits, then check
+managed elements, throwing leaves, constructor failures, whole/module C parity,
+and the remaining application differences. Final integration gates still apply.
+
+
+### CX runtime helper extern references (2026-10-24)
+
+Owner: Codex, branch `codex/runtime-helper-extern-references-20261024`.
+Owned paths: `src/compiler/python/ir/optimizer.py`,
+`src/tests/python/test_optimizer_declarations.py`,
+`src/tests/python/test_module_units.py`.
+
+Trace the unused `mark` prototype retained in module output when the canonical
+exception runtime contains a local parameter with that name. Preserve real
+structured references and opaque helper dependencies. Establish failing
+regressions before changing production, then prove paired C output and native
+behavior. No final qualification is claimed.
+
+### 2026-10-27: collection operand and runtime-reference source return
+
+Returned production changes and five regression definitions from `d520fd87f19b074f85868a3f7f8aad6139453a3a` without its diagnostic parent history. The existing native frontend test helper already matches the donor and is unchanged. Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`, `src/compiler/python/ir/optimizer.py`, `src/tests/python/test_module_units.py`, `src/tests/python/test_optimizer_declarations.py`.
+
+Baseline evidence is in `build/issue-gates/collection-operand-owner-return/`. Native ordering, ownership and runtime-reference outcomes must be checked separately from complete-C parity. The donor retained ten complete-C failures involving collection release batching; this return does not waive them or change that policy. Fresh compiler and application evidence remain required.

@@ -705,82 +705,58 @@ class ExpressionLowerer {
 		return boundary.finish(lowered, plan.resultType, false);
 	}
 
-	public IRNode lowerOwnedEffectCall(string callee, Vector<IRNode> prefixArguments, Vector<Node> operands, Vector<Node> expectedTypes, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-		bool needsBoundary = false;
+	private OwnershipBoundary? prepareCollectionOperands(Vector<Node> operands, Vector<Node> expectedTypes, Map<string, Node> varTypes, CallableFlowState callableFlow) {
+		if (self.context.unevaluatedDepth > 0) { return null; }
 		OwnershipOperandEnvironment environment = self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive());
+		bool needsBoundary = self.operandPlanner.requiresOrder(operands, environment);
+		CallableFlowSnapshot incoming = callableFlow.snapshot();
+		CallableBoundaryContext callableContext = self.callableContext(varTypes, callableFlow);
+		Vector<CallableFlowSnapshot> entries = [];
+		Vector<bool> effects = [];
 		int index = 0;
 		while (index < operands.len) {
-			Node? expectedType = null;
-			if (index < expectedTypes.len) {
-				expectedType = expectedTypes.get(index);
-			}
 			Node operand = operands.get(index);
+			Node? expectedType = null;
+			if (index < expectedTypes.len) { expectedType = expectedTypes.get(index); }
+			entries.push(callableFlow.snapshot());
 			Node? sourceType = self.resolvedExpressionType(operand, varTypes);
-			if (self.ownershipSemantics.contextualUnconsumedOwnedResult(operand, expectedType, environment, callableFlow) || self.strings.requiresTargetStringConversion(expectedType, sourceType)) {
-				needsBoundary = true;
-			}
-			int laterIndex = index + 1;
-			while (laterIndex < operands.len) {
-				Node later = operands.get(laterIndex);
-				bool operandEffect = self.operandPlanner.hasEffect(operand, environment);
-				bool laterEffect = self.operandPlanner.hasEffect(later, environment);
-				if ((operandEffect && !self.operandPlanner.reorderInert(later, environment)) || (laterEffect && !self.operandPlanner.reorderInert(operand, environment))) {
-					needsBoundary = true;
-				}
-				laterIndex = laterIndex + 1;
-			}
+			bool conversion = self.strings.requiresTargetStringConversion(expectedType, sourceType);
+			bool owned = self.ownershipSemantics.contextualUnconsumedOwnedResult(operand, expectedType, environment, callableFlow);
+			if (owned || conversion) { needsBoundary = true; }
+			effects.push(self.operandPlanner.hasEffect(operand, environment) || conversion);
+			callableFlow.applyEvaluation(operand, self.callableValues, callableContext);
 			index = index + 1;
 		}
+		callableFlow.restore(incoming);
+		if (!needsBoundary) { return null; }
 
 		OwnershipBoundary boundary = self.callOwnership.boundary();
-		if (needsBoundary) {
-			index = 0;
-			while (index < operands.len) {
-				Node operand = operands.get(index);
-				Node? expectedType = null;
-				if (index < expectedTypes.len) {
-					expectedType = expectedTypes.get(index);
-				}
-				PreparedValue prepared = self.prepareCallTargetValue(operand, expectedType, varTypes, callableFlow);
-				Node preparedType = self.operandPlanner.requireType(prepared.effectiveType, operand);
-				bool laterEffect = false;
-				int laterIndex = index + 1;
-				while (laterIndex < operands.len) {
-					if (self.operandPlanner.hasEffect(operands.get(laterIndex), environment)) {
-						laterEffect = true;
-					}
-					laterIndex = laterIndex + 1;
-				}
-				bool pinBorrowed = laterEffect && !prepared.owned && self.managedValues.isManaged(self.cTypes.resolveBodyType(preparedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
-				boundary.addLoweredOperand(operand, preparedType, prepared.value, prepared.owned, pinBorrowed);
-				index = index + 1;
-			}
-		}
-
-		Vector<IRNode> arguments = [];
-		index = 0;
-		while (index < prefixArguments.len) {
-			arguments.push(prefixArguments.get(index));
-			index = index + 1;
-		}
 		index = 0;
 		while (index < operands.len) {
-			if (needsBoundary) {
-				arguments.push(self.lowerExpr(operands.get(index), varTypes, callableFlow));
-			} else if (index < expectedTypes.len) {
-				Node operand = operands.get(index);
-				Node targetType = expectedTypes.get(index);
-				IRNode value = self.lowerAssignedValueRaw(operand, targetType, varTypes, callableFlow);
-				arguments.push(self.strings.upcastClassPointer(targetType, self.resolvedExpressionType(operand, varTypes), value));
-			} else {
-				arguments.push(self.lowerExpr(operands.get(index), varTypes, callableFlow));
+			Node operand = operands.get(index);
+			Node? expectedType = null;
+			if (index < expectedTypes.len) { expectedType = expectedTypes.get(index); }
+			callableFlow.restore(entries.get(index));
+			PreparedValue prepared = self.prepareCallTargetValue(operand, expectedType, varTypes, callableFlow);
+			Node preparedType = self.operandPlanner.requireType(prepared.effectiveType, operand);
+			bool laterEffect = false;
+			int laterIndex = index + 1;
+			while (laterIndex < effects.len) {
+				if (effects.get(laterIndex)) { laterEffect = true; }
+				laterIndex = laterIndex + 1;
 			}
+			bool pinBorrowed = laterEffect && !prepared.owned && operand.kind != NK_SELF_EXPR && operand.kind != NK_SUPER_EXPR && self.managedValues.isManaged(self.cTypes.resolveBodyType(preparedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+			boundary.addLoweredOperand(operand, preparedType, prepared.value, prepared.owned, pinBorrowed);
 			index = index + 1;
 		}
-		IRNode call = IRNode.call(callee, arguments);
-		if (!needsBoundary) { return call; }
-		boundary.restore();
-		return boundary.finish(call, SemanticTypeSystem.primitive("void"), false);
+		callableFlow.restore(incoming);
+		return boundary;
+	}
+
+	private IRNode lowerCollectionLeaf(Node operand, Node? expectedType, Map<string, Node> varTypes, CallableFlowState callableFlow) {
+		if (expectedType == null) { return self.lowerExpr(operand, varTypes, callableFlow); }
+		IRNode value = self.lowerAssignedValueRaw(operand, expectedType, varTypes, callableFlow);
+		return self.strings.upcastClassPointer(expectedType, self.resolvedExpressionType(operand, varTypes), value);
 	}
 
 	public IRNode finishOwnedConstruction(IRNode declaration, string runtimeType, Vector<IRNode> declarations, Vector<IRNode> construction) {
@@ -2273,10 +2249,14 @@ class ExpressionLowerer {
 	public IRNode lowerListLiteral(Node node, Map<string, Node> varTypes, Node? expected, CallableFlowState callableFlow) {
 		string mangled = "btrc_Vector_int";
 		Node? elementExpected = null;
+		Node collectionType = SemanticTypeSystem.primitive("Vector");
+		Vector<Node> fallbackArguments = [SemanticTypeSystem.primitive("int")];
+		collectionType.genericArgsStorage = fallbackArguments;
 		/* A typedef naming the collection (`typedef Vector<double> Doubles`) is
 		 * resolved first, so the literal builds that collection. */
 		Node concreteExpected = self.cTypes.resolveBodyType(SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		if (expected != null && concreteExpected.genericArgs().len > 0) {
+			collectionType = concreteExpected;
 			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
 			elementExpected = concreteExpected.genericArgs().get(0);
 		} else if (node.elements().len > 0) {
@@ -2292,6 +2272,7 @@ class ExpressionLowerer {
                  * mangle matches the registered instance (`btrc_Vector_GraphNode_p1`,
                  * not `btrc_Vector_GraphNode`). */
 				SemanticTypeSystem.upgradeConcreteTypeGenericArgs(vt, self.analyzed);
+				collectionType = vt;
 				mangled = TypeIdentity.mangleGenericType("Vector", vt.genericArgs());
 				elementExpected = vt.genericArgs().get(0);
 			}
@@ -2302,6 +2283,15 @@ class ExpressionLowerer {
 			Vector<IRNode> noArguments = [];
 			return IRNode.call(mangled + "_new", noArguments);
 		}
+		Vector<Node> expectedTypes = [];
+		if (elementExpected != null) {
+			int elementIndex = 0;
+			while (elementIndex < node.elements().len) {
+				expectedTypes.push(elementExpected);
+				elementIndex = elementIndex + 1;
+			}
+		}
+		OwnershipBoundary? boundary = self.prepareCollectionOperands(node.elements(), expectedTypes, varTypes, callableFlow);
 		string tmp = self.context.freshTemporary("__list");
 		Vector<IRNode> declarations = [];
 		Vector<IRNode> newArgs = [];
@@ -2316,18 +2306,17 @@ class ExpressionLowerer {
 		sequence.push(IRNode.binary(IRNode.variable(tmp), "=", IRNode.call(mangled + "_new", newArgs)));
 		int i = 0;
 		while (i < node.elements().len) {
-			Vector<IRNode> prefixArguments = [];
-			prefixArguments.push(IRNode.variable(tmp));
-			Vector<Node> operands = [];
-			operands.push(node.elements().get(i));
-			Vector<Node> expectedTypes = [];
-			if (elementExpected != null) {
-				expectedTypes.push(elementExpected);
-			}
-			sequence.push(self.lowerOwnedEffectCall(mangled + "_push", prefixArguments, operands, expectedTypes, varTypes, callableFlow));
+			Vector<IRNode> arguments = [];
+			arguments.push(IRNode.variable(tmp));
+			arguments.push(self.lowerCollectionLeaf(node.elements().get(i), elementExpected, varTypes, callableFlow));
+			sequence.push(IRNode.call(mangled + "_push", arguments));
 			i = i + 1;
 		}
-		return self.finishOwnedConstruction(declaration, mangled, declarations, sequence);
+		IRNode construction = self.finishOwnedConstruction(declaration, mangled, declarations, sequence);
+		if (boundary == null) { return construction; }
+		boundary.resultOwned = true;
+		boundary.restore();
+		return boundary.finish(construction, collectionType, false);
 	}
 
 	/* Lower a tuple literal `(a, b, ...)` to a C compound literal
@@ -2459,8 +2448,12 @@ class ExpressionLowerer {
 		string mangled = "btrc_Map_string_int";
 		Node? keyExpected = null;
 		Node? valueExpected = null;
+		Node collectionType = SemanticTypeSystem.primitive("Map");
+		Vector<Node> fallbackArguments = [SemanticTypeSystem.primitive("string"), SemanticTypeSystem.primitive("int")];
+		collectionType.genericArgsStorage = fallbackArguments;
 		Node concreteExpected = self.cTypes.resolveBodyType(SemanticTypeSystem.resolveTypedefType(expected, self.analyzed.typedefTable), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
 		if (expected != null && concreteExpected.genericArgs().len > 1) {
+			collectionType = concreteExpected;
 			mangled = TypeIdentity.mangleGenericType(concreteExpected.base, concreteExpected.genericArgs());
 			keyExpected = concreteExpected.genericArgs().get(0);
 			valueExpected = concreteExpected.genericArgs().get(1);
@@ -2477,6 +2470,7 @@ class ExpressionLowerer {
 				/* Class key/value types upgrade to pointers so the mangle matches
                  * the registered instance (e.g. `btrc_Map_int_OwnedItem_p1`). */
 				SemanticTypeSystem.upgradeConcreteTypeGenericArgs(mt, self.analyzed);
+				collectionType = mt;
 				mangled = TypeIdentity.mangleGenericType("Map", mt.genericArgs());
 				keyExpected = mt.genericArgs().get(0);
 				valueExpected = mt.genericArgs().get(1);
@@ -2486,6 +2480,20 @@ class ExpressionLowerer {
 			Vector<IRNode> newArgs = [];
 			return IRNode.call(mangled + "_new", newArgs);
 		}
+		Vector<Node> operands = [];
+		Vector<Node> expectedTypes = [];
+		int entryIndex = 0;
+		while (entryIndex < node.entries().len) {
+			Node entry = node.entries().get(entryIndex);
+			operands.push(entry.key);
+			operands.push(entry.valueNode);
+			if (keyExpected != null && valueExpected != null) {
+				expectedTypes.push(keyExpected);
+				expectedTypes.push(valueExpected);
+			}
+			entryIndex = entryIndex + 1;
+		}
+		OwnershipBoundary? boundary = self.prepareCollectionOperands(operands, expectedTypes, varTypes, callableFlow);
 		string tmp = self.context.freshTemporary("__map");
 		Vector<IRNode> declarations = [];
 		Vector<IRNode> newArgs = [];
@@ -2500,21 +2508,19 @@ class ExpressionLowerer {
 		sequence.push(IRNode.binary(IRNode.variable(tmp), "=", IRNode.call(mangled + "_new", newArgs)));
 		int i = 0;
 		while (i < node.entries().len) {
-			Node ent = node.entries().get(i);
-			Vector<IRNode> prefixArguments = [];
-			prefixArguments.push(IRNode.variable(tmp));
-			Vector<Node> operands = [];
-			operands.push(ent.key);
-			operands.push(ent.valueNode);
-			Vector<Node> expectedTypes = [];
-			if (keyExpected != null && valueExpected != null) {
-				expectedTypes.push(keyExpected);
-				expectedTypes.push(valueExpected);
-			}
-			sequence.push(self.lowerOwnedEffectCall(mangled + "_put", prefixArguments, operands, expectedTypes, varTypes, callableFlow));
+			Node entry = node.entries().get(i);
+			Vector<IRNode> arguments = [];
+			arguments.push(IRNode.variable(tmp));
+			arguments.push(self.lowerCollectionLeaf(entry.key, keyExpected, varTypes, callableFlow));
+			arguments.push(self.lowerCollectionLeaf(entry.valueNode, valueExpected, varTypes, callableFlow));
+			sequence.push(IRNode.call(mangled + "_put", arguments));
 			i = i + 1;
 		}
-		return self.finishOwnedConstruction(declaration, mangled, declarations, sequence);
+		IRNode construction = self.finishOwnedConstruction(declaration, mangled, declarations, sequence);
+		if (boundary == null) { return construction; }
+		boundary.resultOwned = true;
+		boundary.restore();
+		return boundary.finish(construction, collectionType, false);
 	}
 
 	/* Lower a brace initializer (mirrors expressions.lower_expr BraceInitializer):
