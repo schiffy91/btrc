@@ -102,16 +102,17 @@ class OwnershipSemantics {
 		return receiverType.base != "bool" && !self.analyzed.enumTable.has(receiverType.base);
 	}
 
-	private bool conditionalOwnsResult(Node expression, Node left, Node right, OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
-		if (!self.isManaged(self.expressionType(expression, environment), environment)) {
+	private bool conditionalOwnsResult(Node expression, Node left, Node right, OwnershipOperandEnvironment environment, CallableFlowState callableFlow, Node? expectedType = null) {
+		Node? resultType = expectedType != null ? expectedType : self.expressionType(expression, environment);
+		if (!self.isManaged(resultType, environment)) {
 			return false;
 		}
 		CallableBoundaryContext callableContext = self.callableContext(environment, callableFlow);
 		CallableConditionalCapture capture = callableFlow.beginConditionalFacts(expression, self.callableValues, callableContext);
-		bool leftOwned = self.expressionOwnsResult(left, environment, callableFlow);
+		bool leftOwned = self.contextualExpressionOwnsResult(left, resultType, environment, callableFlow);
 		bool leftPromotable = left.kind == NK_NULL_LITERAL || leftOwned || self.isManaged(self.expressionType(left, environment), environment);
 		callableFlow.selectConditionalRight(capture, self.callableValues, callableContext);
-		bool rightOwned = self.expressionOwnsResult(right, environment, callableFlow);
+		bool rightOwned = self.contextualExpressionOwnsResult(right, resultType, environment, callableFlow);
 		bool rightPromotable = right.kind == NK_NULL_LITERAL || rightOwned || self.isManaged(self.expressionType(right, environment), environment);
 		callableFlow.finishConditionalFacts(capture);
 		return (leftOwned || rightOwned) && leftPromotable && rightPromotable;
@@ -121,6 +122,9 @@ class OwnershipSemantics {
 		if (expression == null) { return false; }
 		if (expression.kind == NK_IDENTIFIER) { return !self.context.sourceLexicalBindings.has(expression.name) && self.analyzed.nativeGlobalReturnsOwned(expression.name); }
 		Node? resultType = self.expressionType(expression, environment);
+		if (resultType == null && expression.kind == NK_CALL_EXPR) {
+			resultType = self.targets.resolve(expression, environment.variables(), self.callableContext(environment, callableFlow)).signature.returnType;
+		}
 		bool managedResult = self.isManaged(resultType, environment);
 		if (expression.kind == NK_NEW_EXPR || expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL || expression.kind == NK_BRACE_INITIALIZER) {
 			return managedResult;
@@ -204,6 +208,12 @@ class OwnershipSemantics {
 
 	public bool contextualExpressionOwnsResult(Node? expression, Node? expectedType, OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
 		if (expression == null) { return false; }
+		if (expression.kind == NK_TERNARY_EXPR) {
+			return self.conditionalOwnsResult(expression, expression.trueExpr, expression.falseExpr, environment, callableFlow, expectedType);
+		}
+		if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+			return self.conditionalOwnsResult(expression, expression.left, expression.right, environment, callableFlow, expectedType);
+		}
 		bool aggregate = expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL || expression.kind == NK_BRACE_INITIALIZER;
 		if (aggregate && self.isManaged(expectedType, environment)) {
 			return true;

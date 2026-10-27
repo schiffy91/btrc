@@ -1849,11 +1849,11 @@ class ExpressionLowerer {
 		if (branchExpected == null && self.ternaryHasEmptyLiteral(node)) { branchExpected = self.resolvedExpressionType(node, varTypes); }
 		IRNode condition = self.lowerExpr(node.condition, varTypes, callableFlow);
 		CallableFlowSnapshot branchEntry = callableFlow.snapshot();
-		bool trueOwned = self.ownershipSemantics.expressionOwnsResult(node.trueExpr, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
+		bool trueOwned = self.ownershipSemantics.contextualExpressionOwnsResult(node.trueExpr, branchExpected, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
 		IRNode trueValue = self.lowerTernaryBranch(node.trueExpr, branchExpected, varTypes, callableFlow);
 		CallableFlowSnapshot trueFlow = callableFlow.snapshot();
 		callableFlow.restore(branchEntry);
-		bool falseOwned = self.ownershipSemantics.expressionOwnsResult(node.falseExpr, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
+		bool falseOwned = self.ownershipSemantics.contextualExpressionOwnsResult(node.falseExpr, branchExpected, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
 		IRNode falseValue = self.lowerTernaryBranch(node.falseExpr, branchExpected, varTypes, callableFlow);
 		CallableFlowSnapshot falseFlow = callableFlow.snapshot();
 		callableFlow.restore(branchEntry);

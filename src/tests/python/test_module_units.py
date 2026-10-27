@@ -4309,3 +4309,45 @@ int main() {{
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+def test_conditional_return_from_nullable_receiver_releases_result(tmp_path, immutable_btrcc, module_units, generic):
+    source = tmp_path / "src"
+    source.mkdir()
+    generic_parameters = "<T>" if generic else ""
+    receiver_type = "T" if generic else "Holder"
+    generic_arguments = "<Holder>" if generic else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+class Item {{
+ public Item() {{ alive++; }}
+ public void __del__() {{ alive--; }}
+ class Item idle() {{ return new Item(); }}
+}}
+class Holder {{ public Item read() {{ return new Item(); }} }}
+class Choice{generic_parameters} {{
+ private {receiver_type}? current;
+ public Choice({receiver_type}? current) {{ self.current = current; }}
+ public Item read(bool closed) {{
+  {receiver_type}? optional = self.current;
+  return closed || optional == null ? Item.idle() : optional.read();
+ }}
+}}
+void visit(bool present, bool closed) {{
+ Holder? holder = null;
+ if (present) {{ holder = new Holder(); }}
+ Choice{generic_arguments} choice = new Choice{generic_arguments}(holder);
+ Item item = choice.read(closed);
+ assert(alive == 1);
+}}
+int main() {{
+ for(int i = 0; i < 12; i++) {{ visit(i % 2 == 0, i % 3 == 0); assert(alive == 0); }}
+ print("PASS"); return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

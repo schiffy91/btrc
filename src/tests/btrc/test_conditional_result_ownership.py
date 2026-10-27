@@ -137,3 +137,59 @@ def test_conditional_call_result_has_identical_c(
         semantic_btrcc, tmp_path, _conditional_source(kind, guarded, generic, form=form), "Conditional"
     )
     assert compiled[0][1].read_bytes() == compiled[1][1].read_bytes()
+
+
+def _empty_collection_source(generic: bool) -> str:
+    parameters = "<T>" if generic else ""
+    receiver_type = "T" if generic else "Holder"
+    arguments = "<Holder>" if generic else ""
+    return f"""
+import Library.Vector;
+extern void arc_test_allocation_checkpoint();
+extern long arc_test_allocation_delta();
+class Holder {{
+ private Vector<int> values;
+ public Holder() {{ self.values = [7]; }}
+ public Holder same() {{ return self; }}
+ public Vector<int> read() {{ return self.values; }}
+}}
+class Choice{parameters} {{
+ private  {receiver_type} holder;
+ public Choice( {receiver_type} holder) {{ self.holder = holder; }}
+ public void exercise(bool chosen) {{
+  Vector<int> values = chosen ? self.holder.same().read() : [];
+  assert(values.len == (chosen ? 1 : 0));
+ }}
+}}
+void visit(bool chosen) {{
+ Holder holder = new Holder();
+ Choice{arguments} choice = new Choice{arguments}(holder);
+ choice.exercise(chosen);
+}}
+int main() {{
+ visit(false); visit(true);
+ arc_test_allocation_checkpoint();
+ for (int i = 0; i < 24; i++) {{ visit(i % 2 == 0); }}
+ assert(arc_test_allocation_delta() == 0);
+ return 0;
+}}
+"""
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+def test_empty_conditional_collection_is_released_once(semantic_btrcc, tmp_path, frontend, generic):
+    source = _empty_collection_source(generic)
+    result, generated = (
+        compile_reference_source(tmp_path, source)
+        if frontend == "reference"
+        else compile_source(semantic_btrcc, tmp_path, source)
+    )
+    assert result.returncode == 0, result.stderr
+    tracked_strict_matrix((frontend, generated), tmp_path)
+
+
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+def test_empty_conditional_collection_has_identical_c(semantic_btrcc, tmp_path, generic):
+    compiled = compile_snippet_pair(semantic_btrcc, tmp_path, _empty_collection_source(generic), "EmptyConditional")
+    assert compiled[0][1].read_bytes() == compiled[1][1].read_bytes()

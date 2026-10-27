@@ -3096,3 +3096,47 @@ use the previously qualified compiler and retain all failing raw comparisons.
 The integrated PR123 helper accepts `(value, resolvedType)` and derives its
 runtime release internally. Keep that typed interface while moving the owned
 release after the keep release; no runtime string argument is reintroduced.
+
+
+### Generic conditional return ownership (Codex, 2026-10-24)
+
+The six-owner application comparison exposed extra self-host retains in
+`SwappablePreviewPort`. The portable regression passes ordinary receivers but
+leaks generic-receiver call results in whole-program and module builds. The
+reference compiler passes both. Owned paths for this repair are
+`src/compiler/btrc/ir/lowering/ownership/Semantics.btrc`,
+`src/tests/python/test_module_units.py`, and this claim. When expression
+inference cannot resolve a call result, use its specialized call signature
+before classifying ownership. Validate native lifetime, full C equality,
+conditional ownership coverage, and the application comparison before saving
+the combined candidate. The first application candidate remains unqualified.
+
+The same packet also owns conditional branch classification in
+`src/compiler/btrc/ir/lowering/Expressions.btrc` and extends
+`src/tests/btrc/test_conditional_result_ownership.py`. Allocation-tracked
+ordinary and generic baselines reproduce a self-host leak for a conditional
+with an empty Vector branch; reference executions pass. Propagate the
+conditional result type into branch ownership so contextual literals retain
+their allocation ownership. Both repairs require fresh combined validation.
+
+
+
+### 2026-10-27: return self-hosted conditional ownership
+
+Branch `codex/conditional-selfhost-owner-return-20261027` starts from the
+qualified local selection at `9981f52f`, now published in draft PR125. Return
+only the conditional repair and its four regression definitions from
+`37ff6036`; its diagnostic composition history is not merged. The owned paths
+are the two self-hosted expression/ownership owners and the two test files
+listed in the original claim above, plus this record.
+
+The exact-source baseline has four passing cases and six failures: four
+native lifetime/allocation assertions and two complete-C comparisons. Use the
+specialized call signature when expression inference has no result type, and
+propagate the conditional result type when classifying contextual literals.
+Preserve lazy branch evaluation, callable-flow snapshots and existing native
+ABI ownership rules. All old tests remain unchanged. Require fresh compiler,
+native lifetime, complete-C, broader ownership, parity and structural checks.
+Full application and final integrated gates remain; PR125 retains its source
+head while its hosted CI runs. No local GUI, device, audio installation,
+application execution, bootstrap or performance run is authorized here.
