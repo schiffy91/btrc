@@ -2209,3 +2209,25 @@ cyclic and acyclic values, self and variable owners, exception cleanup, and
 whole/module builds. The native-call cleanup difference belongs to PR123;
 module header and declaration dependencies remain with their existing owners.
 Do not remove full-C comparisons to hide those dependencies.
+
+
+### 2026-10-27 PR120: return default helper argument types
+
+Branch `codex/default-argument-owner-return-20261027` starts from this
+packet's saved native-slot and field-storage source `b7c48d52`. It returns
+`274f9818` in the existing owned paths
+`src/compiler/python/ir/lowering/expressions.py` and
+`src/tests/python/test_module_units.py`, plus this claim.
+
+A default helper must receive the actual type of an argument that has already
+been converted and stabilized. Keeping the source type can insert a second
+interface or base-class cast. Preserve evaluation order, ownership and typed
+upcasts. The returned regression covers free functions and class methods with
+interface and base-class arguments, through strict and sanitized native builds
+and a complete emitted-C comparison from both frontends.
+
+Establish the owning baseline before changing production code. Retain all
+existing tests and the packet's earlier native-slot and storage fixes. The
+known module dependencies on PR119, PR122 and PR123 remain failed comparisons
+until their repairs are integrated. Local headless checks do not establish
+GUI, application, physical-device, bootstrap or performance qualification.

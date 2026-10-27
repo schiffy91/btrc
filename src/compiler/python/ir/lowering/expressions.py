@@ -1064,6 +1064,7 @@ class ExpressionLowerer:
                 ),
             )
             row_values[key] = evaluation.values[id(source)]
+            fact_types[id(source)] = type_expr
 
         lowered_callee = row_values.get("callee", callee)
         lowered_receiver = row_values.get("receiver", receiver)

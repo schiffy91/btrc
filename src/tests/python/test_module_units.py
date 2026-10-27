@@ -2224,3 +2224,112 @@ void exercise() {{
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+def _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, expected_stdout):
+    sanitizer = require_sanitizers(tmp_path)
+    generated = {}
+    for frontend, command in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = tmp_path.resolve() / frontend
+        output.mkdir()
+        compiled = subprocess.run(
+            [
+                *command,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                "--module-units",
+                "--jobs",
+                "1",
+                "--emit-units",
+                str(output / "program"),
+                "-o",
+                str(output / "program.c"),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        units = sorted(output.glob("program*.c"))
+        generated[frontend] = {unit.name: unit.read_text() for unit in units}
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "module qualification requires a C compiler"
+            executable = output / mode
+            built = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *map(str, units),
+                    "-lm",
+                    "-lpthread",
+                    "-o",
+                    str(executable),
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert built.returncode == 0, built.stderr
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0, ran.stderr
+            assert ran.stdout == expected_stdout
+    return generated
+
+
+@pytest.mark.parametrize("kind", ["interface", "base"])
+@pytest.mark.parametrize("static", [False, True], ids=["free", "class-method"])
+def test_default_helpers_use_stabilized_argument_types(tmp_path, immutable_btrcc, kind, static):
+    source = tmp_path / "source"
+    source.mkdir()
+    parent = "IBackend" if kind == "interface" else "Base"
+    declarations = (
+        "interface IBackend { int number(); }\n"
+        "class Backend implements IBackend { public int number() { return 42; } }\n"
+        if kind == "interface"
+        else "class Base { public int number() { return 42; } }\nclass Backend extends Base {}\n"
+    )
+    setup = (
+        "class Setup {\n"
+        f" public {parent}? backend; public string message;\n"
+        f" public Setup({parent}? backend, string message) {{ self.backend = backend; self.message = message; }}\n"
+    )
+    method = f'Setup failed({parent}? backend, string message = "ok") {{ return Setup(backend, message); }}\n'
+    (source / "Shared.btrc").write_text(
+        declarations + setup + (" class " + method + "}\n" if static else "}\n" + method)
+    )
+    callee = "Setup.failed" if static else "failed"
+    (source / "Main.btrc").write_text(
+        "import ./Shared.btrc;\nint main() {\n"
+        " Backend backend = new Backend();\n"
+        f" Setup result = {callee}(backend);\n"
+        " assert(result.backend != null); assert(result.backend.number() == 42);\n"
+        ' assert(result.message == "ok"); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
+    assert generated["reference"] == generated["selfhost"]
