@@ -193,6 +193,18 @@ class SemanticInitializerPlan {
 }
 
 class Analyzed {
+	/* Source pointer depths for type nodes whose class representation is upgraded. */
+	private Map<Node, int> writtenPointerDepths = {};
+
+	public void recordWrittenPointerDepth(Node typeExpr) {
+		if (!self.writtenPointerDepths.has(typeExpr)) { self.writtenPointerDepths.put(typeExpr, typeExpr.pointerDepth); }
+	}
+
+	public int writtenPointerDepth(Node typeExpr) {
+		if (self.writtenPointerDepths.has(typeExpr)) { return self.writtenPointerDepths.get(typeExpr); }
+		return typeExpr.pointerDepth;
+	}
+
 	/* Only callable body roots can be excluded. Signatures, defaults and
 	 * field initializers remain part of semantic analysis. */
 	public Map<Node, bool> unreachedStdlibBodies = {};

@@ -117,6 +117,7 @@ class SemanticTypeSystem {
              * (depth-0) class-typed arg gains one pointer level. A lexically
              * shadowing type parameter is never reinterpreted as a global class. */
 			if (!unresolved.has(arg.base) && (a.isClass(arg.base) || a.isGenericClass(arg.base) || a.isInterface(arg.base)) && arg.pointerDepth == 0) {
+				a.recordWrittenPointerDepth(arg);
 				arg.pointerDepth = 1;
 			}
 			i = i + 1;

@@ -214,7 +214,7 @@ class TypeValidator {
 			}
 			result = result + ">";
 		}
-		int stars = typeExpr.pointerDepth - (typeExpr.isNullable ? 1 : 0);
+		int stars = self.state.analyzed.writtenPointerDepth(typeExpr) - (typeExpr.isNullable ? 1 : 0);
 		while (stars > 0) { result = result + "*"; stars = stars - 1; }
 		if (typeExpr.isNullable) { result = result + "?"; }
 		if (typeExpr.isArray) { result = result + "[]"; }

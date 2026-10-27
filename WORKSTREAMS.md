@@ -3346,3 +3346,23 @@ behavior. No final qualification is claimed.
 Returned production changes and five regression definitions from `d520fd87f19b074f85868a3f7f8aad6139453a3a` without its diagnostic parent history. The existing native frontend test helper already matches the donor and is unchanged. Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`, `src/compiler/python/ir/optimizer.py`, `src/tests/python/test_module_units.py`, `src/tests/python/test_optimizer_declarations.py`.
 
 Baseline evidence is in `build/issue-gates/collection-operand-owner-return/`. Native ordering, ownership and runtime-reference outcomes must be checked separately from complete-C parity. The donor retained ten complete-C failures involving collection release batching; this return does not waive them or change that policy. Fresh compiler and application evidence remain required.
+
+### 2026-10-27: preserve source types in union diagnostics
+
+Owner: Codex, branch `codex/union-source-diagnostics-20261027`. Owned paths:
+`src/compiler/btrc/analyzer/Models.btrc`,
+`src/compiler/btrc/analyzer/Types.btrc`,
+`src/compiler/btrc/analyzer/validation/Types.btrc`, and
+`src/tests/btrc/test_c_compatibility_refusals.py`.
+
+PR #125's Mac compiler suite found three union refusal messages that expose an
+implicit class pointer inside a callback or tuple type. All three reproduce on
+`fde20da6`. Three additional nested/nullable callback cases fail, while five
+nullable and explicit double-pointer controls pass. Record the written pointer
+depth before semantic upgrades and use that metadata when formatting the
+source type. Lowered types retain their existing representation.
+
+Baseline evidence is under `build/issue-gates/native-adapter-owner-return/`.
+The intervening collection return does not change either analyzer. Its known
+release-batching parity failures remain open. Fresh compiler, diagnostic,
+behavior, parity and structural checks are still required.

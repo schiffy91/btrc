@@ -1696,3 +1696,31 @@ def test_program_check_refusals_are_pinned_in_both_compilers() -> None:
 
     pinned = {case.name for case in DIAGNOSTIC_CASES}
     assert set(PROGRAM_CHECK_IDS) <= pinned
+
+
+@pytest.mark.parametrize(
+    "written,display",
+    [
+        ("CFunction<int, Box**>", "CFunction<int, Box**>"),
+        ("CFunction<Box**, int>", "CFunction<Box**, int>"),
+        ("(int, Box**)", "Tuple<int, Box**>"),
+        ("CFunction<int, Box?>", "CFunction<int, Box?>"),
+        ("(int, Box?)", "Tuple<int, Box?>"),
+        ("CFunction<int, CFunction<Box, int>>", "CFunction<int, CFunction<Box, int>>"),
+        ("CFunction<int, (int, Box)>", "CFunction<int, Tuple<int, Box>>"),
+        ("CFunction<int, Box>?", "CFunction<int, Box>?"),
+    ],
+)
+def test_union_diagnostic_preserves_written_managed_types(semantic_btrcc, tmp_path, written, display):
+    declaration = f"union U {{ {written} f; int i; }};"
+    source = "class Box { public int value; }\n" + declaration + MAIN_LINE
+    expected = (
+        f"Union 'U' member 'f' cannot hold managed type '{display}'; "
+        "a union cannot tell which member is live, so its members must be plain C values",
+        2,
+        declaration.index(" f;") + 2,
+    )
+    selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
+    assert selfhost.returncode != 0 and reference.returncode != 0
+    assert diagnostic_identity(selfhost.stderr) == expected, selfhost.stderr
+    assert diagnostic_identity(reference.stderr) == expected, reference.stderr
