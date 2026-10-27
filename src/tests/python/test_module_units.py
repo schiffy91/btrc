@@ -4439,3 +4439,59 @@ def test_stored_callback_prototypes_keep_declared_parameter_qualifiers(
         assert definitions == 3, (frontend, definitions)
         if module_units:
             assert declarations >= 3, (frontend, declarations)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["record", "array"], ids=["record", "array"])
+@pytest.mark.parametrize("effects", [False, True], ids=["constants", "effects"])
+def test_nested_aggregate_operands_preserve_order_and_shape(tmp_path, immutable_btrcc, module_units, shape, effects):
+    source = tmp_path / "src"
+    source.mkdir()
+    values = [f"nextValue({value})" if effects else str(value) for value in range(1, 5)]
+    initializer = "{{" + ", ".join(values[:2]) + "}, {" + ", ".join(values[2:]) + "}}"
+    declaration = "Frame frame" if shape == "record" else "Pair frame[2]"
+    first = "frame.first" if shape == "record" else "frame[0]"
+    second = "frame.second" if shape == "record" else "frame[1]"
+    (source / "Shapes.btrc").write_text(
+        "struct Pair { int left; int right; };\n"
+        "struct Frame { Pair first; Pair second; };\n"
+        "int trace = 0;\n"
+        "int nextValue(int value) { trace = trace * 10 + value; return value; }\n"
+        f"void exercise() {{ trace = 0; {declaration} = {initializer};\n"
+        f" assert({first}.left == 1); assert({first}.right == 2);\n"
+        f" assert({second}.left == 3); assert({second}.right == 4);\n"
+        f" assert(trace == {1234 if effects else 0}); }}\n"
+    )
+    (source / "Main.btrc").write_text('import ./Shapes.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("record", [False, True], ids=["tuple", "record"])
+def test_nested_tuple_operands_preserve_effects(tmp_path, immutable_btrcc, module_units, record):
+    source = tmp_path / "src"
+    source.mkdir()
+    declaration = "Frame frame" if record else "((int, int), (int, int)) frame"
+    initializer = (
+        "{(nextValue(1), nextValue(2)), (nextValue(3), nextValue(4))}"
+        if record
+        else "((nextValue(1), nextValue(2)), (nextValue(3), nextValue(4)))"
+    )
+    first, second = ("frame.first", "frame.second") if record else ("frame._0", "frame._1")
+    (source / "Shapes.btrc").write_text(
+        "struct Frame { (int, int) first; (int, int) second; };\n"
+        "int trace = 0;\n"
+        "int nextValue(int value) { trace = trace * 10 + value; return value; }\n"
+        f"void exercise() {{ trace = 0; {declaration} = {initializer};\n"
+        f" assert({first}._0 == 1 && {first}._1 == 2);\n"
+        f" assert({second}._0 == 3 && {second}._1 == 4);\n"
+        " assert(trace == 1234); }\n"
+    )
+    (source / "Main.btrc").write_text('import ./Shapes.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

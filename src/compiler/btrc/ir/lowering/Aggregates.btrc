@@ -104,7 +104,10 @@ class AggregateValueLowerer {
 
 	public AggregateEvaluationPlan plan(Node expression, Node? expected, OwnershipOperandEnvironment environment) {
 		AggregateEvaluationPlan plan = AggregateEvaluationPlan();
-		self.collectOperands(expression, expected, environment, plan.operands);
+		/* Fixed arrays initialize storage from flattened leaves. Record and
+		 * tuple values instead stage their immediate typed children. */
+		bool flatten = expected != null && self.operandPlanner.resolveType(expected, environment).isArray;
+		self.collectOperands(expression, expected, environment, plan.operands, flatten);
 		Vector<Node> expressions = [];
 		int expressionIndex = 0;
 		while (expressionIndex < plan.operands.len) {
@@ -192,7 +195,7 @@ class AggregateValueLowerer {
 		return SemanticTypeSystem.initializerSlotType(plan, aggregate.elements().get(index));
 	}
 
-	private void collectOperands(Node aggregate, Node? aggregateType, OwnershipOperandEnvironment environment, Vector<AggregateOperandPlan> operands) {
+	private void collectOperands(Node aggregate, Node? aggregateType, OwnershipOperandEnvironment environment, Vector<AggregateOperandPlan> operands, bool flatten) {
 		int index = 0;
 		while (index < aggregate.elements().len) {
 			Node element = aggregate.elements().get(index);
@@ -202,8 +205,8 @@ class AggregateValueLowerer {
 				elementType = contextualType;
 			}
 			bool nested = (element.kind == NK_BRACE_INITIALIZER || element.kind == NK_TUPLE_LITERAL || element.kind == NK_LIST_LITERAL) && self.valueAggregate(elementType, environment);
-			if (nested) {
-				self.collectOperands(element, elementType, environment, operands);
+			if (flatten && nested) {
+				self.collectOperands(element, elementType, environment, operands, true);
 			} else {
 				operands.push(AggregateOperandPlan(element, contextualType));
 			}

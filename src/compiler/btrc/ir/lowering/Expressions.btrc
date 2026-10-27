@@ -2394,7 +2394,7 @@ class ExpressionLowerer {
 			AggregateOperandPlan operand = plan.operands.get(index);
 			Node concreteType = self.operandPlanner.requireType(operand.effectiveType, operand.expression);
 			bool owned = self.ownershipSemantics.unconsumedOwnedResult(operand.expression, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow);
-			boundary.addLoweredOperand(operand.expression, concreteType, self.lowerExpr(operand.expression, varTypes, callableFlow), owned, !owned && operand.pinBorrowed);
+			boundary.addLoweredOperand(operand.expression, concreteType, self.lowerAssignedValueRaw(operand.expression, concreteType, varTypes, callableFlow), owned, !owned && operand.pinBorrowed);
 			index = index + 1;
 		}
 		return boundary;
