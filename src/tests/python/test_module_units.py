@@ -4265,3 +4265,49 @@ def test_span_declarations_follow_shared_catalog_order(tmp_path, immutable_btrcc
     )
     assert generated["reference"] == generated["selfhost"]
 
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("kind", ["alias", "independent"])
+@pytest.mark.parametrize("keep", [False, True], ids=["borrow", "keep"])
+@pytest.mark.parametrize("throws", [False, True], ids=["plain", "throws"])
+def test_hosted_string_arguments_preserve_borrow_and_keep(tmp_path, immutable_btrcc, module_units, kind, keep, throws):
+    source = tmp_path / "src"
+    source.mkdir()
+    expression = "strchr(raw, 'b')" if kind == "alias" else "strerror(1)"
+    qualifier = "keep " if keep else ""
+    call = f"observe({expression});"
+    invoke = (
+        ("try { " + call + ' assert(false); } catch (string error) { assert(error.equals("stop")); }')
+        if throws
+        else call
+    )
+    (source / "Main.btrc").write_text(f"""
+#include <string.h>
+#include <stdlib.h>
+size_t baseline = 0;
+int observations = 0;
+void observe({qualifier}string value) {{
+    assert(value != null && strlen(value) > (size_t)0);
+    assert(__btrc_string_live_count() == baseline + (size_t){1 if keep else 0});
+    observations++;
+    {'throw "stop";' if throws else ""}
+}}
+int main() {{
+    baseline = __btrc_string_live_count();
+    char* raw = (char*)"borrowed";
+    (void)raw;
+    for (int round = 0; round < 20; round++) {{
+        {invoke}
+        assert(__btrc_string_live_count() == baseline);
+    }}
+    assert(observations == 20);
+    print("PASS");
+    return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+

@@ -101,17 +101,6 @@ class OwnershipBoundary {
 
 		if (owned && runtimeType != "") {
 			self.lifetime.protectTemporary(declaration, runtimeType, "__btrc_call_operand_cleanup", self.declarations, self.prefix);
-			if (!transferred) {
-				self.appendReleaseAndClear(value, resolvedType);
-			} else {
-				string handoffName = self.context.freshTemporary("__btrc_transferred_operand");
-				IRNode handoffDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), handoffName, null);
-				self.declarations.push(handoffDeclaration);
-				self.context.recordLocal(handoffDeclaration);
-				callValue = IRNode.variable(handoffName);
-				self.handoffs.push(IRNode.binary(callValue, "=", value));
-				self.handoffs.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
-			}
 		}
 		if (keepValue && runtimeType != "") {
 			string keptName = self.context.freshTemporary("__btrc_kept_operand");
@@ -123,6 +112,19 @@ class OwnershipBoundary {
 			self.prefix.push(IRNode.binary(kept, "=", value));
 			self.lifetime.protectTemporary(keptDeclaration, runtimeType, "__btrc_kept_operand_cleanup", self.declarations, self.prefix);
 			self.appendReleaseAndClear(kept, resolvedType);
+		}
+		if (owned && runtimeType != "") {
+			if (!transferred) {
+				self.appendReleaseAndClear(value, resolvedType);
+			} else {
+				string handoffName = self.context.freshTemporary("__btrc_transferred_operand");
+				IRNode handoffDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), handoffName, null);
+				self.declarations.push(handoffDeclaration);
+				self.context.recordLocal(handoffDeclaration);
+				callValue = IRNode.variable(handoffName);
+				self.handoffs.push(IRNode.binary(callValue, "=", value));
+				self.handoffs.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
+			}
 		}
 		return callValue;
 	}

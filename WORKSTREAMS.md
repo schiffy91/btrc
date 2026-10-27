@@ -3066,3 +3066,33 @@ The 2026-10-27 source integration preserves this Span owner as an ancestor.
 Its baseline has six passing cases and six failed raw-C or incremental-reuse
 checks. Require all twelve to pass with the existing module and ownership
 regressions; retain the prior prototype-order and runtime-header repairs.
+
+
+### CX borrowed hosted string arguments (2026-10-24)
+
+Owner: Codex, branch `codex/borrowed-hosted-string-arguments-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Borrowed string parameters accept raw character pointers without creating an
+owned managed string. The self-hosted compiler still copies recognized hosted
+alias and independent results at those boundaries. Keep parameters must retain
+their owned conversion. Owned values with a keep also allocate and release their
+temporary guards in a different order from the reference compiler.
+
+Regressions cover both hosted effects, borrowed and keep parameters, plain and
+throwing calls, and whole-program and module output. They check live managed
+string counts and cleanup before comparing complete C. Evidence is under
+`build/issue-gates/borrowed-hosted-string-arguments/`. No application parity,
+performance qualification, or issue completion is claimed.
+
+
+On 2026-10-27, return this exact production patch and its regression to the
+module source integration. Its original parent includes diagnostic history,
+so preserve the leaf change without merging that history. Baseline checks
+use the previously qualified compiler and retain all failing raw comparisons.
+
+The integrated PR123 helper accepts `(value, resolvedType)` and derives its
+runtime release internally. Keep that typed interface while moving the owned
+release after the keep release; no runtime string argument is reintroduced.
