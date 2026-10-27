@@ -882,3 +882,32 @@ def test_scoped_super_receiver_generic_identity(admission_project, native_compil
     unnormalized = TypeIdentity().generic_symbol("CallbackContext", arguments)
     assert f"struct {expected} {{" in generated
     assert f"struct {unnormalized} {{" not in generated
+
+
+@pytest.mark.parametrize("sanitize", [False, True], ids=["plain", "sanitized"])
+def test_scoped_super_factories_share_native_headers(admission_project, native_compile, sanitize):
+    root = admission_project.parent.parent
+    second = manifest(initializer="-[AdmissionBase initWithObject:]")
+    callback = second[second.index("[native.bindings.callbacks.") : second.index("[[native.sources]]")]
+    first = manifest()
+    (root / "btrc.toml").write_text(first.replace("[[native.sources]]", callback + "[[native.sources]]"))
+    setup = """
+    var value = AdmissionArgument.new();
+    AdmissionBase? second = AdmissionBase.initWithObject((Receiver)receiver, scope(), value);
+    assert(second != null && AdmissionBase.live() == 2);
+    second = null;
+    value = null;
+    assert(AdmissionBase.live() == 1 && AdmissionArgument.live() == 0);
+    """
+    program = PROGRAM.replace("MODE", "0").replace(
+        "AdmissionHost.borrow((AdmissionBase)object);", setup + "AdmissionHost.borrow((AdmissionBase)object);"
+    )
+    admission_project.write_text(program)
+    completed = _build_and_run(admission_project, native_compile, sanitize)
+    assert completed.returncode == 0, (completed.stdout, completed.stderr)
+    assert completed.stdout.count("native released\n") == 2
+    assert completed.stdout.count("receiver released\n") == 1
+    plan = json.loads((root / "Program.link.json").read_text())
+    adapters = [unit for unit in plan["generated-units"] if unit["language"] == "objective-c"]
+    assert len(adapters) == 1
+    assert adapters[0]["source"].splitlines().count("#include <pthread.h>") == 1

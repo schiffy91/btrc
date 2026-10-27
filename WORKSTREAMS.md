@@ -3240,3 +3240,9 @@ native execution, complete C equality, broader checks and application evidence.
 Returned the production patch and exact regression definitions from `cfef77accce3e750cf759cac83cae3813c60536c` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Aggregates.btrc`, `src/compiler/btrc/ir/lowering/Expressions.btrc`, `src/compiler/btrc/ir/lowering/ownership/Operands.btrc`, `src/tests/python/test_module_units.py`.
 
 The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
+
+### 2026-10-27: source return, fix: deduplicate scoped superclass adapter headers
+
+Returned the production patch and exact regression definitions from `736eebd99958b9a37976a27a81c7959eead4aeb3` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/python/ir/lowering/functions.py`, `src/tests/python/test_native_objective_c_super_admission.py`.
+
+The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
