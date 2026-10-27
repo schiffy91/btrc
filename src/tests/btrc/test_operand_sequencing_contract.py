@@ -661,3 +661,71 @@ def test_unary_update_preserves_projected_receivers(semantic_btrcc, tmp_path, op
     for index, path in enumerate(generated):
         strict_build_and_run(path, tmp_path / f"projected-update-{index}", optimization="-O2")
         sanitized_build_and_run(path, tmp_path / f"projected-update-sanitized-{index}", sanitizer)
+
+
+@pytest.mark.parametrize("kind", ["plain", "generic", "chain", "cycle"])
+def test_discarded_assignment_keeps_declared_alias(semantic_btrcc: Path, tmp_path: Path, kind: str) -> None:
+    if kind == "cycle":
+        declarations = """
+            int alive = 0;
+            class Link {
+                public LinkAlias? next;
+                public Link() { alive++; }
+                public void __del__() { alive--; }
+            }
+            typedef Link LinkAlias;
+            void exercise() {
+                var first = new Link();
+                var second = new Link();
+                first.next = second;
+                second.next = first;
+                assert(alive == 2 && first.next == second && second.next == first);
+            }
+        """
+    else:
+        declarations = """
+            int alive = 0;
+            class Payload {
+                public int number;
+                public Payload(int value) { self.number = value; alive++; }
+                public void __del__() { alive--; }
+            }
+            ALIAS
+            HOLDER
+            void exercise() {
+                var first = new HOLDER_TYPE(new Payload(41));
+                var second = new HOLDER_TYPE(new Payload(42));
+                first.value = new Payload(43);
+                assert(first.value.number == 43 && alive == 2);
+                first.value = second.value = new Payload(44);
+                assert(first.value == second.value && first.value.number == 44 && alive == 1);
+            }
+        """
+        declarations = declarations.replace(
+            "ALIAS",
+            "typedef Payload BaseAlias; typedef BaseAlias Value;" if kind == "chain" else "typedef Payload Value;",
+        )
+        declarations = declarations.replace(
+            "HOLDER\n",
+            "class Holder<T> { public T value; public Holder(T value) { self.value = value; } }\n"
+            if kind == "generic"
+            else "class Holder { public Value value; public Holder(Value value) { self.value = value; } }\n",
+        ).replace("HOLDER_TYPE", "Holder<Value>" if kind == "generic" else "Holder")
+    source = (
+        declarations
+        + """
+        int main() {
+            for (int iteration = 0; iteration < 3; iteration++) {
+                try { exercise(); assert(alive == 0); }
+                catch (string error) { assert(false); }
+            }
+            return 0;
+        }
+    """
+    )
+    generated = _compile_both(semantic_btrcc, tmp_path, source)
+    sanitizer = require_sanitizers(tmp_path)
+    for index, path in enumerate(generated):
+        strict_build_and_run(path, tmp_path / f"discarded-alias-{index}", optimization="-O2")
+        sanitized_build_and_run(path, tmp_path / f"discarded-alias-sanitized-{index}", sanitizer)
+    assert generated[0].read_bytes() == generated[1].read_bytes()
