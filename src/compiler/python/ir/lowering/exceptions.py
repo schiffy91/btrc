@@ -1728,6 +1728,36 @@ class ExceptionLowerer:
             if with_setjmp[id(function)]:
                 visibility.qualify_generated_locals(function.body)
             ExceptionLowerer.reject_inferred_volatile_aliases(function, visibility.inferred_volatile, globals_by_name)
+            if with_setjmp[id(function)]:
+                ExceptionLowerer.materialize_setjmp_parameters(function, call_effects[function.name])
+
+    @staticmethod
+    def materialize_setjmp_parameters(function: IRFunctionDef, effects: SetjmpCallEffects) -> None:
+        """Give mutable volatile parameters local storage before entering setjmp.
+
+        GCC 15 IPA constant propagation can replace a volatile parameter's
+        post-longjmp value with its incoming constant. A volatile local keeps
+        the writes, including in static generic specializations. Use the
+        resolved mutation identities so writes to a shadowing local do not
+        change a parameter. Qualifier safety has already checked source aliases.
+        """
+        modified = {storage.identity for storage in ExceptionLowerer.mutated_names(function.body, effects=effects)}
+        declarations = []
+        for parameter in function.params:
+            if not parameter.is_volatile or id(parameter) not in modified:
+                continue
+            name = parameter.name
+            parameter.name = f"__btrc_setjmp_parameter_{name}"
+            declarations.append(
+                IRVarDecl(
+                    c_type=parameter.c_type,
+                    name=name,
+                    init=IRVar(parameter.name),
+                    is_volatile=True,
+                    effective_is_volatile=True,
+                )
+            )
+        function.body.stmts[:0] = declarations
 
     def _require_setjmp(self):
         """Register the header even for try/throw nested inside lifted bodies."""

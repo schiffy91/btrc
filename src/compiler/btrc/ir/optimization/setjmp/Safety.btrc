@@ -886,6 +886,30 @@ class SetjmpSafetyPlanner {
 		self.scanBlock(((IRControlPayload)statement.payload).body, loopVisible, params, effects);
 	}
 
+	/* GCC 15 IPA constant propagation can replace a volatile parameter's
+	 * post-longjmp value with its incoming constant. A volatile local retains
+	 * the writes. Mutation identities distinguish parameters from shadows;
+	 * qualifier validation runs before moving their storage. */
+	private void materializeParameters(IRFunction definition, SetjmpCallEffects effects) {
+		IRNode? body = definition.body;
+		if (body == null) { return; }
+		Map<string, bool> modified = self.mutatedNames(body, effects);
+		Vector<IRNode> statements = [];
+		for parameter in definition.params {
+			if (!parameter.isVolatile || !modified.has(self.visibleParameterKey(parameter, effects))) { continue; }
+			string name = parameter.name;
+			parameter.name = "__btrc_setjmp_parameter_" + name;
+			IRNode local = IRNode.variableDeclaration(parameter.cType, name, IRNode.variable(parameter.name));
+			((IRDeclarationPayload)local.payload).isVolatile = true;
+			((IRDeclarationPayload)local.payload).effectiveIsVolatile = true;
+			((IRDeclarationPayload)local.payload).setjmpInferredVolatile = parameter.setjmpInferredVolatile;
+			statements.push(local);
+		}
+		for statement in body.stmts() { statements.push(statement); }
+		body.stmtsMut().clear();
+		for statement in statements { body.stmtsMut().push(statement); }
+	}
+
 	public void apply(IRModule module) {
 		Map<string, SetjmpCallEffects> none = {};
 		self.applySolved(module, none);
@@ -928,6 +952,9 @@ class SetjmpSafetyPlanner {
 				self.qualifyGeneratedLocals(body, effects);
 			}
 			self.validateFunction(definition);
+			if (body != null && self.bodyContainsSetjmp(definition)) {
+				self.materializeParameters(definition, self.effectsByFunction.get(definition.name));
+			}
 			index = index + 1;
 		}
 	}

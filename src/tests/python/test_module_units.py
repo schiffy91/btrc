@@ -967,6 +967,7 @@ def test_module_enum_declarations_match_their_owning_group_order(tmp_path, reque
     (source / "Shared.btrc").write_text(shared)
     (source / "Main.btrc").write_text("import ./Shared.btrc;\n" + local)
     declarations = {}
+    enum_pattern = r"^typedef enum ((?:SharedKind|LocalKind)(?:_Tag)?) \{\n([^{}]*)^\} \1;"
     for compiler in ("python", "btrc"):
         output = tmp_path / compiler
         output.mkdir()
@@ -993,12 +994,12 @@ def test_module_enum_declarations_match_their_owning_group_order(tmp_path, reque
         assert completed.returncode == 0, completed.stderr
         sources = sorted(output.glob("*.c"))
         main_unit = next(path for path in sources if ".unit-Main-" in path.name)
-        declarations[compiler] = re.findall(
-            r"^typedef enum \{\n[^{}]*^\} (?:SharedKind|LocalKind)(?:_Tag)?;",
-            main_unit.read_text(),
-            re.M,
-        )
-        assert len(declarations[compiler]) == 2
+        declarations[compiler] = re.findall(enum_pattern, main_unit.read_text(), re.M)
+        suffix = "_Tag" if rich else ""
+        assert [name for name, _body in declarations[compiler]] == [f"LocalKind{suffix}", f"SharedKind{suffix}"]
+        shared_unit = next(path for path in sources if ".unit-Shared-" in path.name)
+        shared_declarations = re.findall(enum_pattern, shared_unit.read_text(), re.M)
+        assert shared_declarations == [declarations[compiler][1]]
         for mode in ("strict", "sanitized"):
             native_compiler = sanitizer.command if mode == "sanitized" else C_COMPILER
             flags = (
@@ -2459,7 +2460,15 @@ def test_shared_span_callback_layouts_keep_frontend_order(tmp_path, immutable_bt
 
 
 def _compile_and_run_native_frontends(
-    source, tmp_path, immutable_btrcc, expected_stdout, *, module_units, no_stdlib=False
+    source,
+    tmp_path,
+    immutable_btrcc,
+    expected_stdout,
+    *,
+    module_units,
+    no_stdlib=False,
+    strict_compilers=None,
+    strict_optimizations=(2,),
 ):
     NativeBindingPackage.require_reader()
     sanitizer = require_sanitizers(tmp_path)
@@ -2494,7 +2503,11 @@ def _compile_and_run_native_frontends(
         assert compiled.returncode == 0, compiled.stderr
         generated[frontend] = {path.name: path.read_bytes() for path in output.glob("program*.c")}
         for mode, compiler, optimization, flags, environment in (
-            ("strict", C_COMPILER, 2, [], None),
+            *(
+                (f"strict-{index}-O{optimization}", compiler, optimization, [], None)
+                for index, compiler in enumerate(strict_compilers or [C_COMPILER])
+                for optimization in strict_optimizations
+            ),
             (
                 "sanitized",
                 sanitizer.command,
@@ -4884,7 +4897,13 @@ int main() {{
 }}
 """)
     generated = _compile_and_run_native_frontends(
-        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+        source,
+        tmp_path,
+        immutable_btrcc,
+        "PASS\n",
+        module_units=module_units,
+        strict_compilers=[[compiler] for compiler in HOST_C_COMPILERS],
+        strict_optimizations=(0, 1, 2, 3),
     )
     assert generated["reference"] == generated["selfhost"]
 

@@ -4131,3 +4131,35 @@ initializer parameters already carry volatile qualifiers. Compare GCC
 before choosing a compiler repair. Retain strict/sanitizer execution and
 raw-C parity checks. Collection release policy remains unchanged pending
 qualified measurements. Published PR125 stays fixed while its CI is active.
+
+
+Linux unit repair evidence: GCC 15.2 reproduces the hosted constructor
+failure on the Mac at -O2 and -O3. The integer parameter returns to 3 after
+longjmp instead of retaining 4; payload identity and live-object count remain
+correct. A small C-only reproducer fails with a volatile parameter and passes
+with a volatile local. Disabling IPA constant propagation repairs that
+reproducer, but disabling inlining, strict aliasing or IPA scalar replacement
+does not. Compiler flags were diagnostic controls only.
+
+Both setjmp owners now materialize modified volatile parameters as local
+IR declarations before the body. The existing resolved mutation identities
+distinguish parameter writes from shadowing locals, and alias validation
+still runs first. Reapplying the pass does not duplicate storage. The enum
+checks now accept and verify the explicit tags introduced by record ownership
+work; declarations remain in the module C files. They also check local/import
+order and the imported declaration against its defining unit.
+
+The fresh compiler fingerprint is `e268363313d3fd18e3b1b551a17da6bf`.
+All 240 selected tests pass with no skips: ten constructor/enum cases,
+151 reference exception/flow/cleanup contracts and 79 paired contracts.
+Each constructor case runs through both frontends, GCC and Clang at
+-O0 through -O3, and address/undefined sanitizers. The new local-storage
+contract failed before the change. Generated-source, lint and Python/BTRC
+format checks pass. Evidence is in `build/issue-gates/linux-unit-1ca/`.
+
+The repair owns the paired setjmp safety/lowering files and
+`src/tests/python/test_exception_codegen_contracts.py` in addition to the
+claimed module-unit tests. Collection release policy is unchanged. Full
+integrated and hosted qualification remain open; PR125 still publishes
+`1ca47cb9` while its CI runs. No application, GUI or audio execution,
+bootstrap, guest operation or performance measurement was performed.
