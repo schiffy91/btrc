@@ -102,7 +102,7 @@ class OwnershipBoundary {
 		if (owned && runtimeType != "") {
 			self.lifetime.protectTemporary(declaration, runtimeType, "__btrc_call_operand_cleanup", self.declarations, self.prefix);
 			if (!transferred) {
-				self.appendReleaseAndClear(value, resolvedType, runtimeType);
+				self.appendReleaseAndClear(value, resolvedType);
 			} else {
 				string handoffName = self.context.freshTemporary("__btrc_transferred_operand");
 				IRNode handoffDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), handoffName, null);
@@ -122,12 +122,12 @@ class OwnershipBoundary {
 			self.prefix.push(self.lifetime.retainValue(value, resolvedType));
 			self.prefix.push(IRNode.binary(kept, "=", value));
 			self.lifetime.protectTemporary(keptDeclaration, runtimeType, "__btrc_kept_operand_cleanup", self.declarations, self.prefix);
-			self.appendReleaseAndClear(kept, resolvedType, runtimeType);
+			self.appendReleaseAndClear(kept, resolvedType);
 		}
 		return callValue;
 	}
 
-	public void appendReleaseAndClear(IRNode value, Node resolvedType, string runtimeType) {
+	public void appendReleaseAndClear(IRNode value, Node resolvedType) {
 		string savedName = self.context.freshTemporary("__btrc_released_operand");
 		IRNode savedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), savedName, null);
 		self.declarations.push(savedDeclaration);
@@ -135,8 +135,8 @@ class OwnershipBoundary {
 		IRNode saved = IRNode.variable(savedName);
 		self.suffix.push(IRNode.binary(saved, "=", value));
 		self.suffix.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
-		self.suffix.push(self.lifetime.releaseAfterHandoff(saved, runtimeType));
-		if (self.lifetime.releaseMayEnqueue(runtimeType)) { self.suffix.push(self.lifetime.pollCycles()); }
+		self.suffix.push(self.lifetime.releaseAfterHandoff(saved, resolvedType));
+		if (self.lifetime.releaseMayEnqueue(resolvedType)) { self.suffix.push(self.lifetime.pollCycles()); }
 	}
 
 	public void restore() {

@@ -2333,3 +2333,55 @@ def test_default_helpers_use_stabilized_argument_types(tmp_path, immutable_btrcc
     )
     generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["acyclic", "payload-cycle", "mutex-cycle", "shared-alias", "mixed-alias"])
+def test_mutex_payload_calls_preserve_typed_ownership(tmp_path, immutable_btrcc, module_units, shape):
+    source = tmp_path / "src"
+    source.mkdir()
+    edge = {
+        "acyclic": "",
+        "payload-cycle": "public Payload? next = null;",
+        "mutex-cycle": "public Mutex<Payload?> owner;",
+        "shared-alias": "public Mutex<PayloadAlias?> owner;",
+        "mixed-alias": "public Mutex<Payload?> owner;",
+    }[shape]
+    connect = "self.next = self;" if shape == "payload-cycle" else ""
+    alias = shape in {"shared-alias", "mixed-alias"}
+    payload = "PayloadAlias" if alias else "Payload"
+    typedef = "typedef Payload PayloadAlias;" if alias else ""
+    link = "value.owner = self.slot;" if shape in {"mutex-cycle", "shared-alias", "mixed-alias"} else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+{typedef}
+class Payload {{
+ {edge}
+ public int number = 7;
+ public Payload() {{ alive++; {connect} }}
+ public void __del__() {{ alive--; }}
+}}
+class Holder {{
+ private Mutex<{payload}?> slot;
+ public Holder() {{ {payload}? value = new Payload(); self.slot = Mutex(value); {link} }}
+ public bool isOpen() {{ return self.slot.get() != null; }}
+ public int read() {{ var value = self.slot.get(); if (value == null) {{ throw "closed"; }} return value.number; }}
+ public void close() {{ self.slot.set(null); }}
+}}
+void exercise() {{
+ Holder holder = new Holder();
+ assert(alive == 1 && holder.isOpen() && holder.read() == 7);
+ holder.close();
+ assert(alive == 0 && !holder.isOpen());
+ bool caught = false;
+ try {{ holder.read(); }} catch (string error) {{ assert(error.equals("closed")); caught = true; }}
+ assert(caught);
+ holder.close();
+}}
+void abandon() {{ Holder holder = new Holder(); assert(alive == 1 && holder.read() == 7); }}
+int main() {{ for (int i = 0; i < 20; i++) {{ exercise(); assert(alive == 0); abandon(); assert(alive == 0); }} print("PASS"); return 0; }}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

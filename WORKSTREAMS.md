@@ -2231,3 +2231,38 @@ existing tests and the packet's earlier native-slot and storage fixes. The
 known module dependencies on PR119, PR122 and PR123 remain failed comparisons
 until their repairs are integrated. Local headless checks do not establish
 GUI, application, physical-device, bootstrap or performance qualification.
+
+
+### 2026-10-27 PR120: return typed mutex ownership
+
+Branch `codex/mutex-owner-return-20261027` starts from the saved PR120
+source `0dc189c4`, preserving its native-slot, field-storage and default-helper
+repairs. Return donor `f584fc6d` to the prepared-value and typed-release packet.
+Extend this packet's existing claims to
+`src/compiler/btrc/analyzer/ownership/Cycles.btrc`,
+`src/compiler/btrc/ir/lowering/{Calls,Concurrency}.btrc`, and
+`src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`.
+The remaining changed lowerers, module regression and this claim are already
+owned by PR120.
+
+Mutex get/set must stage their receiver and payload in source order. Typed
+release and field-store polling must retain the concrete payload topology,
+while erased runtime handles stay conservative. Keep declared payload aliases
+in result storage and inferred locals, and canonical types for ownership.
+Establish the ten-case baseline before applying production changes. Preserve
+all existing tests and require strict/sanitized native execution, destructor
+checks, raw C comparisons, ownership regressions and structural checks.
+
+PR123's isolated native-lease return uses the earlier string-based
+`releaseMayEnqueue` API. Integration must keep this donor's typed Node API and
+pass the resolved type from native lease cleanup. The existing PR119/122/123
+module dependencies remain failed comparisons until their owners are combined.
+No local GUI, application, bootstrap, guest or performance qualification is
+claimed by these headless checks.
+
+The owner still has a native NULL guard in `releaseAfterHandoff`, absent
+from the donor base. Retain that guard and change its input to Node; non-native
+values use typed `releaseValue`, while native values keep guarded release.
+Six production files match the donor patch exactly. The two ownership files
+retain only this documented API adaptation around the same typed release
+and poll decisions. Reconcile the guard with PR123 during integration.
