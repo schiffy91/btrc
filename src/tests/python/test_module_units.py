@@ -4097,6 +4097,25 @@ def test_default_helpers_use_stabilized_argument_types(tmp_path, immutable_btrcc
 
 
 @pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_default_helper_reads_prior_upcast_once(tmp_path, immutable_btrcc, module_units):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "Values.btrc").write_text(
+        "int evaluations = 0;\n"
+        "class Base { public int value; }\n"
+        "class Derived extends Base {}\n"
+        "Derived nextValue() { evaluations++; Derived value = new Derived(); value.value = 21; return value; }\n"
+        "int read(Base value, int fallback = value.value) { return value.value + fallback; }\n"
+        "void exercise() { assert(read(nextValue()) == 42); assert(evaluations == 1); }\n"
+    )
+    (source / "Main.btrc").write_text('import ./Values.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
 @pytest.mark.parametrize("shape", ["acyclic", "payload-cycle", "mutex-cycle", "shared-alias", "mixed-alias"])
 def test_mutex_payload_calls_preserve_typed_ownership(tmp_path, immutable_btrcc, module_units, shape):
     source = tmp_path / "src"

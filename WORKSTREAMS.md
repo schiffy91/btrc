@@ -3503,3 +3503,29 @@ driver rejected that skip; its exit and the missing coverage remain recorded
 in `proof.json`. Lint, formatting, generated-source and diff checks pass.
 The module-worker tests emitted six Python `fork()` deprecation warnings.
 Full integration remains unqualified, and no GitHub revision changed.
+
+### 2026-10-27: default-helper upcast verification
+
+Owner: Codex, branch `codex/default-helper-upcast-check-20261027`.
+Owned paths: `src/tests/python/test_codegen_dispatch.py`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+PR #125's Linux unit report contains a default-helper assertion failure.
+The local baseline reproduces it, with nine other dispatch tests passing.
+Generated C already converts the derived pointer to the formal `Base*` type
+when evaluating the argument, before retaining it and passing it to the
+default helper. The assertion still requires that cast at the helper call.
+Check the typed temporary, its conversion and the helper's use of that value.
+Add whole-program and module tests whose default dereferences the prior
+argument and whose producing function must run exactly once. Both frontends
+must emit identical C and pass strict and sanitized native execution.
+No production compiler change is proposed. Evidence is under
+`build/issue-gates/default-helper-upcast/`.
+
+Validation passes all ten dispatch tests and six native cases, including the
+four existing interface/base and free/class-method cases. The six cases
+produce identical complete C through both frontends and pass 24 strict or
+ASan/UBSan executions. The two new cases cover whole-program and module
+output. Lint, formatting and diff checks pass. This repairs the stale
+assertion; the four Linux sanitized compilation timeouts and the unfinished
+unit job remain open.
