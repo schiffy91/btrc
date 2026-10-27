@@ -318,8 +318,9 @@ class TierManifest:
             rows[shard.job].add(value)
             if not shard.names():
                 raise TierManifestError(f"tiers.toml: {shard.job} {value} runs in no tier")
-            if "pytest_addopts" in shard.row:
-                raise TierManifestError(f"tiers.toml: {shard.job} {value}: pytest_addopts is computed, not written")
+            for computed in ("pytest_addopts", "unit_gui_delegated"):
+                if computed in shard.row:
+                    raise TierManifestError(f"tiers.toml: {shard.job} {value}: {computed} is computed, not written")
         for reference, values in rows.items():
             if not values:
                 raise TierManifestError(f"tiers.toml: matrix job {reference} has no shards")
@@ -396,7 +397,30 @@ class TierManifest:
                 reports = [name for shard, row in rows for name in self.report_names(job, row, shard.reports)]
             plan["jobs"].append(job.job)
             plan["reports"][job.job] = reports
+        if workflow == "ci.yml":
+            delegated = self._required_x11_coverage(plan["matrix"])
+            for row in plan["matrix"].get("tests", {}).get("include", []):
+                if row.get("shard") == "unit":
+                    row["unit_gui_delegated"] = "1" if delegated else "0"
         return plan
+
+    @staticmethod
+    def _required_x11_coverage(matrix: Mapping[str, Any]) -> bool:
+        """Only a complete gating X11 suite may replace unit's native GUI files."""
+
+        partitions = [row for row in matrix.get("linux-gui", {}).get("include", []) if row.get("session") == "x11"]
+        coverage = matrix.get("linux-gui-coverage", {}).get("include", [])
+        if not partitions or not any(
+            row.get("session") == "x11" and row.get("report_only") == "false" for row in coverage
+        ):
+            return False
+        count = len(partitions)
+        return {row.get("index") for row in partitions} == {str(index) for index in range(count)} and all(
+            row.get("count") == str(count)
+            and row.get("report_only") == "false"
+            and row.get("cell") == f"x11-{row['index']}"
+            for row in partitions
+        )
 
     @staticmethod
     def report_names(job: TierJob, row: Mapping[str, str] | None, shard_reports: tuple[str, ...]) -> list[str]:

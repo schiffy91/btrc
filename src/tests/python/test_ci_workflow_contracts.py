@@ -712,9 +712,12 @@ def test_a_pr_tier_corpus_row_reaches_pytest_through_pytest_addopts() -> None:
             "--failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) "
             "|| matrix.pytest_addopts }}"
         )
-        assert suite["env"] == {"PYTEST_ADDOPTS": options}, workflow
+        expected = {"PYTEST_ADDOPTS": options}
+        if workflow == "ci.yml":
+            expected["UNIT_GUI_DELEGATED"] = "${{ matrix.unit_gui_delegated }}"
+        assert suite["env"] == expected, workflow
     linux = next(step for step in _parsed("ci.yml")["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", ""))
-    assert '-v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest' in linux["run"]
+    assert '-v "$PWD:/workspace" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED btrc-devcontainer:latest' in linux["run"]
 
 
 def test_bootstrap_shards_keep_their_boundary_report_for_the_bundle() -> None:
@@ -2282,3 +2285,73 @@ def test_collection_release_diagnostic_is_manual_and_separate_from_benchmark_bud
     assert upload["with"]["path"] == "build/collection-release-diagnostic/"
     assert upload["with"]["if-no-files-found"] == "error"
     assert _parsed("ci.yml")["jobs"]["bench"]["if"] == f"contains({PLAN}.jobs, 'bench')"
+
+
+@pytest.mark.parametrize("delegated", [False, True])
+def test_unit_make_recipe_reuses_the_compiler_and_preserves_gui_coverage(tmp_path, delegated):
+    capture = tmp_path / "capture.py"
+    output = tmp_path / "unit.json"
+    capture.write_text(
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        f"Path({str(output)!r}).write_text(json.dumps({{'argv': sys.argv[1:], "
+        "'compiler': os.environ.get('BTRC_TEST_BTRCC')}))\n"
+    )
+    selector_makefile = tmp_path / "selectors.mk"
+    selector_makefile.write_text("print-gui-selectors:\n\t@echo $(GUI_SHARD_TESTS)\n")
+    compiler = tmp_path / "shard-compiler"
+    command = [
+        "make",
+        "--no-print-directory",
+        "-s",
+        "-f",
+        str(REPO / "Makefile"),
+        "-f",
+        str(selector_makefile),
+        # Exercise the actual unit recipe with a recording pytest executable.
+        # These prerequisites build native products; this check only tests routing.
+        "-o",
+        "generated-check",
+        "-o",
+        "gpu-required",
+        "-o",
+        "btrcc",
+        "NIX=",
+        f"PYTEST={shlex.quote(sys.executable)} {shlex.quote(str(capture))}",
+        "PYTEST_ARGS=",
+        "SKIP_GATE=true",
+        f"BTRCC_NATIVE={compiler}",
+        "GUI_SESSION=x11",
+        "test-shard-unit",
+        "print-gui-selectors",
+    ]
+    if delegated:
+        command.append("UNIT_GUI_DELEGATED=1")
+    environment = dict(os.environ)
+    for name in ("UNIT_GUI_DELEGATED", "MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES"):
+        environment.pop(name, None)
+    result = subprocess.run(command, cwd=REPO, env=environment, text=True, capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    invocation = json.loads(output.read_text())
+    assert invocation["compiler"] == str(compiler)
+    arguments = invocation["argv"]
+    assert arguments[0] == "src/tests/"
+    assert arguments[arguments.index("-m") + 1] == "not e40_qualification"
+    assert "--skip-report=build/skip-report-unit.json" in arguments
+    excluded = {argument.removeprefix("--ignore=") for argument in arguments if argument.startswith("--ignore=")}
+    dedicated = set(result.stdout.split())
+    gui_files = {selector for selector in dedicated if "::" not in selector}
+    assert gui_files and all((REPO / path).is_file() for path in gui_files)
+    assert excluded == {"src/tests/btrc", "src/tests/runner.py"} | (gui_files if delegated else set())
+    # The extra audio configuration assertion remains in unit as well as GUI.
+    assert "src/tests/python/test_build_safety.py::test_devcontainer_installs_the_null_alsa_pcm" in dedicated
+    recipe = _makefile_recipe((REPO / "Makefile").read_text(), "test-shard-unit")
+    assert "btrcc" in recipe.splitlines()[0].split("##")[0].split()
+
+
+def test_only_planned_linux_unit_jobs_receive_gui_delegation():
+    step = next(step for step in _parsed("ci.yml")["jobs"]["tests"]["steps"] if "podman run" in step.get("run", ""))
+    assert "-e UNIT_GUI_DELEGATED" in step["run"]
+    assert step["env"]["UNIT_GUI_DELEGATED"] == "${{ matrix.unit_gui_delegated }}"
+    for workflow, job in (("ci.yml", "unit-diagnostic"), ("macos.yml", "tests")):
+        assert "UNIT_GUI_DELEGATED" not in _job(_workflow(workflow), job)

@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import tomllib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -761,3 +762,75 @@ def test_the_qualification_module_runs_the_bundle_in_a_fresh_interpreter(tmp_pat
     assert completed.returncode == 1, completed.stderr
     assert "missing skip-report-macos-tests-unit (from macos.yml/tests)" in completed.stderr
     assert (output / "bundle.json").is_file() and (output / "ledger.jsonl").is_file()
+
+
+@pytest.mark.parametrize(
+    ("workflow", "tier", "changed", "delegated"),
+    [
+        ("ci.yml", "main", None, "1"),
+        ("ci.yml", "release", None, "1"),
+        ("ci.yml", "lane", None, "1"),
+        ("ci.yml", "pr", ["src/stdlib/GUI/Linux/Window.btrc"], "1"),
+        ("ci.yml", "pr", ["src/tests/python/test_build_safety.py"], "1"),
+        ("ci.yml", "pr", ["src/compiler/python/main.py"], "0"),
+        ("ci.yml", "pr", ["src/stdlib/GUI/MacOS/Window.btrc"], "0"),
+        ("ci.yml", "pr", None, "0"),
+        ("ci.yml", "lane", ["tools/qualification/tiers.py"], "0"),
+        ("macos.yml", "main", None, None),
+        ("macos.yml", "release", None, None),
+    ],
+)
+def test_unit_gui_delegation_follows_required_x11_coverage(workflow, tier, changed, delegated):
+    manifest = _manifest()
+    plan = manifest.plan(workflow, tier, changed)
+    assert _rows(plan, "tests")["unit"].get("unit_gui_delegated") == delegated
+    # Planning must not modify manifest rows or leak a decision into the next plan.
+    assert all("unit_gui_delegated" not in shard.row for shard in manifest.shards)
+    assert _rows(manifest.plan("ci.yml", "pr", ["README.md"]), "tests")["unit"].get("unit_gui_delegated", "0") == "0"
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "missing-partition",
+        "optional-partition",
+        "wrong-count",
+        "duplicate-index",
+        "wrong-cell",
+        "missing-coverage",
+        "optional-coverage",
+        "wayland-only",
+    ],
+)
+def test_unit_keeps_gui_when_the_required_x11_plan_is_incomplete(damage):
+    manifest = _manifest()
+    shards = []
+    for shard in manifest.shards:
+        row = dict(shard.row)
+        if shard.job == "ci.yml/linux-gui" and row["session"] == "x11":
+            if damage == "wayland-only" or (damage == "missing-partition" and row["index"] == "0"):
+                continue
+            if row["index"] == "0":
+                if damage == "optional-partition":
+                    row["report_only"] = "true"
+                elif damage == "wrong-count":
+                    row["count"] = "3"
+                elif damage == "duplicate-index":
+                    row["index"] = "1"
+                elif damage == "wrong-cell":
+                    row["cell"] = "other-0"
+        if shard.job == "ci.yml/linux-gui-coverage" and row["session"] == "x11":
+            if damage == "missing-coverage":
+                continue
+            if damage == "optional-coverage":
+                row["report_only"] = "true"
+        shards.append(replace(shard, row=row))
+    plan = replace(manifest, shards=tuple(shards)).plan("ci.yml", "main")
+    assert _rows(plan, "tests")["unit"]["unit_gui_delegated"] == "0"
+
+
+def test_manifest_cannot_force_unit_gui_delegation():
+    data = _minimal()
+    data["shards"][0]["unit_gui_delegated"] = "1"
+    with pytest.raises(TierManifestError, match="unit_gui_delegated is computed"):
+        TierManifest.from_mapping(data)

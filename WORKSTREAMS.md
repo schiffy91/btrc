@@ -3570,3 +3570,39 @@ identities, and completed sessions retain their original skip/failure results.
 Lint, formatting and diff checks pass. Evidence, including earlier failed
 attempts, is under `build/issue-gates/unit-progress-snapshot/`. This diagnostic
 does not resolve or qualify the hosted unit timeout itself.
+
+
+### 2026-10-27 unit compiler reuse and Linux GUI ownership (issue #108)
+
+Packet: CX-UNIT-GUI-OWNERSHIP. Owns `Makefile`,
+`tools/qualification/tiers.py`, `.github/workflows/ci.yml`,
+`src/tests/python/test_qualification_bundle.py`,
+`src/tests/python/test_ci_workflow_contracts.py`, and this claim.
+Baseline: 203 workflow and qualification tests pass on `9aa0d7b4`.
+
+Build the shard compiler before unit pytest and pass `SHARD_BTRCC`.
+Delegate native GUI files from the Linux unit invocation only when its
+computed plan contains a complete required X11 partition set and the
+required X11 coverage job. Derive exclusions from `NATIVE_GUI_TESTS`, which
+also supplies the dedicated X11 selector. Keep the full unit selector for
+partial plans, standalone diagnostics and macOS. Preserve report uploads,
+E40 ownership, compiler options and deadlines. Validate actual Makefile
+argument expansion without running local GUI fixtures, plus selection and
+coverage-plan failure cases. Hosted qualification remains pending.
+
+The new regression set fails 21 cases before implementation; its two macOS
+controls pass. Final focused validation passes 266 cases, with
+`UNIT_GUI_DELEGATED=1` inherited to match the hosted unit environment.
+All 46 build-safety checks also pass. Actual Makefile recipe invocations
+verify the shard compiler environment, default full selection and exact
+file exclusions. Collection-only evidence on the Mac records 13,212 full
+unit cases, 12,337 remaining unit cases and 876 GUI cases. Their union
+is exact; only the existing null-ALSA configuration assertion overlaps.
+No GUI fixture ran. This proves selection, not Linux runtime completion.
+Evidence is in `build/issue-gates/unit-gui-ownership/`. The published PR125
+head remains unchanged while its macOS unit job is active.
+
+`make NIX= lint format-check` passes, including generated-source validation
+and both language formatters. `git diff --check` is clean. This packet
+changes CI ownership and compiler reuse; it does not establish that the
+previous four sanitized compile timeouts or the unit deadline are resolved.

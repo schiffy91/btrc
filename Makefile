@@ -353,9 +353,9 @@ test-c11: generated-check gpu-required btrcc ## Strict C11: both compilers with 
 # a harmless no-op.
 SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"
 
-test-shard-unit: generated-check gpu-required ## CI shard: everything but the self-host and corpus suites
-	$(NIX) $(PYTEST) src/tests/ \
-		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(PYTEST_ARGS) -m "not e40_qualification"
+test-shard-unit: generated-check gpu-required btrcc ## CI shard: everything but the self-host and corpus suites
+	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/ \
+		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(UNIT_GUI_ARGS) $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-unit.json
 
 # The focused native-GUI gate (PLAN Stage 30, ui-0-focused-gate): the GUI,
@@ -367,6 +367,11 @@ NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui_runtime.py tes
 	test_native_pointer_runtime.py test_native_control_sizing_runtime.py test_native_font_runtime.py \
 	test_native_app_runtime.py test_native_tray_runtime.py test_native_linux_providers.py \
 	test_native_linux_call_shapes.py test_native_webgpu_imports.py) $(sort $(wildcard src/tests/python/test_native_ui_*.py src/tests/python/test_native_ui2_*.py))
+
+# The Linux plan sets this only when required X11 partitions and their union
+# check own these same files. Standalone and macOS unit runs keep them.
+UNIT_GUI_DELEGATED ?= 0
+UNIT_GUI_ARGS = $(if $(filter 1,$(UNIT_GUI_DELEGATED)),$(addprefix --ignore=,$(NATIVE_GUI_TESTS)))
 
 test-native-gui: generated-check ## Focused gate: the native GUI, tray and provider suites only
 	$(NIX) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS) -m "not e40_qualification"
