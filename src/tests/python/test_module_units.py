@@ -4407,3 +4407,35 @@ def test_call_argument_pins_preserve_self_and_owned_bindings(
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_stored_callback_prototypes_keep_declared_parameter_qualifiers(
+    tmp_path, native_project, immutable_btrcc, module_units
+):
+    from src.tests.python.test_native_objective_c_delegates import stored_objective_c_project
+
+    source = native_project[0].parent
+    stored_objective_c_project.__wrapped__(native_project)
+    generated = _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "", module_units=module_units)
+    expected = {
+        "retain": "void* rawContext",
+        "release": "void* rawContext",
+        "0_invoke": "int argument0, void* argument1",
+    }
+    for frontend, units in generated.items():
+        declarations = 0
+        definitions = 0
+        for text in units.values():
+            for suffix, parameters in expected.items():
+                pattern = rb"^.* __btrc_objc_NativeSubscription_listen_" + suffix.encode() + rb"\(([^)]*)\)([; {]+)$"
+                for match in re.finditer(pattern, text, re.MULTILINE):
+                    if match[2] == b";":
+                        assert match[1].decode() == parameters, (frontend, suffix, match[0])
+                        declarations += 1
+                    else:
+                        assert b"volatile" in match[1], (frontend, suffix, match[0])
+                        definitions += 1
+        assert definitions == 3, (frontend, definitions)
+        if module_units:
+            assert declarations >= 3, (frontend, declarations)

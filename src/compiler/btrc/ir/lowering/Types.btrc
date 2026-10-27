@@ -166,6 +166,13 @@ class CTypeLowerer {
 		return result;
 	}
 
+	/* A separate declaration must not share the definition's mutable setjmp qualifiers. */
+	public Vector<IRParam> copyParameters(Vector<IRParam> parameters) {
+		Vector<IRParam> result = [];
+		for parameter in parameters { result.push(self.copyParameter(parameter)); }
+		return result;
+	}
+
 	public IRParam lowerNamedParameter(Node? typeExpr, string rendered, string name) {
 		IRParam result = IRParam(rendered, name);
 		result.isVolatile = typeExpr != null && typeExpr.isVolatile;

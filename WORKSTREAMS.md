@@ -3193,3 +3193,28 @@ folder. Explicit parameter keep decisions remain separate from automatic pins.
 Returned the production patch and exact regression definitions from `51d788d3b0ef47fce50fced09e58c9ce92143113` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`, `src/compiler/btrc/ir/lowering/ownership/Calls.btrc`, `src/tests/python/test_module_units.py`.
 
 The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
+
+### Function prototype parameter isolation (Codex, 2026-10-24)
+
+Branch: `codex/function-parameter-isolation-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Types.btrc`,
+`src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/compiler/btrc/ir/lowering/Lowerer.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Stored callback definitions and their separate prototypes share mutable IR
+parameters. Setjmp analysis adds body-local qualifiers to the prototypes.
+Copy parameter records when creating a separate declaration, preserving source
+qualifiers. A Foundation-only fixture exercises registration, cancellation,
+inline delivery, and failure cleanup in whole-program and module builds under
+strict C11 and sanitizers before checking prototype and definition qualifiers.
+Its complete C still differs for other recorded reasons; this regression does
+not claim complete callback parity. Portable ordinary, generic-method, and
+lambda diagnostics are preserved as passing controls. Evidence lives under
+`build/issue-gates/function-parameter-isolation/`.
+
+### 2026-10-27: source return, Isolate function prototype parameters from setjmp analysis
+
+Returned the production patch and exact regression definitions from `16fb6649bb8c4d3f215539be1f5b177f36b026b0` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`, `src/compiler/btrc/ir/lowering/Lowerer.btrc`, `src/compiler/btrc/ir/lowering/Types.btrc`, `src/tests/python/test_module_units.py`.
+
+The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
