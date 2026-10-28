@@ -34,7 +34,9 @@ REFUSALS = [
 def program_with_index(expression):
     # r10 parsing is a separate increment. Feed its existing ASDL shape to the
     # real analyzer now, so facts and cache replay are tested before lowering.
-    program = Parser(Lexer("int main() { int index = 0; int values[1] = {0}; return 0; }").tokenize()).parse()
+    program = Parser(
+        Lexer("int main() { int index = 0; int values[(1LL << 40) + 7] = {0}; return 0; }").tokenize()
+    ).parse()
     brace = program.declarations[0].body.statements[1].initializer
     index = IndexDesignator(index=Parser(Lexer(expression).tokenize())._parse_expr(), line=4, col=9)
     brace.entries = [Designation(parts=[index])]
@@ -48,9 +50,14 @@ def test_reference_records_full_width_index_values(expression, expected):
     result = analyzer.analyze(program)
     assert result.errors == []
     assert result.designator_index_values == {id(index): expected}
+    bound = program.declarations[0].body.statements[1].type.array_size
+    assert result.array_bound_values == {id(bound): 1099511627783}
     # Facts are compilation-local, including when the analyzer is reused.
     empty = Parser(Lexer("int main() { return 0; }").tokenize()).parse()
-    assert analyzer.analyze(empty).designator_index_values == {}
+    next_result = analyzer.analyze(empty)
+    assert next_result.designator_index_values == {}
+    assert next_result.array_bound_values == {}
+    assert result.array_bound_values == {id(bound): 1099511627783}
     assert result.designator_index_values == {id(index): expected}
 
 

@@ -30,6 +30,7 @@ from src.compiler.python.syntax.ast.generated import (
     FunctionDecl,
     IndexDesignator,
     InterfaceDecl,
+    IntLiteral,
     ListLiteral,
     MapLiteral,
     MethodDecl,
@@ -1308,7 +1309,9 @@ class TypeSystem:
         return declaration if declaration is not None and not declaration.is_forward else None
 
     @classmethod
-    def plan_initializer_slots(cls, record, initializer, tables, index_values=None) -> InitializerSlotPlan:
+    def plan_initializer_slots(
+        cls, record, initializer, tables, index_values=None, bound_values=None
+    ) -> InitializerSlotPlan:
         """Map each brace element to a member path of ``record`` (C11 6.7.9p17).
 
         Positional elements fill the direct members in order (only the first
@@ -1330,11 +1333,13 @@ class TypeSystem:
         problems = []
         if index_values is None:
             index_values = getattr(tables, "designator_index_values", {})
+        if bound_values is None:
+            bound_values = getattr(tables, "array_bound_values", {})
         for position, element in enumerate(initializer.elements):
             parts = designations[position].parts if position < len(designations) else []
             if parts:
                 before = len(problems)
-                slot = cls._designated_slot(record, element, parts, tables, problems)
+                slot = cls._designated_slot(record, element, parts, tables, problems, index_values, bound_values)
                 if slot is None:
                     if len(problems) == before:
                         excess += 1
@@ -1425,9 +1430,16 @@ class TypeSystem:
         return next((index for index, candidate in enumerate(members) if candidate is member), -1)
 
     @classmethod
-    def _designated_slot(cls, record, element, parts, tables, problems) -> InitializerSlot | None:
+    def _designated_slot(
+        cls, record, element, parts, tables, problems, index_values, bound_values
+    ) -> InitializerSlot | None:
         first = parts[0]
         if not isinstance(first, FieldDesignator):
+            value = index_values.get(id(first))
+            if value is not None:
+                problems.append(
+                    (f"Designator '[{value}]' needs an array, but the initialized type is '{record.name}'", first)
+                )
             return None
         path = cls.record_member_path(record, first.field)
         if path is None:
@@ -1445,7 +1457,15 @@ class TypeSystem:
                 nested = cls.complete_member_record(slot_type, tables)
                 nested_path = cls.record_member_path(nested, part.field) if nested is not None else None
                 if nested_path is None:
-                    if nested is not None:
+                    if nested is None:
+                        name = cls.initializer_storage_name(slot_type, bound_values)
+                        problems.append(
+                            (
+                                f"Designator '.{part.field}' needs a struct or union, but the initialized type is '{name}'",
+                                part,
+                            )
+                        )
+                    else:
                         problems.append(
                             (
                                 f"{cls.record_keyword(nested).capitalize()} '{nested.name}' has no field '{part.field}'",
@@ -1456,14 +1476,48 @@ class TypeSystem:
                 steps.extend(nested_path)
                 slot_type = nested_path[-1].type
             else:
+                value = index_values.get(id(part))
+                if value is None:
+                    return None
                 if slot_type is None or not slot_type.is_array:
+                    name = cls.initializer_storage_name(slot_type, bound_values)
+                    problems.append(
+                        (f"Designator '[{value}]' needs an array, but the initialized type is '{name}'", part)
+                    )
                     return None
                 canonical = cls.canonical_declaration_type(slot_type, tables.typedef_table)
                 if canonical is None or not canonical.is_array:
                     return None
+                bound = cls.initializer_array_bound(canonical, bound_values)
+                if value < 0 or (bound is not None and value >= bound):
+                    name = cls.initializer_storage_name(canonical, bound_values)
+                    problems.append((f"Array designator index {value} is outside '{name}'", part))
+                    return None
                 steps.append(part)
                 slot_type = cls.strip_outer_storage(canonical, array=True)
         return InitializerSlot(element, tuple(steps), slot_type, first)
+
+    @staticmethod
+    def initializer_array_bound(type_expr, bound_values) -> int | None:
+        """Read an analyzed bound, including a native declaration's literal."""
+        bound = type_expr.array_size
+        return bound.value if isinstance(bound, IntLiteral) else bound_values.get(id(bound))
+
+    @classmethod
+    def initializer_storage_name(cls, type_expr, bound_values) -> str:
+        """Describe the current subobject, retaining its known array extent."""
+        if type_expr is None:
+            return "<unknown>"
+        name = cls.record_tag_name(type_expr.base)
+        if type_expr.generic_args:
+            name += (
+                "<" + ", ".join(cls.initializer_storage_name(arg, bound_values) for arg in type_expr.generic_args) + ">"
+            )
+        name += "*" * type_expr.pointer_depth
+        if type_expr.is_array:
+            bound = cls.initializer_array_bound(type_expr, bound_values)
+            name += f"[{bound if bound is not None else ''}]"
+        return name
 
     @classmethod
     def initializer_slots(

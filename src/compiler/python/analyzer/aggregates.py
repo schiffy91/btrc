@@ -232,7 +232,9 @@ class InitializerAnalyzer:
     def _plan_record_initializer(
         self, record, initializer, subject, line, col, enclosing
     ) -> tuple[InitializerStep, ...]:
-        plan = TypeSystem.plan_initializer_slots(record, initializer, self.index, self.context.designator_index_values)
+        plan = TypeSystem.plan_initializer_slots(
+            record, initializer, self.index, self.context.designator_index_values, self.context.array_bound_values
+        )
         for message, site in plan.problems:
             self.context.error(message, site.line or line, site.col or col)
         self.context.initializer_slot_plans[id(initializer)] = plan

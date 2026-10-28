@@ -2616,8 +2616,9 @@ class ValidationRecordCodec {
 					string? valueText = self.typeText(value, ownSlot, own, foreign);
 					if (valueText == null) { return null; }
 					line = line + "\t" + valueText;
-				} else if (fact.kind == VALIDATION_DESIGNATOR_INDEX) {
-					if (node.kind != NK_INDEX_DESIGNATOR) { return null; }
+				} else if (fact.kind == VALIDATION_DESIGNATOR_INDEX || fact.kind == VALIDATION_ARRAY_BOUND_VALUE) {
+					if (fact.kind == VALIDATION_DESIGNATOR_INDEX && node.kind != NK_INDEX_DESIGNATOR) { return null; }
+					if (fact.kind == VALIDATION_ARRAY_BOUND_VALUE && fact.integerValue <= 0LL) { return null; }
 					line = line + f"\t{fact.integerValue}";
 				} else if (fact.kind == VALIDATION_GENERATED_REFERENCE) {
 					line = line + "\t" + (fact.directCall ? "1" : "0") + "\t" + (fact.sourceKnown ? "1" : "0");
@@ -2740,15 +2741,15 @@ class ValidationRecordCodec {
 				Node? value = self.typeAt(fields, cursor);
 				if (value == null || cursor.get(0) != fields.len) { return null; }
 				fact.value = value;
-			} else if (kind == VALIDATION_DESIGNATOR_INDEX) {
-				if (fields.len != 6 || node.kind != NK_INDEX_DESIGNATOR) { return null; }
+			} else if (kind == VALIDATION_DESIGNATOR_INDEX || kind == VALIDATION_ARRAY_BOUND_VALUE) {
+				if (fields.len != 6 || (kind == VALIDATION_DESIGNATOR_INDEX && node.kind != NK_INDEX_DESIGNATOR)) { return null; }
 				string raw = fields.get(5);
 				bool negative = raw.startsWith("-");
 				IntegerLiteralInfo number = IntegerLiteral(negative ? raw.substring(1, raw.length() - 1) : raw).details();
 				unsigned long long maximum = (unsigned long long)LLONG_MAX + (negative ? 1ULL : 0ULL);
 				if (!number.valid || number.magnitude > maximum) { return null; }
 				fact.integerValue = negative && number.magnitude > 0ULL ? -((long long)(number.magnitude - 1ULL)) - 1LL : (long long)number.magnitude;
-				if (f"{fact.integerValue}" != raw) { return null; }
+				if (f"{fact.integerValue}" != raw || (kind == VALIDATION_ARRAY_BOUND_VALUE && fact.integerValue <= 0LL)) { return null; }
 			} else if (kind == VALIDATION_GENERATED_REFERENCE) {
 				if (fields.len != 7) { return null; }
 				fact.directCall = fields.get(5).equals("1");
@@ -2874,7 +2875,7 @@ class ValidationRecords implements IValidationRecords {
 			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
 		}
 		self.codec = ValidationRecordCodec(program.declarations(), self.fileOfDeclaration);
-		string context = f"validation-record-v7;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}";
+		string context = f"validation-record-v8;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}";
 		Map<string, string> sources = {};
 		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
 		if (resolved.stdlibLineCount > 0) { sources.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }

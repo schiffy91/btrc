@@ -7,6 +7,8 @@ import Library.Vector;
 import ../generated/ast/Node.btrc;
 import ../frontend/Models.btrc;
 import ../syntax/Identity.btrc;
+import ../syntax/Literals.btrc;
+#include <limits.h>
 import ../syntax/Types.btrc;
 import ./Models.btrc;
 
@@ -553,7 +555,14 @@ class SemanticTypeSystem {
 
 	class SemanticInitializerSlot? designatedSlot(Node record, Node element, Vector<Node> parts, Analyzed analyzed, Vector<SemanticInitializerProblem> problems) {
 		Node first = parts.get(0);
-		if (first.kind != NK_FIELD_DESIGNATOR) { return null; }
+		if (first.kind != NK_FIELD_DESIGNATOR) {
+			string key = AstIdentity.key(first);
+			if (analyzed.designatorIndexValues.has(key)) {
+				long long value = analyzed.designatorIndexValues.get(key);
+				problems.push(SemanticInitializerProblem(f"Designator '[{value}]' needs an array, but the initialized type is '{record.name}'", first));
+			}
+			return null;
+		}
 		Vector<Node>? found = SemanticTypeSystem.recordMemberPath(record, first.field);
 		if (found == null) {
 			string kind = record.isUnion ? "Union" : "Struct";
@@ -568,7 +577,11 @@ class SemanticTypeSystem {
 			Node part = parts.get(index);
 			if (part.kind == NK_FIELD_DESIGNATOR) {
 				Node? nested = SemanticTypeSystem.memberRecord(slotType, analyzed);
-				if (nested == null) { return null; }
+				if (nested == null) {
+					string name = SemanticTypeSystem.initializerStorageName(slotType, analyzed);
+					problems.push(SemanticInitializerProblem("Designator '." + part.field + "' needs a struct or union, but the initialized type is '" + name + "'", part));
+					return null;
+				}
 				Vector<Node>? nestedPath = SemanticTypeSystem.recordMemberPath(nested, part.field);
 				if (nestedPath == null) {
 					string kind = nested.isUnion ? "Union" : "Struct";
@@ -578,9 +591,22 @@ class SemanticTypeSystem {
 				for step in nestedPath { steps.push(step); }
 				slotType = steps.get(steps.len - 1).type;
 			} else {
-				if (slotType == null || !slotType.isArray) { return null; }
+				string key = AstIdentity.key(part);
+				if (!analyzed.designatorIndexValues.has(key)) { return null; }
+				long long value = analyzed.designatorIndexValues.get(key);
+				if (slotType == null || !slotType.isArray) {
+					string name = SemanticTypeSystem.initializerStorageName(slotType, analyzed);
+					problems.push(SemanticInitializerProblem(f"Designator '[{value}]' needs an array, but the initialized type is '{name}'", part));
+					return null;
+				}
 				Node? canonical = SemanticTypeSystem.resolveTypedefType(slotType, analyzed.typedefTable);
 				if (canonical == null || !canonical.isArray) { return null; }
+				long long bound = SemanticTypeSystem.initializerArrayBound(canonical, analyzed);
+				if (value < 0LL || (bound >= 0LL && value >= bound)) {
+					string name = SemanticTypeSystem.initializerStorageName(canonical, analyzed);
+					problems.push(SemanticInitializerProblem(f"Array designator index {value} is outside '{name}'", part));
+					return null;
+				}
 				steps.push(part);
 				slotType = TypeShape.withoutOuterArray(canonical);
 			}
@@ -589,6 +615,37 @@ class SemanticTypeSystem {
 		SemanticInitializerSlot slot = SemanticInitializerSlot(element, steps, slotType);
 		slot.site = first;
 		return slot;
+	}
+
+	/* Analyzed bounds retain their full width; native literals need no evaluator.
+	 * Negative one denotes an unknown bound, never a valid array extent. */
+	class long long initializerArrayBound(Node typeExpr, Analyzed analyzed) {
+		Node? bound = typeExpr.arraySize;
+		if (bound == null) { return -1LL; }
+		string key = AstIdentity.key(bound);
+		if (analyzed.arrayBoundValues.has(key)) { return analyzed.arrayBoundValues.get(key); }
+		if (bound.kind == NK_INT_LITERAL) {
+			IntegerLiteralInfo literal = IntegerLiteral(bound.raw).details();
+			if (literal.valid && literal.magnitude <= (unsigned long long)LLONG_MAX) { return (long long)literal.magnitude; }
+		}
+		return -1LL;
+	}
+
+	class string initializerStorageName(Node? typeExpr, Analyzed analyzed) {
+		if (typeExpr == null) { return "<unknown>"; }
+		string name = SemanticTypeSystem.recordTagName(typeExpr.base);
+		if (typeExpr.genericArgs().len > 0) {
+			Vector<string> arguments = [];
+			for argument in typeExpr.genericArgs() { arguments.push(SemanticTypeSystem.initializerStorageName(argument, analyzed)); }
+			name = name + "<" + Strings.join(arguments, ", ") + ">";
+		}
+		int pointer = 0;
+		while (pointer < typeExpr.pointerDepth) { name = name + "*"; pointer++; }
+		if (typeExpr.isArray) {
+			long long bound = SemanticTypeSystem.initializerArrayBound(typeExpr, analyzed);
+			name = name + "[" + (bound >= 0LL ? f"{bound}" : "") + "]";
+		}
+		return name;
 	}
 
 	/* The slot type of element in plan; null when the element found no slot

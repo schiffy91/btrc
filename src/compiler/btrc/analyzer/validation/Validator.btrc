@@ -230,6 +230,8 @@ class SemanticValidator {
 				self.state.analyzed.recordHostedCall(node);
 			} else if (fact.kind == VALIDATION_CONSTANT_BOUND) {
 				self.state.analyzed.recordConstantArrayBound(node);
+			} else if (fact.kind == VALIDATION_ARRAY_BOUND_VALUE) {
+				self.state.analyzed.recordArrayBoundValue(node, fact.integerValue);
 			} else if (fact.kind == VALIDATION_DESIGNATOR_INDEX) {
 				self.state.analyzed.recordDesignatorIndex(node, fact.integerValue);
 			} else if (fact.kind == VALIDATION_ITERATION_CAPACITY) {

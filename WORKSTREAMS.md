@@ -4261,3 +4261,11 @@ Preserve evaluated bounds for typed paths and cache replay, validate array
 indexes and infer sparse extents, then connect source syntax and nested IR.
 Batch reference checks before rebuilding the self-hosted compiler. Work stays
 local; no CI, GitHub push, bootstrap, application execution or measurements.
+
+The first checkpoint exports evaluated array bounds in Python and journals
+full-width bound values in the self-hosted analyzer (validation cache v8).
+Both path owners now check nested array indexes and report wrong target types.
+The reference and structural checks pass: 205 tests, zero skips. Self-hosted
+execution remains pending. A source transpilation reached IR optimization and
+was interrupted to defer that expensive work to the combined validation run.
+Do not treat this checkpoint as end-user syntax support or r10 completion.

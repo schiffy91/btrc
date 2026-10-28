@@ -55,7 +55,15 @@ class DesignatorRecords implements IValidationRecords {
 		 * or wrap it. Exercise the actual journal row after encoding. */
 		for line in Strings.split(encoded, "\n") {
 			Vector<string> fields = Strings.split(line, "\t");
-			if (fields.len != 6 || Strings.toInt(fields.get(0)) != VALIDATION_DESIGNATOR_INDEX) { continue; }
+			if (fields.len != 6) { continue; }
+			int kind = Strings.toInt(fields.get(0));
+			if (kind != VALIDATION_DESIGNATOR_INDEX && kind != VALIDATION_ARRAY_BOUND_VALUE) { continue; }
+			if (kind == VALIDATION_ARRAY_BOUND_VALUE) {
+				for invalid in ["0", "-1"] {
+					fields.set(5, invalid);
+					assert(self.codec.decode(Strings.join(fields, "\t") + "\n") == null);
+				}
+			}
 			for invalid in ["9223372036854775808", "-9223372036854775809", "7LL", "0x7", "", "-0", "junk"] {
 				fields.set(5, invalid);
 				assert(self.codec.decode(Strings.join(fields, "\t") + "\n") == null);
@@ -77,7 +85,7 @@ class DesignatorRecords implements IValidationRecords {
 
 class DesignatorFixture {
 	class Node program(GrammarInfo grammar, string expression) {
-		var parser = Parser(Lexer("int main() { int index = 0; int values[1] = {0}; return 0; }", grammar).tokenize(), grammar);
+		var parser = Parser(Lexer("int main() { int index = 0; int values[(1LL << 40) + 7] = {0}; return 0; }", grammar).tokenize(), grammar);
 		Node program = parser.parseProgram();
 		assert(!parser.failed);
 		var indexParser = Parser(Lexer(expression, grammar).tokenize(), grammar);
@@ -127,6 +135,17 @@ int main(int argc, char** argv) {
 	assert(cached.designatorIndexValues.len == 1 && cached.designatorIndexValues.has(newKey));
 	assert(!cached.designatorIndexValues.has(oldKey));
 	assert(live.designatorIndexValues.get(oldKey) == cached.designatorIndexValues.get(newKey));
+	Node oldBound = first.declarations().get(0).bodyNode.statements().get(1).type.arraySize;
+	Node newBound = second.declarations().get(0).bodyNode.statements().get(1).type.arraySize;
+	string oldBoundKey = AstIdentity.key(oldBound);
+	string newBoundKey = AstIdentity.key(newBound);
+	assert(oldBoundKey != newBoundKey);
+	assert(live.arrayBoundValues.len == 1 && live.arrayBoundValues.has(oldBoundKey));
+	assert(cached.arrayBoundValues.len == 1 && cached.arrayBoundValues.has(newBoundKey));
+	assert(!cached.arrayBoundValues.has(oldBoundKey));
+	assert(live.arrayBoundValues.get(oldBoundKey) == 1099511627783LL);
+	assert(cached.arrayBoundValues.get(newBoundKey) == 1099511627783LL);
+	assert(cached.constantArrayBoundKeys.has(newBoundKey));
 	printf("%lld\n", cached.designatorIndexValues.get(newKey));
 	return 0;
 }

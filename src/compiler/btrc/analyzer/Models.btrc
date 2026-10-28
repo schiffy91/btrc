@@ -62,6 +62,7 @@ enum ValidationFactKind {
 	VALIDATION_WARNING = 13,
 	VALIDATION_DIVERGENCE = 14,
 	VALIDATION_DESIGNATOR_INDEX = 15,
+	VALIDATION_ARRAY_BOUND_VALUE = 16,
 };
 
 /* The per-declaration analysis passes a record covers, in program order:
@@ -483,6 +484,7 @@ class Analyzed {
      * expression. IR generation uses this to fail closed if an invalid VLA
      * initializer somehow bypasses validation. */
 	public Map<string, bool> constantArrayBoundKeys;
+	public Map<string, long long> arrayBoundValues;
 	/* Record brace-initializer identity -> its slot plan, recorded by
 	 * ExpressionValidator.validateStructInitializer. A replayed module-unit
 	 * record installs none; SemanticTypeSystem.initializerSlots plans such an
@@ -543,6 +545,7 @@ class Analyzed {
 		self.genericConstructorIndex = {};
 		self.arrayIterationCapacityKeys = {};
 		self.constantArrayBoundKeys = {};
+		self.arrayBoundValues = {};
 		self.initializerPlans = {};
 		self.designatorIndexValues = {};
 		self.realtimeBoundedLoopKeys = {};
@@ -582,6 +585,12 @@ class Analyzed {
 	public void recordConstantArrayBound(Node bound) {
 		self.constantArrayBoundKeys.put(AstIdentity.key(bound), true);
 		self.journalFact(VALIDATION_CONSTANT_BOUND, bound, null);
+	}
+
+	public void recordArrayBoundValue(Node bound, long long value) {
+		self.arrayBoundValues.put(AstIdentity.key(bound), value);
+		ValidationFact? fact = self.journalFact(VALIDATION_ARRAY_BOUND_VALUE, bound, null);
+		if (fact != null) { fact.integerValue = value; }
 	}
 
 	public void recordDesignatorIndex(Node designator, long long value) {
