@@ -103,22 +103,21 @@ def test_reference_cache_replays_selfhost_reencoded_records(tmp_path, monkeypatc
     assert cold.module_units_lowered and not cold.module_units_reused
     stored = [
         path
-        for path in cache.glob("*.module.json")
-        if json.loads(path.read_text())["record"].startswith("btrc-module-unit-record\t")
+        for path in cache.glob("modules-v1/*/record.txt")
+        if path.read_text().split("\n", 3)[3].startswith("btrc-module-unit-record\t")
     ]
     assert len(stored) == len(cold.module_units_lowered)
     for path in stored:
-        envelope = json.loads(path.read_text())
-        metadata = envelope["record"]
+        header, key, hashes, metadata = path.read_text().split("\n", 3)
         group = metadata.split("\n")[1].removeprefix("group\t")
         input_path = root / "record.txt"
         input_path.write_text(metadata)
         result = _driver(module_record_driver, "read", input_path, group)
         assert result.returncode == 0, result.stderr
         assert result.stdout == metadata + "\n"
-        envelope["record"] = result.stdout[:-1]
-        envelope["sha256"] = hashlib.sha256(envelope["record"].encode()).hexdigest()
-        path.write_text(json.dumps(envelope))
+        metadata = result.stdout[:-1]
+        hashes = hashlib.sha256(metadata.encode()).hexdigest() + " " + hashes.split(" ")[1]
+        path.write_text("\n".join((header, key, hashes, metadata)))
     # A new output path bypasses the complete-generation cache while retaining
     # the release-mode module identities, so this must exercise record replay.
     warm = compiler.compile(source.read_text(), str(source), replace(options, units_prefix=str(root / "warm")))
@@ -172,25 +171,33 @@ def test_both_record_readers_reject_malformed_metadata(tmp_path, request, fronte
         assert result.returncode == 2, (result.stdout, result.stderr)
 
 
-@pytest.mark.parametrize("damage", ["record", "text", "record-type", "text-type", "truncated", "missing", "old-layout"])
+@pytest.mark.parametrize(
+    "damage", ["record", "text", "record-encoding", "text-encoding", "truncated", "missing", "old-layout", "key"]
+)
 def test_module_cache_verifies_both_payloads(tmp_path, monkeypatch, damage):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
     record = _record()
     cache = CompilerCache()
     cache.store_module_unit("identity", record.to_text(), record.text)
     assert cache.load_module_unit("identity") == (record.to_text(), record.text)
-    path = next(tmp_path.glob("*.module.json"))
-    value = json.loads(path.read_text())
-    if damage in {"record", "text"}:
-        value[damage] += "corrupt"
-    elif damage.endswith("-type"):
-        value[damage.removesuffix("-type")] = 42
+    path = next(tmp_path.glob("modules-v1/*/record.txt"))
+    unit = path.with_name("unit.c")
+    if damage == "record":
+        path.write_bytes(path.read_bytes() + b"corrupt")
+    elif damage == "text":
+        unit.write_bytes(unit.read_bytes() + b"corrupt")
+    elif damage == "record-encoding":
+        path.write_bytes(path.read_bytes() + b"\xff")
+    elif damage == "text-encoding":
+        unit.write_bytes(b"\xff")
     elif damage == "missing":
-        del value["text-sha256"]
+        unit.unlink()
     elif damage == "old-layout":
-        del value["text"]
-        del value["text-sha256"]
-    path.write_text(json.dumps(value) if damage != "truncated" else "{")
+        path.write_text(record.to_text())
+    elif damage == "key":
+        path.write_text(path.read_text().replace(path.parent.name, "0" * 64, 1))
+    else:
+        path.write_text(path.read_text()[:10])
     assert cache.load_module_unit("identity") is None
 
 

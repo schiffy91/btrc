@@ -1739,25 +1739,42 @@ class BtrccCompilerIdentity {
  * An interrupted or corrupt cache is a miss, never publication authority. */
 class BtrccArtifactCache implements IBtrccArtifactCache {
 	private string directory;
+	private string moduleDirectory;
 	private string compilerIdentity = "";
 	private string moduleIdentity = "";
 	private FeSourceFileReader sourceFiles;
 	private string unitsPrefix;
 	private PrivateDirectory? root = null;
+	private PrivateDirectory? moduleRoot = null;
 	private PrivateDirectory? entry = null;
 	private ExclusiveFileLease? lease = null;
 	private BtrccArtifactDigests? artifactDigests;
 
-	public BtrccArtifactCache(string executable, FeSourceFileReader sourceFiles, string unitsPrefix, BtrccArtifactDigests? artifactDigests = null, string dataRoot = "") {
+	public BtrccArtifactCache(string executable, FeSourceFileReader sourceFiles, string unitsPrefix, BtrccArtifactDigests? artifactDigests = null, string dataRoot = "", string inputPath = "") {
 		self.sourceFiles = sourceFiles;
 		self.artifactDigests = artifactDigests;
 		self.unitsPrefix = unitsPrefix.isEmpty() ? "" : FeNativeLinkPlan.outputPrefix(unitsPrefix);
 		string configured = Environment.get("BTRC_CACHE_DIR", "");
+		self.moduleDirectory = BtrccArtifactCache.moduleCacheDirectory(configured, inputPath);
 		if (configured.isEmpty()) { configured = PathTools.join(Environment.get("HOME", ""), ".cache/btrc"); }
+		else { configured = PathTools.absolute(configured); }
 		self.directory = PathTools.isAbsolute(configured) ? PathTools.join(configured, "selfhost-artifacts-v1") : "";
 		if (Platform.isWindows() || executable.isEmpty() || self.directory.isEmpty()) { return; }
 		self.compilerIdentity = sourceFiles.binaryIdentity(executable);
 		self.moduleIdentity = BtrccCompilerIdentity.resolve(executable, self.compilerIdentity, dataRoot, sourceFiles);
+	}
+
+	class string moduleCacheDirectory(string configured, string inputPath) {
+		if (!configured.isEmpty()) { return PathTools.join(PathTools.absolute(configured), "modules-v1"); }
+		string start = inputPath.isEmpty() ? PathTools.absolute(Platform.currentDirectory()) : PathTools.dirname(PathTools.absolute(inputPath));
+		string directory = start;
+		while (true) {
+			if (FileSystem.exists(PathTools.join(directory, "btrc.toml"))) { return PathTools.join(directory, "build/btrc/modules-v1"); }
+			string parent = PathTools.dirname(directory);
+			if (parent.equals(directory)) { break; }
+			directory = parent;
+		}
+		return PathTools.join(start, "build/btrc/modules-v1");
 	}
 
 	public FeDirectiveCache directiveCache() { return BtrccDirectiveCache(PathTools.join(PathTools.dirname(self.directory), "selfhost-directives-v1"), self.compilerIdentity); }
@@ -1774,16 +1791,17 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	}
 
 	/* The artifact root, opened once and kept while its path still names it. */
-	private PrivateDirectory? openRoot() {
-		var root = self.root;
+	private PrivateDirectory? openRoot(bool module = false) {
+		var root = module ? self.moduleRoot : self.root;
 		if (root != null && root.validatePath().ok()) { return root; }
-		self.root = null;
+		if (module) { self.moduleRoot = null; } else { self.root = null; }
 		if (root != null) { root.close(); }
-		if (FileSystem.mkdirp(PathTools.dirname(self.directory)) != 0) { return null; }
-		var opened = FileSystem.openPrivateDirectory(self.directory);
+		string directory = module ? self.moduleDirectory : self.directory;
+		if (FileSystem.mkdirp(PathTools.dirname(directory)) != 0) { return null; }
+		var opened = FileSystem.openPrivateDirectory(directory);
 		if (!opened.ok()) { return null; }
-		self.root = opened.value();
-		return self.root;
+		if (module) { self.moduleRoot = opened.value(); } else { self.root = opened.value(); }
+		return opened.value();
 	}
 
 	private string key(string identity, bool module = false) { return module ? BtrccCompilerIdentity.moduleKey(self.moduleIdentity, identity) : SHA256.digest(self.compilerIdentity + identity); }
@@ -1801,12 +1819,12 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		self.close();
 		if (self.compilerIdentity.isEmpty()) { return false; }
 		if (validateInputs && !self.sourceFiles.validateInputs().isEmpty()) { return false; }
-		PrivateDirectory? root = self.openRoot();
+		PrivateDirectory? root = self.openRoot(module);
 		if (root == null) { return false; }
 		var entry = root.openChildDirectory(self.key(identity, module));
 		if (!entry.ok()) { return false; }
 		self.entry = entry.value();
-		var acquired = entry.value().acquireExclusiveLease(".artifacts.lock", true);
+		var acquired = entry.value().acquireExclusiveLease(module ? ".btrc-publications.lock" : ".artifacts.lock", true);
 		if (!acquired.ok()) { return false; }
 		self.lease = acquired.value();
 		return root.validatePath().ok() && entry.value().validatePath().ok();
@@ -1853,7 +1871,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 			string reference = references.at(index).asString();
 			if (reference.isEmpty()) { continue; }
 			string? content = null;
-			if (self.open("module-unit\n" + reference, false)) {
+			if (self.open(reference, false, true)) {
 				var unitLease = self.lease;
 				if (unitLease != null) { content = self.readPayload(unitLease, "unit.c", index, hashes.at(index).asString(), remaining); }
 			}
@@ -1931,21 +1949,24 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		self.close();
 	}
 
-	/* A module unit under its key, or null on any doubt. `record.txt` starts
-	 * with the digests of the record and of `unit.c`, which holds the text. */
+	/* A module unit under its key, or null on any doubt. `record.txt` binds
+	 * the entry version/key and the digests of its metadata and `unit.c`. */
 	public BtrccModuleUnitPayload? loadModuleUnit(string identity) {
 		BtrccModuleUnitPayload? payload = null;
 		try {
 			if (self.open(identity, false, true)) {
 				var lease = self.lease;
 				if (lease != null) {
-					var stored = lease.readRegularChild("record.txt", 536870912);
+					string prefix = "btrc-module-cache-entry-v1\n" + self.key(identity, true) + "\n";
+					var stored = lease.readRegularChild("record.txt", 536870912 + prefix.length() + 130);
 					if (stored.ok() && stored.found() && stored.bytes().isNulFreeUtf8()) {
 						string framed = stored.bytes().toString();
+						if (!framed.startsWith(prefix)) { self.close(); return null; }
+						framed = framed.substring(prefix.length(), framed.length() - prefix.length());
 						if (framed.length() > 130 && framed[64] == ' ' && framed[129] == '\n') {
 							string record = framed.substring(130, framed.length() - 130);
 							if (self.payloadDigest(-1, record).equals(framed.substring(0, 64))) {
-								var unit = lease.readRegularChild("unit.c", 536870912);
+								var unit = lease.readRegularChild("unit.c", 536870912 - record.length());
 								if (unit.ok() && unit.found() && unit.bytes().isNulFreeUtf8()) {
 									string text = unit.bytes().toString();
 									if (self.payloadDigest(-2, text).equals(framed.substring(65, 64))) { payload = BtrccModuleUnitPayload(record, text); }
@@ -1965,10 +1986,10 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	 * written first, and a record whose digests do not match is a miss. */
 	public void storeModuleUnit(string identity, BtrccModuleUnitPayload payload) {
 		try {
-			if (payload.record.length() <= 536870912 && payload.text.length() <= 536870912 && self.open(identity, false, true)) {
+			if (!payload.record.isEmpty() && (long long)payload.record.length() + (long long)payload.text.length() <= 536870912LL && self.open(identity, false, true)) {
 				var lease = self.lease;
 				if (lease != null && lease.replaceRegularChildDurably("unit.c", Bytes.fromString(payload.text)).committed()) {
-					string framed = self.payloadDigest(-1, payload.record) + " " + self.payloadDigest(-2, payload.text) + "\n" + payload.record;
+					string framed = "btrc-module-cache-entry-v1\n" + self.key(identity, true) + "\n" + self.payloadDigest(-1, payload.record) + " " + self.payloadDigest(-2, payload.text) + "\n" + payload.record;
 					lease.replaceRegularChildDurably("record.txt", Bytes.fromString(framed));
 				}
 			}
@@ -2095,7 +2116,7 @@ class BtrccDriver {
 		IBtrccArtifactCache? cache = null;
 		FeDirectiveCache? directiveCache = null;
 		if (options.useCache && !options.outputPath.isEmpty()) {
-			var artifacts = BtrccArtifactCache(runtimePaths.executablePath(), self.sourceFiles, options.unitsPrefix, artifactDigests, dataPaths.root);
+			var artifacts = BtrccArtifactCache(runtimePaths.executablePath(), self.sourceFiles, options.unitsPrefix, artifactDigests, dataPaths.root, sourcePath);
 			cache = artifacts;
 			directiveCache = artifacts.directiveCache();
 		}

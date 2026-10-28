@@ -291,7 +291,7 @@ def test_actual_selfhost_store_uses_bound_identity_and_falls_back(tmp_path, monk
     reference = CompilerCache(fingerprint=ToolchainFingerprint(inventory))
     assert result["key"] == reference.module_key_for("test module")
     assert result["hit"] and result["record"] == "record" and result["text"] == "int value;\n"
-    assert (cache / "selfhost-artifacts-v1" / result["key"] / "unit.c").is_file()
+    assert (cache / "modules-v1" / result["key"] / "unit.c").is_file()
     request["mode"] = "get"
     (tmp_path / "src/compiler/python/main.py").write_text("new source checkout\n")
     assert _driver(identity_driver, tmp_path, request)["identity"] == result["identity"]

@@ -10,7 +10,6 @@ builds name it in their `#line` directives and their keys.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -46,8 +45,8 @@ def _records(cache: Path) -> dict[Path, tuple[int, int]]:
     """The reference compiler's stored unit records, each by the file it was
     last written as: every store replaces the record with a new file."""
     records = {}
-    for path in cache.rglob("*.module.json") if cache.exists() else ():
-        if not json.loads(path.read_text())["record"].startswith("btrc-module-unit-record\t"):
+    for path in cache.glob("modules-v1/*/record.txt") if cache.exists() else ():
+        if not path.read_text().split("\n", 3)[3].startswith("btrc-module-unit-record\t"):
             continue
         written = path.stat()
         records[path] = (written.st_ino, written.st_mtime_ns)

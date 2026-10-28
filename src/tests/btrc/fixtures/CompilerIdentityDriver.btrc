@@ -12,6 +12,11 @@ int main(int argc, char** argv) {
 	JSONValue input = JSONValue.parse(Path.readAll(Strings.copy(argv[1])));
 	var result = JSONValue.makeObject();
 	string mode = input.get("mode").asString();
+	if (mode == "directory") {
+		result.set("directory", JSONValue.makeString(BtrccArtifactCache.moduleCacheDirectory(input.get("configured").asString(), input.get("input_path").asString())));
+		print(result.stringify());
+		return 0;
+	}
 	string identity = "";
 	if (mode == "receipt") {
 		Map<string, string> resources = {};
@@ -22,9 +27,27 @@ int main(int argc, char** argv) {
 		string executable = input.get("executable").asString();
 		string dataRoot = input.get("data_root").asString();
 		identity = BtrccCompilerIdentity.resolve(executable, files.binaryIdentity(executable), dataRoot, files);
-		var cache = BtrccArtifactCache(executable, files, "", null, dataRoot);
+		string prefix = input.has("prefix") ? input.get("prefix").asString() : "";
+		string inputPath = input.has("input_path") ? input.get("input_path").asString() : "";
+		var cache = BtrccArtifactCache(executable, files, prefix, null, dataRoot, inputPath);
+		if (input.has("ready")) { print("ready"); fflush(stdout); }
 		string key = input.get("module").asString();
-		if (mode == "put") { cache.storeModuleUnit(key, BtrccModuleUnitPayload("record", "int value;\n")); }
+		if (mode == "put") {
+			string record = input.has("record") ? input.get("record").asString() : "record";
+			string text = input.has("text") ? input.get("text").asString() : "int value;\n";
+			cache.storeModuleUnit(key, BtrccModuleUnitPayload(record, text));
+		}
+		if (mode == "generation-put") {
+			var generation = BtrccCompilationResult(true, "primary", "", input.get("plan").asString());
+			generation.units.push(input.get("text").asString());
+			generation.unitKeys.push(key);
+			cache.store("generation", generation);
+		}
+		if (mode == "generation-get" || mode == "generation-put") {
+			var generation = cache.load("generation");
+			result.set("generation_hit", JSONValue.makeBool(generation != null));
+			if (generation != null) { result.set("unit", JSONValue.makeString(generation.units.get(0))); }
+		}
 		var payload = cache.loadModuleUnit(key);
 		result.set("hit", JSONValue.makeBool(payload != null));
 		if (payload != null) {

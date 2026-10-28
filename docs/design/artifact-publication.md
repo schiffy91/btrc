@@ -129,8 +129,21 @@ compatible with existing binaries without allowing resource edits to reuse stale
 entries.
 
 Both owners wrap module identities with the same `btrc-module-cache-v1\n`
-domain and length framing. Their physical stores remain separate, and program
-fact differences below still prevent general cross-frontend cache reuse.
+domain and length framing. They share `modules-v1/<key>/` under `BTRC_CACHE_DIR`,
+or under the nearest source package's `build/btrc/` by default. Without a package
+manifest, the default is the input file's directory plus `build/btrc/`.
+Program fact differences below still prevent general cross-frontend cache reuse.
+
+Each entry contains `unit.c` and `record.txt`. The record starts with
+`btrc-module-cache-entry-v1`, the key, then metadata/C SHA-256 digests separated
+by a space, each of those three rows newline-terminated. Module metadata follows.
+Both readers and writers hold `.btrc-publications.lock` in that entry. Directories
+are private (0700 on POSIX), and files are regular, owner-only files (0600).
+Writers replace C first and the record last. Missing, corrupt, mismatched or
+interrupted entries are misses. The combined metadata and C limit is 512 MiB.
+Whole-generation caches remain separate; the self-host generation reader follows
+its unit references into the shared store. Interface-header and link-plan fragment
+storage, complete key parity and performance qualification remain unfinished.
 
 Both module owners encode metadata as `btrc-module-unit-record\t6`, with
 generated C carried separately. The record contains the group, six boolean

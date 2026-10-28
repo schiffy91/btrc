@@ -4527,3 +4527,27 @@ under the source package's `build/`. Preserve semantic key inputs; different key
 remain misses. Verify both write/read directions, corrupted entries and generation
 references using local headless tests and one focused driver build. No full
 compiler build, CI, GitHub writes, application execution or measurements.
+
+Implemented one `modules-v1/<key>/` layout, with `unit.c`, a versioned/key-bound
+checksummed `record.txt`, and the same entry lease in both frontends. Default
+placement is the source package's `build/btrc/`, or the input directory's
+`build/btrc/` without a package. Explicit absolute and relative cache overrides
+agree. POSIX directories/files retain private modes and reject links or unsafe
+entries. The self-host whole-generation cache now follows module references
+through the shared key/path; its old lookup still used the pre-identity key.
+
+Evidence: 170 unique local checks pass, with one non-macOS XDG skip. The reference
+pass has 135 passes; the focused paired pass has 82, with overlap, and the six
+default-path cases passed again after adding actual store interchange. Coverage
+includes both writer/reader directions, identical bytes, corrupt and moved
+records, interrupted publication, private modes, symlink rejection, lock waiting,
+whole-generation references and existing module-staleness regressions. Targeted
+lint/format and diff checks pass. Evidence is under
+`build/issue-gates/shared-module-storage/`.
+
+One native driver build completed. An unintended record-driver selection was
+stopped before native compilation; the focused driver's first transpile caught
+a missing explicit return after the directory-search loop. Final paired checks
+passed after that repair. No full compiler, bootstrap, CI, GitHub write,
+application or measurement ran. Complete semantic key parity, interface-header
+and link-plan fragment artifacts, and BTRSmith performance acceptance remain open.

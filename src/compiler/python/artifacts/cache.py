@@ -11,7 +11,7 @@ import sys
 import tempfile
 import threading
 from collections.abc import Callable, Sequence
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -905,6 +905,15 @@ class CacheDirectory:
         os.makedirs(directory, exist_ok=True)
         return directory
 
+    def resolve_modules(self, input_path: str | None = None) -> str:
+        configured = os.environ.get("BTRC_CACHE_DIR")
+        if configured:
+            return os.path.abspath(configured)
+        start = os.path.dirname(os.path.realpath(input_path)) if input_path else os.path.realpath(os.getcwd())
+        manifest = self._find_manifest(start)
+        package = os.path.dirname(manifest) if manifest is not None else start
+        return os.path.join(package, "build", "btrc")
+
     @staticmethod
     def _find_manifest(start_directory: str) -> str | None:
         """Find the nearest package marker needed by cache placement policy."""
@@ -940,6 +949,101 @@ class CompiledArtifacts:
     split_source_spaces: bool = False
 
 
+class ModuleUnitStore:
+    """Shared module payloads, with a per-entry lock and a last-written receipt."""
+
+    HEADER = "btrc-module-cache-entry-v1\n"
+
+    def __init__(self, files: AtomicFileStore, maximum_bytes: int) -> None:
+        self._files = files
+        self._maximum_bytes = maximum_bytes
+        self._storage = ArtifactStorage()
+
+    def _private(self, path: Path) -> os.stat_result:
+        metadata = self._storage.require_real_directory(path, "module cache directory")
+        if os.name != "nt" and (metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o700):
+            raise ValueError("module cache directory must be private to its owner")
+        return metadata
+
+    def _regular(self, path: Path) -> None:
+        metadata = self._storage.require_real_regular(path, "module cache file")
+        if os.name != "nt" and (
+            metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1
+        ):
+            raise ValueError("module cache file must be private to its owner")
+
+    @contextmanager
+    def _entry(self, directory: Path, key: str):
+        if not re.fullmatch(r"[0-9a-f]{64}", key):
+            raise ValueError("invalid module cache key")
+        root = directory / "modules-v1"
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root_identity = self._private(root)
+        entry = root / key
+        entry.mkdir(mode=0o700, exist_ok=True)
+        entry_identity = self._private(entry)
+        with PublicationLock(entry, None, threading.Lock(), self._storage):
+            self._regular(entry / ".btrc-publications.lock")
+            for path, expected in ((root, root_identity), (entry, entry_identity)):
+                if not os.path.samestat(self._private(path), expected):
+                    raise ValueError("module cache directory changed while locking")
+            yield entry
+            for path, expected in ((root, root_identity), (entry, entry_identity)):
+                if not os.path.samestat(self._private(path), expected):
+                    raise ValueError("module cache directory changed during access")
+
+    def _read(self, path: Path, limit: int) -> bytes:
+        self._regular(path)
+        with os.fdopen(self._storage.open_regular(path), "rb") as stream:
+            if os.fstat(stream.fileno()).st_size > limit:
+                raise ValueError("module cache payload exceeds its byte limit")
+            result = stream.read(limit + 1)
+        if len(result) > limit or b"\0" in result:
+            raise ValueError("invalid module cache payload")
+        return result
+
+    def load(self, directory: Path, key: str) -> tuple[str, str] | None:
+        with self._entry(directory, key) as entry:
+            prefix = (self.HEADER + key + "\n").encode()
+            framed = self._read(entry / "record.txt", self._maximum_bytes + len(prefix) + 130)
+            if not framed.startswith(prefix):
+                return None
+            framed = framed[len(prefix) :]
+            if len(framed) <= 130 or framed[64:65] != b" " or framed[129:130] != b"\n":
+                return None
+            record = framed[130:]
+            if hashlib.sha256(record).hexdigest().encode() != framed[:64]:
+                return None
+            text = self._read(entry / "unit.c", self._maximum_bytes - len(record))
+            if hashlib.sha256(text).hexdigest().encode() != framed[65:129]:
+                return None
+            result = record.decode("utf-8"), text.decode("utf-8")
+        return result
+
+    def store(self, directory: Path, key: str, record: str, text: str) -> None:
+        if not record or "\0" in record or "\0" in text:
+            return
+        encoded, source = record.encode("utf-8"), text.encode("utf-8")
+        if len(encoded) + len(source) > self._maximum_bytes:
+            return
+        framed = (
+            self.HEADER
+            + key
+            + "\n"
+            + hashlib.sha256(encoded).hexdigest()
+            + " "
+            + hashlib.sha256(source).hexdigest()
+            + "\n"
+            + record
+        )
+        with self._entry(directory, key) as entry:
+            for name in ("unit.c", "record.txt"):
+                if (entry / name).exists() or (entry / name).is_symlink():
+                    self._regular(entry / name)
+            self._files.write_text(str(entry / "unit.c"), text, file_mode=0o600)
+            self._files.write_text(str(entry / "record.txt"), framed, file_mode=0o600)
+
+
 class CompilerCache:
     """Own framing, validation, and persistence of complete emitted generations."""
 
@@ -964,6 +1068,10 @@ class CompilerCache:
         self._files = file_store or AtomicFileStore()
         self._storage = ArtifactStorage()
         self._publisher = ArtifactPublisher(self._storage)
+
+    def _module_directory(self, input_path: str | None) -> Path:
+        resolve = getattr(self._directory, "resolve_modules", self._directory.resolve)
+        return Path(resolve(input_path))
 
     def load_artifacts(
         self,
@@ -1128,52 +1236,19 @@ class CompilerCache:
         return digest.hexdigest()
 
     def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None:
-        """Read verified module metadata and C text, or None on any doubt."""
+        """Read a shared, verified module record and C payload."""
         try:
-            key = self.module_key_for(identity)
-            path = Path(self._directory.resolve(input_path)) / f"{key}.module.json"
-            if not path.exists():
-                return None
-            self._storage.require_real_regular(path, "module unit")
-            payload = self._files.read_json(str(path), max_bytes=self._max_entry_bytes)
-            if (
-                not isinstance(payload, dict)
-                or set(payload) != {"key", "record", "text", "sha256", "text-sha256"}
-                or payload["key"] != key
-                or not isinstance(payload["record"], str)
-                or not isinstance(payload["text"], str)
-            ):
-                return None
-            encoded = payload["record"].encode("utf-8")
-            if hashlib.sha256(encoded).hexdigest() != payload["sha256"]:
-                return None
-            text = payload["text"].encode("utf-8")
-            if hashlib.sha256(text).hexdigest() != payload["text-sha256"]:
-                return None
-            return payload["record"], payload["text"]
+            return ModuleUnitStore(self._files, self._max_entry_bytes).load(
+                self._module_directory(input_path), self.module_key_for(identity)
+            )
         except (OSError, UnicodeError, ValueError, RecursionError):
             return None
 
     def store_module_unit(self, identity: str, record: str, text: str, input_path: str | None = None) -> None:
-        """Atomically store a module-unit record; storage failure only costs reuse."""
-        if not record or "\0" in record or "\0" in text:
-            return
+        """Store one shared module; interrupted publication only costs reuse."""
         try:
-            key = self.module_key_for(identity)
-            encoded = record.encode("utf-8")
-            source = text.encode("utf-8")
-            if len(encoded) + len(source) > self._max_entry_bytes:
-                return
-            path = Path(self._directory.resolve(input_path)) / f"{key}.module.json"
-            self._files.write_json(
-                str(path),
-                {
-                    "key": key,
-                    "record": record,
-                    "text": text,
-                    "sha256": hashlib.sha256(encoded).hexdigest(),
-                    "text-sha256": hashlib.sha256(source).hexdigest(),
-                },
+            ModuleUnitStore(self._files, self._max_entry_bytes).store(
+                self._module_directory(input_path), self.module_key_for(identity), record, text
             )
         except (OSError, UnicodeError, ValueError, RecursionError):
             return

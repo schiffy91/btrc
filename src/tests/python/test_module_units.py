@@ -291,12 +291,12 @@ def test_interface_edit_and_corrupt_records_rebuild(tmp_path, monkeypatch):
     widened, _ = workspace.build("GalleryMain.btrc", tmp_path / "widened", monkeypatch)
     # Stage A digests the whole program interface: every group rebuilds.
     assert not widened.module_units_reused
-    records = list(workspace.cache.glob("*.module.json"))
+    records = list(workspace.cache.glob("modules-v1/*/record.txt"))
     assert records
     for position, record in enumerate(records):
-        # Truncated JSON and a checksum mismatch are both misses, never reuse.
+        # Truncated records and a checksum mismatch are both misses, never reuse.
         text = record.read_text()
-        record.write_text(text[:-8] if position % 2 else text.replace('"sha256":"', '"sha256":"0', 1))
+        record.write_text(text[:-8] if position % 2 else text + "corrupt")
     rebuilt, _ = workspace.build("GalleryMain.btrc", tmp_path / "rebuilt", monkeypatch)
     assert not rebuilt.module_units_reused
     assert workspace.run(rebuilt, tmp_path / "rebuilt") == "shape square measured 12\ngallery value 37\n"
@@ -557,7 +557,7 @@ def test_selfhost_generation_references_stored_units(tmp_path, immutable_btrcc):
     digest = manifest["hashes"][referenced[-1]]
     stored = [
         path
-        for path in workspace.cache.glob("selfhost-artifacts-v1/*/unit.c")
+        for path in workspace.cache.glob("modules-v1/*/unit.c")
         if hashlib.sha256(path.read_bytes()).hexdigest() == digest
     ]
     assert stored
