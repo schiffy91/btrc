@@ -4480,3 +4480,15 @@ type-declaration preparation step in the certificate emitter; the final run is
 green. No full compiler, application, bootstrap, measurement, CI or GitHub run.
 Shared compiler identity, complete key parity, physical storage and application
 performance acceptance remain open; this increment does not close issue #8.
+
+### 2026-10-28 issue #8 compiler build identity
+
+Packet: CX-COMPILER-BUILD-IDENTITY. Branch
+`codex/compiler-build-identity-20261028`, base `b54c2001`.
+Own compiler source inventory and module-cache identity, compiler build receipts,
+the existing self-host build/bundle owners and Makefile recipes, and focused
+identity/build/cache tests. Bind source identity while generating C and bind that
+C to the binary during native compilation. Runtime verification must reject stale
+or malformed receipts and retain executable-specific fallback. Use local synthetic
+builds and one focused driver; do not run a full compiler build, CI, applications,
+bootstrap, measurements or GitHub writes.
