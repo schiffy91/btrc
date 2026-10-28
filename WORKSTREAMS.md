@@ -4297,3 +4297,21 @@ The full-width codec fixture runs its boundary checks in the journal callback
 with explicitly typed 64-bit limits. Generated-source, lint and formatting
 checks pass. These results do not qualify compound literals or the full
 issue-completion gates.
+
+### 2026-10-28 C2 compound literals
+
+Packet: CX-C2-COMPOUND-LITERALS. Base `ef13a269`. Own the paired parser,
+expression/type, initializer/storage, ownership/escape and static-initializer
+owners; their analysis models and contextual state; structured expression and
+aggregate lowering; expression-child walkers and kind-coverage checks; and
+the focused compound-literal tests and documentation. Use the existing shared
+`CompoundLiteral` AST and structured IR. The contract is
+`docs/design/c-compatibility.md`, r10 compound literals, including storage
+lifetime, lvalues, inferred array extents, constant initialization, escapes,
+`try`, parameter defaults, field initializers, GPU and realtime behavior.
+
+Begin with the C type-name reader and semantic/storage contracts. Keep source
+syntax disabled until both compilers can validate and lower every accepted
+form. Batch focused reference checks before self-host builds. This packet
+stays local; no CI, GitHub push, bootstrap, application execution or
+measurements. It does not replace the remaining GitHub issue requirements.
