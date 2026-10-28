@@ -31,22 +31,6 @@ class DesignatorRecords implements IValidationRecords {
 		for declaration in program.declarations() { files.put(AstIdentity.key(declaration), "Index.btrc"); }
 		self.codec = ValidationRecordCodec(program.declarations(), files);
 		self.encoded = encoded;
-		/* Signed transport remains independent of the array-range refusal.
-		 * A real source index journals its AST identity; substitute only the
-		 * integer payload to test both codec endpoints at signed-64 limits. */
-		for fact in journal.facts {
-			if (fact.kind != VALIDATION_DESIGNATOR_INDEX) { continue; }
-			for number in [LLONG_MIN, LLONG_MAX] {
-				var probe = ValidationJournal();
-				var replacement = ValidationFact(VALIDATION_DESIGNATOR_INDEX, fact.node);
-				replacement.integerValue = number;
-				probe.facts.push(replacement);
-				string? text = self.codec.encode(declaration, probe, foreign);
-				assert(text != null);
-				Vector<ValidationFact>? restored = self.codec.decode(text);
-				assert(restored != null && restored.len == 1 && restored.get(0).integerValue == number);
-			}
-		}
 	}
 
 	public void selectBodies(Map<Node, bool> unreached) {}
@@ -68,6 +52,22 @@ class DesignatorRecords implements IValidationRecords {
 		if (encoded == null) { assert(false); return false; }
 		assert(!encoded.isEmpty());
 		self.encoded = encoded;
+		/* Signed transport remains independent of the array-range refusal.
+		 * A real source index journals its AST identity; substitute only the
+		 * integer payload to test both codec endpoints at signed-64 limits. */
+		for fact in journal.facts {
+			if (fact.kind != VALIDATION_DESIGNATOR_INDEX) { continue; }
+			for number in [(long long)LLONG_MIN, (long long)LLONG_MAX] {
+				var probe = ValidationJournal();
+				var replacement = ValidationFact(VALIDATION_DESIGNATOR_INDEX, fact.node);
+				replacement.integerValue = number;
+				probe.facts.push(replacement);
+				string? text = self.codec.encode(declaration, probe, foreign);
+				assert(text != null);
+				Vector<ValidationFact>? restored = self.codec.decode(text);
+				assert(restored != null && restored.len == 1 && restored.get(0).integerValue == number);
+			}
+		}
 		/* A corrupt full-width value must invalidate the record, not truncate
 		 * or wrap it. Exercise the actual journal row after encoding. */
 		for line in Strings.split(encoded, "\n") {
