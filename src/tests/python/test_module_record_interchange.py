@@ -15,6 +15,7 @@ from src.compiler.python.application.modules import (
     ModuleUnitGraph,
     ModuleUnitRecord,
     ProgramInterface,
+    SharedDeclarations,
 )
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
@@ -22,6 +23,7 @@ from src.compiler.python.frontend.packages import NativeLinkPlan, PackageTarget
 from src.compiler.python.frontend.sources import ResolvedSource, SourceDependencyGraph, SourceDependencyKind
 from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
+from src.compiler.python.ir.nodes import CType, IRFunctionDecl, IRModule
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.codec import AstCanonicalRenderer
@@ -56,6 +58,8 @@ def _record(group="/work/Module.btrc"):
         consulted_sources={"/work/imported.btrc": "abc123"},
         graph=ModuleUnitGraph({"entry": ("genericA",), "genericA": ("external",)}, ("entry",), frozenset({"genericA"})),
         kept_instances=frozenset({"genericA"}),
+        declaration_roots=("Alias", "external", "unknown"),
+        declaration_digest="a" * 64,
     )
 
 
@@ -128,7 +132,7 @@ def test_reference_cache_replays_selfhost_reencoded_records(tmp_path, monkeypatc
 @pytest.mark.parametrize(
     ("before", "after"),
     [
-        ("record\t5", "record\t4"),
+        ("record\t6", "record\t5"),
         ("flags\t1", "flags\ttrue"),
         ("@exported-effects\t1", "@exported-effects\t-1"),
         ("@exported-effects\t1", "@exported-effects\t01"),
@@ -148,6 +152,8 @@ def test_reference_cache_replays_selfhost_reencoded_records(tmp_path, monkeypatc
         ("kept-instances\tgenericA", "kept-instances\tgenericA\tgenericA"),
         ("/work/imported.btrc\tabc123", "/work/imported.btrc\t"),
         ("@consulted-sources\t1", "@consulted-sources\t0"),
+        ("declaration-roots\tAlias", "declaration-roots\tAlias\tAlias"),
+        ("declaration-digest\t" + "a" * 64, "declaration-digest\tbad"),
         ("@consulted-effects\t1\nexternal\t|||0", "@consulted-effects\t2\nexternal\t|||0\nexternal\t|||0"),
     ],
 )
@@ -666,3 +672,96 @@ def test_production_pipelines_share_interface_records_across_edit_builds(tmp_pat
         if phase == "no-cache":
             assert (actual["output"], actual["units"]) == previous
         previous = actual["output"], actual["units"]
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+@pytest.mark.parametrize("edit", ["addition", "signature", "transitive", "include-cycle", "macro", "tuple"])
+def test_module_interface_edit_reuses_unrelated_group(tmp_path, monkeypatch, request, frontend, edit):
+    root = tmp_path.resolve()
+    main, alpha, beta = (root / name for name in ("Main.btrc", "Alpha.btrc", "Beta.btrc"))
+    main.write_text('import "Alpha.btrc";\nimport "Beta.btrc";\nint main() { return alpha() + beta() - 3; }\n')
+    alpha.write_text("int alpha() { return 1; }\n")
+    beta.write_text("int beta() { return 2; }\n")
+    changed = alpha
+    if edit == "transitive":
+        changed = root / "Leaf.btrc"
+        alpha.write_text('import "Leaf.btrc";\nint alpha() { return leaf(); }\n')
+        changed.write_text("int leaf() { return 1; }\n")
+    elif edit == "include-cycle":
+        changed = root / "Part.btrc"
+        alpha.write_text('#include "Part.btrc"\nint alpha() { return leaf(); }\n')
+        changed.write_text("int leaf() { return 1; }\n")
+    elif edit == "macro":
+        alpha.write_text("#define FACTOR 1\nint alpha() { return FACTOR; }\n")
+    elif edit == "tuple":
+        alpha.write_text('int alpha() { (int, string) pair = (1, "a"); return pair._0; }\n')
+        beta.write_text("int beta() { (double, int) pair = (0.5, 2); return pair._1; }\n")
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(root / "cache"))
+    compiler = Compiler(cache=CompilerCache())
+    binary = request.getfixturevalue("module_record_driver") if frontend == "selfhost" else None
+    records = {}
+
+    def compile_phase(phase, use_cache=True):
+        nonlocal records
+        if frontend == "reference":
+            options = CompilerOptions(
+                include_stdlib=False, module_units=True, units_prefix=str(root / phase), use_cache=use_cache
+            )
+            result = compiler.compile(main.read_text(), str(main), options)
+            assert result.successful, result.failure
+            return len(result.module_units_lowered), len(result.module_units_reused), (result.c_source, result.c_units)
+        path = root / "pipeline.json"
+        path.write_text(json.dumps({"prefix": str(root / phase), "use_cache": use_cache, "records": records}))
+        completed = _driver(binary, "pipeline", path, str(main))
+        assert completed.returncode == 0, completed.stderr
+        result = json.loads(completed.stdout)
+        records = result["records"]
+        return result["lowered"], result["reused"], (result["output"], result["units"])
+
+    count = 4 if edit == "transitive" else 3
+    cold = compile_phase("cold")
+    assert cold[:2] == (count, 0)
+    warm = compile_phase("warm")
+    assert warm[:2] == (0, count)
+    assert warm[2] == cold[2]
+    if edit == "signature":
+        alpha.write_text("int alpha(int value = 1) { return value; }\n")
+    elif edit == "macro":
+        alpha.write_text("#define FACTOR 2\nint alpha() { return FACTOR; }\n")
+    elif edit == "tuple":
+        alpha.write_text(
+            'int alpha() { (int, string) pair = (1, "a"); (int, int) extra = (2, 3); return pair._0 + extra._1; }\n'
+        )
+    else:
+        changed.write_text(changed.read_text() + "int extra() { return 4; }\n")
+    edited = compile_phase("edited")
+    expected_counts = (count, 0) if edit == "macro" else (1, count - 1) if edit == "tuple" else (count - 1, 1)
+    assert edited[:2] == expected_counts
+    uncached = compile_phase("uncached", False)
+    assert uncached[:2] == (count, 0)
+    assert edited[2] == uncached[2]
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_declaration_certificate_checks_content_order_and_new_providers(tmp_path, request, frontend):
+    binary = request.getfixturevalue("module_record_driver") if frontend == "selfhost" else None
+    roots = ["left", "right", "unknown"]
+
+    def digest(declarations):
+        if frontend == "reference":
+            unit = IRModule(function_decls=[IRFunctionDecl(name, CType(kind)) for name, kind in declarations])
+            return SharedDeclarations(unit).dependency_digest(roots)
+        path = tmp_path / "dependencies.json"
+        path.write_text(
+            json.dumps({"roots": roots, "declarations": [{"name": name, "type": kind} for name, kind in declarations]})
+        )
+        completed = _driver(binary, "dependencies", path, "unused")
+        assert completed.returncode == 0, completed.stderr
+        return completed.stdout.strip()
+
+    original = [("left", "int"), ("right", "int")]
+    baseline = digest(original)
+    assert digest([("unrelated", "int"), *original]) == baseline
+    assert digest([("left", "long"), ("right", "int")]) != baseline
+    assert digest(list(reversed(original))) != baseline
+    assert digest([*original, ("unknown", "int")]) != baseline

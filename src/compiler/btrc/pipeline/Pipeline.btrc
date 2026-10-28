@@ -255,6 +255,7 @@ class CompilerPipeline {
 			unitProgram.nativeDefines = packages.linkPlan.preprocessorDefinitions();
 			if (interfaces != null) {
 				unitProgram.interfaceDigest = interfaces.digest;
+				unitProgram.scopedInterfaces = interfaces.scopedDigests;
 				unitProgram.knownSourceDigests = interfaces.groupSourceDigests;
 			}
 			ModuleUnitBuild build = ModuleUnitCompiler(unitProgram, options, options.useCache ? self.moduleUnitStore : null, self.workerPools).compile();

@@ -14,6 +14,7 @@ import ../../../compiler/btrc/frontend/SourceIo.btrc;
 import ../../../compiler/btrc/generated/ast/Node.btrc;
 import ../../../compiler/btrc/parser/Stage.btrc;
 import ../../../compiler/btrc/syntax/Identity.btrc;
+import ../../../compiler/btrc/ir/Model.btrc;
 
 class EmptyModuleCache implements IBtrccArtifactCache {
 	public EmptyModuleCache() {}
@@ -212,6 +213,17 @@ int main(int argc, char** argv) {
 	if (argc != 4) { return 3; }
 	string mode = Strings.copy(argv[1]);
 	string group = Strings.copy(argv[3]);
+	if (mode == "dependencies") {
+		JSONValue input = JSONValue.parse(Path.readAll(Strings.copy(argv[2])));
+		IRModule unit = IRModule();
+		for value in input.get("declarations").elements() {
+			unit.functionDecls.push(IRFunctionDecl(value.get("name").asString(), value.get("type").asString(), false));
+		}
+		Vector<string> roots = [];
+		if (!ModuleUnitRecord.stringsFrom(input.get("roots"), roots)) { return 2; }
+		print(ModuleUnitDeclarations(unit).dependencyDigest(roots));
+		return 0;
+	}
 	if (mode == "pipeline") {
 		print(ModulePipelineProbe.run(JSONValue.parse(Path.readAll(Strings.copy(argv[2]))), group));
 		return 0;
@@ -274,6 +286,8 @@ int main(int argc, char** argv) {
 	record.graph.instances.put("genericA", true);
 	record.keptInstances = ["genericA"];
 	record.consultedSources.put("/work/imported.btrc", "abc123");
+	record.declarationRoots = ["Alias", "external", "unknown"];
+	record.declarationDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 	print(record.toText());
 	return 0;
 }

@@ -22,6 +22,7 @@ from typing import NoReturn, Protocol
 
 from ..abi.hosted import HOSTED_ABI
 from ..analyzer.ownership import OwnershipAnalyzer
+from ..analyzer.reachability import StdlibReachability
 from ..backend.c_emitter import CEmitter
 from ..frontend.native_imports import NativeHeaderSource
 from ..frontend.sources import CompilationGroups, ResolvedSource, SourceDependencyGraph
@@ -147,6 +148,8 @@ class ModuleUnitRecord:
     consulted_sources: Mapping[str, str] = field(default_factory=dict)
     graph: ModuleUnitGraph = field(default_factory=ModuleUnitGraph)
     kept_instances: frozenset[str] = frozenset()
+    declaration_roots: tuple[str, ...] = ()
+    declaration_digest: str = ""
 
     @staticmethod
     def _name(value: str) -> str:
@@ -194,7 +197,7 @@ class ModuleUnitRecord:
     def to_text(self) -> str:
         """Encode the shared metadata; generated C travels separately."""
         try:
-            lines = ["btrc-module-unit-record\t5", "group\t" + self._name(self.group)]
+            lines = ["btrc-module-unit-record\t6", "group\t" + self._name(self.group)]
             flags = (
                 self.kept,
                 self.has_setjmp,
@@ -237,6 +240,8 @@ class ModuleUnitRecord:
                         values = sorted(value) if section == "realtime-proofs" else value
                         row = "\t".join((name, *(self._name(item) for item in values)))
                     lines.append(row)
+            lines.append("\t".join(("declaration-roots", *(self._name(name) for name in self.declaration_roots))))
+            lines.append("declaration-digest\t" + self.declaration_digest)
             return "\n".join(lines)
         except ValueError:
             # A valid compile with an unrepresentable path simply forgoes reuse.
@@ -250,7 +255,7 @@ class ModuleUnitRecord:
                 return None
             cls._name(group)
             lines = metadata.split("\n")
-            if len(lines) < 9 or lines[:2] != ["btrc-module-unit-record\t5", "group\t" + group]:
+            if len(lines) < 9 or lines[:2] != ["btrc-module-unit-record\t6", "group\t" + group]:
                 return None
             flags = lines[2].split("\t")
             if len(flags) != 7 or flags[0] != "flags" or any(flag not in ("0", "1") for flag in flags[1:]):
@@ -294,7 +299,18 @@ class ModuleUnitRecord:
                         entries[key] = tuple(cls._name(value) for value in values)
                 sections.append(entries)
                 cursor += count
-            if cursor != len(lines):
+            if cursor + 2 != len(lines):
+                return None
+            label, *declaration_roots = lines[cursor].split("\t")
+            digest_label, declaration_digest = lines[cursor + 1].split("\t")
+            if label != "declaration-roots" or digest_label != "declaration-digest":
+                return None
+            declaration_roots = tuple(cls._name(name) for name in declaration_roots)
+            if len(set(declaration_roots)) != len(declaration_roots):
+                return None
+            if declaration_digest and (
+                len(declaration_digest) != 64 or any(c not in "0123456789abcdef" for c in declaration_digest)
+            ):
                 return None
             exports, helpers, roots, kept, graph_roots, instances = lists
             exported, consulted, proofs, edges, sources = sections
@@ -324,6 +340,8 @@ class ModuleUnitRecord:
                 consulted_sources=sources,
                 graph=ModuleUnitGraph(edges, graph_roots, instance_set),
                 kept_instances=kept_set,
+                declaration_roots=declaration_roots,
+                declaration_digest=declaration_digest,
             )
         except (ValueError, IndexError, RecursionError):
             return None
@@ -734,7 +752,35 @@ class ProgramInterface:
             natives_digest = self.digest(natives)
             if native_key is not None:
                 store.store_module_unit(native_key, "validation-natives-v2", natives_digest, input_path)
-        return self.compose(cached, natives_digest, self.digest(others))
+        self.group_digests = cached
+        self.natives_digest = natives_digest
+        self.others_digest = self.digest(others)
+        return self.compose(cached, natives_digest, self.others_digest)
+
+    def dependencies(self, source: ResolvedSource, groups: CompilationGroups) -> dict[str, frozenset[str]]:
+        """Each group's transitive imports; include cycles already form one group."""
+        outgoing = {name: set() for name in groups.names()}
+        for path, edge in source.graph.iter_edges():
+            owner, target = groups.group_of(path), groups.group_of(edge.target)
+            if owner in outgoing and target in outgoing:
+                outgoing[owner].add(target)
+        result = {}
+        for name in groups.names():
+            reached, pending = {name}, [name]
+            while pending:
+                for target in outgoing[pending.pop()] - reached:
+                    reached.add(target)
+                    pending.append(target)
+            result[name] = frozenset(reached)
+        return result
+
+    def scoped_digest(self, dependencies: frozenset[str]) -> str:
+        selected = {
+            name: digest
+            for name, digest in self.group_digests.items()
+            if not name.startswith("group:") or name[6:] in dependencies
+        }
+        return self.compose(selected, self.natives_digest, self.others_digest)
 
 
 class SharedDeclarations:
@@ -872,7 +918,27 @@ class SharedDeclarations:
             helper_decls=list(unit.helper_decls),
         )
 
-    def merge_into(self, unit: IRModule) -> None:
+    def dependency_digest(self, roots: Iterable[str]) -> str:
+        """Check referenced declarations, their relative order, and global directives."""
+        included: set[int] = set()
+        pending = list(roots)
+        seen = set(pending)
+        while pending:
+            for index in self._providers.get(pending.pop(), ()):
+                if index in included:
+                    continue
+                included.add(index)
+                for reference in self._references[index] - seen:
+                    seen.add(reference)
+                    pending.append(reference)
+        unit = IRModule(preprocessor_decls=list(self._preprocessor))
+        for index in sorted(included):
+            field_name, declaration = self._entries[index]
+            getattr(unit, field_name).append(declaration)
+        IROptimizer.refresh_type_declarations(unit)
+        return hashlib.sha256(CEmitter().emit_module_unit(unit).encode("utf-8")).hexdigest()
+
+    def merge_into(self, unit: IRModule) -> tuple[str, ...]:
         """Add the shared declarations `unit` needs that it does not provide."""
         provided: dict[str, set[str]] = {}
         roots: set[str] = set()
@@ -924,6 +990,9 @@ class SharedDeclarations:
             for declaration in self._preprocessor
             if isinstance(declaration, IRInclude) and declaration not in unit.preprocessor_decls
         )
+        # Include owned names too: a body may change a shared shape that this
+        # group also declares. Unknown names remain roots to detect new providers.
+        return tuple(sorted(roots | set().union(*provided.values())))
 
 
 class ModuleUnitCompiler:
@@ -1024,7 +1093,9 @@ class ModuleUnitCompiler:
 
     @staticmethod
     def _program_facts_digest(
-        analyzed, facts: ProgramLoweringFacts, shared: SharedDeclarations, source: ResolvedSource
+        analyzed,
+        facts: ProgramLoweringFacts,
+        source: ResolvedSource,
     ) -> str:
         digest = hashlib.sha256()
 
@@ -1044,11 +1115,11 @@ class ModuleUnitCompiler:
                 files.append(path)
         add(files)
         add(bool(facts.uses_trycatch))
-        # A unit takes the shared declarations it uses in their program order,
-        # while specialization views have canonical symbol order. Keep the
-        # actual shared order in the key: tuple, span and atomic shapes can
-        # still be discovered in other groups' bodies.
-        add(shared.order())
+        # Pipeline._lowerer uses the presence of a safe callable to install
+        # hosted/runtime realtime externals; individual callable names are not read.
+        add(bool(analyzed.realtime_safe_callables))
+        # Shared declaration content and order are checked by each record's
+        # dependency certificate. Specialization demand remains conservative.
         add([view.symbol for view in facts.class_views or ()])
         add([view.symbol for view in facts.method_views or ()])
         add({name: type_args(instances) for name, instances in analyzed.generic_instances.items()})
@@ -1064,16 +1135,23 @@ class ModuleUnitCompiler:
                 for key, value in analyzed.generic_class_callable_instances.items()
             }
         )
-        add(sorted(analyzed.realtime_safe_callables))
         plan = facts.stdlib_reachability
         if plan is None:
             add(None)
         else:
-            add(sorted(plan.names))
+            # Mentioned local variables cannot change library selection.
+            # Method names can, including inherited methods from other classes.
+            method_names = {
+                member.name
+                for declaration in analyzed.program.declarations
+                for member in getattr(declaration, "members", ())
+                if isinstance(member, MethodDecl)
+            }
+            add(sorted(plan.names & method_names))
             add(sorted(plan.unreached_names))
             reached = []
             for declaration in analyzed.program.declarations:
-                if plan.reaches(declaration):
+                if StdlibReachability.is_stdlib_declaration(declaration) and plan.reaches(declaration):
                     reached.append([str(getattr(declaration, "source_file", "")), getattr(declaration, "name", "")])
             add(reached)
         return digest.hexdigest()
@@ -1087,11 +1165,14 @@ class ModuleUnitCompiler:
         *,
         split_source_spaces: bool,
         interface_digest: str,
+        interfaces: ProgramInterface,
         store: ModuleUnitStore | None = None,
         input_path: str | None = None,
         profile: dict[str, float] | None = None,
         timed: Callable[[dict[str, float] | None, str, float], None] | None = None,
     ) -> ModuleUnitBuild:
+        if not interface_digest:
+            raise CodegenError("module units require a pre-analysis interface snapshot")
         store = store or DisabledModuleUnitStore()
         timed = timed or (lambda _profile, _label, _start: None)
         self._target = source.native_plan.target.label
@@ -1124,21 +1205,26 @@ class ModuleUnitCompiler:
         program_graph = ModuleUnitGraph.from_unit(program_unit, program_facts)
         program_setjmp = self.setjmp_functions(program_unit)
         program_releases = IROptimizer.releases_cyclable_values(program_unit)
-        program_digest = self._program_facts_digest(analyzed, facts, shared, source)
+        dependencies = interfaces.dependencies(source, groups)
+        program_digest = self._program_facts_digest(analyzed, facts, source)
         group_sources, group_lines = self._group_sources(source, groups)
         context = self._cache_context(options, source.native_plan.target.label, self._native_defines)
         # Preserve both existing semantic authorities until their contents,
         # not just their framing, have converged with the self-hosted owner.
-        program_identity_digest = hashlib.sha256()
-        for value in (interface_digest, program_digest):
-            self._append_key_field(program_identity_digest, value)
-        program_identity = program_identity_digest.hexdigest()
         states: list[_GroupState] = []
         for name in groups.names():
+            program_identity_digest = hashlib.sha256()
+            for value in (interfaces.scoped_digest(dependencies[name]), program_digest):
+                self._append_key_field(program_identity_digest, value)
+            program_identity = program_identity_digest.hexdigest()
             identity = self._cache_key(context, name, group_sources.get(name, ""), program_identity)
             state = _GroupState(name, identity, lines=group_lines.get(name, 0))
             payload = store.load_module_unit(identity, input_path)
             state.record = ModuleUnitRecord.from_text(*payload, name) if payload is not None else None
+            if state.record is not None and state.record.declaration_digest != shared.dependency_digest(
+                state.record.declaration_roots
+            ):
+                state.record = None
             # A unit that copied another group's bodies or positions is exact
             # only while that group's source is unchanged.
             if state.record is not None and any(
@@ -1270,6 +1356,8 @@ class ModuleUnitCompiler:
                     realtime_roots=state.realtime_roots,
                     graph=state.graph,
                     kept_instances=state.kept_instances,
+                    declaration_roots=reply["declaration_roots"],
+                    declaration_digest=shared.dependency_digest(reply["declaration_roots"]),
                     realtime_proofs={name: tuple(sorted(callees)) for name, callees in state.realtime_proofs.items()},
                     consulted_sources={
                         group: group_sources[group]
@@ -1869,6 +1957,7 @@ class ModuleUnitWorker:
         self._lowering = lowering
         self._shared = shared
         self._units: dict[str, tuple[IRModule, frozenset[str]]] = {}
+        self._declaration_roots: dict[str, tuple[str, ...]] = {}
         self._effects: dict[str, dict] = {}
         self._solvers: dict[str, SetjmpUnitSolver] = {}
         self._solved: dict[str, FunctionEffect] = {}
@@ -1945,7 +2034,7 @@ class ModuleUnitWorker:
             raise CodegenError(
                 f"native adapters belong to the program unit; group {group!r} lowered {sorted(unit.native_units)}"
             )
-        self._shared.merge_into(unit)
+        self._declaration_roots[group] = self._shared.merge_into(unit)
         setjmp_functions = self._compiler.setjmp_functions(unit)
         self._units[group] = (unit, setjmp_functions)
         return {
@@ -2021,5 +2110,6 @@ class ModuleUnitWorker:
             "entry": any(function.name in {"main", "btrc_main"} for function in unit.function_defs),
             "helpers": helpers,
             "sources": tuple(sorted(consulted - {CompilationGroups.PROGRAM})),
+            "declaration_roots": self._declaration_roots[group],
             "hosted": tuple(hosted),
         }

@@ -804,6 +804,7 @@ class CompilationPipeline:
             return self._result(source, options, profile, tokens=parsed.tokens, program=program)
 
         interface_digest = None
+        interfaces = ProgramInterface()
         try:
             if (
                 options.module_units
@@ -812,7 +813,7 @@ class CompilationPipeline:
                 and options.stdlib_archive is None
                 and source.strict_imports
             ):
-                interface_digest = ProgramInterface().capture(
+                interface_digest = interfaces.capture(
                     program.declarations,
                     source,
                     options,
@@ -868,6 +869,7 @@ class CompilationPipeline:
                     store=module_store,
                     input_path=input_path,
                     interface_digest=interface_digest,
+                    interfaces=interfaces,
                     profile=profile,
                     timed=self._timed,
                 )

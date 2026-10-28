@@ -4457,3 +4457,26 @@ Scope interface identities to imports and retain a certificate of consumed
 shared declarations, including their content and order. Keep global directives
 and semantic safety facts checked. Verify edits against uncached output locally;
 no CI, GitHub writes, application execution or full compiler build.
+
+Both lowering pipelines now key each group on its transitive imported interfaces
+and retain a declaration dependency certificate. The certificate checks the
+current structured IR closure, its emitted content and order, global directives,
+and names that previously had no provider. Record version 6 carries those roots
+and their digest. Generic demand and library method selection remain checked;
+the reference realtime guard retains the global boolean read by lowering.
+
+Local evidence: 176 paired interface/cache/codec checks and 37 final regressions
+pass, with no skips. An added declaration, changed signature, transitive import,
+include component and new tuple shape leave unrelated units reusable. Macro
+changes invalidate their output. Cached C equals uncached C. The existing
+staleness suite, generic-demand tests at one and two workers, helper-local
+filtering, lint, formatting and diff checks pass. Evidence is in
+`build/issue-gates/module-dependency-scope/`.
+
+One strict-C11 O0 driver build completed. Two earlier transpiles were stopped
+before native compilation to fix a test API call and preserve the exact global
+realtime guard found during review. The initial staleness run caught a missing
+type-declaration preparation step in the certificate emitter; the final run is
+green. No full compiler, application, bootstrap, measurement, CI or GitHub run.
+Shared compiler identity, complete key parity, physical storage and application
+performance acceptance remain open; this increment does not close issue #8.

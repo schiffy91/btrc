@@ -234,6 +234,8 @@ class ModuleUnitRecord {
 	 * WGSL, an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__`
 	 * position. None of them is in the program interface. */
 	public Map<string, string> consultedSources = {};
+	public Vector<string> declarationRoots = [];
+	public string declarationDigest = "";
 
 	public ModuleUnitRecord() {}
 
@@ -275,7 +277,7 @@ class ModuleUnitRecord {
 	 * Empty when a value cannot be carried in the format, and then nothing
 	 * is stored. */
 	public string toText() {
-		Vector<string> lines = ["btrc-module-unit-record\t5", "group\t" + self.group];
+		Vector<string> lines = ["btrc-module-unit-record\t6", "group\t" + self.group];
 		Vector<string> flags = ["flags"];
 		for flag in [self.kept, self.hasSetjmp, self.effectsSolved, self.releasesCyclable, self.definesEntry, self.programRelease] { flags.push(flag ? "1" : "0"); }
 		lines.push(Strings.join(flags, "\t"));
@@ -307,6 +309,8 @@ class ModuleUnitRecord {
 			consulted.push(group + "\t" + self.consultedSources.get(group));
 		}
 		ModuleUnitRecord.section(lines, "consulted-sources", Strings.join(consulted, "\n"));
+		lines.push(ModuleUnitRecord.listLine("declaration-roots", self.declarationRoots));
+		lines.push("declaration-digest\t" + self.declarationDigest);
 		if (self.group.indexOf("\t") >= 0 || self.group.indexOf("\n") >= 0) { return ""; }
 		return Strings.join(lines, "\n");
 	}
@@ -358,7 +362,7 @@ class ModuleUnitRecord {
 	class ModuleUnitRecord? fromPayload(BtrccModuleUnitPayload? payload, string group) {
 		if (payload == null) { return null; }
 		Vector<string> lines = Strings.split(payload.record, "\n");
-		if (lines.len < 9 || !lines.get(0).equals("btrc-module-unit-record\t5") || !lines.get(1).equals("group\t" + group)) { return null; }
+		if (lines.len < 9 || !lines.get(0).equals("btrc-module-unit-record\t6") || !lines.get(1).equals("group\t" + group)) { return null; }
 		Vector<string> flags = Strings.split(lines.get(2), "\t");
 		if (flags.len != 7 || !flags.get(0).equals("flags")) { return null; }
 		for (int index = 1; index < 7; index++) {
@@ -418,7 +422,23 @@ class ModuleUnitRecord {
 			if (row.len != 2 || row.get(0).isEmpty() || row.get(1).isEmpty() || record.consultedSources.has(row.get(0))) { return null; }
 			record.consultedSources.put(row.get(0), row.get(1));
 		}
-		if (cursor.get(0) + count != lines.len) { return null; }
+		int tail = cursor.get(0) + count;
+		if (tail + 2 != lines.len || !ModuleUnitRecord.listFrom(lines.get(tail), "declaration-roots", record.declarationRoots)) { return null; }
+		Map<string, bool> declarationNames = {};
+		for name in record.declarationRoots {
+			if (declarationNames.has(name)) { return null; }
+			declarationNames.put(name, true);
+		}
+		Vector<string> digestRow = Strings.split(lines.get(tail + 1), "\t");
+		if (digestRow.len != 2 || !digestRow.get(0).equals("declaration-digest")) { return null; }
+		record.declarationDigest = digestRow.get(1);
+		if (!record.declarationDigest.isEmpty()) {
+			if (record.declarationDigest.length() != 64) { return null; }
+			for (int index = 0; index < 64; index++) {
+				char value = record.declarationDigest[index];
+				if (!(value >= '0' && value <= '9') && !(value >= 'a' && value <= 'f')) { return null; }
+			}
+		}
 		for name in instances { if (!record.graph.edges.has(name)) { return null; } }
 		return record;
 	}
@@ -688,7 +708,48 @@ class ModuleUnitDeclarations {
 		unit.preprocessorDecls = kept;
 	}
 
-	public void mergeInto(IRModule unit) {
+	public string dependencyDigest(Vector<string> roots) {
+		Map<int, bool> included = {};
+		Vector<string> pending = [];
+		pending.extend(roots);
+		Map<string, bool> seen = {};
+		for name in roots { seen.put(name, true); }
+		while (pending.len > 0) {
+			string name = pending.pop();
+			if (!self.providers.has(name)) { continue; }
+			for entry in self.providers.get(name) {
+				if (included.has(entry)) { continue; }
+				included.put(entry, true);
+				for reference in self.references.get(entry).keys() {
+					if (!seen.has(reference)) {
+						seen.put(reference, true);
+						pending.push(reference);
+					}
+				}
+			}
+		}
+		IRModule unit = IRModule();
+		unit.preprocessorDecls.extend(self.shared.preprocessorDecls);
+		Vector<int> entries = included.keys();
+		entries.sort();
+		for entry in entries { self.appendEntry(unit, entry); }
+		return SHA256.digest(CEmitter().emitModuleUnit(unit));
+	}
+
+	private void appendEntry(IRModule unit, int entry) {
+		int kind = self.kinds.get(entry);
+		int position = self.positions.get(entry);
+		if (kind == 0) { unit.structForwards.push(self.shared.structForwards.get(position)); }
+		else if (kind == 1) { unit.enumDefs.push(self.shared.enumDefs.get(position)); }
+		else if (kind == 2) { unit.functionPointerTypedefs.push(self.shared.functionPointerTypedefs.get(position)); }
+		else if (kind == 3) { unit.typedefDefs.push(self.shared.typedefDefs.get(position)); }
+		else if (kind == 4) { unit.taggedUnionDefs.push(self.shared.taggedUnionDefs.get(position)); }
+		else if (kind == 5) { unit.structDefs.push(self.shared.structDefs.get(position)); }
+		else if (kind == 6) { unit.functionDecls.push(self.shared.functionDecls.get(position)); }
+		else { unit.globalDecls.push(self.shared.globalDecls.get(position)); }
+	}
+
+	public Vector<string> mergeInto(IRModule unit) {
 		Vector<Map<string, bool>> provided = [];
 		for (int kind = 0; kind < 8; kind++) { provided.push(self.unitProvided(unit, kind)); }
 		Map<string, bool> roots = {};
@@ -754,18 +815,7 @@ class ModuleUnitDeclarations {
 		}
 		Vector<int> entries = included.keys();
 		entries.sort();
-		for entry in entries {
-			int kind = self.kinds.get(entry);
-			int position = self.positions.get(entry);
-			if (kind == 0) { unit.structForwards.push(self.shared.structForwards.get(position)); }
-			else if (kind == 1) { unit.enumDefs.push(self.shared.enumDefs.get(position)); }
-			else if (kind == 2) { unit.functionPointerTypedefs.push(self.shared.functionPointerTypedefs.get(position)); }
-			else if (kind == 3) { unit.typedefDefs.push(self.shared.typedefDefs.get(position)); }
-			else if (kind == 4) { unit.taggedUnionDefs.push(self.shared.taggedUnionDefs.get(position)); }
-			else if (kind == 5) { unit.structDefs.push(self.shared.structDefs.get(position)); }
-			else if (kind == 6) { unit.functionDecls.push(self.shared.functionDecls.get(position)); }
-			else { unit.globalDecls.push(self.shared.globalDecls.get(position)); }
-		}
+		for entry in entries { self.appendEntry(unit, entry); }
 		/* The unit already lowered the program's whole directive list in source
 		 * order. A runtime header the shared declarations need is added once;
 		 * only identical includes are deduplicated, and macros never are. */
@@ -777,6 +827,10 @@ class ModuleUnitDeclarations {
 			}
 			if (!present) { unit.preprocessorDecls.push(declaration); }
 		}
+		for names in provided { for name in names.keys() { if (!name.isEmpty()) { roots.put(name, true); } } }
+		Vector<string> result = roots.keys();
+		result.sort();
+		return result;
 	}
 }
 
@@ -848,6 +902,7 @@ class ModuleUnitProgram {
 	/* The program's pre-analysis interface digest when validation records
 	 * computed it (per-group, cached); empty otherwise. */
 	public string interfaceDigest = "";
+	public Map<string, string> scopedInterfaces = {};
 	/* Source digests of groups already taken, by module-unit group name; a
 	 * group's digest is of its lines, in order, as groupSourceDigests takes. */
 	public Map<string, string> knownSourceDigests = {};
@@ -991,6 +1046,7 @@ class ModuleUnitCompiler {
 
 	private Map<string, bool> lastInstances = {};
 	private Map<string, bool> lastConsulted = {};
+	public Vector<string> lastDeclarationRoots = [];
 
 	/* The generic-instance members the last lowered group defines. */
 	public Map<string, bool> lastInstanceNames() { return self.lastInstances; }
@@ -1035,7 +1091,7 @@ class ModuleUnitCompiler {
 		self.lastInstances = lowerer.instanceDefinitions();
 		self.lastConsulted = lowerer.consultedSources();
 		unit.debug = self.options.debug;
-		shared.mergeInto(unit);
+		self.lastDeclarationRoots = shared.mergeInto(unit);
 		self.addNativeRealtimeExternals(unit);
 		BtrccPhaseTimer.mark("u-merge");
 		/* As in whole-program compiles, a session's object graph lives until the
@@ -1145,16 +1201,11 @@ class ModuleUnitCompiler {
 
 	/* The context, the group's resolved lines with their original positions,
 	 * and the program interface and facts digests. */
-	private string programDigest(ModuleUnitDeclarations shared) {
+	private string programDigest() {
 		ModuleUnitProgram input = self.input;
 		SHA256 digest = SHA256();
-		/* Analysis changes interfaces only as a function of the whole
-		 * program's pre-analysis source (generic-argument upgrades, merged
-		 * defaults), and the facts below follow it, so the pre-analysis
-		 * interface digest identifies the program as well as a rendering after
-		 * analysis does. */
+		/* Per-group interface identities are added after these shared facts. */
 		if (input.interfaceDigest.isEmpty()) { throw "module units require a pre-analysis interface snapshot"; }
-		digest.appendText("interface:" + input.interfaceDigest);
 		AstCanonicalRenderer positionFree = AstCanonicalRenderer.positionFreeRenderer();
 		/* The order of the program's files, as imports and includes place
 		 * them, orders every unit's directives and prototypes; it is not in
@@ -1170,10 +1221,7 @@ class ModuleUnitCompiler {
 		}
 		digest.appendText("\nfacts\n");
 		digest.appendText(self.facts.usesTrycatch ? "trycatch" : "no-trycatch");
-		/* A unit takes the shared declarations it uses in their program
-		 * order, which other groups' bodies can move: tuple shapes are
-		 * declared in discovery order. */
-		digest.appendText("shared:" + shared.orderDigest() + "\n");
+		/* Each record checks its shared declaration content and order. */
 		GenericLowerer generics = GenericLowerer(input.analyzed);
 		for instance in generics.classInstances() { digest.appendText("class:" + instance.mangled + "\n"); }
 		for instance in generics.methodInstances() {
@@ -1192,7 +1240,11 @@ class ModuleUnitCompiler {
 			}
 			Vector<string> names = reachability.mentionedNameList();
 			names.sort();
-			for name in names { digest.appendText("name:" + name + "\n"); }
+			Map<string, bool> methodNames = {};
+			for declaration in input.program.declarations() {
+				for member in declaration.members() { if (member.kind == NK_METHOD_DECL) { methodNames.put(member.name, true); } }
+			}
+			for name in names { if (methodNames.has(name)) { digest.appendText("name:" + name + "\n"); } }
 		}
 		return digest.finish();
 	}
@@ -1967,7 +2019,7 @@ class ModuleUnitCompiler {
 		CycleReturnBoundaryLowerer programBoundaries = CycleReturnBoundaryLowerer();
 		bool programReleases = programBoundaries.releasesCyclableValues(programUnit);
 		BtrccPhaseTimer.mark("u-program-unit");
-		string programIdentity = self.programDigest(shared);
+		string programIdentity = self.programDigest();
 		BtrccPhaseTimer.mark("u-digest");
 		Map<string, string> sources = self.groupSourceDigests();
 		BtrccPhaseTimer.mark("u-sources");
@@ -1975,7 +2027,9 @@ class ModuleUnitCompiler {
 		Vector<ModuleUnitGroupState> states = [];
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";
-			string identity = ModuleUnitCompiler.cacheKey(context, name, source, programIdentity);
+			if (!input.scopedInterfaces.has(name)) { throw "module group lacks an interface snapshot"; }
+			string scopedIdentity = SHA256.digest(programIdentity + input.scopedInterfaces.get(name));
+			string identity = ModuleUnitCompiler.cacheKey(context, name, source, scopedIdentity);
 			ModuleUnitGroupState state = ModuleUnitGroupState(name, identity);
 			if (self.groupLines.has(name)) { state.lines = self.groupLines.get(name); }
 			IBtrccArtifactCache? store = self.store;
@@ -1988,6 +2042,10 @@ class ModuleUnitCompiler {
 				/* A unit that copied another group's bodies or positions is
 				 * exact only while that group's source is unchanged. */
 				ModuleUnitRecord? loaded = state.record;
+				if (loaded != null && !loaded.declarationDigest.equals(shared.dependencyDigest(loaded.declarationRoots))) {
+					state.record = null;
+					state.stored = false;
+				}
 				if (loaded != null) {
 					for group in loaded.consultedSources.keys() {
 						if (!sources.has(group) || !sources.get(group).equals(loaded.consultedSources.get(group))) {
@@ -2151,6 +2209,8 @@ class ModuleUnitCompiler {
 				exit(1);
 			}
 			record.kept = header.get("kept").asBool();
+			if (!ModuleUnitRecord.stringsFrom(header.get("declarationRoots"), record.declarationRoots)) { throw "module unit lacks declaration roots"; }
+			record.declarationDigest = shared.dependencyDigest(record.declarationRoots);
 			record.text = reply.substring(newline + 1 + headerLength, reply.length() - newline - 1 - headerLength);
 			record.hasSetjmp = state.hasSetjmp;
 			record.effectsSolved = needsSolve;
@@ -2257,6 +2317,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 	private ModuleUnitCompiler compiler;
 	private ModuleUnitDeclarations shared;
 	private Map<string, IRModule> units = {};
+	private Map<string, Vector<string>> declarationRoots = {};
 	/* Per group, the files whose bodies or positions its lowering copied. */
 	private Map<string, Map<string, bool>> consulted = {};
 	private Map<string, Map<string, SetjmpCallEffects>> effects = {};
@@ -2368,6 +2429,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		self.compiler.addHostedRealtimeExternals(unit);
 		self.units.put(group, unit);
 		self.consulted.put(group, self.compiler.lastConsultedSources());
+		self.declarationRoots.put(group, self.compiler.lastDeclarationRoots);
 		JSONValue reply = JSONValue.makeObject();
 		Vector<string> exports = [];
 		Vector<string> roots = [];
@@ -2502,6 +2564,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		Vector<string> sources = files.keys();
 		sources.sort();
 		header.set("sources", ModuleUnitRecord.stringsJson(sources));
+		header.set("declarationRoots", ModuleUnitRecord.stringsJson(self.declarationRoots.get(group)));
 		JSONValue invalid = JSONValue.makeObject();
 		for name in dropped.keys() { invalid.set(name, JSONValue.makeString(dropped.get(name))); }
 		header.set("dropped", invalid);
@@ -2869,6 +2932,10 @@ class ModuleUnitInterfaces {
 	public Map<string, string> groupSourceDigests = {};
 	public string contextValue;
 	public string digest;
+	public Map<string, string> scopedDigests = {};
+	private Map<string, string> groupDigests = {};
+	private string nativesDigest = "";
+	private string othersDigest = "";
 	private IBtrccArtifactCache? store;
 
 	public ModuleUnitInterfaces(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache? store, string nativeIdentity, string target) {
@@ -2908,6 +2975,31 @@ class ModuleUnitInterfaces {
 			if (group.startsWith("group:")) { self.groupSourceDigests.put(group.substring(6, group.length() - 6), self.sourceDigests.get(group)); }
 		}
 		self.digest = self.programInterface(program, nativeIdentity);
+		Map<string, Map<string, bool>> outgoing = {};
+		for group in groups.names() { Map<string, bool> empty = {}; outgoing.put(group, empty); }
+		for file in resolved.dependencies.sourceIdentities() {
+			string owner = groups.groupOfIdentity(file);
+			if (!outgoing.has(owner)) { continue; }
+			for edge in resolved.dependencies.outgoingFrom(file) {
+				string targetGroup = groups.groupOfIdentity(edge.target);
+				if (outgoing.has(targetGroup)) { outgoing.get(owner).put(targetGroup, true); }
+			}
+		}
+		for group in groups.names() {
+			Map<string, bool> reached = {};
+			reached.put(group, true);
+			Vector<string> pending = [group];
+			while (pending.len > 0) {
+				for dependency in outgoing.get(pending.pop()).keys() {
+					if (!reached.has(dependency)) { reached.put(dependency, true); pending.push(dependency); }
+				}
+			}
+			Map<string, string> selected = {};
+			for name in self.groupDigests.keys() {
+				if (!name.startsWith("group:") || reached.has(name.substring(6, name.length() - 6))) { selected.put(name, self.groupDigests.get(name)); }
+			}
+			self.scopedDigests.put(group, ModuleUnitInterfaces.compose(selected, self.nativesDigest, self.othersDigest));
+		}
 	}
 
 	class string context(BtrccOptions options, string target) { return f"validation-record-v8;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
@@ -2993,7 +3085,10 @@ class ModuleUnitInterfaces {
 			nativesDigest = natives.finish();
 			if (store != null && !nativesKey.isEmpty()) { store.storeModuleUnit(nativesKey, BtrccModuleUnitPayload("validation-natives-v2", nativesDigest)); }
 		}
-		return ModuleUnitInterfaces.compose(cached, nativesDigest, others.finish());
+		self.groupDigests = cached;
+		self.nativesDigest = nativesDigest;
+		self.othersDigest = others.finish();
+		return ModuleUnitInterfaces.compose(cached, nativesDigest, self.othersDigest);
 	}
 
 	/* The recordable group a declaration was read from, among `groups`, or "". */

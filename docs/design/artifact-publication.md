@@ -112,7 +112,7 @@ outputs redirected into private state are rejected without creating that intent.
 
 ## Module record interchange
 
-Both module owners encode metadata as `btrc-module-unit-record\t5`, with
+Both module owners encode metadata as `btrc-module-unit-record\t6`, with
 generated C carried separately. The record contains the group, six boolean
 flags, export/helper/root/instance lists, and counted sections for exported and
 consulted setjmp effects, realtime proofs, reference edges and consulted source
@@ -121,6 +121,14 @@ are canonical nonnegative 32-bit decimal integers. Duplicate table keys,
 duplicate instances, missing instance bodies and kept instances outside the
 graph invalidate the record. Effect sets and map keys have a stable order.
 Paths containing tabs or newlines cannot be represented and forgo reuse.
+
+The final two rows contain declaration roots and their dependency digest.
+Before reuse, each compiler resolves those names through the current shared
+IR declaration inventory and checks its emitted content and relative order,
+including global preprocessor directives. Unknown names stay in the root set
+so a new provider invalidates an old record. Interface keys include the group's
+transitive imports and its include component; unrelated interfaces are excluded.
+Generic demand and standard-library reachability remain conservative global facts.
 
 Both owners frame module-key fields as a decimal UTF-8 byte length, a colon,
 then the bytes. A source digest hashes successive triples of canonical path,
