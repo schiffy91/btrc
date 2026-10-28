@@ -1,7 +1,7 @@
 # Canonical hosted-C ABI shared by the Python and self-hosted compilers.
 # Generated compiler catalogs are data-only; edit this specification instead.
 
-schema_version = 3
+schema_version = 4
 
 # O_PATH is a Linux/Android fcntl macro enabled by the FileSystem package's
 # _GNU_SOURCE native definition; other targets mark it unavailable.
@@ -20,6 +20,59 @@ user_source_marker = "compiler:user"
 generic_argument_nesting = 32
 
 [names]
+# These typedefs are arithmetic on every target that provides them. Opaque
+# handles, arrays and records are deliberately not classified here.
+arithmetic_types = [
+  "clock_t",
+  "double_t",
+  "float_t",
+  "gid_t",
+  "id_t",
+  "int16_t",
+  "int32_t",
+  "int64_t",
+  "int8_t",
+  "int_fast16_t",
+  "int_fast32_t",
+  "int_fast64_t",
+  "int_fast8_t",
+  "int_least16_t",
+  "int_least32_t",
+  "int_least64_t",
+  "int_least8_t",
+  "intmax_t",
+  "intptr_t",
+  "mode_t",
+  "nfds_t",
+  "off_t",
+  "pid_t",
+  "ptrdiff_t",
+  "sig_atomic_t",
+  "size_t",
+  "socklen_t",
+  "ssize_t",
+  "suseconds_t",
+  "time_t",
+  "uid_t",
+  "uint16_t",
+  "uint32_t",
+  "uint64_t",
+  "uint8_t",
+  "uint_fast16_t",
+  "uint_fast32_t",
+  "uint_fast64_t",
+  "uint_fast8_t",
+  "uint_least16_t",
+  "uint_least32_t",
+  "uint_least64_t",
+  "uint_least8_t",
+  "uintmax_t",
+  "uintptr_t",
+  "useconds_t",
+  "wchar_t",
+  "wint_t",
+]
+
 functions = [
   "GetFileAttributesA",
   "RemoveDirectoryA",

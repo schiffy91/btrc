@@ -4194,3 +4194,24 @@ classification. A reduced local program reproduces `-Wclobbered` at O1,
 O2 and O3 on GCC 15.2. Arithmetic hosted typedefs will be classified in the
 shared ABI data; aggregate and opaque hosted types retain their existing
 rules. No benchmark execution or performance claim is part of this repair.
+
+Local validation: 226 ABI/reference checks, ten paired whole/module checks
+and 108 setjmp/qualifier checks pass without skips. The paired regression
+runs both frontends through GCC and Clang at O0–O3 plus sanitizers. Its
+Windows source uses `ptrdiff_t`, preserving the arithmetic-storage contract
+without assuming POSIX `pid_t`; the two cases were rerun after that adjustment.
+The actual `HostWorkerPools` module output was also compiled without execution:
+both frontends' `WorkerPoolProvider` units pass GCC/Clang O0–O3, 16 builds.
+Generated-source, lint, repository formatting and diff checks pass.
+
+The compiler built for these tests is fingerprint
+`53285b24219aac9d4903bd86140b7276`, SHA-256
+`fb413e4847e685cfd059da3aba94070c1c30c67d2763c1e15e07098781d5bd44`.
+A subsequent line wrap in the generator changes the fixture's broad input
+fingerprint to `f3c8c584d04e47aa2889a3ca88b9c876`; the two generator ASTs
+are identical and every other compiler input is unchanged. The paired checks
+explicitly reuse the completed compiler; no cache entry was renamed or copied.
+Evidence: `build/issue-gates/hosted-setjmp-bc8/`. Host: Apple M1 Max, 8P+2E,
+64 GiB, macOS 27.0. No CI dispatch, application/GUI/audio execution, bootstrap,
+guest operation or performance measurement was performed. Collection parity,
+platform qualification and the remaining issue requirements remain open.

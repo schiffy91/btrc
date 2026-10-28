@@ -960,3 +960,32 @@ def test_mutated_setjmp_parameters_use_local_storage_once():
     result = function.body.stmts[-1]
     ExceptionLowerer.apply_setjmp_volatility(module)
     assert function.body.stmts == [local, branch, result]
+
+
+@pytest.mark.parametrize("hosted_type", ["pid_t", "size_t", "ssize_t", "uint64_t", "time_t", "double_t"])
+def test_hosted_arithmetic_storage_visible_at_setjmp_is_volatile(hosted_type):
+    parameter = IRParam(CType(hosted_type), "parameter")
+    local = IRVarDecl(CType(hosted_type), "local", IRLiteral("0"))
+    alias = IRVarDecl(CType("Count"), "count", IRLiteral("0"))
+    addressed = IRVarDecl(CType(hosted_type), "addressed", IRLiteral("0"))
+    body = IRBlock(
+        stmts=[
+            local,
+            alias,
+            addressed,
+            IRExprStmt(IRAddressOf(IRVar("addressed"))),
+            IRIf(IRBinOp(IRCall("setjmp", [IRVar("frame")]), "==", IRLiteral("0")), IRBlock()),
+        ]
+    )
+    module = IRModule(
+        typedef_defs=[IRTypedefDef(CType(hosted_type), "Count")],
+        function_defs=[IRFunctionDef(name="probe", return_type=CType("void"), params=[parameter], body=body)],
+    )
+    ExceptionLowerer.apply_setjmp_volatility(module)
+    assert all(value.is_volatile for value in (parameter, local, alias))
+    assert not addressed.is_volatile
+
+
+def test_local_typedef_representation_overrides_hosted_scalar_classification():
+    module = IRModule(typedef_defs=[IRTypedefDef(CType("struct Record"), "pid_t")])
+    assert "pid_t" not in ExceptionLowerer.scalar_type_aliases(module)

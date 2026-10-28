@@ -1490,9 +1490,10 @@ class ExceptionLowerer:
 
     @staticmethod
     def scalar_type_aliases(module) -> frozenset[str]:
-        """Resolve the module's enumeration names and arithmetic typedef chains."""
-        aliases = {definition.name for definition in module.enum_defs if definition.name}
+        """Resolve hosted arithmetic types, module enums and local typedef chains."""
         targets = {definition.name: definition.target_type for definition in module.typedef_defs}
+        aliases = set(HOSTED_ABI.arithmetic_types) - targets.keys()
+        aliases.update(definition.name for definition in module.enum_defs if definition.name)
         changed = True
         while changed:
             changed = False

@@ -5003,3 +5003,55 @@ def test_record_pointer_array_operands_keep_source_order(tmp_path, immutable_btr
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_hosted_scalar_storage_builds_under_optimized_setjmp(tmp_path, immutable_btrcc, module_units):
+    source = tmp_path / "src"
+    source.mkdir()
+    program = """
+#include <sys/types.h>
+#include <stdint.h>
+class Barrier {
+ public int entered = 0;
+ public void require(bool condition) { if (!condition) { throw "barrier"; } }
+ public int poll(int turn) { self.entered += (turn % 3 == 0 ? 1 : 0); return self.entered; }
+}
+int verify(int workers, int capacity, bool fail) {
+ pid_t window = capacity == 1 ? 1 : (workers < capacity - 1 ? workers : capacity - 1);
+ size_t attempts = (size_t)(capacity + 1);
+ uint64_t stamp = (uint64_t)(workers + capacity);
+ Barrier barrier = new Barrier();
+ int outcome = 0;
+ try {
+  for (int turn = 0; turn < 9; turn++) { barrier.require(barrier.poll(turn) >= 0); }
+  barrier.require(!fail && barrier.entered >= (int)window);
+  outcome = (int)window;
+ } catch (string error) { outcome = -(int)window; }
+ assert(attempts == (size_t)(capacity + 1) && stamp == (uint64_t)(workers + capacity));
+ return outcome;
+}
+int main() {
+ assert(verify(2, 8, false) == 2 && verify(2, 8, true) == -2 && verify(4, 1, false) == 1);
+ print("PASS");
+ return 0;
+}
+"""
+    scalar_type = "ptrdiff_t" if os.name == "nt" else "pid_t"
+    if os.name == "nt":
+        program = program.replace("sys/types.h", "stddef.h").replace("pid_t", scalar_type)
+    (source / "Main.btrc").write_text(program)
+    generated = _compile_and_run_native_frontends(
+        source,
+        tmp_path,
+        immutable_btrcc,
+        "PASS\n",
+        module_units=module_units,
+        strict_compilers=[[compiler] for compiler in HOST_C_COMPILERS],
+        strict_optimizations=(0, 1, 2, 3),
+    )
+    for units in generated.values():
+        emitted = b"\n".join(units.values()).decode()
+        assert f"volatile {scalar_type} window =" in emitted
+        assert "volatile size_t attempts =" in emitted
+        assert "volatile uint64_t stamp =" in emitted

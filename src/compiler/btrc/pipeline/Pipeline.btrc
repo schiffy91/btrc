@@ -339,7 +339,7 @@ class CompilerPipeline {
 			}
 		}
 		BtrccPhaseTimer.mark("setjmp-analysis");
-		SetjmpSafetyPlanner setjmpSafety = SetjmpSafetyPlanner(setjmpEffects);
+		SetjmpSafetyPlanner setjmpSafety = SetjmpSafetyPlanner(setjmpEffects, self.hostedAbi);
 		IROptimizer optimizer = IROptimizer(setjmpSafety, runtimeHelpers);
 		optimizer.optimize(module, options.runDce);
 		/* The surviving code may name only hosted names its row declares. */

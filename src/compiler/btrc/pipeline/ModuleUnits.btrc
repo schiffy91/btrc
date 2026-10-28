@@ -2138,7 +2138,7 @@ class ModuleUnitCompiler {
 			ModuleUnitRecord? record = state.record;
 			if (!state.stale && record != null) { for helper in record.helpers { helperNames.put(helper, true); } }
 		}
-		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(input.hostedAbi)), input.runtimeHelpers);
+		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(input.hostedAbi), input.hostedAbi), input.runtimeHelpers);
 		Map<string, bool> programUnneeded = {};
 		optimizer.optimizeModuleUnit(programUnit, self.options.runDce, programEffects, releases, programUnneeded);
 		/* Only this owner refuses, over every unit's surviving references. */
@@ -2385,7 +2385,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		for name in reached { unit.realtimeSafeExternals.put(name, true); }
 		Map<string, SetjmpCallEffects> unitEffects = {};
 		if (self.effects.has(group)) { unitEffects = self.effects.get(group); }
-		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(self.compiler.hostedAbi())), self.compiler.runtimeHelpers());
+		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(self.compiler.hostedAbi()), self.compiler.hostedAbi()), self.compiler.runtimeHelpers());
 		optimizer.optimizeModuleUnit(unit, self.compiler.runsDce(), unitEffects, message.get("releases").asBool(), unneeded);
 		/* The owner refuses these over the whole program; a worker only reports. */
 		Vector<string> hosted = optimizer.unavailableHostedReferences(unit, self.compiler.unavailableHosted());

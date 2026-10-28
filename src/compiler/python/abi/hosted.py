@@ -20,6 +20,7 @@ from .declarations import (
 )
 from .generated import (
     HOSTED_ABI_FINGERPRINT,
+    HOSTED_ARITHMETIC_TYPE_NAMES,
     HOSTED_FUNCTION_NAMES,
     HOSTED_FUNCTION_ROWS,
     HOSTED_MACRO_NAMES,
@@ -59,6 +60,7 @@ class HostedAbiRepository:
         self._objects = frozenset(HOSTED_OBJECT_NAMES)
         self._types = frozenset(HOSTED_TYPE_NAMES)
         self._typedefs = frozenset(HOSTED_TYPEDEF_NAMES)
+        self._arithmetic_types = frozenset(HOSTED_ARITHMETIC_TYPE_NAMES)
         self._owned = frozenset(HOSTED_OWNED_NAMES)
         self._native = frozenset(HOSTED_NATIVE_NAMES)
         self._native_internal = frozenset(HOSTED_NATIVE_INTERNAL_NAMES)
@@ -94,6 +96,11 @@ class HostedAbiRepository:
     @property
     def typedefs(self) -> frozenset[str]:
         return self._typedefs
+
+    @property
+    def arithmetic_types(self) -> frozenset[str]:
+        """Hosted typedefs with arithmetic representation on every supported target."""
+        return self._arithmetic_types
 
     @property
     def owned_names(self) -> frozenset[str]:

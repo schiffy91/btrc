@@ -4,19 +4,22 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
+import ../../../analyzer/HostedAbi.btrc;
 import ../../Model.btrc;
 import ./Analysis.btrc;
 
 class SetjmpSafetyPlanner {
 	private SetjmpEffectAnalysis effectAnalysis;
+	private HostedAbiRepository hostedAbi;
 	private Map<string, SetjmpCallEffects> effectsByFunction;
 	private Map<string, bool> setjmpBodies = {};  /* function name -> body contains setjmp */
 	private Map<string, bool> scalarAliases = {};  /* enumeration and arithmetic typedef names */
 	private Map<string, bool> registerAddressed = {};  /* names whose address the scanned function takes */
 	private bool registerCandidates = false;  /* the scanned function calls setjmp */
 
-	public SetjmpSafetyPlanner(SetjmpEffectAnalysis effectAnalysis) {
+	public SetjmpSafetyPlanner(SetjmpEffectAnalysis effectAnalysis, HostedAbiRepository hostedAbi) {
 		self.effectAnalysis = effectAnalysis;
+		self.hostedAbi = hostedAbi;
 		self.effectsByFunction = {};
 	}
 
@@ -534,9 +537,11 @@ class SetjmpSafetyPlanner {
 		return count > 0 && (arithmetic || (count == 1 && aliases.has(single)));
 	}
 
-	/* Resolve the module's enumeration names and arithmetic typedef chains. */
+	/* Resolve hosted arithmetic types, module enums and local typedef chains. */
 	private Map<string, bool> scalarTypeAliases(IRModule module) {
 		Map<string, bool> aliases = {};
+		for name in self.hostedAbi.arithmeticTypes() { aliases.put(name, true); }
+		for definition in module.typedefDefs { aliases.remove(definition.name); }
 		for definition in module.enumDefs {
 			if (definition.name != "") { aliases.put(definition.name, true); }
 		}

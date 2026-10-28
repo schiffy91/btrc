@@ -49,7 +49,8 @@ void verifyContextRoots() {
 	Vector<string> empty = [];
 	var row = GeneratedRuntimeHelperRow("native", "nativeCleanup", ["static void nativeCleanup(void) {}"], empty, empty, empty, empty, false, "unknown");
 	var runtime = RuntimeHelperCatalog([row]);
-	var safety = SetjmpSafetyPlanner(SetjmpEffectAnalysis(HostedAbiRepository(GeneratedHostedAbiData())));
+	var hostedAbi = HostedAbiRepository(GeneratedHostedAbiData());
+	var safety = SetjmpSafetyPlanner(SetjmpEffectAnalysis(hostedAbi), hostedAbi);
 	IROptimizer(safety, runtime).optimize(module, true);
 	if (module.functions.len != 2 || module.functions.get(0).name != "releaseContext" || module.functions.get(1).name != "transitive") { throw "Objective-C method lost reachable functions"; }
 	if (module.globalDecls.len != 1 || module.globalDecls.get(0).name != "generation") { throw "Objective-C method lost reachable global"; }

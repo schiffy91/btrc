@@ -123,6 +123,9 @@ class HostedAbiRepository {
 		return built;
 	}
 
+	/* Hosted typedefs with arithmetic representation on every supported target. */
+	public Vector<string> arithmeticTypes() { return self.data.arithmeticTypeNames(); }
+
 	/* The generated tables, target spec included. */
 	public GeneratedHostedAbiData tables() { return self.data; }
 
