@@ -21,7 +21,6 @@ from src.compiler.python.ir.nodes import (
     IRGlobalDecl,
     IRHelperDecl,
     IRInclude,
-    IRLiteral,
     IRMacroDef,
     IRMacroUndef,
     IRParam,
@@ -870,7 +869,7 @@ class TranslationUnitLowerer:
         if type_expr.array_size is not None:
             array_size = self._expressions.lower_expr(type_expr.array_size, provenance)
         elif isinstance(initializer, (BraceInitializer, ListLiteral)):
-            array_size = IRLiteral(text=str(len(initializer.elements)))
+            array_size = self._expressions.array_initializer_extent(type_expr, initializer)
         else:
             array_size = self._expressions.string_array_extent(initializer)
         self._session.module.global_decls.append(

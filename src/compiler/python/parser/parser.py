@@ -24,6 +24,7 @@ from src.compiler.python.syntax.ast.generated import (
     CommaExpr,
     ContinueStmt,
     DeleteStmt,
+    Designation,
     DoWhileStmt,
     ElseBlock,
     ElseIf,
@@ -33,6 +34,7 @@ from src.compiler.python.syntax.ast.generated import (
     FieldAccessExpr,
     FieldDecl,
     FieldDef,
+    FieldDesignator,
     FloatLiteral,
     ForInitExpr,
     ForInitVar,
@@ -44,6 +46,7 @@ from src.compiler.python.syntax.ast.generated import (
     Identifier,
     IfStmt,
     ImportDecl,
+    IndexDesignator,
     IndexExpr,
     InterfaceDecl,
     IntLiteral,
@@ -2686,14 +2689,58 @@ class Parser:
         self._expect(TokenKind.RBRACKET)
         return ListLiteral(elements=elements, line=tok.line, col=tok.col)
 
+    def _starts_designation(self) -> bool:
+        if self._check(TokenKind.DOT):
+            return True
+        if not self._check(TokenKind.LBRACKET):
+            return False
+        offset = 0
+        while True:
+            if self._peek(offset).type == TokenKind.LBRACKET:
+                depth = 1
+                offset += 1
+                while depth and self._peek(offset).type != TokenKind.EOF:
+                    kind = self._peek(offset).type
+                    depth += int(kind == TokenKind.LBRACKET) - int(kind == TokenKind.RBRACKET)
+                    offset += 1
+                if depth:
+                    return False
+            elif self._peek(offset).type == TokenKind.DOT and self._peek(offset + 1).type == TokenKind.IDENT:
+                offset += 2
+            else:
+                return self._peek(offset).type == TokenKind.EQ
+
+    def _parse_designation(self):
+        parts = []
+        while self._check(TokenKind.DOT, TokenKind.LBRACKET):
+            tok = self._advance()
+            if tok.type == TokenKind.DOT:
+                field = self._expect(TokenKind.IDENT)
+                parts.append(FieldDesignator(field=field.value, line=tok.line, col=tok.col))
+            else:
+                offset, depth = 0, 1
+                while depth and self._peek(offset).type != TokenKind.EOF:
+                    kind = self._peek(offset).type
+                    depth += int(kind == TokenKind.LBRACKET) - int(kind == TokenKind.RBRACKET)
+                    if depth == 1 and all(self._peek(offset + part).type == TokenKind.DOT for part in range(3)):
+                        raise self._error(
+                            "Range designators ('[a ... b]') are a GNU extension, not C11; designate each index"
+                        )
+                    offset += 1
+                index = self._parse_expr()
+                self._expect(TokenKind.RBRACKET)
+                parts.append(IndexDesignator(index=index, line=tok.line, col=tok.col))
+        self._expect(TokenKind.EQ)
+        return Designation(parts=parts)
+
     def _parse_map_or_brace_initializer(self):
-        """Parse the first expression before deciding map versus initializer."""
+        """Keep map expressions distinct from contextual C initializer paths."""
         tok = self._expect(TokenKind.LBRACE)
         if self._match(TokenKind.RBRACE):
             return BraceInitializer(elements=[], line=tok.line, col=tok.col)
-
+        designation = self._parse_designation() if self._starts_designation() else Designation(parts=[])
         first = self._parse_expr()
-        if self._match(TokenKind.COLON):
+        if not designation.parts and self._match(TokenKind.COLON):
             entries = [MapEntry(key=first, value=self._parse_expr())]
             while self._match(TokenKind.COMMA):
                 if self._check(TokenKind.RBRACE):
@@ -2703,14 +2750,19 @@ class Parser:
                 entries.append(MapEntry(key=key, value=self._parse_expr()))
             self._expect(TokenKind.RBRACE)
             return MapLiteral(entries=entries, line=tok.line, col=tok.col)
-
-        elements = [first]
+        elements, entries = [first], [designation]
         while self._match(TokenKind.COMMA):
             if self._check(TokenKind.RBRACE):
                 break
+            entries.append(self._parse_designation() if self._starts_designation() else Designation(parts=[]))
             elements.append(self._parse_expr())
         self._expect(TokenKind.RBRACE)
-        return BraceInitializer(elements=elements, line=tok.line, col=tok.col)
+        return BraceInitializer(
+            elements=elements,
+            entries=entries if any(entry.parts for entry in entries) else [],
+            line=tok.line,
+            col=tok.col,
+        )
 
     def _is_verbose_lambda(self) -> bool:
         """Check if current position starts a verbose lambda: type function(...)"""

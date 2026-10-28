@@ -1308,6 +1308,10 @@ class TypeSystem:
         declaration = tables.struct_table.get(TypeSystem.record_tag_name(canonical.base))
         return declaration if declaration is not None and not declaration.is_forward else None
 
+    @staticmethod
+    def has_designators(initializer) -> bool:
+        return isinstance(initializer, BraceInitializer) and any(entry.parts for entry in initializer.entries)
+
     @classmethod
     def plan_initializer_slots(
         cls, record, initializer, tables, index_values=None, bound_values=None
@@ -1323,6 +1327,8 @@ class TypeSystem:
         designated one continues at the next direct member. Only a brace
         initializer carries designations.
         """
+        if isinstance(record, TypeExpr) and record.is_array:
+            return cls._plan_array_initializer_slots(record, initializer, tables, index_values, bound_values)
         members = cls.record_members(record)
         capacity = min(len(members), 1) if record.is_union else len(members)
         designations = initializer.entries if isinstance(initializer, BraceInitializer) else []
@@ -1345,7 +1351,9 @@ class TypeSystem:
                         excess += 1
                     continue
                 for previous in slots:
-                    conflict = cls._initializer_path_conflict(record, previous, slot, tables, index_values)
+                    conflict = cls._initializer_path_conflict(
+                        record, previous, slot, tables, index_values, bound_values
+                    )
                     if conflict is not None:
                         problems.append((conflict, slot.site))
                         break
@@ -1370,7 +1378,7 @@ class TypeSystem:
                 element, (member,), None if isinstance(member, AnonymousMember) else member.type, element
             )
             for previous in slots:
-                conflict = cls._initializer_path_conflict(record, previous, slot, tables, index_values)
+                conflict = cls._initializer_path_conflict(record, previous, slot, tables, index_values, bound_values)
                 if conflict is not None:
                     problems.append((conflict, element))
                     break
@@ -1378,22 +1386,64 @@ class TypeSystem:
         return InitializerSlotPlan(initializer, tuple(slots), capacity, excess, record, tuple(problems))
 
     @classmethod
-    def _initializer_path_conflict(cls, record, previous, current, tables, index_values) -> str | None:
-        parent_record = record
-        parent_type = None
-        for left, right in zip(previous.path, current.path):
+    def _plan_array_initializer_slots(cls, target, initializer, tables, index_values, bound_values):
+        if index_values is None:
+            index_values = getattr(tables, "designator_index_values", {})
+        if bound_values is None:
+            bound_values = getattr(tables, "array_bound_values", {})
+        canonical = cls.canonical_declaration_type(target, tables.typedef_table)
+        bound = cls.initializer_array_bound(canonical, bound_values)
+        slots, problems = [], []
+        cursor = extent = 0
+        entries = initializer.entries if isinstance(initializer, BraceInitializer) else []
+        for position, element in enumerate(initializer.elements):
+            parts = entries[position].parts if position < len(entries) else []
+            if parts:
+                slot = cls._designated_slot(target, element, parts, tables, problems, index_values, bound_values)
+                if slot is None:
+                    continue
+                cursor = cls.initializer_index_value(slot.path[0], index_values) + 1
+            else:
+                if cursor > 2**63 - 1 or (bound is not None and cursor >= bound):
+                    name = cls.initializer_storage_name(canonical, bound_values)
+                    problems.append((f"Initializer element for index {cursor} is outside '{name}'", element))
+                    cursor += 1
+                    continue
+                step = IndexDesignator(index=IntLiteral(value=cursor), line=element.line, col=element.col)
+                slot = InitializerSlot(element, (step,), cls.strip_outer_storage(canonical, array=True), element)
+                cursor += 1
+            for previous in slots:
+                conflict = cls._initializer_path_conflict(target, previous, slot, tables, index_values, bound_values)
+                if conflict is not None:
+                    problems.append((conflict, slot.site))
+                    break
+            slots.append(slot)
+            extent = max(extent, cursor)
+        return InitializerSlotPlan(initializer, tuple(slots), bound or 0, 0, target, tuple(problems), extent)
+
+    @staticmethod
+    def initializer_index_value(step, index_values):
+        if id(step) in index_values:
+            return index_values[id(step)]
+        return step.index.value if isinstance(step.index, IntLiteral) else None
+
+    @classmethod
+    def _initializer_path_conflict(
+        cls, record, previous, current, tables, index_values, bound_values=None
+    ) -> str | None:
+        array_target = isinstance(record, TypeExpr) and record.is_array
+        parent_record = None if array_target else record
+        parent_type = record if array_target else None
+        for depth, (left, right) in enumerate(zip(previous.path, current.path)):
             same = left is right
             if isinstance(left, IndexDesignator) and isinstance(right, IndexDesignator):
-                same = (
-                    id(left) in index_values
-                    and id(right) in index_values
-                    and index_values[id(left)] == index_values[id(right)]
-                )
+                left_value = cls.initializer_index_value(left, index_values)
+                same = left_value is not None and left_value == cls.initializer_index_value(right, index_values)
             if not same:
                 if parent_record is None or not parent_record.is_union:
                     return None
-                left_name = previous.member.name if isinstance(left, AnonymousMember) else left.name
-                right_name = current.member.name if isinstance(right, AnonymousMember) else right.name
+                left_name = cls.initializer_member_name(previous, depth)
+                right_name = cls.initializer_member_name(current, depth)
                 return (
                     f"Union '{getattr(parent_record, 'name', '') or getattr(record, 'name', '')}' initializer sets both '{left_name}' and '{right_name}'; "
                     "a union initializer sets one member"
@@ -1406,12 +1456,32 @@ class TypeSystem:
             else:
                 parent_type = cls.canonical_declaration_type(left.type, tables.typedef_table)
                 parent_record = cls.complete_member_record(parent_type, tables)
+        if array_target:
+            first = previous.site or previous.element
+            value = cls.initializer_index_value(current.path[0], index_values)
+            name = cls.initializer_storage_name(
+                record, bound_values if bound_values is not None else getattr(tables, "array_bound_values", {})
+            )
+            return (
+                f"Index {value} of '{name}' is initialized more than once "
+                f"(first at {first.line}:{first.col}); each element may be initialized once"
+            )
         member = next(step for step in (*previous.path, *current.path) if isinstance(step, FieldDef))
         first = previous.site or previous.element
         return (
             f"Field '{member.name}' of {cls.record_keyword(record)} '{getattr(record, 'name', '')}' is initialized more than once "
             f"(first at {first.line}:{first.col}); each member may be initialized once"
         )
+
+    @classmethod
+    def initializer_member_name(cls, slot, depth):
+        step = slot.path[depth]
+        if not isinstance(step, AnonymousMember):
+            return step.name
+        for nested in slot.path[depth + 1 :]:
+            if isinstance(nested, FieldDef):
+                return nested.name
+        return "anonymous " + cls.record_keyword(step)
 
     @classmethod
     def zero_filled_members(cls, record, plan: InitializerSlotPlan) -> tuple:
@@ -1433,50 +1503,31 @@ class TypeSystem:
     def _designated_slot(
         cls, record, element, parts, tables, problems, index_values, bound_values
     ) -> InitializerSlot | None:
-        first = parts[0]
-        if not isinstance(first, FieldDesignator):
-            value = index_values.get(id(first))
-            if value is not None:
-                problems.append(
-                    (f"Designator '[{value}]' needs an array, but the initialized type is '{record.name}'", first)
-                )
-            return None
-        path = cls.record_member_path(record, first.field)
-        if path is None:
-            problems.append(
-                (
-                    f"{cls.record_keyword(record).capitalize()} '{getattr(record, 'name', '')}' has no field '{first.field}'",
-                    first,
-                )
-            )
-            return None
-        steps = list(path)
-        slot_type = path[-1].type
-        for part in parts[1:]:
+        current_record = None if isinstance(record, TypeExpr) else record
+        slot_type = record if isinstance(record, TypeExpr) else TypeExpr(base=record.name)
+        steps = []
+        for part in parts:
             if isinstance(part, FieldDesignator):
-                nested = cls.complete_member_record(slot_type, tables)
-                nested_path = cls.record_member_path(nested, part.field) if nested is not None else None
+                nested = current_record or cls.complete_member_record(slot_type, tables)
+                if nested is None:
+                    name = cls.initializer_storage_name(slot_type, bound_values)
+                    problems.append(
+                        (
+                            f"Designator '.{part.field}' needs a struct or union, but the initialized type is '{name}'",
+                            part,
+                        )
+                    )
+                    return None
+                nested_path = cls.record_member_path(nested, part.field)
                 if nested_path is None:
-                    if nested is None:
-                        name = cls.initializer_storage_name(slot_type, bound_values)
-                        problems.append(
-                            (
-                                f"Designator '.{part.field}' needs a struct or union, but the initialized type is '{name}'",
-                                part,
-                            )
-                        )
-                    else:
-                        problems.append(
-                            (
-                                f"{cls.record_keyword(nested).capitalize()} '{nested.name}' has no field '{part.field}'",
-                                part,
-                            )
-                        )
+                    problems.append(
+                        (f"{cls.record_keyword(nested).capitalize()} '{nested.name}' has no field '{part.field}'", part)
+                    )
                     return None
                 steps.extend(nested_path)
                 slot_type = nested_path[-1].type
             else:
-                value = index_values.get(id(part))
+                value = cls.initializer_index_value(part, index_values)
                 if value is None:
                     return None
                 if slot_type is None or not slot_type.is_array:
@@ -1495,7 +1546,8 @@ class TypeSystem:
                     return None
                 steps.append(part)
                 slot_type = cls.strip_outer_storage(canonical, array=True)
-        return InitializerSlot(element, tuple(steps), slot_type, first)
+            current_record = None
+        return InitializerSlot(element, tuple(steps), slot_type, parts[0])
 
     @staticmethod
     def initializer_array_bound(type_expr, bound_values) -> int | None:
@@ -1527,17 +1579,26 @@ class TypeSystem:
         analyzer never typed as this record (a generic body's ``T x = {...}``)
         is planned again here, identically."""
         plan = plans.get(id(initializer))
-        if plan is not None and plan.initializer is initializer and plan.target is record:
+        if (
+            plan is not None
+            and plan.initializer is initializer
+            and (plan.target is record or (isinstance(record, TypeExpr) and plan.target == record))
+        ):
             return plan
         return cls.plan_initializer_slots(record, initializer, tables)
 
     @classmethod
-    def initializer_leaf_slots(cls, plans, tables, record, initializer) -> tuple[InitializerSlot, ...]:
+    def initializer_leaf_slots(cls, plans, tables, record, initializer, problems=None) -> tuple[InitializerSlot, ...]:
         """Typed leaves in evaluation order, with anonymous brace slots expanded."""
         result = []
-        for slot in cls.initializer_slots(plans, tables, record, initializer).slots:
+        plan = cls.initializer_slots(plans, tables, record, initializer)
+        if problems is not None:
+            problems.extend(plan.problems)
+            if plan.excess:
+                problems.append(("Initializer has more elements than the concrete target has fields", initializer))
+        for slot in plan.slots:
             if isinstance(slot.member, AnonymousMember) and isinstance(slot.element, BraceInitializer):
-                for nested in cls.initializer_leaf_slots(plans, tables, slot.member, slot.element):
+                for nested in cls.initializer_leaf_slots(plans, tables, slot.member, slot.element, problems):
                     result.append(InitializerSlot(nested.element, (*slot.path, *nested.path), nested.type))
             else:
                 result.append(slot)

@@ -1178,6 +1178,11 @@ class CallableProvenance:
         if expected is None:
             return None
         if isinstance(value, (BraceInitializer, ListLiteral)):
+            if expected.is_array and TypeSystem.has_designators(value):
+                plan = TypeSystem.initializer_slots(
+                    self._analyzed.initializer_slot_plans, self._analyzed, expected, value
+                )
+                return tuple((slot.type, slot.element) for slot in plan.slots)
             if expected.is_array:
                 element_type = TypeSystem.strip_outer_storage(expected, array=True)
                 return tuple((element_type, element) for element in value.elements)

@@ -113,6 +113,11 @@ class CallableValueSemantics:
         if expected is None:
             return None
         if isinstance(value, (BraceInitializer, ListLiteral)):
+            if expected.is_array and self.types.has_designators(value):
+                plan = self.types.plan_initializer_slots(
+                    expected, value, self.index, self.session.designator_index_values, self.session.array_bound_values
+                )
+                return ((slot.type, slot.element) for slot in plan.slots)
             if expected.is_array:
                 element_type = self.types.strip_outer_storage(expected, array=True)
                 return ((element_type, element) for element in value.elements)

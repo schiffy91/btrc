@@ -17,6 +17,7 @@ import ../../../compiler/btrc/syntax/Grammar.btrc;
 import ../../../compiler/btrc/syntax/Identity.btrc;
 import ../../../compiler/btrc/syntax/Tokens.btrc;
 #include <assert.h>
+#include <limits.h>
 
 /* Use the production codec and analyzer replay with a fresh AST. The store
  * supplies one body record; source-key invalidation belongs to its own tests. */
@@ -30,6 +31,22 @@ class DesignatorRecords implements IValidationRecords {
 		for declaration in program.declarations() { files.put(AstIdentity.key(declaration), "Index.btrc"); }
 		self.codec = ValidationRecordCodec(program.declarations(), files);
 		self.encoded = encoded;
+		/* Signed transport remains independent of the array-range refusal.
+		 * A real source index journals its AST identity; substitute only the
+		 * integer payload to test both codec endpoints at signed-64 limits. */
+		for fact in journal.facts {
+			if (fact.kind != VALIDATION_DESIGNATOR_INDEX) { continue; }
+			for number in [LLONG_MIN, LLONG_MAX] {
+				var probe = ValidationJournal();
+				var replacement = ValidationFact(VALIDATION_DESIGNATOR_INDEX, fact.node);
+				replacement.integerValue = number;
+				probe.facts.push(replacement);
+				string? text = self.codec.encode(declaration, probe, foreign);
+				assert(text != null);
+				Vector<ValidationFact>? restored = self.codec.decode(text);
+				assert(restored != null && restored.len == 1 && restored.get(0).integerValue == number);
+			}
+		}
 	}
 
 	public void selectBodies(Map<Node, bool> unreached) {}
@@ -85,7 +102,7 @@ class DesignatorRecords implements IValidationRecords {
 
 class DesignatorFixture {
 	class Node program(GrammarInfo grammar, string expression) {
-		var parser = Parser(Lexer("int main() { int index = 0; int values[(1LL << 40) + 7] = {0}; return 0; }", grammar).tokenize(), grammar);
+		var parser = Parser(Lexer("int main() { int index = 0; int values[] = {0}; int capacity[(1LL << 40) + 7]; return 0; }", grammar).tokenize(), grammar);
 		Node program = parser.parseProgram();
 		assert(!parser.failed);
 		var indexParser = Parser(Lexer(expression, grammar).tokenize(), grammar);
@@ -135,8 +152,8 @@ int main(int argc, char** argv) {
 	assert(cached.designatorIndexValues.len == 1 && cached.designatorIndexValues.has(newKey));
 	assert(!cached.designatorIndexValues.has(oldKey));
 	assert(live.designatorIndexValues.get(oldKey) == cached.designatorIndexValues.get(newKey));
-	Node oldBound = first.declarations().get(0).bodyNode.statements().get(1).type.arraySize;
-	Node newBound = second.declarations().get(0).bodyNode.statements().get(1).type.arraySize;
+	Node oldBound = first.declarations().get(0).bodyNode.statements().get(2).type.arraySize;
+	Node newBound = second.declarations().get(0).bodyNode.statements().get(2).type.arraySize;
 	string oldBoundKey = AstIdentity.key(oldBound);
 	string newBoundKey = AstIdentity.key(newBound);
 	assert(oldBoundKey != newBoundKey);

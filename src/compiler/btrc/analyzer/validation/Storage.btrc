@@ -980,7 +980,7 @@ class StorageValidator {
 					TypeValidator.fail(subject + " is a variable-length array and cannot have " + "an initializer", declaration);
 				}
 				bool aggregateInitializer = declaration.initializer.kind == NK_LIST_LITERAL || declaration.initializer.kind == NK_BRACE_INITIALIZER;
-				if (aggregateInitializer && bound.known && declaration.initializer.elements().len > bound.value) {
+				if (aggregateInitializer && !SemanticTypeSystem.hasDesignators(declaration.initializer) && bound.known && declaration.initializer.elements().len > bound.value) {
 					TypeValidator.fail(subject + " has " + Strings.fromInt(declaration.initializer.elements().len) + " elements exceeding its fixed array bound", declaration);
 				}
 			}

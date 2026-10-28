@@ -157,10 +157,17 @@ class InitializerAnalyzer:
 
     _BRACE_SEQUENCE_COLLECTIONS = frozenset({"Array", "List", "Set", "Vector"})
 
-    def __init__(self, context: AnalysisSession, index: DeclarationIndex, types: InitializerTypeLayout) -> None:
+    def __init__(
+        self,
+        context: AnalysisSession,
+        index: DeclarationIndex,
+        types: InitializerTypeLayout,
+        semantic_types: TypeSystem,
+    ) -> None:
         self.context = context
         self.index = index
         self.types = types
+        self.semantic_types = semantic_types
 
     def plan_typed(self, expected: TypeExpr, initializer: object, subject: str, line: int, col: int) -> InitializerPlan:
         """Plan full validation of a value against its declared type."""
@@ -185,13 +192,31 @@ class InitializerAnalyzer:
         if not isinstance(initializer, BraceInitializer):
             return InitializerPlan(False)
         canonical = self.types.canonical(expected)
+        if TypeSystem.has_designators(initializer) and canonical is not None:
+            if self.semantic_types.is_active_type_parameter(canonical):
+                return InitializerPlan(True, (InitializerTypeContext(initializer, expected),))
+            record = TypeSystem.complete_member_record(canonical, self.index)
+            if not canonical.is_array and record is None:
+                self.context.error(
+                    f"Designated initializers apply to structs, unions and arrays, not '{self.semantic_types.format_written_type(canonical)}'",
+                    line,
+                    col,
+                )
+                return InitializerPlan(True)
         if canonical is None or canonical.pointer_depth > 0 or canonical.is_array:
             return InitializerPlan(False)
         steps: list[InitializerStep] = []
         struct_name = TypeSystem.record_tag_name(canonical.base)
         declaration = self.index.struct_table.get(struct_name)
         if declaration is not None and (not declaration.is_forward):
-            if initializer.elements and getattr(declaration.source_file, "private_fields", False):
+            if (
+                initializer.elements
+                and getattr(declaration.source_file, "private_fields", False)
+                and (
+                    len(initializer.entries) != len(initializer.elements)
+                    or any(not entry.parts for entry in initializer.entries)
+                )
+            ):
                 self.context.error("Native records with private fields cannot use positional initialization", line, col)
             steps.extend(self._plan_record_initializer(declaration, initializer, subject, line, col, declaration))
             steps.append(InitializerTypeContext(initializer, expected))
@@ -312,6 +337,26 @@ class InitializerAnalyzer:
                     return InitializerPlan(True, (InitializerTypeContext(initializer, expected),))
                 element_types = canonical.generic_args
             elif canonical.is_array:
+                if TypeSystem.has_designators(initializer):
+                    plan = TypeSystem.plan_initializer_slots(
+                        canonical,
+                        initializer,
+                        self.index,
+                        self.context.designator_index_values,
+                        self.context.array_bound_values,
+                    )
+                    self.context.initializer_slot_plans[id(initializer)] = plan
+                    for message, site in plan.problems:
+                        self.context.error(message, site.line or line, site.col or col)
+                    steps = []
+                    for slot in plan.slots:
+                        steps.extend(
+                            self.plan_typed(
+                                slot.type, slot.element, subject, slot.element.line or line, slot.element.col or col
+                            ).steps
+                        )
+                    steps.append(InitializerTypeContext(initializer, expected))
+                    return InitializerPlan(True, tuple(steps))
                 element_types = [self.types.array_element(canonical)]
             elif self._is_generic_heap_class(canonical):
                 if initializer.elements:
@@ -387,6 +432,7 @@ class AggregateAnalyzer:
             session,
             index,
             InitializerTypeLayout(index),
+            types,
         )
 
     def plan_typed_initializer(
@@ -875,6 +921,8 @@ class AggregateAnalyzer:
         if not isinstance(bound, IntLiteral):
             return
         if not isinstance(initializer, (BraceInitializer, ListLiteral)):
+            return
+        if TypeSystem.has_designators(initializer):
             return
         count = len(initializer.elements)
         if count > bound.value:

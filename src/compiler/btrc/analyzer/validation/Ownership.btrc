@@ -794,6 +794,10 @@ class OwnershipValidator {
 
 	public Node? shallowElementType(Node aggregate, Node initializer, int index) {
 		if (aggregate.isArray) {
+			if (SemanticTypeSystem.hasDesignators(initializer)) {
+				SemanticInitializerPlan plan = SemanticTypeSystem.initializerSlots(aggregate, initializer, self.state.analyzed);
+				return SemanticTypeSystem.initializerSlotType(plan, initializer.elements().get(index));
+			}
 			return self.types.arrayElementType(aggregate);
 		}
 		if (aggregate.base == "Tuple") {

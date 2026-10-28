@@ -1483,7 +1483,7 @@ class ExpressionLowerer:
         target_type: TypeExpr | None = None,
     ) -> tuple[StaticInitializerMaterialization, tuple[tuple[object, TypeExpr | None], ...]]:
         """Resolve one recursive initializer tree and its ordered scalar leaves."""
-        plan = self._collections.plan_static(node, provenance)
+        plan = self._collections.plan_static(node, provenance, target_type)
         if plan is None:
             return StaticInitializerMaterialization(source=node, plan=None), ((node, target_type),)
         source_elements = plan.elements if plan.elements is not None else node.elements
@@ -2233,6 +2233,9 @@ class ExpressionLowerer:
                 return None
         return Identifier(name=name, line=node.operand.type.line, col=node.operand.type.col)
 
+    def array_initializer_extent(self, target, initializer) -> IRLiteral:
+        return self._collections.array_initializer_extent(target, initializer)
+
     def _sizeof_global(self, name: str, provenance: CallableProvenance) -> IRExpr | None:
         """Measure a global through its type, an array as element size times extent.
 
@@ -2249,7 +2252,7 @@ class ExpressionLowerer:
         else:
             initializer = self._analyzed.global_initializers.get(name)
             if isinstance(initializer, (BraceInitializer, ListLiteral)):
-                extent = IRLiteral(text=str(len(initializer.elements)))
+                extent = self.array_initializer_extent(binding, initializer)
             else:
                 extent = self.string_array_extent(initializer)
             if extent is None:
@@ -2730,15 +2733,16 @@ class ExpressionLowerer:
             elements = plan.elements
         children = []
         leaf_plans = []
-        for element in elements:
-            element_type = self._types.canonical_type(self._session.type_of(element))
+        for index, element in enumerate(elements):
+            target = plan.path_slots[index].type if plan.path_slots is not None else None
+            element_type = self._types.canonical_type(target or self._session.type_of(element))
             if isinstance(element, BraceInitializer) and element_type is not None and element_type.is_array:
                 child, leaves = self._plan_static_initializer(element, provenance, target_type=element_type)
                 children.append(child)
                 leaf_plans.extend(leaves)
             else:
                 children.append(StaticInitializerMaterialization(source=element, plan=None))
-                leaf_plans.append((element, None))
+                leaf_plans.append((element, target))
         leaves = tuple(leaf for leaf, _target in leaf_plans)
         materialization = AggregateMaterialization(plan, tuple(children), tuple(target for _leaf, target in leaf_plans))
         sequenced = self._sequence_operands(

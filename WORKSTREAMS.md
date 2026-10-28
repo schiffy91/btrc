@@ -4269,3 +4269,12 @@ The reference and structural checks pass: 205 tests, zero skips. Self-hosted
 execution remains pending. A source transpilation reached IR optimization and
 was interrupted to defer that expensive work to the combined validation run.
 Do not treat this checkpoint as end-user syntax support or r10 completion.
+
+The next checkpoint connects designation parsing, array slot plans and sparse
+extents to nested structured IR in both compilers. It preserves source-order
+operand staging, rejects reconstructed-plan errors for concrete generic
+targets and permits named public fields in native records with private fields.
+Reference/parser checks: 468 passed, with self-hosted execution still pending.
+The combined paired run will use a fresh reference-built O0 development
+compiler; optimized compilation and the full completion gates remain deferred.
+Compound literals are still unfinished.

@@ -1264,6 +1264,11 @@ class StatementAnalyzer:
 
         The binding or loop takes the literal's own type, so the mismatch comes
         before anything that type implies, as the self-hosted validator does."""
+        if self.types.has_designators(expression):
+            self.session.error(
+                "A designated initializer needs a declared struct, union or array type", expression.line, expression.col
+            )
+            return True
         mismatches = self.session.inferred_literal_mismatches
         for index, (literal, message, line, col) in enumerate(mismatches):
             if literal is expression and id(literal) not in self.session.contextual_literal_ids:
@@ -2495,6 +2500,10 @@ class StatementAnalyzer:
             # A wrong tag anywhere in the declared type is reported before the
             # initializer is checked against it, as btrcc does.
             self.types.validate_tag_keyword(stmt.type, stmt.line, stmt.col)
+            if stmt.type.is_array and self.types.has_designators(stmt.initializer):
+                subject = ("Global" if is_global else "Variable") + f" '{stmt.name}'"
+                context = "global" if is_global else "static" if stmt.type.is_static else "local"
+                self._validate_array_bound(stmt.type, subject, context)
             self.expressions.contextualize_ternary_literals(stmt.initializer, stmt.type)
             boundary = self.gpu.array_initializer_boundary(stmt.initializer, stmt.type)
             with self.session.gpu_result_context(boundary):

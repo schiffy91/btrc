@@ -3080,45 +3080,103 @@ class Parser {
 		return n;
 	}
 
+	private bool startsDesignation() {
+		if (self.check("DOT")) { return true; }
+		if (!self.check("LBRACKET")) { return false; }
+		int offset = 0;
+		while (true) {
+			if (self.peekAt(offset).type == "LBRACKET") {
+				int depth = 1;
+				offset++;
+				while (depth > 0 && self.peekAt(offset).type != "EOF") {
+					string kind = self.peekAt(offset).type;
+					if (kind == "LBRACKET") { depth++; }
+					if (kind == "RBRACKET") { depth--; }
+					offset++;
+				}
+				if (depth != 0) { return false; }
+			} else if (self.peekAt(offset).type == "DOT" && self.peekAt(offset + 1).type == "IDENT") {
+				offset = offset + 2;
+			} else {
+				return self.peekAt(offset).type == "EQ";
+			}
+		}
+		return false;
+	}
+
+	private Node parseDesignation() {
+		Node designation = Node();
+		designation.kind = NK_DESIGNATION;
+		while (self.check("DOT") || self.check("LBRACKET")) {
+			Token tok = self.advance();
+			Node part = Node();
+			part.line = tok.line;
+			part.col = tok.col;
+			if (tok.type == "DOT") {
+				part.kind = NK_FIELD_DESIGNATOR;
+				part.field = self.expect("IDENT").value;
+			} else {
+				int offset = 0;
+				int depth = 1;
+				while (depth > 0 && self.peekAt(offset).type != "EOF") {
+					string kind = self.peekAt(offset).type;
+					if (kind == "LBRACKET") { depth++; }
+					if (kind == "RBRACKET") { depth--; }
+					if (depth == 1 && kind == "DOT" && self.peekAt(offset + 1).type == "DOT" && self.peekAt(offset + 2).type == "DOT") {
+						self.failAt("Range designators ('[a ... b]') are a GNU extension, not C11; designate each index", self.peekAt(offset));
+						return designation;
+					}
+					offset++;
+				}
+				part.kind = NK_INDEX_DESIGNATOR;
+				part.index = self.parseExpression();
+				self.expect("RBRACKET");
+			}
+			designation.partsMut().push(part);
+		}
+		self.expect("EQ");
+		return designation;
+	}
+
 	public Node parseMapOrBraceInitializer() {
 		Token tok = self.expect("LBRACE");
-		if (self.matchTok("RBRACE")) {
-			Node empty = Node();
-			empty.kind = NK_BRACE_INITIALIZER;
-			empty.line = tok.line;
-			empty.col = tok.col;
-			return empty;
-		}
-
+		Node brace = Node();
+		brace.kind = NK_BRACE_INITIALIZER;
+		brace.line = tok.line;
+		brace.col = tok.col;
+		if (self.matchTok("RBRACE")) { return brace; }
+		Node designation = Node();
+		designation.kind = NK_DESIGNATION;
+		if (self.startsDesignation()) { designation = self.parseDesignation(); }
 		Node first = self.parseExpression();
-		if (self.matchTok("COLON")) {
+		if (designation.parts().len == 0 && self.matchTok("COLON")) {
 			Node map = Node();
 			map.kind = NK_MAP_LITERAL;
 			map.line = tok.line;
 			map.col = tok.col;
 			Node firstValue = self.parseExpression();
-			Node firstEntry = self.makeMapEntry(first, firstValue);
-			map.entriesMut().push(firstEntry);
+			map.entriesMut().push(self.makeMapEntry(first, firstValue));
 			while (self.matchTok("COMMA")) {
 				if (self.check("RBRACE")) { break; }
-				Node entN = self.parseMapEntry();
-				map.entriesMut().push(entN);
+				map.entriesMut().push(self.parseMapEntry());
 			}
 			self.expect("RBRACE");
 			return map;
 		}
-
-		Node brace = Node();
-		brace.kind = NK_BRACE_INITIALIZER;
-		brace.line = tok.line;
-		brace.col = tok.col;
+		Vector<Node> entries = [designation];
+		bool designated = designation.parts().len > 0;
 		brace.elementsMut().push(first);
 		while (self.matchTok("COMMA")) {
 			if (self.check("RBRACE")) { break; }
-			Node eN = self.parseExpression();
-			brace.elementsMut().push(eN);
+			Node entry = Node();
+			entry.kind = NK_DESIGNATION;
+			if (self.startsDesignation()) { entry = self.parseDesignation(); }
+			if (entry.parts().len > 0) { designated = true; }
+			entries.push(entry);
+			brace.elementsMut().push(self.parseExpression());
 		}
 		self.expect("RBRACE");
+		if (designated) { brace.entriesStorage = entries; }
 		return brace;
 	}
 

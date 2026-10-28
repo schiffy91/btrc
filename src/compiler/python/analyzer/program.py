@@ -410,7 +410,7 @@ class DeclarationIndex:
 
 @dataclass(frozen=True)
 class InitializerSlot:
-    """Where one brace element of a record initializer lands (C11 6.7.9p17).
+    """Where one brace element of an aggregate initializer lands (C11 6.7.9p17).
 
     ``path`` is the member path from a direct member of the current record,
     through any anonymous members, to the initialized member; a designator
@@ -427,13 +427,13 @@ class InitializerSlot:
 
     @property
     def member(self):
-        """The initialized member: a ``FieldDef`` or an ``AnonymousMember``."""
+        """The leaf storage step: a field, anonymous member or array index."""
         return self.path[-1]
 
 
 @dataclass(frozen=True)
 class InitializerSlotPlan:
-    """Every brace element of one record initializer mapped to its slot.
+    """Every brace element of one record or array initializer mapped to its slot.
 
     ``slots`` follow source order. ``capacity`` is the number of positional
     slots the record offers, and ``excess`` counts elements that found no
@@ -447,6 +447,7 @@ class InitializerSlotPlan:
     excess: int
     target: object | None = None
     problems: tuple[tuple[str, object], ...] = ()
+    extent: int = 0
 
 
 @dataclass

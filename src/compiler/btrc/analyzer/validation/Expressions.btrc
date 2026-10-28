@@ -344,7 +344,11 @@ class ExpressionValidator {
 		if (plan.excess > 0) {
 			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but " + SemanticTypeSystem.recordKeyword(enclosing) + " '" + name + "' has " + Strings.fromInt(plan.capacity) + " fields", initializer);
 		}
-		if (initializer.elements().len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
+		if (initializer.elements().len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) {
+			bool positional = initializer.entries().len != initializer.elements().len;
+			for entry in initializer.entries() { if (entry.parts().len == 0) { positional = true; } }
+			if (positional) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
+		}
 		for slot in plan.slots {
 			Node field = slot.member();
 			if (field.kind == NK_ANONYMOUS_MEMBER) {
@@ -392,6 +396,10 @@ class ExpressionValidator {
 		self.contextualizeGenericConstructor(representedExpected, value, vars);
 		Node? canonical = self.types.resolveAliases(representedExpected);
 		if (canonical == null) { return; }
+		if (SemanticTypeSystem.hasDesignators(value) && self.state.typeParams.has(canonical.base)) { self.markContextualLiteral(value); return; }
+		if (SemanticTypeSystem.hasDesignators(value) && !canonical.isArray && SemanticTypeSystem.memberRecord(canonical, self.state.analyzed) == null) {
+			TypeValidator.fail("Designated initializers apply to structs, unions and arrays, not '" + self.types.formatWrittenType(canonical) + "'", value);
+		}
 		if (value.kind == NK_MAP_LITERAL) {
 			if (canonical.base == "Map" && canonical.genericArgs().len == 2) { self.markContextualLiteral(value); }
 			self.validateMapInitializer(canonical, value, subject, vars);
@@ -416,7 +424,16 @@ class ExpressionValidator {
 			if (value.elements().len == 0 && canonical.arraySize == null) {
 				TypeValidator.fail(subject + " cannot infer an array bound from an empty initializer", value);
 			}
-			self.validateInitializerElements(self.arrayElementType(canonical), value.elements(), subject, vars);
+			if (SemanticTypeSystem.hasDesignators(value)) {
+				SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(canonical, value, self.state.analyzed);
+				self.state.analyzed.initializerPlans.put(AstIdentity.key(value), plan);
+				for problem in plan.problems { TypeValidator.fail(problem.message, problem.site); }
+				for slot in plan.slots {
+					if (slot.type != null) { self.validateInitializerValue(slot.type, slot.element, subject, vars); }
+				}
+			} else {
+				self.validateInitializerElements(self.arrayElementType(canonical), value.elements(), subject, vars);
+			}
 			return;
 		}
 		string structName = StorageValidator.structTypeName(canonical, self.state.analyzed);

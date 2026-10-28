@@ -177,7 +177,7 @@ class SemanticInitializerSlot {
 		self.type = type;
 	}
 
-	/* The initialized member: a FieldDef or an AnonymousMember. */
+	/* The leaf storage step: a field, anonymous member or array index. */
 	public Node member() { return self.path.get(self.path.len - 1); }
 }
 
@@ -190,7 +190,7 @@ class SemanticInitializerProblem {
 	}
 }
 
-/* Every brace element of one record initializer mapped to its slot, in source
+/* Every brace element of one record or array initializer mapped to its slot, in source
  * order. capacity is the number of positional slots the record offers, and
  * excess counts elements that found no slot. */
 class SemanticInitializerPlan {
@@ -199,6 +199,7 @@ class SemanticInitializerPlan {
 	public int excess;
 	public Node? record;
 	public Vector<SemanticInitializerProblem> problems = [];
+	public unsigned long long extent = 0ULL;
 
 	public SemanticInitializerPlan(Vector<SemanticInitializerSlot> slots, int capacity, int excess, Node? record = null) {
 		self.slots = slots;

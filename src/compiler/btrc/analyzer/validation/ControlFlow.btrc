@@ -692,6 +692,9 @@ class ControlFlowValidator {
 			if (declaration.initializer == null) {
 				TypeValidator.fail("'var' declaration of '" + declaration.name + "' requires an initializer", declaration);
 			}
+			if (SemanticTypeSystem.hasDesignators(declaration.initializer)) {
+				TypeValidator.fail("A designated initializer needs a declared struct, union or array type", declaration.initializer);
+			}
 			if (declaration.initializer.kind == NK_BRACE_INITIALIZER) {
 				TypeValidator.fail("Cannot infer array storage for 'var' from " + "a brace initializer; use an explicit array declaration", declaration.initializer);
 			}

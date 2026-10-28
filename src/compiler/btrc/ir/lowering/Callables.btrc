@@ -396,6 +396,12 @@ class CallableValueSemantics {
 		}
 		if (value.kind == NK_LIST_LITERAL || value.kind == NK_BRACE_INITIALIZER) {
 			Node? elementType = null;
+			if (canonical.isArray && SemanticTypeSystem.hasDesignators(value)) {
+				for slot in self.recordInitializerLeafSlots(canonical, value) {
+					if (self.valueRequiresEnvironment(slot.type, slot.element, context)) { return true; }
+				}
+				return false;
+			}
 			if (canonical.isArray) {
 				elementType = self.arrayElement(canonical);
 			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs().len == 1) {
@@ -492,6 +498,12 @@ class CallableBoundaryPolicy {
 		}
 		if (value.kind == NK_LIST_LITERAL || value.kind == NK_BRACE_INITIALIZER) {
 			Node? elementType = null;
+			if (canonical.isArray && SemanticTypeSystem.hasDesignators(value)) {
+				for slot in self.values.recordInitializerLeafSlots(canonical, value) {
+					if (self.unsafeValue(slot.type, slot.element, context)) { return true; }
+				}
+				return false;
+			}
 			if (canonical.isArray) {
 				elementType = self.values.arrayElement(canonical);
 			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs().len == 1) {

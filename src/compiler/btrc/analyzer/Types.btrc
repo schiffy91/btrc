@@ -411,7 +411,14 @@ class SemanticTypeSystem {
 	 * flattened member, and its chain continues through nested records and
 	 * array elements (the IndexDesignator itself is the step). A positional
 	 * element after a designated one continues at the next direct member. */
+	class bool hasDesignators(Node initializer) {
+		if (initializer.kind != NK_BRACE_INITIALIZER) { return false; }
+		for entry in initializer.entries() { if (entry.parts().len > 0) { return true; } }
+		return false;
+	}
+
 	class SemanticInitializerPlan planInitializerSlots(Node record, Node initializer, Analyzed analyzed) {
+		if (record.kind == NK_TYPE_EXPR && record.isArray) { return SemanticTypeSystem.planArrayInitializerSlots(record, initializer, analyzed); }
 		Vector<Node> members = SemanticTypeSystem.recordMembers(record);
 		int capacity = members.len;
 		if (record.isUnion && capacity > 1) { capacity = 1; }
@@ -464,6 +471,64 @@ class SemanticTypeSystem {
 		return plan;
 	}
 
+	class SemanticInitializerPlan planArrayInitializerSlots(Node target, Node initializer, Analyzed analyzed) {
+		Node canonical = target;
+		Node? resolved = SemanticTypeSystem.resolveTypedefType(target, analyzed.typedefTable);
+		if (resolved != null) { canonical = resolved; }
+		long long bound = SemanticTypeSystem.initializerArrayBound(canonical, analyzed);
+		Vector<SemanticInitializerSlot> slots = [];
+		Vector<SemanticInitializerProblem> problems = [];
+		unsigned long long cursor = 0ULL;
+		unsigned long long extent = 0ULL;
+		int position = 0;
+		for element in initializer.elements() {
+			Vector<Node> parts = [];
+			if (initializer.kind == NK_BRACE_INITIALIZER && position < initializer.entries().len) { parts = initializer.entries().get(position).parts(); }
+			position++;
+			SemanticInitializerSlot? slot = null;
+			if (parts.len > 0) {
+				slot = SemanticTypeSystem.designatedSlot(target, element, parts, analyzed, problems);
+				if (slot == null) { continue; }
+				cursor = (unsigned long long)SemanticTypeSystem.initializerIndexValue(slot.path.get(0), analyzed) + 1ULL;
+			} else {
+				if (cursor > (unsigned long long)LLONG_MAX || (bound >= 0LL && cursor >= (unsigned long long)bound)) {
+					string name = SemanticTypeSystem.initializerStorageName(canonical, analyzed);
+					problems.push(SemanticInitializerProblem(f"Initializer element for index {cursor} is outside '{name}'", element));
+					cursor++;
+					continue;
+				}
+				Node literal = Node();
+				literal.kind = NK_INT_LITERAL;
+				literal.raw = f"{cursor}";
+				Node step = Node();
+				step.kind = NK_INDEX_DESIGNATOR;
+				step.index = literal;
+				step.line = element.line;
+				step.col = element.col;
+				Vector<Node> path = [step];
+				slot = SemanticInitializerSlot(element, path, TypeShape.withoutOuterArray(canonical));
+				slot.site = element;
+				cursor++;
+			}
+			SemanticTypeSystem.checkInitializerSlot(target, slot, slots, problems, analyzed);
+			slots.push(slot);
+			if (cursor > extent) { extent = cursor; }
+		}
+		SemanticInitializerPlan plan = SemanticInitializerPlan(slots, 0, 0, target);
+		plan.extent = extent;
+		plan.problems = problems;
+		return plan;
+	}
+
+	/* Source indexes have analyzed facts; positional steps carry a synthesized literal. */
+	class bool hasInitializerIndexValue(Node step, Analyzed analyzed) { return analyzed.designatorIndexValues.has(AstIdentity.key(step)) || (step.index != null && step.index.kind == NK_INT_LITERAL); }
+
+	class long long initializerIndexValue(Node step, Analyzed analyzed) {
+		string key = AstIdentity.key(step);
+		if (analyzed.designatorIndexValues.has(key)) { return analyzed.designatorIndexValues.get(key); }
+		return (long long)IntegerLiteral(step.index.raw).details().magnitude;
+	}
+
 	class void checkInitializerSlot(Node record, SemanticInitializerSlot slot, Vector<SemanticInitializerSlot> previous, Vector<SemanticInitializerProblem> problems, Analyzed analyzed) {
 		for earlier in previous {
 			string conflict = SemanticTypeSystem.initializerPathConflict(record, earlier, slot, analyzed);
@@ -477,22 +542,21 @@ class SemanticTypeSystem {
 	}
 
 	class string initializerPathConflict(Node record, SemanticInitializerSlot previous, SemanticInitializerSlot current, Analyzed analyzed) {
-		Node? parentRecord = record;
-		Node? parentType = null;
+		bool arrayTarget = record.kind == NK_TYPE_EXPR && record.isArray;
+		Node? parentRecord = arrayTarget ? null : record;
+		Node? parentType = arrayTarget ? record : null;
 		int index = 0;
 		while (index < previous.path.len && index < current.path.len) {
 			Node left = previous.path.get(index);
 			Node right = current.path.get(index);
 			bool same = SemanticTypeSystem.sameNode(left, right);
 			if (left.kind == NK_INDEX_DESIGNATOR && right.kind == NK_INDEX_DESIGNATOR) {
-				string leftKey = AstIdentity.key(left);
-				string rightKey = AstIdentity.key(right);
-				same = analyzed.designatorIndexValues.has(leftKey) && analyzed.designatorIndexValues.has(rightKey) && analyzed.designatorIndexValues.get(leftKey) == analyzed.designatorIndexValues.get(rightKey);
+				same = SemanticTypeSystem.hasInitializerIndexValue(left, analyzed) && SemanticTypeSystem.hasInitializerIndexValue(right, analyzed) && SemanticTypeSystem.initializerIndexValue(left, analyzed) == SemanticTypeSystem.initializerIndexValue(right, analyzed);
 			}
 			if (!same) {
 				if (parentRecord == null || !parentRecord.isUnion) { return ""; }
-				string leftName = left.kind == NK_ANONYMOUS_MEMBER ? previous.member().name : left.name;
-				string rightName = right.kind == NK_ANONYMOUS_MEMBER ? current.member().name : right.name;
+				string leftName = SemanticTypeSystem.initializerMemberName(previous, index);
+				string rightName = SemanticTypeSystem.initializerMemberName(current, index);
 				string name = parentRecord.name.isEmpty() ? record.name : parentRecord.name;
 				return "Union '" + name + "' initializer sets both '" + leftName + "' and '" + rightName + "'; a union initializer sets one member";
 			}
@@ -509,6 +573,12 @@ class SemanticTypeSystem {
 			}
 			index++;
 		}
+		if (arrayTarget) {
+			Node first = previous.site == null ? previous.element : previous.site;
+			long long value = SemanticTypeSystem.initializerIndexValue(current.path.get(0), analyzed);
+			string name = SemanticTypeSystem.initializerStorageName(record, analyzed);
+			return f"Index {value} of '{name}' is initialized more than once (first at {first.line}:{first.col}); each element may be initialized once";
+		}
 		string member = "";
 		for step in previous.path {
 			if (step.kind == NK_FIELD_DEF) { member = step.name; break; }
@@ -521,6 +591,18 @@ class SemanticTypeSystem {
 		Node first = previous.element;
 		if (previous.site != null) { first = previous.site; }
 		return "Field '" + member + "' of " + SemanticTypeSystem.recordKeyword(record) + " '" + record.name + "' is initialized more than once (first at " + Strings.fromInt(first.line) + ":" + Strings.fromInt(first.col) + "); each member may be initialized once";
+	}
+
+	class string initializerMemberName(SemanticInitializerSlot slot, int depth) {
+		Node step = slot.path.get(depth);
+		if (step.kind != NK_ANONYMOUS_MEMBER) { return step.name; }
+		int index = depth + 1;
+		while (index < slot.path.len) {
+			Node nested = slot.path.get(index);
+			if (nested.kind == NK_FIELD_DEF) { return nested.name; }
+			index++;
+		}
+		return "anonymous " + SemanticTypeSystem.recordKeyword(step);
 	}
 
 	class bool sameNode(Node left, Node right) { return (uintptr_t)left == (uintptr_t)right; }
@@ -554,46 +636,28 @@ class SemanticTypeSystem {
 	}
 
 	class SemanticInitializerSlot? designatedSlot(Node record, Node element, Vector<Node> parts, Analyzed analyzed, Vector<SemanticInitializerProblem> problems) {
-		Node first = parts.get(0);
-		if (first.kind != NK_FIELD_DESIGNATOR) {
-			string key = AstIdentity.key(first);
-			if (analyzed.designatorIndexValues.has(key)) {
-				long long value = analyzed.designatorIndexValues.get(key);
-				problems.push(SemanticInitializerProblem(f"Designator '[{value}]' needs an array, but the initialized type is '{record.name}'", first));
-			}
-			return null;
-		}
-		Vector<Node>? found = SemanticTypeSystem.recordMemberPath(record, first.field);
-		if (found == null) {
-			string kind = record.isUnion ? "Union" : "Struct";
-			problems.push(SemanticInitializerProblem(kind + " '" + record.name + "' has no field '" + first.field + "'", first));
-			return null;
-		}
+		Node? currentRecord = record.kind == NK_TYPE_EXPR ? null : record;
+		Node? slotType = record.kind == NK_TYPE_EXPR ? record : SemanticTypeSystem.primitive(record.name);
 		Vector<Node> steps = [];
-		for step in found { steps.push(step); }
-		Node? slotType = steps.get(steps.len - 1).type;
-		int index = 1;
-		while (index < parts.len) {
-			Node part = parts.get(index);
+		for part in parts {
 			if (part.kind == NK_FIELD_DESIGNATOR) {
-				Node? nested = SemanticTypeSystem.memberRecord(slotType, analyzed);
+				Node? nested = currentRecord == null ? SemanticTypeSystem.memberRecord(slotType, analyzed) : currentRecord;
 				if (nested == null) {
 					string name = SemanticTypeSystem.initializerStorageName(slotType, analyzed);
 					problems.push(SemanticInitializerProblem("Designator '." + part.field + "' needs a struct or union, but the initialized type is '" + name + "'", part));
 					return null;
 				}
-				Vector<Node>? nestedPath = SemanticTypeSystem.recordMemberPath(nested, part.field);
-				if (nestedPath == null) {
+				Vector<Node>? path = SemanticTypeSystem.recordMemberPath(nested, part.field);
+				if (path == null) {
 					string kind = nested.isUnion ? "Union" : "Struct";
 					problems.push(SemanticInitializerProblem(kind + " '" + nested.name + "' has no field '" + part.field + "'", part));
 					return null;
 				}
-				for step in nestedPath { steps.push(step); }
+				for step in path { steps.push(step); }
 				slotType = steps.get(steps.len - 1).type;
 			} else {
-				string key = AstIdentity.key(part);
-				if (!analyzed.designatorIndexValues.has(key)) { return null; }
-				long long value = analyzed.designatorIndexValues.get(key);
+				if (!SemanticTypeSystem.hasInitializerIndexValue(part, analyzed)) { return null; }
+				long long value = SemanticTypeSystem.initializerIndexValue(part, analyzed);
 				if (slotType == null || !slotType.isArray) {
 					string name = SemanticTypeSystem.initializerStorageName(slotType, analyzed);
 					problems.push(SemanticInitializerProblem(f"Designator '[{value}]' needs an array, but the initialized type is '{name}'", part));
@@ -610,10 +674,10 @@ class SemanticTypeSystem {
 				steps.push(part);
 				slotType = TypeShape.withoutOuterArray(canonical);
 			}
-			index = index + 1;
+			currentRecord = null;
 		}
 		SemanticInitializerSlot slot = SemanticInitializerSlot(element, steps, slotType);
-		slot.site = first;
+		slot.site = parts.get(0);
 		return slot;
 	}
 
@@ -664,17 +728,28 @@ class SemanticTypeSystem {
 		string key = AstIdentity.key(initializer);
 		if (analyzed.initializerPlans.has(key)) {
 			SemanticInitializerPlan plan = analyzed.initializerPlans.get(key);
-			if (plan.record != null && SemanticTypeSystem.sameNode(plan.record, record)) { return plan; }
+			Node? cached = plan.record;
+			if (cached != null) {
+				if (SemanticTypeSystem.sameNode(cached, record)) { return plan; }
+				bool sameBound = cached.arraySize == null && record.arraySize == null;
+				if (cached.arraySize != null && record.arraySize != null) { sameBound = SemanticTypeSystem.sameNode(cached.arraySize, record.arraySize); }
+				if (record.kind == NK_TYPE_EXPR && cached.kind == NK_TYPE_EXPR && sameBound && TypeIdentity.shapeKey(cached) == TypeIdentity.shapeKey(record)) { return plan; }
+			}
 		}
 		return SemanticTypeSystem.planInitializerSlots(record, initializer, analyzed);
 	}
 
 	/* Typed leaves in evaluation order, with anonymous brace slots expanded. */
-	class Vector<SemanticInitializerSlot> initializerLeafSlots(Node record, Node initializer, Analyzed analyzed) {
+	class Vector<SemanticInitializerSlot> initializerLeafSlots(Node record, Node initializer, Analyzed analyzed, Vector<SemanticInitializerProblem>? problems = null) {
 		Vector<SemanticInitializerSlot> result = [];
-		for slot in SemanticTypeSystem.initializerSlots(record, initializer, analyzed).slots {
+		SemanticInitializerPlan plan = SemanticTypeSystem.initializerSlots(record, initializer, analyzed);
+		if (problems != null) {
+			for problem in plan.problems { problems.push(problem); }
+			if (plan.excess > 0) { problems.push(SemanticInitializerProblem("Initializer has more elements than the concrete target has fields", initializer)); }
+		}
+		for slot in plan.slots {
 			if (slot.member().kind == NK_ANONYMOUS_MEMBER && slot.element.kind == NK_BRACE_INITIALIZER) {
-				for nested in SemanticTypeSystem.initializerLeafSlots(slot.member(), slot.element, analyzed) {
+				for nested in SemanticTypeSystem.initializerLeafSlots(slot.member(), slot.element, analyzed, problems) {
 					Vector<Node> path = [];
 					for step in slot.path { path.push(step); }
 					for step in nested.path { path.push(step); }

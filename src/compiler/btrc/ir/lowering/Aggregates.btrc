@@ -1,4 +1,5 @@
 import Library.Map;
+import Library.Strings;
 import Library.Vector;
 
 import ../../analyzer/Models.btrc;
@@ -10,6 +11,7 @@ import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
 import ../Model.btrc;
 import ./ownership/Operands.btrc;
+import ./Types.btrc;
 
 /* Aggregate construction and raw indexing are C expression domains
  * where source operands are otherwise exposed to unspecified evaluation
@@ -169,6 +171,80 @@ class AggregateValueLowerer {
 		exit(1);
 	}
 
+	public Vector<SemanticInitializerSlot> initializerSlots(Node target, Node initializer) {
+		Vector<SemanticInitializerProblem> problems = [];
+		Vector<SemanticInitializerSlot> slots = SemanticTypeSystem.initializerLeafSlots(target, initializer, self.analyzed, problems);
+		for problem in problems {
+			fprintf(stderr, "error: %s at %d:%d\n", problem.message, problem.site.line, problem.site.col);
+			exit(1);
+		}
+		return slots;
+	}
+
+	public IRNode arrayInitializerExtent(Node target, Node initializer) {
+		if (!SemanticTypeSystem.hasDesignators(initializer)) { return IRNode.literal(Strings.fromInt(initializer.elements().len)); }
+		self.initializerSlots(target, initializer);
+		SemanticInitializerPlan plan = SemanticTypeSystem.initializerSlots(target, initializer, self.analyzed);
+		return IRNode.literal(f"{plan.extent}");
+	}
+
+	/* Values have already been lowered in source order. Only their inert paths
+	 * are grouped, so merging .a.x and .a.y never reorders side effects. */
+	public IRNode materializeInitializerPaths(Vector<SemanticInitializerSlot> slots, Vector<IRNode> values, Node target, CTypeLowerer cTypes, bool runtime) {
+		Vector<SemanticInitializerSlot> normalized = [];
+		for slot in slots {
+			Vector<Node> path = [];
+			for step in slot.path { if (step.kind != NK_ANONYMOUS_MEMBER) { path.push(step); } }
+			normalized.push(SemanticInitializerSlot(slot.element, path, slot.type));
+		}
+		return self.materializeInitializerChildren(normalized, values, target, cTypes, runtime, 0);
+	}
+
+	public IRNode compoundInitializer(IRNode initializer, Node target, CTypeLowerer cTypes) {
+		Vector<string> names = [];
+		int index = 0;
+		while (index < initializer.args().len) { names.push(""); index++; }
+		return IRNode.compoundLiteral(cTypes.lower(target), names, initializer.args());
+	}
+
+	private IRNode materializeInitializerChildren(Vector<SemanticInitializerSlot> slots, Vector<IRNode> values, Node target, CTypeLowerer cTypes, bool runtime, int depth) {
+		Map<string, Vector<int>> groups = {};
+		Vector<string> order = [];
+		int position = 0;
+		for slot in slots {
+			Node step = slot.path.get(depth);
+			string key = step.kind == NK_FIELD_DEF ? "field:" + step.name : f"index:{SemanticTypeSystem.initializerIndexValue(step, self.analyzed)}";
+			if (!groups.has(key)) { Vector<int> indexes = []; groups.put(key, indexes); order.push(key); }
+			groups.get(key).push(position);
+			position++;
+		}
+		Vector<IRNode> entries = [];
+		for key in order {
+			Vector<int> indexes = groups.get(key);
+			SemanticInitializerSlot first = slots.get(indexes.get(0));
+			Node step = first.path.get(depth);
+			Node childType = step.kind == NK_FIELD_DEF ? step.type : TypeShape.withoutOuterArray(target);
+			IRNode value = values.get(indexes.get(0));
+			if (first.path.len > depth + 1) {
+				Vector<SemanticInitializerSlot> childSlots = [];
+				Vector<IRNode> childValues = [];
+				for index in indexes { childSlots.push(slots.get(index)); childValues.push(values.get(index)); }
+				Node canonical = childType;
+				Node? resolved = SemanticTypeSystem.resolveTypedefType(childType, self.analyzed.typedefTable);
+				if (resolved != null) { canonical = resolved; }
+				value = self.materializeInitializerChildren(childSlots, childValues, canonical, cTypes, runtime, depth + 1);
+				if (runtime && !canonical.isArray) { value = self.compoundInitializer(value, childType, cTypes); }
+			}
+			if (step.kind == NK_FIELD_DEF) {
+				entries.push(IRNode.designation(step.name, null, value));
+			} else {
+				long long index = SemanticTypeSystem.initializerIndexValue(step, self.analyzed);
+				entries.push(IRNode.designation("", IRNode.literal(f"{index}"), value));
+			}
+		}
+		return IRNode.initializerList(entries);
+	}
+
 	private Node? contextualElementType(Node? aggregateType, Node aggregate, int index, OwnershipOperandEnvironment environment) {
 		if (aggregateType == null) {
 			string initializerKey = AstIdentity.key(aggregate);
@@ -181,6 +257,12 @@ class AggregateValueLowerer {
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(concrete, self.analyzed.typedefTable);
 		if (resolved != null) { concrete = resolved; }
 		if (concrete.isArray) {
+			if (SemanticTypeSystem.hasDesignators(aggregate)) {
+				for slot in self.initializerSlots(concrete, aggregate) {
+					if (SemanticTypeSystem.sameNode(slot.element, aggregate.elements().get(index))) { return slot.type; }
+				}
+				return null;
+			}
 			return TypeShape.withoutOuterArray(concrete);
 		}
 		if (concrete.base == "Tuple" && index < concrete.genericArgs().len) {
@@ -206,11 +288,15 @@ class AggregateValueLowerer {
 		if (expected == null) { expected = self.operandPlanner.expressionType(aggregate, environment); }
 		if (expected != null) {
 			Node concrete = self.operandPlanner.resolveType(expected, environment);
+			if (concrete.isArray && SemanticTypeSystem.hasDesignators(aggregate)) {
+				for slot in self.initializerSlots(concrete, aggregate) { self.collectOperand(slot.element, slot.type, environment, operands, flatten); }
+				return;
+			}
 			string name = StorageValidator.structTypeName(concrete, self.analyzed);
 			if (!concrete.isArray && concrete.pointerDepth == 0 && name != "" && self.analyzed.structTable.has(name)) {
 				Node declaration = self.analyzed.structTable.get(name);
 				if (!declaration.isForward) {
-					for slot in SemanticTypeSystem.initializerLeafSlots(declaration, aggregate, self.analyzed) {
+					for slot in self.initializerSlots(declaration, aggregate) {
 						self.collectOperand(slot.element, slot.type, environment, operands, flatten);
 					}
 					return;

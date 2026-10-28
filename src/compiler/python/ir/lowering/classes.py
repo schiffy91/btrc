@@ -1076,7 +1076,7 @@ class ClassLowerer:
                 ),
             )
         if isinstance(field.initializer, (BraceInitializer, ListLiteral)):
-            return (field_type, IRLiteral(text=str(len(field.initializer.elements))))
+            return (field_type, self._expressions.array_initializer_extent(field.type, field.initializer))
         extent = self._expressions.string_array_extent(field.initializer)
         if extent is not None:
             return (field_type, extent)
