@@ -4237,3 +4237,13 @@ preceding hosted-setjmp repair: Safety now consumes the pipeline-owned ABI
 repository to classify arithmetic typedefs. Own
 `src/tests/btrc/test_compiler_structure_contract.py` to require that injection
 and lookup while continuing to forbid generated-data construction in the owner.
+
+### 2026-10-28 C2 initializer path validation
+
+Packet: CX-C2-DESIGNATOR-PATHS. Base `a1b8f600`. Own both analyzer
+Types/Models owners, Python aggregates/program, self-host validation/Expressions,
+initializer-slot contract tests and paired path-analysis tests/driver.
+Validate prefix overlaps and divergent union selections, refuse positional
+continuation through anonymous members, consume indexed slot types and bind
+cached plans to their concrete record. Keep parser activation with the later
+complete bounds and lowering increment. Local tests and hub backup only; no CI.
