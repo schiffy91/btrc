@@ -4404,3 +4404,17 @@ This closes the declaration-encoding difference only. Whole-program grouping,
 pre/post-analysis timing, program facts, build-bound compiler identity, shared
 storage, dependency-scoped invalidation and application budgets remain. No
 full compiler build, bootstrap, application execution, CI or GitHub write.
+
+### 2026-10-28 issue #8 grouped program interfaces
+
+Packet: CX-GROUPED-PROGRAM-INTERFACES. Branch
+`codex/grouped-program-interfaces-20261028`, base `83de57f5`.
+Own paired program-interface composition, pipeline timing, the reference
+frontend's inline-stdlib provenance transport, and focused cache/driver tests.
+
+Capture interfaces before semantic analysis in both pipelines. Share framed
+source-group/native/other composition and per-source interface cache records,
+while keeping semantic validation replay and all program facts intact. Preserve
+inline-stdlib provenance across split and combined parse coordinates. Baseline
+is the current-tree declaration-interface proof (145 passing latest outcomes).
+Format before local driver validation; no CI, GitHub writes or application runs.
