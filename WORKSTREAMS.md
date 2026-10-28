@@ -4551,3 +4551,14 @@ a missing explicit return after the directory-search loop. Final paired checks
 passed after that repair. No full compiler, bootstrap, CI, GitHub write,
 application or measurement ran. Complete semantic key parity, interface-header
 and link-plan fragment artifacts, and BTRSmith performance acceptance remain open.
+
+### 2026-10-28 issue #8 program fact identities
+
+Packet: CX-MODULE-PROGRAM-FACTS. Branch `codex/module-program-facts-20261028`,
+base `8eff9fac`. Own paired module program-fact serialization, the realtime and
+stdlib reachability facts it reads, and focused key/pipeline tests. Preserve all
+existing dependencies. Generic class callable selection differs semantically;
+encode that policy explicitly until both lowerers agree. Prove actual interchange
+where inputs and output agree, and preserve misses for differing generic plans.
+Use local headless checks and one focused driver build; no CI, GitHub writes,
+full compiler build, application execution or measurements.
