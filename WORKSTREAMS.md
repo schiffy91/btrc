@@ -4346,3 +4346,27 @@ option changes, source order and the validation-to-lowering digest reuse path.
 Program-interface/fact convergence and a build-bound common compiler identity
 remain necessary before a shared store can safely be enabled. No CI or
 GitHub writes; batch local validation after formatting.
+
+Both module owners now frame source records, options and outer key fields by
+UTF-8 byte length. The self-host validation owner supplies the same source
+digest to lowering. The new context includes all existing options plus explicit
+strict-import and stdlib-inclusion flags; native defines sort by name. Release
+output paths remain reusable, while debug paths remain distinct. Both owners
+also derive the same ASCII unit filename from Unicode/punctuation stems and
+Windows-style separators, retaining the full group-path hash suffix.
+
+Final local evidence: 83 paired codec/key/name checks and nine reference
+cache/CLI regressions pass, with no skips. A fresh strict-C11 O0 driver tests
+all key inputs and the actual validation-record constructor; native-define
+invalidation and edit builds also pass through the reference CLI. Targeted
+lint, formatting and diff checks pass. The first reference run caught the
+native-define port using a mapping instead of its existing tuple-of-pairs;
+that was repaired before the single driver build.
+
+Evidence: `build/issue-gates/shared-module-keys/`. The outer framing is common,
+but program-interface/fact contents still differ. The executable hash remains
+in the self-host store: replacing it with a current source-tree hash would
+misidentify an old executable. A common identity must be bound at build time.
+Shared physical storage, complete key parity, dependency-scoped invalidation
+and application performance acceptance remain unfinished. No full compiler,
+bootstrap, application execution, CI dispatch or GitHub write occurred.

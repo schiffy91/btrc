@@ -35,7 +35,6 @@ from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
 from .results import CompilerOptions
 
-_RECORD_SCHEMA = 7
 # The unit that defines every runtime helper of a module-unit program; a
 # group's unit is named for its path hash and so never takes this name.
 RUNTIME_UNIT_NAME = "unit-runtime"
@@ -904,11 +903,53 @@ class ModuleUnitCompiler:
     def unit_name(group: str) -> str:
         """A stable output name for a group's unit: its file stem and path hash."""
         stem = group.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].removesuffix(".btrc")
-        slug = "".join(character if character.isalnum() else "-" for character in stem).strip("-") or "group"
+        # Both frontends use ASCII file-safe names and count UTF-8 bytes.
+        slug = (
+            "".join(
+                chr(byte) if 48 <= byte <= 57 or 65 <= byte <= 90 or 97 <= byte <= 122 else "-"
+                for byte in stem.encode("utf-8", errors="surrogatepass")
+            ).strip("-")
+            or "group"
+        )
         return f"unit-{slug}-{hashlib.sha256(group.encode('utf-8', errors='surrogatepass')).hexdigest()[:12]}"
 
     @staticmethod
-    def _group_sources(source: ResolvedSource, groups: CompilationGroups) -> tuple[dict[str, str], dict[str, int]]:
+    def _append_key_field(digest, value: str) -> None:
+        encoded = value.encode("utf-8", errors="surrogatepass")
+        digest.update(str(len(encoded)).encode("ascii") + b":")
+        digest.update(encoded)
+
+    @classmethod
+    def _append_source_line(cls, digest, path: str, line: int, text: str) -> None:
+        for value in (path, str(line), text):
+            cls._append_key_field(digest, value)
+
+    @classmethod
+    def _cache_context(cls, options: CompilerOptions, target: str, native_defines: Sequence[tuple[str, str]]) -> str:
+        digest = hashlib.sha256(b"btrc-module-context-v1\n")
+        for flag in (options.debug, options.dce, options.strict_imports, options.include_stdlib, options.stdlib_strict):
+            cls._append_key_field(digest, "1" if flag else "0")
+        for value in (
+            target,
+            (options.units_prefix or "") if options.debug else "",
+            (options.generated_c_path or "") if options.debug else "",
+            str(len(native_defines)),
+        ):
+            cls._append_key_field(digest, value)
+        for name, value in sorted(native_defines):
+            cls._append_key_field(digest, name)
+            cls._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @classmethod
+    def _cache_key(cls, context: str, group: str, source: str, program: str) -> str:
+        digest = hashlib.sha256(b"btrc-module-unit-v8\n")
+        for value in (context, group, source, program):
+            cls._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @classmethod
+    def _group_sources(cls, source: ResolvedSource, groups: CompilationGroups) -> tuple[dict[str, str], dict[str, int]]:
         """Digest each group's resolved lines with their original positions; count them."""
         digests: dict[str, hashlib._Hash] = {}
         counts: dict[str, int] = {}
@@ -919,10 +960,7 @@ class ModuleUnitCompiler:
                 owner = membership[path] = groups.group_of(path)
             digest = digests.setdefault(owner, hashlib.sha256())
             counts[owner] = counts.get(owner, 0) + 1
-            encoded = f"{SourceDependencyGraph.canonical_file(path)}\0{line}\0{text}\n".encode(
-                "utf-8", errors="surrogatepass"
-            )
-            digest.update(encoded)
+            cls._append_source_line(digest, SourceDependencyGraph.canonical_file(path), line, text)
         return {name: digest.hexdigest() for name, digest in digests.items()}, counts
 
     @staticmethod
@@ -1020,32 +1058,16 @@ class ModuleUnitCompiler:
         interface = ProgramInterface().digest(analyzed.program.declarations)
         program_digest = self._program_facts_digest(analyzed, facts, shared)
         group_sources, group_lines = self._group_sources(source, groups)
-        context = json.dumps(
-            {
-                "debug": options.debug,
-                "dce": options.dce,
-                "stdlib-strict": options.stdlib_strict,
-                # The resolved row's canonical label: every spelling of one
-                # target, and the inferred host, key one set of units.
-                "target": source.native_plan.target.label,
-                "native-defines": self._native_defines,
-                "units-prefix": options.units_prefix if options.debug else None,
-                "generated-c-path": options.generated_c_path if options.debug else None,
-            },
-            sort_keys=True,
-        )
+        context = self._cache_context(options, source.native_plan.target.label, self._native_defines)
+        # Preserve both existing semantic authorities until their contents,
+        # not just their framing, have converged with the self-hosted owner.
+        program_identity_digest = hashlib.sha256()
+        for value in (interface, program_digest):
+            self._append_key_field(program_identity_digest, value)
+        program_identity = program_identity_digest.hexdigest()
         states: list[_GroupState] = []
         for name in groups.names():
-            identity = "\0".join(
-                (
-                    f"module-unit-v{_RECORD_SCHEMA}",
-                    context,
-                    name,
-                    group_sources.get(name, ""),
-                    interface,
-                    program_digest,
-                )
-            )
+            identity = self._cache_key(context, name, group_sources.get(name, ""), program_identity)
             state = _GroupState(name, identity, lines=group_lines.get(name, 0))
             payload = store.load_module_unit(identity, input_path)
             state.record = ModuleUnitRecord.from_text(*payload, name) if payload is not None else None

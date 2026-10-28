@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.application.compiler import Compiler
-from src.compiler.python.application.modules import ModuleUnitGraph, ModuleUnitRecord
+from src.compiler.python.application.modules import ModuleUnitCompiler, ModuleUnitGraph, ModuleUnitRecord
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
@@ -180,3 +180,149 @@ def test_unrepresentable_group_forgoes_cache(tmp_path, monkeypatch, group):
     cache = CompilerCache()
     cache.store_module_unit("identity", record.to_text(), record.text)
     assert cache.load_module_unit("identity") is None
+
+
+def _key_input(path):
+    return {
+        "debug": False,
+        "dce": True,
+        "strict_imports": True,
+        "include_stdlib": True,
+        "stdlib_strict": False,
+        "target": "macos-aarch64",
+        "units_prefix": "/output/program",
+        "generated_c_path": "/output/program.c",
+        "native_defines": {"SECOND": "2", "FIRST": "1"},
+        "lines": [[str(path), 1, "int value = 7;"], [str(path), 2, ""]],
+        "program": "interface-and-program-facts",
+    }
+
+
+def _reference_keys(data, group):
+    options = CompilerOptions(
+        **{
+            name: data[name]
+            for name in (
+                "debug",
+                "dce",
+                "strict_imports",
+                "include_stdlib",
+                "stdlib_strict",
+                "units_prefix",
+                "generated_c_path",
+            )
+        }
+    )
+    context = ModuleUnitCompiler._cache_context(options, data["target"], tuple(data["native_defines"].items()))
+    digest = hashlib.sha256()
+    groups = {}
+    for path, line, text in data["lines"]:
+        ModuleUnitCompiler._append_source_line(digest, path, line, text)
+        ModuleUnitCompiler._append_source_line(groups.setdefault(path, hashlib.sha256()), path, line, text)
+    source = digest.hexdigest()
+    return {
+        "context": context,
+        "source": source,
+        "key": ModuleUnitCompiler._cache_key(context, group, source, data["program"]),
+        "validation": {name: digest.hexdigest() for name, digest in groups.items()},
+    }
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "none",
+        "debug",
+        "dce",
+        "strict_imports",
+        "include_stdlib",
+        "stdlib_strict",
+        "target",
+        "define",
+        "define-order",
+        "release-path",
+        "debug-path",
+        "text",
+        "line",
+        "source-path",
+        "source-order",
+        "unicode",
+        "program",
+        "empty-source",
+    ],
+)
+def test_module_key_inputs_match_between_frontends(tmp_path, module_record_driver, change):
+    path = tmp_path.resolve() / "Main.btrc"
+    path.write_text("")
+    group = str(path)
+    data = _key_input(path)
+    baseline = _reference_keys(data, group)
+    if change in {"debug", "dce", "strict_imports", "include_stdlib", "stdlib_strict"}:
+        data[change] = not data[change]
+    elif change == "target":
+        data["target"] = "linux-x86_64"
+    elif change == "define":
+        data["native_defines"]["FIRST"] = "value;define=OTHER:é"
+    elif change == "define-order":
+        data["native_defines"] = dict(reversed(list(data["native_defines"].items())))
+    elif change in {"release-path", "debug-path"}:
+        data["debug"] = change == "debug-path"
+        data["units_prefix"] = "/output/é;output=elsewhere"
+        data["generated_c_path"] = "/output/模块.c"
+    elif change == "text":
+        data["lines"][0][2] = "int value = 9;"
+    elif change == "line":
+        data["lines"][0][1] = 2147483647
+    elif change == "source-path":
+        other = tmp_path.resolve() / "Imported.btrc"
+        other.write_text("")
+        data["lines"][0][0] = str(other)
+    elif change == "source-order":
+        data["lines"].reverse()
+    elif change == "unicode":
+        data["lines"][0][2] = 'string label = "é\t模块";'
+    elif change == "program":
+        data["program"] = "changed-interface-and-facts"
+    elif change == "empty-source":
+        data["lines"] = []
+    expected = _reference_keys(data, group)
+    assert (expected["key"] == baseline["key"]) == (change in {"none", "define-order", "release-path"})
+    input_path = tmp_path / "keys.json"
+    input_path.write_text(json.dumps(data))
+    result = _driver(module_record_driver, "keys", input_path, group)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == expected
+
+
+def test_source_fields_cannot_shift_across_delimiters():
+    # These distinct records collided under tab-separated source hashing.
+    records = [("/work/path\t1", 2, "body"), ("/work/path", 1, "2\tbody")]
+    old = [f"{path}\t{line}\t{text}\n" for path, line, text in records]
+    assert old[0] == old[1]
+    digests = []
+    for path, line, text in records:
+        digest = hashlib.sha256()
+        ModuleUnitCompiler._append_source_line(digest, path, line, text)
+        digests.append(digest.hexdigest())
+    assert digests[0] != digests[1]
+
+
+@pytest.mark.parametrize(
+    ("group", "slug"),
+    [
+        ("/work/Module.btrc", "Module"),
+        ("/work/éModule.btrc", "Module"),
+        ("/work/模块.btrc", "group"),
+        ("/work/SomeéName.btrc", "Some--Name"),
+        ("/work/--Module--.btrc", "Module"),
+        ("/work/.btrc", "group"),
+        (r"C:\work\Module.btrc", "Module"),
+        ("/work/Upper.BTRC", "Upper-BTRC"),
+    ],
+)
+def test_module_output_names_match_between_frontends(module_record_driver, group, slug):
+    expected = f"unit-{slug}-{hashlib.sha256(group.encode()).hexdigest()[:12]}"
+    assert ModuleUnitCompiler.unit_name(group) == expected
+    result = _driver(module_record_driver, "name", "unused", group)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == expected + "\n"

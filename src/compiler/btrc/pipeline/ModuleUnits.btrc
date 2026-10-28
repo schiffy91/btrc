@@ -921,6 +921,8 @@ class ModuleUnitCompiler {
 	class string unitName(string group) {
 		string stem = group;
 		int slash = stem.lastIndexOf("/");
+		int backslash = stem.lastIndexOf("\\");
+		if (backslash > slash) { slash = backslash; }
 		if (slash >= 0) { stem = stem.substring(slash + 1, stem.length() - slash - 1); }
 		if (stem.endsWith(".btrc")) { stem = stem.substring(0, stem.length() - 5); }
 		string slug = "";
@@ -929,8 +931,50 @@ class ModuleUnitCompiler {
 			bool alphanumeric = (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9');
 			slug = slug + (alphanumeric ? stem.substring(index, 1) : "-");
 		}
-		if (slug.isEmpty() || slug.startsWith("-")) { slug = "group" + slug; }
+		int start = 0;
+		int end = slug.length();
+		while (start < end && slug[start] == '-') { start++; }
+		while (end > start && slug[end - 1] == '-') { end--; }
+		slug = start == end ? "group" : slug.substring(start, end - start);
 		return "unit-" + slug + "-" + SHA256.digest(group).substring(0, 12);
+	}
+
+	/* Lengths count UTF-8 bytes, matching the reference cache protocol. */
+	class void appendKeyField(SHA256 digest, string value) {
+		digest.appendText(Strings.fromInt(value.length()) + ":");
+		digest.appendText(value);
+	}
+
+	class void appendSourceLine(SHA256 digest, string path, int line, string text) {
+		ModuleUnitCompiler.appendKeyField(digest, path);
+		ModuleUnitCompiler.appendKeyField(digest, Strings.fromInt(line));
+		ModuleUnitCompiler.appendKeyField(digest, text);
+	}
+
+	class string cacheContext(BtrccOptions options, string target, Map<string, string> nativeDefines) {
+		SHA256 digest = SHA256();
+		digest.appendText("btrc-module-context-v1\n");
+		for flag in [options.debug, options.runDce, options.strictImports, options.includeStdlib, options.stdlibStrict] {
+			ModuleUnitCompiler.appendKeyField(digest, flag ? "1" : "0");
+		}
+		ModuleUnitCompiler.appendKeyField(digest, target);
+		ModuleUnitCompiler.appendKeyField(digest, options.debug ? options.unitsPrefix : "");
+		ModuleUnitCompiler.appendKeyField(digest, options.debug ? options.outputPath : "");
+		Vector<string> names = nativeDefines.keys();
+		names.sort();
+		ModuleUnitCompiler.appendKeyField(digest, Strings.fromInt(names.len));
+		for name in names {
+			ModuleUnitCompiler.appendKeyField(digest, name);
+			ModuleUnitCompiler.appendKeyField(digest, nativeDefines.get(name));
+		}
+		return digest.finish();
+	}
+
+	class string cacheKey(string context, string group, string source, string program) {
+		SHA256 digest = SHA256();
+		digest.appendText("btrc-module-unit-v8\n");
+		for value in [context, group, source, program] { ModuleUnitCompiler.appendKeyField(digest, value); }
+		return digest.finish();
 	}
 
 	private IRLowerer lowerer(string ownedGroup, bool declarationsElsewhere) {
@@ -1177,7 +1221,7 @@ class ModuleUnitCompiler {
 			self.groupLines.put(group, self.groupLines.get(group) + 1);
 			if (known.has(group)) { continue; }
 			if (!digests.has(group)) { digests.put(group, SHA256()); }
-			digests.get(group).appendText(line.sourceFile + "\t" + Strings.fromInt(line.lineNumber) + "\t" + line.text + "\n");
+			ModuleUnitCompiler.appendSourceLine(digests.get(group), line.sourceFile, line.lineNumber, line.text);
 		}
 		Map<string, string> result = {};
 		for group in self.groupLines.keys() {
@@ -1931,16 +1975,11 @@ class ModuleUnitCompiler {
 		BtrccPhaseTimer.mark("u-digest");
 		Map<string, string> sources = self.groupSourceDigests();
 		BtrccPhaseTimer.mark("u-sources");
-		string prefix = self.options.debug ? self.options.unitsPrefix : "";
-		string output = self.options.debug ? self.options.outputPath : "";
-		/* Paths can contain the separators between context fields. */
-		string context = f"debug={self.options.debug};dce={self.options.runDce};stdlib-strict={self.options.stdlibStrict};target={input.target};prefix={prefix.len()}:{prefix};output={output.len()}:{output}";
-		Vector<string> defineNames = input.nativeDefines.keys(); defineNames.sort();
-		for name in defineNames { string value = input.nativeDefines.get(name); context += f";define={name.len()}:{name}{value.len()}:{value}"; }
+		string context = ModuleUnitCompiler.cacheContext(self.options, input.target, input.nativeDefines);
 		Vector<ModuleUnitGroupState> states = [];
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";
-			string identity = SHA256.digest(f"module-unit-v7:{context.len()}:{context}{name.len()}:{name}{source.len()}:{source}{programIdentity.len()}:{programIdentity}");
+			string identity = ModuleUnitCompiler.cacheKey(context, name, source, programIdentity);
 			ModuleUnitGroupState state = ModuleUnitGroupState(name, identity);
 			if (self.groupLines.has(name)) { state.lines = self.groupLines.get(name); }
 			IBtrccArtifactCache? store = self.store;
@@ -2884,14 +2923,7 @@ class ValidationRecords implements IValidationRecords {
 			string group = self.groupOfFile.get(line.sourceFile);
 			if (group.isEmpty()) { continue; }
 			if (!digests.has(group)) { digests.put(group, SHA256()); }
-			/* The same digest as of the joined line, without building it. */
-			SHA256 digest = digests.get(group);
-			digest.appendText(line.sourceFile);
-			digest.appendText("\t");
-			digest.appendText(Strings.fromInt(line.lineNumber));
-			digest.appendText("\t");
-			digest.appendText(line.text);
-			digest.appendText("\n");
+			ModuleUnitCompiler.appendSourceLine(digests.get(group), line.sourceFile, line.lineNumber, line.text);
 		}
 		self.groupOfFile.put("<stdlib>", "<stdlib>");
 		for declaration in sourceDeclarations {

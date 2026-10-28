@@ -2,15 +2,85 @@ import Library.IO;
 import Library.Map;
 import Library.Strings;
 import Library.Vector;
+import Library.JSON;
+import Library.Digest.SHA256;
 
 import ../../../compiler/btrc/pipeline/ModuleUnits.btrc;
 import ../../../compiler/btrc/pipeline/Models.btrc;
 import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/generated/ast/Node.btrc;
+
+class EmptyModuleCache implements IBtrccArtifactCache {
+	public EmptyModuleCache() {}
+
+	public BtrccCompilationResult? load(string identity) { return null; }
+
+	public void store(string identity, BtrccCompilationResult result) {}
+
+	public BtrccModuleUnitPayload? loadModuleUnit(string identity) { return null; }
+
+	public void storeModuleUnit(string identity, BtrccModuleUnitPayload payload) {}
+}
+
+class ModuleKeyProbe {
+	class string run(JSONValue data, string group) {
+		var options = BtrccOptions();
+		options.debug = data.get("debug").asBool();
+		options.runDce = data.get("dce").asBool();
+		options.strictImports = data.get("strict_imports").asBool();
+		options.includeStdlib = data.get("include_stdlib").asBool();
+		options.stdlibStrict = data.get("stdlib_strict").asBool();
+		options.unitsPrefix = data.get("units_prefix").asString();
+		options.outputPath = data.get("generated_c_path").asString();
+		string target = data.get("target").asString();
+		Map<string, string> defines = {};
+		var configured = data.get("native_defines");
+		for name in configured.keys() { defines.put(name, configured.get(name).asString()); }
+		string context = ModuleUnitCompiler.cacheContext(options, target, defines);
+		SHA256 digest = SHA256();
+		Vector<FeLine> lines = [];
+		Map<string, Vector<FeDependencyEdge>> outgoing = {};
+		var rows = data.get("lines");
+		for (int index = 0; index < rows.size(); index++) {
+			var row = rows.at(index);
+			string path = row.at(0).asString();
+			int number = row.at(1).asInt();
+			string text = row.at(2).asString();
+			ModuleUnitCompiler.appendSourceLine(digest, path, number, text);
+			lines.push(FeLine(text, path, number));
+			outgoing.put(path, []);
+		}
+		string source = digest.finish();
+		Map<string, Vector<string>> parents = {};
+		var resolved = FeResolvedSource("", "", "", lines, FeDependencyGraph(outgoing, parents), options.strictImports, 0, group, FeStdlibRootSnapshot([], []));
+		var program = Node();
+		program.kind = NK_PROGRAM;
+		Vector<Node> declarations = [];
+		var validation = ValidationRecords(program, declarations, resolved, options, EmptyModuleCache(), "native", target);
+		var output = JSONValue.makeObject();
+		output.set("context", JSONValue.makeString(context));
+		output.set("source", JSONValue.makeString(source));
+		output.set("key", JSONValue.makeString(ModuleUnitCompiler.cacheKey(context, group, source, data.get("program").asString())));
+		var reused = JSONValue.makeObject();
+		for name in validation.groupSourceDigests.keys() { reused.set(name, JSONValue.makeString(validation.groupSourceDigests.get(name))); }
+		output.set("validation", reused);
+		return output.stringify();
+	}
+}
 
 int main(int argc, char** argv) {
 	if (argc != 4) { return 3; }
 	string mode = Strings.copy(argv[1]);
 	string group = Strings.copy(argv[3]);
+	if (mode == "name") {
+		print(ModuleUnitCompiler.unitName(group));
+		return 0;
+	}
+	if (mode == "keys") {
+		print(ModuleKeyProbe.run(JSONValue.parse(Path.readAll(Strings.copy(argv[2]))), group));
+		return 0;
+	}
 	if (mode == "read") {
 		var payload = BtrccModuleUnitPayload(Path.readAll(Strings.copy(argv[2])), "int marker;\n");
 		var record = ModuleUnitRecord.fromPayload(payload, group);

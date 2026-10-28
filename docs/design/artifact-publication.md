@@ -122,10 +122,27 @@ duplicate instances, missing instance bodies and kept instances outside the
 graph invalidate the record. Effect sets and map keys have a stable order.
 Paths containing tabs or newlines cannot be represented and forgo reuse.
 
+Both owners frame module-key fields as a decimal UTF-8 byte length, a colon,
+then the bytes. A source digest hashes successive triples of canonical path,
+decimal source line and line text. The self-host validation-record owner uses
+that same source digest when supplying it to module lowering.
+
+The context digest starts with `btrc-module-context-v1\n`, then frames debug,
+DCE, strict imports, stdlib inclusion and strict stdlib analysis as `0`/`1`,
+followed by the canonical target, debug output prefix and primary path, and
+the number of native defines. Define name/value pairs follow in name order.
+Release contexts use empty output paths. The outer digest starts with
+`btrc-module-unit-v8\n` and frames context digest, group, source digest and
+program identity. Program-interface/fact contents still differ between the
+owners; sharing this encoding alone does not make their actual keys equal.
+Unit filenames use ASCII alphanumeric bytes from the UTF-8 stem, replacing
+other bytes with hyphens, trimming edge hyphens and using `group` if empty;
+the group path's SHA-256 suffix keeps different paths distinct.
+
 The reference store verifies separate SHA-256 digests for metadata and C in
 its atomic JSON envelope; the self-host store retains its verified `record.txt`
 and `unit.c` pair. The common metadata format does not yet make the stores
-interchangeable: compiler identity, module-key inputs and directory layout
+interchangeable: compiler identity, program-interface/fact inputs and directory layout
 still differ. Issue #8 also requires shared interface/link-plan artifacts,
 dependent-only invalidation and the real application's warm-build budget.
 
