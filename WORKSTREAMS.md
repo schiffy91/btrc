@@ -4515,3 +4515,15 @@ at two existing cache call sites, repaired before native compilation. No full
 compiler, bootstrap, application, measurement, CI or GitHub write ran. Complete
 program-key parity, shared physical storage, interface/link-plan cache artifacts
 and the BTRSmith performance acceptance remain open. This does not close #8.
+
+### 2026-10-28 issue #8 shared module storage
+
+Packet: CX-SHARED-MODULE-STORAGE. Branch
+`codex/shared-module-storage-20261028`, base `149c10a8`.
+Own the existing cache owners, module-cache path policy, focused store and
+generation-reference tests, and cache documentation. Use one private directory,
+entry framing and lock protocol for both frontends, with default module output
+under the source package's `build/`. Preserve semantic key inputs; different keys
+remain misses. Verify both write/read directions, corrupted entries and generation
+references using local headless tests and one focused driver build. No full
+compiler build, CI, GitHub writes, application execution or measurements.
