@@ -1218,7 +1218,7 @@ class Parser {
 	}
 
 	/* Non-mutating recognizer shared by declarations, casts, and lambdas. */
-	public int scanTypeEnd(int p) {
+	public int scanTypeEnd(int p, bool arraySuffix = true) {
 		while (self.isTypeQualifier(self.tokenTypeAt(p))) { p = p + 1; }
 
 		int baseEnd = self.scanIntegerBase(p);
@@ -1240,7 +1240,7 @@ class Parser {
 		if (self.tokenTypeAt(p) == "LT" && self.isGenericStartAt(p)) {
 			p = self.scanAngleGroup(p);
 		}
-		if (self.tokenTypeAt(p) == "LBRACKET" && self.tokenTypeAt(p + 1) == "RBRACKET") {
+		if (arraySuffix && self.tokenTypeAt(p) == "LBRACKET" && self.tokenTypeAt(p + 1) == "RBRACKET") {
 			p = p + 2;
 		}
 		while (self.tokenTypeAt(p) == "STAR") { p = p + 1; }
@@ -1248,7 +1248,7 @@ class Parser {
 		return p;
 	}
 
-	public Node parseType() {
+	public Node parseType(bool arraySuffix = true) {
 		Token tok = self.peek();
 		int line = tok.line;
 		int col = tok.col;
@@ -1364,7 +1364,7 @@ class Parser {
 		}
 
 		// Array suffix []
-		if (self.check("LBRACKET") && self.peekAt(1).type == "RBRACKET") {
+		if (arraySuffix && self.check("LBRACKET") && self.peekAt(1).type == "RBRACKET") {
 			self.advance();
 			self.advance();
 			ty.isArray = true;
@@ -1492,6 +1492,34 @@ class Parser {
 			return declarator.type;
 		}
 		return typeExpr;
+	}
+
+	/* Read C object storage: an array declarator follows pointer qualifiers.
+	 * Empty brackets here mean unknown-sized storage. Ordinary btrc type
+	 * expressions retain their pointer-valued T[] spelling. */
+	public Node parseTypeName() {
+		Node typeExpr = self.parseType(false);
+		if (self.isFunctionPointerDeclarator(self.pos)) {
+			Node declarator = self.parseFunctionPointerDeclarator(typeExpr, 0);
+			return declarator.type;
+		}
+		self.parseDeclaratorArraySuffix(typeExpr);
+		return typeExpr;
+	}
+
+	/* Recognize bounds without evaluating them. Further dimensions reach the
+	 * parser's representation refusal instead of falling back to expressions. */
+	public int scanTypeName(int p) {
+		int end = self.scanTypeEnd(p, false);
+		if (end < 0) { return -1; }
+		if (self.isFunctionPointerDeclarator(end)) {
+			return self.scanFunctionPointerDeclarator(end, false);
+		}
+		while (self.tokenTypeAt(end) == "LBRACKET") {
+			end = self.scanGroup(end);
+			if (end < 0) { return -1; }
+		}
+		return end;
 	}
 
 	/* Parse `(*name[n])(params)` after its result type. It is C's spelling of

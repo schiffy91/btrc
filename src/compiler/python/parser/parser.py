@@ -430,7 +430,7 @@ class Parser:
             return None
         return position + 1
 
-    def _scan_type_expr(self, position: int) -> int | None:
+    def _scan_type_expr(self, position: int, *, array_suffix: bool = True) -> int | None:
         """Return the first token after a type expression, or ``None``.
 
         This recognizer shares the parser's token stream and never produces AST
@@ -462,7 +462,8 @@ class Parser:
             position = self._scan_angle_group(position)
             assert position is not None
         if (
-            self._token_kind_at(position) == TokenKind.LBRACKET
+            array_suffix
+            and self._token_kind_at(position) == TokenKind.LBRACKET
             and self._token_kind_at(position + 1) == TokenKind.RBRACKET
         ):
             position += 2
@@ -482,7 +483,7 @@ class Parser:
             return True
         return tok.type == TokenKind.LPAREN and self._scan_tuple_type(self.pos) is not None
 
-    def _parse_type_expr(self) -> TypeExpr:
+    def _parse_type_expr(self, *, array_suffix: bool = True) -> TypeExpr:
         tok = self._peek()
         line, col = tok.line, tok.col
 
@@ -544,7 +545,7 @@ class Parser:
 
         # Array suffix []
         is_array = False
-        if self._check(TokenKind.LBRACKET) and self._peek(1).type == TokenKind.RBRACKET:
+        if array_suffix and self._check(TokenKind.LBRACKET) and self._peek(1).type == TokenKind.RBRACKET:
             self._advance()
             self._advance()
             is_array = True
@@ -710,6 +711,34 @@ class Parser:
         if self._is_function_pointer_declarator(self.pos):
             _, type_expr = self._parse_function_pointer_declarator(type_expr, name=False)
         return type_expr
+
+    def _parse_type_name(self) -> TypeExpr:
+        """Read a C object type, with its array declarator after pointers.
+
+        An empty bracket here denotes unknown-sized array storage. Ordinary
+        btrc type expressions keep their existing pointer-valued ``T[]``.
+        """
+        type_expr = self._parse_type_expr(array_suffix=False)
+        if self._is_function_pointer_declarator(self.pos):
+            _, type_expr = self._parse_function_pointer_declarator(type_expr, name=False)
+        else:
+            self._parse_declarator_array_suffix(type_expr)
+        return type_expr
+
+    def _scan_type_name(self, position: int) -> int | None:
+        """Recognize a C type name without interpreting its array bounds."""
+        position = self._scan_type_expr(position, array_suffix=False)
+        if position is None:
+            return None
+        if self._is_function_pointer_declarator(position):
+            return self._scan_function_pointer_declarator(position, name=False)
+        # Recognize further dimensions so the parser can issue the existing
+        # representation refusal instead of treating the head as an expression.
+        while self._token_kind_at(position) == TokenKind.LBRACKET:
+            position = self._scan_group(position)
+            if position is None:
+                return None
+        return position
 
     def _parse_function_pointer_declarator(
         self, result: TypeExpr, *, name: bool | None, array_suffix: bool = True
