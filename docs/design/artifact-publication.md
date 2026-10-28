@@ -112,6 +112,26 @@ outputs redirected into private state are rejected without creating that intent.
 
 ## Module record interchange
 
+Compiler builds capture a source snapshot before transpilation and publish it
+beside generated C in a `.compiler-build` receipt. Native compilation verifies
+that C and binds the receipt to the resulting executable. Source edits between
+those steps never restamp old C. Bundles preserve the receipt and verify it
+against the copied binary.
+
+The snapshot covers both compiler implementations, language specifications,
+runtime assets, stdlib sources and manifests, and compiler build/generator code.
+It hashes sorted repository-relative paths and file contents, so relocation does
+not change identity. A complete reference source installation uses this identity.
+The self-host compiler accepts it only when its binary, grammar and stdlib
+manifest/lock/symbol files match the receipt; otherwise it uses the executable's
+digest together with the current resource digests. Missing receipts remain
+compatible with existing binaries without allowing resource edits to reuse stale
+entries.
+
+Both owners wrap module identities with the same `btrc-module-cache-v1\n`
+domain and length framing. Their physical stores remain separate, and program
+fact differences below still prevent general cross-frontend cache reuse.
+
 Both module owners encode metadata as `btrc-module-unit-record\t6`, with
 generated C carried separately. The record contains the group, six boolean
 flags, export/helper/root/instance lists, and counted sections for exported and

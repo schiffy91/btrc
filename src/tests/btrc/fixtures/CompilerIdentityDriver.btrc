@@ -1,0 +1,39 @@
+import Library.IO;
+import Library.JSON;
+import Library.Map;
+import Library.Strings;
+
+import ../../../compiler/btrc/cli/Driver.btrc;
+import ../../../compiler/btrc/frontend/SourceIo.btrc;
+import ../../../compiler/btrc/pipeline/Models.btrc;
+
+int main(int argc, char** argv) {
+	if (argc != 2) { return 2; }
+	JSONValue input = JSONValue.parse(Path.readAll(Strings.copy(argv[1])));
+	var result = JSONValue.makeObject();
+	string mode = input.get("mode").asString();
+	string identity = "";
+	if (mode == "receipt") {
+		Map<string, string> resources = {};
+		for name in input.get("resources").keys() { resources.put(name, input.get("resources").get(name).asString()); }
+		identity = BtrccCompilerIdentity.fromReceipt(input.get("receipt").asString(), input.get("binary_digest").asString(), resources);
+	} else {
+		var files = FeSourceFileReader();
+		string executable = input.get("executable").asString();
+		string dataRoot = input.get("data_root").asString();
+		identity = BtrccCompilerIdentity.resolve(executable, files.binaryIdentity(executable), dataRoot, files);
+		var cache = BtrccArtifactCache(executable, files, "", null, dataRoot);
+		string key = input.get("module").asString();
+		if (mode == "put") { cache.storeModuleUnit(key, BtrccModuleUnitPayload("record", "int value;\n")); }
+		var payload = cache.loadModuleUnit(key);
+		result.set("hit", JSONValue.makeBool(payload != null));
+		if (payload != null) {
+			result.set("record", JSONValue.makeString(payload.record));
+			result.set("text", JSONValue.makeString(payload.text));
+		}
+	}
+	result.set("identity", JSONValue.makeString(identity));
+	result.set("key", JSONValue.makeString(BtrccCompilerIdentity.moduleKey(identity, input.get("module").asString())));
+	print(result.stringify());
+	return 0;
+}

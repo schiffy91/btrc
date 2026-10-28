@@ -29,6 +29,7 @@ import ../Compiler.btrc;
 import ../frontend/Timing.btrc;
 import ../frontend/Packages.btrc;
 import ../frontend/Models.btrc;
+import ../frontend/SourceIo.btrc;
 
 class BtrccDataPaths {
 	public bool valid;
@@ -1644,12 +1645,102 @@ class BtrccDirectiveCache implements FeDirectiveCache {
 	public void __del__() { self.close(); }
 }
 
+/* Verify build-time source provenance against the actual executable and data.
+ * Missing or stale receipts retain an executable-specific module identity. */
+class BtrccCompilerIdentity {
+	class Vector<string> resources() { return ["language/grammar.ebnf", "stdlib/btrc.toml", "stdlib/btrc.lock", "stdlib/btrc.symbols"]; }
+
+	class bool digest(string value) {
+		if (value.length() != 64) { return false; }
+		for (int index = 0; index < 64; index++) {
+			char ch = value[index];
+			if (!(ch >= '0' && ch <= '9') && !(ch >= 'a' && ch <= 'f')) { return false; }
+		}
+		return true;
+	}
+
+	class string fromReceipt(string text, string binaryDigest, Map<string, string> resources) {
+		string fallback = BtrccCompilerIdentity.binaryIdentity(binaryDigest, resources);
+		Vector<string> lines = Strings.split(text, "\n");
+		if (lines.len != 11 || !lines.get(0).equals("btrc-compiler-build-v1")) { return fallback; }
+		Vector<string> content = [];
+		for (int index = 0; index < 10; index++) { content.push(lines.get(index)); }
+		if (!lines.get(10).equals("sha256\t" + SHA256.digest(Strings.join(content, "\n")))) { return fallback; }
+		Vector<string> names = ["source", "c", "binary", "entry", "target"];
+		names.extend(BtrccCompilerIdentity.resources());
+		Map<string, string> fields = {};
+		for (int index = 0; index < names.len; index++) {
+			Vector<string> row = Strings.split(lines.get(index + 1), "\t");
+			if (row.len != 2 || !row.get(0).equals(names.get(index))) { return fallback; }
+			fields.put(names.get(index), row.get(1));
+		}
+		string entry = fields.get("entry");
+		if (!entry.equals("src/compiler/btrc/BtrccMain.btrc") && !entry.equals("src/compiler/btrc/cli/MacOSMain.btrc") && !entry.equals("src/compiler/btrc/cli/WindowsMain.btrc")) { return fallback; }
+		Vector<string> target = Strings.split(fields.get("target"), "-");
+		if (target.len < 2) { return fallback; }
+		for part in target {
+			if (part.isEmpty()) { return fallback; }
+			for (int index = 0; index < part.length(); index++) {
+				char ch = part[index];
+				if (!(ch >= 'a' && ch <= 'z') && !(ch >= '0' && ch <= '9') && ch != '_') { return fallback; }
+			}
+		}
+		for name in names {
+			if (!name.equals("entry") && !name.equals("target") && !BtrccCompilerIdentity.digest(fields.get(name))) { return fallback; }
+		}
+		if (!fields.get("binary").equals(binaryDigest)) { return fallback; }
+		for name in BtrccCompilerIdentity.resources() {
+			if (!resources.has(name) || !fields.get(name).equals(resources.get(name))) { return fallback; }
+		}
+		return "source:" + fields.get("source");
+	}
+
+	class string binaryIdentity(string binaryDigest, Map<string, string> resources) {
+		var digest = SHA256();
+		digest.appendText("btrc-compiler-resources-v1\n");
+		for name in BtrccCompilerIdentity.resources() {
+			string value = resources.has(name) ? resources.get(name) : "";
+			digest.appendText(Strings.fromInt(name.length()) + ":" + name);
+			digest.appendText(Strings.fromInt(value.length()) + ":" + value);
+		}
+		return "binary:" + binaryDigest + ":" + digest.finish();
+	}
+
+	class string readReceipt(string path) {
+		var opened = RegularFileSnapshot.open(PathTools.absolute(path), 16384LL);
+		if (!opened.ok()) { return ""; }
+		var file = opened.value();
+		var identity = FeSourceReadIdentity(path, file.revision());
+		var content = file.readExactAt(0LL, (int)file.size());
+		bool closed = file.close().ok();
+		if (!closed || !content.ok() || !identity.validate().isEmpty() || !content.value().isNulFreeUtf8()) { return ""; }
+		return content.value().toString();
+	}
+
+	class string resolve(string executable, string binaryDigest, string dataRoot, FeSourceFileReader files) {
+		string fallback = "binary:" + binaryDigest;
+		if (dataRoot.isEmpty()) { return fallback; }
+		string text = BtrccCompilerIdentity.readReceipt(executable + ".compiler-build");
+		Map<string, string> resources = {};
+		for name in BtrccCompilerIdentity.resources() { resources.put(name, files.binaryIdentity(PathTools.join(dataRoot, name))); }
+		return BtrccCompilerIdentity.fromReceipt(text, binaryDigest, resources);
+	}
+
+	class string moduleKey(string compiler, string identity) {
+		var digest = SHA256();
+		digest.appendText("btrc-module-cache-v1\n");
+		for value in [compiler, identity] { digest.appendText(Strings.fromInt(value.length()) + ":" + value); }
+		return digest.finish();
+	}
+}
+
 /* Optional persistent emitted generations. Each key has one private lease;
  * payloads are replaced first and the checksummed manifest is committed last.
  * An interrupted or corrupt cache is a miss, never publication authority. */
 class BtrccArtifactCache implements IBtrccArtifactCache {
 	private string directory;
 	private string compilerIdentity = "";
+	private string moduleIdentity = "";
 	private FeSourceFileReader sourceFiles;
 	private string unitsPrefix;
 	private PrivateDirectory? root = null;
@@ -1657,7 +1748,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	private ExclusiveFileLease? lease = null;
 	private BtrccArtifactDigests? artifactDigests;
 
-	public BtrccArtifactCache(string executable, FeSourceFileReader sourceFiles, string unitsPrefix, BtrccArtifactDigests? artifactDigests = null) {
+	public BtrccArtifactCache(string executable, FeSourceFileReader sourceFiles, string unitsPrefix, BtrccArtifactDigests? artifactDigests = null, string dataRoot = "") {
 		self.sourceFiles = sourceFiles;
 		self.artifactDigests = artifactDigests;
 		self.unitsPrefix = unitsPrefix.isEmpty() ? "" : FeNativeLinkPlan.outputPrefix(unitsPrefix);
@@ -1666,6 +1757,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		self.directory = PathTools.isAbsolute(configured) ? PathTools.join(configured, "selfhost-artifacts-v1") : "";
 		if (Platform.isWindows() || executable.isEmpty() || self.directory.isEmpty()) { return; }
 		self.compilerIdentity = sourceFiles.binaryIdentity(executable);
+		self.moduleIdentity = BtrccCompilerIdentity.resolve(executable, self.compilerIdentity, dataRoot, sourceFiles);
 	}
 
 	public FeDirectiveCache directiveCache() { return BtrccDirectiveCache(PathTools.join(PathTools.dirname(self.directory), "selfhost-directives-v1"), self.compilerIdentity); }
@@ -1694,7 +1786,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		return self.root;
 	}
 
-	private string key(string identity) { return SHA256.digest(self.compilerIdentity + identity); }
+	private string key(string identity, bool module = false) { return module ? BtrccCompilerIdentity.moduleKey(self.moduleIdentity, identity) : SHA256.digest(self.compilerIdentity + identity); }
 
 	private string payloadDigest(int slot, string content) {
 		var digests = self.artifactDigests;
@@ -1705,13 +1797,13 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	/* `validateInputs` rechecks every source read so far. A module-unit key
 	 * already digests the exact source content its group read, so its record
 	 * stays exact for that key; publication of the build still validates. */
-	private bool open(string identity, bool validateInputs = true) {
+	private bool open(string identity, bool validateInputs = true, bool module = false) {
 		self.close();
 		if (self.compilerIdentity.isEmpty()) { return false; }
 		if (validateInputs && !self.sourceFiles.validateInputs().isEmpty()) { return false; }
 		PrivateDirectory? root = self.openRoot();
 		if (root == null) { return false; }
-		var entry = root.openChildDirectory(self.key(identity));
+		var entry = root.openChildDirectory(self.key(identity, module));
 		if (!entry.ok()) { return false; }
 		self.entry = entry.value();
 		var acquired = entry.value().acquireExclusiveLease(".artifacts.lock", true);
@@ -1844,7 +1936,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	public BtrccModuleUnitPayload? loadModuleUnit(string identity) {
 		BtrccModuleUnitPayload? payload = null;
 		try {
-			if (self.open("module-unit\n" + identity, false)) {
+			if (self.open(identity, false, true)) {
 				var lease = self.lease;
 				if (lease != null) {
 					var stored = lease.readRegularChild("record.txt", 536870912);
@@ -1873,7 +1965,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	 * written first, and a record whose digests do not match is a miss. */
 	public void storeModuleUnit(string identity, BtrccModuleUnitPayload payload) {
 		try {
-			if (payload.record.length() <= 536870912 && payload.text.length() <= 536870912 && self.open("module-unit\n" + identity, false)) {
+			if (payload.record.length() <= 536870912 && payload.text.length() <= 536870912 && self.open(identity, false, true)) {
 				var lease = self.lease;
 				if (lease != null && lease.replaceRegularChildDurably("unit.c", Bytes.fromString(payload.text)).committed()) {
 					string framed = self.payloadDigest(-1, payload.record) + " " + self.payloadDigest(-2, payload.text) + "\n" + payload.record;
@@ -2003,7 +2095,7 @@ class BtrccDriver {
 		IBtrccArtifactCache? cache = null;
 		FeDirectiveCache? directiveCache = null;
 		if (options.useCache && !options.outputPath.isEmpty()) {
-			var artifacts = BtrccArtifactCache(runtimePaths.executablePath(), self.sourceFiles, options.unitsPrefix, artifactDigests);
+			var artifacts = BtrccArtifactCache(runtimePaths.executablePath(), self.sourceFiles, options.unitsPrefix, artifactDigests, dataPaths.root);
 			cache = artifacts;
 			directiveCache = artifacts.directiveCache();
 		}

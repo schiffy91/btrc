@@ -703,6 +703,132 @@ class ToolchainSourceInventory:
                 found.extend(os.path.join(current, name) for name in files if name.endswith(".py"))
         return found
 
+    def compiler_files(self) -> tuple[Path, ...]:
+        """Complete inputs shared by the reference and self-host compiler builds."""
+        root = Path(self.source_directory).parent
+        categories = (
+            ("src/compiler/python", {".py"}),
+            ("src/compiler/btrc", {".btrc"}),
+            ("src/language", {".ebnf", ".asdl", ".toml"}),
+            ("src/runtime/c", {".c", ".h", ".toml"}),
+            ("src/runtime/windows", {".c", ".h"}),
+            ("src/stdlib", {".btrc", ".toml", ".h", ".c", ".cpp", ".m", ".mm", ".hpp", ".lock", ".symbols"}),
+            ("tools/compiler_codegen", {".py"}),
+        )
+        paths = [root / "tools/compiler_build.py"]
+        for relative, extensions in categories:
+            directory = root / relative
+            entries = [path for path in directory.rglob("*") if path.is_file() and path.suffix in extensions]
+            if not entries:
+                raise ValueError(f"compiler snapshot is missing {relative}")
+            paths.extend(entries)
+        paths.extend(Path(self.source_directory) / name for name in CompilerBuildIdentity.RESOURCES)
+        return tuple(sorted(set(paths)))
+
+
+class CompilerBuildIdentity:
+    """Content identities and build receipts; never infer a binary's source from CWD."""
+
+    HEADER = "btrc-compiler-build-v1"
+    SUFFIX = ".compiler-build"
+    RESOURCES = ("language/grammar.ebnf", "stdlib/btrc.toml", "stdlib/btrc.lock", "stdlib/btrc.symbols")
+    ENTRIES = (
+        "src/compiler/btrc/BtrccMain.btrc",
+        "src/compiler/btrc/cli/MacOSMain.btrc",
+        "src/compiler/btrc/cli/WindowsMain.btrc",
+    )
+    FIELDS = ("source", "c", "binary", "entry", "target", *RESOURCES)
+
+    @staticmethod
+    def file_digest(path: Path) -> str:
+        """Hash one stable regular file without following its final symlink."""
+        with os.fdopen(ArtifactStorage().open_regular(path), "rb") as stream:
+            before = os.fstat(stream.fileno())
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            after = os.fstat(stream.fileno())
+        current = path.lstat()
+        for item in (after, current):
+            if (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns) != (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            ):
+                raise ValueError(f"compiler build input changed: {path}")
+        return digest
+
+    @staticmethod
+    def append_field(digest, value: str) -> None:
+        encoded = value.encode("utf-8")
+        digest.update(str(len(encoded)).encode("ascii") + b":" + encoded)
+
+    @classmethod
+    def snapshot(cls, inventory: ToolchainSourceInventory) -> str:
+        root = Path(inventory.source_directory).parent
+        digest = hashlib.sha256(b"btrc-compiler-source-v1\n")
+        for path in inventory.compiler_files():
+            cls.append_field(digest, path.relative_to(root).as_posix())
+            cls.append_field(digest, cls.file_digest(path))
+        return digest.hexdigest()
+
+    @classmethod
+    def resources(cls, data_root: Path) -> dict[str, str]:
+        return {name: cls.file_digest(data_root / name) for name in cls.RESOURCES}
+
+    @classmethod
+    def receipt_text(cls, fields: dict[str, str]) -> str:
+        content = "\n".join((cls.HEADER, *(name + "\t" + fields[name] for name in cls.FIELDS)))
+        return content + "\nsha256\t" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def parse_receipt(cls, text: str, *, binary: bool) -> dict[str, str] | None:
+        lines = text.split("\n")
+        if len(lines) != 11 or lines[0] != cls.HEADER or "\0" in text:
+            return None
+        if lines[-1] != "sha256\t" + hashlib.sha256("\n".join(lines[:-1]).encode("utf-8")).hexdigest():
+            return None
+        fields = {}
+        for line, name in zip(lines[1:-1], cls.FIELDS, strict=True):
+            parts = line.split("\t")
+            if len(parts) != 2 or parts[0] != name:
+                return None
+            fields[name] = parts[1]
+        if fields["entry"] not in cls.ENTRIES or not re.fullmatch(r"[a-z0-9_]+(?:-[a-z0-9_]+)+", fields["target"]):
+            return None
+        for name in ("source", "c", *cls.RESOURCES, *(("binary",) if binary else ())):
+            if not re.fullmatch(r"[0-9a-f]{64}", fields[name]):
+                return None
+        if not binary and fields["binary"]:
+            return None
+        return fields
+
+    @classmethod
+    def from_receipt(cls, text: str, binary_digest: str, resources: dict[str, str]) -> str:
+        fields = cls.parse_receipt(text, binary=True)
+        if (
+            fields is not None
+            and fields["binary"] == binary_digest
+            and all(fields[name] == resources.get(name) for name in cls.RESOURCES)
+        ):
+            return "source:" + fields["source"]
+        return cls.binary_identity(binary_digest, resources)
+
+    @classmethod
+    def binary_identity(cls, binary_digest: str, resources: dict[str, str]) -> str:
+        digest = hashlib.sha256(b"btrc-compiler-resources-v1\n")
+        for name in cls.RESOURCES:
+            cls.append_field(digest, name)
+            cls.append_field(digest, resources.get(name, ""))
+        return "binary:" + binary_digest + ":" + digest.hexdigest()
+
+    @classmethod
+    def module_key(cls, compiler: str, identity: str) -> str:
+        digest = hashlib.sha256(b"btrc-module-cache-v1\n")
+        for value in (compiler, identity):
+            cls.append_field(digest, value)
+        return digest.hexdigest()
+
 
 class ToolchainFingerprint:
     """Own memoized fingerprints for one explicit source inventory."""
@@ -724,6 +850,16 @@ class ToolchainFingerprint:
                 cached = self._hash(self.inventory.files(scope))
                 self._digests[scope] = cached
         return cached
+
+    def compiler_identity(self) -> str:
+        with self._lock:
+            if "compiler" not in self._digests:
+                try:
+                    self._digests["compiler"] = "source:" + CompilerBuildIdentity.snapshot(self.inventory)
+                except (OSError, ValueError):
+                    self._digests["compiler"] = ""
+            identity = self._digests["compiler"]
+        return identity or "reference:" + self.digest("full")
 
     def _hash(self, paths: tuple[str, ...]) -> str:
         digest = hashlib.sha256()
@@ -994,7 +1130,7 @@ class CompilerCache:
     def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None:
         """Read verified module metadata and C text, or None on any doubt."""
         try:
-            key = self.key_for(identity, "module-unit-v2")
+            key = self.module_key_for(identity)
             path = Path(self._directory.resolve(input_path)) / f"{key}.module.json"
             if not path.exists():
                 return None
@@ -1023,7 +1159,7 @@ class CompilerCache:
         if not record or "\0" in record or "\0" in text:
             return
         try:
-            key = self.key_for(identity, "module-unit-v2")
+            key = self.module_key_for(identity)
             encoded = record.encode("utf-8")
             source = text.encode("utf-8")
             if len(encoded) + len(source) > self._max_entry_bytes:
@@ -1041,6 +1177,11 @@ class CompilerCache:
             )
         except (OSError, UnicodeError, ValueError, RecursionError):
             return
+
+    def module_key_for(self, identity: str) -> str:
+        resolve = getattr(self._fingerprint, "compiler_identity", None)
+        compiler = resolve() if resolve is not None else "reference:" + self._fingerprint.digest("full")
+        return CompilerBuildIdentity.module_key(compiler, identity)
 
     def load_directives(self, source: str, input_path: str) -> tuple[tuple[int, int], ...] | None:
         """Read content/toolchain-keyed directive spans, never resolved paths."""

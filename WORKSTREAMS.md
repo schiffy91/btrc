@@ -4492,3 +4492,26 @@ C to the binary during native compilation. Runtime verification must reject stal
 or malformed receipts and retain executable-specific fallback. Use local synthetic
 builds and one focused driver; do not run a full compiler build, CI, applications,
 bootstrap, measurements or GitHub writes.
+
+Implemented source snapshots and checked C/binary receipts through the existing
+build and bundle owners. Reference module keys use the complete source snapshot;
+self-host keys accept it only after checking the actual executable and runtime
+data. Missing or invalid receipts use binary plus current resource digests, so
+grammar and manifest edits still invalidate fallback entries. Bundles validate
+the copied binary/receipt pair and never stamp the current checkout onto old C.
+Makefile recipes publish receipts alongside their build products.
+
+Local evidence: 47 focused checks pass, including the production self-host cache,
+Unicode key parity, changed/malformed/missing receipts, resource invalidation
+with and without receipts, source edits between transpilation and native build,
+failed-build preservation, and bundle-copy substitution. The existing reference
+cache/bundle suites add 116 passes and two platform skips (non-macOS XDG behavior
+and native Windows stat modes). Targeted lint/format, diff checks and Makefile
+dry runs pass. Evidence: `build/issue-gates/compiler-build-identity/`.
+
+One native driver build completed. One early transpile was stopped to include
+resource digests in fallback keys; a second exposed a missing default argument
+at two existing cache call sites, repaired before native compilation. No full
+compiler, bootstrap, application, measurement, CI or GitHub write ran. Complete
+program-key parity, shared physical storage, interface/link-plan cache artifacts
+and the BTRSmith performance acceptance remain open. This does not close #8.
