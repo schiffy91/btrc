@@ -4311,3 +4311,23 @@ text sections, keeping generated C as a separate payload. Exercise real cache
 replay and both record readers; preserve strict malformed-record rejection.
 Compiler identity, key inputs and shared directory publication remain required
 follow-up work before claiming cross-frontend cache reuse. Work stays local.
+
+The reference module owner now reads and writes the existing counted-text
+metadata format, with generated C carried separately through the cache port.
+The reference envelope verifies both payload digests. Both encoders order
+setjmp effects and generic instances consistently. The self-host reader now
+rejects noncanonical/overflowing counts, duplicate effects and instances,
+missing instance bodies, invalid kept-instance sets and empty graph targets.
+
+A current-source strict-C11 O0 driver passes both directions of metadata
+exchange, including Unicode paths and all semantic fields. Real reference
+cache records round-trip through that driver and then replay without lowering;
+the C output is byte-identical. Final interchange suite: 56 passed. Existing
+cache/record/structure regressions: 98 passed and one expected macOS XDG skip.
+The warm-build fixture was corrected to use include_stdlib and a different
+output prefix, ensuring it exercises module replay rather than a complete
+artifact-cache hit. No production failure remains in these checks.
+Evidence: `build/issue-gates/shared-module-records/`. Shared module keys,
+compiler identity, directory publication, interface/link-plan artifacts,
+dependent-only invalidation and application budgets remain unfinished.
+No GitHub write, CI dispatch, bootstrap or application execution occurred.

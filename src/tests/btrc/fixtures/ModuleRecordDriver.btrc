@@ -1,0 +1,51 @@
+import Library.IO;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/pipeline/ModuleUnits.btrc;
+import ../../../compiler/btrc/pipeline/Models.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
+
+int main(int argc, char** argv) {
+	if (argc != 4) { return 3; }
+	string mode = Strings.copy(argv[1]);
+	string group = Strings.copy(argv[3]);
+	if (mode == "read") {
+		var payload = BtrccModuleUnitPayload(Path.readAll(Strings.copy(argv[2])), "int marker;\n");
+		var record = ModuleUnitRecord.fromPayload(payload, group);
+		if (record == null) { return 2; }
+		print(record.toText());
+		return 0;
+	}
+	if (mode != "make") { return 3; }
+	var record = ModuleUnitRecord();
+	record.group = group;
+	record.text = "int marker;\n";
+	record.kept = true;
+	record.exports = ["entry", "genericA"];
+	record.hasSetjmp = true;
+	record.effectsSolved = true;
+	var effect = SetjmpFunctionEffect();
+	effect.writes = [SetjmpParameterEffect(2, 1), SetjmpParameterEffect(10, 1), SetjmpParameterEffect(0, 2)];
+	effect.captures = [SetjmpParameterEffect(1, 0)];
+	effect.returns = [SetjmpParameterEffect(2147483647, 2147483647)];
+	effect.unknownReturn = true;
+	record.exportedEffects.put("entry", effect);
+	record.consultedEffects.put("external", SetjmpFunctionEffect());
+	record.releasesCyclable = true;
+	record.definesEntry = true;
+	record.programRelease = true;
+	record.helpers = ["__btrc_arc_release"];
+	record.realtimeRoots = ["entry"];
+	record.realtimeProofs.put("entry", ["genericA", "external"]);
+	record.realtimeProofs.put("genericA", []);
+	record.graph.roots = ["entry"];
+	record.graph.edges.put("entry", ["genericA"]);
+	record.graph.edges.put("genericA", ["external"]);
+	record.graph.instances.put("genericA", true);
+	record.keptInstances = ["genericA"];
+	record.consultedSources.put("/work/imported.btrc", "abc123");
+	print(record.toText());
+	return 0;
+}

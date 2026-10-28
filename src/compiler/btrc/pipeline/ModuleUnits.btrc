@@ -139,6 +139,7 @@ class ModuleUnitSummaries {
 	class string parameters(Vector<SetjmpParameterEffect> effects) {
 		Vector<string> items = [];
 		for effect in effects { items.push(Strings.fromInt(effect.index) + ":" + Strings.fromInt(effect.depth)); }
+		items.sort();
 		return Strings.join(items, ",");
 	}
 
@@ -153,12 +154,29 @@ class ModuleUnitSummaries {
 		return Strings.join(lines, "\n");
 	}
 
+	/* Canonical nonnegative int, or -1. Check before multiplying so malformed
+	 * cache data cannot overflow the count or parameter representation. */
+	class int decimal(string text) {
+		if (text.isEmpty() || (text.length() > 1 && text[0] == '0')) { return -1; }
+		int value = 0;
+		for (int index = 0; index < text.length(); index++) {
+			char digit = text[index];
+			if (digit < '0' || digit > '9' || value > 214748364 || (value == 214748364 && digit > '7')) { return -1; }
+			value = value * 10 + (int)digit - (int)'0';
+		}
+		return value;
+	}
+
 	class bool parametersFrom(string text, Vector<SetjmpParameterEffect> out) {
 		if (text.isEmpty()) { return true; }
 		for item in Strings.split(text, ",") {
 			int separator = item.indexOf(":");
 			if (separator <= 0 || separator >= item.length() - 1) { return false; }
-			out.push(SetjmpParameterEffect(Strings.toInt(item.substring(0, separator)), Strings.toInt(item.substring(separator + 1, item.length() - separator - 1))));
+			int index = ModuleUnitSummaries.decimal(item.substring(0, separator));
+			int depth = ModuleUnitSummaries.decimal(item.substring(separator + 1, item.length() - separator - 1));
+			if (index < 0 || depth < 0) { return false; }
+			for existing in out { if (existing.index == index && existing.depth == depth) { return false; } }
+			out.push(SetjmpParameterEffect(index, depth));
 		}
 		return true;
 	}
@@ -175,6 +193,7 @@ class ModuleUnitSummaries {
 	class bool decodeLine(string line, Map<string, SetjmpFunctionEffect> out) {
 		int tab = line.indexOf("\t");
 		if (tab <= 0) { return false; }
+		if (out.has(line.substring(0, tab))) { return false; }
 		Vector<string> fields = Strings.split(line.substring(tab + 1, line.length() - tab - 1), "|");
 		if (fields.len != 4 || !(fields.get(3).equals("0") || fields.get(3).equals("1"))) { return false; }
 		SetjmpFunctionEffect effect = SetjmpFunctionEffect();
@@ -243,7 +262,10 @@ class ModuleUnitRecord {
 		Vector<string> row = Strings.split(line, "\t");
 		if (row.get(0).isEmpty() || out.has(row.get(0))) { return false; }
 		Vector<string> callees = [];
-		for (int index = 1; index < row.len; index++) { callees.push(row.get(index)); }
+		for (int index = 1; index < row.len; index++) {
+			if (row.get(index).isEmpty()) { return false; }
+			callees.push(row.get(index));
+		}
 		out.put(row.get(0), callees);
 		return true;
 	}
@@ -260,7 +282,7 @@ class ModuleUnitRecord {
 		lines.push(ModuleUnitRecord.listLine("exports", self.exports));
 		lines.push(ModuleUnitRecord.listLine("helpers", self.helpers));
 		lines.push(ModuleUnitRecord.listLine("realtime-roots", self.realtimeRoots));
-		lines.push(ModuleUnitRecord.listLine("kept-instances", self.keptInstances));
+		lines.push(ModuleUnitRecord.listLine("kept-instances", self.keptInstances.sorted()));
 		lines.push(ModuleUnitRecord.listLine("graph-roots", self.graph.roots));
 		Vector<string> instances = self.graph.instances.keys();
 		instances.sort();
@@ -317,8 +339,8 @@ class ModuleUnitRecord {
 	class int sectionRows(Vector<string> lines, string name, Vector<int> cursor) {
 		int at = cursor.get(0);
 		if (at >= lines.len || !lines.get(at).startsWith("@" + name + "\t")) { return -1; }
-		int count = Strings.toInt(lines.get(at).substring(name.length() + 2, lines.get(at).length() - name.length() - 2));
-		if (count < 0 || at + 1 + count > lines.len) { return -1; }
+		int count = ModuleUnitSummaries.decimal(lines.get(at).substring(name.length() + 2, lines.get(at).length() - name.length() - 2));
+		if (count < 0 || count > lines.len - at - 1) { return -1; }
 		cursor.set(0, at + 1);
 		return count;
 	}
@@ -353,7 +375,15 @@ class ModuleUnitRecord {
 		record.programRelease = flags.get(6).equals("1");
 		Vector<string> instances = [];
 		if (!ModuleUnitRecord.listFrom(lines.get(3), "exports", record.exports) || !ModuleUnitRecord.listFrom(lines.get(4), "helpers", record.helpers) || !ModuleUnitRecord.listFrom(lines.get(5), "realtime-roots", record.realtimeRoots) || !ModuleUnitRecord.listFrom(lines.get(6), "kept-instances", record.keptInstances) || !ModuleUnitRecord.listFrom(lines.get(7), "graph-roots", record.graph.roots) || !ModuleUnitRecord.listFrom(lines.get(8), "graph-instances", instances)) { return null; }
-		for name in instances { record.graph.instances.put(name, true); }
+		for name in instances {
+			if (record.graph.instances.has(name)) { return null; }
+			record.graph.instances.put(name, true);
+		}
+		Map<string, bool> kept = {};
+		for name in record.keptInstances {
+			if (kept.has(name) || !record.graph.instances.has(name)) { return null; }
+			kept.put(name, true);
+		}
 		Vector<int> cursor = [9];
 		int count = ModuleUnitRecord.sectionRows(lines, "exported-effects", cursor);
 		if (count < 0) { return null; }
@@ -374,7 +404,10 @@ class ModuleUnitRecord {
 			string name = row.get(0);
 			if (name.isEmpty() || record.graph.edges.has(name)) { return null; }
 			Vector<string> targets = [];
-			for (int target = 1; target < row.len; target++) { targets.push(row.get(target)); }
+			for (int target = 1; target < row.len; target++) {
+				if (row.get(target).isEmpty()) { return null; }
+				targets.push(row.get(target));
+			}
 			record.graph.edges.put(name, targets);
 		}
 		cursor.set(0, cursor.get(0) + count);
@@ -382,10 +415,11 @@ class ModuleUnitRecord {
 		if (count < 0) { return null; }
 		for (int index = 0; index < count; index++) {
 			Vector<string> row = Strings.split(lines.get(cursor.get(0) + index), "\t");
-			if (row.len != 2 || row.get(0).isEmpty() || record.consultedSources.has(row.get(0))) { return null; }
+			if (row.len != 2 || row.get(0).isEmpty() || row.get(1).isEmpty() || record.consultedSources.has(row.get(0))) { return null; }
 			record.consultedSources.put(row.get(0), row.get(1));
 		}
 		if (cursor.get(0) + count != lines.len) { return null; }
+		for name in instances { if (!record.graph.edges.has(name)) { return null; } }
 		return record;
 	}
 }

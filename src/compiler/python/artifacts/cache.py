@@ -991,10 +991,10 @@ class CompilerCache:
             digest.update(encoded)
         return digest.hexdigest()
 
-    def load_module_unit(self, identity: str, input_path: str | None = None) -> str | None:
-        """Read one checksum-verified module-unit record, or None on any doubt."""
+    def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None:
+        """Read verified module metadata and C text, or None on any doubt."""
         try:
-            key = self.key_for(identity, "module-unit-v1")
+            key = self.key_for(identity, "module-unit-v2")
             path = Path(self._directory.resolve(input_path)) / f"{key}.module.json"
             if not path.exists():
                 return None
@@ -1002,28 +1002,42 @@ class CompilerCache:
             payload = self._files.read_json(str(path), max_bytes=self._max_entry_bytes)
             if (
                 not isinstance(payload, dict)
-                or set(payload) != {"key", "record", "sha256"}
+                or set(payload) != {"key", "record", "text", "sha256", "text-sha256"}
                 or payload["key"] != key
                 or not isinstance(payload["record"], str)
+                or not isinstance(payload["text"], str)
             ):
                 return None
-            encoded = payload["record"].encode("utf-8", errors="surrogatepass")
+            encoded = payload["record"].encode("utf-8")
             if hashlib.sha256(encoded).hexdigest() != payload["sha256"]:
                 return None
-            return payload["record"]
+            text = payload["text"].encode("utf-8")
+            if hashlib.sha256(text).hexdigest() != payload["text-sha256"]:
+                return None
+            return payload["record"], payload["text"]
         except (OSError, UnicodeError, ValueError, RecursionError):
             return None
 
-    def store_module_unit(self, identity: str, record: str, input_path: str | None = None) -> None:
+    def store_module_unit(self, identity: str, record: str, text: str, input_path: str | None = None) -> None:
         """Atomically store a module-unit record; storage failure only costs reuse."""
+        if not record or "\0" in record or "\0" in text:
+            return
         try:
-            key = self.key_for(identity, "module-unit-v1")
-            encoded = record.encode("utf-8", errors="surrogatepass")
-            if len(encoded) > self._max_entry_bytes:
+            key = self.key_for(identity, "module-unit-v2")
+            encoded = record.encode("utf-8")
+            source = text.encode("utf-8")
+            if len(encoded) + len(source) > self._max_entry_bytes:
                 return
             path = Path(self._directory.resolve(input_path)) / f"{key}.module.json"
             self._files.write_json(
-                str(path), {"key": key, "record": record, "sha256": hashlib.sha256(encoded).hexdigest()}
+                str(path),
+                {
+                    "key": key,
+                    "record": record,
+                    "text": text,
+                    "sha256": hashlib.sha256(encoded).hexdigest(),
+                    "text-sha256": hashlib.sha256(source).hexdigest(),
+                },
             )
         except (OSError, UnicodeError, ValueError, RecursionError):
             return

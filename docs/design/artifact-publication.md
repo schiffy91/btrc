@@ -110,6 +110,25 @@ immutable file snapshot in 64 KiB reads. The self-host writer revalidates resolv
 outputs after waiting for the generation owner, before persisting recovery intent;
 outputs redirected into private state are rejected without creating that intent.
 
+## Module record interchange
+
+Both module owners encode metadata as `btrc-module-unit-record\t5`, with
+generated C carried separately. The record contains the group, six boolean
+flags, export/helper/root/instance lists, and counted sections for exported and
+consulted setjmp effects, realtime proofs, reference edges and consulted source
+digests. Section names and order are fixed. Counts and parameter coordinates
+are canonical nonnegative 32-bit decimal integers. Duplicate table keys,
+duplicate instances, missing instance bodies and kept instances outside the
+graph invalidate the record. Effect sets and map keys have a stable order.
+Paths containing tabs or newlines cannot be represented and forgo reuse.
+
+The reference store verifies separate SHA-256 digests for metadata and C in
+its atomic JSON envelope; the self-host store retains its verified `record.txt`
+and `unit.c` pair. The common metadata format does not yet make the stores
+interchangeable: compiler identity, module-key inputs and directory layout
+still differ. Issue #8 also requires shared interface/link-plan artifacts,
+dependent-only invalidation and the real application's warm-build budget.
+
 ## Source identity
 
 Source text read by the CLI/reference import resolver and the POSIX self-host

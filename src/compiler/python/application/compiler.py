@@ -86,9 +86,9 @@ class CompilerCachePort(Protocol):
         source_identity: str = "",
     ) -> None: ...
 
-    def load_module_unit(self, identity: str, input_path: str | None = None) -> str | None: ...
+    def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None: ...
 
-    def store_module_unit(self, identity: str, payload: str, input_path: str | None = None) -> None: ...
+    def store_module_unit(self, identity: str, record: str, text: str, input_path: str | None = None) -> None: ...
 
 
 class DisabledCompilerCache:
@@ -100,8 +100,8 @@ class DisabledCompilerCache:
         return None
 
     @staticmethod
-    def store_module_unit(identity: str, payload: str, input_path: str | None = None) -> None:
-        del identity, payload, input_path
+    def store_module_unit(identity: str, record: str, text: str, input_path: str | None = None) -> None:
+        del identity, record, text, input_path
 
     @staticmethod
     def load_artifacts(

@@ -143,10 +143,10 @@ def test_record_round_trips_and_rejects_malformed_payloads():
         realtime_roots=("f",),
         realtime_proofs={"f": ("g", "h"), "g": ()},
     )
-    assert ModuleUnitRecord.from_json(record.to_json(), "/g") == record
-    assert ModuleUnitRecord.from_json(record.to_json(), "/elsewhere") is None
-    assert ModuleUnitRecord.from_json(record.to_json()[:-1], "/g") is None
-    assert ModuleUnitRecord.from_json(record.to_json().replace('"kept":true', '"kept":1'), "/g") is None
+    assert ModuleUnitRecord.from_text(record.to_text(), record.text, "/g") == record
+    assert ModuleUnitRecord.from_text(record.to_text(), record.text, "/elsewhere") is None
+    assert ModuleUnitRecord.from_text(record.to_text()[:-1], record.text, "/g") is None
+    assert ModuleUnitRecord.from_text(record.to_text().replace("flags\t1", "flags\ttrue"), record.text, "/g") is None
 
 
 def test_unit_names_are_stable_and_distinct():
@@ -3643,7 +3643,7 @@ def test_instance_demand_keeps_cross_unit_roots_and_cycles(route, cached, dce):
         state = _GroupState(name, name, stale=not cached, graph=graph if not cached else ModuleUnitGraph())
         if cached:
             record = replace(_instance_graph_record(graph), group=name)
-            state.record = ModuleUnitRecord.from_json(record.to_json(), name)
+            state.record = ModuleUnitRecord.from_text(record.to_text(), record.text, name)
             assert state.record is not None
         states.append(state)
     ModuleUnitCompiler._demand_instances(states, ModuleUnitGraph(), dce=dce)
@@ -3662,40 +3662,26 @@ def test_instance_demand_keeps_cross_unit_roots_and_cycles(route, cached, dce):
 
 
 @pytest.mark.parametrize(
-    "damage",
+    ("before", "after"),
     [
-        "old-schema",
-        "missing-graph",
-        "edge-scalar",
-        "root-scalar",
-        "instance-without-body",
-        "duplicate-instance",
-        "unknown-kept",
-        "duplicate-kept",
+        ("record\t5", "record\t4"),
+        ("graph-roots\tgenericA\n", ""),
+        ("graph-instances\tgenericA", "graph-instances\tmissing"),
+        ("graph-instances\tgenericA", "graph-instances\tgenericA\tgenericA"),
+        ("kept-instances\tgenericA", "kept-instances\tmissing"),
+        ("kept-instances\tgenericA", "kept-instances\tgenericA\tgenericA"),
+        ("@graph-edges\t1", "@graph-edges\t01"),
+        ("@graph-edges\t1", "@graph-edges\tgarbage"),
+        ("genericA\texternal", "genericA\t"),
     ],
 )
-def test_instance_graph_records_reject_invalid_cache_payloads(damage):
+def test_instance_graph_records_reject_invalid_cache_payloads(before, after):
     graph = ModuleUnitGraph({"genericA": ("external",)}, ("genericA",), frozenset({"genericA"}))
     record = _instance_graph_record(graph, frozenset({"genericA"}))
-    assert ModuleUnitRecord.from_json(record.to_json(), "owner") == record
-    payload = json.loads(record.to_json())
-    if damage == "old-schema":
-        payload["schema"] = 6
-    elif damage == "missing-graph":
-        del payload["graph"]
-    elif damage == "edge-scalar":
-        payload["graph"]["edges"]["genericA"] = "external"
-    elif damage == "root-scalar":
-        payload["graph"]["roots"] = "genericA"
-    elif damage == "instance-without-body":
-        payload["graph"]["instances"] = ["missing"]
-    elif damage == "duplicate-instance":
-        payload["graph"]["instances"] *= 2
-    elif damage == "unknown-kept":
-        payload["kept-instances"] = ["missing"]
-    else:
-        payload["kept-instances"] *= 2
-    assert ModuleUnitRecord.from_json(json.dumps(payload), "owner") is None
+    payload = record.to_text()
+    assert ModuleUnitRecord.from_text(payload, record.text, "owner") == record
+    assert before in payload
+    assert ModuleUnitRecord.from_text(payload.replace(before, after), record.text, "owner") is None
 
 
 @pytest.mark.parametrize("reference_kind", ["comment", "literal", "reference"])

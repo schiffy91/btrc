@@ -54,9 +54,9 @@ _C_TYPE_WORDS = frozenset(
 class ModuleUnitStore(Protocol):
     """Persistent per-group artifacts; the store frames keys with its toolchain."""
 
-    def load_module_unit(self, identity: str, input_path: str | None = None) -> str | None: ...
+    def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None: ...
 
-    def store_module_unit(self, identity: str, payload: str, input_path: str | None = None) -> None: ...
+    def store_module_unit(self, identity: str, record: str, text: str, input_path: str | None = None) -> None: ...
 
 
 class DisabledModuleUnitStore:
@@ -68,8 +68,8 @@ class DisabledModuleUnitStore:
         return None
 
     @staticmethod
-    def store_module_unit(identity: str, payload: str, input_path: str | None = None) -> None:
-        del identity, payload, input_path
+    def store_module_unit(identity: str, record: str, text: str, input_path: str | None = None) -> None:
+        del identity, record, text, input_path
 
 
 @dataclass(frozen=True)
@@ -114,28 +114,6 @@ class ModuleUnitGraph:
                 roots.update(IROptimizer.identifier_tokens(replacement))
         return cls(edges, tuple(sorted(roots)), instances)
 
-    def to_json(self) -> dict:
-        return {
-            "edges": {name: list(targets) for name, targets in self.edges.items()},
-            "roots": list(self.roots),
-            "instances": sorted(self.instances),
-        }
-
-    @classmethod
-    def from_json(cls, value: object) -> ModuleUnitGraph:
-        if not isinstance(value, dict) or set(value) != {"edges", "roots", "instances"}:
-            raise ValueError("malformed module reference graph")
-        edges = value["edges"]
-        if not isinstance(edges, dict) or not all(isinstance(name, str) for name in edges):
-            raise ValueError("malformed module reference graph")
-        lists = [value["roots"], value["instances"], *edges.values()]
-        if any(not isinstance(items, list) or not all(isinstance(item, str) for item in items) for items in lists):
-            raise ValueError("malformed module reference graph")
-        instances = frozenset(value["instances"])
-        if not instances <= edges.keys() or len(instances) != len(value["instances"]):
-            raise ValueError("malformed module instance set")
-        return cls({name: tuple(targets) for name, targets in edges.items()}, tuple(value["roots"]), instances)
-
 
 @dataclass(frozen=True)
 class ModuleUnitRecord:
@@ -171,145 +149,183 @@ class ModuleUnitRecord:
     kept_instances: frozenset[str] = frozenset()
 
     @staticmethod
-    def _effect_json(effect: FunctionEffect) -> dict:
-        return {
-            "writes": sorted([item.index, item.depth] for item in effect.writes),
-            "captures": sorted([item.index, item.depth] for item in effect.captures),
-            "returns": sorted([item.index, item.depth] for item in effect.returns),
-            "unknown-return": effect.unknown_return,
-        }
+    def _name(value: str) -> str:
+        if not value or any(char in value for char in "\t\n\0"):
+            raise ValueError("unrepresentable module record field")
+        return value
 
     @staticmethod
-    def _effect_value(value: object) -> FunctionEffect:
-        if not isinstance(value, dict) or set(value) != {"writes", "captures", "returns", "unknown-return"}:
-            raise ValueError("malformed effect")
-
-        def parameters(items: object) -> frozenset[ParameterEffect]:
-            if not isinstance(items, list):
-                raise ValueError("malformed effect")
-            result = set()
-            for item in items:
-                if not (isinstance(item, list) and len(item) == 2 and all(type(part) is int for part in item)):
-                    raise ValueError("malformed effect")
-                result.add(ParameterEffect(item[0], item[1]))
-            return frozenset(result)
-
-        if type(value["unknown-return"]) is not bool:
-            raise ValueError("malformed effect")
-        return FunctionEffect(
-            writes=parameters(value["writes"]),
-            captures=parameters(value["captures"]),
-            returns=parameters(value["returns"]),
-            unknown_return=value["unknown-return"],
-        )
-
-    def to_json(self) -> str:
-        return json.dumps(
-            {
-                "schema": _RECORD_SCHEMA,
-                "group": self.group,
-                "text": self.text,
-                "kept": self.kept,
-                "exports": list(self.exports),
-                "has-setjmp": self.has_setjmp,
-                "effects-solved": self.effects_solved,
-                "exported-effects": {name: self._effect_json(effect) for name, effect in self.exported_effects.items()},
-                "consulted-effects": {
-                    name: self._effect_json(effect) for name, effect in self.consulted_effects.items()
-                },
-                "releases-cyclable": self.releases_cyclable,
-                "defines-entry": self.defines_entry,
-                "program-release": self.program_release,
-                "helpers": list(self.helpers),
-                "realtime-roots": list(self.realtime_roots),
-                "realtime-proofs": {name: sorted(callees) for name, callees in self.realtime_proofs.items()},
-                "consulted-sources": dict(self.consulted_sources),
-                "graph": self.graph.to_json(),
-                "kept-instances": sorted(self.kept_instances),
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+    def _number(value: str) -> int:
+        if not value.isascii() or not value.isdecimal() or (len(value) > 1 and value[0] == "0"):
+            raise ValueError("malformed module record number")
+        number = int(value)
+        if number > 2147483647:
+            raise ValueError("module record number overflow")
+        return number
 
     @classmethod
-    def from_json(cls, payload: str, group: str) -> ModuleUnitRecord | None:
-        """Decode a stored record, or None for anything not exactly well formed."""
+    def _parameters(cls, text: str) -> frozenset[ParameterEffect]:
+        result = set()
+        for item in text.split(",") if text else ():
+            index, depth = item.split(":")
+            effect = ParameterEffect(cls._number(index), cls._number(depth))
+            if effect in result:
+                raise ValueError("duplicate parameter effect")
+            result.add(effect)
+        return frozenset(result)
+
+    @classmethod
+    def _effect_text(cls, effect: FunctionEffect) -> str:
+        fields = []
+        for values in (effect.writes, effect.captures, effect.returns):
+            fields.append(",".join(sorted(f"{value.index}:{value.depth}" for value in values)))
+        fields.append("1" if effect.unknown_return else "0")
+        return "|".join(fields)
+
+    @classmethod
+    def _effect_value(cls, text: str) -> FunctionEffect:
+        writes, captures, returns, unknown = text.split("|")
+        if unknown not in ("0", "1"):
+            raise ValueError("malformed effect flag")
+        return FunctionEffect(
+            cls._parameters(writes), cls._parameters(captures), cls._parameters(returns), unknown == "1"
+        )
+
+    def to_text(self) -> str:
+        """Encode the shared metadata; generated C travels separately."""
         try:
-            value = json.loads(payload)
-            expected = {
-                "schema",
-                "group",
-                "text",
-                "kept",
-                "exports",
-                "has-setjmp",
-                "effects-solved",
+            lines = ["btrc-module-unit-record\t5", "group\t" + self._name(self.group)]
+            flags = (
+                self.kept,
+                self.has_setjmp,
+                self.effects_solved,
+                self.releases_cyclable,
+                self.defines_entry,
+                self.program_release,
+            )
+            lines.append("flags\t" + "\t".join("1" if flag else "0" for flag in flags))
+            for name, values in (
+                ("exports", self.exports),
+                ("helpers", self.helpers),
+                ("realtime-roots", self.realtime_roots),
+                ("kept-instances", sorted(self.kept_instances)),
+                ("graph-roots", self.graph.roots),
+                ("graph-instances", sorted(self.graph.instances)),
+            ):
+                lines.append("\t".join((name, *(self._name(value) for value in values))))
+            sections = (
+                (
+                    "exported-effects",
+                    {name: self._effect_text(effect) for name, effect in self.exported_effects.items()},
+                ),
+                (
+                    "consulted-effects",
+                    {name: self._effect_text(effect) for name, effect in self.consulted_effects.items()},
+                ),
+                ("realtime-proofs", self.realtime_proofs),
+                ("graph-edges", self.graph.edges),
+                ("consulted-sources", self.consulted_sources),
+            )
+            for section, entries in sections:
+                lines.append(f"@{section}\t{len(entries)}")
+                for name, value in sorted(entries.items()):
+                    self._name(name)
+                    if isinstance(value, str):
+                        self._name(value)
+                        row = name + "\t" + value
+                    else:
+                        values = sorted(value) if section == "realtime-proofs" else value
+                        row = "\t".join((name, *(self._name(item) for item in values)))
+                    lines.append(row)
+            return "\n".join(lines)
+        except ValueError:
+            # A valid compile with an unrepresentable path simply forgoes reuse.
+            return ""
+
+    @classmethod
+    def from_text(cls, metadata: str, text: str, group: str) -> ModuleUnitRecord | None:
+        """Decode the common record, rejecting ambiguous or incomplete facts."""
+        try:
+            if "\0" in metadata or "\0" in text:
+                return None
+            cls._name(group)
+            lines = metadata.split("\n")
+            if len(lines) < 9 or lines[:2] != ["btrc-module-unit-record\t5", "group\t" + group]:
+                return None
+            flags = lines[2].split("\t")
+            if len(flags) != 7 or flags[0] != "flags" or any(flag not in ("0", "1") for flag in flags[1:]):
+                return None
+            lists = []
+            for line, name in zip(
+                lines[3:9],
+                ("exports", "helpers", "realtime-roots", "kept-instances", "graph-roots", "graph-instances"),
+                strict=True,
+            ):
+                label, *values = line.split("\t")
+                if label != name:
+                    return None
+                lists.append(tuple(cls._name(value) for value in values))
+            cursor = 9
+            sections = []
+            for name in (
                 "exported-effects",
                 "consulted-effects",
-                "releases-cyclable",
-                "defines-entry",
-                "program-release",
-                "helpers",
-                "realtime-roots",
                 "realtime-proofs",
+                "graph-edges",
                 "consulted-sources",
-                "graph",
-                "kept-instances",
-            }
-            if not isinstance(value, dict) or set(value) != expected or value["schema"] != _RECORD_SCHEMA:
-                return None
-            if value["group"] != group or not isinstance(value["text"], str):
-                return None
-            flags = ("kept", "has-setjmp", "effects-solved", "releases-cyclable", "defines-entry", "program-release")
-            if any(type(value[name]) is not bool for name in flags):
-                return None
-            for name in ("exported-effects", "consulted-effects"):
-                if not isinstance(value[name], dict):
+            ):
+                label, count = lines[cursor].split("\t")
+                count = cls._number(count)
+                cursor += 1
+                if label != "@" + name or count > len(lines) - cursor:
                     return None
-            proofs = value["realtime-proofs"]
-            sources = value["consulted-sources"]
-            if not isinstance(proofs, dict) or not isinstance(sources, dict):
+                entries = {}
+                for line in lines[cursor : cursor + count]:
+                    key, *values = line.split("\t")
+                    cls._name(key)
+                    if key in entries:
+                        return None
+                    if name in ("exported-effects", "consulted-effects", "consulted-sources"):
+                        if len(values) != 1:
+                            return None
+                        value = cls._name(values[0])
+                        entries[key] = cls._effect_value(value) if name.endswith("effects") else value
+                    else:
+                        entries[key] = tuple(cls._name(value) for value in values)
+                sections.append(entries)
+                cursor += count
+            if cursor != len(lines):
                 return None
-            if not all(isinstance(digest, str) for digest in sources.values()):
-                return None
-            names = (
-                value["helpers"],
-                value["realtime-roots"],
-                value["exports"],
-                value["kept-instances"],
-                *proofs.values(),
-            )
-            if any(not isinstance(items, list) or not all(isinstance(item, str) for item in items) for items in names):
-                return None
-            graph = ModuleUnitGraph.from_json(value["graph"])
-            kept = frozenset(value["kept-instances"])
-            if not kept <= graph.instances or len(kept) != len(value["kept-instances"]):
+            exports, helpers, roots, kept, graph_roots, instances = lists
+            exported, consulted, proofs, edges, sources = sections
+            instance_set, kept_set = frozenset(instances), frozenset(kept)
+            if (
+                len(instance_set) != len(instances)
+                or len(kept_set) != len(kept)
+                or not instance_set <= edges.keys()
+                or not kept_set <= instance_set
+            ):
                 return None
             return cls(
                 group=group,
-                text=value["text"],
-                kept=value["kept"],
-                exports=tuple(value["exports"]),
-                has_setjmp=value["has-setjmp"],
-                effects_solved=value["effects-solved"],
-                exported_effects={
-                    name: cls._effect_value(effect) for name, effect in value["exported-effects"].items()
-                },
-                consulted_effects={
-                    name: cls._effect_value(effect) for name, effect in value["consulted-effects"].items()
-                },
-                releases_cyclable=value["releases-cyclable"],
-                defines_entry=value["defines-entry"],
-                program_release=value["program-release"],
-                helpers=tuple(value["helpers"]),
-                realtime_roots=tuple(value["realtime-roots"]),
-                realtime_proofs={name: tuple(callees) for name, callees in proofs.items()},
-                consulted_sources=dict(sources),
-                graph=graph,
-                kept_instances=kept,
+                text=text,
+                kept=flags[1] == "1",
+                exports=exports,
+                has_setjmp=flags[2] == "1",
+                effects_solved=flags[3] == "1",
+                exported_effects=exported,
+                consulted_effects=consulted,
+                releases_cyclable=flags[4] == "1",
+                defines_entry=flags[5] == "1",
+                program_release=flags[6] == "1",
+                helpers=helpers,
+                realtime_roots=roots,
+                realtime_proofs=proofs,
+                consulted_sources=sources,
+                graph=ModuleUnitGraph(edges, graph_roots, instance_set),
+                kept_instances=kept_set,
             )
-        except (ValueError, RecursionError):
+        except (ValueError, IndexError, RecursionError):
             return None
 
 
@@ -1032,7 +1048,7 @@ class ModuleUnitCompiler:
             )
             state = _GroupState(name, identity, lines=group_lines.get(name, 0))
             payload = store.load_module_unit(identity, input_path)
-            state.record = ModuleUnitRecord.from_json(payload, name) if payload is not None else None
+            state.record = ModuleUnitRecord.from_text(*payload, name) if payload is not None else None
             # A unit that copied another group's bodies or positions is exact
             # only while that group's source is unchanged.
             if state.record is not None and any(
@@ -1175,7 +1191,7 @@ class ModuleUnitCompiler:
                 # and is never stored, so a reused unit never names one.
                 hosted.extend(reply["hosted"])
                 if not reply["hosted"]:
-                    store.store_module_unit(state.key, record.to_json(), input_path)
+                    store.store_module_unit(state.key, record.to_text(), record.text, input_path)
                 state.record = record
             worker_profiles: tuple[str, ...] = ()
             if self._workers is not None:
