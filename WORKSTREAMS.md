@@ -4385,3 +4385,22 @@ Exercise declaration parity, body-edit invalidation and actual reference cache
 replay. Preserve all program facts and executable provenance while the remaining
 whole-program grouping/timing and storage differences are reconciled. Local
 checks only, with no CI, GitHub writes or application execution.
+
+The reference interface hasher now uses the retained AST renderer's interface
+mode. Both renderers preserve generic bodies and export matching body-presence
+and consumed-parameter summaries. Position-free float values retain binary64
+bits; the self-host renderer reads wide integer magnitudes from the existing
+literal owner. Inspection output is unchanged.
+
+Local evidence: 134 interchange checks pass with a fresh strict-C11 O0 driver,
+including declaration text/hash parity, interface invalidation, exact numeric
+values and cache replay. Eleven reference boundary/cache regressions pass by
+latest result. One parallel cache test initially observed a cold warm build
+while source formatting overlapped the run; its repeat on the frozen tree
+passed. Generated-source, targeted lint/format and diff checks pass. Evidence
+is retained under `build/issue-gates/shared-module-interfaces/`.
+
+This closes the declaration-encoding difference only. Whole-program grouping,
+pre/post-analysis timing, program facts, build-bound compiler identity, shared
+storage, dependency-scoped invalidation and application budgets remain. No
+full compiler build, bootstrap, application execution, CI or GitHub write.

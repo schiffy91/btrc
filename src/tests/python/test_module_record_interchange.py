@@ -10,10 +10,19 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.application.compiler import Compiler
-from src.compiler.python.application.modules import ModuleUnitCompiler, ModuleUnitGraph, ModuleUnitRecord
+from src.compiler.python.application.modules import (
+    ModuleUnitCompiler,
+    ModuleUnitGraph,
+    ModuleUnitRecord,
+    ProgramInterface,
+)
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.codec import AstCanonicalRenderer
+from src.compiler.python.syntax.ast.generated import FloatLiteral
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -326,3 +335,89 @@ def test_module_output_names_match_between_frontends(module_record_driver, group
     result = _driver(module_record_driver, "name", "unused", group)
     assert result.returncode == 0, result.stderr
     assert result.stdout == expected + "\n"
+
+
+def _interface(source):
+    program = Parser(Lexer(source).tokenize()).parse()
+    return {
+        "text": AstCanonicalRenderer.interface_renderer(ProgramInterface.callable_body).render(program),
+        "digest": ProgramInterface().digest(program.declarations),
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "int answer(int count = 3) { return count + 1; }",
+        "extern int answer(int count);",
+        "class Item { public int value { get; set; } public int read() { return 7; } }",
+        "class Item { public int value { get { return 7; } set { print(value); } } }",
+        "class Box<T> { public T value; public T get() { return self.value; } }",
+        "class Box { public U choose<U>(U left, U right) { return left; } }",
+        "void consume(Item first, Item second) { delete second; delete first; return; }",
+        "struct Record { int values[3]; double coefficient; }; enum Choice { FIRST, SECOND = 5 };",
+        "typedef int (*Callback)(double); unsigned long long count = 18446744073709551615ULL;",
+        "long long count = 9223372036854775807LL; unsigned int mask = 0xffffffffU;",
+        "double precise = 1.0000000000000002; double tiny = 5e-324;",
+        'string title = "café\\n\\t\\"module\\"";',
+    ],
+)
+def test_declaration_interfaces_match_between_frontends(tmp_path, module_record_driver, source):
+    path = tmp_path / "Interface.btrc"
+    path.write_text(source)
+    result = _driver(module_record_driver, "interface", path, "unused")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == _interface(source)
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize(
+    ("source", "before", "after", "same"),
+    [
+        ("int answer() { return 7; }", "7", "8", True),
+        ("int answer() { return 7; }", "int answer", "\n\nint answer", True),
+        ("int answer(int value) { return value; }", "int value", "long value", False),
+        ("int answer(int value = 7) { return value; }", "= 7", "= 8", False),
+        ("int answer();", ";", " { return 7; }", False),
+        ("void consume(Item item) {}", "{}", "{ delete item; }", False),
+        ("void consume(Item item) { delete item; }", "delete item;", "print(item);", False),
+        ("class Item { public int value { get { return 7; } } }", "7", "8", True),
+        ("class Item { public int value { get; } }", "get;", "get { return 7; }", False),
+        ("class Box<T> { public int get() { return 7; } }", "7", "8", False),
+        ("class Box<T> { public int value { get { return 7; } } }", "7", "8", False),
+        ("class Item { public U choose<U>(U left, U right) { return left; } }", "return left", "return right", False),
+        ("double precise = 1.0000000000000002;", "1.0000000000000002", "1.0000000000000004", False),
+        ("unsigned long long count = 18446744073709551615ULL;", "18446744073709551615", "18446744073709551614", False),
+    ],
+)
+def test_interface_invalidation_contract(tmp_path, request, frontend, source, before, after, same):
+    digests = []
+    for text in (source, source.replace(before, after)):
+        expected = _interface(text)
+        if frontend == "selfhost":
+            path = tmp_path / "Interface.btrc"
+            path.write_text(text)
+            result = _driver(request.getfixturevalue("module_record_driver"), "interface", path, "unused")
+            assert result.returncode == 0, result.stderr
+            assert json.loads(result.stdout) == expected
+        digests.append(expected["digest"])
+    assert (digests[0] == digests[1]) == same
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["0.0", "-0.0", "1.0000000000000002", "1.0000000000000004", "1e100", "1e-100", "5e-324", "inf", "-inf", "nan"],
+)
+def test_position_free_float_keeps_binary64_precision(module_record_driver, value):
+    literal = FloatLiteral(value=float(value), raw="")
+    expected = AstCanonicalRenderer.position_free_renderer().render(literal)
+    result = _driver(module_record_driver, "float", value, "unused")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == expected + "\n"
+
+
+def test_interface_identity_does_not_use_rounded_display_values():
+    first = FloatLiteral(value=1.0000000000000002, raw="")
+    second = FloatLiteral(value=1.0000000000000004, raw="")
+    assert AstCanonicalRenderer().render(first) == AstCanonicalRenderer().render(second)
+    assert ProgramInterface().digest([first]) != ProgramInterface().digest([second])

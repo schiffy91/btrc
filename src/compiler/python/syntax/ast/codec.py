@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import struct
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import fields, is_dataclass
 from types import MappingProxyType
 from typing import Any
@@ -14,10 +14,24 @@ import src.compiler.python.syntax.ast.generated as generated_ast
 class AstCanonicalRenderer:
     """Render Python AST values in the self-hosted compiler's canonical format."""
 
+    _POSITIONS = frozenset({"line", "col", "name_line", "name_col", "source_file"})
+
+    def __init__(self, *, positions: bool = True, callable_body: Callable[[Any], str] | None = None) -> None:
+        self._positions = positions
+        self._callable_body = callable_body
+
+    @classmethod
+    def position_free_renderer(cls) -> AstCanonicalRenderer:
+        return cls(positions=False)
+
+    @classmethod
+    def interface_renderer(cls, callable_body: Callable[[Any], str]) -> AstCanonicalRenderer:
+        return cls(positions=False, callable_body=callable_body)
+
     def render(self, value: Any) -> str:
         return self._render(value, 0)
 
-    def _render(self, value: Any, depth: int) -> str:
+    def _render(self, value: Any, depth: int, template: bool = False) -> str:
         padding = "  " * depth
         child_padding = "  " * (depth + 1)
         if value is None:
@@ -27,6 +41,10 @@ class AstCanonicalRenderer:
         if isinstance(value, int):
             return str(value)
         if isinstance(value, float):
+            if not self._positions:
+                # All supported targets use IEEE binary64. Keep every bit,
+                # including signed zero and values lost by display rounding.
+                return "binary64:" + struct.pack(">d", value).hex()
             # A double past binary32's overflow midpoint prints as infinity.
             try:
                 narrowed = struct.unpack("f", struct.pack("f", value))[0]
@@ -38,23 +56,30 @@ class AstCanonicalRenderer:
         if isinstance(value, list):
             if not value:
                 return "[]"
-            children = "\n".join(child_padding + self._render(item, depth + 1) for item in value)
+            children = "\n".join(child_padding + self._render(item, depth + 1, template) for item in value)
             return f"[\n{children}\n{padding}]"
         if is_dataclass(value) and not isinstance(value, type):
             if type(value).__module__ != generated_ast.__name__:
                 raise TypeError(f"unsupported canonical AST value: {type(value).__name__}")
-            node_fields = fields(value)
+            template = template or bool(getattr(value, "generic_params", None))
+            node_fields = [item for item in fields(value) if self._positions or item.name not in self._POSITIONS]
             if not node_fields:
                 return f"({type(value).__name__})"
             body = "\n".join(
-                child_padding
-                + field.name
-                + "="
-                + self._render(None if field.name == "source_file" else getattr(value, field.name), depth + 1)
+                child_padding + field.name + "=" + self._field(value, field.name, depth + 1, template)
                 for field in node_fields
             )
             return f"({type(value).__name__}\n{body})"
         raise TypeError(f"unsupported canonical AST value: {type(value).__name__}")
+
+    def _field(self, node: Any, name: str, depth: int, template: bool) -> str:
+        value = None if name == "source_file" else getattr(node, name)
+        if self._callable_body is not None and not template and value is not None:
+            if (isinstance(node, (generated_ast.FunctionDecl, generated_ast.MethodDecl)) and name == "body") or (
+                isinstance(node, generated_ast.PropertyDecl) and name in {"getter_body", "setter_body"}
+            ):
+                return f"(ElidedBody {self._callable_body(node)})"
+        return self._render(value, depth, template)
 
     @staticmethod
     def _quoted(value: str) -> str:

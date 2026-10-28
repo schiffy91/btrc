@@ -5,7 +5,10 @@ import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import Literals.btrc;
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 class AstIdentity {
 	/* Source positions are not unique for chained expressions. The self-host
@@ -555,7 +558,7 @@ class AstCanonicalRenderer {
 			return out + ")";
 		} else if (node.kind == NK_INT_LITERAL) {
 			string out = "(IntLiteral";
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonInt(node.valueInt);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonInt(node.valueInt, node.raw);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "raw=" + self.canonStr(node.raw);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
@@ -809,7 +812,14 @@ class AstCanonicalRenderer {
 		return s;
 	}
 
-	private string canonInt(int v) { return Strings.fromInt(v); }
+	private string canonInt(int v, string raw = "") {
+		/* Wide source integers live in raw; valueInt is only a small-value cache. */
+		if (!self.positions && !raw.isEmpty()) {
+			var literal = IntegerLiteral(raw).details();
+			if (literal.valid) { return f"{literal.magnitude}"; }
+		}
+		return Strings.fromInt(v);
+	}
 
 	private string canonBool(bool b) { if (b) { return "true"; } return "false"; }
 
@@ -817,6 +827,14 @@ class AstCanonicalRenderer {
 	 * one at or past the overflow midpoint 2^128 - 2^103 prints as infinity
 	 * rather than converting out of range. */
 	private string canonFloat(double f) {
+		if (!self.positions) {
+			/* Identity retains binary64 bits; inspection keeps display rounding. */
+			unsigned long long bits = 0;
+			memcpy(&bits, &f, sizeof(double));
+			char text[17];
+			snprintf(text, sizeof(text), "%016llx", bits);
+			return "binary64:" + Strings.copy(text);
+		}
 		double overflow = 340282356779733661637539395458142568448.0;
 		if (f >= overflow) { return "inf"; }
 		if (f <= -overflow) { return "-inf"; }

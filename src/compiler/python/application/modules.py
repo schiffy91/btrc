@@ -32,7 +32,8 @@ from ..ir.nodes import CType, IRCall, IRFunctionRef, IRInclude, IRModule, IRNode
 from ..ir.optimizer import IROptimizer
 from ..ir.verifier import IRVerifier
 from ..runtime.catalog import RuntimeHelperCatalog
-from ..syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
+from ..syntax.ast.codec import AstCanonicalRenderer
+from ..syntax.ast.generated import FunctionDecl, MethodDecl
 from .results import CompilerOptions
 
 # The unit that defines every runtime helper of a module-unit program; a
@@ -606,9 +607,6 @@ class ProgramInterface:
     statements consume. Source positions are not part of the interface.
     """
 
-    def __init__(self) -> None:
-        self._digest = hashlib.sha256()
-
     @classmethod
     def canonical(cls, value: object) -> str:
         """A position-free rendering of an analyzer value for program digests."""
@@ -629,53 +627,21 @@ class ProgramInterface:
         return repr(value)
 
     def digest(self, declarations: Iterable[object]) -> str:
-        self._digest = hashlib.sha256()
+        digest = hashlib.sha256()
+        renderer = AstCanonicalRenderer.interface_renderer(self.callable_body)
         for declaration in declarations:
-            self._value(declaration, generic=False)
-        return self._digest.hexdigest()
+            text = renderer.render(declaration).encode("utf-8")
+            digest.update(hashlib.sha256(text).hexdigest().encode("ascii"))
+        return digest.hexdigest()
 
-    def _text(self, value: str) -> None:
-        encoded = value.encode("utf-8", errors="surrogatepass")
-        self._digest.update(len(encoded).to_bytes(8, "big"))
-        self._digest.update(encoded)
-
-    def _value(self, value: object, *, generic: bool) -> None:
-        if value is None:
-            self._text("nil")
-        elif isinstance(value, bool):
-            self._text("true" if value else "false")
-        elif isinstance(value, (int, float)):
-            self._text(repr(value))
-        elif isinstance(value, str):
-            self._text("s" + value)
-        elif isinstance(value, (list, tuple)):
-            self._text(f"[{len(value)}")
-            for item in value:
-                self._value(item, generic=generic)
-        elif is_dataclass(value) and not isinstance(value, type):
-            self._node(value, generic=generic)
-        else:
-            self._text(f"?{type(value).__name__}")
-
-    def _node(self, node: object, *, generic: bool) -> None:
-        self._text("(" + type(node).__name__)
-        if isinstance(node, ClassDecl):
-            generic = bool(node.generic_params)
-        template = generic or bool(getattr(node, "generic_params", None))
-        for item in fields(node):
-            if item.name in _UNHASHED_FIELDS:
-                continue
-            self._text(item.name)
-            value = getattr(node, item.name)
-            if isinstance(node, (FunctionDecl, MethodDecl)) and item.name == "body" and not template:
-                consumed = sorted(OwnershipAnalyzer.owned_transfer_param_indices(node))
-                self._text("body-elided" if value is not None else "no-body")
-                self._text(repr(consumed))
-            elif isinstance(node, PropertyDecl) and item.name in {"getter_body", "setter_body"} and not template:
-                self._text("body-elided" if value is not None else "no-body")
-            else:
-                self._value(value, generic=generic)
-        self._text(")")
+    @staticmethod
+    def callable_body(node: object) -> str:
+        consumed = (
+            sorted(OwnershipAnalyzer.owned_transfer_param_indices(node))
+            if isinstance(node, (FunctionDecl, MethodDecl))
+            else []
+        )
+        return "defined consumed=" + ",".join(str(index) for index in consumed)
 
 
 class SharedDeclarations:

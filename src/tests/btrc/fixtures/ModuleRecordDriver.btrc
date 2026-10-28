@@ -10,6 +10,8 @@ import ../../../compiler/btrc/pipeline/Models.btrc;
 import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
 import ../../../compiler/btrc/frontend/Models.btrc;
 import ../../../compiler/btrc/generated/ast/Node.btrc;
+import ../../../compiler/btrc/parser/Stage.btrc;
+import ../../../compiler/btrc/syntax/Identity.btrc;
 
 class EmptyModuleCache implements IBtrccArtifactCache {
 	public EmptyModuleCache() {}
@@ -69,10 +71,40 @@ class ModuleKeyProbe {
 	}
 }
 
+class ModuleInterfaceProbe {
+	class string run(string path) {
+		var grammar = EbnfGrammarParser(Path.readAll("src/language/grammar.ebnf")).parse();
+		var lexer = Lexer(Path.readAll(path), grammar);
+		var tokens = lexer.tokenize();
+		if (lexer.failed) { throw lexer.diagnostic; }
+		var parser = Parser(tokens, grammar);
+		var program = parser.parseProgram();
+		if (parser.failed) { throw parser.diagnostic; }
+		var renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
+		var digest = SHA256();
+		for declaration in program.declarations() { digest.appendText(SHA256.digest(renderer.render(declaration))); }
+		var result = JSONValue.makeObject();
+		result.set("text", JSONValue.makeString(renderer.render(program)));
+		result.set("digest", JSONValue.makeString(digest.finish()));
+		return result.stringify();
+	}
+}
+
 int main(int argc, char** argv) {
 	if (argc != 4) { return 3; }
 	string mode = Strings.copy(argv[1]);
 	string group = Strings.copy(argv[3]);
+	if (mode == "interface") {
+		print(ModuleInterfaceProbe.run(Strings.copy(argv[2])));
+		return 0;
+	}
+	if (mode == "float") {
+		var literal = Node();
+		literal.kind = NK_FLOAT_LITERAL;
+		literal.valueDouble = Strings.copy(argv[2]).toDouble();
+		print(AstCanonicalRenderer.positionFreeRenderer().render(literal));
+		return 0;
+	}
 	if (mode == "name") {
 		print(ModuleUnitCompiler.unitName(group));
 		return 0;

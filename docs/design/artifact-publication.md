@@ -139,6 +139,22 @@ Unit filenames use ASCII alphanumeric bytes from the UTF-8 stem, replacing
 other bytes with hyphens, trimming edge hyphens and using `group` if empty;
 the group path's SHA-256 suffix keeps different paths distinct.
 
+Declaration interfaces use the canonical AST field order and quoting, omitting
+line, column, name-position and source-file fields. Non-template function,
+method and property bodies render as `nil` when absent or as
+`(ElidedBody defined consumed=<indices>)` when present. Consumed parameter
+indices are sorted decimal integers separated by commas; properties have none.
+Generic class and method bodies remain in the interface. Each declaration's
+UTF-8 text is hashed with SHA-256; a declaration-sequence digest hashes those
+lowercase hexadecimal digests in order.
+
+Position-free identities encode floating values as `binary64:` followed by
+16 lowercase hexadecimal digits for their IEEE binary64 bits, preserving
+signed zero and full precision. Wide source integers retain their full
+unsigned magnitude. Ordinary AST inspection output keeps its display format.
+The declaration encoding is shared, but whole-program grouping, analysis timing
+and fact serialization still need to converge before cache keys can match.
+
 The reference store verifies separate SHA-256 digests for metadata and C in
 its atomic JSON envelope; the self-host store retains its verified `record.txt`
 and `unit.c` pair. The common metadata format does not yet make the stores
