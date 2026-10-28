@@ -4297,3 +4297,17 @@ The full-width codec fixture runs its boundary checks in the journal callback
 with explicitly typed 64-bit limits. Generated-source, lint and formatting
 checks pass. These results do not qualify compound literals or the full
 issue-completion gates.
+
+### 2026-10-28 issue #8 shared module records
+
+Packet: CX-SHARED-MODULE-RECORDS. Branch
+`codex/shared-module-records-20261028`, base `ef13a269`.
+Own paired module-record codecs, the Python cache payload transport and its
+application ports, focused cache/interchange tests, and protocol documentation.
+
+Issue #8 requires both frontends to consume the same cached module artifacts.
+First converge their semantic record format on the existing self-hosted counted
+text sections, keeping generated C as a separate payload. Exercise real cache
+replay and both record readers; preserve strict malformed-record rejection.
+Compiler identity, key inputs and shared directory publication remain required
+follow-up work before claiming cross-frontend cache reuse. Work stays local.
