@@ -4583,10 +4583,24 @@ the marker mismatch; C text already matched for all three modules. The source
 now resolves that path through the line map, uses `<stdlib>` for inline stdlib,
 and collects graph roots as a set. The test counts the imported third group.
 
-**Checkpoint, verification pending:** those final two self-host repairs were
-made after the sole driver build. Do not call this packet green or issue #8
-complete. The next batch must build the updated driver and run
-`test_module_program_facts.py` and `test_module_record_interchange.py`; the
-previous binary is stale. Logs, XML and the marker inspection are retained
-under `build/issue-gates/module-program-facts/`. Targeted lint/format and diff
-checks pass. No CI, GitHub write, full compiler, application or measurement ran.
+The follow-up driver build passed all 218 interchange checks, including the
+three-module BitPattern case. The final library repairs are now verified.
+The structure gate found an unused `ModuleUnitDeclarations.orderDigest` left
+by dependency-scoped keys. Removed it and the unused Python
+`SharedDeclarations.order`; no references remain, and the self-host helper
+was already absent from generated driver C. The 11 target-specific ownership
+failures pass after removal. No second native build was needed for that
+unreachable-code deletion.
+
+Across the interchange, structure/realtime/reachability and cleanup runs,
+445 distinct checks pass with no unresolved failures or skips. Generated-source,
+targeted lint/format and diff checks pass. Logs, XML, exact build provenance
+and the marker inspection are retained under
+`build/issue-gates/module-program-facts/`. The driver was built before the
+unused-method deletion; full final-tree gates remain part of overall issue
+acceptance. No CI, GitHub write, full compiler, application or measurement ran.
+
+Issue #8 remains open: generic callable lowering parity, shared interface-header
+and link-plan fragment artifacts, precise remaining invalidation and the real
+BTRSmith warm-build budget still need work. Link-plan fragments must store
+output-independent unit identities and resolve output paths at use time.

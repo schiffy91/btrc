@@ -831,13 +831,6 @@ class SharedDeclarations:
                 names.add(node.name)
         return names
 
-    def order(self) -> list[str]:
-        """Every entry's kind and names, in the shared order."""
-        return [
-            f"{field_name}:{','.join(sorted(self._provided(field_name, declaration)))}"
-            for field_name, declaration in self._entries
-        ]
-
     def configure_native_headers(self, declarations: Iterable[object]) -> None:
         """Record the C names each native binding header declares.
 

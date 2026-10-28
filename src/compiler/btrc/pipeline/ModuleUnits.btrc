@@ -547,17 +547,6 @@ class ModuleUnitDeclarations {
 		self.addNames(kind, position, names, resolved);
 	}
 
-	/* A digest of every entry's kind and names, in the shared order. */
-	public string orderDigest() {
-		SHA256 digest = SHA256();
-		for (int entry = 0; entry < self.kinds.len; entry++) {
-			Vector<string> names = self.provides.get(entry).keys();
-			names.sort();
-			digest.appendText(Strings.fromInt(self.kinds.get(entry)) + "\t" + Strings.join(names, ",") + "\n");
-		}
-		return digest.finish();
-	}
-
 	private void addNames(int kind, int position, Map<string, bool> names, Map<string, bool> refs) {
 		int entry = self.kinds.len;
 		self.kinds.push(kind);
