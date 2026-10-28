@@ -221,6 +221,7 @@ class SemanticAnalyzer:
             array_iteration_capacity_ids=set(state.array_iteration_capacity_ids),
             constant_array_bound_ids=set(state.constant_array_bound_ids),
             initializer_slot_plans=dict(state.initializer_slot_plans),
+            designator_index_values=dict(state.designator_index_values),
             source_macros=self.index.source_macros,
             errors=state.errors,
             warnings=state.warnings,

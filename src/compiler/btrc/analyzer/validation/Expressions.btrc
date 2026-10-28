@@ -17,6 +17,7 @@ import ../SourceMacros.btrc;
 import ../Types.btrc;
 import ./Borrows.btrc;
 import ./Calls.btrc;
+import ./Constants.btrc;
 import ./Names.btrc;
 import ./Ownership.btrc;
 import ./Storage.btrc;
@@ -57,6 +58,7 @@ class ExpressionValidator {
 	private SourceRuntimeSymbols sourceRuntimeSymbols;
 	private ExpressionTypeResolver expressionTypes;
 	private TypeValidator types;
+	private ConstantValidator constants;
 	private NameValidator names;
 	private StorageValidator storage;
 	private OwnershipValidator ownership;
@@ -65,18 +67,37 @@ class ExpressionValidator {
 	private Vector<InferredLiteralMismatch> literalMismatches = [];
 	private Map<string, bool> contextualLiterals = {};
 
-	public ExpressionValidator(SemanticValidationState state, OperatorSemantics operators, SourceMacroNamespace sourceMacros, SourceRuntimeSymbols sourceRuntimeSymbols, ExpressionTypeResolver expressionTypes, TypeValidator types, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, CallValidator calls) {
+	public ExpressionValidator(SemanticValidationState state, OperatorSemantics operators, SourceMacroNamespace sourceMacros, SourceRuntimeSymbols sourceRuntimeSymbols, ExpressionTypeResolver expressionTypes, TypeValidator types, ConstantValidator constants, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, CallValidator calls) {
 		self.state = state;
 		self.operators = operators;
 		self.sourceMacros = sourceMacros;
 		self.sourceRuntimeSymbols = sourceRuntimeSymbols;
 		self.expressionTypes = expressionTypes;
 		self.types = types;
+		self.constants = constants;
 		self.names = names;
 		self.storage = storage;
 		self.ownership = ownership;
 		self.borrows = borrows;
 		self.calls = calls;
+	}
+
+	private void validateDesignatorIndexes(Node initializer, Map<string, Node> vars) {
+		for designation in initializer.entries() {
+			for part in designation.parts() {
+				if (part.kind != NK_INDEX_DESIGNATOR) { continue; }
+				self.validateExpr(part.index, vars);
+				Map<string, bool> unrestricted = {};
+				SemanticIntegerConstant constant = self.constants.integerConstant(part.index, false, "", unrestricted);
+				if (!constant.valid) {
+					TypeValidator.fail("Array designator index must be an integer constant expression", part);
+				} else if (!constant.known) {
+					TypeValidator.fail("Array designator index is a constant expression btrc cannot evaluate; write its integer value", part);
+				} else {
+					self.state.analyzed.recordDesignatorIndex(part, constant.value);
+				}
+			}
+		}
 	}
 
 	private bool knownNumericZero(Node expression) {
@@ -1365,6 +1386,7 @@ class ExpressionValidator {
 			}
 			self.validateFlexibleArraySizeof(expression, vars);
 		} else if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
+			if (expression.kind == NK_BRACE_INITIALIZER) { self.validateDesignatorIndexes(expression, vars); }
 			self.validateExprList(expression.elements(),  vars);
 			if (expression.kind == NK_LIST_LITERAL) {
 				for element in expression.elements() {

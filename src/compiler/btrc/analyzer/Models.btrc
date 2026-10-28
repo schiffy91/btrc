@@ -61,6 +61,7 @@ enum ValidationFactKind {
 	VALIDATION_BOUNDED_LOOP = 12,
 	VALIDATION_WARNING = 13,
 	VALIDATION_DIVERGENCE = 14,
+	VALIDATION_DESIGNATOR_INDEX = 15,
 };
 
 /* The per-declaration analysis passes a record covers, in program order:
@@ -95,6 +96,7 @@ class ValidationFact {
 	public bool directCall = false;
 	public bool sourceKnown = false;
 	public int parameter = -1;
+	public long long integerValue = 0;
 	public string name = "";
 	public string member = "";
 	public string detail = "";
@@ -473,6 +475,8 @@ class Analyzed {
 	 * record installs none; SemanticTypeSystem.initializerSlots plans such an
 	 * initializer again, identically. */
 	public Map<string, SemanticInitializerPlan> initializerPlans;
+	/* Known, full-width values keyed by the source IndexDesignator. */
+	public Map<string, long long> designatorIndexValues;
 	/* The program's source-macro namespace, installed by validation; lowering
 	 * decodes a string constant's extent through it. */
 	public SourceMacroNamespace? sourceMacros = null;
@@ -527,6 +531,7 @@ class Analyzed {
 		self.arrayIterationCapacityKeys = {};
 		self.constantArrayBoundKeys = {};
 		self.initializerPlans = {};
+		self.designatorIndexValues = {};
 		self.realtimeBoundedLoopKeys = {};
 	}
 
@@ -564,6 +569,12 @@ class Analyzed {
 	public void recordConstantArrayBound(Node bound) {
 		self.constantArrayBoundKeys.put(AstIdentity.key(bound), true);
 		self.journalFact(VALIDATION_CONSTANT_BOUND, bound, null);
+	}
+
+	public void recordDesignatorIndex(Node designator, long long value) {
+		self.designatorIndexValues.put(AstIdentity.key(designator), value);
+		ValidationFact? fact = self.journalFact(VALIDATION_DESIGNATOR_INDEX, designator, null);
+		if (fact != null) { fact.integerValue = value; }
 	}
 
 	public void recordArrayIterationCapacity(Node iterable) {

@@ -1082,6 +1082,7 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
         "ir/lowering/Strings.btrc",
         "ir/lowering/Types.btrc",
         "ir/optimization/setjmp/Analysis.btrc",
+        "ir/optimization/setjmp/Safety.btrc",
         "pipeline/Pipeline.btrc",
     }
     actual_owners = {
@@ -1107,7 +1108,7 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
     assert "HostedAbiRepository" not in analyzer.split("public SemanticAnalyzer(", 1)[0]
     assert "HostedAbiRepository" not in lowerer.split("public IRLowerer(", 1)[0]
     assert "HostedAbiRepository" not in _path("ir/optimization/Optimizer.btrc").read_text()
-    assert "HostedAbiRepository" not in _path("ir/optimization/setjmp/Safety.btrc").read_text()
+    assert "SetjmpSafetyPlanner(setjmpEffects, self.hostedAbi)" in pipeline
     assert "lexicalBindingCName" not in models
     assert "string name, bool typeConflict" in hosted_abi
     assert "public string sourceFunctionSymbol(string name)" in declarations
@@ -1215,6 +1216,8 @@ def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
 
     assert "GeneratedHostedAbiData" not in setjmp_analysis
     assert "HostedAbiRepository hostedAbi" in setjmp_analysis
-    assert "HostedAbiRepository" not in setjmp_safety
+    assert "GeneratedHostedAbiData" not in setjmp_safety
+    assert "HostedAbiRepository hostedAbi" in setjmp_safety
+    assert "self.hostedAbi.arithmeticTypes()" in setjmp_safety
     assert "private SetjmpEffectAnalysis effectAnalysis;" in setjmp_safety
     assert "self.effectAnalysis.analyze(module, roots)" in setjmp_safety

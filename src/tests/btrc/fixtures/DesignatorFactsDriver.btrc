@@ -1,0 +1,132 @@
+import Library.Map;
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/analyzer/Analyzer.btrc;
+import ../../../compiler/btrc/analyzer/HostedAbi.btrc;
+import ../../../compiler/btrc/analyzer/Models.btrc;
+import ../../../compiler/btrc/generated/ast/Node.btrc;
+import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
+import ../../../compiler/btrc/generated/runtime/Catalog.btrc;
+import ../../../compiler/btrc/lexer/Lexer.btrc;
+import ../../../compiler/btrc/parser/Parser.btrc;
+import ../../../compiler/btrc/parser/SourceMacros.btrc;
+import ../../../compiler/btrc/pipeline/ModuleUnits.btrc;
+import ../../../compiler/btrc/syntax/Grammar.btrc;
+import ../../../compiler/btrc/syntax/Identity.btrc;
+import ../../../compiler/btrc/syntax/Tokens.btrc;
+#include <assert.h>
+
+/* Use the production codec and analyzer replay with a fresh AST. The store
+ * supplies one body record; source-key invalidation belongs to its own tests. */
+class DesignatorRecords implements IValidationRecords {
+	private ValidationRecordCodec codec;
+	public string encoded;
+	public int replayed = 0;
+
+	public DesignatorRecords(Node program, string encoded) {
+		Map<string, string> files = {};
+		for declaration in program.declarations() { files.put(AstIdentity.key(declaration), "Index.btrc"); }
+		self.codec = ValidationRecordCodec(program.declarations(), files);
+		self.encoded = encoded;
+	}
+
+	public void selectBodies(Map<Node, bool> unreached) {}
+
+	public Vector<ValidationFact>? recorded(int phase, Node declaration) {
+		if (phase != RECORD_PHASE_VALIDATE || self.encoded.isEmpty()) { return null; }
+		Vector<ValidationFact>? facts = self.codec.decode(self.encoded);
+		assert(facts != null);
+		self.replayed++;
+		return facts;
+	}
+
+	public bool journals(int phase, Node declaration) { return phase == RECORD_PHASE_VALIDATE && self.encoded.isEmpty(); }
+
+	public bool finish(int phase, Node declaration, ValidationJournal journal) {
+		if (phase != RECORD_PHASE_VALIDATE) { return true; }
+		Map<string, bool> foreign = {};
+		string? encoded = self.codec.encode(declaration, journal, foreign);
+		if (encoded == null) { assert(false); return false; }
+		assert(!encoded.isEmpty());
+		self.encoded = encoded;
+		/* A corrupt full-width value must invalidate the record, not truncate
+		 * or wrap it. Exercise the actual journal row after encoding. */
+		for line in Strings.split(encoded, "\n") {
+			Vector<string> fields = Strings.split(line, "\t");
+			if (fields.len != 6 || Strings.toInt(fields.get(0)) != VALIDATION_DESIGNATOR_INDEX) { continue; }
+			for invalid in ["9223372036854775808", "-9223372036854775809", "7LL", "0x7", "", "-0", "junk"] {
+				fields.set(5, invalid);
+				assert(self.codec.decode(Strings.join(fields, "\t") + "\n") == null);
+			}
+		}
+		return true;
+	}
+
+	public void abandon(Node declaration) { assert(false); }
+
+	public bool reusable(Node declaration) { return !self.encoded.isEmpty(); }
+
+	public Vector<ValidationFact>? recordedInstance(Node template, string section) { return null; }
+
+	public bool journalsInstance(Node template) { return false; }
+
+	public bool finishInstance(Node template, string section, ValidationJournal journal) { return true; }
+}
+
+class DesignatorFixture {
+	class Node program(GrammarInfo grammar, string expression) {
+		var parser = Parser(Lexer("int main() { int index = 0; int values[1] = {0}; return 0; }", grammar).tokenize(), grammar);
+		Node program = parser.parseProgram();
+		assert(!parser.failed);
+		var indexParser = Parser(Lexer(expression, grammar).tokenize(), grammar);
+		Node indexValue = indexParser.parseExpression();
+		assert(!indexParser.failed);
+		Node index = Node();
+		index.kind = NK_INDEX_DESIGNATOR;
+		index.index = indexValue;
+		index.line = 4;
+		index.col = 9;
+		Node designation = Node();
+		designation.kind = NK_DESIGNATION;
+		designation.partsMut().push(index);
+		Node brace = program.declarations().get(0).bodyNode.statements().get(1).initializer;
+		brace.entriesMut().push(designation);
+		return program;
+	}
+
+	class Node index(Node program) { return program.declarations().get(0).bodyNode.statements().get(1).initializer.entries().get(0).parts().get(0); }
+
+	class Analyzed analyze(Node program, DesignatorRecords records) {
+		var tables = GeneratedHostedAbiData();
+		var abi = HostedAbiRepository(tables);
+		var runtime = GeneratedRuntimeCatalogData();
+		Map<string, bool> noNames = {};
+		var rules = SourceMacroRules(TokenVocabulary(), noNames, noNames, noNames);
+		var analyzer = SemanticAnalyzer(SourceRuntimeSymbols(runtime.rows, runtime.intrinsicEffects), rules, tables.targetRows().get(0));
+		analyzer.configureValidationRecords(records);
+		return analyzer.analyze(program, abi);
+	}
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 3);
+	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
+	string expression = Strings.copy(argv[2]);
+	Node first = DesignatorFixture.program(grammar, expression);
+	Node second = DesignatorFixture.program(grammar, expression);
+	var written = DesignatorRecords(first, "");
+	Analyzed live = DesignatorFixture.analyze(first, written);
+	var replayed = DesignatorRecords(second, written.encoded);
+	Analyzed cached = DesignatorFixture.analyze(second, replayed);
+	string oldKey = AstIdentity.key(DesignatorFixture.index(first));
+	string newKey = AstIdentity.key(DesignatorFixture.index(second));
+	assert(oldKey != newKey && replayed.replayed == 1);
+	assert(live.designatorIndexValues.len == 1 && live.designatorIndexValues.has(oldKey));
+	assert(cached.designatorIndexValues.len == 1 && cached.designatorIndexValues.has(newKey));
+	assert(!cached.designatorIndexValues.has(oldKey));
+	assert(live.designatorIndexValues.get(oldKey) == cached.designatorIndexValues.get(newKey));
+	printf("%lld\n", cached.designatorIndexValues.get(newKey));
+	return 0;
+}

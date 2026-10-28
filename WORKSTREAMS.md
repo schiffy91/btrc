@@ -4231,3 +4231,9 @@ parser, typed-slot and lowering work; it does not claim r10 completion.
 The previous paired baseline has 11 host-C passes and 40 BTRC failures.
 No GitHub push, CI dispatch, native GUI execution or measurement is authorized
 by this packet. Existing collection and platform failures remain open.
+
+The focused structural regression also exposed stale assertions from the
+preceding hosted-setjmp repair: Safety now consumes the pipeline-owned ABI
+repository to classify arithmetic typedefs. Own
+`src/tests/btrc/test_compiler_structure_contract.py` to require that injection
+and lookup while continuing to forbid generated-data construction in the owner.

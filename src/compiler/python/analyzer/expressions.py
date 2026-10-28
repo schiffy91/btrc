@@ -32,6 +32,7 @@ from src.compiler.python.syntax.ast.generated import (
     FStringExpr,
     FStringLiteral,
     Identifier,
+    IndexDesignator,
     IndexExpr,
     IntLiteral,
     LambdaExpr,
@@ -2298,6 +2299,7 @@ class ExpressionAnalyzer:
             thread_type = TypeExpr(base="Thread", generic_args=[ret_type])
             self.generics.collect_type_instances(thread_type)
         elif isinstance(expr, BraceInitializer):
+            self._analyze_designator_indexes(expr)
             for el in expr.elements:
                 self._analyze_expr(el)
                 self.aggregates.reject_thread_value_escape(el, "embedded in aggregate values")
@@ -2305,6 +2307,26 @@ class ExpressionAnalyzer:
         if inferred:
             self.session.record_node_type(expr, inferred)
         self._reject_nonescaping_construction(expr, inferred)
+
+    def _analyze_designator_indexes(self, initializer: BraceInitializer) -> None:
+        for designation in initializer.entries:
+            for part in designation.parts:
+                if not isinstance(part, IndexDesignator):
+                    continue
+                self._analyze_expr(part.index)
+                constant, value = self.integer_constant_expression(part.index)
+                if not constant:
+                    self.session.error(
+                        "Array designator index must be an integer constant expression", part.line, part.col
+                    )
+                elif value is None:
+                    self.session.error(
+                        "Array designator index is a constant expression btrc cannot evaluate; write its integer value",
+                        part.line,
+                        part.col,
+                    )
+                else:
+                    self.session.designator_index_values[id(part)] = value
 
     def _reject_nonescaping_construction(self, expr, inferred) -> None:
         """A constructed class instance may not hold a nonescaping rich enum."""

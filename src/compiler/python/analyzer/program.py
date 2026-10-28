@@ -484,6 +484,7 @@ class AnalyzedProgram:
     array_iteration_capacity_ids: set[int] = field(default_factory=set)
     constant_array_bound_ids: set[int] = field(default_factory=set)
     initializer_slot_plans: dict[int, InitializerSlotPlan] = field(default_factory=dict)
+    designator_index_values: dict[int, int] = field(default_factory=dict)
     source_macros: SourceMacroNamespace = field(default_factory=SourceMacroNamespace.empty)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -555,6 +556,7 @@ class AnalysisSession(AnalysisContext):
         self._array_bound_values: dict[int, int] = {}
         self.constant_array_bound_ids: set[int] = set()
         self.initializer_slot_plans: dict[int, InitializerSlotPlan] = {}
+        self.designator_index_values: dict[int, int] = {}
         self.array_iteration_capacity_ids: set[int] = set()
         self.realtime_bounded_loop_ids: set[int] = set()
         self._nonnull_paths: set = set()
@@ -595,6 +597,7 @@ class AnalysisSession(AnalysisContext):
         self._array_bound_values = {}
         self.constant_array_bound_ids = set()
         self.initializer_slot_plans = {}
+        self.designator_index_values = {}
         self.rich_enum_unsafe_default_ids = set()
         self.spawned_lambda_ids = set()
         self.generic_resolved_type_facts = []
