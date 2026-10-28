@@ -410,6 +410,8 @@ class Analyzed {
 	/* Concrete generic instances in discovery (declaration-walk) order, deduped
      * by mangled name. Mirrors analyzer.generic_instances flattened. */
 	public Vector<GenInstance> genericInstances;
+	/* Whether realtime validation proved any callable safe. */
+	public bool hasRealtimeSafeCallable = false;
 	/* set of canonical recursive instance keys already collected (dedup). */
 	public Map<string, bool> genericSeen;
 	/* enum type name -> its EnumDecl node (NK_ENUM_DECL). Mirrors enum_table

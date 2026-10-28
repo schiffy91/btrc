@@ -152,6 +152,17 @@ class AstCanonicalRenderer {
 
 	public string render(Node node) { return self.renderAtDepth(node, 0); }
 
+	/* Constructor spelling belongs to the canonical renderer. Rendering an
+	 * empty node of that kind avoids traversing the declaration's body. */
+	public string constructorName(Node node) {
+		var empty = Node();
+		empty.kind = node.kind;
+		string text = self.renderAtDepth(empty, 0);
+		int end = text.indexOf("\n");
+		if (end < 0) { end = text.length() - 1; }
+		return text.substring(1, end - 1);
+	}
+
 	private void enterMembers(bool template) { if (template) { self.templateDepth = self.templateDepth + 1; } }
 
 	private void leaveMembers(bool template) { if (template) { self.templateDepth = self.templateDepth - 1; } }

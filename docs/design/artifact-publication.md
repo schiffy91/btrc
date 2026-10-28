@@ -174,8 +174,24 @@ followed by the canonical target, debug output prefix and primary path, and
 the number of native defines. Define name/value pairs follow in name order.
 Release contexts use empty output paths. The outer digest starts with
 `btrc-module-unit-v8\n` and frames context digest, group, source digest and
-program identity. Program facts still differ between the owners; sharing this
-encoding alone does not make their actual keys equal.
+program identity.
+
+The program-facts digest starts with `btrc-module-program-v1\n`. Its sections,
+in order, are `files`, `trycatch`, `realtime`, `class-views`, `method-views`,
+`classes`, `methods`, `callable-policy`, `callables`, `stdlib`, `method-names`,
+`unreached` and `reached`. Each section frames its name, decimal value count
+and values. Nested rows use the same byte-length framing. Type arguments use
+the position-free canonical AST rendering. Instance rows and name sets are
+sorted; source traversal, specialization emission and reached declaration
+order are preserved. Boolean values are `0` or `1`.
+
+The scoped program identity starts with `btrc-module-program-scope-v1\n` and
+frames the group's transitive interface digest followed by the program-facts
+digest. Generic callable selection remains different: the reference compiler
+records `demanded` plus its per-specialization callable matrix; the self-host
+compiler records `all`. This keeps those entries separate until lowering
+agrees. Neither owner supplies a policy value when there are no class instances.
+
 Unit filenames use ASCII alphanumeric bytes from the UTF-8 stem, replacing
 other bytes with hyphens, trimming edge hyphens and using `group` if empty;
 the group path's SHA-256 suffix keeps different paths distinct.
@@ -214,13 +230,10 @@ records use `validation-natives-v2`, with keys framing context and native input
 identity after `validation-natives-v2\n`; absent native identity disables native
 reuse. Malformed digest text is a miss. A private body edit rerenders only its
 source group's interface and keeps the program-interface digest unchanged.
-Program-fact serialization still differs between the frontends.
 
-The reference store verifies separate SHA-256 digests for metadata and C in
-its atomic JSON envelope; the self-host store retains its verified `record.txt`
-and `unit.c` pair. The common metadata format does not yet make the stores
-interchangeable: compiler identity, program-fact inputs and directory layout
-still differ. Issue #8 also requires shared interface/link-plan artifacts,
+The shared store verifies separate SHA-256 digests for metadata and C in its
+`record.txt` and `unit.c` pair. Generic callable selection still prevents
+general interchange. Issue #8 also requires shared interface/link-plan artifacts,
 dependent-only invalidation and the real application's warm-build budget.
 
 ## Source identity

@@ -4562,3 +4562,31 @@ encode that policy explicitly until both lowerers agree. Prove actual interchang
 where inputs and output agree, and preserve misses for differing generic plans.
 Use local headless checks and one focused driver build; no CI, GitHub writes,
 full compiler build, application execution or measurements.
+
+Implemented common framed program facts and scoped identities. Both compilers
+now encode source traversal, exception/realtime facts, specialization demand
+and stdlib reachability in the same section order. Generic callable policy
+remains explicit because the lowerers still select different bodies.
+
+One focused ModuleRecordDriver build completed locally. Its first pass had
+215 passes and one invalid generic-constructor test; changing the test to
+`new Box<int>(7)` passed on that same binary. Ordinary functions, typedefs,
+realtime functions and exception handlers exchanged complete keys, metadata
+and C and reused every module in both directions. The reference invalidation
+and fact checks passed 41 cases; five reference replay cases now pass.
+
+A further BitPattern import regression exposed two differences: the self-host
+program fact used the authenticated `compiler:stdlib` marker instead of the
+resolved source path, and graph roots repeated a destructor referenced by a
+global initializer. Inspection of the existing native driver with LLDB proved
+the marker mismatch; C text already matched for all three modules. The source
+now resolves that path through the line map, uses `<stdlib>` for inline stdlib,
+and collects graph roots as a set. The test counts the imported third group.
+
+**Checkpoint, verification pending:** those final two self-host repairs were
+made after the sole driver build. Do not call this packet green or issue #8
+complete. The next batch must build the updated driver and run
+`test_module_program_facts.py` and `test_module_record_interchange.py`; the
+previous binary is stale. Logs, XML and the marker inspection are retained
+under `build/issue-gates/module-program-facts/`. Targeted lint/format and diff
+checks pass. No CI, GitHub write, full compiler, application or measurement ran.

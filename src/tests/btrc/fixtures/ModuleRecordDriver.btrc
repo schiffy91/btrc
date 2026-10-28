@@ -213,6 +213,21 @@ int main(int argc, char** argv) {
 	if (argc != 4) { return 3; }
 	string mode = Strings.copy(argv[1]);
 	string group = Strings.copy(argv[3]);
+	if (mode == "program-facts") {
+		var input = JSONValue.parse(Path.readAll(Strings.copy(argv[2])));
+		Map<string, Vector<string>> sections = {};
+		for name in input.get("sections").keys() {
+			Vector<string> values = [];
+			if (!ModuleUnitRecord.stringsFrom(input.get("sections").get(name), values)) { return 2; }
+			sections.put(name, values);
+		}
+		string digest = ModuleUnitCompiler.programFactsDigest(sections);
+		var result = JSONValue.makeObject();
+		result.set("program", JSONValue.makeString(digest));
+		result.set("scope", JSONValue.makeString(ModuleUnitCompiler.scopedProgramIdentity(input.get("interface").asString(), digest)));
+		print(result.stringify());
+		return 0;
+	}
 	if (mode == "dependencies") {
 		JSONValue input = JSONValue.parse(Path.readAll(Strings.copy(argv[2])));
 		IRModule unit = IRModule();

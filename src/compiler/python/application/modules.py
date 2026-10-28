@@ -6,7 +6,6 @@ import contextlib
 import copy
 import gc
 import hashlib
-import json
 import os
 import pickle
 import signal
@@ -15,7 +14,7 @@ import threading
 import time
 import traceback
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field
 from multiprocessing import Pipe
 from multiprocessing.connection import Connection, wait
 from typing import NoReturn, Protocol
@@ -42,7 +41,6 @@ from .results import CompilerOptions
 RUNTIME_UNIT_NAME = "unit-runtime"
 # The owner of the declarations-only session: a name no compilation group has.
 _DECLARATIONS = "\0declarations"
-_UNHASHED_FIELDS = frozenset({"line", "col", "name_line", "name_col", "source_file"})
 # Words of a C type spelling that name nothing a binding header declares.
 # The worker operations a forked worker's timing report counts, in order.
 _TIMED_OPERATIONS = ("lower", "setjmp", "realtime", "finish")
@@ -625,25 +623,6 @@ class ProgramInterface:
     statements consume. Source positions are not part of the interface.
     """
 
-    @classmethod
-    def canonical(cls, value: object) -> str:
-        """A position-free rendering of an analyzer value for program digests."""
-        if is_dataclass(value) and not isinstance(value, type):
-            parts = (
-                f"{item.name}={cls.canonical(getattr(value, item.name))}"
-                for item in fields(value)
-                if item.name not in _UNHASHED_FIELDS
-            )
-            return f"{type(value).__name__}({', '.join(parts)})"
-        if isinstance(value, (list, tuple)):
-            return "[" + ", ".join(cls.canonical(item) for item in value) + "]"
-        if isinstance(value, (set, frozenset)):
-            return "{" + ", ".join(sorted(cls.canonical(item) for item in value)) + "}"
-        if isinstance(value, dict):
-            items = sorted((cls.canonical(key), cls.canonical(item)) for key, item in value.items())
-            return "{" + ", ".join(f"{key}: {item}" for key, item in items) + "}"
-        return repr(value)
-
     def digest(self, declarations: Iterable[object]) -> str:
         digest = hashlib.sha256()
         renderer = AstCanonicalRenderer.interface_renderer(self.callable_body)
@@ -1091,70 +1070,105 @@ class ModuleUnitCompiler:
             cls._append_source_line(digest, SourceDependencyGraph.canonical_file(path), line, text)
         return {name: digest.hexdigest() for name, digest in digests.items()}, counts
 
+    _PROGRAM_FACT_SECTIONS = (
+        "files",
+        "trycatch",
+        "realtime",
+        "class-views",
+        "method-views",
+        "classes",
+        "methods",
+        "callable-policy",
+        "callables",
+        "stdlib",
+        "method-names",
+        "unreached",
+        "reached",
+    )
+
     @staticmethod
-    def _program_facts_digest(
-        analyzed,
-        facts: ProgramLoweringFacts,
-        source: ResolvedSource,
-    ) -> str:
-        digest = hashlib.sha256()
+    def _fact_row(values: Sequence[str]) -> str:
+        return "".join(f"{len(value.encode('utf-8'))}:{value}" for value in values)
 
-        def add(value: object) -> None:
-            encoded = json.dumps(value, sort_keys=True, default=str).encode()
-            digest.update(len(encoded).to_bytes(8, "big"))
-            digest.update(encoded)
+    @classmethod
+    def program_facts_digest(cls, sections: dict[str, list[str]]) -> str:
+        digest = hashlib.sha256(b"btrc-module-program-v1\n")
+        for name in cls._PROGRAM_FACT_SECTIONS:
+            values = sections[name]
+            for value in (name, str(len(values)), *values):
+                cls._append_key_field(digest, value)
+        return digest.hexdigest()
 
-        def type_args(instances) -> list:
-            return sorted(ProgramInterface.canonical(instance) for instance in instances)
+    @classmethod
+    def scoped_program_identity(cls, interface: str, program: str) -> str:
+        digest = hashlib.sha256(b"btrc-module-program-scope-v1\n")
+        for value in (interface, program):
+            cls._append_key_field(digest, value)
+        return digest.hexdigest()
 
-        # Grouped interfaces sort group names, but directive/prototype order
-        # still follows the source composition, including returning to a file.
+    @classmethod
+    def _program_facts_digest(cls, analyzed, facts: ProgramLoweringFacts, source: ResolvedSource) -> str:
+        renderer = AstCanonicalRenderer.position_free_renderer()
+
+        def arguments(values) -> list[str]:
+            return [str(len(values)), *(renderer.render(value) for value in values)]
+
         files = []
         for path, _ in source.source_positions:
             if not files or files[-1] != path:
                 files.append(path)
-        add(files)
-        add(bool(facts.uses_trycatch))
-        # Pipeline._lowerer uses the presence of a safe callable to install
-        # hosted/runtime realtime externals; individual callable names are not read.
-        add(bool(analyzed.realtime_safe_callables))
-        # Shared declaration content and order are checked by each record's
-        # dependency certificate. Specialization demand remains conservative.
-        add([view.symbol for view in facts.class_views or ()])
-        add([view.symbol for view in facts.method_views or ()])
-        add({name: type_args(instances) for name, instances in analyzed.generic_instances.items()})
-        add(
-            {
-                ProgramInterface.canonical(key): type_args(value)
-                for key, value in analyzed.generic_method_instances.items()
-            }
+        classes = sorted(
+            cls._fact_row([name, *arguments(instance)])
+            for name, instances in analyzed.generic_instances.items()
+            for instance in instances
         )
-        add(
-            {
-                ProgramInterface.canonical(key): ProgramInterface.canonical(value)
-                for key, value in analyzed.generic_class_callable_instances.items()
-            }
+        methods = sorted(
+            cls._fact_row([owner, name, *arguments(class_args), *arguments(method_args)])
+            for (owner, name), instances in analyzed.generic_method_instances.items()
+            for class_args, method_args in instances
+        )
+        callables = sorted(
+            cls._fact_row([key.owner, key.kind, key.name, *arguments(instance)])
+            for key, instances in analyzed.generic_class_callable_instances.items()
+            for instance in instances
         )
         plan = facts.stdlib_reachability
-        if plan is None:
-            add(None)
-        else:
-            # Mentioned local variables cannot change library selection.
-            # Method names can, including inherited methods from other classes.
-            method_names = {
-                member.name
+        method_names = {
+            member.name
+            for declaration in analyzed.program.declarations
+            for member in getattr(declaration, "members", ())
+            if isinstance(member, MethodDecl)
+        }
+        sections = {
+            "files": files,
+            "trycatch": ["1" if facts.uses_trycatch else "0"],
+            "realtime": ["1" if analyzed.realtime_safe_callables else "0"],
+            "class-views": [view.symbol for view in facts.class_views or ()],
+            "method-views": [view.symbol for view in facts.method_views or ()],
+            "classes": classes,
+            "methods": methods,
+            # The self-host lowerer still emits every generic class callable.
+            # Keep that semantic difference visible even with an empty demand set.
+            "callable-policy": ["demanded"] if classes else [],
+            "callables": callables,
+            "stdlib": ["1" if plan is not None else "0"],
+            "method-names": sorted(plan.names & method_names) if plan is not None else [],
+            "unreached": sorted(plan.unreached_names) if plan is not None else [],
+            "reached": [
+                cls._fact_row(
+                    [
+                        str(getattr(declaration, "source_file", "")),
+                        getattr(declaration, "name", ""),
+                        type(declaration).__name__,
+                    ]
+                )
                 for declaration in analyzed.program.declarations
-                for member in getattr(declaration, "members", ())
-                if isinstance(member, MethodDecl)
-            }
-            add(sorted(plan.names & method_names))
-            add(sorted(plan.unreached_names))
-            reached = []
-            for declaration in analyzed.program.declarations:
-                if StdlibReachability.is_stdlib_declaration(declaration) and plan.reaches(declaration):
-                    reached.append([str(getattr(declaration, "source_file", "")), getattr(declaration, "name", "")])
-            add(reached)
-        return digest.hexdigest()
+                if plan is not None
+                and StdlibReachability.is_stdlib_declaration(declaration)
+                and plan.reaches(declaration)
+            ],
+        }
+        return cls.program_facts_digest(sections)
 
     def compile(
         self,
@@ -1213,10 +1227,9 @@ class ModuleUnitCompiler:
         # not just their framing, have converged with the self-hosted owner.
         states: list[_GroupState] = []
         for name in groups.names():
-            program_identity_digest = hashlib.sha256()
-            for value in (interfaces.scoped_digest(dependencies[name]), program_digest):
-                self._append_key_field(program_identity_digest, value)
-            program_identity = program_identity_digest.hexdigest()
+            program_identity = self.scoped_program_identity(
+                interfaces.scoped_digest(dependencies[name]), program_digest
+            )
             identity = self._cache_key(context, name, group_sources.get(name, ""), program_identity)
             state = _GroupState(name, identity, lines=group_lines.get(name, 0))
             payload = store.load_module_unit(identity, input_path)

@@ -368,6 +368,13 @@ class StdlibReachability {
 	/* Every name the closure found mentioned. */
 	public Vector<string> mentionedNameList() { return self.names.keys(); }
 
+	public Vector<string> unreachedNameList() {
+		Vector<string> names = [];
+		for name in self.stdlibByName.keys() { if (!self.reachesName(name)) { names.push(name); } }
+		names.sort();
+		return names;
+	}
+
 	/* User and native declarations always; a stdlib declaration once its name is mentioned. */
 	public bool reaches(Node declaration) {
 		string key = StdlibReachability.declarationKey(declaration);

@@ -113,6 +113,7 @@ class ModuleUnitGraph {
 
 	class ModuleUnitGraph fromUnit(IRModule unit, Map<string, bool> instanceNames) {
 		ModuleUnitGraph graph = ModuleUnitGraph();
+		Map<string, bool> roots = {};
 		for definition in unit.functions {
 			Map<string, bool> refs = {};
 			ModuleUnitGraph.references(definition.body, refs);
@@ -120,13 +121,14 @@ class ModuleUnitGraph {
 			names.sort();
 			graph.edges.put(definition.name, names);
 			if (instanceNames.has(definition.name) && !definition.isStatic) { graph.instances.put(definition.name, true); }
-			else if (!definition.isStatic || definition.name == "main" || definition.name == "btrc_main") { graph.roots.push(definition.name); }
+			else if (!definition.isStatic || definition.name == "main" || definition.name == "btrc_main") { roots.put(definition.name, true); }
 		}
 		Map<string, bool> globalRefs = {};
 		for global in unit.globalDecls {
 			if (!global.isExtern) { ModuleUnitGraph.references(global.init, globalRefs); }
 		}
-		for name in globalRefs.keys() { graph.roots.push(name); }
+		for name in globalRefs.keys() { roots.put(name, true); }
+		graph.roots = roots.keys();
 		graph.roots.sort();
 		return graph;
 	}
@@ -1201,52 +1203,108 @@ class ModuleUnitCompiler {
 
 	/* The context, the group's resolved lines with their original positions,
 	 * and the program interface and facts digests. */
+	class string factRow(Vector<string> values) {
+		string row = "";
+		for value in values { row = row + Strings.fromInt(value.length()) + ":" + value; }
+		return row;
+	}
+
+	class Vector<string> factArguments(Vector<Node> arguments, AstCanonicalRenderer renderer) {
+		Vector<string> values = [Strings.fromInt(arguments.len)];
+		for argument in arguments { values.push(renderer.render(argument)); }
+		return values;
+	}
+
+	class string programFactsDigest(Map<string, Vector<string>> sections) {
+		var digest = SHA256();
+		digest.appendText("btrc-module-program-v1\n");
+		for name in ["files", "trycatch", "realtime", "class-views", "method-views", "classes", "methods", "callable-policy", "callables", "stdlib", "method-names", "unreached", "reached"] {
+			Vector<string> values = sections.get(name);
+			ModuleUnitCompiler.appendKeyField(digest, name);
+			ModuleUnitCompiler.appendKeyField(digest, Strings.fromInt(values.len));
+			for value in values { ModuleUnitCompiler.appendKeyField(digest, value); }
+		}
+		return digest.finish();
+	}
+
+	class string scopedProgramIdentity(string interfaceDigest, string program) {
+		var digest = SHA256();
+		digest.appendText("btrc-module-program-scope-v1\n");
+		ModuleUnitCompiler.appendKeyField(digest, interfaceDigest);
+		ModuleUnitCompiler.appendKeyField(digest, program);
+		return digest.finish();
+	}
+
 	private string programDigest() {
 		ModuleUnitProgram input = self.input;
-		SHA256 digest = SHA256();
-		/* Per-group interface identities are added after these shared facts. */
 		if (input.interfaceDigest.isEmpty()) { throw "module units require a pre-analysis interface snapshot"; }
-		AstCanonicalRenderer positionFree = AstCanonicalRenderer.positionFreeRenderer();
-		/* The order of the program's files, as imports and includes place
-		 * them, orders every unit's directives and prototypes; it is not in
-		 * the interface digest, which sorts groups by name. */
-		digest.appendText("\nfiles\n");
-		string previousFile = "";
-		bool started = false;
+		var renderer = AstCanonicalRenderer.positionFreeRenderer();
+		Map<string, Vector<string>> sections = {};
+		Vector<string> files = [];
 		for line in input.resolved.userLines {
-			if (started && line.sourceFile.equals(previousFile)) { continue; }
-			started = true;
-			previousFile = line.sourceFile;
-			digest.appendText("file:" + line.sourceFile + "\n");
+			if (files.len == 0 || !files.get(files.len - 1).equals(line.sourceFile)) { files.push(line.sourceFile); }
 		}
-		digest.appendText("\nfacts\n");
-		digest.appendText(self.facts.usesTrycatch ? "trycatch" : "no-trycatch");
-		/* Each record checks its shared declaration content and order. */
-		GenericLowerer generics = GenericLowerer(input.analyzed);
-		for instance in generics.classInstances() { digest.appendText("class:" + instance.mangled + "\n"); }
-		for instance in generics.methodInstances() {
-			digest.appendText("method:" + instance.classBase + "." + instance.methodName + "<");
-			for argument in instance.classArgs { digest.appendText(positionFree.render(argument) + ","); }
-			digest.appendText(";");
-			for argument in instance.methodArgs { digest.appendText(positionFree.render(argument) + ","); }
-			digest.appendText(">\n");
+		sections.put("files", files);
+		sections.put("trycatch", [self.facts.usesTrycatch ? "1" : "0"]);
+		sections.put("realtime", [input.analyzed.hasRealtimeSafeCallable ? "1" : "0"]);
+		var generics = GenericLowerer(input.analyzed);
+		Vector<string> classViews = [];
+		for plan in generics.classPlans() { classViews.push(plan.instance.mangled); }
+		sections.put("class-views", classViews);
+		Vector<string> methodViews = [];
+		for plan in generics.methodPlans() {
+			var instance = plan.instance;
+			methodViews.push(TypeIdentity.mangleMethodInstanceSymbol(instance.classBase, instance.classArgs, instance.methodName, instance.methodArgs));
 		}
+		sections.put("method-views", methodViews);
+		Vector<string> classes = [];
+		for instance in input.analyzed.genericInstances {
+			Vector<string> values = [instance.base];
+			values.extend(ModuleUnitCompiler.factArguments(instance.args, renderer));
+			classes.push(ModuleUnitCompiler.factRow(values));
+		}
+		classes.sort();
+		sections.put("classes", classes);
+		Vector<string> methods = [];
+		for instance in input.analyzed.methodGenInstances {
+			Vector<string> values = [instance.classBase, instance.methodName];
+			values.extend(ModuleUnitCompiler.factArguments(instance.classArgs, renderer));
+			values.extend(ModuleUnitCompiler.factArguments(instance.methodArgs, renderer));
+			methods.push(ModuleUnitCompiler.factRow(values));
+		}
+		methods.sort();
+		sections.put("methods", methods);
+		/* Keep the broader self-host callable selection explicit. It must not
+		 * impersonate the reference lowerer's per-specialization demand set. */
+		Vector<string> policy = [];
+		if (classes.len > 0) { policy.push("all"); }
+		sections.put("callable-policy", policy);
+		sections.put("callables", []);
 		StdlibReachability? reachability = self.facts.reachability;
+		sections.put("stdlib", [reachability != null ? "1" : "0"]);
+		Vector<string> names = [];
+		Vector<string> unreached = [];
+		Vector<string> reached = [];
 		if (reachability != null) {
-			for declaration in input.program.declarations() {
-				if (reachability.isStdlibDeclaration(declaration) && reachability.reaches(declaration)) {
-					digest.appendText("reached:" + self.fileOfLine(declaration.line) + ":" + Strings.fromInt((int)declaration.kind) + ":" + declaration.name + "\n");
-				}
-			}
-			Vector<string> names = reachability.mentionedNameList();
-			names.sort();
 			Map<string, bool> methodNames = {};
 			for declaration in input.program.declarations() {
 				for member in declaration.members() { if (member.kind == NK_METHOD_DECL) { methodNames.put(member.name, true); } }
+				if (reachability.isStdlibDeclaration(declaration) && reachability.reaches(declaration)) {
+					/* sourceFile authenticates stdlib membership; resolved lines
+					 * carry the imported file's actual path. */
+					string path = self.fileOfLine(declaration.line);
+					if (path.isEmpty()) { path = "<stdlib>"; }
+					reached.push(ModuleUnitCompiler.factRow([path, declaration.name, renderer.constructorName(declaration)]));
+				}
 			}
-			for name in names { if (methodNames.has(name)) { digest.appendText("name:" + name + "\n"); } }
+			for name in reachability.mentionedNameList() { if (methodNames.has(name)) { names.push(name); } }
+			names.sort();
+			unreached = reachability.unreachedNameList();
 		}
-		return digest.finish();
+		sections.put("method-names", names);
+		sections.put("unreached", unreached);
+		sections.put("reached", reached);
+		return ModuleUnitCompiler.programFactsDigest(sections);
 	}
 
 	/* The source file a combined line belongs to, or "". */
@@ -2028,7 +2086,7 @@ class ModuleUnitCompiler {
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";
 			if (!input.scopedInterfaces.has(name)) { throw "module group lacks an interface snapshot"; }
-			string scopedIdentity = SHA256.digest(programIdentity + input.scopedInterfaces.get(name));
+			string scopedIdentity = ModuleUnitCompiler.scopedProgramIdentity(input.scopedInterfaces.get(name), programIdentity);
 			string identity = ModuleUnitCompiler.cacheKey(context, name, source, scopedIdentity);
 			ModuleUnitGroupState state = ModuleUnitGroupState(name, identity);
 			if (self.groupLines.has(name)) { state.lines = self.groupLines.get(name); }

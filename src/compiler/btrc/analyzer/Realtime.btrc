@@ -250,6 +250,7 @@ class RealtimeAnalyzer {
 	public void useRecords(IValidationRecords? records) { self.records = records; }
 
 	public void validate() {
+		self.analyzed.hasRealtimeSafeCallable = false;
 		bool hasRealtimeRoot = false;
 		int index = 0;
 		while (index < self.program.declarations().len) {
@@ -296,6 +297,7 @@ class RealtimeAnalyzer {
 		self.endJournal(current, journal);
 		BtrccPhaseTimer.mark("r-scan");
 		Map<string, bool> unsafe = self.unsafeFixedPoint();
+		self.analyzed.hasRealtimeSafeCallable = self.callables.len > unsafe.len;
 		BtrccPhaseTimer.mark("r-fixed-point");
 		index = 0;
 		while (index < self.order.len) {

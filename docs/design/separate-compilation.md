@@ -720,24 +720,26 @@ summary-dependency cycle joins it to a stale group, and no realtime proof it
 made or needs crosses a stale group; otherwise the group is lowered again and
 the solve repeats.
 
-The **key** is the context (debug, DCE, target, output paths in debug mode),
-the group's resolved lines with their original positions, the **program
-interface digest** and the **program facts digest**. The interface digest
-covers every declaration without source positions; callable bodies are elided
-except in generic templates, keeping only whether a body exists and which
-parameters its leading statements consume (the two body facts lowering reads
-from other declarations). The facts digest covers exception use, generic class,
-method and callable instance tables, the realtime-safe set and stdlib
-reachability, plus the orders a unit emits in that other groups' bodies
-decide: the order of the shared declarations (tuple shapes, and in btrcpy
-span and atomic shapes, are declared there in body-discovery order), the
-class and method specializations in discovery order (SB-D7, SB-D8), and in
-btrcc the order of the program's files
-(SB-D6; btrcpy's interface digest is already ordered). Both are whole-program:
-a public signature change, a new generic
-instance or newly reached stdlib declaration anywhere invalidates every group.
-That over-approximation is visible in the lowered/reused counters and is the
-next refinement (per-group consulted facts).
+The **key** includes compilation context, the group's resolved lines with their
+original positions, its transitive **interface digest** and the **program facts
+digest**. Interfaces cover the group's import dependencies and include component,
+plus native and inline-stdlib declarations. They omit source positions and elide
+callable bodies except in generic templates, retaining whether a body exists and
+which parameters its leading statements consume. An unrelated interface edit
+can therefore leave a group's key unchanged.
+
+Program facts cover exception use, generic class, method and callable instance
+tables, the presence of a realtime-safe callable, stdlib reachability, source
+traversal order and specialization emission order. Both compilers use the framed
+format in [artifact-publication.md](artifact-publication.md). Their generic
+callable selection policies remain distinct and produce distinct keys. Generic
+demand and stdlib reachability are still whole-program facts: changing them can
+invalidate unrelated groups. Per-group consulted facts remain unfinished.
+
+Each record also carries a shared-declaration dependency certificate. Reuse
+requires the current declarations it consumes to have the same content and
+relative order, including global directives. This checks tuple, span and atomic
+shapes without including the entire shared declaration inventory in every key.
 
 ### Validation so far
 
