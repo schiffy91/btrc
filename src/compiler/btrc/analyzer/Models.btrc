@@ -168,6 +168,7 @@ class SemanticInitializerSlot {
 	public Node element;
 	public Vector<Node> path;
 	public Node? type;
+	public Node? site = null;
 
 	public SemanticInitializerSlot(Node element, Vector<Node> path, Node? type) {
 		self.element = element;
@@ -179,6 +180,15 @@ class SemanticInitializerSlot {
 	public Node member() { return self.path.get(self.path.len - 1); }
 }
 
+class SemanticInitializerProblem {
+	public string message;
+	public Node site;
+	public SemanticInitializerProblem(string message, Node site) {
+		self.message = message;
+		self.site = site;
+	}
+}
+
 /* Every brace element of one record initializer mapped to its slot, in source
  * order. capacity is the number of positional slots the record offers, and
  * excess counts elements that found no slot. */
@@ -186,11 +196,14 @@ class SemanticInitializerPlan {
 	public Vector<SemanticInitializerSlot> slots;
 	public int capacity;
 	public int excess;
+	public Node? record;
+	public Vector<SemanticInitializerProblem> problems = [];
 
-	public SemanticInitializerPlan(Vector<SemanticInitializerSlot> slots, int capacity, int excess) {
+	public SemanticInitializerPlan(Vector<SemanticInitializerSlot> slots, int capacity, int excess, Node? record = null) {
 		self.slots = slots;
 		self.capacity = capacity;
 		self.excess = excess;
+		self.record = record;
 	}
 }
 

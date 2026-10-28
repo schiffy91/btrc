@@ -170,11 +170,13 @@ class AggregateValueLowerer {
 	}
 
 	private Node? contextualElementType(Node? aggregateType, Node aggregate, int index, OwnershipOperandEnvironment environment) {
-		string initializerKey = AstIdentity.key(aggregate);
-		if (self.analyzed.initializerPlans.has(initializerKey)) {
-			return SemanticTypeSystem.initializerSlotType(self.analyzed.initializerPlans.get(initializerKey), aggregate.elements().get(index));
+		if (aggregateType == null) {
+			string initializerKey = AstIdentity.key(aggregate);
+			if (self.analyzed.initializerPlans.has(initializerKey)) {
+				return SemanticTypeSystem.initializerSlotType(self.analyzed.initializerPlans.get(initializerKey), aggregate.elements().get(index));
+			}
+			return null;
 		}
-		if (aggregateType == null) { return null; }
 		Node concrete = self.operandPlanner.resolveType(aggregateType, environment);
 		Node? resolved = SemanticTypeSystem.resolveTypedefType(concrete, self.analyzed.typedefTable);
 		if (resolved != null) { concrete = resolved; }

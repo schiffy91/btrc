@@ -4247,3 +4247,7 @@ Validate prefix overlaps and divergent union selections, refuse positional
 continuation through anonymous members, consume indexed slot types and bind
 cached plans to their concrete record. Keep parser activation with the later
 complete bounds and lowering increment. Local tests and hub backup only; no CI.
+
+This packet also owns `src/compiler/btrc/ir/lowering/Aggregates.btrc`: a
+provided concrete type must be resolved before consulting a recorded plan.
+The source analysis plan remains a fallback only when no target type is given.

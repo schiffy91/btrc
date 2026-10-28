@@ -423,6 +423,7 @@ class InitializerSlot:
     element: object
     path: tuple
     type: TypeExpr | None
+    site: object | None = None
 
     @property
     def member(self):
@@ -444,6 +445,8 @@ class InitializerSlotPlan:
     slots: tuple[InitializerSlot, ...]
     capacity: int
     excess: int
+    target: object | None = None
+    problems: tuple[tuple[str, object], ...] = ()
 
 
 @dataclass

@@ -232,7 +232,9 @@ class InitializerAnalyzer:
     def _plan_record_initializer(
         self, record, initializer, subject, line, col, enclosing
     ) -> tuple[InitializerStep, ...]:
-        plan = TypeSystem.plan_initializer_slots(record, initializer, self.index)
+        plan = TypeSystem.plan_initializer_slots(record, initializer, self.index, self.context.designator_index_values)
+        for message, site in plan.problems:
+            self.context.error(message, site.line or line, site.col or col)
         self.context.initializer_slot_plans[id(initializer)] = plan
         aggregate_name = f"{TypeSystem.record_keyword(enclosing)} '{enclosing.name}'"
         if plan.excess:
@@ -266,22 +268,24 @@ class InitializerAnalyzer:
                     self._plan_record_initializer(member, element, subject, element_line, element_col, enclosing)
                 )
                 continue
-            field_type = self.types.array_field_value(member)
-            steps.append(
-                InitializerArrayFieldCheck(member, element, f"Field '{member.name}'", element_line, element_col)
-            )
+            field_type = slot.type
+            field_name = "array element"
+            if isinstance(member, FieldDef):
+                field_type = self.types.array_field_value(member)
+                field_name = member.name
+                steps.append(
+                    InitializerArrayFieldCheck(member, element, f"Field '{field_name}'", element_line, element_col)
+                )
             steps.append(
                 InitializerStringConversionCheck(
                     field_type,
                     element,
-                    f"Implicit class-to-string conversion is not supported inside {aggregate_name}; prepare an owned string local for field '{member.name}' first",
+                    f"Implicit class-to-string conversion is not supported inside {aggregate_name}; prepare an owned string local for field '{field_name}' first",
                     element_line,
                     element_col,
                 )
             )
-            steps.extend(
-                self.plan_typed(field_type, element, f"Field '{member.name}'", element_line, element_col).steps
-            )
+            steps.extend(self.plan_typed(field_type, element, f"Field '{field_name}'", element_line, element_col).steps)
         return tuple(steps)
 
     def plan_collection(

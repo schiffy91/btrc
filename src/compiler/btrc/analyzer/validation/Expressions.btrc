@@ -337,6 +337,7 @@ class ExpressionValidator {
 		 * every later reader (SemanticTypeSystem.initializerSlots). */
 		SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(declaration, initializer, self.state.analyzed);
 		self.state.analyzed.initializerPlans.put(AstIdentity.key(initializer), plan);
+		for problem in plan.problems { TypeValidator.fail(problem.message, problem.site); }
 		if (plan.excess > 0 && declaration.isUnion) {
 			TypeValidator.fail("Union '" + name + "' initializer has " + Strings.fromInt(initializer.elements().len) + " elements; a positional union initializer sets only the first member (use a designator such as {.f = ...})", initializer);
 		}
@@ -353,9 +354,14 @@ class ExpressionValidator {
 				self.validateRecordInitializer(field, slot.element, subject, vars, enclosing);
 				continue;
 			}
-			Node? fieldValueType = self.storage.arrayFieldValueType(field);
-			if (fieldValueType == null) { fieldValueType = field.type; }
-			self.validateInitializerValue(fieldValueType, slot.element, subject + " field '" + field.name + "'", vars);
+			Node? fieldValueType = slot.type;
+			string fieldName = "array element";
+			if (field.kind == NK_FIELD_DEF) {
+				fieldValueType = self.storage.arrayFieldValueType(field);
+				if (fieldValueType == null) { fieldValueType = slot.type; }
+				fieldName = field.name;
+			}
+			if (fieldValueType != null) { self.validateInitializerValue(fieldValueType, slot.element, subject + " field '" + fieldName + "'", vars); }
 		}
 	}
 

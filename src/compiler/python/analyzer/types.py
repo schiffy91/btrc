@@ -28,6 +28,7 @@ from src.compiler.python.syntax.ast.generated import (
     FieldDef,
     FieldDesignator,
     FunctionDecl,
+    IndexDesignator,
     InterfaceDecl,
     ListLiteral,
     MapLiteral,
@@ -1307,7 +1308,7 @@ class TypeSystem:
         return declaration if declaration is not None and not declaration.is_forward else None
 
     @classmethod
-    def plan_initializer_slots(cls, record, initializer, tables) -> InitializerSlotPlan:
+    def plan_initializer_slots(cls, record, initializer, tables, index_values=None) -> InitializerSlotPlan:
         """Map each brace element to a member path of ``record`` (C11 6.7.9p17).
 
         Positional elements fill the direct members in order (only the first
@@ -1325,25 +1326,87 @@ class TypeSystem:
         slots: list[InitializerSlot] = []
         excess = 0
         cursor = 0
+        anonymous_continuation = False
+        problems = []
+        if index_values is None:
+            index_values = getattr(tables, "designator_index_values", {})
         for position, element in enumerate(initializer.elements):
             parts = designations[position].parts if position < len(designations) else []
             if parts:
-                slot = cls._designated_slot(record, element, parts, tables)
+                before = len(problems)
+                slot = cls._designated_slot(record, element, parts, tables, problems)
                 if slot is None:
-                    excess += 1
+                    if len(problems) == before:
+                        excess += 1
                     continue
+                for previous in slots:
+                    conflict = cls._initializer_path_conflict(record, previous, slot, tables, index_values)
+                    if conflict is not None:
+                        problems.append((conflict, slot.site))
+                        break
                 slots.append(slot)
                 cursor = cls.member_position(members, slot.path[0]) + 1
+                anonymous_continuation = any(isinstance(step, AnonymousMember) for step in slot.path)
+                continue
+            if anonymous_continuation:
+                problems.append(
+                    (
+                        "A positional initializer cannot follow a designator into an anonymous member; designate the next member",
+                        element,
+                    )
+                )
                 continue
             if cursor >= capacity:
                 excess += 1
                 continue
             member = members[cursor]
             cursor += 1
-            slots.append(
-                InitializerSlot(element, (member,), None if isinstance(member, AnonymousMember) else member.type)
+            slot = InitializerSlot(
+                element, (member,), None if isinstance(member, AnonymousMember) else member.type, element
             )
-        return InitializerSlotPlan(initializer, tuple(slots), capacity, excess)
+            for previous in slots:
+                conflict = cls._initializer_path_conflict(record, previous, slot, tables, index_values)
+                if conflict is not None:
+                    problems.append((conflict, element))
+                    break
+            slots.append(slot)
+        return InitializerSlotPlan(initializer, tuple(slots), capacity, excess, record, tuple(problems))
+
+    @classmethod
+    def _initializer_path_conflict(cls, record, previous, current, tables, index_values) -> str | None:
+        parent_record = record
+        parent_type = None
+        for left, right in zip(previous.path, current.path):
+            same = left is right
+            if isinstance(left, IndexDesignator) and isinstance(right, IndexDesignator):
+                same = (
+                    id(left) in index_values
+                    and id(right) in index_values
+                    and index_values[id(left)] == index_values[id(right)]
+                )
+            if not same:
+                if parent_record is None or not parent_record.is_union:
+                    return None
+                left_name = previous.member.name if isinstance(left, AnonymousMember) else left.name
+                right_name = current.member.name if isinstance(right, AnonymousMember) else right.name
+                return (
+                    f"Union '{getattr(parent_record, 'name', '') or getattr(record, 'name', '')}' initializer sets both '{left_name}' and '{right_name}'; "
+                    "a union initializer sets one member"
+                )
+            if isinstance(left, AnonymousMember):
+                parent_record, parent_type = left, None
+            elif isinstance(left, IndexDesignator):
+                parent_type = cls.strip_outer_storage(parent_type, array=True)
+                parent_record = cls.complete_member_record(parent_type, tables)
+            else:
+                parent_type = cls.canonical_declaration_type(left.type, tables.typedef_table)
+                parent_record = cls.complete_member_record(parent_type, tables)
+        member = next(step for step in (*previous.path, *current.path) if isinstance(step, FieldDef))
+        first = previous.site or previous.element
+        return (
+            f"Field '{member.name}' of {cls.record_keyword(record)} '{getattr(record, 'name', '')}' is initialized more than once "
+            f"(first at {first.line}:{first.col}); each member may be initialized once"
+        )
 
     @classmethod
     def zero_filled_members(cls, record, plan: InitializerSlotPlan) -> tuple:
@@ -1362,12 +1425,18 @@ class TypeSystem:
         return next((index for index, candidate in enumerate(members) if candidate is member), -1)
 
     @classmethod
-    def _designated_slot(cls, record, element, parts, tables) -> InitializerSlot | None:
+    def _designated_slot(cls, record, element, parts, tables, problems) -> InitializerSlot | None:
         first = parts[0]
         if not isinstance(first, FieldDesignator):
             return None
         path = cls.record_member_path(record, first.field)
         if path is None:
+            problems.append(
+                (
+                    f"{cls.record_keyword(record).capitalize()} '{getattr(record, 'name', '')}' has no field '{first.field}'",
+                    first,
+                )
+            )
             return None
         steps = list(path)
         slot_type = path[-1].type
@@ -1376,15 +1445,25 @@ class TypeSystem:
                 nested = cls.complete_member_record(slot_type, tables)
                 nested_path = cls.record_member_path(nested, part.field) if nested is not None else None
                 if nested_path is None:
+                    if nested is not None:
+                        problems.append(
+                            (
+                                f"{cls.record_keyword(nested).capitalize()} '{nested.name}' has no field '{part.field}'",
+                                part,
+                            )
+                        )
                     return None
                 steps.extend(nested_path)
                 slot_type = nested_path[-1].type
             else:
                 if slot_type is None or not slot_type.is_array:
                     return None
+                canonical = cls.canonical_declaration_type(slot_type, tables.typedef_table)
+                if canonical is None or not canonical.is_array:
+                    return None
                 steps.append(part)
-                slot_type = cls.strip_outer_storage(slot_type, array=True)
-        return InitializerSlot(element, tuple(steps), slot_type)
+                slot_type = cls.strip_outer_storage(canonical, array=True)
+        return InitializerSlot(element, tuple(steps), slot_type, first)
 
     @classmethod
     def initializer_slots(
@@ -1394,7 +1473,7 @@ class TypeSystem:
         analyzer never typed as this record (a generic body's ``T x = {...}``)
         is planned again here, identically."""
         plan = plans.get(id(initializer))
-        if plan is not None and plan.initializer is initializer:
+        if plan is not None and plan.initializer is initializer and plan.target is record:
             return plan
         return cls.plan_initializer_slots(record, initializer, tables)
 
