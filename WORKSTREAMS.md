@@ -4251,3 +4251,13 @@ complete bounds and lowering increment. Local tests and hub backup only; no CI.
 This packet also owns `src/compiler/btrc/ir/lowering/Aggregates.btrc`: a
 provided concrete type must be resolved before consulting a recorded plan.
 The source analysis plan remains a fallback only when no target type is given.
+
+### 2026-10-28 C2 designated array bounds and extents
+
+Packet: CX-C2-DESIGNATOR-ARRAYS. Base `d23b226d`. Own the paired analyzer
+type, model, expression and storage owners, validation replay/cache transport,
+initializer lowering and parser owners, and focused initializer tests.
+Preserve evaluated bounds for typed paths and cache replay, validate array
+indexes and infer sparse extents, then connect source syntax and nested IR.
+Batch reference checks before rebuilding the self-hosted compiler. Work stays
+local; no CI, GitHub push, bootstrap, application execution or measurements.
