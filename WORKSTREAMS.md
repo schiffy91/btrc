@@ -4215,3 +4215,19 @@ Evidence: `build/issue-gates/hosted-setjmp-bc8/`. Host: Apple M1 Max, 8P+2E,
 64 GiB, macOS 27.0. No CI dispatch, application/GUI/audio execution, bootstrap,
 guest operation or performance measurement was performed. Collection parity,
 platform qualification and the remaining issue requirements remain open.
+
+### 2026-10-28 C2 designated-index analysis facts
+
+Packet: CX-C2-DESIGNATOR-FACTS. Base `77667815`. Continue approved r10
+locally under the owner's instruction to stop CI iteration. Own Python
+`analyzer/{analyzer,expressions,program}.py`, self-host
+`analyzer/{Models,validation/Expressions,validation/Validator}.btrc`,
+`pipeline/ModuleUnits.btrc`, focused designated-index tests and their driver.
+
+Record known index values through the existing constant evaluator, preserve
+full-width values through validation journals and cache relocation, and reject
+unknown or nonconstant indexes at the index node. This is a prerequisite for
+parser, typed-slot and lowering work; it does not claim r10 completion.
+The previous paired baseline has 11 host-C passes and 40 BTRC failures.
+No GitHub push, CI dispatch, native GUI execution or measurement is authorized
+by this packet. Existing collection and platform failures remain open.
