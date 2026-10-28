@@ -10567,6 +10567,57 @@ HOSTED_TYPEDEF_NAMES: tuple[str, ...] = (
     'wint_t',
 )
 
+HOSTED_ARITHMETIC_TYPE_NAMES: tuple[str, ...] = (
+    'clock_t',
+    'double_t',
+    'float_t',
+    'gid_t',
+    'id_t',
+    'int16_t',
+    'int32_t',
+    'int64_t',
+    'int8_t',
+    'int_fast16_t',
+    'int_fast32_t',
+    'int_fast64_t',
+    'int_fast8_t',
+    'int_least16_t',
+    'int_least32_t',
+    'int_least64_t',
+    'int_least8_t',
+    'intmax_t',
+    'intptr_t',
+    'mode_t',
+    'nfds_t',
+    'off_t',
+    'pid_t',
+    'ptrdiff_t',
+    'sig_atomic_t',
+    'size_t',
+    'socklen_t',
+    'ssize_t',
+    'suseconds_t',
+    'time_t',
+    'uid_t',
+    'uint16_t',
+    'uint32_t',
+    'uint64_t',
+    'uint8_t',
+    'uint_fast16_t',
+    'uint_fast32_t',
+    'uint_fast64_t',
+    'uint_fast8_t',
+    'uint_least16_t',
+    'uint_least32_t',
+    'uint_least64_t',
+    'uint_least8_t',
+    'uintmax_t',
+    'uintptr_t',
+    'useconds_t',
+    'wchar_t',
+    'wint_t',
+)
+
 HOSTED_OWNED_NAMES: tuple[str, ...] = (
     'ACCESSPERMS',
     'ACCESSX_MAX_DESCRIPTORS',
@@ -34898,7 +34949,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
 HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT = 32
-HOSTED_ABI_FINGERPRINT = 'fa958b8c81e7a8d34373a86ce892ee359b976868cb7d6bf200bdcece4512e649'
+HOSTED_ABI_FINGERPRINT = '0aa07c953b2d33cac8a9ce481e50643dd7a87a447095bcb55a6aacf93f30bb4b'
 
 TARGET_ROWS: tuple[GeneratedTargetRow, ...] = (
     GeneratedTargetRow(

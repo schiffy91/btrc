@@ -175,6 +175,7 @@ class GeneratedHostedAbiData {
 	private Vector<string>? functionNamesMemo = null;
 	private Vector<string>? macroNamesMemo = null;
 	private Vector<string>? typedefNamesMemo = null;
+	private Vector<string>? arithmeticTypeNamesMemo = null;
 	private Vector<string>? ownedNamesMemo = null;
 	private Vector<string>? runtimeAdoptingHelpersMemo = null;
 	private Vector<string>? noreturnFunctionsMemo = null;
@@ -201,7 +202,7 @@ class GeneratedHostedAbiData {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
 		self.genericArgumentNestingLimit = 32;
-		self.fingerprint = "fa958b8c81e7a8d34373a86ce892ee359b976868cb7d6bf200bdcece4512e649";
+		self.fingerprint = "0aa07c953b2d33cac8a9ce481e50643dd7a87a447095bcb55a6aacf93f30bb4b";
 		self.targetSpecFingerprint = "e904db76e8ac1560728455a2796235537f2f71cb88d74f8be7a1bb47f3ee67b8";
 	}
 
@@ -12682,6 +12683,66 @@ class GeneratedHostedAbiData {
 		values.push("ushort");
 		values.push("uuid_string_t");
 		values.push("uuid_t");
+		values.push("wchar_t");
+		values.push("wint_t");
+	}
+
+	public Vector<string> arithmeticTypeNames() {
+		Vector<string>? memo = self.arithmeticTypeNamesMemo;
+		if (memo != null) { return memo; }
+		Vector<string> built = [];
+		self.pushArithmeticTypeNames0(built);
+		self.arithmeticTypeNamesMemo = built;
+		return built;
+	}
+
+	private void pushArithmeticTypeNames0(Vector<string> values) {
+		values.push("clock_t");
+		values.push("double_t");
+		values.push("float_t");
+		values.push("gid_t");
+		values.push("id_t");
+		values.push("int16_t");
+		values.push("int32_t");
+		values.push("int64_t");
+		values.push("int8_t");
+		values.push("int_fast16_t");
+		values.push("int_fast32_t");
+		values.push("int_fast64_t");
+		values.push("int_fast8_t");
+		values.push("int_least16_t");
+		values.push("int_least32_t");
+		values.push("int_least64_t");
+		values.push("int_least8_t");
+		values.push("intmax_t");
+		values.push("intptr_t");
+		values.push("mode_t");
+		values.push("nfds_t");
+		values.push("off_t");
+		values.push("pid_t");
+		values.push("ptrdiff_t");
+		values.push("sig_atomic_t");
+		values.push("size_t");
+		values.push("socklen_t");
+		values.push("ssize_t");
+		values.push("suseconds_t");
+		values.push("time_t");
+		values.push("uid_t");
+		values.push("uint16_t");
+		values.push("uint32_t");
+		values.push("uint64_t");
+		values.push("uint8_t");
+		values.push("uint_fast16_t");
+		values.push("uint_fast32_t");
+		values.push("uint_fast64_t");
+		values.push("uint_fast8_t");
+		values.push("uint_least16_t");
+		values.push("uint_least32_t");
+		values.push("uint_least64_t");
+		values.push("uint_least8_t");
+		values.push("uintmax_t");
+		values.push("uintptr_t");
+		values.push("useconds_t");
 		values.push("wchar_t");
 		values.push("wint_t");
 	}
