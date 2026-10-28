@@ -280,7 +280,14 @@ be a struct or class field, an array or `Vector` element, a generic argument,
 a parameter or a return value, and `sizeof` and `offsetof` are the C
 compiler's (`c_compat/UnionLayout.btrc` checks them against a C mirror). `{}`
 zero-initializes and one positional element sets the first member (C11
-6.7.9p17); designators arrive with C row 10.
+6.7.9p17). A designator such as `{.real = 3.5}` selects another member.
+
+Designated initializers also support nested struct fields and array indexes,
+such as `{.point.x = 1, .values[2] = 7}`. Indexes must be known integer
+constants within the array's bounds. Unsized arrays infer their extent from
+the largest initialized index; omitted elements are zero. Values evaluate in
+source order. Overlapping paths and GNU index ranges are refused. Compound
+literals remain unsupported.
 
 A union cannot tell which member is live, so every member is a plain C value,
 transitively: integers, floats, `bool`, `char`, plain enums, raw pointers

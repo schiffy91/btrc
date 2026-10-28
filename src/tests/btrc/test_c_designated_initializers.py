@@ -8,6 +8,42 @@ from src.tests.btrc.selfhost_snippet_harness import compile_reference_source, co
 
 CASES = [
     pytest.param(
+        "struct Point { int x; int y; }; struct Frame { struct Point point; int tail; };",
+        "struct Frame frame = {.point.x = 1, 2, 3}; assert(frame.point.x == 1 && frame.point.y == 2 && frame.tail == 3);",
+        id="nested-continuation-record",
+    ),
+    pytest.param(
+        "struct Frame { int values[3]; int tail; };",
+        "struct Frame frame = {.values[1] = 7, 8, 9}; assert(frame.values[0] == 0 && frame.values[1] == 7 && frame.values[2] == 8 && frame.tail == 9);",
+        id="nested-continuation-array-member",
+    ),
+    pytest.param(
+        "struct Point { int x; int y; };",
+        "struct Point points[] = {[1].x = 3, 4, [0].y = 2}; assert(points[1].x == 3 && points[1].y == 4 && points[0].y == 2); assert((unsigned long long)sizeof(points) == 2ULL * (unsigned long long)sizeof(struct Point));",
+        id="nested-continuation-array-root",
+    ),
+    pytest.param(
+        "struct Point { int x; int y; }; union Value { struct Point point; int integer; }; struct Frame { union Value value; int tail; };",
+        "struct Frame frame = {.value.point.x = 1, 2, 3}; assert(frame.value.point.x == 1 && frame.value.point.y == 2 && frame.tail == 3);",
+        id="nested-continuation-union-boundary",
+    ),
+    pytest.param(
+        "struct Point { int x; int y; }; struct Frame { struct Point point; int tail; }; struct Frame frame = {.point.x = 1, 2, 3};",
+        "assert(frame.point.x == 1 && frame.point.y == 2 && frame.tail == 3);",
+        id="nested-continuation-global",
+    ),
+    pytest.param(
+        "struct Point { int x; int y; }; struct Frame { struct { struct Point point; int values[3]; }; int tail; }; "
+        "struct Frame frame = {{.point.y = 2, .values[2] = 3, .point.x = 1}, 4};",
+        "assert(frame.point.x == 1 && frame.point.y == 2 && frame.values[0] == 0 && frame.values[2] == 3 && frame.tail == 4);",
+        id="global-anonymous-brace-paths",
+    ),
+    pytest.param(
+        "struct Point { int x; int y; }; struct Frame { struct { struct Point point; int values[3]; }; int tail; };",
+        "struct Frame frame = {{.point.y = 2, .values[2] = 3, .point.x = 1}, 4}; assert(frame.point.x == 1 && frame.point.y == 2 && frame.values[0] == 0 && frame.values[2] == 3 && frame.tail == 4);",
+        id="anonymous-brace-paths",
+    ),
+    pytest.param(
         "struct Point { int x; int y; int z; };",
         "struct Point point = {.y = 2, 3, .x = 1}; assert(point.x == 1 && point.y == 2 && point.z == 3);",
         id="positional-continuation",
@@ -109,6 +145,8 @@ int main() {
         .pair.x = nextValue(), .values[0] = nextValue()};
     assert(calls == 4 && frame.pair.y == 1 && frame.values[2] == 2
         && frame.pair.x == 3 && frame.values[0] == 4 && frame.values[1] == 0);
+    struct Frame continued = {.pair.x = nextValue(), nextValue(), {0}};
+    assert(calls == 6 && continued.pair.x == 5 && continued.pair.y == 6 && continued.values[0] == 0);
     return 0;
 }
 """
@@ -136,6 +174,16 @@ int main() {
             "Field 'point' of struct 'Frame' is initialized more than once",
         ),
         (
+            "struct Point { int x; int y; }; struct Frame { struct Point point; };",
+            "struct Frame value = {.point.y = 2, .point.x = 1, 3};",
+            "initialized more than once",
+        ),
+        (
+            "struct Frame { int values[3]; };",
+            "struct Frame value = {.values[1] = 7, 8, .values[2] = 9};",
+            "initialized more than once",
+        ),
+        (
             "union Value { int integer; float real; };",
             "union Value value = {.integer = 1, .real = 2.0f};",
             "Union 'Value' initializer sets both 'integer' and 'real'",
@@ -148,8 +196,8 @@ int main() {
         ("", "int value[4] = {[4] = 1};", "Array designator index 4 is outside 'int[4]'"),
         ("", "int value[4] = {[-1] = 1};", "Array designator index -1 is outside 'int[4]'"),
         (
-            "int index = 2;",
-            "int value[4] = {[index] = 1};",
+            "int selectedIndex = 2;",
+            "int value[4] = {[selectedIndex] = 1};",
             "Array designator index must be an integer constant expression",
         ),
     ],
@@ -283,3 +331,15 @@ def test_reference_native_public_designator_with_private_fields(initializer, all
             "Native records with private fields cannot use positional initialization" in error
             for error in result.errors
         )
+
+
+@pytest.mark.parametrize(("declarations", "body"), CASES)
+def test_selfhost_designated_raw_c_parity(semantic_btrcc, tmp_path, declarations, body):
+    from src.tests.btrc.selfhost_snippet_harness import run_in_repo
+
+    source = "#include <assert.h>\n" + declarations + "\nint main(void) { " + body + " return 0; }\n"
+    reference, generated = compile_reference_source(tmp_path, source)
+    assert reference.returncode == 0, reference.stderr
+    result = run_in_repo([str(semantic_btrcc), "--no-stdlib", str(tmp_path / "reference.btrc")], timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == generated.read_text()

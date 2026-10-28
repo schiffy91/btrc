@@ -82,40 +82,22 @@ id = "r10-designated-field-initializer"
 row = "10"
 construct = "struct P p = {.y = 2, .x = 1};"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token '.' in expression at 4:24" }
-btrcc = { diagnostic = "Expected expression, got DOT '.' at 4:24" }
-source = '''
-#include <assert.h>
-struct Point { int x; int y; };
-int main() {
-	struct Point point = {.y = 2, .x = 1};
-	assert(point.x == 1 && point.y == 2);
-	print("PASS: designated field initializer");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "a21b0c1"
+python = { exit = 0, stdout = "PASS: designated field initializer\n" }
+btrcc = { exit = 0, stdout = "PASS: designated field initializer\n" }
+corpus = "c_compat/DesignatedFieldInitializer.btrc"
 
 [[probe]]
 id = "r10-designated-index-initializer"
 row = "10"
 construct = "int a[4] = {[2] = 7};"
 intent = "positive"
-status = "known-divergence"
-revision = "cf28fe7"
-python = { diagnostic = "Assignment target is not assignable at 3:19" }
-btrcc = { diagnostic = "Assignment target is not assignable at 3:19" }
-source = '''
-#include <assert.h>
-int main() {
-	int values[4] = {[2] = 7};
-	assert(values[0] == 0 && values[2] == 7);
-	print("PASS: designated index initializer");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "a21b0c1"
+python = { exit = 0, stdout = "PASS: designated index initializer\n" }
+btrcc = { exit = 0, stdout = "PASS: designated index initializer\n" }
+corpus = "c_compat/DesignatedIndexInitializer.btrc"
 
 [[probe]]
 id = "r10-compound-literal"
@@ -123,7 +105,7 @@ row = "10"
 construct = "(struct S){5, 6}"
 intent = "positive"
 status = "rejected"
-revision = "cf28fe7"
+revision = "a21b0c1"
 divergence = "diagnostic wording"
 python = { diagnostic = "Unexpected token 'struct' in expression at 4:24" }
 btrcc = { diagnostic = "Expected expression, got STRUCT 'struct' at 4:24" }
@@ -144,10 +126,9 @@ row = "10"
 construct = "{.x = 1, .x = 2} overrides an initializer"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token '.' in expression at 3:24" }
-btrcc = { diagnostic = "Expected expression, got DOT '.' at 3:24" }
+revision = "a21b0c1"
+python = { diagnostic = "Field 'x' of struct 'Point' is initialized more than once (first at 3:24); each member may be initialized once at 3:32" }
+btrcc = { diagnostic = "Field 'x' of struct 'Point' is initialized more than once (first at 3:24); each member may be initialized once at 3:32" }
 source = '''
 struct Point { int x; int y; };
 int main() {
@@ -162,10 +143,9 @@ row = "10"
 construct = "{.z = 1} names no field"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token '.' in expression at 3:24" }
-btrcc = { diagnostic = "Expected expression, got DOT '.' at 3:24" }
+revision = "a21b0c1"
+python = { diagnostic = "Struct 'Point' has no field 'z' at 3:24" }
+btrcc = { diagnostic = "Struct 'Point' has no field 'z' at 3:24" }
 source = '''
 struct Point { int x; int y; };
 int main() {

@@ -4278,3 +4278,17 @@ Reference/parser checks: 468 passed, with self-hosted execution still pending.
 The combined paired run will use a fresh reference-built O0 development
 compiler; optimized compilation and the full completion gates remain deferred.
 Compound literals are still unfinished.
+
+The follow-up preserves nested paths inside anonymous braces, uses sparse
+extents in global `sizeof`, and matches array-initializer C output between
+compilers. A fresh local O0 compiler passed 189 paired designation, anonymous
+member and record checks. The two positive designation probes now live in
+the corpus; the recorder and nine inventory checks confirmed their outcomes.
+
+A further host-C comparison exposed nested positional continuation skipping
+to the enclosing member. Both slot owners now advance through nested fields
+and indexes before climbing out, including union boundaries. Five host-C
+cases reproduced ten compiler failures before repair; 70 reference checks
+and 16 focused continuation, overlap and evaluation-order checks pass after
+repair. A fresh self-hosted build is pending for this final change. These
+results do not qualify compound literals or the full issue-completion gates.

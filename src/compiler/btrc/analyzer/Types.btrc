@@ -410,7 +410,8 @@ class SemanticTypeSystem {
 	 * braces, and unnamed bit-fields take none. A designated element names a
 	 * flattened member, and its chain continues through nested records and
 	 * array elements (the IndexDesignator itself is the step). A positional
-	 * element after a designated one continues at the next direct member. */
+	 * element after a designated one continues within that subobject before
+	 * advancing to the enclosing record's next member. */
 	class bool hasDesignators(Node initializer) {
 		if (initializer.kind != NK_BRACE_INITIALIZER) { return false; }
 		for entry in initializer.entries() { if (entry.parts().len > 0) { return true; } }
@@ -425,6 +426,7 @@ class SemanticTypeSystem {
 		Vector<SemanticInitializerSlot> slots = [];
 		int excess = 0;
 		int cursor = 0;
+		SemanticInitializerSlot? continuation = null;
 		bool anonymousContinuation = false;
 		Vector<SemanticInitializerProblem> problems = [];
 		/* Only a brace initializer carries designations; a map literal's
@@ -444,6 +446,7 @@ class SemanticTypeSystem {
 					SemanticTypeSystem.checkInitializerSlot(record, slot, slots, problems, analyzed);
 					slots.push(slot);
 					cursor = SemanticTypeSystem.memberPosition(members, slot.path.get(0)) + 1;
+					continuation = SemanticTypeSystem.nextNestedInitializerSlot(record, slot, analyzed);
 					anonymousContinuation = false;
 					for step in slot.path {
 						if (step.kind == NK_ANONYMOUS_MEMBER) { anonymousContinuation = true; }
@@ -451,16 +454,23 @@ class SemanticTypeSystem {
 				}
 			} else if (anonymousContinuation) {
 				problems.push(SemanticInitializerProblem("A positional initializer cannot follow a designator into an anonymous member; designate the next member", element));
-			} else if (cursor >= capacity) {
+			} else if (continuation == null && cursor >= capacity) {
 				excess = excess + 1;
 			} else {
-				Node member = members.get(cursor);
-				cursor = cursor + 1;
-				Vector<Node> path = [member];
+				Vector<Node> path = [];
 				Node? slotType = null;
-				if (member.kind != NK_ANONYMOUS_MEMBER) { slotType = member.type; }
+				if (continuation != null) {
+					path = continuation.path;
+					slotType = continuation.type;
+				} else {
+					Node member = members.get(cursor);
+					cursor++;
+					path.push(member);
+					if (member.kind != NK_ANONYMOUS_MEMBER) { slotType = member.type; }
+				}
 				SemanticInitializerSlot slot = SemanticInitializerSlot(element, path, slotType);
 				slot.site = element;
+				continuation = SemanticTypeSystem.nextNestedInitializerSlot(record, slot, analyzed);
 				SemanticTypeSystem.checkInitializerSlot(record, slot, slots, problems, analyzed);
 				slots.push(slot);
 			}
@@ -480,6 +490,7 @@ class SemanticTypeSystem {
 		Vector<SemanticInitializerProblem> problems = [];
 		unsigned long long cursor = 0ULL;
 		unsigned long long extent = 0ULL;
+		SemanticInitializerSlot? continuation = null;
 		int position = 0;
 		for element in initializer.elements() {
 			Vector<Node> parts = [];
@@ -490,6 +501,9 @@ class SemanticTypeSystem {
 				slot = SemanticTypeSystem.designatedSlot(target, element, parts, analyzed, problems);
 				if (slot == null) { continue; }
 				cursor = (unsigned long long)SemanticTypeSystem.initializerIndexValue(slot.path.get(0), analyzed) + 1ULL;
+			} else if (continuation != null) {
+				slot = SemanticInitializerSlot(element, continuation.path, continuation.type);
+				slot.site = element;
 			} else {
 				if (cursor > (unsigned long long)LLONG_MAX || (bound >= 0LL && cursor >= (unsigned long long)bound)) {
 					string name = SemanticTypeSystem.initializerStorageName(canonical, analyzed);
@@ -513,11 +527,84 @@ class SemanticTypeSystem {
 			SemanticTypeSystem.checkInitializerSlot(target, slot, slots, problems, analyzed);
 			slots.push(slot);
 			if (cursor > extent) { extent = cursor; }
+			continuation = SemanticTypeSystem.nextNestedInitializerSlot(target, slot, analyzed);
 		}
 		SemanticInitializerPlan plan = SemanticInitializerPlan(slots, 0, 0, target);
 		plan.extent = extent;
 		plan.problems = problems;
 		return plan;
+	}
+
+	/* The outer cursor belongs to the caller. Resume inside nested subobjects,
+	 * climbing exhausted arrays and records. A union has no following member;
+	 * an aggregate sibling remains one slot requiring its own braces. */
+	class SemanticInitializerSlot? nextNestedInitializerSlot(Node target, SemanticInitializerSlot slot, Analyzed analyzed) {
+		if (slot.path.len < 2) { return null; }
+		Vector<Node> parents = [];
+		Node current = target;
+		for step in slot.path {
+			parents.push(current);
+			if (step.kind == NK_INDEX_DESIGNATOR) {
+				Node canonical = current;
+				Node? resolved = SemanticTypeSystem.resolveTypedefType(current, analyzed.typedefTable);
+				if (resolved != null) { canonical = resolved; }
+				current = TypeShape.withoutOuterArray(canonical);
+			} else if (step.kind == NK_ANONYMOUS_MEMBER) {
+				current = step;
+			} else {
+				Node? fieldType = step.type;
+				if (fieldType == null) { return null; }
+				current = fieldType;
+			}
+		}
+		int depth = slot.path.len - 1;
+		while (depth > 0) {
+			Node parent = parents.get(depth);
+			Node step = slot.path.get(depth);
+			Node? member = null;
+			Node? memberType = null;
+			if (step.kind == NK_INDEX_DESIGNATOR) {
+				Node canonical = parent;
+				Node? resolved = SemanticTypeSystem.resolveTypedefType(parent, analyzed.typedefTable);
+				if (resolved != null) { canonical = resolved; }
+				long long previous = SemanticTypeSystem.initializerIndexValue(step, analyzed);
+				long long bound = SemanticTypeSystem.initializerArrayBound(canonical, analyzed);
+				if (previous < LLONG_MAX && (bound < 0LL || previous + 1LL < bound)) {
+					Node literal = Node();
+					literal.kind = NK_INT_LITERAL;
+					literal.raw = f"{previous + 1LL}";
+					Node nextStep = Node();
+					nextStep.kind = NK_INDEX_DESIGNATOR;
+					nextStep.index = literal;
+					nextStep.line = step.line;
+					nextStep.col = step.col;
+					member = nextStep;
+					memberType = TypeShape.withoutOuterArray(canonical);
+				}
+			} else {
+				Node? record = parent.kind == NK_TYPE_EXPR ? SemanticTypeSystem.memberRecord(parent, analyzed) : parent;
+				if (record != null && !record.isUnion) {
+					Vector<Node> members = SemanticTypeSystem.recordMembers(record);
+					int index = SemanticTypeSystem.memberPosition(members, step) + 1;
+					if (index < members.len) {
+						Node nextMember = members.get(index);
+						member = nextMember;
+						if (nextMember.kind != NK_ANONYMOUS_MEMBER) { memberType = nextMember.type; }
+					}
+				}
+			}
+			if (member != null) {
+				Vector<Node> path = [];
+				int index = 0;
+				while (index < depth) { path.push(slot.path.get(index)); index++; }
+				path.push(member);
+				SemanticInitializerSlot next = SemanticInitializerSlot(slot.element, path, memberType);
+				next.site = slot.site;
+				return next;
+			}
+			depth--;
+		}
+		return null;
 	}
 
 	/* Source indexes have analyzed facts; positional steps carry a synthesized literal. */

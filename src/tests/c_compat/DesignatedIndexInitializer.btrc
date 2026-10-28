@@ -1,0 +1,7 @@
+#include <assert.h>
+int main() {
+	int values[4] = {[2] = 7};
+	assert(values[0] == 0 && values[2] == 7);
+	print("PASS: designated index initializer");
+	return 0;
+}

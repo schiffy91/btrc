@@ -1324,7 +1324,8 @@ class TypeSystem:
         a flattened member, and its chain continues through nested records
         (resolved through ``tables``) and array elements (the
         ``IndexDesignator`` itself is the step). A positional element after a
-        designated one continues at the next direct member. Only a brace
+        designated one continues within that subobject before advancing to
+        the enclosing record's next member. Only a brace
         initializer carries designations.
         """
         if isinstance(record, TypeExpr) and record.is_array:
@@ -1335,6 +1336,7 @@ class TypeSystem:
         slots: list[InitializerSlot] = []
         excess = 0
         cursor = 0
+        continuation = None
         anonymous_continuation = False
         problems = []
         if index_values is None:
@@ -1359,6 +1361,7 @@ class TypeSystem:
                         break
                 slots.append(slot)
                 cursor = cls.member_position(members, slot.path[0]) + 1
+                continuation = cls._next_nested_initializer_slot(record, slot, tables, index_values, bound_values)
                 anonymous_continuation = any(isinstance(step, AnonymousMember) for step in slot.path)
                 continue
             if anonymous_continuation:
@@ -1369,14 +1372,18 @@ class TypeSystem:
                     )
                 )
                 continue
-            if cursor >= capacity:
+            if continuation is None and cursor >= capacity:
                 excess += 1
                 continue
-            member = members[cursor]
-            cursor += 1
-            slot = InitializerSlot(
-                element, (member,), None if isinstance(member, AnonymousMember) else member.type, element
-            )
+            if continuation is not None:
+                slot = InitializerSlot(element, continuation.path, continuation.type, element)
+            else:
+                member = members[cursor]
+                cursor += 1
+                slot = InitializerSlot(
+                    element, (member,), None if isinstance(member, AnonymousMember) else member.type, element
+                )
+            continuation = cls._next_nested_initializer_slot(record, slot, tables, index_values, bound_values)
             for previous in slots:
                 conflict = cls._initializer_path_conflict(record, previous, slot, tables, index_values, bound_values)
                 if conflict is not None:
@@ -1395,6 +1402,7 @@ class TypeSystem:
         bound = cls.initializer_array_bound(canonical, bound_values)
         slots, problems = [], []
         cursor = extent = 0
+        continuation = None
         entries = initializer.entries if isinstance(initializer, BraceInitializer) else []
         for position, element in enumerate(initializer.elements):
             parts = entries[position].parts if position < len(entries) else []
@@ -1403,6 +1411,8 @@ class TypeSystem:
                 if slot is None:
                     continue
                 cursor = cls.initializer_index_value(slot.path[0], index_values) + 1
+            elif continuation is not None:
+                slot = InitializerSlot(element, continuation.path, continuation.type, element)
             else:
                 if cursor > 2**63 - 1 or (bound is not None and cursor >= bound):
                     name = cls.initializer_storage_name(canonical, bound_values)
@@ -1419,7 +1429,50 @@ class TypeSystem:
                     break
             slots.append(slot)
             extent = max(extent, cursor)
+            continuation = cls._next_nested_initializer_slot(target, slot, tables, index_values, bound_values)
         return InitializerSlotPlan(initializer, tuple(slots), bound or 0, 0, target, tuple(problems), extent)
+
+    @classmethod
+    def _next_nested_initializer_slot(cls, target, slot, tables, index_values, bound_values):
+        """Resume a nested designation, climbing exhausted arrays and records.
+
+        The caller owns the outer cursor. A union has no following member,
+        and an aggregate sibling remains one slot requiring its own braces.
+        """
+        if len(slot.path) < 2:
+            return None
+        parents = []
+        for step in slot.path:
+            parents.append(target)
+            if isinstance(step, IndexDesignator):
+                target = cls.strip_outer_storage(
+                    cls.canonical_declaration_type(target, tables.typedef_table), array=True
+                )
+            else:
+                target = step if isinstance(step, AnonymousMember) else step.type
+        for depth in range(len(slot.path) - 1, 0, -1):
+            parent = parents[depth]
+            step = slot.path[depth]
+            if isinstance(step, IndexDesignator):
+                canonical = cls.canonical_declaration_type(parent, tables.typedef_table)
+                index = cls.initializer_index_value(step, index_values) + 1
+                bound = cls.initializer_array_bound(canonical, bound_values)
+                if index > 2**63 - 1 or (bound is not None and index >= bound):
+                    continue
+                member = IndexDesignator(index=IntLiteral(value=index), line=step.line, col=step.col)
+                member_type = cls.strip_outer_storage(canonical, array=True)
+            else:
+                record = cls.complete_member_record(parent, tables) if isinstance(parent, TypeExpr) else parent
+                if record is None or record.is_union:
+                    continue
+                members = cls.record_members(record)
+                index = cls.member_position(members, step) + 1
+                if index >= len(members):
+                    continue
+                member = members[index]
+                member_type = None if isinstance(member, AnonymousMember) else member.type
+            return InitializerSlot(slot.element, (*slot.path[:depth], member), member_type, slot.site)
+        return None
 
     @staticmethod
     def initializer_index_value(step, index_values):
@@ -1504,7 +1557,7 @@ class TypeSystem:
         cls, record, element, parts, tables, problems, index_values, bound_values
     ) -> InitializerSlot | None:
         current_record = None if isinstance(record, TypeExpr) else record
-        slot_type = record if isinstance(record, TypeExpr) else TypeExpr(base=record.name)
+        slot_type = record if isinstance(record, TypeExpr) else TypeExpr(base=getattr(record, "name", ""))
         steps = []
         for part in parts:
             if isinstance(part, FieldDesignator):
@@ -1521,7 +1574,10 @@ class TypeSystem:
                 nested_path = cls.record_member_path(nested, part.field)
                 if nested_path is None:
                     problems.append(
-                        (f"{cls.record_keyword(nested).capitalize()} '{nested.name}' has no field '{part.field}'", part)
+                        (
+                            f"{cls.record_keyword(nested).capitalize()} '{getattr(nested, 'name', '')}' has no field '{part.field}'",
+                            part,
+                        )
                     )
                     return None
                 steps.extend(nested_path)

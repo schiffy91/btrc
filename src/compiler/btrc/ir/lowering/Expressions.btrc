@@ -2182,7 +2182,7 @@ class ExpressionLowerer {
 		} else if (self.analyzed.globalInitializers.has(name)) {
 			Node initializer = self.analyzed.globalInitializers.get(name);
 			if (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL) {
-				extent = IRNode.literal(Strings.fromInt(initializer.elements().len));
+				extent = self.arrayInitializerExtent(binding, initializer);
 			} else {
 				extent = self.stringArrayExtent(initializer);
 			}
@@ -2539,11 +2539,10 @@ class ExpressionLowerer {
 	}
 
 	public IRNode lowerBraceInitPlain(Node node, Map<string, Node> varTypes, Node? expected, CallableFlowState callableFlow) {
-		if (expected != null && SemanticTypeSystem.hasDesignators(node)) {
-			Node canonical = expected;
-			Node? resolved = self.canonicalStaticInitializerType(expected);
-			if (resolved != null) { canonical = resolved; }
-			Node? target = canonical.isArray ? canonical : self.staticInitializerRecord(canonical);
+		Node? canonical = self.canonicalStaticInitializerType(expected);
+		Node? record = canonical == null ? null : self.staticInitializerRecord(canonical);
+		if (canonical != null && (SemanticTypeSystem.hasDesignators(node) || (record != null && !SemanticTypeSystem.recordIsFlat(record)))) {
+			Node? target = canonical.isArray ? canonical : record;
 			if (target == null) {
 				fprintf(stderr, "error: Designated initializers apply to structs, unions and arrays, not '%s' at %d:%d\n", canonical.base, node.line, node.col);
 				exit(1);
@@ -3639,7 +3638,7 @@ class ExpressionLowerer {
 
 		Node? canonical = self.canonicalStaticInitializerType(expected);
 		Node? record = canonical == null ? null : self.staticInitializerRecord(canonical);
-		if (canonical != null && SemanticTypeSystem.hasDesignators(node)) {
+		if (canonical != null && (SemanticTypeSystem.hasDesignators(node) || (record != null && !SemanticTypeSystem.recordIsFlat(record)))) {
 			Node? target = canonical.isArray ? canonical : record;
 			if (target == null) {
 				fprintf(stderr, "error: Designated initializers apply to structs, unions and arrays, not '%s' at %d:%d\n", canonical.base, node.line, node.col);
@@ -3648,16 +3647,7 @@ class ExpressionLowerer {
 			Vector<SemanticInitializerSlot> slots = self.aggregateValues.initializerSlots(target, node);
 			Vector<IRNode> values = [];
 			for slot in slots { values.push(self.lowerInitializerValue(slot.element, slot.type, varTypes, callableFlow, constantExpression)); }
-			return self.aggregateValues.materializeInitializerPaths(slots, values, canonical, self.cTypes, !constantExpression);
-		}
-		if (record != null && !SemanticTypeSystem.recordIsFlat(record)) {
-			Vector<IRNode> designated = [];
-			for slot in self.aggregateValues.initializerSlots(record, node) {
-				IRNode value = self.lowerInitializerValue(slot.element, slot.type, varTypes, callableFlow, constantExpression);
-				designated.push(IRNode.designation(slot.member().name, null, value));
-			}
-			if (designated.len == 0) { designated.push(IRNode.literal("0")); }
-			return IRNode.initializerList(designated);
+			return self.aggregateValues.materializeInitializerPaths(slots, values, canonical, self.cTypes, false);
 		}
 
 		Vector<IRNode> elements = [];

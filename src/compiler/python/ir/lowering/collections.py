@@ -392,8 +392,12 @@ class CollectionLowerer:
                     "cannot use a non-empty brace initializer for heap class "
                     f"'{canonical.base}'; use an explicit constructor call"
                 )
-        if canonical is not None and TypeSystem.has_designators(node):
-            target = canonical if canonical.is_array else self._static_record(canonical)
+        declaration = self._static_record(canonical)
+        if canonical is not None and (
+            TypeSystem.has_designators(node)
+            or (declaration is not None and TypeSystem.record_has_anonymous_members(declaration))
+        ):
+            target = canonical if canonical.is_array else declaration
             if target is None:
                 raise CodegenError(
                     f"Designated initializers apply to structs, unions and arrays, not '{canonical.base}'"
@@ -469,7 +473,10 @@ class CollectionLowerer:
         self._reject_shallow_initializer(node, node_type, provenance)
         canonical = self._types.canonical_type(node_type)
         declaration = self._static_record(canonical)
-        if canonical is not None and TypeSystem.has_designators(node):
+        if canonical is not None and (
+            TypeSystem.has_designators(node)
+            or (declaration is not None and TypeSystem.record_has_anonymous_members(declaration))
+        ):
             target = canonical if canonical.is_array else declaration
             if target is None:
                 raise CodegenError(
@@ -483,13 +490,6 @@ class CollectionLowerer:
                 path_type=canonical,
             )
         if declaration is not None and isinstance(node, BraceInitializer):
-            if TypeSystem.record_has_anonymous_members(declaration):
-                slots = self._initializer_slots(declaration, node)
-                return StaticAggregatePlan(
-                    element_types=tuple(slot.type for slot in slots),
-                    elements=tuple(slot.element for slot in slots),
-                    field_names=tuple(slot.member.name for slot in slots),
-                )
             plan = TypeSystem.initializer_slots(
                 self._analyzed.initializer_slot_plans, self._analyzed, declaration, node
             )

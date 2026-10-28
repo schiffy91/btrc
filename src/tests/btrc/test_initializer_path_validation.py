@@ -27,7 +27,7 @@ CASES = [
     (
         FRAME,
         "Frame",
-        (".tail", ".point.x", "pos"),
+        (".tail", ".point.y", "pos"),
         "3, 1, 4",
         "Field 'tail' of struct 'Frame' is initialized more than once",
     ),
