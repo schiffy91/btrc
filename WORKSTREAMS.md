@@ -4331,3 +4331,18 @@ Evidence: `build/issue-gates/shared-module-records/`. Shared module keys,
 compiler identity, directory publication, interface/link-plan artifacts,
 dependent-only invalidation and application budgets remain unfinished.
 No GitHub write, CI dispatch, bootstrap or application execution occurred.
+
+### 2026-10-28 issue #8 module key inputs
+
+Packet: CX-SHARED-MODULE-KEYS. Branch `codex/shared-module-keys-20261028`,
+base `982c0324`. Own paired module-key/source-digest owners, the self-host
+validation record source-digest reuse path, focused key/replay tests and
+protocol documentation.
+
+Converge the encoding of resolved source lines, compilation options and outer
+module identities using byte-length framing. Preserve all existing semantic
+inputs and executable identity checks. Test Unicode, delimiter-bearing paths,
+option changes, source order and the validation-to-lowering digest reuse path.
+Program-interface/fact convergence and a build-bound common compiler identity
+remain necessary before a shared store can safely be enabled. No CI or
+GitHub writes; batch local validation after formatting.
