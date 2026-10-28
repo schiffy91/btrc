@@ -4370,3 +4370,18 @@ misidentify an old executable. A common identity must be bound at build time.
 Shared physical storage, complete key parity, dependency-scoped invalidation
 and application performance acceptance remain unfinished. No full compiler,
 bootstrap, application execution, CI dispatch or GitHub write occurred.
+
+### 2026-10-28 issue #8 shared declaration interfaces
+
+Packet: CX-SHARED-MODULE-INTERFACES. Branch
+`codex/shared-module-interfaces-20261028`, base `bd4641ff`.
+Own the paired AST interface rendering owners, the reference program-interface
+hasher, module-interface driver/regression tests and protocol documentation.
+
+Use the same declaration text on both sides, retaining generic bodies and
+non-template body presence/ownership summaries. Position-free identities must
+preserve binary64 values exactly; inspection output keeps its existing format.
+Exercise declaration parity, body-edit invalidation and actual reference cache
+replay. Preserve all program facts and executable provenance while the remaining
+whole-program grouping/timing and storage differences are reconciled. Local
+checks only, with no CI, GitHub writes or application execution.
