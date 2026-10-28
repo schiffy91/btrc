@@ -4290,5 +4290,7 @@ to the enclosing member. Both slot owners now advance through nested fields
 and indexes before climbing out, including union boundaries. Five host-C
 cases reproduced ten compiler failures before repair; 70 reference checks
 and 16 focused continuation, overlap and evaluation-order checks pass after
-repair. A fresh self-hosted build is pending for this final change. These
+repair. A fresh local O0 compiler then passed 185 designation, anonymous-member
+and inventory checks, including exact generated-C parity. Current-source
+semantic-fact replay, path-owner and static checks remain in progress. These
 results do not qualify compound literals or the full issue-completion gates.
