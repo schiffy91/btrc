@@ -4178,3 +4178,19 @@ report publication, stale evidence, nonzero exit, and timeout before/after
 publication. No local AppKit execution or runtime repair is claimed.
 The published head remains fixed while its CI jobs run; this branch is backed
 up only to the local hub.
+
+## 2026-10-28 hosted arithmetic storage across setjmp
+
+Packet: CX-HOSTED-SETJMP-SCALARS. Local repair from PR125 `bc8c356e`.
+The owner stopped CI iteration; this packet is checked locally and is not
+published to a CI-triggering branch. Claim: the hosted ABI specification and
+its generator/catalogs, the paired hosted ABI repositories and setjmp safety
+owners, their self-host composition calls, and the corresponding ABI,
+exception and module compilation tests.
+
+The completed benchmark job fails strict GCC compilation of
+`ForkedWorkerPool_start`: `pid_t child` is omitted from the scalar-storage
+classification. A reduced local program reproduces `-Wclobbered` at O1,
+O2 and O3 on GCC 15.2. Arithmetic hosted typedefs will be classified in the
+shared ABI data; aggregate and opaque hosted types retain their existing
+rules. No benchmark execution or performance claim is part of this repair.
