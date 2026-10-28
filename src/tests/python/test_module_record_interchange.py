@@ -18,6 +18,9 @@ from src.compiler.python.application.modules import (
 )
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
+from src.compiler.python.frontend.packages import NativeLinkPlan, PackageTarget
+from src.compiler.python.frontend.sources import ResolvedSource, SourceDependencyGraph, SourceDependencyKind
+from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.ir.lowering.exceptions import FunctionEffect, ParameterEffect
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -94,7 +97,11 @@ def test_reference_cache_replays_selfhost_reencoded_records(tmp_path, monkeypatc
     cold = compiler.compile(source.read_text(), str(source), options)
     assert cold.failure is None, cold.failure
     assert cold.module_units_lowered and not cold.module_units_reused
-    stored = list(cache.glob("*.module.json"))
+    stored = [
+        path
+        for path in cache.glob("*.module.json")
+        if json.loads(path.read_text())["record"].startswith("btrc-module-unit-record\t")
+    ]
     assert len(stored) == len(cold.module_units_lowered)
     for path in stored:
         envelope = json.loads(path.read_text())
@@ -421,3 +428,241 @@ def test_interface_identity_does_not_use_rounded_display_values():
     second = FloatLiteral(value=1.0000000000000004, raw="")
     assert AstCanonicalRenderer().render(first) == AstCanonicalRenderer().render(second)
     assert ProgramInterface().digest([first]) != ProgramInterface().digest([second])
+
+
+class _InterfaceStore:
+    def __init__(self, records):
+        self.records = {key: list(value) for key, value in records.items()}
+        self.writes = []
+
+    def load_module_unit(self, identity, input_path=None):
+        return self.records.get(identity)
+
+    def store_module_unit(self, identity, record, text, input_path=None):
+        self.records[identity] = [record, text]
+        self.writes.append(identity)
+
+
+def _grouped_input(root):
+    return {
+        "use_cache": True,
+        "strict_imports": True,
+        "include_stdlib": True,
+        "stdlib_strict": False,
+        "target": "linux-x86_64",
+        "lines": [
+            [str(root.parent / "café:Module.btrc"), 1, "int answer() { return 7; }"],
+            [str(root), 1, "int main() { return 0; }"],
+        ],
+        "stdlib": "class InlineItem { public int value; }",
+        "native": "extern int nativeValue();",
+        "other": "int generatedValue = 2;",
+        "native_identity": "native-v1",
+        "records": {},
+    }
+
+
+def _reference_grouped(data, root, *, split=False):
+    options = CompilerOptions(
+        **{key: data[key] for key in ("use_cache", "strict_imports", "include_stdlib", "stdlib_strict")}
+    )
+    user_source = "\n".join(row[2] for row in data["lines"])
+    stdlib = data["stdlib"]
+    graph = SourceDependencyGraph()
+    graph.ensure_source(str(root))
+    for path, _, _ in data["lines"]:
+        if path != str(root):
+            graph.add(str(root), path, SourceDependencyKind.IMPORT)
+    native = Parser(Lexer(data["native"]).tokenize()).parse().declarations
+    source = ResolvedSource(
+        user_source=user_source,
+        source=stdlib + "\n" + user_source if stdlib else user_source,
+        stdlib_source=stdlib,
+        source_positions=tuple((path, line) for path, line, _ in data["lines"]),
+        graph=graph,
+        strict_imports=data["strict_imports"],
+        root_source_path=str(root),
+        native_plan=NativeLinkPlan.empty(PackageTarget.parse(data["target"])),
+        native_declarations=tuple(native),
+        native_cache_identity=data["native_identity"] or None,
+    )
+    parsed = FrontendStage().parse(source, str(root), use_ast_cache=split)
+    others = Parser(Lexer(data["other"]).tokenize()).parse().declarations
+    for declaration in others:
+        declaration.line = 0
+    parsed.program.declarations.extend(others)
+    store = _InterfaceStore(data["records"])
+    digest = ProgramInterface().capture(
+        parsed.program.declarations,
+        source,
+        options,
+        inline_stdlib_declarations=parsed.inline_stdlib_declarations,
+        store=store,
+    )
+    return {
+        "digest": digest,
+        "validation_digest": digest,
+        "context": ProgramInterface.context(options, data["target"]),
+        "records": store.records,
+        "writes": sorted(store.writes),
+    }
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "none",
+        "body",
+        "signature",
+        "native",
+        "stdlib",
+        "other",
+        "move",
+        "target",
+        "stdlib-strict",
+        "no-cache",
+        "malformed",
+        "split",
+    ],
+)
+def test_grouped_interfaces_share_cache_and_invalidation(tmp_path, request, monkeypatch, frontend, change):
+    root = tmp_path.resolve() / "Main.btrc"
+    data = _grouped_input(root)
+    if change == "split":
+        data["strict_imports"] = False
+    cold = _reference_grouped(data, root, split=change == "split")
+    assert len(cold["writes"]) == 4  # two source groups, inline stdlib, native
+    data["records"] = cold["records"]
+    if change == "body":
+        data["lines"][0][2] = data["lines"][0][2].replace("return 7", "return 8")
+    elif change == "signature":
+        data["lines"][0][2] = data["lines"][0][2].replace("int answer", "long answer")
+    elif change == "native":
+        data["native"] = data["native"].replace("int nativeValue", "long nativeValue")
+        data["native_identity"] = "native-v2"
+    elif change == "stdlib":
+        data["stdlib"] = data["stdlib"].replace("int value", "long value")
+    elif change == "other":
+        data["other"] = data["other"].replace("= 2", "= 3")
+    elif change == "move":
+        data["lines"].reverse()
+    elif change == "target":
+        data["target"] = "windows-x86_64"
+    elif change == "stdlib-strict":
+        data["stdlib_strict"] = True
+    elif change == "no-cache":
+        data["use_cache"] = False
+    elif change == "malformed":
+        key = next(iter(data["records"]))
+        data["records"][key] = [data["records"][key][0], "z" * 64]
+    rendered = []
+    original = AstCanonicalRenderer.render
+
+    def observe(renderer, node):
+        if renderer._callable_body is not None:
+            rendered.append(getattr(node, "name", ""))
+        return original(renderer, node)
+
+    monkeypatch.setattr(AstCanonicalRenderer, "render", observe)
+    expected = _reference_grouped(data, root, split=change == "split")
+    changed = change in {"signature", "native", "stdlib", "other"}
+    assert (cold["digest"] != expected["digest"]) == changed
+    if change in {"none", "move", "split"}:
+        assert not expected["writes"]
+        assert rendered == ["generatedValue"]
+    if change == "body":
+        assert len(expected["writes"]) == 1
+        assert rendered == ["answer", "generatedValue"]
+    if change == "no-cache":
+        assert not expected["writes"]
+        assert len(rendered) == 5
+    if frontend == "selfhost":
+        path = tmp_path / "input.json"
+        path.write_text(json.dumps(data))
+        result = _driver(request.getfixturevalue("module_record_driver"), "grouped", path, str(root))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == expected
+
+
+def test_pipeline_captures_interfaces_before_analysis(tmp_path, monkeypatch):
+    from src.compiler.python.application.pipeline import CompilationPipeline
+
+    events = []
+    capture = ProgramInterface.capture
+    analyze = CompilationPipeline.analyze
+    compile_units = ModuleUnitCompiler.compile
+
+    def capture_before(self, *args, **kwargs):
+        digest = capture(self, *args, **kwargs)
+        events.append(("capture", digest))
+        return digest
+
+    def analyze_after(self, *args, **kwargs):
+        assert events and events[-1][0] == "capture"
+        events.append(("analyze", None))
+        return analyze(self, *args, **kwargs)
+
+    def lower_after(self, *args, **kwargs):
+        assert events[-1][0] == "analyze"
+        assert kwargs["interface_digest"] == events[-2][1]
+        return compile_units(self, *args, **kwargs)
+
+    monkeypatch.setattr(ProgramInterface, "capture", capture_before)
+    monkeypatch.setattr(CompilationPipeline, "analyze", analyze_after)
+    monkeypatch.setattr(ModuleUnitCompiler, "compile", lower_after)
+    result = Compiler().compile(
+        "int main() { return 0; }",
+        str(tmp_path / "Main.btrc"),
+        CompilerOptions(
+            include_stdlib=False, use_cache=False, module_units=True, units_prefix=str(tmp_path / "program")
+        ),
+    )
+    assert result.successful, result.failure
+    assert [kind for kind, _ in events] == ["capture", "analyze"]
+
+
+def test_production_pipelines_share_interface_records_across_edit_builds(tmp_path, monkeypatch, module_record_driver):
+    root = tmp_path.resolve()
+    main = root / "Main.btrc"
+    shared = root / "Shared.btrc"
+    main.write_text('import "Shared.btrc";\nint main() { return answer() - 7; }\n')
+    shared.write_text("int answer() { return 7; }\n")
+    cache = root / "cache"
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(cache))
+    compiler = Compiler(cache=CompilerCache())
+    reference_records = {}
+    store_record = CompilerCache.store_module_unit
+
+    def observe_record(self, identity, record, text, input_path=None):
+        if record == "validation-interface-v2":
+            reference_records[identity] = [record, text]
+        return store_record(self, identity, record, text, input_path)
+
+    monkeypatch.setattr(CompilerCache, "store_module_unit", observe_record)
+    records = {}
+    previous = None
+    for phase, counts in (("cold", (2, 0)), ("warm", (0, 2)), ("edit", (1, 1)), ("no-cache", (2, 0))):
+        if phase == "edit":
+            shared.write_text("int answer() { return 8; }\n")
+        options = CompilerOptions(
+            include_stdlib=False, module_units=True, units_prefix=str(root / phase), use_cache=phase != "no-cache"
+        )
+        expected = compiler.compile(main.read_text(), str(main), options)
+        assert expected.successful, expected.failure
+        assert (len(expected.module_units_lowered), len(expected.module_units_reused)) == counts
+        data = {"prefix": options.units_prefix, "use_cache": options.use_cache, "records": records}
+        path = root / "pipeline.json"
+        path.write_text(json.dumps(data))
+        completed = _driver(module_record_driver, "pipeline", path, str(main))
+        assert completed.returncode == 0, completed.stderr
+        actual = json.loads(completed.stdout)
+        assert (actual["lowered"], actual["reused"]) == counts
+        records = actual["records"]
+        selfhost_records = {key: value for key, value in records.items() if value[0] == "validation-interface-v2"}
+        assert selfhost_records == reference_records
+        if phase == "warm":
+            assert (actual["output"], actual["units"]) == previous
+        if phase == "no-cache":
+            assert (actual["output"], actual["units"]) == previous
+        previous = actual["output"], actual["units"]

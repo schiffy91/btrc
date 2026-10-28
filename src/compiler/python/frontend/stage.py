@@ -36,6 +36,7 @@ class FrontendParseResult:
     tokens: tuple[Token, ...]
     program: Program | None = None
     user_program: Program | None = None
+    inline_stdlib_declarations: tuple = ()
 
 
 class FrontendStage:
@@ -166,6 +167,7 @@ class FrontendStage:
             debug=debug,
             parse=parse,
         )
+        stdlib_declarations = []
 
         if use_cached_stdlib_ast:
             start = time.perf_counter()
@@ -190,6 +192,11 @@ class FrontendStage:
             program = Parser(tokens).parse()
             user_program = program if not source.stdlib_source else None
             self._stamp_declaration_files(program.declarations, source, "combined")
+            if source.stdlib_source:
+                stdlib_lines = source.stdlib_source.count("\n") + 1
+                stdlib_declarations = [
+                    declaration for declaration in program.declarations if 1 <= declaration.line <= stdlib_lines
+                ]
             self._timed(profile, "parse", start)
 
         if source.native_declarations:
@@ -220,6 +227,7 @@ class FrontendStage:
             tokens=tuple(tokens),
             program=program,
             user_program=user_program,
+            inline_stdlib_declarations=tuple(stdlib_declarations),
         )
 
     # -- Program checks on #if records (P1-P4) ------------------------------

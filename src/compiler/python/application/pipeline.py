@@ -37,7 +37,7 @@ from ..lexer.lexer import Lexer, LexerError
 from ..parser.parser import ParseError, Parser
 from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import Program
-from .modules import ModuleUnitCompiler, ModuleUnitStore
+from .modules import ModuleUnitCompiler, ModuleUnitStore, ProgramInterface
 from .results import (
     CompilerActionResult,
     CompilerDiagnostic,
@@ -803,7 +803,23 @@ class CompilationPipeline:
         if options.output is CompilerOutput.AST:
             return self._result(source, options, profile, tokens=parsed.tokens, program=program)
 
+        interface_digest = None
         try:
+            if (
+                options.module_units
+                and options.units_prefix is not None
+                and options.output is CompilerOutput.C
+                and options.stdlib_archive is None
+                and source.strict_imports
+            ):
+                interface_digest = ProgramInterface().capture(
+                    program.declarations,
+                    source,
+                    options,
+                    inline_stdlib_declarations=parsed.inline_stdlib_declarations,
+                    store=module_store,
+                    input_path=input_path,
+                )
             analyzed = self.analyze(
                 program,
                 profile,
@@ -851,6 +867,7 @@ class CompilationPipeline:
                     split_source_spaces=split_source_spaces,
                     store=module_store,
                     input_path=input_path,
+                    interface_digest=interface_digest,
                     profile=profile,
                     timed=self._timed,
                 )

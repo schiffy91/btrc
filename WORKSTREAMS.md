@@ -4418,3 +4418,29 @@ while keeping semantic validation replay and all program facts intact. Preserve
 inline-stdlib provenance across split and combined parse coordinates. Baseline
 is the current-tree declaration-interface proof (145 passing latest outcomes).
 Format before local driver validation; no CI, GitHub writes or application runs.
+
+Both pipelines now capture grouped interfaces before analysis, including when
+persistent caching is disabled. `ModuleUnitInterfaces` owns the self-host
+snapshot and supplies it to validation replay and lowering. Python retains
+inline-stdlib membership from parsing and uses the same framed group/native
+cache keys and program composition. Invalid digest text is rejected. Lowering
+requires the prepared snapshot; the old post-analysis fallback is removed.
+Source-file traversal order remains in the program facts, and test counters
+count lowered-unit records separately from interface records.
+
+Final local evidence: 160 interchange checks and six reference regressions
+pass. The focused driver exercises the production self-host pipeline across
+cold, warm, private-body-edit and cache-disabled builds. Its interface-cache
+keys and records match the reference pipeline; warm builds reuse both modules,
+and the body edit lowers only its module. Cached generated C matches uncached
+output. The reference regressions also cover generic demand, import reordering
+and whole-program directive order. Targeted lint, formatting and diff checks
+pass. Evidence: `build/issue-gates/grouped-program-interfaces/`.
+
+One legacy test's `btrc` parameter escaped an initial `not selfhost` filter and
+started an unwanted full-compiler transpile. It was stopped before native
+compilation. The final run uses explicit reference node IDs and one completed
+driver build after source formatting. No full compiler qualification, CI,
+GitHub write, application execution, bootstrap or measurement occurred.
+Program facts, build-bound compiler identity, shared storage, dependent-only
+interface invalidation and application acceptance remain unfinished.

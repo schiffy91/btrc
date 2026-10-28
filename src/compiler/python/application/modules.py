@@ -643,6 +643,99 @@ class ProgramInterface:
         )
         return "defined consumed=" + ",".join(str(index) for index in consumed)
 
+    @staticmethod
+    def context(options: CompilerOptions, target: str) -> str:
+        flags = [
+            "true" if value else "false"
+            for value in (options.strict_imports, options.include_stdlib, options.stdlib_strict)
+        ]
+        return f"validation-record-v8;target={target};strict={flags[0]};stdlib={flags[1]};stdlib-strict={flags[2]}"
+
+    @staticmethod
+    def cache_key(context: str, group: str, source: str) -> str:
+        digest = hashlib.sha256(b"validation-interface-v2\n")
+        for value in (context, group, source):
+            ModuleUnitCompiler._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @staticmethod
+    def native_key(context: str, identity: str) -> str:
+        digest = hashlib.sha256(b"validation-natives-v2\n")
+        for value in (context, identity):
+            ModuleUnitCompiler._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @staticmethod
+    def compose(groups: Mapping[str, str], natives: str, others: str) -> str:
+        digest = hashlib.sha256(b"btrc-program-interface-v1\n")
+        for name, value in [*sorted(groups.items()), ("<native>", natives), ("<other>", others)]:
+            ModuleUnitCompiler._append_key_field(digest, name)
+            ModuleUnitCompiler._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _cached_digest(payload: tuple[str, str] | None, kind: str) -> str | None:
+        if payload is None or payload[0] != kind:
+            return None
+        digest = payload[1]
+        return digest if len(digest) == 64 and all(c in "0123456789abcdef" for c in digest) else None
+
+    def capture(
+        self,
+        declarations: Iterable[object],
+        source: ResolvedSource,
+        options: CompilerOptions,
+        *,
+        inline_stdlib_declarations: Iterable[object] = (),
+        store: ModuleUnitStore | None = None,
+        input_path: str | None = None,
+    ) -> str:
+        """Snapshot pre-analysis interfaces, reusing only source-matched groups."""
+        store = store if options.use_cache and store is not None else DisabledModuleUnitStore()
+        groups = source.graph.compilation_groups(source.root_source_path)
+        group_sources, _ = ModuleUnitCompiler._group_sources(source, groups)
+        sources = {"group:" + group: digest for group, digest in group_sources.items() if group}
+        if source.stdlib_source:
+            sources["<stdlib>"] = hashlib.sha256(source.stdlib_source.encode("utf-8")).hexdigest()
+        context = self.context(options, source.native_plan.target.label)
+        keys = {group: self.cache_key(context, group, digest) for group, digest in sources.items()}
+        cached = {}
+        for group, key in keys.items():
+            digest = self._cached_digest(store.load_module_unit(key, input_path), "validation-interface-v2")
+            if digest is not None:
+                cached[group] = digest
+        native_key = self.native_key(context, source.native_cache_identity) if source.native_cache_identity else None
+        natives_digest = (
+            self._cached_digest(store.load_module_unit(native_key, input_path), "validation-natives-v2")
+            if native_key
+            else None
+        )
+        native_ids = {id(declaration) for declaration in source.native_declarations}
+        inline_ids = {id(declaration) for declaration in inline_stdlib_declarations}
+        buckets: dict[str, list[object]] = {}
+        natives = []
+        others = []
+        for declaration in declarations:
+            if id(declaration) in native_ids:
+                if natives_digest is None:
+                    natives.append(declaration)
+                continue
+            group = groups.group_of(getattr(declaration, "source_file", None))
+            group = "<stdlib>" if id(declaration) in inline_ids else "group:" + group if group else ""
+            if group not in sources:
+                others.append(declaration)
+            elif group not in cached:
+                buckets.setdefault(group, []).append(declaration)
+        for group, items in buckets.items():
+            digest = self.digest(items)
+            cached[group] = digest
+            store.store_module_unit(keys[group], "validation-interface-v2", digest, input_path)
+        if natives_digest is None:
+            natives_digest = self.digest(natives)
+            if native_key is not None:
+                store.store_module_unit(native_key, "validation-natives-v2", natives_digest, input_path)
+        return self.compose(cached, natives_digest, self.digest(others))
+
 
 class SharedDeclarations:
     """The program's declaration-level IR, drawn from by every module unit.
@@ -930,7 +1023,9 @@ class ModuleUnitCompiler:
         return {name: digest.hexdigest() for name, digest in digests.items()}, counts
 
     @staticmethod
-    def _program_facts_digest(analyzed, facts: ProgramLoweringFacts, shared: SharedDeclarations) -> str:
+    def _program_facts_digest(
+        analyzed, facts: ProgramLoweringFacts, shared: SharedDeclarations, source: ResolvedSource
+    ) -> str:
         digest = hashlib.sha256()
 
         def add(value: object) -> None:
@@ -941,6 +1036,13 @@ class ModuleUnitCompiler:
         def type_args(instances) -> list:
             return sorted(ProgramInterface.canonical(instance) for instance in instances)
 
+        # Grouped interfaces sort group names, but directive/prototype order
+        # still follows the source composition, including returning to a file.
+        files = []
+        for path, _ in source.source_positions:
+            if not files or files[-1] != path:
+                files.append(path)
+        add(files)
         add(bool(facts.uses_trycatch))
         # A unit takes the shared declarations it uses in their program order,
         # while specialization views have canonical symbol order. Keep the
@@ -984,6 +1086,7 @@ class ModuleUnitCompiler:
         options: CompilerOptions,
         *,
         split_source_spaces: bool,
+        interface_digest: str,
         store: ModuleUnitStore | None = None,
         input_path: str | None = None,
         profile: dict[str, float] | None = None,
@@ -1021,14 +1124,13 @@ class ModuleUnitCompiler:
         program_graph = ModuleUnitGraph.from_unit(program_unit, program_facts)
         program_setjmp = self.setjmp_functions(program_unit)
         program_releases = IROptimizer.releases_cyclable_values(program_unit)
-        interface = ProgramInterface().digest(analyzed.program.declarations)
-        program_digest = self._program_facts_digest(analyzed, facts, shared)
+        program_digest = self._program_facts_digest(analyzed, facts, shared, source)
         group_sources, group_lines = self._group_sources(source, groups)
         context = self._cache_context(options, source.native_plan.target.label, self._native_defines)
         # Preserve both existing semantic authorities until their contents,
         # not just their framing, have converged with the self-hosted owner.
         program_identity_digest = hashlib.sha256()
-        for value in (interface, program_digest):
+        for value in (interface_digest, program_digest):
             self._append_key_field(program_identity_digest, value)
         program_identity = program_identity_digest.hexdigest()
         states: list[_GroupState] = []

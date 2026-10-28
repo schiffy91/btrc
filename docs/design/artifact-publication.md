@@ -133,8 +133,8 @@ followed by the canonical target, debug output prefix and primary path, and
 the number of native defines. Define name/value pairs follow in name order.
 Release contexts use empty output paths. The outer digest starts with
 `btrc-module-unit-v8\n` and frames context digest, group, source digest and
-program identity. Program-interface/fact contents still differ between the
-owners; sharing this encoding alone does not make their actual keys equal.
+program identity. Program facts still differ between the owners; sharing this
+encoding alone does not make their actual keys equal.
 Unit filenames use ASCII alphanumeric bytes from the UTF-8 stem, replacing
 other bytes with hyphens, trimming edge hyphens and using `group` if empty;
 the group path's SHA-256 suffix keeps different paths distinct.
@@ -152,13 +152,33 @@ Position-free identities encode floating values as `binary64:` followed by
 16 lowercase hexadecimal digits for their IEEE binary64 bits, preserving
 signed zero and full precision. Wide source integers retain their full
 unsigned magnitude. Ordinary AST inspection output keeps its display format.
-The declaration encoding is shared, but whole-program grouping, analysis timing
-and fact serialization still need to converge before cache keys can match.
+Both pipelines capture these interfaces before semantic analysis. Source
+declarations belong to `group:<canonical-group>`, inline standard-library
+declarations to `<stdlib>`, imported native declarations to `<native>`, and
+unmapped source declarations to `<other>`. The frontend retains inline-stdlib
+membership across combined and split parse coordinates. Within each group,
+declaration order is preserved.
+
+The program-interface digest starts with `btrc-program-interface-v1\n`, then
+frames each source/stdlib group name and digest in sorted group order, followed
+by the `<native>` and `<other>` name/digest pairs. Source-file traversal order
+remains a separate program fact, since it controls directive/prototype order.
+Neither lowering pipeline falls back to hashing an analyzed declaration tree.
+
+Per-source interface records contain `validation-interface-v2` and a lowercase
+SHA-256 digest. Their keys start with `validation-interface-v2\n` and frame
+validation context, group and source digest. The context includes canonical
+target, strict imports, stdlib inclusion and strict stdlib analysis. Native
+records use `validation-natives-v2`, with keys framing context and native input
+identity after `validation-natives-v2\n`; absent native identity disables native
+reuse. Malformed digest text is a miss. A private body edit rerenders only its
+source group's interface and keeps the program-interface digest unchanged.
+Program-fact serialization still differs between the frontends.
 
 The reference store verifies separate SHA-256 digests for metadata and C in
 its atomic JSON envelope; the self-host store retains its verified `record.txt`
 and `unit.c` pair. The common metadata format does not yet make the stores
-interchangeable: compiler identity, program-interface/fact inputs and directory layout
+interchangeable: compiler identity, program-fact inputs and directory layout
 still differ. Issue #8 also requires shared interface/link-plan artifacts,
 dependent-only invalidation and the real application's warm-build budget.
 

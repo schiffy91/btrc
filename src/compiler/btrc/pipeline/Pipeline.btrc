@@ -231,8 +231,12 @@ class CompilerPipeline {
 		 * their body-validation records instead of validating again. */
 		ValidationRecords? records = null;
 		IBtrccArtifactCache? store = self.moduleUnitStore;
+		ModuleUnitInterfaces? interfaces = null;
+		if (options.moduleUnits && !options.unitsPrefix.isEmpty() && resolved.strictImports) {
+			interfaces = ModuleUnitInterfaces(program, sourceDeclarations, resolved, options, store, input.nativeIdentity, packages.linkPlan.target.label());
+		}
 		if (options.moduleUnits && !options.unitsPrefix.isEmpty() && options.useCache && store != null && resolved.strictImports) {
-			records = ValidationRecords(program, sourceDeclarations, resolved, options, store, input.nativeIdentity, packages.linkPlan.target.label());
+			records = ValidationRecords(program, sourceDeclarations, resolved, options, store, input.nativeIdentity, packages.linkPlan.target.label(), interfaces);
 			analyzer.configureValidationRecords(records);
 			BtrccPhaseTimer.mark("a-records");
 		}
@@ -249,9 +253,9 @@ class CompilerPipeline {
 			Map<string, bool>? stdlibKeys = options.runDce ? StdlibReachability.classify(program.declarations(), self.hostedAbi) : null;
 			ModuleUnitProgram unitProgram = ModuleUnitProgram(program, analyzed, analyzer, self.hostedAbi, runtimeHelpers, resolved, sourcePath, stdlibKeys, packages.linkPlan.target.label());
 			unitProgram.nativeDefines = packages.linkPlan.preprocessorDefinitions();
-			if (records != null) {
-				unitProgram.interfaceDigest = records.interfaceDigest;
-				unitProgram.knownSourceDigests = records.groupSourceDigests;
+			if (interfaces != null) {
+				unitProgram.interfaceDigest = interfaces.digest;
+				unitProgram.knownSourceDigests = interfaces.groupSourceDigests;
 			}
 			ModuleUnitBuild build = ModuleUnitCompiler(unitProgram, options, options.useCache ? self.moduleUnitStore : null, self.workerPools).compile();
 			if (!build.failure.isEmpty()) {

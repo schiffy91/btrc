@@ -7,8 +7,10 @@ import Library.Digest.SHA256;
 
 import ../../../compiler/btrc/pipeline/ModuleUnits.btrc;
 import ../../../compiler/btrc/pipeline/Models.btrc;
+import ../../../compiler/btrc/pipeline/Pipeline.btrc;
 import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
 import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/frontend/SourceIo.btrc;
 import ../../../compiler/btrc/generated/ast/Node.btrc;
 import ../../../compiler/btrc/parser/Stage.btrc;
 import ../../../compiler/btrc/syntax/Identity.btrc;
@@ -72,14 +74,19 @@ class ModuleKeyProbe {
 }
 
 class ModuleInterfaceProbe {
-	class string run(string path) {
+	class Node parse(string source) {
 		var grammar = EbnfGrammarParser(Path.readAll("src/language/grammar.ebnf")).parse();
-		var lexer = Lexer(Path.readAll(path), grammar);
+		var lexer = Lexer(source, grammar);
 		var tokens = lexer.tokenize();
 		if (lexer.failed) { throw lexer.diagnostic; }
 		var parser = Parser(tokens, grammar);
 		var program = parser.parseProgram();
 		if (parser.failed) { throw parser.diagnostic; }
+		return program;
+	}
+
+	class string run(string path) {
+		var program = ModuleInterfaceProbe.parse(Path.readAll(path));
 		var renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
 		var digest = SHA256();
 		for declaration in program.declarations() { digest.appendText(SHA256.digest(renderer.render(declaration))); }
@@ -90,10 +97,129 @@ class ModuleInterfaceProbe {
 	}
 }
 
+class InterfaceProbeCache implements IBtrccArtifactCache {
+	public Map<string, BtrccModuleUnitPayload> records = {};
+	public Vector<string> writes = [];
+	public InterfaceProbeCache(JSONValue rows) {
+		for key in rows.keys() { var row = rows.get(key); self.records.put(key, BtrccModuleUnitPayload(row.at(0).asString(), row.at(1).asString())); }
+	}
+
+	public BtrccCompilationResult? load(string identity) { return null; }
+
+	public void store(string identity, BtrccCompilationResult result) {}
+
+	public BtrccModuleUnitPayload? loadModuleUnit(string identity) { return self.records.has(identity) ? self.records.get(identity) : null; }
+
+	public void storeModuleUnit(string identity, BtrccModuleUnitPayload payload) { self.records.put(identity, payload); self.writes.push(identity); }
+}
+
+class GroupedInterfaceProbe {
+	class string run(JSONValue data, string root) {
+		var options = BtrccOptions();
+		options.useCache = data.get("use_cache").asBool();
+		options.strictImports = data.get("strict_imports").asBool();
+		options.includeStdlib = data.get("include_stdlib").asBool();
+		options.stdlibStrict = data.get("stdlib_strict").asBool();
+		Vector<FeLine> lines = [];
+		Vector<string> texts = [];
+		Map<string, Vector<FeDependencyEdge>> outgoing = {};
+		outgoing.put(root, []);
+		var rows = data.get("lines");
+		for (int index = 0; index < rows.size(); index++) {
+			var row = rows.at(index);
+			string path = row.at(0).asString();
+			string text = row.at(2).asString();
+			lines.push(FeLine(text, path, row.at(1).asInt()));
+			texts.push(text);
+			if (!outgoing.has(path)) { outgoing.put(path, []); outgoing.get(root).push(FeDependencyEdge(path, FE_DEPENDENCY_IMPORT)); }
+		}
+		string userSource = Strings.join(texts, "\n");
+		string stdlib = data.get("stdlib").asString();
+		string source = stdlib.isEmpty() ? userSource : stdlib + "\n" + userSource;
+		int stdlibLines = stdlib.isEmpty() ? 0 : Strings.split(stdlib, "\n").len;
+		Map<string, Vector<string>> parents = {};
+		var resolved = FeResolvedSource(userSource, source, stdlib, lines, FeDependencyGraph(outgoing, parents), options.strictImports, stdlibLines, root, FeStdlibRootSnapshot([], []));
+		var program = ModuleInterfaceProbe.parse(source);
+		Vector<Node> sourceDeclarations = [];
+		for declaration in program.declarations() { sourceDeclarations.push(declaration); }
+		var others = ModuleInterfaceProbe.parse(data.get("other").asString());
+		for declaration in others.declarations() { declaration.line = 0; sourceDeclarations.push(declaration); }
+		var natives = ModuleInterfaceProbe.parse(data.get("native").asString());
+		Vector<Node> combined = [];
+		for declaration in natives.declarations() { combined.push(declaration); }
+		for declaration in sourceDeclarations { combined.push(declaration); }
+		program.declarationsStorage = combined;
+		var store = InterfaceProbeCache(data.get("records"));
+		string nativeIdentity = data.get("native_identity").asString();
+		string target = data.get("target").asString();
+		var interfaces = ModuleUnitInterfaces(program, sourceDeclarations, resolved, options, store, nativeIdentity, target);
+		var validation = ValidationRecords(program, sourceDeclarations, resolved, options, store, nativeIdentity, target, interfaces);
+		var result = JSONValue.makeObject();
+		result.set("digest", JSONValue.makeString(interfaces.digest));
+		result.set("validation_digest", JSONValue.makeString(validation.interfaceDigest));
+		result.set("context", JSONValue.makeString(interfaces.contextValue));
+		var records = JSONValue.makeObject();
+		for key in store.records.keys() {
+			var payload = store.records.get(key);
+			var row = JSONValue.makeArray();
+			row.push(JSONValue.makeString(payload.record));
+			row.push(JSONValue.makeString(payload.text));
+			records.set(key, row);
+		}
+		result.set("records", records);
+		store.writes.sort();
+		var writes = JSONValue.makeArray();
+		for key in store.writes { writes.push(JSONValue.makeString(key)); }
+		result.set("writes", writes);
+		return result.stringify();
+	}
+}
+
+class ModulePipelineProbe {
+	class string run(JSONValue data, string root) {
+		var options = BtrccOptions();
+		options.includeStdlib = false;
+		options.moduleUnits = true;
+		options.unitsPrefix = data.get("prefix").asString();
+		options.useCache = data.get("use_cache").asBool();
+		var grammar = EbnfGrammarParser(Path.readAll("src/language/grammar.ebnf")).parse();
+		var pipeline = CompilerPipeline(grammar, "src/stdlib", FeSourceFileReader());
+		var store = InterfaceProbeCache(data.get("records"));
+		pipeline.setModuleUnitStore(store);
+		var built = pipeline.compile(Path.readAll(root), root, options);
+		if (!built.success) { throw built.diagnostic; }
+		var result = JSONValue.makeObject();
+		result.set("output", JSONValue.makeString(built.output));
+		var units = JSONValue.makeArray();
+		for unit in built.units { units.push(JSONValue.makeString(unit)); }
+		result.set("units", units);
+		result.set("lowered", JSONValue.makeInt(built.moduleUnitsLowered.len));
+		result.set("reused", JSONValue.makeInt(built.moduleUnitsReused.len));
+		var records = JSONValue.makeObject();
+		for key in store.records.keys() {
+			var payload = store.records.get(key);
+			var row = JSONValue.makeArray();
+			row.push(JSONValue.makeString(payload.record));
+			row.push(JSONValue.makeString(payload.text));
+			records.set(key, row);
+		}
+		result.set("records", records);
+		return result.stringify();
+	}
+}
+
 int main(int argc, char** argv) {
 	if (argc != 4) { return 3; }
 	string mode = Strings.copy(argv[1]);
 	string group = Strings.copy(argv[3]);
+	if (mode == "pipeline") {
+		print(ModulePipelineProbe.run(JSONValue.parse(Path.readAll(Strings.copy(argv[2]))), group));
+		return 0;
+	}
+	if (mode == "grouped") {
+		print(GroupedInterfaceProbe.run(JSONValue.parse(Path.readAll(Strings.copy(argv[2]))), group));
+		return 0;
+	}
 	if (mode == "interface") {
 		print(ModuleInterfaceProbe.run(Strings.copy(argv[2])));
 		return 0;

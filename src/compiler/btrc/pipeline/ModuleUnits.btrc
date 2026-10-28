@@ -1153,12 +1153,8 @@ class ModuleUnitCompiler {
 		 * defaults), and the facts below follow it, so the pre-analysis
 		 * interface digest identifies the program as well as a rendering after
 		 * analysis does. */
-		if (!input.interfaceDigest.isEmpty()) {
-			digest.appendText("interface:" + input.interfaceDigest);
-		} else {
-			AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
-			for declaration in input.program.declarations() { digest.appendText(SHA256.digest(renderer.render(declaration))); }
-		}
+		if (input.interfaceDigest.isEmpty()) { throw "module units require a pre-analysis interface snapshot"; }
+		digest.appendText("interface:" + input.interfaceDigest);
 		AstCanonicalRenderer positionFree = AstCanonicalRenderer.positionFreeRenderer();
 		/* The order of the program's files, as imports and includes place
 		 * them, orders every unit's directives and prototypes; it is not in
@@ -2865,6 +2861,152 @@ class ValidationRecordCodec {
 	}
 }
 
+/* Pre-analysis interfaces shared by module lowering and validation replay. */
+class ModuleUnitInterfaces {
+	public Map<string, string> fileOfDeclaration = {};
+	public Map<string, string> groupOfFile = {};
+	public Map<string, string> sourceDigests = {};
+	public Map<string, string> groupSourceDigests = {};
+	public string contextValue;
+	public string digest;
+	private IBtrccArtifactCache? store;
+
+	public ModuleUnitInterfaces(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache? store, string nativeIdentity, string target) {
+		self.store = options.useCache ? store : null;
+		FeSourcePathPolicy paths = FeSourcePathPolicy();
+		FeCompilationGroups groups = resolved.dependencies.compilationGroups(paths.identity(resolved.rootSourcePath));
+		Map<string, SHA256> digests = {};
+		for line in resolved.userLines {
+			if (!self.groupOfFile.has(line.sourceFile)) {
+				string group = groups.groupOfIdentity(paths.identity(line.sourceFile));
+				self.groupOfFile.put(line.sourceFile, group.isEmpty() ? "" : "group:" + group);
+			}
+			string group = self.groupOfFile.get(line.sourceFile);
+			if (group.isEmpty()) { continue; }
+			if (!digests.has(group)) { digests.put(group, SHA256()); }
+			ModuleUnitCompiler.appendSourceLine(digests.get(group), line.sourceFile, line.lineNumber, line.text);
+		}
+		self.groupOfFile.put("<stdlib>", "<stdlib>");
+		for declaration in sourceDeclarations {
+			string file = "<other>";
+			if (resolved.stdlibLineCount > 0 && declaration.line >= 1 && declaration.line <= resolved.stdlibLineCount) {
+				file = "<stdlib>";
+			} else {
+				int userLine = declaration.line - resolved.stdlibLineCount;
+				if (userLine >= 1 && userLine <= resolved.userLines.len) { file = resolved.userLines.get(userLine - 1).sourceFile; }
+			}
+			self.fileOfDeclaration.put(AstIdentity.key(declaration), file);
+		}
+		for declaration in program.declarations() {
+			string key = AstIdentity.key(declaration);
+			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
+		}
+		self.contextValue = ModuleUnitInterfaces.context(options, target);
+		for group in digests.keys() { self.sourceDigests.put(group, digests.get(group).finish()); }
+		if (resolved.stdlibLineCount > 0) { self.sourceDigests.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }
+		for group in self.sourceDigests.keys() {
+			if (group.startsWith("group:")) { self.groupSourceDigests.put(group.substring(6, group.length() - 6), self.sourceDigests.get(group)); }
+		}
+		self.digest = self.programInterface(program, nativeIdentity);
+	}
+
+	class string context(BtrccOptions options, string target) { return f"validation-record-v8;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
+
+	class string cacheKey(string context, string group, string source) {
+		var digest = SHA256();
+		digest.appendText("validation-interface-v2\n");
+		ModuleUnitCompiler.appendKeyField(digest, context);
+		ModuleUnitCompiler.appendKeyField(digest, group);
+		ModuleUnitCompiler.appendKeyField(digest, source);
+		return digest.finish();
+	}
+
+	class string nativeKey(string context, string identity) {
+		var digest = SHA256();
+		digest.appendText("validation-natives-v2\n");
+		ModuleUnitCompiler.appendKeyField(digest, context);
+		ModuleUnitCompiler.appendKeyField(digest, identity);
+		return digest.finish();
+	}
+
+	class string compose(Map<string, string> groups, string natives, string others) {
+		Vector<string> names = groups.keys();
+		names.sort();
+		var result = SHA256();
+		result.appendText("btrc-program-interface-v1\n");
+		for name in names {
+			ModuleUnitCompiler.appendKeyField(result, name);
+			ModuleUnitCompiler.appendKeyField(result, groups.get(name));
+		}
+		ModuleUnitCompiler.appendKeyField(result, "<native>");
+		ModuleUnitCompiler.appendKeyField(result, natives);
+		ModuleUnitCompiler.appendKeyField(result, "<other>");
+		ModuleUnitCompiler.appendKeyField(result, others);
+		return result.finish();
+	}
+
+	private string cachedDigest(BtrccModuleUnitPayload? payload, string kind) {
+		if (payload == null || !payload.record.equals(kind) || payload.text.length() != 64) { return ""; }
+		for (int index = 0; index < 64; index++) {
+			char value = payload.text[index];
+			if (!(value >= '0' && value <= '9') && !(value >= 'a' && value <= 'f')) { return ""; }
+		}
+		return payload.text;
+	}
+
+	private string programInterface(Node program, string nativeIdentity) {
+		IBtrccArtifactCache? store = self.store;
+		string context = self.contextValue;
+		Map<string, string> sources = self.sourceDigests;
+		var renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
+		Map<string, SHA256> rendered = {};
+		Map<string, string> cached = {};
+		if (store != null) {
+			for group in sources.keys() {
+				string digest = self.cachedDigest(store.loadModuleUnit(ModuleUnitInterfaces.cacheKey(context, group, sources.get(group))), "validation-interface-v2");
+				if (!digest.isEmpty()) { cached.put(group, digest); }
+			}
+		}
+		string nativesKey = nativeIdentity.isEmpty() ? "" : ModuleUnitInterfaces.nativeKey(context, nativeIdentity);
+		string nativesDigest = "";
+		if (store != null && !nativesKey.isEmpty()) { nativesDigest = self.cachedDigest(store.loadModuleUnit(nativesKey), "validation-natives-v2"); }
+		var natives = SHA256();
+		var others = SHA256();
+		for declaration in program.declarations() {
+			string group = self.groupAmong(declaration, sources);
+			if (group.isEmpty()) {
+				string key = AstIdentity.key(declaration);
+				bool native = self.fileOfDeclaration.has(key) && self.fileOfDeclaration.get(key).equals("<native>");
+				if (!native) { others.appendText(SHA256.digest(renderer.render(declaration))); }
+				else if (nativesDigest.isEmpty()) { natives.appendText(SHA256.digest(renderer.render(declaration))); }
+			} else if (!cached.has(group)) {
+				if (!rendered.has(group)) { rendered.put(group, SHA256()); }
+				rendered.get(group).appendText(SHA256.digest(renderer.render(declaration)));
+			}
+		}
+		for group in rendered.keys() {
+			string digest = rendered.get(group).finish();
+			cached.put(group, digest);
+			if (store != null) { store.storeModuleUnit(ModuleUnitInterfaces.cacheKey(context, group, sources.get(group)), BtrccModuleUnitPayload("validation-interface-v2", digest)); }
+		}
+		if (nativesDigest.isEmpty()) {
+			nativesDigest = natives.finish();
+			if (store != null && !nativesKey.isEmpty()) { store.storeModuleUnit(nativesKey, BtrccModuleUnitPayload("validation-natives-v2", nativesDigest)); }
+		}
+		return ModuleUnitInterfaces.compose(cached, nativesDigest, others.finish());
+	}
+
+	/* The recordable group a declaration was read from, among `groups`, or "". */
+	private string groupAmong(Node declaration, Map<string, string> groups) {
+		string key = AstIdentity.key(declaration);
+		if (!self.fileOfDeclaration.has(key)) { return ""; }
+		string file = self.fileOfDeclaration.get(key);
+		if (!self.groupOfFile.has(file)) { return ""; }
+		string group = self.groupOfFile.get(file);
+		return groups.has(group) ? group : "";
+	}
+}
+
 /* Stage B validation records: one per compilation group, keyed by the
  * group's source, the whole program's interface and the options that shape
  * validation. The inline standard library is one durable group; native
@@ -2905,122 +3047,19 @@ class ValidationRecords implements IValidationRecords {
 	private Map<string, bool> instancesUnwritable = {};
 	public int instancesReplayed = 0;
 
-	/* `nativeIdentity` identifies the imported native declarations (as the
-	 * artifact cache keys them), or is empty when they are not cacheable.
-	 * `target` is the resolved row's canonical label, never the option's
-	 * spelling. */
-	public ValidationRecords(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache store, string nativeIdentity, string target) {
+	/* A prepared snapshot lets the pipeline share pre-analysis provenance and
+	 * digests with lowering, including when persistent caching is disabled. */
+	public ValidationRecords(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache store, string nativeIdentity, string target, ModuleUnitInterfaces? prepared = null) {
 		self.store = store;
 		self.verify = getenv("BTRC_VERIFY_VALIDATION_RECORDS") != null;
-		FeSourcePathPolicy paths = FeSourcePathPolicy();
-		FeCompilationGroups groups = resolved.dependencies.compilationGroups(paths.identity(resolved.rootSourcePath));
-		Map<string, SHA256> digests = {};
-		for line in resolved.userLines {
-			if (!self.groupOfFile.has(line.sourceFile)) {
-				string group = groups.groupOfIdentity(paths.identity(line.sourceFile));
-				self.groupOfFile.put(line.sourceFile, group.isEmpty() ? "" : "group:" + group);
-			}
-			string group = self.groupOfFile.get(line.sourceFile);
-			if (group.isEmpty()) { continue; }
-			if (!digests.has(group)) { digests.put(group, SHA256()); }
-			ModuleUnitCompiler.appendSourceLine(digests.get(group), line.sourceFile, line.lineNumber, line.text);
-		}
-		self.groupOfFile.put("<stdlib>", "<stdlib>");
-		for declaration in sourceDeclarations {
-			string file = "<other>";
-			if (resolved.stdlibLineCount > 0 && declaration.line >= 1 && declaration.line <= resolved.stdlibLineCount) {
-				file = "<stdlib>";
-			} else {
-				int userLine = declaration.line - resolved.stdlibLineCount;
-				if (userLine >= 1 && userLine <= resolved.userLines.len) { file = resolved.userLines.get(userLine - 1).sourceFile; }
-			}
-			self.fileOfDeclaration.put(AstIdentity.key(declaration), file);
-		}
-		for declaration in program.declarations() {
-			string key = AstIdentity.key(declaration);
-			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
-		}
+		ModuleUnitInterfaces interfaces = prepared != null ? prepared : ModuleUnitInterfaces(program, sourceDeclarations, resolved, options, store, nativeIdentity, target);
+		self.fileOfDeclaration = interfaces.fileOfDeclaration;
+		self.groupOfFile = interfaces.groupOfFile;
 		self.codec = ValidationRecordCodec(program.declarations(), self.fileOfDeclaration);
-		string context = f"validation-record-v8;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}";
-		Map<string, string> sources = {};
-		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
-		if (resolved.stdlibLineCount > 0) { sources.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }
-		string interfaceDigest = self.programInterface(program, context, sources, nativeIdentity);
-		self.interfaceDigest = interfaceDigest;
-		for group in sources.keys() {
-			if (group.startsWith("group:")) { self.groupSourceDigests.put(group.substring(6, group.length() - 6), sources.get(group)); }
-		}
-		for group in sources.keys() { self.keys.put(group, SHA256.digest(context + "\n" + group + "\n" + sources.get(group) + "\n" + interfaceDigest)); }
+		self.interfaceDigest = interfaces.digest;
+		self.groupSourceDigests = interfaces.groupSourceDigests;
+		for group in interfaces.sourceDigests.keys() { self.keys.put(group, SHA256.digest(interfaces.contextValue + "\n" + group + "\n" + interfaces.sourceDigests.get(group) + "\n" + interfaces.digest)); }
 		for group in self.keys.keys() { self.load(group); }
-	}
-
-	/* The position-free interface of every declaration. A group's interface
-	 * is a function of its source alone, so its digest is cached under the
-	 * group's source digest and only changed groups are rendered again;
-	 * native declarations have no source of their own and are rendered each
-	 * time. */
-	private string programInterface(Node program, string context, Map<string, string> sources, string nativeIdentity) {
-		AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
-		Map<string, SHA256> rendered = {};
-		Map<string, string> cached = {};
-		for group in sources.keys() {
-			BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.interfaceKey(context, group, sources.get(group)));
-			if (payload != null && payload.record.equals("validation-interface-v1")) { cached.put(group, payload.text); }
-		}
-		/* Native declarations are a function of the native imports, whose
-		 * identity keys their digest when it is known. */
-		string nativesKey = nativeIdentity.isEmpty() ? "" : SHA256.digest("validation-natives-v1\n" + context + "\n" + nativeIdentity);
-		string nativesDigest = "";
-		if (!nativesKey.isEmpty()) {
-			BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(nativesKey);
-			if (payload != null && payload.record.equals("validation-natives-v1")) { nativesDigest = payload.text; }
-		}
-		SHA256 natives = SHA256();
-		SHA256 others = SHA256();
-		for declaration in program.declarations() {
-			string group = self.groupAmong(declaration, sources);
-			if (group.isEmpty()) {
-				string key = AstIdentity.key(declaration);
-				bool native = self.fileOfDeclaration.has(key) && self.fileOfDeclaration.get(key).equals("<native>");
-				if (!native) {
-					others.appendText(SHA256.digest(renderer.render(declaration)));
-				} else if (nativesDigest.isEmpty()) {
-					natives.appendText(SHA256.digest(renderer.render(declaration)));
-				}
-			} else if (!cached.has(group)) {
-				if (!rendered.has(group)) { rendered.put(group, SHA256()); }
-				rendered.get(group).appendText(SHA256.digest(renderer.render(declaration)));
-			}
-		}
-		for group in rendered.keys() {
-			string digest = rendered.get(group).finish();
-			cached.put(group, digest);
-			self.store.storeModuleUnit(self.interfaceKey(context, group, sources.get(group)), BtrccModuleUnitPayload("validation-interface-v1", digest));
-		}
-		Vector<string> names = [];
-		for group in cached.keys() { names.push(group); }
-		names.sort();
-		SHA256 result = SHA256();
-		for group in names { result.appendText(group + "\t" + cached.get(group) + "\n"); }
-		if (nativesDigest.isEmpty()) {
-			nativesDigest = natives.finish();
-			if (!nativesKey.isEmpty()) { self.store.storeModuleUnit(nativesKey, BtrccModuleUnitPayload("validation-natives-v1", nativesDigest)); }
-		}
-		result.appendText("<native>\t" + nativesDigest + "\n");
-		result.appendText("<other>\t" + others.finish() + "\n");
-		return result.finish();
-	}
-
-	private string interfaceKey(string context, string group, string source) { return SHA256.digest("validation-interface-v1\n" + context + "\n" + group + "\n" + source); }
-
-	/* The recordable group a declaration was read from, among `groups`, or "". */
-	private string groupAmong(Node declaration, Map<string, string> groups) {
-		string key = AstIdentity.key(declaration);
-		if (!self.fileOfDeclaration.has(key)) { return ""; }
-		string file = self.fileOfDeclaration.get(key);
-		if (!self.groupOfFile.has(file)) { return ""; }
-		string group = self.groupOfFile.get(file);
-		return groups.has(group) ? group : "";
 	}
 
 	/* The group a declaration's record belongs to, or "" when none can. */
