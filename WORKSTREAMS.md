@@ -4444,3 +4444,16 @@ driver build after source formatting. No full compiler qualification, CI,
 GitHub write, application execution, bootstrap or measurement occurred.
 Program facts, build-bound compiler identity, shared storage, dependent-only
 interface invalidation and application acceptance remain unfinished.
+
+### 2026-10-28 issue #8 dependency-scoped module reuse
+
+Packet: CX-MODULE-DEPENDENCY-SCOPE. Branch
+`codex/module-dependency-scope-20261028`, base `dc7dd865`.
+Own the paired module-unit and pipeline owners, cache-record protocol, and
+focused module-cache tests. The saved Alpha/Beta baseline rebuilds all three
+groups after Alpha adds an unused declaration; Beta's C stays identical.
+
+Scope interface identities to imports and retain a certificate of consumed
+shared declarations, including their content and order. Keep global directives
+and semantic safety facts checked. Verify edits against uncached output locally;
+no CI, GitHub writes, application execution or full compiler build.
