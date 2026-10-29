@@ -397,14 +397,6 @@ class RealtimeAnalyzer {
 
 	private void collectLocals(Node? node, RealtimeCallable callable) {
 		if (node == null || node.kind == NK_TYPE_EXPR) { return; }
-		if (node.kind == NK_GOTO_STMT) {
-			if (self.jumpRoot != null) {
-				string key = AstIdentity.key(self.jumpRoot);
-				if (!self.jumpIndexes.has(key)) { self.jumpIndexes.put(key, JumpScopeIndex.build(self.jumpRoot)); }
-				if (self.jumpIndexes.get(key).isBackward(node)) { self.effect(callable, "blocking", "backward goto '" + node.name + "'", node); }
-			}
-			return;
-		}
 		if (node.kind == NK_VAR_DECL_STMT) {
 			callable.localNames.put(node.name, true);
 		}
@@ -448,6 +440,14 @@ class RealtimeAnalyzer {
 
 	private void visit(Node? node, RealtimeCallable callable) {
 		if (node == null || node.kind == NK_TYPE_EXPR) { return; }
+		if (node.kind == NK_GOTO_STMT) {
+			if (self.jumpRoot != null) {
+				string key = AstIdentity.key(self.jumpRoot);
+				if (!self.jumpIndexes.has(key)) { self.jumpIndexes.put(key, JumpScopeIndex.build(self.jumpRoot)); }
+				if (self.jumpIndexes.get(key).isBackward(node)) { self.effect(callable, "blocking", "backward goto '" + node.name + "'", node); }
+			}
+			return;
+		}
 		/* Each block, case and lambda scopes the locals it declares, so a
 		 * local types only the uses it encloses and never a global's. */
 		if (node.kind == NK_BLOCK || node.kind == NK_CASE_CLAUSE) {

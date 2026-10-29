@@ -203,6 +203,8 @@ def test_native_jump_nullable_flow(jump_validation_driver, body, warnings):
     "source, diagnostic",
     [
         ('@realtime int f(int n) { label("again"); if (n > 0) { jump("again"); } return n; }', "backward goto 'again'"),
+        ("@realtime int f(int n) { again: if (n > 0) goto again; return n; }", "backward goto 'again'"),
+        ("@realtime int f(int n) { if (n > 0) goto done; return 0; done: return n; }", None),
         ('@realtime int f(int n) { if (n > 0) { jump("done"); } return 0; label("done"); return n; }', None),
         (
             '@gpu void f(int n) { jump("done"); label("done"); return; }',

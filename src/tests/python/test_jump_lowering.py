@@ -237,3 +237,24 @@ def test_outward_and_backward_jumps_destroy_each_owner_once(tmp_path, exceptions
     )
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
+
+
+def test_jump_names_do_not_retain_same_named_functions_or_globals():
+    module = _lower("""
+        int unusedFunction() { return 1; }
+        int unusedGlobal = 2;
+        int main() {
+            goto unusedFunction;
+            unusedFunction:
+            goto unusedGlobal;
+            unusedGlobal:
+            return 0;
+        }
+    """)
+    optimized = CompilationPipeline().optimize(module, CompilerOptions())
+    assert [function.name for function in optimized.function_defs] == ["main"]
+    assert not optimized.global_decls
+    assert {node.name for node in optimized.function_defs[0].walk() if isinstance(node, IRLabel)} == {
+        "unusedFunction",
+        "unusedGlobal",
+    }

@@ -114,10 +114,11 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
 
 **Rendering.** The btrc `AstCanonicalRenderer` gains two branches: `name`, `name_line`, `name_col` for `GotoStmt`, and `name` for `LabelStmt`. The Python renderer and `AstJsonCodec` are generic. `AstStructure.children` gains nothing, because neither kind has a child.
 
-**Kind coverage.** btrc validators skip unknown kinds silently.
-- A new contract test requires every btrc function that dispatches on `NK_BREAK_STMT` or `NK_RETURN_STMT` to name `NK_GOTO_STMT` or sit on a reasoned allow-list. It does the same for every function that dispatches on `IRK_BREAK` and `IRK_GOTO`. Today 14 btrc files name those AST kinds and 3 name `IRK_BREAK`.
-- The Python test does the same for `BreakStmt`/`GotoStmt` and `IRBreak`/`IRGoto`. That would have caught the btrc lambda predicate (M3).
-- It also requires every btrc site that reads `IRNode.name` without a kind check to exclude `IRK_GOTO` and `IRK_LABEL`.
+**Kind coverage.** `src/tests/btrc/test_jump_dispatch_coverage.py` parses both compiler implementations and audits each terminal-statement dispatcher separately. A dispatcher must handle goto or have a specific reason recorded in the test. GPU refusal paths, return-type collection, expression-only generic walks and break-specific queries are intentional exceptions.
+
+The native IR name audit checks reads on explicitly typed `IRNode` parameters and locals. Branch and short-circuit kind guards distinguish label names from value references; constructor-only and declaration-only readers have recorded input contracts. Canonical rendering preserves the name as metadata. The reference optimizer regression proves that labels named like otherwise unused functions and globals do not retain those values.
+
+The audit found backward-goto realtime detection in native `collectLocals`, before `jumpRoot` was installed. It now belongs to `RealtimeAnalyzer.visit`, after `scanCallable` installs the callable's jump root, matching the reference compiler. Both source-syntax and marker-based native regression cases remain required at the next native execution gate.
 
 ## Rules
 
