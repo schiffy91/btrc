@@ -103,7 +103,7 @@ class Parser {
 	}
 
 	public void refuseDeferredCSpecifier(Token token) {
-		if (token.type == "AUTO" && self.peek(1).type == "IDENT" && self.peek(2).type == "EQ") {
+		if (token.type == "AUTO" && self.peekAt(1).type == "IDENT" && self.peekAt(2).type == "EQ") {
 			self.failAt("'auto' is C11's storage class, not type inference; write 'var x = ...' or give a type", token);
 			return;
 		}
