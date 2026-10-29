@@ -32,6 +32,8 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
     assert executable.read_bytes() == expected_binary
     assert (result.bundle / "LICENSE").read_text(encoding="utf-8") == "fixture license\n"
     assert grammar.is_file() and nested.is_file()
+    assert (result.bundle / "share/btrc/runtime/c/btrc_rt.h").is_file()
+    assert (result.bundle / "share/btrc/runtime/c/manifest.toml").is_file()
     readme = (result.bundle / "README.md").read_text(encoding="utf-8")
     assert "--stdlib-dir" in readme and "MIT License" in readme
     assert not (result.bundle / "share/btrc/stdlib/build/runtime.o").exists()
@@ -225,7 +227,8 @@ def test_epoch_outside_archive_metadata_range_is_rejected(tmp_path: Path, epoch:
         )
 
 
-def test_missing_or_symlinked_runtime_inputs_are_rejected(tmp_path: Path) -> None:
+@pytest.mark.parametrize("linked", ["src/stdlib/linked.btrc", "src/runtime/c/linked.h"])
+def test_missing_or_symlinked_runtime_inputs_are_rejected(tmp_path: Path, linked: str) -> None:
     source_root, binary = bundle_fixture(tmp_path / "source")
     grammar = source_root / "src/language/grammar.ebnf"
     grammar.unlink()
@@ -240,13 +243,23 @@ def test_missing_or_symlinked_runtime_inputs_are_rejected(tmp_path: Path) -> Non
     grammar.write_text("@lexical\n", encoding="utf-8")
     outside = source_root / "outside.btrc"
     outside.write_text("class Outside {}\n", encoding="utf-8")
-    (source_root / "src/stdlib/linked.btrc").symlink_to(outside)
+    (source_root / linked).symlink_to(outside)
     with pytest.raises(ValueError, match="link or reparse point"):
         SelfhostBundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=tmp_path / "dist",
             source_root=source_root,
+        )
+
+
+@pytest.mark.parametrize("missing", ["btrc_rt.h", "manifest.toml"])
+def test_missing_c_runtime_source_is_rejected(tmp_path: Path, missing: str) -> None:
+    source_root, binary = bundle_fixture(tmp_path / "source")
+    (source_root / "src/runtime/c" / missing).unlink()
+    with pytest.raises(ValueError, match="required C runtime source is missing"):
+        SelfhostBundleBuilder().build(
+            binary=binary, target="linux-x64", output_dir=tmp_path / "dist", source_root=source_root
         )
 
 

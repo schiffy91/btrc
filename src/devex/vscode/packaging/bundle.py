@@ -78,6 +78,7 @@ class ExtensionBundler:
             target / "src" / "compiler" / "python",
         )
         self._copy_tree(source / "stdlib", target / "src" / "stdlib")
+        self._copy_tree(source / "runtime" / "c", target / "src" / "runtime" / "c")
         self._copy_tree(source / "language", target / "src" / "language")
         self._copy_tree(source / "devex" / "lsp", target / "src" / "devex" / "lsp")
         self._copy_tree(

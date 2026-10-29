@@ -722,6 +722,7 @@ class SelfhostBundleBuilder:
         self._storage.require_real_directory(source_root, "bundle source root")
         grammar = source_root / "src" / "language" / "grammar.ebnf"
         stdlib = source_root / "src" / "stdlib"
+        runtime = source_root / "src" / "runtime" / "c"
         license_file = source_root / "LICENSE"
         try:
             self._storage.require_real_regular(grammar, "required grammar")
@@ -741,7 +742,8 @@ class SelfhostBundleBuilder:
             raise ValueError(
                 f"required license is missing or not a regular file: {license_file}",
             ) from None
-        runtime_sources = self._source_files(stdlib)
+        stdlib_sources = self._source_files(stdlib)
+        runtime_sources = self._source_files(runtime, subject="C runtime", required=("btrc_rt.h", "manifest.toml"))
         bundle_name = f"btrcc-{target}"
         output_dir.mkdir(parents=True, exist_ok=True)
         self._storage.require_real_directory(output_dir, "bundle output directory")
@@ -777,10 +779,10 @@ class SelfhostBundleBuilder:
                 0o644,
                 epoch,
             )
-            for source in runtime_sources:
+            for source in (*stdlib_sources, *runtime_sources):
                 self._copier.copy(
                     source,
-                    staged / "share" / "btrc" / "stdlib" / source.relative_to(stdlib),
+                    staged / "share" / "btrc" / source.relative_to(source_root / "src"),
                     0o644,
                     epoch,
                 )
@@ -827,25 +829,35 @@ class SelfhostBundleBuilder:
             raise ValueError(f"project.version in {pyproject} must be a non-empty string")
         return version
 
-    def _source_files(self, stdlib: Path) -> list[Path]:
+    def _source_files(
+        self,
+        root: Path,
+        *,
+        subject: str = "stdlib runtime",
+        required: tuple[str, ...] = ("Vector.btrc", "Strings.btrc"),
+    ) -> list[Path]:
+        try:
+            self._storage.require_real_directory(root, f"required {subject} directory")
+        except (FileNotFoundError, ValueError):
+            raise ValueError(f"required {subject} directory is missing or invalid: {root}") from None
         files: list[Path] = []
 
         def excluded(path: Path) -> bool:
-            relative = path.relative_to(stdlib)
+            relative = path.relative_to(root)
             return any(part in EXCLUDED_DIRECTORIES for part in relative.parts)
 
-        for path, metadata in self._storage.real_tree_entries(stdlib, exclude=excluded):
-            if path == stdlib or stat.S_ISDIR(metadata.st_mode):
+        for path, metadata in self._storage.real_tree_entries(root, exclude=excluded):
+            if path == root or stat.S_ISDIR(metadata.st_mode):
                 continue
             if not stat.S_ISREG(metadata.st_mode):
                 raise ValueError(f"runtime source must be a regular file: {path}")
             if path.suffix not in RUNTIME_SUFFIXES:
-                raise ValueError(f"unknown stdlib runtime source type: {path}")
+                raise ValueError(f"unknown {subject} source type: {path}")
             files.append(path)
-        for required in ("Vector.btrc", "Strings.btrc"):
-            if (stdlib / required) not in files:
+        for name in required:
+            if (root / name) not in files:
                 raise ValueError(
-                    f"required stdlib runtime source is missing: {stdlib / required}",
+                    f"required {subject} source is missing: {root / name}",
                 )
         return files
 
@@ -912,8 +924,9 @@ executable path, so it can be launched through an absolute PATH entry or a
 symlink and from any working directory.
 
 Run `{executable} --stdlib-dir` to inspect the active standard-library path.
-Set BTRC_HOME to an alternate data root containing language/grammar.ebnf and
-stdlib/. An invalid BTRC_HOME is an error and never falls back silently.
+Set BTRC_HOME to an alternate data root containing language/grammar.ebnf,
+stdlib/ and runtime/c/. An invalid BTRC_HOME is an error and never falls back
+silently.
 
 Generated C that imports a native module must be compiled with the bundle's
 headers. Add the printed stdlib directory and the imported module directory to
