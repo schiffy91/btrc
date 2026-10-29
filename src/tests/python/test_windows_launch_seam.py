@@ -210,6 +210,10 @@ def test_a_launch_off_windows_reports_an_unsupported_host(probe):
     assert quote(probe, ["--launch"]).strip() == "launch=1 owner=null stage=15 domain=4 wait=1 close=0"
 
 
+def test_startup_snapshot_off_windows_clears_outputs(probe):
+    assert quote(probe, ["--snapshot"]).strip() == "open=1 owner=null view=null stage=15 domain=4"
+
+
 def test_transfer_off_windows_clears_outputs(probe):
     assert quote(probe, ["--transfer"]).strip() == (
         "open=1 owner=null pid=0 lifetime=0 resume=1 commit=1 request=null reply=null stage=15 domain=4 close=0"

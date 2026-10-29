@@ -16,6 +16,17 @@
 #include "windows_bootstrap.h"
 #include "windows_daemon_transfer.h"
 
+static int snapshot_off_windows(void) {
+    __btrc_windows_launch_error_t error;
+    btrc_wos_startup_snapshot *owner = (btrc_wos_startup_snapshot *)(void *)&error;
+    int status = btrc_wos_startup_snapshot_open(NULL, NULL, &owner, &error);
+    printf("open=%d owner=%s view=%s stage=%u domain=%u\n", status != 0,
+        owner == NULL ? "null" : "set", btrc_wos_startup_snapshot_get(owner) == NULL ? "null" : "set",
+        (unsigned)error.stage, (unsigned)error.domain);
+    btrc_wos_startup_snapshot_close(&owner);
+    return 0;
+}
+
 static int transfer_off_windows(void) {
     __btrc_windows_launch_error_t error;
     btrc_wos_transfer *owner = (btrc_wos_transfer *)(void *)&error;
@@ -106,6 +117,7 @@ static int launch_off_windows(void) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--snapshot") == 0) return snapshot_off_windows();
     if (argc == 2 && strcmp(argv[1], "--transfer") == 0) return transfer_off_windows();
     if (argc == 2 && strcmp(argv[1], "--supervisor") == 0) return supervisor_off_windows();
     if (argc == 2 && strcmp(argv[1], "--bootstrap-invocation") == 0) return bootstrap_invocation();

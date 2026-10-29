@@ -5,6 +5,16 @@
 #define BTRC_WINDOWS_DAEMON_TRANSFER_H
 #include "windows_bootstrap.h"
 
+/* Snapshot copies startup's token/name/paths/policy and command's executable,
+ * argv, effective absolute cwd and complete merged/sorted environment. The
+ * returned views borrow only the snapshot. No caller data survives by alias. */
+typedef struct btrc_wos_startup_snapshot btrc_wos_startup_snapshot;
+int btrc_wos_startup_snapshot_open(const __btrc_windows_launch_options_t *command,
+    const btrc_daemon_init *startup, btrc_wos_startup_snapshot **out,
+    __btrc_windows_launch_error_t *error);
+const btrc_daemon_init *btrc_wos_startup_snapshot_get(const btrc_wos_startup_snapshot *owner);
+void btrc_wos_startup_snapshot_close(btrc_wos_startup_snapshot **owner);
+
 typedef struct btrc_wos_transfer btrc_wos_transfer;
 int btrc_wos_transfer_open(const uint16_t *image_path, void *verified_image,
     const unsigned char nonces[32], uint64_t deadline, btrc_wos_transfer **out,

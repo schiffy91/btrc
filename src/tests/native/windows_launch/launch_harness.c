@@ -1885,8 +1885,18 @@ static void check_transfer_launch(int parent_contained) {
             init.arguments = &init.executable; init.argument_count = 1;
             btrc_daemon_handshake state;
             btrc_daemon_handshake_start(&state, BTRC_DAEMON_LAUNCHER, pid, lifetime, init.token);
+            __btrc_windows_launch_options_t command;
+            memset(&command, 0, sizeof(command));
+            char *arguments[] = { self_utf8 };
+            command.executable_utf8 = self_utf8; command.argv_utf8 = arguments; command.argc = 1;
+            command.cwd_utf8 = directory_text;
+            btrc_wos_startup_snapshot *snapshot = NULL;
+            int copied = btrc_wos_startup_snapshot_open(&command, &init, &snapshot, &error);
+            CHECK("real transfer copies complete command snapshot", copied == 0);
+            if (copied != 0) ExitProcess(3);
             CHECK("production transfer delivers INIT", btrc_wos_bootstrap_send_init(btrc_wos_transfer_request(owner),
-                &state, &init, deadline, &error) == 0);
+                &state, btrc_wos_startup_snapshot_get(snapshot), deadline, &error) == 0);
+            btrc_wos_startup_snapshot_close(&snapshot);
             if (scenario == 4) {
                 DWORD code = 99;
                 CHECK("real launch passes five-handle admission", WaitForSingleObject(observer, 5000) == WAIT_OBJECT_0
@@ -1947,6 +1957,70 @@ static void check_transfer_launch(int parent_contained) {
     CHECK("transfer releases every handle", before == after);
 }
 
+static int snapshot_entry(const btrc_daemon_init *snapshot, const char *expected) {
+    size_t size = strlen(expected);
+    for (size_t index = 0; index < snapshot->environment_count; index++)
+        if (snapshot->environment[index].size == size
+                && memcmp(snapshot->environment[index].data, expected, size) == 0) return 1;
+    return 0;
+}
+
+static void check_transfer_snapshot(void) {
+    wchar_t key[100], removed[100];
+    char key_text[100], removed_text[100], original[160], replacement[160];
+    swprintf(key, 100, L"BTRC_SNAPSHOT_%lu", (unsigned long)GetCurrentProcessId());
+    swprintf(removed, 100, L"BTRC_REMOVED_%lu", (unsigned long)GetCurrentProcessId());
+    if (GetEnvironmentVariableW(key, NULL, 0) != 0 || GetEnvironmentVariableW(removed, NULL, 0) != 0
+            || to_utf8(key, key_text, 100) != 0 || to_utf8(removed, removed_text, 100) != 0
+            || !SetEnvironmentVariableW(key, L"inherited") || !SetEnvironmentVariableW(removed, L"remove-me")) ExitProcess(3);
+    snprintf(original, sizeof(original), "%s=inherited", key_text);
+    snprintf(replacement, sizeof(replacement), "%s=override", key_text);
+    char name[] = "snapshot", argument[] = "two words", cwd[] = ".";
+    char *arguments[] = { self_utf8, argument }, *overrides[] = { replacement }, *unsets[] = { removed_text };
+    __btrc_windows_launch_options_t command;
+    memset(&command, 0, sizeof(command));
+    command.executable_utf8 = self_utf8; command.argv_utf8 = arguments; command.argc = 2;
+    command.cwd_utf8 = cwd;
+    command.environment_overrides_utf8 = overrides; command.override_count = 1;
+    command.environment_unsets_utf8 = unsets; command.unset_count = 1;
+    btrc_daemon_init startup;
+    memset(&startup, 0, sizeof(startup));
+    startup.token[0] = 0xA3; startup.remaining_startup_ms = 1000;
+    startup.name = (btrc_daemon_text){ (const unsigned char *)name, strlen(name) };
+    btrc_wos_startup_snapshot *owner = NULL;
+    __btrc_windows_launch_error_t error;
+    CHECK("snapshot merges overrides and unsets", btrc_wos_startup_snapshot_open(&command, &startup, &owner, &error) == 0);
+    const btrc_daemon_init *snapshot = btrc_wos_startup_snapshot_get(owner);
+    if (snapshot == NULL) ExitProcess(3);
+    CHECK("snapshot retains effective override", snapshot_entry(snapshot, replacement) && !snapshot_entry(snapshot, original));
+    snprintf(original, sizeof(original), "%s=remove-me", removed_text);
+    CHECK("snapshot removes requested environment entry", !snapshot_entry(snapshot, original));
+    wchar_t retained[32];
+    CHECK("snapshot leaves caller environment unchanged", GetEnvironmentVariableW(key, retained, 32) != 0
+        && wcscmp(retained, L"inherited") == 0 && GetEnvironmentVariableW(removed, retained, 32) != 0
+        && wcscmp(retained, L"remove-me") == 0);
+    wchar_t current[4096]; char current_text[16384];
+    if (!GetCurrentDirectoryW(4096, current) || to_utf8(current, current_text, 16384) != 0) ExitProcess(3);
+    CHECK("snapshot resolves relative cwd before launch", snapshot->cwd.size == strlen(current_text)
+        && memcmp(snapshot->cwd.data, current_text, snapshot->cwd.size) == 0);
+    name[0] = 'X'; argument[0] = 'X'; replacement[0] = 'X'; startup.token[0] = 0;
+    if (!SetEnvironmentVariableW(key, L"changed-after-snapshot")) ExitProcess(3);
+    snprintf(original, sizeof(original), "%s=override", key_text);
+    CHECK("snapshot owns strings, token and environment", snapshot->token[0] == 0xA3
+        && snapshot->name.size == 8 && memcmp(snapshot->name.data, "snapshot", 8) == 0
+        && snapshot->arguments[1].size == 9 && memcmp(snapshot->arguments[1].data, "two words", 9) == 0
+        && snapshot_entry(snapshot, original));
+    btrc_wos_startup_snapshot_close(&owner);
+    CHECK("snapshot close clears ownership", owner == NULL && btrc_wos_startup_snapshot_get(owner) == NULL);
+    btrc_wos_startup_snapshot_close(&owner);
+    /* Invalid UTF-8 fails while copying, before a supervisor can be launched. */
+    argument[0] = (char)0xFF;
+    CHECK("snapshot rejects invalid argv bytes", btrc_wos_startup_snapshot_open(&command, &startup, &owner, &error) != 0
+        && owner == NULL && error.ownership_state == 0);
+    if (!SetEnvironmentVariableW(key, NULL) || !SetEnvironmentVariableW(removed, NULL)) ExitProcess(3);
+    SecureZeroMemory(&startup, sizeof(startup));
+}
+
 static void check_transfer_containment(void) {
     spec_t spec;
     spec_init(&spec, "--transfer-contained");
@@ -1971,6 +2045,7 @@ int main(int argc, char **argv) {
         check_bootstrap_pipes();
         check_bootstrap_exchange();
         check_bootstrap_admission();
+        check_transfer_snapshot();
         check_transfer_launch(0);
         check_transfer_containment();
         check_daemon_files();
@@ -1983,6 +2058,7 @@ int main(int argc, char **argv) {
     check_bootstrap_pipes();
     check_bootstrap_exchange();
     check_bootstrap_admission();
+    check_transfer_snapshot();
     check_transfer_launch(0);
     check_transfer_containment();
     check_daemon_files();

@@ -3055,6 +3055,137 @@ int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
 
 /* ---- Launcher process and temporary containment ownership -------------- */
 
+/* Keep one canonical INIT buffer as the owner of all caller strings. The
+ * exposed init views can be copied to bind the child's lifetime after launch;
+ * neither that copy nor later mutations of the caller can alter the snapshot. */
+struct btrc_wos_startup_snapshot {
+    btrc_wos_bootstrap_message message;
+    btrc_daemon_init init;
+    btrc_daemon_text *arguments, *environment;
+};
+
+void btrc_wos_startup_snapshot_close(btrc_wos_startup_snapshot **slot) {
+    if (slot == NULL || *slot == NULL) return;
+    btrc_wos_startup_snapshot *owner = *slot;
+    btrc_wos_bootstrap_message_release(&owner->message);
+    free(owner->arguments);
+    free(owner->environment);
+    SecureZeroMemory(owner, sizeof(*owner));
+    free(owner);
+    *slot = NULL;
+}
+
+const btrc_daemon_init *btrc_wos_startup_snapshot_get(const btrc_wos_startup_snapshot *owner) {
+    return owner == NULL ? NULL : &owner->init;
+}
+
+static char *btrc_wos_startup_utf8(const wchar_t *wide, __btrc_windows_launch_error_t *error) {
+    int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide, -1, NULL, 0, NULL, NULL);
+    if (size == 0) { btrc_wos_win32(error, BTRC_WOS_STAGE_ENVIRONMENT); return NULL; }
+    char *text = malloc((size_t)size);
+    if (text == NULL) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+        return NULL;
+    }
+    if (!WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide, -1, text, size, NULL, NULL)) {
+        btrc_wos_win32(error, BTRC_WOS_STAGE_ENVIRONMENT);
+        SecureZeroMemory(text, (size_t)size); free(text); return NULL;
+    }
+    return text;
+}
+
+int btrc_wos_startup_snapshot_open(const __btrc_windows_launch_options_t *command,
+        const btrc_daemon_init *startup, btrc_wos_startup_snapshot **out,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (out != NULL) *out = NULL;
+    if (out == NULL || command == NULL || startup == NULL
+            || command->argc > BTRC_DAEMON_MAX_ITEMS || command->override_count > BTRC_DAEMON_MAX_ITEMS
+            || command->unset_count > BTRC_DAEMON_MAX_ITEMS)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    if (btrc_wos_validate_options(command, error) != 0) return -1;
+    int status = -1;
+    btrc_wos_environment environment = { 0 };
+    wchar_t *directory = NULL;
+    char *cwd = NULL;
+    btrc_daemon_init init = *startup;
+    btrc_wos_startup_snapshot *owner = calloc(1, sizeof(*owner));
+    if (owner == NULL) goto allocation;
+    if (btrc_wos_environment_build(command, &environment, error) != 0) goto done;
+    directory = btrc_wos_base_directory(command->cwd_utf8, error);
+    if (directory == NULL) goto done;
+    cwd = btrc_wos_startup_utf8(directory, error);
+    if (cwd == NULL) goto done;
+    init.cwd = (btrc_daemon_text){ (const unsigned char *)cwd, strlen(cwd) };
+    init.executable = (btrc_daemon_text){ (const unsigned char *)command->executable_utf8, strlen(command->executable_utf8) };
+    init.argument_count = command->argc;
+    init.environment_count = 0;
+    for (const wchar_t *cursor = environment.block; *cursor != 0; cursor += wcslen(cursor) + 1)
+        if (++init.environment_count > BTRC_DAEMON_MAX_ITEMS) goto invalid;
+    owner->arguments = calloc(init.argument_count, sizeof(*owner->arguments));
+    owner->environment = calloc(init.environment_count == 0 ? 1 : init.environment_count, sizeof(*owner->environment));
+    if (owner->arguments == NULL || owner->environment == NULL) goto allocation;
+    for (size_t index = 0; index < init.argument_count; index++) {
+        const char *argument = command->argv_utf8[index];
+        if (argument == NULL) goto invalid;
+        owner->arguments[index] = (btrc_daemon_text){ (const unsigned char *)argument, strlen(argument) };
+    }
+    const wchar_t *cursor = environment.block;
+    for (size_t index = 0; index < init.environment_count; index++) {
+        char *entry = btrc_wos_startup_utf8(cursor, error);
+        if (entry == NULL) goto done;
+        owner->environment[index] = (btrc_daemon_text){ (const unsigned char *)entry, strlen(entry) };
+        cursor += wcslen(cursor) + 1;
+    }
+    init.arguments = owner->arguments;
+    init.environment = owner->environment;
+    size_t size = 0;
+    if (btrc_daemon_encode_init(&init, NULL, 0, &size) != 0) goto invalid;
+    owner->message.bytes = malloc(size);
+    if (owner->message.bytes == NULL) goto allocation;
+    owner->message.size = size;
+    if (btrc_daemon_encode_init(&init, owner->message.bytes, size, &size) != 0
+            || btrc_daemon_decode(owner->message.bytes, size, &owner->message.frame) != 0) goto invalid;
+    status = 0;
+    goto done;
+allocation:
+    btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+    goto done;
+invalid:
+    btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+done:
+    /* Temporary environment strings are owned; argument views still borrow
+     * the caller until they are rebound to the encoded snapshot below. */
+    if (owner != NULL && owner->environment != NULL)
+        for (size_t index = 0; index < init.environment_count; index++)
+            btrc_wos_supervisor_text_free((char *)owner->environment[index].data);
+    btrc_wos_supervisor_text_free(cwd);
+    btrc_wos_supervisor_wide_free(&directory);
+    if (environment.block != NULL) {
+        wchar_t *end = environment.block;
+        while (*end != 0) end += wcslen(end) + 1;
+        SecureZeroMemory(environment.block, (size_t)(end - environment.block + 1) * sizeof(*end));
+    }
+    if (environment.path != NULL) SecureZeroMemory(environment.path, wcslen(environment.path) * sizeof(wchar_t));
+    btrc_wos_environment_free(&environment);
+    SecureZeroMemory(&init, sizeof(init));
+    if (status != 0) { btrc_wos_startup_snapshot_close(&owner); return -1; }
+    const btrc_daemon_frame *frame = &owner->message.frame;
+    memcpy(owner->init.token, frame->token, sizeof(frame->token));
+    owner->init.remaining_startup_ms = frame->remaining_startup_ms;
+    owner->init.lifetime = frame->lifetime; owner->init.auto_restart = frame->auto_restart;
+    owner->init.name = frame->name; owner->init.control_path = frame->control_path; owner->init.log_path = frame->log_path;
+    owner->init.cwd = frame->cwd; owner->init.executable = frame->executable;
+    owner->init.argument_count = frame->arguments.count; owner->init.environment_count = frame->environment.count;
+    owner->init.arguments = owner->arguments; owner->init.environment = owner->environment;
+    btrc_daemon_reader arguments = { frame->arguments.encoded.data, frame->arguments.encoded.size, 1 };
+    btrc_daemon_reader entries = { frame->environment.encoded.data, frame->environment.encoded.size, 1 };
+    for (size_t index = 0; index < frame->arguments.count; index++) owner->arguments[index] = btrc_daemon_read_text(&arguments);
+    for (size_t index = 0; index < frame->environment.count; index++) owner->environment[index] = btrc_daemon_read_text(&entries);
+    *out = owner;
+    return 0;
+}
+
 struct btrc_wos_transfer {
     HANDLE process, thread, job, observed_image;
     HANDLE nulls[3], inherited[5];
@@ -3354,6 +3485,24 @@ failed:
 }
 
 #else
+
+int btrc_wos_startup_snapshot_open(const __btrc_windows_launch_options_t *command,
+        const btrc_daemon_init *startup, btrc_wos_startup_snapshot **out,
+        __btrc_windows_launch_error_t *error) {
+    (void)command; (void)startup;
+    btrc_wos_clear(error);
+    if (out != NULL) *out = NULL;
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
+
+const btrc_daemon_init *btrc_wos_startup_snapshot_get(const btrc_wos_startup_snapshot *owner) {
+    (void)owner;
+    return NULL;
+}
+
+void btrc_wos_startup_snapshot_close(btrc_wos_startup_snapshot **owner) {
+    if (owner != NULL) *owner = NULL;
+}
 
 int btrc_wos_transfer_open(const uint16_t *image_path, void *verified_image,
         const unsigned char nonces[32], uint64_t deadline, btrc_wos_transfer **out,
