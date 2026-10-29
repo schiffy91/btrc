@@ -2507,4 +2507,4 @@ order = { python = 229, btrc = 215 }
 [[external_objects]]
 source = "windows_os.c"
 declarations = "windows_os.h"
-libraries = [{ os = ["windows"], names = ["kernel32"] }]
+libraries = [{ os = ["windows"], names = ["kernel32", "advapi32"] }]

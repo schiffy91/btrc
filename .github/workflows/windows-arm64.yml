@@ -32,6 +32,12 @@ on:
       - flake.lock
       - nix/wgpu-native-prebuilt.nix
   workflow_dispatch:
+    inputs:
+      focus:
+        description: Qualification to run
+        type: choice
+        options: [full, bootstrap-io]
+        default: full
 
 permissions:
   contents: read
@@ -42,6 +48,7 @@ concurrency:
 
 jobs:
   cross:
+    if: github.event_name != 'workflow_dispatch' || inputs.focus != 'bootstrap-io'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -124,5 +131,79 @@ jobs:
           path: |
             build/windows-arm64-native
             build/windows-arm64-msvc
+          if-no-files-found: warn
+          retention-days: 30
+
+  bootstrap-io:
+    if: github.event_name == 'workflow_dispatch' && inputs.focus == 'bootstrap-io'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            architecture: X64
+            target: x86_64-windows-gnu
+          - runner: windows-11-arm
+            architecture: Arm64
+            target: aarch64-windows-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install the pinned native Zig toolchain
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString() -ne '${{ matrix.architecture }}') {
+            throw 'The qualification process is not running on the requested native architecture'
+          }
+          if ('${{ matrix.architecture }}' -eq 'Arm64') {
+            $pins = Get-Content tools/windows_toolchain/pins.json -Raw | ConvertFrom-Json
+            $url = $pins.zig_windows_arm64.tarball
+            $digest = $pins.zig_windows_arm64.shasum
+          } else {
+            $url = 'https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip'
+            $digest = '68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e'
+          }
+          Invoke-WebRequest $url -OutFile zig.zip
+          if ((Get-FileHash zig.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $digest) {
+            throw 'Pinned Zig archive hash mismatch'
+          }
+          Expand-Archive zig.zip zig-install -Force
+          $binary = @(Get-ChildItem zig-install -Filter zig.exe -Recurse)
+          if ($binary.Count -ne 1) { throw 'Expected exactly one Zig executable' }
+          $binary[0].DirectoryName >> $env:GITHUB_PATH
+      - name: Build and execute the bounded bootstrap pipe harness
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force build/bootstrap-io | Out-Null
+          $version = zig version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @{
+            revision = '${{ github.sha }}'
+            target = '${{ matrix.target }}'
+            process_architecture = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
+            os_architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+            zig_version = $version
+          } | ConvertTo-Json | Set-Content build/bootstrap-io/provenance.json
+          zig cc -target '${{ matrix.target }}' -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 -I src/runtime/c src/tests/native/windows_launch/launch_harness.c src/runtime/c/windows_os.c -lshell32 -ladvapi32 -o build/bootstrap-io/harness.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $output = & ./build/bootstrap-io/harness.exe --bootstrap-io 2>&1
+          $status = $LASTEXITCODE
+          $output | Tee-Object build/bootstrap-io/result.log
+          if ($status -ne 0) { exit $status }
+          if (($output | Select-Object -Last 1) -notmatch '^windows-bootstrap-io PASS checks=[1-9][0-9]*$') {
+            throw 'Missing bootstrap pipe success report'
+          }
+      - name: Retain native bootstrap evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bootstrap-io-${{ matrix.architecture }}
+          path: build/bootstrap-io
           if-no-files-found: warn
           retention-days: 30
