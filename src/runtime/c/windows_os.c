@@ -835,7 +835,7 @@ struct __btrc_windows_supervisor_owner {
     btrc_daemon_handshake handshake;
     uint64_t deadline;
     HANDLE job;
-    btrc_wos_daemon_file *log;
+    btrc_wos_daemon_file *log, *record;
     wchar_t *application, *directory, *command_line, *environment;
     size_t environment_units;
     HANDLE diagnostic_copy;
@@ -856,6 +856,24 @@ static int btrc_wos_supervisor_deadline(uint64_t timeout, uint64_t *deadline,
     return 0;
 }
 
+/* The close path and ACK path share exactly the same endpoint cleanup. */
+static int btrc_wos_supervisor_close_pipes(__btrc_windows_supervisor_owner *owner,
+        uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    int status = 0;
+    uint32_t ownership = 0;
+    btrc_wos_bootstrap_pipe **pipes[] = { &owner->request, &owner->reply };
+    for (size_t index = 0; index < sizeof(pipes) / sizeof(pipes[0]); index++) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_bootstrap_close(pipes[index], deadline, &cleanup) != 0) {
+            if (status == 0 && error != NULL) *error = cleanup;
+            if (cleanup.ownership_state > ownership) ownership = cleanup.ownership_state;
+            status = -1;
+        }
+    }
+    if (error != NULL) error->ownership_state = ownership;
+    return status;
+}
+
 /* Drain both endpoints even if the first fails, retaining the first diagnostic
  * and the strongest ownership state. Once closing starts, payload access is
  * forbidden, including when the caller must retry a pending cancellation. */
@@ -868,17 +886,11 @@ static int btrc_wos_supervisor_release(__btrc_windows_supervisor_owner **slot,
         if (error != NULL) error->ownership_state = 2;
         return -1;
     }
-    int status = 0;
-    uint32_t ownership = 0;
-    btrc_wos_bootstrap_pipe **pipes[] = { &owner->request, &owner->reply };
-    for (size_t index = 0; index < sizeof(pipes) / sizeof(pipes[0]); index++) {
-        __btrc_windows_launch_error_t cleanup;
-        if (btrc_wos_bootstrap_close(pipes[index], deadline, &cleanup) != 0) {
-            if (status == 0 && error != NULL) *error = cleanup;
-            if (cleanup.ownership_state > ownership) ownership = cleanup.ownership_state;
-            status = -1;
-        }
-    }
+    __btrc_windows_launch_error_t pipe_cleanup;
+    btrc_wos_clear(&pipe_cleanup);
+    int status = btrc_wos_supervisor_close_pipes(owner, deadline, &pipe_cleanup);
+    uint32_t ownership = pipe_cleanup.ownership_state;
+    if (status != 0 && error != NULL) *error = pipe_cleanup;
     __btrc_windows_launch_error_t prepared_cleanup;
     btrc_wos_clear(&prepared_cleanup);
     if (btrc_wos_supervisor_prepared_release(owner, &prepared_cleanup) != 0) {
@@ -2695,7 +2707,8 @@ static int btrc_wos_supervisor_prepared_release(__btrc_windows_supervisor_owner 
         }
         *handles[index] = NULL;
     }
-    if (btrc_wos_daemon_file_close(&owner->log, error) != 0) { owner->poisoned = 1; return -1; }
+    if (btrc_wos_daemon_file_close(&owner->record, error) != 0
+            || btrc_wos_daemon_file_close(&owner->log, error) != 0) { owner->poisoned = 1; return -1; }
     btrc_wos_supervisor_wide_free(&owner->application);
     btrc_wos_supervisor_wide_free(&owner->directory);
     btrc_wos_supervisor_wide_free(&owner->command_line);
@@ -2741,7 +2754,113 @@ failed:
     return -1;
 }
 
+int __btrc_windows_supervisor_ready_wait_commit(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (owner == NULL || owner->closing || owner->poisoned || owner->handshake.failed
+            || !owner->handshake.prepared || owner->handshake.last_type != BTRC_DAEMON_INIT) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+        if (error != NULL && owner != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+        return -1;
+    }
+    btrc_daemon_frame ready;
+    memset(&ready, 0, sizeof(ready));
+    ready.type = BTRC_DAEMON_READY;
+    ready.supervisor_pid = owner->handshake.supervisor_pid;
+    ready.lifetime = owner->handshake.lifetime;
+    int status = btrc_wos_bootstrap_send_signal(owner->reply, &owner->handshake,
+        &ready, owner->deadline, error);
+    if (status == 0) {
+        btrc_wos_bootstrap_message commit = { 0 };
+        status = btrc_wos_bootstrap_receive(owner->request, &owner->handshake,
+            &commit, owner->deadline, error);
+        btrc_wos_bootstrap_message_release(&commit);
+    }
+    if (status != 0) {
+        owner->handshake.failed = 1;
+        /* No process can exist before COMMIT. Releasing preparation aborts
+         * the empty job and restores diagnostics before the caller exits. */
+        __btrc_windows_launch_error_t cleanup;
+        btrc_wos_clear(&cleanup);
+        if (btrc_wos_supervisor_prepared_release(owner, &cleanup) != 0 && error != NULL) *error = cleanup;
+        if (error != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+    }
+    return status;
+}
+
+int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
+        uint32_t *ack_delivered, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (ack_delivered != NULL) *ack_delivered = 0;
+    if (owner == NULL || ack_delivered == NULL || owner->closing || owner->poisoned
+            || owner->handshake.failed || !owner->handshake.prepared
+            || !owner->handshake.commit_accepted || owner->handshake.record_verified
+            || owner->handshake.last_type != BTRC_DAEMON_COMMIT) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+        if (error != NULL && owner != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+        return -1;
+    }
+    if (btrc_wos_daemon_record_open(owner->startup.frame.control_path.data,
+            owner->startup.frame.control_path.size, owner->handshake.token,
+            owner->handshake.supervisor_pid, &owner->record, error) != 0) {
+        owner->handshake.failed = 1;
+        /* A failed file open retains an owner only after uncertain cleanup,
+         * including when this caller omitted its diagnostic output. */
+        if (owner->record != NULL) owner->poisoned = 1;
+        if (error != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+        return -1;
+    }
+    (void)btrc_daemon_handshake_record_verified(&owner->handshake);
+    btrc_daemon_frame ack;
+    memset(&ack, 0, sizeof(ack));
+    ack.type = BTRC_DAEMON_ACK;
+    ack.supervisor_pid = owner->handshake.supervisor_pid;
+    ack.lifetime = owner->handshake.lifetime;
+    memcpy(ack.token, owner->handshake.token, sizeof(ack.token));
+    int delivered = btrc_wos_bootstrap_send_signal(owner->reply, &owner->handshake,
+        &ack, owner->deadline, error) == 0;
+    SecureZeroMemory(&ack, sizeof(ack));
+    /* Hold the verified record through ACK. Delivery loss does not revoke a
+     * complete COMMIT, but an uncertain release never authorizes execution. */
+    __btrc_windows_launch_error_t cleanup;
+    btrc_wos_clear(&cleanup);
+    int status = btrc_wos_supervisor_close_pipes(owner, owner->deadline, &cleanup);
+    __btrc_windows_launch_error_t record_cleanup;
+    btrc_wos_clear(&record_cleanup);
+    if (btrc_wos_daemon_file_close(&owner->record, &record_cleanup) != 0) {
+        if (status == 0) cleanup = record_cleanup;
+        status = -1;
+    }
+    btrc_wos_bootstrap_message_release(&owner->startup);
+    SecureZeroMemory(owner->handshake.token, sizeof(owner->handshake.token));
+    if (status != 0) {
+        owner->poisoned = 1;
+        owner->handshake.failed = 1;
+        if (error != NULL) { *error = cleanup; error->ownership_state = 2; }
+        return -1;
+    }
+    (void)btrc_daemon_handshake_bootstrap_closed(&owner->handshake);
+    *ack_delivered = (uint32_t)delivered;
+    btrc_wos_clear(error);
+    return 0;
+}
+
 #else
+
+int __btrc_windows_supervisor_ready_wait_commit(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    (void)owner;
+    btrc_wos_clear(error);
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
+
+int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
+        uint32_t *ack_delivered, __btrc_windows_launch_error_t *error) {
+    (void)owner;
+    if (ack_delivered != NULL) *ack_delivered = 0;
+    btrc_wos_clear(error);
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
 
 int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
         __btrc_windows_launch_error_t *error) {

@@ -24,8 +24,12 @@ static int supervisor_off_windows(void) {
     unsigned char output = 0xA5;
     int copied = __btrc_windows_supervisor_copy_startup(owner, &output, 1, &required, &error);
     int prepared = __btrc_windows_supervisor_prepare(owner, &error);
-    printf("accept=%d owner=%s copy=%d prepare=%d required=%zu output=%u stage=%u domain=%u ",
-        accepted != 0, owner == NULL ? "null" : "set", copied != 0, prepared != 0, required, (unsigned)output,
+    int committed = __btrc_windows_supervisor_ready_wait_commit(owner, &error);
+    uint32_t delivered = 99;
+    int acknowledged = __btrc_windows_supervisor_ack(owner, &delivered, &error);
+    printf("accept=%d owner=%s copy=%d prepare=%d commit=%d ack=%d delivered=%u required=%zu output=%u stage=%u domain=%u ",
+        accepted != 0, owner == NULL ? "null" : "set", copied != 0, prepared != 0,
+        committed != 0, acknowledged != 0, (unsigned)delivered, required, (unsigned)output,
         (unsigned)error.stage, (unsigned)error.domain);
     printf("close=%d\n", __btrc_windows_supervisor_close(&owner, 0, &error));
     return 0;

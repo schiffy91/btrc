@@ -1186,6 +1186,57 @@ static int child_supervisor_preparation(__btrc_windows_supervisor_owner *owner) 
     return 0;
 }
 
+static int child_supervisor_commit(__btrc_windows_supervisor_owner *owner, const btrc_daemon_frame *frame) {
+    __btrc_windows_launch_error_t error;
+    uint32_t delivered = 99;
+    /* Preparation and publication are native prerequisites, not caller flags. */
+    if (__btrc_windows_supervisor_ready_wait_commit(owner, &error) == 0
+            || __btrc_windows_supervisor_ack(owner, &delivered, &error) == 0
+            || delivered != 0) return 82;
+    int prepared = child_supervisor_preparation(owner);
+    if (prepared != 0) return prepared;
+    if (__btrc_windows_supervisor_ack(owner, &delivered, &error) == 0 || delivered != 0) return 83;
+    if (__btrc_windows_supervisor_ready_wait_commit(owner, &error) != 0)
+        return error.ownership_state == 1 ? 80 : 84;
+    if (frame->name.size != 9) return 85;
+    int scenario = (frame->name.data[7] - '0') * 10 + frame->name.data[8] - '0';
+    if (scenario != 25) {
+        char path[4096]; wchar_t wide[4096];
+        if (frame->control_path.size >= sizeof(path)) return 86;
+        memcpy(path, frame->control_path.data, frame->control_path.size);
+        path[frame->control_path.size] = 0;
+        if (to_wide(path, wide, 4096) != 0) return 86;
+        char record[80] = "btrc-daemon-v1\n";
+        size_t length = strlen(record);
+        static const char hex[] = "0123456789abcdef";
+        for (size_t index = 0; index < 16; index++) {
+            record[length++] = hex[frame->token[index] >> 4];
+            record[length++] = hex[frame->token[index] & 15];
+        }
+        snprintf(record + length, sizeof(record) - length, "\n%lu\n", (unsigned long)GetCurrentProcessId());
+        void *descriptor = NULL;
+        if (btrcWinPrivateDescriptor(0, &descriptor) != 0) return 87;
+        int published = daemon_fixture_file(wide, record, descriptor);
+        /* Replace the published record before the runtime reopens it. */
+        if (published == 0 && scenario == 26) {
+            record[strlen("btrc-daemon-v1\n")] = 'f';
+            if (!DeleteFileW(wide)) published = -1;
+            else published = daemon_fixture_file(wide, record, descriptor);
+        }
+        free(descriptor);
+        SecureZeroMemory(record, sizeof(record));
+        if (published != 0) return 88;
+    }
+    int acknowledged = __btrc_windows_supervisor_ack(owner, &delivered, &error);
+    if (scenario == 25 || scenario == 26)
+        return acknowledged != 0 && delivered == 0 && error.ownership_state == 1 ? 81 : 89;
+    if (acknowledged != 0 || delivered != (scenario == 27 ? 0u : 1u)) return 90;
+    size_t size = 99;
+    if (__btrc_windows_supervisor_copy_startup(owner, NULL, 0, &size, &error) == 0 || size != 0) return 91;
+    if (__btrc_windows_supervisor_ack(owner, &delivered, &error) == 0 || delivered != 0) return 92;
+    return 0;
+}
+
 static int child_bootstrap_admission(void) {
     __btrc_windows_supervisor_owner *owner = NULL;
     __btrc_windows_launch_error_t error;
@@ -1230,7 +1281,9 @@ static int child_bootstrap_admission(void) {
     btrc_daemon_frame frame;
     if (btrc_daemon_decode(copy, size + BTRC_DAEMON_HEADER_BYTES, &frame) != 0) return 44;
     int outcome = 0;
-    if (frame.name.size >= 7 && memcmp(frame.name.data, "prepare", 7) == 0) {
+    if (frame.name.size >= 7 && memcmp(frame.name.data, "commit-", 7) == 0) {
+        outcome = child_supervisor_commit(owner, &frame);
+    } else if (frame.name.size >= 7 && memcmp(frame.name.data, "prepare", 7) == 0) {
         outcome = child_supervisor_preparation(owner);
     } else {
         if (frame.type != BTRC_DAEMON_INIT || frame.name.size != 11
@@ -1272,13 +1325,30 @@ static int child_bootstrap_admission(void) {
     return outcome;
 }
 
+/* Fixture reads use their own OVERLAPPED. On a stuck kernel operation exit
+ * without unwinding its stack storage; production cancellation is tested above. */
+static int admission_read(HANDLE pipe, unsigned char *bytes, DWORD size) {
+    OVERLAPPED operation;
+    memset(&operation, 0, sizeof(operation));
+    operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (operation.hEvent == NULL) ExitProcess(3);
+    DWORD received = 0;
+    BOOL read = ReadFile(pipe, bytes, size, &received, &operation);
+    if (!read && GetLastError() == ERROR_IO_PENDING) {
+        if (WaitForSingleObject(operation.hEvent, 3000) != WAIT_OBJECT_0) ExitProcess(3);
+        read = GetOverlappedResult(pipe, &operation, &received, FALSE);
+    }
+    CloseHandle(operation.hEvent);
+    return read && received == size ? 0 : -1;
+}
+
 /* This fixture creates the launcher's five real handles directly, so admission
  * cannot validate its own synthetic handle descriptions. Only the valid case
  * exercises I/O; bad inheritance, direction and mode fail before a read. */
 static void check_bootstrap_admission(void) {
     DWORD before = 0, after = 0;
     CHECK("admission initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
-    for (int scenario = 0; scenario < 20; scenario++) {
+    for (int scenario = 0; scenario < 28; scenario++) {
         void *descriptor = NULL;
         int private_status = btrcWinPrivateDescriptor(0, &descriptor);
         CHECK("admission fixture private descriptor", private_status == 0);
@@ -1394,6 +1464,11 @@ static void check_bootstrap_admission(void) {
                 if (scenario == 17) init.control_path = init.log_path;
                 if (scenario == 19) init.executable = (btrc_daemon_text){ (const unsigned char *)"btrc-no-such-tool.exe", 21 };
             }
+            char commit_name[16];
+            if (scenario >= 20) {
+                snprintf(commit_name, sizeof(commit_name), "commit-%d", scenario);
+                init.name = (btrc_daemon_text){ (const unsigned char *)commit_name, strlen(commit_name) };
+            }
             unsigned char bytes[16384];
             size_t encoded = 0;
             CHECK("admission fixture encodes full startup", btrc_daemon_encode_init(&init, bytes, sizeof(bytes), &encoded) == 0);
@@ -1408,6 +1483,34 @@ static void check_bootstrap_admission(void) {
             SecureZeroMemory(&init, sizeof(init));
             if (scenario == 9) { CloseHandle(handles[1]); handles[1] = NULL; }
         }
+        if (scenario >= 20) {
+            unsigned char bytes[BTRC_DAEMON_HEADER_BYTES + 24] = { 0 };
+            btrc_daemon_frame frame;
+            CHECK("prepared supervisor sends READY", admission_read(handles[2], bytes, BTRC_DAEMON_HEADER_BYTES + 8) == 0
+                && btrc_daemon_decode(bytes, BTRC_DAEMON_HEADER_BYTES + 8, &frame) == 0
+                && frame.type == BTRC_DAEMON_READY && frame.supervisor_pid == process.dwProcessId && frame.lifetime == 1);
+            if (scenario == 27) { CloseHandle(handles[2]); handles[2] = NULL; }
+            if (scenario != 23 && scenario != 24) {
+                memset(&frame, 0, sizeof(frame));
+                frame.type = BTRC_DAEMON_COMMIT;
+                for (size_t index = 0; index < 16; index++) frame.token[index] = (unsigned char)(index + 1);
+                if (scenario == 21) frame.token[0] ^= 1;
+                size_t encoded = 0;
+                CHECK("fixture encodes COMMIT", btrc_daemon_encode_signal(&frame, bytes, sizeof(bytes), &encoded) == 0);
+                if (scenario == 22) encoded--;
+                DWORD written = 0;
+                CHECK("fixture writes COMMIT", WriteFile(handles[1], bytes, (DWORD)encoded, &written, NULL) && written == encoded);
+            }
+            if (scenario == 22 || scenario == 23) { CloseHandle(handles[1]); handles[1] = NULL; }
+            if (scenario == 20) {
+                CHECK("verified publication delivers authenticated ACK", admission_read(handles[2], bytes, sizeof(bytes)) == 0
+                    && btrc_daemon_decode(bytes, sizeof(bytes), &frame) == 0
+                    && frame.type == BTRC_DAEMON_ACK && frame.supervisor_pid == process.dwProcessId && frame.lifetime == 1);
+                for (size_t index = 0; index < 16; index++) CHECK("ACK preserves exact token", frame.token[index] == index + 1);
+            }
+            SecureZeroMemory(bytes, sizeof(bytes));
+            SecureZeroMemory(&frame, sizeof(frame));
+        }
         DWORD waited = WaitForSingleObject(process.hProcess, 3000);
         CHECK("admission or refusal completes within deadline", waited == WAIT_OBJECT_0);
         if (waited != WAIT_OBJECT_0) {
@@ -1417,6 +1520,7 @@ static void check_bootstrap_admission(void) {
         DWORD exit_code = 0;
         GetExitCodeProcess(process.hProcess, &exit_code);
         DWORD expected = scenario == 0 || scenario == 13 ? 0 : scenario >= 14 ? 72 : 31;
+        if (scenario >= 20) expected = scenario == 20 || scenario == 27 ? 0 : scenario <= 24 ? 80 : 81;
         if (exit_code != expected) report("admission scenario=%d exit=%lu\n", scenario, (unsigned long)exit_code);
         CHECK("admission and preparation check native capabilities", exit_code == expected);
         if (scenario == 0 && exit_code == 0) {
@@ -1435,7 +1539,11 @@ static void check_bootstrap_admission(void) {
         }
         CloseHandle(process.hProcess);
         if (handles[1] != NULL) CloseHandle(handles[1]);
-        CloseHandle(handles[2]);
+        if (scenario == 25 || scenario == 26) {
+            unsigned char byte = 0;
+            CHECK("unverified publication sends no ACK", admission_read(handles[2], &byte, 1) != 0);
+        }
+        if (handles[2] != NULL) CloseHandle(handles[2]);
         if (scenario >= 13) {
             HANDLE log = CreateFileW(prepared_log, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
             char bytes[128] = { 0 };
@@ -1443,11 +1551,13 @@ static void check_bootstrap_admission(void) {
             CHECK("preparation log can be read after owner close", log != INVALID_HANDLE_VALUE
                 && ReadFile(log, bytes, sizeof(bytes) - 1, &received, NULL));
             if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
-            const char *expected_log = scenario == 13
+            const char *expected_log = scenario == 13 || scenario >= 20
                 ? "preserved\ncrt-out\ncrt-error\nnative-out\nnative-error\n" : "preserved\n";
             CHECK("preparation preserves append contents and restores diagnostics", strcmp(bytes, expected_log) == 0);
-            CHECK("preparation never publishes a control record", GetFileAttributesW(prepared_control) == INVALID_FILE_ATTRIBUTES
-                && GetLastError() == ERROR_FILE_NOT_FOUND);
+            if (scenario == 20 || scenario == 26 || scenario == 27)
+                CHECK("ACK releases verified record holds", DeleteFileW(prepared_control));
+            else CHECK("preparation never publishes a control record", GetFileAttributesW(prepared_control) == INVALID_FILE_ATTRIBUTES
+                    && GetLastError() == ERROR_FILE_NOT_FOUND);
             CHECK("preparation releases held log and ancestry", DeleteFileW(prepared_log) && RemoveDirectoryW(prepared_directory));
         }
     }
