@@ -1314,7 +1314,8 @@ class ControlFlowValidator {
 		if (statement.kind == NK_GOTO_STMT) {
 			self.validateGoto(statement);
 			JumpScopeIndex index = self.jumpIndex(self.jumpRoots.get(self.jumpRoots.len - 1));
-			if (!index.isBackward(statement)) { self.flow.recordGoto(index.target(statement).node); }
+			JumpSite? target = index.target(statement);
+			if (target != null && !index.isBackward(statement)) { self.flow.recordGoto(target.node); }
 		} else if (statement.kind == NK_LABEL_STMT) {
 			self.validateLabelIdentity(statement, vars);
 			self.enterLabelFlow(statement);

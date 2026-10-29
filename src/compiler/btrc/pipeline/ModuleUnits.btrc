@@ -2794,8 +2794,9 @@ class ValidationRecordCodec {
 		for fact in journal.facts {
 			string line = Strings.fromInt(fact.kind);
 			if (fact.kind == VALIDATION_CLASS_CALLABLE) {
-				if (fact.value == null || !ValidationRecordCodec.plain(fact.name) || !ValidationRecordCodec.plain(fact.member) || !ValidationRecordCodec.plain(fact.detail)) { return null; }
-				string? receiver = self.typeText(fact.value, ownSlot, own, foreign);
+				Node? value = fact.value;
+				if (value == null || !ValidationRecordCodec.plain(fact.name) || !ValidationRecordCodec.plain(fact.member) || !ValidationRecordCodec.plain(fact.detail)) { return null; }
+				string? receiver = self.typeText(value, ownSlot, own, foreign);
 				if (receiver == null) { return null; }
 				line = line + "\t" + fact.name + "\t" + fact.member + "\t" + fact.detail + "\t" + receiver;
 			} else if (fact.kind == VALIDATION_GENERIC_CLASS) {

@@ -1245,10 +1245,8 @@ class TypeValidator {
 			for extent in canonical.elements() {
 				if (extent.arraySize == null || self.variablyModified(extent)) { return false; }
 			}
-			Node element = TypeShape.copy(canonical);
+			Node element = TypeShape.copyWithoutArraySize(canonical, canonical.genericArgs());
 			element.isArray = false;
-			element.arraySize = null;
-			element.elementsStorage = null;
 			return self.plainCObjectVisiting(element, visiting);
 		}
 		if (canonical.pointerDepth > 0) { return true; }

@@ -441,9 +441,10 @@ class RealtimeAnalyzer {
 	private void visit(Node? node, RealtimeCallable callable) {
 		if (node == null || node.kind == NK_TYPE_EXPR) { return; }
 		if (node.kind == NK_GOTO_STMT) {
-			if (self.jumpRoot != null) {
-				string key = AstIdentity.key(self.jumpRoot);
-				if (!self.jumpIndexes.has(key)) { self.jumpIndexes.put(key, JumpScopeIndex.build(self.jumpRoot)); }
+			Node? root = self.jumpRoot;
+			if (root != null) {
+				string key = AstIdentity.key(root);
+				if (!self.jumpIndexes.has(key)) { self.jumpIndexes.put(key, JumpScopeIndex.build(root)); }
 				if (self.jumpIndexes.get(key).isBackward(node)) { self.effect(callable, "blocking", "backward goto '" + node.name + "'", node); }
 			}
 			return;
