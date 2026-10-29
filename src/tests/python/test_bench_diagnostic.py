@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,40 @@ def diagnostic(tmp_path: Path) -> MemoryDiagnostic:
     return MemoryDiagnostic(tmp_path, tmp_path / "evidence", tmp_path / "trees", "a" * 40, ["cc"])
 
 
+def test_direct_container_entry_loads_native_tools_once_without_interpreting_arguments(tmp_path, monkeypatch):
+    shell = tmp_path / "shell environment.sh"
+    shell.write_text('export BTRC_NATIVE_HEADER_READER="/image/reader"\nexport PKG_CONFIG_PATH="/image/packages"\n')
+    monkeypatch.setenv("DEVCONTAINER", "true")
+    monkeypatch.setenv("BASH_ENV", str(shell))
+    monkeypatch.delenv("BTRC_BENCH_DIAGNOSTIC_SHELL", raising=False)
+    arguments = ["--candidate", "literal $(exit 9); value", "--output", "directory with spaces"]
+    command = MemoryDiagnostic.container_command(arguments)
+    assert command[4:] == [sys.executable, "-m", "tools.bench.diagnostic", *arguments]
+    # Exercise the actual bootstrap shell with a harmless observer replacing
+    # the benchmark module. The image environment must reach direct Python.
+    observed = subprocess.run(
+        [
+            *command[:4],
+            sys.executable,
+            "-c",
+            "import json,os,sys; print(json.dumps([os.environ['BTRC_NATIVE_HEADER_READER'], "
+            "os.environ['PKG_CONFIG_PATH'], os.environ['BTRC_BENCH_DIAGNOSTIC_SHELL'], sys.argv[1:]]))",
+            *arguments,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+        env=dict(os.environ),
+    )
+    assert json.loads(observed.stdout) == ["/image/reader", "/image/packages", "1", arguments]
+    monkeypatch.setenv("BTRC_BENCH_DIAGNOSTIC_SHELL", "1")
+    assert MemoryDiagnostic.container_command(arguments) is None
+    monkeypatch.delenv("BTRC_BENCH_DIAGNOSTIC_SHELL")
+    monkeypatch.setenv("DEVCONTAINER", "false")
+    assert MemoryDiagnostic.container_command(arguments) is None
+
+
 def test_environment_is_per_tree_and_receipt_does_not_dump_secrets(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("BTRC_HOME", "/wrong/home")
     monkeypatch.setenv("BTRC_TIMING", "1")
@@ -25,6 +61,8 @@ def test_environment_is_per_tree_and_receipt_does_not_dump_secrets(tmp_path: Pat
     monkeypatch.setenv("LANG", "C.UTF-8")
     monkeypatch.setenv("LC_ALL", "C")
     monkeypatch.setenv("LC_CTYPE", "C.UTF-8")
+    monkeypatch.setenv("BTRC_NATIVE_HEADER_READER", "/image/reader")
+    monkeypatch.setenv("PKG_CONFIG_PATH", "/image/packages")
     env = MemoryDiagnostic.environment(tmp_path)
     assert env["BTRC_HOME"] == str(tmp_path / "src")
     assert "BTRC_TIMING" not in env and "PYTHONPATH" not in env
@@ -36,6 +74,18 @@ def test_environment_is_per_tree_and_receipt_does_not_dump_secrets(tmp_path: Pat
     }
     assert "GH_TOKEN" not in recorded
     assert "must-not-appear" not in json.dumps(recorded)
+    assert recorded["BTRC_NATIVE_HEADER_READER"] == "/image/reader"
+    assert recorded["PKG_CONFIG_PATH"] == "/image/packages"
+
+
+def test_missing_native_reader_fails_before_starting_expensive_builds(monkeypatch, capsys):
+    monkeypatch.setenv("BTRC_BENCH_DIAGNOSTIC_SHELL", "1")
+    monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)
+    monkeypatch.setattr(MemoryDiagnostic, "execute", lambda self: pytest.fail("must not start compiler builds"))
+    with pytest.raises(SystemExit) as failure:
+        MemoryDiagnostic.main(["--candidate", "a" * 40])
+    assert failure.value.code == 2
+    assert "native header reader is unavailable" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("status", [0, 3])
