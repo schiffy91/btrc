@@ -4641,3 +4641,18 @@ Generic callable parity, complete invalidation coverage, stamped-output
 integration and BTRSmith warm-build qualification remain open. No issue is
 closed by this packet. No CI, GitHub write, full compiler build, application,
 guest or measurement ran.
+
+### 2026-10-28 issue #8 generic callable demand
+
+Packet: CX-GENERIC-CALLABLE-DEMAND. Branch
+`codex/generic-callable-demand-20261028`, base `11c80878`. Own native generic
+callable dependency capture and replay, per-specialization lowering selection,
+shared program facts and focused parity tests. Existing analysis walks record
+which callable uses another; root and lifecycle demands close over that graph.
+Only selected ordinary methods and property accessors lower. Generic method
+specializations retain their separate analysis contract. Validate cold/warm
+analysis and cross-frontend artifacts before removing the explicit policy
+mismatch from keys. No CI, GitHub writes, full compiler or application runs.
+The existing generic guard baseline passes on the retained driver. An initial
+baseline invocation omitted BTRC_CC and selected a different compiler identity;
+its redundant transpile was stopped. Pin BTRC_CC=/usr/bin/clang for all runs.
