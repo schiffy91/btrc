@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { readChildPid } = require('./process_fixture');
 const {
     HostRuntime,
 } = require(path.resolve(
@@ -287,7 +288,7 @@ test('probe timeout terminates descendants created by an interpreter wrapper', {
     try {
         const supported = await probeBtrcPython(command, undefined, 1000);
         assert.equal(supported, false);
-        childPid = Number(fs.readFileSync(pidFile, 'utf8'));
+        childPid = readChildPid(pidFile);
         assert.equal(await waitUntilDead(childPid), true, 'probe descendant survived timeout cleanup');
         childPid = undefined;
     } finally {
@@ -319,7 +320,7 @@ test('successful probe cleanup terminates wrapper descendants', {
     let childPid;
     try {
         assert.equal(await probeBtrcPython(command, undefined, 2000), true);
-        childPid = Number(fs.readFileSync(pidFile, 'utf8'));
+        childPid = readChildPid(pidFile);
         assert.equal(await waitUntilDead(childPid), true, 'probe descendant survived successful cleanup');
         childPid = undefined;
     } finally {
