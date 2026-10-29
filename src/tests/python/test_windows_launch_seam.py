@@ -214,6 +214,35 @@ def test_runtime_object_builds_strictly_for_the_host(probe):
     assert probe.is_file()
 
 
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ('"C:\\app.exe" --btrc-daemon-bootstrap-v1 4 8', "0 10 4 8"),
+        ('"C:\\space \U0001f600\\app.exe" --btrc-daemon-bootstrap-v1 8 16', "0 19 8 16"),
+        ('"app" --btrc-daemon-bootstrap-v1 0 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 04 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 +4 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 -4 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 4', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 18446744073709551616', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 18446744073709551615', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 8 ', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 8 extra', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4  8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4\t8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v2 4 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 8\0', "-1 0 0 0"),
+        ('"app\0" --btrc-daemon-bootstrap-v1 4 8', "-1 0 0 0"),
+        ('"app\n" --btrc-daemon-bootstrap-v1 4 8', "-1 0 0 0"),
+        ('"" --btrc-daemon-bootstrap-v1 4 8', "-1 0 0 0"),
+        ("app --btrc-daemon-bootstrap-v1 4 8", "-1 0 0 0"),
+        ('"' + "a" * 32767 + '" --btrc-daemon-bootstrap-v1 4 8', "-1 0 0 0"),
+    ],
+)
+def test_reserved_bootstrap_invocation_is_exact_and_clears_failed_outputs(probe, command, expected):
+    assert quote(probe, ["--bootstrap-invocation", command.encode("utf-16-be").hex()]).strip() == expected
+
+
 DECLARATION = (RUNTIME / "windows_os.h").read_text(encoding="utf-8")
 
 

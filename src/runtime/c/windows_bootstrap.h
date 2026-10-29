@@ -10,6 +10,17 @@
 
 typedef struct btrc_wos_bootstrap_pipe btrc_wos_bootstrap_pipe;
 
+/* Exact reserved UTF-16 invocation, without its NUL. image_units describes the
+ * quoted executable starting at command[1]. No handles are acquired here. */
+int btrc_wos_bootstrap_invocation(const uint16_t *command, size_t units,
+    size_t *image_units, uintptr_t *request, uintptr_t *reply);
+
+/* Supervisor-only admission from GetCommandLineW. Check the five inherited
+ * handles and clear inheritance before adopting the two pipe ends. The CRT
+ * retains its three standard handles. Failed cleanup retains opaque owners. */
+int btrc_wos_bootstrap_admit(btrc_wos_bootstrap_pipe **request,
+    btrc_wos_bootstrap_pipe **reply, __btrc_windows_launch_error_t *error);
+
 typedef struct {
     unsigned char *bytes;
     size_t size;

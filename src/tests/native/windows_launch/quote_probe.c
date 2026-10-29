@@ -7,11 +7,30 @@
  * Quoting is portable C, so its CommandLineToArgvW contract is checked here
  * without a Windows host; the launch entries report an unsupported host. */
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "windows_os.h"
+#include "windows_bootstrap.h"
+
+static int bootstrap_invocation(const char *hex) {
+    size_t units = strlen(hex) / 4;
+    uint16_t *command = (uint16_t *)calloc(units + 1, sizeof(*command));
+    if (command == NULL || strlen(hex) % 4 != 0) { free(command); return 2; }
+    for (size_t index = 0; index < units; index++) {
+        char word[5] = { 0 };
+        memcpy(word, hex + 4 * index, 4);
+        command[index] = (uint16_t)strtoul(word, NULL, 16);
+    }
+    size_t image = 99;
+    uintptr_t request = 99, reply = 99;
+    int status = btrc_wos_bootstrap_invocation(command, units, &image, &request, &reply);
+    printf("%d %zu %" PRIuPTR " %" PRIuPTR "\n", status, image, request, reply);
+    free(command);
+    return 0;
+}
 
 static int launch_off_windows(void) {
     char *arguments[] = { "probe", NULL };
@@ -33,6 +52,7 @@ static int launch_off_windows(void) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 3 && strcmp(argv[1], "--bootstrap-invocation") == 0) return bootstrap_invocation(argv[2]);
     if (argc == 2 && strcmp(argv[1], "--launch") == 0) return launch_off_windows();
     size_t required = 0;
     __btrc_windows_launch_error_t error;

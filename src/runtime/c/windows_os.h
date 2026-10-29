@@ -26,7 +26,7 @@
  * 9 CreateProcessW, 10 job assignment, 11 resume, 12 pipe I/O, 13 wait,
  * 14 termination, 15 unsupported host, 16 environment, 17 working directory,
  * 18 buffer capacity. Error domain: 0 none, 1 validation, 2 Win32
- * (native_code is the GetLastError value), 4 runtime refusal. Ownership
+ * (native_code is the GetLastError value), 3 raw NTSTATUS, 4 runtime refusal. Ownership
  * state: 0 none or released, 1 a live owner is retained, 2 poisoned. */
 typedef struct __btrc_windows_launch_owner_t __btrc_windows_launch_owner_t;
 typedef struct {

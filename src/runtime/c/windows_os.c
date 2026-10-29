@@ -33,6 +33,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <winternl.h>
 #include "windows_security.h"
 #endif
 
@@ -62,6 +63,7 @@ enum {
     BTRC_WOS_DOMAIN_NONE = 0,
     BTRC_WOS_DOMAIN_VALIDATION = 1,
     BTRC_WOS_DOMAIN_WIN32 = 2,
+    BTRC_WOS_DOMAIN_NTSTATUS = 3,
     BTRC_WOS_DOMAIN_REFUSAL = 4
 };
 /* native_code values of the validation domain. */
@@ -81,6 +83,42 @@ enum {
 
 /* The longest command line CreateProcessW accepts, its NUL included. */
 #define BTRC_WOS_COMMAND_LINE_UNITS 32767u
+
+int btrc_wos_bootstrap_invocation(const uint16_t *command, size_t units,
+        size_t *image_units, uintptr_t *request, uintptr_t *reply) {
+    if (image_units != NULL) *image_units = 0;
+    if (request != NULL) *request = 0;
+    if (reply != NULL) *reply = 0;
+    if (command == NULL || image_units == NULL || request == NULL || reply == NULL
+            || request == reply || units >= BTRC_WOS_COMMAND_LINE_UNITS || units < 4 || command[0] != '"') return -1;
+    size_t offset = 1;
+    while (offset < units && command[offset] != '"') {
+        if (command[offset] == 0 || command[offset] == '\r' || command[offset] == '\n') return -1;
+        offset++;
+    }
+    if (offset == 1 || offset == units) return -1;
+    size_t image = offset - 1;
+    static const char suffix[] = "\" --btrc-daemon-bootstrap-v1 ";
+    for (size_t index = 0; index < sizeof(suffix) - 1; index++) {
+        if (offset == units || command[offset++] != (unsigned char)suffix[index]) return -1;
+    }
+    uintptr_t handles[2] = { 0, 0 };
+    for (size_t index = 0; index < 2; index++) {
+        if (offset == units || command[offset] < '1' || command[offset] > '9') return -1;
+        while (offset < units && command[offset] >= '0' && command[offset] <= '9') {
+            uintptr_t digit = command[offset++] - '0';
+            if (handles[index] > (UINTPTR_MAX - digit) / 10) return -1;
+            handles[index] = handles[index] * 10 + digit;
+        }
+        if (handles[index] == UINTPTR_MAX) return -1;
+        if (index == 0 && (offset == units || command[offset++] != ' ')) return -1;
+    }
+    if (offset != units || handles[0] == handles[1]) return -1;
+    *image_units = image;
+    *request = handles[0];
+    *reply = handles[1];
+    return 0;
+}
 
 static void btrc_wos_clear(__btrc_windows_launch_error_t *error) {
     if (error != NULL) memset(error, 0, sizeof(*error));
@@ -388,6 +426,119 @@ int btrc_wos_bootstrap_close(btrc_wos_bootstrap_pipe **slot, uint64_t deadline,
     return 0;
 }
 
+/* ObjectBasicInformation exposes granted access; FileModeInformation exposes
+ * synchronous flags. Query these metadata classes only on local pipe handles,
+ * before any read can block. ntdll exports are resolved without adding a second
+ * native handle owner or introducing a dependency from runtime to stdlib. */
+static int btrc_wos_bootstrap_pipe_kind(HANDLE handle, int reading,
+        __btrc_windows_launch_error_t *error) {
+    DWORD flags = 0;
+    if (GetFileType(handle) != FILE_TYPE_PIPE
+            || !GetNamedPipeInfo(handle, &flags, NULL, NULL, NULL)
+            || (flags & PIPE_TYPE_MESSAGE) != 0
+            || ((flags & PIPE_SERVER_END) != 0) != reading)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_HANDLE);
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    typedef NTSTATUS (NTAPI *query_object_fn)(HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+    typedef NTSTATUS (NTAPI *query_file_fn)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
+    query_object_fn query_object = ntdll == NULL ? NULL
+        : (query_object_fn)(void (*)(void))GetProcAddress(ntdll, "NtQueryObject");
+    query_file_fn query_file = ntdll == NULL ? NULL
+        : (query_file_fn)(void (*)(void))GetProcAddress(ntdll, "NtQueryInformationFile");
+    if (query_object == NULL || query_file == NULL)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_WIN32, ERROR_PROC_NOT_FOUND);
+    PUBLIC_OBJECT_BASIC_INFORMATION basic;
+    NTSTATUS status = query_object(handle, ObjectBasicInformation, &basic, sizeof(basic), NULL);
+    if (status != 0)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_NTSTATUS, (uint32_t)status);
+    ACCESS_MASK expected = reading ? FILE_READ_DATA : FILE_WRITE_DATA;
+    if ((basic.GrantedAccess & (FILE_READ_DATA | FILE_WRITE_DATA)) != expected)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_REFUSAL, ERROR_ACCESS_DENIED);
+    struct { ULONG mode; } information = { 0 };
+    IO_STATUS_BLOCK io;
+    memset(&io, 0, sizeof(io));
+    status = query_file(handle, &io, &information, sizeof(information), FileModeInformation);
+    if (status != 0)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_NTSTATUS, (uint32_t)status);
+    if ((information.mode & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT)) != 0)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_PARAMETER);
+    int security = btrcWinCheckPrivate(handle, 1);
+    if (security != 0)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_WIN32, (uint32_t)security);
+    return 0;
+}
+
+int btrc_wos_bootstrap_admit(btrc_wos_bootstrap_pipe **request,
+        btrc_wos_bootstrap_pipe **reply, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (request != NULL) *request = NULL;
+    if (reply != NULL) *reply = NULL;
+    if (request == NULL || reply == NULL || request == reply)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    const wchar_t *command = GetCommandLineW();
+    size_t units = 0;
+    while (units < BTRC_WOS_COMMAND_LINE_UNITS && command[units] != 0) units++;
+    size_t image_units = 0;
+    uintptr_t input = 0, output = 0;
+    if (btrc_wos_bootstrap_invocation((const uint16_t *)command, units, &image_units, &input, &output) != 0)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    wchar_t image[BTRC_WOS_COMMAND_LINE_UNITS];
+    DWORD image_size = GetModuleFileNameW(NULL, image, BTRC_WOS_COMMAND_LINE_UNITS);
+    if (image_size == 0 || image_size != image_units
+            || CompareStringOrdinal(image, (int)image_size, command + 1, (int)image_units, TRUE) != CSTR_EQUAL)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_NAME);
+    HANDLE handles[5] = { (HANDLE)input, (HANDLE)output,
+        GetStdHandle(STD_INPUT_HANDLE), GetStdHandle(STD_OUTPUT_HANDLE), GetStdHandle(STD_ERROR_HANDLE) };
+    for (size_t index = 0; index < 5; index++) {
+        DWORD flags = 0;
+        if (handles[index] == NULL || handles[index] == INVALID_HANDLE_VALUE
+                || !GetHandleInformation(handles[index], &flags) || !(flags & HANDLE_FLAG_INHERIT))
+            return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_HANDLE);
+        for (size_t previous = 0; previous < index; previous++) {
+            if (handles[index] == handles[previous])
+                return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_HANDLE);
+        }
+        if (index >= 2 && GetFileType(handles[index]) != FILE_TYPE_CHAR)
+            return btrc_wos_fail(error, BTRC_WOS_STAGE_STDIO, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_HANDLE);
+    }
+    if (btrc_wos_bootstrap_pipe_kind(handles[0], 1, error) != 0
+            || btrc_wos_bootstrap_pipe_kind(handles[1], 0, error) != 0) return -1;
+    btrc_wos_bootstrap_pipe *reader = (btrc_wos_bootstrap_pipe *)calloc(1, sizeof(*reader));
+    btrc_wos_bootstrap_pipe *writer = (btrc_wos_bootstrap_pipe *)calloc(1, sizeof(*writer));
+    if (reader == NULL || writer == NULL) {
+        free(reader); free(writer);
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+    }
+    reader->handle = handles[0]; reader->reading = 1;
+    writer->handle = handles[1];
+    int status = 0;
+    for (size_t index = 0; index < 5; index++) {
+        if (!SetHandleInformation(handles[index], HANDLE_FLAG_INHERIT, 0)) {
+            btrc_wos_win32(error, BTRC_WOS_STAGE_ATTRIBUTES);
+            status = -1;
+            break;
+        }
+    }
+    if (status == 0) {
+        reader->operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+        writer->operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+        if (reader->operation.hEvent == NULL || writer->operation.hEvent == NULL) {
+            btrc_wos_win32(error, BTRC_WOS_STAGE_PIPE);
+            status = -1;
+        }
+    }
+    if (status != 0) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_bootstrap_close(&reader, 0, &cleanup) != 0 && error != NULL)
+            error->ownership_state = cleanup.ownership_state;
+        if (btrc_wos_bootstrap_close(&writer, 0, &cleanup) != 0 && error != NULL)
+            error->ownership_state = cleanup.ownership_state;
+    }
+    *request = reader;
+    *reply = writer;
+    return status;
+}
+
 int btrc_wos_bootstrap_pair(const unsigned char nonce[16],
         btrc_wos_bootstrap_pipe **reader, btrc_wos_bootstrap_pipe **writer,
         __btrc_windows_launch_error_t *error) {
@@ -433,7 +584,7 @@ int btrc_wos_bootstrap_pair(const unsigned char nonce[16],
         btrc_wos_win32(error, BTRC_WOS_STAGE_PIPE);
         goto done;
     }
-    output->handle = CreateFileW(name, GENERIC_WRITE | READ_CONTROL,
+    output->handle = CreateFileW(name, GENERIC_WRITE | FILE_READ_ATTRIBUTES | READ_CONTROL,
         0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
     if (output->handle == INVALID_HANDLE_VALUE) {
         btrc_wos_win32(error, BTRC_WOS_STAGE_PIPE);

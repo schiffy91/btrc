@@ -24,11 +24,13 @@
 
 #include "windows_os.h"
 #include "windows_bootstrap.h"
+#include "windows_security.h"
 
 static int checks = 0;
 static int failures = 0;
 static char self_utf8[4096];
 static wchar_t temp_root[1024];
+static int child_bootstrap_admission(void);
 
 static void emit(const char *text, size_t length) {
     HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -275,6 +277,7 @@ static int child_cwd(void) {
 
 static int child(int argc, char **argv) {
     const char *mode = argv[1];
+    if (strcmp(mode, "--btrc-daemon-bootstrap-v1") == 0) return child_bootstrap_admission();
     if (strcmp(mode, "--echo") == 0) return child_echo();
     if (strcmp(mode, "--exit") == 0 && argc > 2) ExitProcess((UINT)strtoul(argv[2], NULL, 16));
     if (strcmp(mode, "--sleep") == 0 && argc > 2) {
@@ -1154,6 +1157,142 @@ static void check_bootstrap_exchange(void) {
     CHECK("framed failures release all native handles", before == after);
 }
 
+static int child_bootstrap_admission(void) {
+    btrc_wos_bootstrap_pipe *request = NULL, *reply = NULL;
+    __btrc_windows_launch_error_t error;
+    if (btrc_wos_bootstrap_admit(&request, &reply, &error) != 0) return 31;
+    size_t image = 0;
+    uintptr_t input = 0, output = 0;
+    const wchar_t *command = GetCommandLineW();
+    if (btrc_wos_bootstrap_invocation((const uint16_t *)command, wcslen(command), &image, &input, &output) != 0)
+        return 32;
+    HANDLE handles[5] = { (HANDLE)input, (HANDLE)output,
+        GetStdHandle(STD_INPUT_HANDLE), GetStdHandle(STD_OUTPUT_HANDLE), GetStdHandle(STD_ERROR_HANDLE) };
+    for (size_t index = 0; index < 5; index++) {
+        DWORD flags = HANDLE_FLAG_INHERIT;
+        if (!GetHandleInformation(handles[index], &flags) || (flags & HANDLE_FLAG_INHERIT)) return 33;
+    }
+    unsigned char byte = 0;
+    uint64_t deadline = GetTickCount64() + 1500;
+    if (btrc_wos_bootstrap_read(request, &byte, 1, deadline, &error) != 0 || byte != 'X') return 34;
+    byte = 'Y';
+    if (btrc_wos_bootstrap_write(reply, &byte, 1, deadline, &error) != 0) return 35;
+    if (btrc_wos_bootstrap_close(&request, deadline, &error) != 0
+            || btrc_wos_bootstrap_close(&reply, deadline, &error) != 0) return 36;
+    return 0;
+}
+
+/* This fixture creates the launcher's five real handles directly, so admission
+ * cannot validate its own synthetic handle descriptions. Only the valid case
+ * exercises I/O; bad inheritance, direction and mode fail before a read. */
+static void check_bootstrap_admission(void) {
+    DWORD before = 0, after = 0;
+    CHECK("admission initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
+    for (int scenario = 0; scenario < 9; scenario++) {
+        void *descriptor = NULL;
+        int private_status = btrcWinPrivateDescriptor(0, &descriptor);
+        CHECK("admission fixture private descriptor", private_status == 0);
+        if (private_status != 0) return;
+        SECURITY_ATTRIBUTES security = { sizeof(security), descriptor, FALSE };
+        HANDLE handles[7] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+        /* request server/client, reply server/client, then three NUL handles */
+        for (int pair = 0; pair < 2; pair++) {
+            wchar_t name[128];
+            swprintf(name, 128, L"\\\\.\\pipe\\btrc-admission-%lu-%u", (unsigned long)GetCurrentProcessId(), ++bootstrap_serial);
+            DWORD access = scenario == 5 && pair == 0 ? PIPE_ACCESS_DUPLEX : PIPE_ACCESS_INBOUND;
+            DWORD mode = scenario == 4 && pair == 0 ? 0 : FILE_FLAG_OVERLAPPED;
+            handles[pair * 2] = CreateNamedPipeW(name,
+                access | READ_CONTROL | FILE_FLAG_FIRST_PIPE_INSTANCE | mode,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                1, 4096, 4096, 0, &security);
+            handles[pair * 2 + 1] = CreateFileW(name, GENERIC_WRITE | FILE_READ_ATTRIBUTES | READ_CONTROL,
+                0, NULL, OPEN_EXISTING, pair == 1 ? FILE_FLAG_OVERLAPPED : 0, NULL);
+        }
+        security.bInheritHandle = TRUE;
+        for (int index = 4; index < 7; index++)
+            handles[index] = CreateFileW(L"NUL", index == 4 ? GENERIC_READ : GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING, 0, NULL);
+        free(descriptor);
+        int valid = 1;
+        for (size_t index = 0; index < 7; index++)
+            if (handles[index] == NULL || handles[index] == INVALID_HANDLE_VALUE) valid = 0;
+        CHECK("admission fixture opens all handles", valid);
+        if (!valid) ExitProcess(3);
+        CHECK("admission fixture marks request inheritable", SetHandleInformation(handles[0], HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT));
+        CHECK("admission fixture marks reply inheritable", SetHandleInformation(handles[3], HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT));
+        HANDLE inherited[5] = { handles[0], handles[3], handles[4], handles[5], handles[6] };
+        uintptr_t request = (uintptr_t)handles[0], reply = (uintptr_t)handles[3];
+        if (scenario == 1) { request = (uintptr_t)handles[3]; reply = (uintptr_t)handles[0]; }
+        if (scenario == 2) reply = request;
+        if (scenario == 3) request = (uintptr_t)handles[4];
+        wchar_t self[1024], command[2048];
+        if (to_wide(self_utf8, self, 1024) != 0) ExitProcess(3);
+        swprintf(command, 2048, L"\"%ls\" --btrc-daemon-bootstrap-v1 %ls%llu %llu%ls",
+            scenario == 8 ? L"C:\\wrong-image.exe" : self, scenario == 6 ? L"0" : L"",
+            (unsigned long long)request, (unsigned long long)reply, scenario == 7 ? L" extra" : L"");
+        SIZE_T size = 0;
+        InitializeProcThreadAttributeList(NULL, 1, 0, &size);
+        LPPROC_THREAD_ATTRIBUTE_LIST attributes = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(size);
+        if (attributes == NULL || !InitializeProcThreadAttributeList(attributes, 1, 0, &size)) ExitProcess(3);
+        if (!UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                inherited, sizeof(inherited), NULL, NULL)) ExitProcess(3);
+        STARTUPINFOEXW startup;
+        memset(&startup, 0, sizeof(startup));
+        startup.StartupInfo.cb = sizeof(startup);
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = handles[4];
+        startup.StartupInfo.hStdOutput = handles[5];
+        startup.StartupInfo.hStdError = handles[6];
+        startup.lpAttributeList = attributes;
+        PROCESS_INFORMATION process;
+        memset(&process, 0, sizeof(process));
+        BOOL launched = CreateProcessW(self, command, NULL, NULL, TRUE,
+            EXTENDED_STARTUPINFO_PRESENT, NULL, NULL, &startup.StartupInfo, &process);
+        CHECK("admission fixture starts isolated supervisor", launched);
+        DeleteProcThreadAttributeList(attributes);
+        free(attributes);
+        if (!launched) ExitProcess(3);
+        CloseHandle(process.hThread);
+        /* Parent keeps only its own request writer and reply reader. */
+        for (size_t index = 0; index < 7; index++) {
+            if (index != 1 && index != 2) { CloseHandle(handles[index]); handles[index] = NULL; }
+        }
+        if (scenario == 0) {
+            DWORD written = 0;
+            CHECK("admitted supervisor receives from sole request writer", WriteFile(handles[1], "X", 1, &written, NULL) && written == 1);
+        }
+        DWORD waited = WaitForSingleObject(process.hProcess, 3000);
+        CHECK("admission or refusal completes within deadline", waited == WAIT_OBJECT_0);
+        if (waited != WAIT_OBJECT_0) {
+            TerminateProcess(process.hProcess, 90);
+            if (WaitForSingleObject(process.hProcess, 1000) != WAIT_OBJECT_0) ExitProcess(3);
+        }
+        DWORD exit_code = 0;
+        GetExitCodeProcess(process.hProcess, &exit_code);
+        if (exit_code != (scenario == 0 ? 0u : 31u)) report("admission scenario=%d exit=%lu\n", scenario, (unsigned long)exit_code);
+        CHECK("admission checks actual inherited handle capabilities", exit_code == (scenario == 0 ? 0u : 31u));
+        if (scenario == 0 && exit_code == 0) {
+            OVERLAPPED operation;
+            memset(&operation, 0, sizeof(operation));
+            operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+            DWORD got = 0;
+            unsigned char byte = 0;
+            BOOL read = ReadFile(handles[2], &byte, 1, &got, &operation);
+            if (!read && GetLastError() == ERROR_IO_PENDING) {
+                if (WaitForSingleObject(operation.hEvent, 1000) != WAIT_OBJECT_0) ExitProcess(3);
+                read = GetOverlappedResult(handles[2], &operation, &got, FALSE);
+            }
+            CHECK("admitted supervisor replies through its owned endpoint", read && got == 1 && byte == 'Y');
+            CloseHandle(operation.hEvent);
+        }
+        CloseHandle(process.hProcess);
+        CloseHandle(handles[1]);
+        CloseHandle(handles[2]);
+    }
+    CHECK("admission final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
+    CHECK("admission releases parent fixture handles", before == after);
+}
+
 int main(int argc, char **argv) {
     wchar_t self_wide[1024];
     DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
@@ -1161,6 +1300,7 @@ int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--bootstrap-io") == 0) {
         check_bootstrap_pipes();
         check_bootstrap_exchange();
+        check_bootstrap_admission();
         report("windows-bootstrap-io %s checks=%d\n", failures == 0 ? "PASS" : "FAIL", checks);
         return failures == 0 ? 0 : 1;
     }
@@ -1169,6 +1309,7 @@ int main(int argc, char **argv) {
     if (temp_length == 0 || temp_length >= 1000) return 3;
     check_bootstrap_pipes();
     check_bootstrap_exchange();
+    check_bootstrap_admission();
     check_quoting();
     check_exit_codes();
     check_tree_timeout();
