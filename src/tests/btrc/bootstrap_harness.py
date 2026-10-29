@@ -202,6 +202,7 @@ def snapshot_compiler_inputs(tmp_dir: str) -> tuple[str, str, str]:
         os.path.join("compiler", "python"),
         "language",
         "stdlib",
+        "runtime",
     ):
         source = os.path.join(REPO, "src", relative)
         destination = os.path.join(source_root, relative)

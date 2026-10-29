@@ -30,6 +30,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.c_toolchains import configured_c_compiler
+from src.tests.gui_provider_root import GUIProviderRoot
 from src.tests.process_limits import RUN_TIMEOUT, TOOL_TIMEOUT
 from tools.compiler_codegen.runtime import RuntimeManifest, RuntimeManifestError
 from tools.native_plan import RuntimeObjects
@@ -159,6 +160,17 @@ def decode(output: str) -> str:
 @pytest.mark.parametrize("target", sorted(TARGETS))
 def test_runtime_object_builds_strictly_for_windows(target, tmp_path):
     zig_compile(target, [RUNTIME / "windows_os.c"], tmp_path / "windows_os.o", "-c")
+
+
+@pytest.mark.parametrize("target", sorted(TARGETS))
+def test_gui_provider_root_preserves_native_filesystem_dependencies(target, tmp_path):
+    root = GUIProviderRoot.create(tmp_path / "data")
+    zig_compile(
+        target,
+        [root / "stdlib/FileSystem/Windows/Win32FileSystem.c"],
+        tmp_path / "filesystem.o",
+        "-c",
+    )
 
 
 ROUND_TRIPS = [

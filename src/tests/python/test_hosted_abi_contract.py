@@ -390,6 +390,7 @@ def test_root_path_cannot_spoof_compiler_stdlib_provenance(tmp_path: Path) -> No
     # lock into the checkout (or an immutable installed compiler directory).
     library = tmp_path / "stdlib"
     shutil.copytree(SOURCE_ROOT / "stdlib", library, ignore=shutil.ignore_patterns("btrc.lock"))
+    shutil.copytree(SOURCE_ROOT / "runtime", tmp_path / "runtime")
     stdlib_path = library / "Process.btrc"
     source = '#include "Process.btrc"\nextern char** environ;\nint main() { return 0; }'
     pipeline = CompilationPipeline(frontend=FrontendStage(StdlibRepository(directory=str(library))))
