@@ -234,6 +234,7 @@ class RuntimeHelperCatalog {
 			for header in self.headers(name) { required.put(header, true); }
 		}
 		module.helpers = materialized;
+		module.runtimeHelperNames = ordered;
 		for header in structuredHeaders.keys() { required.put(header, true); }
 		Vector<string> headers = required.keys();
 		headers.sort();

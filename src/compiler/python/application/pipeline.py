@@ -732,6 +732,10 @@ class CompilationPipeline:
     ) -> CompilerResult:
         native_plan = source.native_plan
         module = values.get("ir_module")
+        if module is not None and any(item.auxiliary is not None for item in native_plan.declarations):
+            native_plan = replace(
+                native_plan, retained_runtime_helpers=tuple(helper.name for helper in module.helper_decls)
+            )
         if values.get("c_units"):
             native_plan = native_plan.with_emitted_units(
                 options.units_prefix, values.get("c_unit_names") or len(values["c_units"]), values["c_units"]

@@ -360,7 +360,7 @@ class FeSourceFileReader {
 		exit(1);
 	}
 
-	public string readRequired(string path) {
+	private Bytes readRequiredBytes(string path) {
 		File source = File(path, "rb");
 		if (!source.ok()) { self.fail(path, "open failed"); }
 		FeSourceReadIdentity? identity = null;
@@ -392,10 +392,21 @@ class FeSourceFileReader {
 			 * publication validates the complete reader inventory separately. */
 			if (!self.readIdentities.has(path)) { self.readIdentities.put(path, identity); }
 		}
-		string decoded = self.decoder.decode(encoded, path);
 		self.readPaths.put(path, true);
+		return encoded;
+	}
+
+	public string readRequired(string path) {
+		string decoded = self.decoder.decode(self.readRequiredBytes(path), path);
 		self.contentDigests.put(path, self.contentDigest(PathTools.absolute(path)) + self.contentDigest(decoded));
 		return decoded;
+	}
+
+	/* Native build plans bind raw source bytes, including BOM and newlines. */
+	public string digestRequired(string path) {
+		string digest = SHA256.digestBytes(self.readRequiredBytes(path));
+		self.contentDigests.put(path, self.contentDigest(PathTools.absolute(path)) + digest);
+		return digest;
 	}
 }
 

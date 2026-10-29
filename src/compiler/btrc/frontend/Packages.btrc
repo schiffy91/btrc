@@ -152,6 +152,29 @@ class FeTargetSelector {
 	}
 }
 
+class FeNativeAuxiliaryExecutable {
+	public string kind;
+	public int protocol;
+	public Vector<string> requires;
+
+	public FeNativeAuxiliaryExecutable(string kind, int protocol, Vector<string> requires) {
+		self.kind = kind;
+		self.protocol = protocol;
+		self.requires = requires;
+	}
+
+	public bool retained(Vector<string> helpers) {
+		for name in self.requires { if (helpers.contains(name)) { return true; } }
+		return false;
+	}
+
+	public bool sameIdentity(FeNativeAuxiliaryExecutable other) {
+		if (self.kind != other.kind || self.protocol != other.protocol || self.requires.len != other.requires.len) { return false; }
+		for (int index = 0; index < self.requires.len; index++) { if (self.requires.get(index) != other.requires.get(index)) { return false; } }
+		return true;
+	}
+}
+
 class FeNativeDeclaration {
 	public string kind;
 	public string packageName;
@@ -163,6 +186,7 @@ class FeNativeDeclaration {
 	public Vector<string> architectures;
 	public Vector<string> modules;
 	public Vector<string> environments = [];
+	public FeNativeAuxiliaryExecutable? auxiliary = null;
 
 	public FeNativeDeclaration(string kind, string packageName, string value, string detail, string language, string standard, Vector<string> operatingSystems, Vector<string> architectures, Vector<string> modules) {
 		self.kind = kind;
@@ -188,7 +212,12 @@ class FeNativeDeclaration {
 		return true;
 	}
 
-	public bool sameIdentity(FeNativeDeclaration other) { return self.kind.equals(other.kind) && self.packageName.equals(other.packageName) && self.value.equals(other.value) && self.detail.equals(other.detail) && self.language.equals(other.language) && self.standard.equals(other.standard) && self.sameValues(self.operatingSystems, other.operatingSystems) && self.sameValues(self.architectures, other.architectures) && self.sameValues(self.environments, other.environments); }
+	public bool sameIdentity(FeNativeDeclaration other) {
+		FeNativeAuxiliaryExecutable? left = self.auxiliary;
+		FeNativeAuxiliaryExecutable? right = other.auxiliary;
+		if ((left == null) != (right == null)) { return false; }
+		if (left != null && right != null && !left.sameIdentity(right)) { return false; }
+		return self.kind.equals(other.kind) && self.packageName.equals(other.packageName) && self.value.equals(other.value) && self.detail.equals(other.detail) && self.language.equals(other.language) && self.standard.equals(other.standard) && self.sameValues(self.operatingSystems, other.operatingSystems) && self.sameValues(self.architectures, other.architectures) && self.sameValues(self.environments, other.environments); }
 
 	public string sortKey() { return self.packageName + "\x1f" + self.kind + "\x1f" + self.value + "\x1f" + self.detail + "\x1f" + self.language; }
 }
@@ -641,6 +670,7 @@ class FeManifestBlock {
 			return key.equals("module") || key.equals("header") || key.equals("symbols") || key.equals("language") || key.equals("standard") || key.equals("os") || key.equals("arch") || key.equals("env") || key.equals("read-only-borrows") || key.equals("realtime-safe") || key.equals("owned-records") || key.equals("record-inputs") || key.equals("record-outputs") || key.equals("owned-output-fields") || key.equals("null-output-fields") || key.startsWith("object-fields.");
 		}
 		if (key.equals("os") || key.equals("arch") || key.equals("env") || key.equals("modules")) { return true; }
+		if (self.tableName == "native.auxiliary-executables") { return key == "path" || key == "kind" || key == "protocol" || key == "requires"; }
 		if (self.tableName.equals("native.sources")) {
 			return key.equals("path") || key.equals("language") || key.equals("standard");
 		}
@@ -2438,6 +2468,33 @@ class FeManifestBlock {
 		Vector<string> architectures = selector.architectures;
 		Vector<string> modules = self.modulePaths(root);
 		self.requirePlatformDirectories(self.stringArray("modules"), selector);
+		if (self.tableName == "native.auxiliary-executables") {
+			string kind = self.requiredText("kind");
+			if (kind != "windows-daemon-supervisor") { FePackageFailure.fail("auxiliary kind must be windows-daemon-supervisor"); }
+			if (operatingSystems.len != 1 || operatingSystems.get(0) != "windows") { FePackageFailure.fail("auxiliary executable must select Windows only"); }
+			if (!self.fields.has("protocol") || self.fields.get("protocol").trim() != "1") { FePackageFailure.fail("auxiliary protocol must be integer 1"); }
+			Vector<string> requires = self.stringArray("requires");
+			if (requires.len == 0) { FePackageFailure.fail("auxiliary requires must name runtime helpers"); }
+			var abi = GeneratedHostedAbiData();
+			for name in requires {
+				GeneratedHostedFunctionRow? abiFunction = abi.functionNamed(name);
+				if (!self.identifier(name) || abiFunction == null || abiFunction.origin != "runtime") { FePackageFailure.fail("auxiliary requires names unknown runtime helper"); }
+			}
+			string path = self.packagePath(root, "path", false);
+			if (!path.endsWith(".btrc")) { FePackageFailure.fail("auxiliary path must name a BTRC executable source"); }
+			var pathPolicy = FeSourcePathPolicy();
+			string packageRoot = pathPolicy.identity(root);
+			string owner = PathTools.dirname(path);
+			while (pathPolicy.identity(owner) != packageRoot) {
+				if (FileSystem.exists(PathTools.join(owner, "btrc.toml"))) { FePackageFailure.fail("auxiliary path must belong to the declaring package"); }
+				string parent = PathTools.dirname(owner);
+				if (parent == owner) { FePackageFailure.fail("auxiliary path must belong to the declaring package"); }
+				owner = parent;
+			}
+			var declaration = self.selected(FeNativeDeclaration("auxiliary-executable", packageName, path, "", "", "", operatingSystems, architectures, modules), selector);
+			declaration.auxiliary = FeNativeAuxiliaryExecutable(kind, 1, requires);
+			return declaration;
+		}
 		if (self.tableName.equals("native.sources")) {
 			string language = self.requiredText("language");
 			string standard = self.requiredText("standard");
@@ -2553,7 +2610,7 @@ class FePackageManifestParser {
 		return FeManifestDependency(alias, path, git, revision);
 	}
 
-	private bool nativeTable(string name) { return name.equals("native.sources") || name.equals("native.headers") || name.equals("native.include-directories") || name.equals("native.defines") || name.equals("native.frameworks") || name.equals("native.pkg-config") || name.equals("native.libraries") || name.equals("native.bindings"); }
+	private bool nativeTable(string name) { return name.equals("native.sources") || name.equals("native.headers") || name.equals("native.include-directories") || name.equals("native.defines") || name.equals("native.frameworks") || name.equals("native.pkg-config") || name.equals("native.libraries") || name.equals("native.bindings") || name == "native.auxiliary-executables"; }
 
 	/* Library.TOML throws on a malformed basic string. A manifest is user
 	 * input, so that becomes a package failure, as tomllib's decode error does
@@ -2855,6 +2912,9 @@ class FePackageManifestParser {
 		parsed.providers = providers;
 		FeManifestBlock? packageFields = parsed.packageFields;
 		if (packageFields != null) { parsed.exportedModules = packageFields.modulePaths(self.root, "exports", true); }
+		for item in nativeDeclarations {
+			if (item.auxiliary != null && parsed.exportedModules.contains(item.value)) { FePackageFailure.fail("package cannot export an executable entry"); }
+		}
 	}
 }
 
@@ -2907,6 +2967,18 @@ class FePackageImportPolicy {
 		return self.manifests.get(manifestPath);
 	}
 
+	public bool executableEntry(string target) {
+		string manifestPath = self.manifestFor(target);
+		if (manifestPath.isEmpty()) { return false; }
+		var manifest = self.loadManifest(manifestPath);
+		if (manifest == null) { return false; }
+		string identity = self.paths.identity(target);
+		for item in manifest.nativeDeclarations {
+			if (item.auxiliary != null && self.paths.identity(item.value) == identity) { return true; }
+		}
+		return false;
+	}
+
 	public Vector<string> providersFor(string source) {
 		Vector<string> result = [];
 		string identity = self.paths.identity(source);
@@ -2948,11 +3020,12 @@ class FePackageImportPolicy {
 	}
 
 	private void checkOwner(string source, string target) {
+		if (self.executableEntry(target)) { FePackageFailure.fail(f"executable entry '{target}' cannot be imported"); }
 		string owner = self.privateOwner(source, target);
 		if (!owner.isEmpty()) { FePackageFailure.fail(f"module '{target}' is private to package '{owner}'; import an exported module"); }
 	}
 
-	public bool permitsReference(string source, string target) { return self.privateOwner(source, target).isEmpty() && self.privateOwner(self.paths.identity(source), self.paths.identity(target)).isEmpty(); }
+	public bool permitsReference(string source, string target) { return !self.executableEntry(target) && self.privateOwner(source, target).isEmpty() && self.privateOwner(self.paths.identity(source), self.paths.identity(target)).isEmpty(); }
 
 	private string privateOwner(string source, string target) {
 		string manifestPath = self.manifestFor(target);
@@ -2994,6 +3067,7 @@ class FeNativeLinkPlan {
 	/* The validated sysroot's identity (FeNativeSysroot) when the compile read
 	 * native headers through one, else empty. The plan never holds the path. */
 	public string sysrootIdentity = "";
+	public Vector<string> retainedRuntimeHelpers = [];
 
 	/* Record one secondary output and the digest of its text. */
 	public void addEmittedUnit(string path, string source) {
@@ -3032,7 +3106,7 @@ class FeNativeLinkPlan {
 			}
 		}
 		for declaration in self.declarations {
-			if ((declaration.kind.equals("source") || declaration.kind.equals("header")) && declaration.selectedFor(self.target)) {
+			if ((declaration.kind.equals("source") || declaration.kind.equals("header") || declaration.kind == "auxiliary-executable") && declaration.selectedFor(self.target)) {
 				paths.put(declaration.value, true);
 			}
 		}
@@ -3383,6 +3457,20 @@ class FeNativeLinkPlan {
 		if (!document.isObject()) { return null; }
 		var restored = FeNativeLinkPlan(self.target, self.packages, self.declarations);
 		restored.sysrootIdentity = self.sysrootIdentity;
+		if (document.has("auxiliary-executables")) {
+			var records = document.get("auxiliary-executables");
+			if (!records.isArray()) { return null; }
+			for (int index = 0; index < records.size(); index++) {
+				var row = records.at(index);
+				if (!row.isObject()) { return null; }
+				for item in self.declarations {
+					FeNativeAuxiliaryExecutable? auxiliary = item.auxiliary;
+					if (auxiliary != null && item.selectedFor(self.target) && row.get("path").asString() == item.value) {
+						for helper in auxiliary.requires { if (!restored.retainedRuntimeHelpers.contains(helper)) { restored.retainedRuntimeHelpers.push(helper); } }
+					}
+				}
+			}
+		}
 		var names = new Map<string, bool>();
 		if (document.has("generated-units")) {
 			var records = document.get("generated-units");
@@ -3491,6 +3579,21 @@ class FeNativeLinkPlan {
 	 * byte-identical to the reference compiler's NativeLinkPlan.as_dict. */
 	public string canonicalJson() {
 		JSONValue root = JSONValue.makeObject();
+		var auxiliaries = JSONValue.makeArray();
+		for item in self.declarations {
+			FeNativeAuxiliaryExecutable? auxiliary = item.auxiliary;
+			if (!item.selectedFor(self.target) || auxiliary == null || !auxiliary.retained(self.retainedRuntimeHelpers)) { continue; }
+			var record = JSONValue.makeObject();
+			record.set("abi", JSONValue.makeString(self.target.label()));
+			record.set("kind", JSONValue.makeString(auxiliary.kind));
+			record.set("package", JSONValue.makeString(item.packageName));
+			record.set("path", JSONValue.makeString(item.value));
+			record.set("protocol", JSONValue.makeInt(auxiliary.protocol));
+			record.set("sha256", JSONValue.makeString(FeSourceFileReader().digestRequired(item.value)));
+			auxiliaries.push(record);
+		}
+		if (auxiliaries.size() > 1) { FePackageFailure.fail("a consumer must select exactly one daemon supervisor executable"); }
+		if (auxiliaries.size() > 0) { root.set("auxiliary-executables", auxiliaries); }
 		root.set("defines", self.defineRecords());
 		if (self.emittedUnits.len > 0) {
 			var digests = JSONValue.makeArray();

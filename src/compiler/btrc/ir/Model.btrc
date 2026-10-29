@@ -1102,6 +1102,7 @@ class IRModule {
 	/* Runtime helper bodies remain registry-owned C source at the deliberate
      * runtime seam. They are never parsed to recover declaration structure. */
 	public Vector<string> helpers;
+	public Vector<string> runtimeHelperNames = [];
 
 	public IRModule() {
 		self.language = "c";

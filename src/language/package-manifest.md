@@ -194,6 +194,44 @@ The environment must resolve metadata for the explicitly selected target, not an
 unrelated host installation. Nix pins the dependency; do not copy store paths into
 headers. Target and module selection apply before dependency resolution.
 
+### Auxiliary executable entries
+
+A Windows daemon companion is a separately compiled BTRC entry declared in its
+owning package:
+
+```toml
+[[native.auxiliary-executables]]
+path = "Windows/DaemonSupervisorMain.btrc"
+kind = "windows-daemon-supervisor"
+protocol = 1
+os = ["windows"]
+requires = ["__btrc_windows_supervisor_image_verify"]
+```
+
+`kind` currently accepts only `windows-daemon-supervisor`, and `protocol` must
+be integer `1`. The declaration must select Windows explicitly. `requires` is a
+nonempty array of distinct function names from the shared hosted runtime ABI.
+The usual `arch`, `env` and `modules` selectors apply. After target and module
+selection, either compiler emits the auxiliary only when at least one required
+runtime function survives optimization, including in module-unit builds. A
+consumer may select at most one companion.
+
+`path` must name an existing `.btrc` file owned by the declaring package;
+escaping paths and paths owned by nested packages are errors. The entry cannot
+be exported or imported, even within its own package. Root stdlib discovery,
+symbol indexing and the editor builtin catalog exclude executable entries.
+Compilers reserve the source against output overwrites, including file aliases.
+
+The optional schema-5 `auxiliary-executables` array contains one record with
+exactly `abi`, `kind`, `package`, `path`, `protocol` and `sha256`. `abi` is the
+canonical target label, and `path` is absolute. `sha256` covers the source's raw
+bytes, including its BOM and newline encoding; cached plans revalidate it.
+The final executable digest belongs to the native build step described in
+[the Windows daemon design](../../docs/design/windows-os-services.md).
+
+Both compilers implement declaration and plan emission. Native builder support
+is still pending; the current adapter rejects plans containing this field.
+
 ## Experimental native header imports
 
 `native.bindings` describes a typed header request owned by one existing BTRC
