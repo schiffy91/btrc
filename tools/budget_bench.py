@@ -1351,6 +1351,9 @@ class BuildCommands:
             "BTRC_FRONTEND": self.settings.frontend,
             "BTRC_TARGET": self.settings.target,
             "BTRC_BUILD_FLAGS": shlex.join(flavor.compiler_flags()),
+            # The flavor selects module splitting through compiler flags;
+            # do not inherit the product Makefile's default unit layout.
+            "BTRC_UNITS": "1",
             "NATIVE_PLAN": shlex.quote(str(self.wrappers / "btrc-native-plan")),
             "NATIVE_PLAN_FLAGS": shlex.join(native),
             "BUILD_DIR": str(state.build),
