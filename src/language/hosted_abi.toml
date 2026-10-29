@@ -111,6 +111,15 @@ functions = [
   "__btrc_windows_launch_terminate",
   "__btrc_windows_launch_wait",
   "__btrc_windows_quote_argv_utf8",
+  "__btrc_windows_supervisor_accept",
+  "__btrc_windows_supervisor_ack",
+  "__btrc_windows_supervisor_close",
+  "__btrc_windows_supervisor_copy_startup",
+  "__btrc_windows_supervisor_poll_managed",
+  "__btrc_windows_supervisor_prepare",
+  "__btrc_windows_supervisor_ready_wait_commit",
+  "__btrc_windows_supervisor_spawn_managed",
+  "__btrc_windows_supervisor_terminate_managed",
   "_setjmp",
   "a64l",
   "abort",
@@ -3766,6 +3775,7 @@ types = [
   "__btrc_windows_launch_options_t",
   "__btrc_windows_launch_owner_t",
   "__btrc_windows_launch_result_t",
+  "__btrc_windows_supervisor_owner",
   "accessx_descriptor",
   "active_reg_t",
   "atomic_bool",
@@ -4063,6 +4073,7 @@ typedefs = [
   "__btrc_windows_launch_options_t",
   "__btrc_windows_launch_owner_t",
   "__btrc_windows_launch_result_t",
+  "__btrc_windows_supervisor_owner",
   "active_reg_t",
   "atomic_bool",
   "atomic_char",
@@ -6698,6 +6709,16 @@ owned = [
   "__btrc_windows_launch_terminate",
   "__btrc_windows_launch_wait",
   "__btrc_windows_quote_argv_utf8",
+  "__btrc_windows_supervisor_accept",
+  "__btrc_windows_supervisor_ack",
+  "__btrc_windows_supervisor_close",
+  "__btrc_windows_supervisor_copy_startup",
+  "__btrc_windows_supervisor_owner",
+  "__btrc_windows_supervisor_poll_managed",
+  "__btrc_windows_supervisor_prepare",
+  "__btrc_windows_supervisor_ready_wait_commit",
+  "__btrc_windows_supervisor_spawn_managed",
+  "__btrc_windows_supervisor_terminate_managed",
   "_setjmp",
   "a64l",
   "abort",
@@ -12025,6 +12046,141 @@ variadic = false
 return_effect = "value"
 raw_lifetime = false
 realtime_effect = "safe"
+
+[[functions]]
+name = "__btrc_windows_supervisor_accept"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "uint64_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_supervisor_owner", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_ack"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_supervisor_owner", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "uint32_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_close"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_supervisor_owner", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "uint64_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_copy_startup"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_supervisor_owner", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "unsigned char", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "size_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_poll_managed"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_supervisor_owner", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "uint32_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "uint32_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_prepare"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_supervisor_owner", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_ready_wait_commit"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_supervisor_owner", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_spawn_managed"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_supervisor_owner", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_terminate_managed"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_supervisor_owner", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "uint32_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
 
 [[functions]]
 name = "abort"

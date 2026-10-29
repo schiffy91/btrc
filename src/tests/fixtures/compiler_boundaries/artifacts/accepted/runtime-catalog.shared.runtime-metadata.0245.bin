@@ -1,0 +1,1 @@
+{"asset":"windows_os.h","btrc_order":219,"category":"process","dependencies":["__btrc_windows_supervisor_types"],"headers":[],"name":"__btrc_windows_supervisor_prepare","provided_objects":[],"provided_types":[],"python_order":233,"realtime_effect":"blocking","source_sha256":"6f720b63feaf5a4ae09155f56afbc7d2047a2b60c73a66ec17a86e3697a44597","source_size":339,"source_visible":true}

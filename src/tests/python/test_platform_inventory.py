@@ -122,7 +122,10 @@ def expected_operations() -> set[str]:
 
 
 def records():
-    return LedgerDocument.load(INVENTORY)
+    return [
+        *LedgerDocument.load(INVENTORY),
+        *LedgerDocument.load(INVENTORY.with_suffix("") / "windows-supervisor.toml"),
+    ]
 
 
 def test_every_stdlib_operation_names_a_module_with_declarations():
@@ -182,14 +185,14 @@ def test_every_regression_names_a_test_that_exists():
 
 def test_the_frozen_operation_denominator_is_the_inventory():
     manifest = DenominatorManifest.load()
-    denominator = manifest.by_kind()[SubjectKind.OPERATION]
-    assert denominator.drift() == []
-    assert denominator.slices == tuple(TARGET_SLICES)
-    assert set(denominator.ids) == expected_operations()
+    denominators = manifest.releases(SubjectKind.OPERATION)
+    assert all(row.drift() == [] for row in denominators)
+    assert all(row.slices == tuple(TARGET_SLICES) for row in denominators)
+    assert set().union(*(set(row.ids) for row in denominators)) == expected_operations()
     assert {kind for kind in manifest.by_kind()} >= set(UI0_KINDS), "UI0's rows stay referenced, not repeated"
     report = QualificationReport(records(), manifest)
     rows = [row for row in report.denominator_rows() if row["kind"] == SubjectKind.OPERATION.value]
-    assert [(row["missing_slots"], row["undeclared"], row["drift"]) for row in rows] == [(0, 0, [])]
+    assert [(row["missing_slots"], row["undeclared"], row["drift"]) for row in rows] == [(0, 0, [])] * len(denominators)
 
 
 def published_totals() -> dict[str, dict[str, int]]:

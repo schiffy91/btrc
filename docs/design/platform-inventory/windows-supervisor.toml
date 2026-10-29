@@ -1,0 +1,144 @@
+# Windows supervisor runtime operations, added without changing the frozen P0 seed.
+schema = "btrc.qualification.ledger/1"
+
+provenance = { recorded_at = "2026-10-29T00:00:00+00:00", btrc_revision = "55bc9efb" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_types"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_types (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "SDK-free opaque owner declaration; no host SDK types enter emitted C" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "SDK-free opaque owner declaration; no host SDK types enter emitted C" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "SDK-free opaque owner declaration; no host SDK types enter emitted C" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "SDK-free opaque owner declaration; no host SDK types enter emitted C" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "SDK-free opaque owner declaration; no host SDK types enter emitted C" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "SDK-free opaque owner declaration; no host SDK types enter emitted C" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_accept"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_accept (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_copy_startup"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_copy_startup (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_prepare"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_prepare (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_ready_wait_commit"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_ready_wait_commit (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_ack"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_ack (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_spawn_managed"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_spawn_managed (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_poll_managed"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_poll_managed (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_terminate_managed"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_terminate_managed (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_close"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_close (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): the SDK-free supervisor seam is exercised by the native Windows launch harness; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Native lifecycle cases cross-build for x64 and ARM64; Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs and reports stage 15; no provider for this target retains it" }

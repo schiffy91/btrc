@@ -1,0 +1,1 @@
+{"asset":"windows_os.h","btrc_order":216,"category":"process","dependencies":["__btrc_windows_launch_types"],"headers":[],"name":"__btrc_windows_supervisor_types","provided_objects":[],"provided_types":["__btrc_windows_supervisor_owner"],"python_order":230,"source_sha256":"6951b97aa7d8e4c6e814f5106a33b811aa9accf3b650d8601dd8618fc37085f7","source_size":79,"source_visible":false}
