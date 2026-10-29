@@ -27,9 +27,14 @@ static int supervisor_off_windows(void) {
     int committed = __btrc_windows_supervisor_ready_wait_commit(owner, &error);
     uint32_t delivered = 99;
     int acknowledged = __btrc_windows_supervisor_ack(owner, &delivered, &error);
-    printf("accept=%d owner=%s copy=%d prepare=%d commit=%d ack=%d delivered=%u required=%zu output=%u stage=%u domain=%u ",
+    int spawned = __btrc_windows_supervisor_spawn_managed(owner, &error);
+    uint32_t running = 99, code = 99;
+    int polled = __btrc_windows_supervisor_poll_managed(owner, &running, &code, &error);
+    int terminated = __btrc_windows_supervisor_terminate_managed(owner, 1, &error);
+    printf("accept=%d owner=%s copy=%d prepare=%d commit=%d ack=%d delivered=%u spawn=%d poll=%d running=%u code=%u terminate=%d required=%zu output=%u stage=%u domain=%u ",
         accepted != 0, owner == NULL ? "null" : "set", copied != 0, prepared != 0,
-        committed != 0, acknowledged != 0, (unsigned)delivered, required, (unsigned)output,
+        committed != 0, acknowledged != 0, (unsigned)delivered, spawned != 0, polled != 0,
+        (unsigned)running, (unsigned)code, terminated != 0, required, (unsigned)output,
         (unsigned)error.stage, (unsigned)error.domain);
     printf("close=%d\n", __btrc_windows_supervisor_close(&owner, 0, &error));
     return 0;

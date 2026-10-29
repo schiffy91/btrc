@@ -835,6 +835,9 @@ struct __btrc_windows_supervisor_owner {
     btrc_daemon_handshake handshake;
     uint64_t deadline;
     HANDLE job;
+    HANDLE managed_process, managed_thread, inherited[3];
+    DWORD managed_exit_code;
+    int managed_started, managed_assigned, managed_terminated, managed_done;
     btrc_wos_daemon_file *log, *record;
     wchar_t *application, *directory, *command_line, *environment;
     size_t environment_units;
@@ -845,6 +848,8 @@ struct __btrc_windows_supervisor_owner {
 
 static int btrc_wos_supervisor_prepared_release(__btrc_windows_supervisor_owner *owner,
     __btrc_windows_launch_error_t *error);
+static int btrc_wos_supervisor_managed_close(__btrc_windows_supervisor_owner *owner,
+    uint64_t deadline, __btrc_windows_launch_error_t *error);
 
 static int btrc_wos_supervisor_deadline(uint64_t timeout, uint64_t *deadline,
         __btrc_windows_launch_error_t *error) {
@@ -893,7 +898,8 @@ static int btrc_wos_supervisor_release(__btrc_windows_supervisor_owner **slot,
     if (status != 0 && error != NULL) *error = pipe_cleanup;
     __btrc_windows_launch_error_t prepared_cleanup;
     btrc_wos_clear(&prepared_cleanup);
-    if (btrc_wos_supervisor_prepared_release(owner, &prepared_cleanup) != 0) {
+    if (btrc_wos_supervisor_managed_close(owner, deadline, &prepared_cleanup) != 0
+            || btrc_wos_supervisor_prepared_release(owner, &prepared_cleanup) != 0) {
         if (status == 0 && error != NULL) *error = prepared_cleanup;
         if (prepared_cleanup.ownership_state > ownership) ownership = prepared_cleanup.ownership_state;
         status = -1;
@@ -2041,14 +2047,11 @@ static int btrc_wos_create_stdio(const __btrc_windows_launch_options_t *options,
     return 0;
 }
 
-/* Inheritable copies exist only inside the spawn lock, and the attribute
- * list names exactly them: no other handle of this process reaches the
- * child. Returns the CreateProcessW result with its error preserved. */
-static int btrc_wos_spawn(const wchar_t *application, wchar_t *command_line, wchar_t *block,
-        const wchar_t *directory, HANDLE child_input, HANDLE child_output, HANDLE child_errors,
+/* Both launch owners hold the spawn lock and own every handle in inherited.
+ * This shared creation step borrows them and returns a suspended process. */
+static int btrc_wos_create_suspended(const wchar_t *application, wchar_t *command_line,
+        wchar_t *block, const wchar_t *directory, const HANDLE inherited[3],
         PROCESS_INFORMATION *process, __btrc_windows_launch_error_t *error) {
-    HANDLE inherited[3] = { NULL, NULL, NULL };
-    HANDLE sources[3] = { child_input, child_output, child_errors };
     HANDLE listed[3] = { NULL, NULL, NULL };
     DWORD count = 0;
     DWORD flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED
@@ -2058,16 +2061,6 @@ static int btrc_wos_spawn(const wchar_t *application, wchar_t *command_line, wch
     SIZE_T attribute_size = 0;
     STARTUPINFOEXW startup;
     memset(&startup, 0, sizeof(startup));
-    AcquireSRWLockExclusive(&btrc_wos_spawn_lock);
-    for (int index = 0; index < 3; index++) {
-        if (sources[index] == NULL) continue;
-        if (!DuplicateHandle(GetCurrentProcess(), sources[index], GetCurrentProcess(),
-                &inherited[index], 0, TRUE, DUPLICATE_SAME_ACCESS)) {
-            inherited[index] = NULL;
-            btrc_wos_win32(error, BTRC_WOS_STAGE_STDIO);
-            goto done;
-        }
-    }
     for (int index = 0; index < 3; index++)
         if (inherited[index] != NULL) listed[count++] = inherited[index];
     InitializeProcThreadAttributeList(NULL, 1, 0, &attribute_size);
@@ -2112,6 +2105,28 @@ done:
         DeleteProcThreadAttributeList(attributes);
         HeapFree(GetProcessHeap(), 0, attributes);
     }
+    return status;
+}
+
+/* Ordinary Process launches own their temporary inheritable copies here. */
+static int btrc_wos_spawn(const wchar_t *application, wchar_t *command_line, wchar_t *block,
+        const wchar_t *directory, HANDLE child_input, HANDLE child_output, HANDLE child_errors,
+        PROCESS_INFORMATION *process, __btrc_windows_launch_error_t *error) {
+    HANDLE inherited[3] = { NULL, NULL, NULL };
+    HANDLE sources[3] = { child_input, child_output, child_errors };
+    int status = -1;
+    AcquireSRWLockExclusive(&btrc_wos_spawn_lock);
+    for (int index = 0; index < 3; index++) {
+        if (sources[index] == NULL) continue;
+        if (!DuplicateHandle(GetCurrentProcess(), sources[index], GetCurrentProcess(),
+                &inherited[index], 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+            inherited[index] = NULL;
+            btrc_wos_win32(error, BTRC_WOS_STAGE_STDIO);
+            goto done;
+        }
+    }
+    status = btrc_wos_create_suspended(application, command_line, block, directory, inherited, process, error);
+done:
     for (int index = 0; index < 3; index++) btrc_wos_close(&inherited[index]);
     ReleaseSRWLockExclusive(&btrc_wos_spawn_lock);
     return status;
@@ -2719,6 +2734,205 @@ static int btrc_wos_supervisor_prepared_release(__btrc_windows_supervisor_owner 
     return 0;
 }
 
+static int btrc_wos_supervisor_invalid(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    if (error != NULL && owner != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+    return -1;
+}
+
+static int btrc_wos_supervisor_handle_close(__btrc_windows_supervisor_owner *owner,
+        HANDLE *handle, uint32_t stage, __btrc_windows_launch_error_t *error) {
+    if (*handle == NULL) return 0;
+    if (!CloseHandle(*handle)) {
+        owner->poisoned = 1;
+        btrc_wos_win32(error, stage);
+        if (error != NULL) error->ownership_state = 2;
+        return -1;
+    }
+    *handle = NULL;
+    return 0;
+}
+
+static int btrc_wos_supervisor_job(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    owner->job = CreateJobObjectW(NULL, NULL);
+    if (owner->job == NULL) return btrc_wos_win32(error, BTRC_WOS_STAGE_JOB);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+    memset(&limits, 0, sizeof(limits));
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (SetInformationJobObject(owner->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) return 0;
+    btrc_wos_win32(error, BTRC_WOS_STAGE_JOB);
+    __btrc_windows_launch_error_t cleanup;
+    if (btrc_wos_supervisor_handle_close(owner, &owner->job, BTRC_WOS_STAGE_JOB, &cleanup) != 0
+            && error != NULL) *error = cleanup;
+    return -1;
+}
+
+/* Cache the root exit code and release its references before querying job
+ * accounting. Descendants keep the generation running after the root exits. */
+static int btrc_wos_supervisor_reap(__btrc_windows_supervisor_owner *owner,
+        uint32_t *running, __btrc_windows_launch_error_t *error) {
+    *running = 0;
+    if (!owner->managed_started || owner->managed_done) return 0;
+    *running = 1;
+    if (owner->managed_process != NULL) {
+        DWORD state = WaitForSingleObject(owner->managed_process, 0);
+        if (state == WAIT_TIMEOUT) return 0;
+        if (state != WAIT_OBJECT_0) return btrc_wos_win32(error, BTRC_WOS_STAGE_WAIT);
+        if (!GetExitCodeProcess(owner->managed_process, &owner->managed_exit_code))
+            return btrc_wos_win32(error, BTRC_WOS_STAGE_WAIT);
+        if (btrc_wos_supervisor_handle_close(owner, &owner->managed_thread, BTRC_WOS_STAGE_WAIT, error) != 0
+                || btrc_wos_supervisor_handle_close(owner, &owner->managed_process, BTRC_WOS_STAGE_WAIT, error) != 0)
+            return -1;
+    }
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting;
+    memset(&accounting, 0, sizeof(accounting));
+    if (!QueryInformationJobObject(owner->job, JobObjectBasicAccountingInformation,
+            &accounting, sizeof(accounting), NULL)) return btrc_wos_win32(error, BTRC_WOS_STAGE_JOB);
+    if (accounting.ActiveProcesses != 0) return 0;
+    if (btrc_wos_supervisor_handle_close(owner, &owner->job, BTRC_WOS_STAGE_JOB, error) != 0) return -1;
+    owner->managed_done = 1;
+    owner->managed_assigned = 0;
+    *running = 0;
+    return 0;
+}
+
+static int btrc_wos_supervisor_stop_tree(__btrc_windows_supervisor_owner *owner,
+        uint32_t exit_code, __btrc_windows_launch_error_t *error) {
+    if (!owner->managed_started || owner->managed_done || owner->managed_terminated) return 0;
+    if (owner->managed_assigned) {
+        if (!TerminateJobObject(owner->job, exit_code)) return btrc_wos_win32(error, BTRC_WOS_STAGE_TERMINATE);
+    } else if (owner->managed_process != NULL) {
+        /* Failed assignment leaves a suspended root with no descendants. */
+        DWORD state = WaitForSingleObject(owner->managed_process, 0);
+        if (state != WAIT_OBJECT_0 && state != WAIT_TIMEOUT) return btrc_wos_win32(error, BTRC_WOS_STAGE_WAIT);
+        if (state == WAIT_TIMEOUT && !TerminateProcess(owner->managed_process, exit_code))
+            return btrc_wos_win32(error, BTRC_WOS_STAGE_TERMINATE);
+    }
+    owner->managed_terminated = 1;
+    return 0;
+}
+
+static int btrc_wos_supervisor_managed_close(__btrc_windows_supervisor_owner *owner,
+        uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    if (btrc_wos_supervisor_stop_tree(owner, 1, error) != 0) goto failed;
+    for (;;) {
+        uint32_t running = 0;
+        if (btrc_wos_supervisor_reap(owner, &running, error) != 0) goto failed;
+        if (!running) return 0;
+        DWORD remaining = btrc_wos_bootstrap_remaining(deadline);
+        if (remaining == 0) {
+            btrc_wos_fail(error, BTRC_WOS_STAGE_WAIT, BTRC_WOS_DOMAIN_WIN32, ERROR_TIMEOUT);
+            goto failed;
+        }
+        /* Job accounting has no waitable empty-tree event. Keep the close
+         * bounded and release process references as soon as they exit. */
+        Sleep(remaining < 10 ? remaining : 10);
+    }
+failed:
+    if (error != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+    return -1;
+}
+
+static int btrc_wos_supervisor_can_manage(__btrc_windows_supervisor_owner *owner) {
+    return owner != NULL && !owner->closing && !owner->poisoned
+        && btrc_daemon_handshake_can_run(&owner->handshake) && owner->log != NULL;
+}
+
+int __btrc_windows_supervisor_spawn_managed(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (!btrc_wos_supervisor_can_manage(owner)) return btrc_wos_supervisor_invalid(owner, error);
+    uint32_t running = 0;
+    if (btrc_wos_supervisor_reap(owner, &running, error) != 0) goto failed;
+    if (running) return btrc_wos_supervisor_invalid(owner, error);
+    if (owner->job == NULL && btrc_wos_supervisor_job(owner, error) != 0) goto failed;
+    size_t units = wcslen(owner->command_line) + 1;
+    wchar_t *command = malloc(units * sizeof(*command));
+    if (command == NULL) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+        goto failed;
+    }
+    memcpy(command, owner->command_line, units * sizeof(*command));
+    HANDLE sources[3] = { GetStdHandle(STD_INPUT_HANDLE), owner->log->handle, owner->log->handle };
+    PROCESS_INFORMATION process;
+    memset(&process, 0, sizeof(process));
+    int status = -1;
+    AcquireSRWLockExclusive(&btrc_wos_spawn_lock);
+    for (size_t index = 0; index < 3; index++) {
+        if (!DuplicateHandle(GetCurrentProcess(), sources[index], GetCurrentProcess(),
+                &owner->inherited[index], 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+            owner->inherited[index] = NULL;
+            btrc_wos_win32(error, BTRC_WOS_STAGE_STDIO);
+            goto unlock;
+        }
+    }
+    if (btrc_wos_create_suspended(owner->application, command, owner->environment,
+            owner->directory, owner->inherited, &process, error) != 0) goto unlock;
+    owner->managed_process = process.hProcess;
+    owner->managed_thread = process.hThread;
+    owner->managed_started = 1;
+    owner->managed_done = owner->managed_terminated = owner->managed_assigned = 0;
+    owner->managed_exit_code = 0;
+    if (!AssignProcessToJobObject(owner->job, owner->managed_process)) {
+        btrc_wos_win32(error, BTRC_WOS_STAGE_ASSIGN);
+        goto unlock;
+    }
+    owner->managed_assigned = 1;
+    status = 0;
+unlock:
+    for (size_t index = 0; index < 3; index++) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_supervisor_handle_close(owner, &owner->inherited[index], BTRC_WOS_STAGE_STDIO, &cleanup) != 0) {
+            if (error != NULL) *error = cleanup;
+            status = -1;
+        }
+    }
+    ReleaseSRWLockExclusive(&btrc_wos_spawn_lock);
+    SecureZeroMemory(command, units * sizeof(*command));
+    free(command);
+    if (status == 0 && ResumeThread(owner->managed_thread) == (DWORD)-1) {
+        btrc_wos_win32(error, BTRC_WOS_STAGE_RESUME);
+        status = -1;
+    }
+    if (status == 0)
+        status = btrc_wos_supervisor_handle_close(owner, &owner->managed_thread, BTRC_WOS_STAGE_RESUME, error);
+    if (status == 0) return 0;
+    /* Attempt termination even after a poisoned temporary handle close. A
+     * failed assignment has not yet placed its suspended root in our job. */
+    __btrc_windows_launch_error_t termination;
+    if (btrc_wos_supervisor_stop_tree(owner, 1, &termination) != 0 && !owner->poisoned && error != NULL)
+        *error = termination;
+failed:
+    if (error != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+    return -1;
+}
+
+int __btrc_windows_supervisor_poll_managed(__btrc_windows_supervisor_owner *owner,
+        uint32_t *running, uint32_t *native_exit_code, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (running != NULL) *running = 0;
+    if (native_exit_code != NULL) *native_exit_code = 0;
+    if (!btrc_wos_supervisor_can_manage(owner) || running == NULL || native_exit_code == NULL
+            || !owner->managed_started) return btrc_wos_supervisor_invalid(owner, error);
+    if (btrc_wos_supervisor_reap(owner, running, error) != 0) {
+        if (error != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+        return -1;
+    }
+    if (!*running) *native_exit_code = owner->managed_exit_code;
+    return 0;
+}
+
+int __btrc_windows_supervisor_terminate_managed(__btrc_windows_supervisor_owner *owner,
+        uint32_t exit_code, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (!btrc_wos_supervisor_can_manage(owner)) return btrc_wos_supervisor_invalid(owner, error);
+    int status = btrc_wos_supervisor_stop_tree(owner, exit_code, error);
+    if (status != 0 && error != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+    return status;
+}
+
 int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
         __btrc_windows_launch_error_t *error) {
     btrc_wos_clear(error);
@@ -2730,15 +2944,7 @@ int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
     }
     if (btrc_wos_bootstrap_remaining(owner->deadline) == 0) goto expired;
     if (btrc_wos_supervisor_command(owner, error) != 0) goto failed;
-    owner->job = CreateJobObjectW(NULL, NULL);
-    if (owner->job == NULL) { btrc_wos_win32(error, BTRC_WOS_STAGE_JOB); goto failed; }
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
-    memset(&limits, 0, sizeof(limits));
-    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    if (!SetInformationJobObject(owner->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
-        btrc_wos_win32(error, BTRC_WOS_STAGE_JOB);
-        goto failed;
-    }
+    if (btrc_wos_supervisor_job(owner, error) != 0) goto failed;
     if (btrc_wos_daemon_log_open(owner->startup.frame.log_path.data,
             owner->startup.frame.log_path.size, &owner->log, error) != 0) goto failed;
     if (btrc_wos_bootstrap_remaining(owner->deadline) == 0) goto expired;
@@ -2846,6 +3052,29 @@ int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
 }
 
 #else
+
+int __btrc_windows_supervisor_spawn_managed(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    (void)owner;
+    btrc_wos_clear(error);
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
+
+int __btrc_windows_supervisor_poll_managed(__btrc_windows_supervisor_owner *owner,
+        uint32_t *running, uint32_t *native_exit_code, __btrc_windows_launch_error_t *error) {
+    (void)owner;
+    if (running != NULL) *running = 0;
+    if (native_exit_code != NULL) *native_exit_code = 0;
+    btrc_wos_clear(error);
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
+
+int __btrc_windows_supervisor_terminate_managed(__btrc_windows_supervisor_owner *owner,
+        uint32_t exit_code, __btrc_windows_launch_error_t *error) {
+    (void)owner; (void)exit_code;
+    btrc_wos_clear(error);
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
 
 int __btrc_windows_supervisor_ready_wait_commit(__btrc_windows_supervisor_owner *owner,
         __btrc_windows_launch_error_t *error) {

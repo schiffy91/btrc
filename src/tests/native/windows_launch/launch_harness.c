@@ -172,6 +172,52 @@ static int child_orphan(const char *milliseconds) {
     return 0;
 }
 
+/* The root exits while its leaf waits for a file-controlled release. This
+ * makes descendant lifetime independent of root scheduling and sleep length. */
+static int child_supervised_tree(const char *marker, int leaf) {
+    wchar_t wide[4096], path[4096];
+    if (to_wide(marker, wide, 4096) != 0) return 60;
+    swprintf(path, 4096, L"%ls.%ls", wide, leaf ? L"started" : L"root");
+    char pid[32];
+    snprintf(pid, sizeof(pid), "%lu", (unsigned long)GetCurrentProcessId());
+    if (write_file(path, pid) != 0) return 61;
+    if (leaf) {
+        swprintf(path, 4096, L"%ls.release", wide);
+        ULONGLONG deadline = GetTickCount64() + 10000;
+        while (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) {
+            if (GetTickCount64() >= deadline) return 62;
+            Sleep(10);
+        }
+        return 0;
+    }
+    wchar_t self[4096], command[8192];
+    if (to_wide(self_utf8, self, 4096) != 0) return 63;
+    swprintf(command, 8192, L"\"%ls\" --supervised-leaf \"%ls\"", self, wide);
+    STARTUPINFOW startup;
+    memset(&startup, 0, sizeof(startup));
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    PROCESS_INFORMATION process;
+    if (!CreateProcessW(self, command, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process)) return 64;
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return 47;
+}
+
+static int child_supervised_snapshot(const char *argument, const char *cwd) {
+    if (strcmp(argument, "space \" quote\\") != 0) return 65;
+    wchar_t directory[4096], expected[4096], value[128];
+    if (!GetCurrentDirectoryW(4096, directory) || to_wide(cwd, expected, 4096) != 0
+            || CompareStringOrdinal(directory, -1, expected, -1, TRUE) != CSTR_EQUAL) return 66;
+    if (!GetEnvironmentVariableW(L"BTRC_SNAPSHOT", value, 128) || wcscmp(value, L"authorized") != 0) return 67;
+    if (GetEnvironmentVariableW(L"BTRC_PARENT_ONLY", value, 128) != 0 || GetLastError() != ERROR_ENVVAR_NOT_FOUND) return 68;
+    emit("snapshot-ok\n", 12);
+    return 0;
+}
+
 /* --handle value path: "leaked" if value names path's file in this process. */
 static int child_handle(const char *value, const char *path) {
     HANDLE handle = (HANDLE)(uintptr_t)strtoull(value, NULL, 10);
@@ -304,6 +350,9 @@ static int child(int argc, char **argv) {
     }
     if (strcmp(mode, "--tree") == 0 && argc > 3) return child_tree(atoi(argv[2]), argv[3]);
     if (strcmp(mode, "--orphan") == 0 && argc > 2) return child_orphan(argv[2]);
+    if (strcmp(mode, "--supervised-tree") == 0 && argc > 2) return child_supervised_tree(argv[2], 0);
+    if (strcmp(mode, "--supervised-leaf") == 0 && argc > 2) return child_supervised_tree(argv[2], 1);
+    if (strcmp(mode, "--supervised-snapshot") == 0 && argc > 3) return child_supervised_snapshot(argv[2], argv[3]);
     if (strcmp(mode, "--handle") == 0 && argc > 3) return child_handle(argv[2], argv[3]);
     if (strcmp(mode, "--flood") == 0 && argc > 2) return child_flood(argv[2]);
     if (strcmp(mode, "--cat") == 0) return child_cat();
@@ -1186,18 +1235,87 @@ static int child_supervisor_preparation(__btrc_windows_supervisor_owner *owner) 
     return 0;
 }
 
+static int supervisor_refuses_execution(__btrc_windows_supervisor_owner *owner) {
+    __btrc_windows_launch_error_t error;
+    uint32_t running = 99, code = 99;
+    return __btrc_windows_supervisor_spawn_managed(owner, &error) != 0
+        && error.ownership_state == 1
+        && __btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) != 0
+        && running == 0 && code == 0
+        && __btrc_windows_supervisor_terminate_managed(owner, 1, &error) != 0;
+}
+
+static int child_supervisor_managed(__btrc_windows_supervisor_owner *owner, int scenario,
+        const btrc_daemon_frame *frame) {
+    __btrc_windows_launch_error_t error;
+    uint32_t running = 99, code = 99;
+    if (__btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) == 0
+            || running != 0 || code != 0) return 100;
+    if (!SetEnvironmentVariableW(L"BTRC_SNAPSHOT", L"changed-after-prepare")) return 101;
+    int repetitions = scenario == 28 || scenario == 33 ? 2 : 1;
+    for (int iteration = 0; iteration < repetitions; iteration++) {
+        if (__btrc_windows_supervisor_spawn_managed(owner, &error) != 0) return 102;
+        uint32_t expected = scenario <= 28 ? 0xF0123456u : scenario == 32 ? 0xE0123456u : scenario == 33 ? 0 : 47;
+        if (scenario >= 29 && scenario <= 32) {
+            char cwd[4096]; wchar_t wide[4096], path[4096];
+            if (frame->cwd.size >= sizeof(cwd)) return 103;
+            memcpy(cwd, frame->cwd.data, frame->cwd.size); cwd[frame->cwd.size] = 0;
+            if (to_wide(cwd, wide, 4096) != 0) return 103;
+            swprintf(path, 4096, L"%ls\\managed%ls", wide, scenario == 32 ? L"" : L".started");
+            char pid[32] = { 0 };
+            ULONGLONG deadline = GetTickCount64() + 3000;
+            while (read_text(path, pid, sizeof(pid)) != 0 || pid[0] == 0) {
+                if (GetTickCount64() >= deadline) return 104;
+                Sleep(10);
+            }
+            if (scenario != 32) {
+                swprintf(path, 4096, L"%ls\\managed.root", wide);
+                char root_pid[32] = { 0 };
+                if (read_text(path, root_pid, sizeof(root_pid)) != 0) return 105;
+                while (!process_gone(root_pid)) {
+                    if (GetTickCount64() >= deadline) return 106;
+                    Sleep(10);
+                }
+            }
+            if (__btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) != 0
+                    || running != 1 || code != 0) return 107;
+            if (__btrc_windows_supervisor_spawn_managed(owner, &error) == 0 || error.ownership_state != 1) return 108;
+            if (scenario == 31) return 0; /* the owner close must kill the live leaf */
+            if (scenario == 29) {
+                swprintf(path, 4096, L"%ls\\managed.release", wide);
+                if (write_file(path, "release") != 0) return 109;
+            } else if (__btrc_windows_supervisor_terminate_managed(owner, 0xE0123456u, &error) != 0
+                    || __btrc_windows_supervisor_terminate_managed(owner, 1, &error) != 0) return 110;
+        }
+        ULONGLONG deadline = GetTickCount64() + 3000;
+        do {
+            if (__btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) != 0) return 111;
+            if (GetTickCount64() >= deadline) return 112;
+            if (running) Sleep(10);
+        } while (running);
+        if (code != expected || __btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) != 0
+                || running != 0 || code != expected) return 113;
+        if (__btrc_windows_supervisor_terminate_managed(owner, 1, &error) != 0) return 114;
+    }
+    return 0;
+}
+
 static int child_supervisor_commit(__btrc_windows_supervisor_owner *owner, const btrc_daemon_frame *frame) {
     __btrc_windows_launch_error_t error;
     uint32_t delivered = 99;
     /* Preparation and publication are native prerequisites, not caller flags. */
-    if (__btrc_windows_supervisor_ready_wait_commit(owner, &error) == 0
+    if (!SetEnvironmentVariableW(L"BTRC_PARENT_ONLY", L"not-in-snapshot")
+            || !supervisor_refuses_execution(owner)
+            || __btrc_windows_supervisor_ready_wait_commit(owner, &error) == 0
             || __btrc_windows_supervisor_ack(owner, &delivered, &error) == 0
             || delivered != 0) return 82;
     int prepared = child_supervisor_preparation(owner);
     if (prepared != 0) return prepared;
-    if (__btrc_windows_supervisor_ack(owner, &delivered, &error) == 0 || delivered != 0) return 83;
+    if (!supervisor_refuses_execution(owner)
+            || __btrc_windows_supervisor_ack(owner, &delivered, &error) == 0 || delivered != 0) return 83;
     if (__btrc_windows_supervisor_ready_wait_commit(owner, &error) != 0)
         return error.ownership_state == 1 ? 80 : 84;
+    if (!supervisor_refuses_execution(owner)) return 93;
     if (frame->name.size != 9) return 85;
     int scenario = (frame->name.data[7] - '0') * 10 + frame->name.data[8] - '0';
     if (scenario != 25) {
@@ -1229,12 +1347,13 @@ static int child_supervisor_commit(__btrc_windows_supervisor_owner *owner, const
     }
     int acknowledged = __btrc_windows_supervisor_ack(owner, &delivered, &error);
     if (scenario == 25 || scenario == 26)
-        return acknowledged != 0 && delivered == 0 && error.ownership_state == 1 ? 81 : 89;
+        return acknowledged != 0 && delivered == 0 && error.ownership_state == 1
+            && supervisor_refuses_execution(owner) ? 81 : 89;
     if (acknowledged != 0 || delivered != (scenario == 27 ? 0u : 1u)) return 90;
     size_t size = 99;
     if (__btrc_windows_supervisor_copy_startup(owner, NULL, 0, &size, &error) == 0 || size != 0) return 91;
     if (__btrc_windows_supervisor_ack(owner, &delivered, &error) == 0 || delivered != 0) return 92;
-    return 0;
+    return scenario >= 27 ? child_supervisor_managed(owner, scenario, frame) : 0;
 }
 
 static int child_bootstrap_admission(void) {
@@ -1348,14 +1467,14 @@ static int admission_read(HANDLE pipe, unsigned char *bytes, DWORD size) {
 static void check_bootstrap_admission(void) {
     DWORD before = 0, after = 0;
     CHECK("admission initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
-    for (int scenario = 0; scenario < 28; scenario++) {
+    for (int scenario = 0; scenario < 34; scenario++) {
         void *descriptor = NULL;
         int private_status = btrcWinPrivateDescriptor(0, &descriptor);
         CHECK("admission fixture private descriptor", private_status == 0);
         if (private_status != 0) return;
         SECURITY_ATTRIBUTES security = { sizeof(security), descriptor, FALSE };
         wchar_t prepared_directory[1200] = { 0 }, prepared_log[1300] = { 0 }, prepared_control[1300] = { 0 };
-        char directory_text[4096] = { 0 }, log_text[4096] = { 0 }, control_text[4096] = { 0 };
+        char directory_text[4096] = { 0 }, log_text[4096] = { 0 }, control_text[4096] = { 0 }, marker_text[4096] = { 0 };
         if (scenario >= 13) {
             wchar_t temporary[1024];
             if (!GetTempPathW(1024, temporary)) ExitProcess(3);
@@ -1367,6 +1486,7 @@ static void check_bootstrap_admission(void) {
                     || to_utf8(prepared_directory, directory_text, 4096) != 0
                     || to_utf8(prepared_log, log_text, 4096) != 0
                     || to_utf8(prepared_control, control_text, 4096) != 0) ExitProcess(3);
+            snprintf(marker_text, sizeof(marker_text), "%s\\managed", directory_text);
         }
         HANDLE handles[7] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
         /* request server/client, reply server/client, then three NUL handles */
@@ -1442,7 +1562,7 @@ static void check_bootstrap_admission(void) {
             init.log_path = (btrc_daemon_text){ (const unsigned char *)"C:\\state\\owner.log", 18 };
             init.cwd = (btrc_daemon_text){ (const unsigned char *)"C:\\state", 8 };
             init.executable = (btrc_daemon_text){ (const unsigned char *)"tool.exe", 8 };
-            btrc_daemon_text arguments[] = {
+            btrc_daemon_text arguments[4] = {
                 { (const unsigned char *)"tool.exe", 8 }, { (const unsigned char *)"two words", 9 }
             };
             btrc_daemon_text environment[] = {
@@ -1468,6 +1588,23 @@ static void check_bootstrap_admission(void) {
             if (scenario >= 20) {
                 snprintf(commit_name, sizeof(commit_name), "commit-%d", scenario);
                 init.name = (btrc_daemon_text){ (const unsigned char *)commit_name, strlen(commit_name) };
+            }
+            btrc_daemon_text snapshot[] = {
+                { (const unsigned char *)"BTRC_SNAPSHOT=authorized", 24 }
+            };
+            if (scenario >= 27) {
+                const char *mode = scenario <= 28 ? "--exit" : scenario <= 31 ? "--supervised-tree"
+                    : scenario == 32 ? "--sleep-pid" : "--supervised-snapshot";
+                const char *argument = scenario <= 28 ? "f0123456" : scenario <= 32 ? marker_text : "space \" quote\\";
+                arguments[1] = (btrc_daemon_text){ (const unsigned char *)mode, strlen(mode) };
+                arguments[2] = (btrc_daemon_text){ (const unsigned char *)argument, strlen(argument) };
+                init.argument_count = 3;
+                if (scenario >= 32) {
+                    const char *last = scenario == 32 ? "30000" : directory_text;
+                    arguments[3] = (btrc_daemon_text){ (const unsigned char *)last, strlen(last) };
+                    init.argument_count = 4;
+                }
+                if (scenario == 33) { init.environment = snapshot; init.environment_count = 1; }
             }
             unsigned char bytes[16384];
             size_t encoded = 0;
@@ -1502,7 +1639,7 @@ static void check_bootstrap_admission(void) {
                 CHECK("fixture writes COMMIT", WriteFile(handles[1], bytes, (DWORD)encoded, &written, NULL) && written == encoded);
             }
             if (scenario == 22 || scenario == 23) { CloseHandle(handles[1]); handles[1] = NULL; }
-            if (scenario == 20) {
+            if (scenario == 20 || scenario >= 28) {
                 CHECK("verified publication delivers authenticated ACK", admission_read(handles[2], bytes, sizeof(bytes)) == 0
                     && btrc_daemon_decode(bytes, sizeof(bytes), &frame) == 0
                     && frame.type == BTRC_DAEMON_ACK && frame.supervisor_pid == process.dwProcessId && frame.lifetime == 1);
@@ -1511,7 +1648,7 @@ static void check_bootstrap_admission(void) {
             SecureZeroMemory(bytes, sizeof(bytes));
             SecureZeroMemory(&frame, sizeof(frame));
         }
-        DWORD waited = WaitForSingleObject(process.hProcess, 3000);
+        DWORD waited = WaitForSingleObject(process.hProcess, scenario >= 27 ? 8000 : 3000);
         CHECK("admission or refusal completes within deadline", waited == WAIT_OBJECT_0);
         if (waited != WAIT_OBJECT_0) {
             TerminateProcess(process.hProcess, 90);
@@ -1520,7 +1657,7 @@ static void check_bootstrap_admission(void) {
         DWORD exit_code = 0;
         GetExitCodeProcess(process.hProcess, &exit_code);
         DWORD expected = scenario == 0 || scenario == 13 ? 0 : scenario >= 14 ? 72 : 31;
-        if (scenario >= 20) expected = scenario == 20 || scenario == 27 ? 0 : scenario <= 24 ? 80 : 81;
+        if (scenario >= 20) expected = scenario == 20 || scenario >= 27 ? 0 : scenario <= 24 ? 80 : 81;
         if (exit_code != expected) report("admission scenario=%d exit=%lu\n", scenario, (unsigned long)exit_code);
         CHECK("admission and preparation check native capabilities", exit_code == expected);
         if (scenario == 0 && exit_code == 0) {
@@ -1553,11 +1690,24 @@ static void check_bootstrap_admission(void) {
             if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
             const char *expected_log = scenario == 13 || scenario >= 20
                 ? "preserved\ncrt-out\ncrt-error\nnative-out\nnative-error\n" : "preserved\n";
+            if (scenario == 33) expected_log = "preserved\ncrt-out\ncrt-error\nnative-out\nnative-error\nsnapshot-ok\nsnapshot-ok\n";
             CHECK("preparation preserves append contents and restores diagnostics", strcmp(bytes, expected_log) == 0);
-            if (scenario == 20 || scenario == 26 || scenario == 27)
+            if (scenario == 20 || scenario == 26 || scenario >= 27)
                 CHECK("ACK releases verified record holds", DeleteFileW(prepared_control));
             else CHECK("preparation never publishes a control record", GetFileAttributesW(prepared_control) == INVALID_FILE_ATTRIBUTES
                     && GetLastError() == ERROR_FILE_NOT_FOUND);
+            if (scenario >= 29 && scenario <= 32) {
+                wchar_t path[4096]; char pid[32] = { 0 };
+                swprintf(path, 4096, L"%ls\\managed%ls", prepared_directory, scenario == 32 ? L"" : L".started");
+                CHECK("managed tree is reaped before owner release", read_text(path, pid, sizeof(pid)) == 0
+                    && pid[0] != 0 && process_gone(pid));
+                const wchar_t *suffixes[] = { L"", L".started", L".root", L".release" };
+                for (size_t index = 0; index < 4; index++) {
+                    swprintf(path, 4096, L"%ls\\managed%ls", prepared_directory, suffixes[index]);
+                    if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
+                        CHECK("managed fixture releases marker files", DeleteFileW(path));
+                }
+            }
             CHECK("preparation releases held log and ancestry", DeleteFileW(prepared_log) && RemoveDirectoryW(prepared_directory));
         }
     }

@@ -37,6 +37,21 @@ int __btrc_windows_supervisor_ready_wait_commit(__btrc_windows_supervisor_owner 
 int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
     uint32_t *ack_delivered, __btrc_windows_launch_error_t *error);
 
+/* Start only after COMMIT, protected publication and completed bootstrap
+ * cleanup. An active generation cannot be replaced. A restart gets a new job
+ * and the exact retained command/environment snapshot. */
+int __btrc_windows_supervisor_spawn_managed(__btrc_windows_supervisor_owner *owner,
+    __btrc_windows_launch_error_t *error);
+
+/* Poll never waits. running stays true until the root and all descendants
+ * have exited; only then is native_exit_code the root's complete DWORD code. */
+int __btrc_windows_supervisor_poll_managed(__btrc_windows_supervisor_owner *owner,
+    uint32_t *running, uint32_t *native_exit_code, __btrc_windows_launch_error_t *error);
+
+/* Idempotent termination of the current tree; poll or close reaps it. */
+int __btrc_windows_supervisor_terminate_managed(__btrc_windows_supervisor_owner *owner,
+    uint32_t exit_code, __btrc_windows_launch_error_t *error);
+
 /* Cancel/drain bootstrap operations and scrub startup storage. Only complete
  * release nulls *owner; live native I/O is never freed on timeout. A retained
  * poisoned owner must be left to process teardown, not retried. */
