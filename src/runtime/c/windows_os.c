@@ -27,6 +27,7 @@
 #include "windows_bootstrap.h"
 #include "windows_daemon_protocol.h"
 #include "windows_daemon_files.h"
+#include "windows_supervisor.h"
 #include "windows_utf.h"
 
 #if defined(_WIN32)
@@ -819,6 +820,143 @@ int btrc_wos_bootstrap_receive(btrc_wos_bootstrap_pipe *pipe,
     }
     btrc_wos_bootstrap_message_release(message);
     return -1;
+}
+
+/* ---- Supervisor startup ownership -------------------------------------- */
+
+struct __btrc_windows_supervisor_owner {
+    btrc_wos_bootstrap_pipe *request, *reply;
+    btrc_wos_bootstrap_message startup;
+    btrc_daemon_handshake handshake;
+    uint64_t deadline;
+    int closing, poisoned;
+};
+
+static int btrc_wos_supervisor_deadline(uint64_t timeout, uint64_t *deadline,
+        __btrc_windows_launch_error_t *error) {
+    uint64_t now = GetTickCount64();
+    if (timeout == 0 || timeout > UINT64_MAX - now)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION,
+            BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    *deadline = now + timeout;
+    return 0;
+}
+
+/* Drain both endpoints even if the first fails, retaining the first diagnostic
+ * and the strongest ownership state. Once closing starts, payload access is
+ * forbidden, including when the caller must retry a pending cancellation. */
+static int btrc_wos_supervisor_release(__btrc_windows_supervisor_owner **slot,
+        uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    __btrc_windows_supervisor_owner *owner = *slot;
+    owner->closing = 1;
+    if (owner->poisoned) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_HANDLE);
+        if (error != NULL) error->ownership_state = 2;
+        return -1;
+    }
+    int status = 0;
+    uint32_t ownership = 0;
+    btrc_wos_bootstrap_pipe **pipes[] = { &owner->request, &owner->reply };
+    for (size_t index = 0; index < sizeof(pipes) / sizeof(pipes[0]); index++) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_bootstrap_close(pipes[index], deadline, &cleanup) != 0) {
+            if (status == 0 && error != NULL) *error = cleanup;
+            if (cleanup.ownership_state > ownership) ownership = cleanup.ownership_state;
+            status = -1;
+        }
+    }
+    /* Pipe operations own independent copies, so no pending kernel reference
+     * reaches the decoded frame or the authentication state. */
+    btrc_wos_bootstrap_message_release(&owner->startup);
+    btrc_daemon_handshake_clear(&owner->handshake);
+    if (status != 0) {
+        owner->poisoned = ownership == 2;
+        if (error != NULL) error->ownership_state = ownership;
+        return -1;
+    }
+    SecureZeroMemory(owner, sizeof(*owner));
+    free(owner);
+    *slot = NULL;
+    return 0;
+}
+
+int __btrc_windows_supervisor_accept(uint64_t startup_timeout_ms,
+        __btrc_windows_supervisor_owner **out, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (out != NULL) *out = NULL;
+    uint64_t deadline = 0;
+    if (out == NULL)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION,
+            BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    if (btrc_wos_supervisor_deadline(startup_timeout_ms, &deadline, error) != 0) return -1;
+    __btrc_windows_supervisor_owner *owner = calloc(1, sizeof(*owner));
+    if (owner == NULL)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION,
+            BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+    owner->deadline = deadline;
+    int status = btrc_wos_bootstrap_admit(&owner->request, &owner->reply, error);
+    if (status == 0 && btrc_daemon_handshake_start(&owner->handshake,
+            BTRC_DAEMON_SUPERVISOR, GetCurrentProcessId(), 0, NULL) != 0)
+        status = btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION,
+            BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_DATA);
+    if (status == 0)
+        status = btrc_wos_bootstrap_receive(owner->request, &owner->handshake,
+            &owner->startup, deadline, error);
+    if (status == 0) {
+        uint64_t now = GetTickCount64();
+        if (now >= deadline) {
+            status = btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_WIN32, ERROR_TIMEOUT);
+        } else {
+            uint64_t remaining = deadline - now;
+            if (owner->startup.frame.remaining_startup_ms < remaining)
+                remaining = owner->startup.frame.remaining_startup_ms;
+            owner->deadline = now + remaining;
+        }
+    }
+    if (status != 0) {
+        __btrc_windows_launch_error_t cleanup;
+        btrc_wos_clear(&cleanup);
+        if (btrc_wos_supervisor_release(&owner, deadline, &cleanup) != 0 && error != NULL)
+            error->ownership_state = cleanup.ownership_state;
+    }
+    *out = owner;
+    return status;
+}
+
+int __btrc_windows_supervisor_copy_startup(__btrc_windows_supervisor_owner *owner,
+        unsigned char *buffer, size_t capacity, size_t *required_bytes,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (required_bytes != NULL) *required_bytes = 0;
+    if (owner == NULL || owner->closing || owner->poisoned || required_bytes == NULL
+            || owner->startup.bytes == NULL || (buffer == NULL && capacity != 0)) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION,
+            BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+        if (error != NULL && owner != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+        return -1;
+    }
+    size_t size = owner->startup.size - BTRC_DAEMON_HEADER_BYTES;
+    *required_bytes = size;
+    if (buffer == NULL) return 0;
+    if (capacity < size) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_CAPACITY, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+        if (error != NULL) error->ownership_state = 1;
+        return -1;
+    }
+    memcpy(buffer, owner->startup.bytes + BTRC_DAEMON_HEADER_BYTES, size);
+    return 0;
+}
+
+int __btrc_windows_supervisor_close(__btrc_windows_supervisor_owner **owner,
+        uint64_t timeout_ms, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (owner == NULL || *owner == NULL) return 0;
+    uint64_t deadline = 0;
+    if (btrc_wos_supervisor_deadline(timeout_ms, &deadline, error) != 0) {
+        if (error != NULL) error->ownership_state = (*owner)->poisoned ? 2 : 1;
+        return -1;
+    }
+    return btrc_wos_supervisor_release(owner, deadline, error);
 }
 
 /* ---- Held daemon log and control files --------------------------------- */
@@ -2301,6 +2439,31 @@ int __btrc_windows_launch_close(__btrc_windows_launch_owner_t **launch,
 }
 
 #else
+
+int __btrc_windows_supervisor_accept(uint64_t startup_timeout_ms,
+        __btrc_windows_supervisor_owner **out, __btrc_windows_launch_error_t *error) {
+    (void)startup_timeout_ms;
+    btrc_wos_clear(error);
+    if (out != NULL) *out = NULL;
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
+
+int __btrc_windows_supervisor_copy_startup(__btrc_windows_supervisor_owner *owner,
+        unsigned char *buffer, size_t capacity, size_t *required_bytes,
+        __btrc_windows_launch_error_t *error) {
+    (void)owner; (void)buffer; (void)capacity;
+    btrc_wos_clear(error);
+    if (required_bytes != NULL) *required_bytes = 0;
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
+
+int __btrc_windows_supervisor_close(__btrc_windows_supervisor_owner **owner,
+        uint64_t timeout_ms, __btrc_windows_launch_error_t *error) {
+    (void)timeout_ms;
+    btrc_wos_clear(error);
+    if (owner != NULL) *owner = NULL;
+    return 0;
+}
 
 /* Off Windows the launch seam exists only so a retained helper still links;
  * every entry reports an unsupported host. */

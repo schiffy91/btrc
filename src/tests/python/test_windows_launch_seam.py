@@ -210,6 +210,12 @@ def test_a_launch_off_windows_reports_an_unsupported_host(probe):
     assert quote(probe, ["--launch"]).strip() == "launch=1 owner=null stage=15 domain=4 wait=1 close=0"
 
 
+def test_supervisor_off_windows_clears_outputs_and_preserves_copy_buffer(probe):
+    assert quote(probe, ["--supervisor"]).strip() == (
+        "accept=1 owner=null copy=1 required=0 output=165 stage=15 domain=4 close=0"
+    )
+
+
 def test_runtime_object_builds_strictly_for_the_host(probe):
     assert probe.is_file()
 

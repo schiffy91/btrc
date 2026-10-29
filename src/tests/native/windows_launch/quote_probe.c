@@ -14,6 +14,21 @@
 
 #include "windows_os.h"
 #include "windows_bootstrap.h"
+#include "windows_supervisor.h"
+
+static int supervisor_off_windows(void) {
+    __btrc_windows_launch_error_t error;
+    __btrc_windows_supervisor_owner *owner = (__btrc_windows_supervisor_owner *)(void *)&error;
+    int accepted = __btrc_windows_supervisor_accept(1000, &owner, &error);
+    size_t required = 99;
+    unsigned char output = 0xA5;
+    int copied = __btrc_windows_supervisor_copy_startup(owner, &output, 1, &required, &error);
+    printf("accept=%d owner=%s copy=%d required=%zu output=%u stage=%u domain=%u ",
+        accepted != 0, owner == NULL ? "null" : "set", copied != 0, required, (unsigned)output,
+        (unsigned)error.stage, (unsigned)error.domain);
+    printf("close=%d\n", __btrc_windows_supervisor_close(&owner, 0, &error));
+    return 0;
+}
 
 static int bootstrap_invocation(const char *hex) {
     size_t units = strlen(hex) / 4;
@@ -52,6 +67,7 @@ static int launch_off_windows(void) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--supervisor") == 0) return supervisor_off_windows();
     if (argc == 3 && strcmp(argv[1], "--bootstrap-invocation") == 0) return bootstrap_invocation(argv[2]);
     if (argc == 2 && strcmp(argv[1], "--launch") == 0) return launch_off_windows();
     size_t required = 0;

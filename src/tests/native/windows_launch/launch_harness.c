@@ -26,6 +26,7 @@
 #include "windows_bootstrap.h"
 #include "windows_security.h"
 #include "windows_daemon_files.h"
+#include "windows_supervisor.h"
 
 static int checks = 0;
 static int failures = 0;
@@ -1159,9 +1160,19 @@ static void check_bootstrap_exchange(void) {
 }
 
 static int child_bootstrap_admission(void) {
-    btrc_wos_bootstrap_pipe *request = NULL, *reply = NULL;
+    __btrc_windows_supervisor_owner *owner = NULL;
     __btrc_windows_launch_error_t error;
-    if (btrc_wos_bootstrap_admit(&request, &reply, &error) != 0) return 31;
+    DWORD before = 0, after = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &before)) return 47;
+    /* Invalid budgets must fail before adopting or consuming either pipe. */
+    if (__btrc_windows_supervisor_accept(0, &owner, &error) == 0 || owner != NULL
+            || error.stage != 1 || error.ownership_state != 0) return 37;
+    if (__btrc_windows_supervisor_accept(UINT64_MAX, &owner, &error) == 0 || owner != NULL
+            || error.stage != 1 || error.ownership_state != 0) return 38;
+    if (__btrc_windows_supervisor_accept(1000, &owner, &error) != 0) {
+        if (__btrc_windows_supervisor_close(&owner, 1000, &error) != 0 || owner != NULL) return 39;
+        return 31;
+    }
     size_t image = 0;
     uintptr_t input = 0, output = 0;
     const wchar_t *command = GetCommandLineW();
@@ -1173,13 +1184,56 @@ static int child_bootstrap_admission(void) {
         DWORD flags = HANDLE_FLAG_INHERIT;
         if (!GetHandleInformation(handles[index], &flags) || (flags & HANDLE_FLAG_INHERIT)) return 33;
     }
-    unsigned char byte = 0;
-    uint64_t deadline = GetTickCount64() + 1500;
-    if (btrc_wos_bootstrap_read(request, &byte, 1, deadline, &error) != 0 || byte != 'X') return 34;
-    byte = 'Y';
-    if (btrc_wos_bootstrap_write(reply, &byte, 1, deadline, &error) != 0) return 35;
-    if (btrc_wos_bootstrap_close(&request, deadline, &error) != 0
-            || btrc_wos_bootstrap_close(&reply, deadline, &error) != 0) return 36;
+    size_t size = 0;
+    if (__btrc_windows_supervisor_copy_startup(owner, NULL, 0, &size, &error) != 0 || size < 32) return 34;
+    unsigned char *copy = malloc(size + BTRC_DAEMON_HEADER_BYTES);
+    if (copy == NULL) return 35;
+    memset(copy, 0xA5, size + BTRC_DAEMON_HEADER_BYTES);
+    size_t required = 0;
+    if (__btrc_windows_supervisor_copy_startup(owner, copy, size - 1, &required, &error) == 0
+            || required != size || error.stage != 18 || error.ownership_state != 1) return 40;
+    for (size_t index = 0; index < size + BTRC_DAEMON_HEADER_BYTES; index++)
+        if (copy[index] != 0xA5) return 41;
+    if (__btrc_windows_supervisor_copy_startup(owner, NULL, 1, &required, &error) == 0 || required != 0) return 42;
+    /* Add only a wire header; the returned payload must decode unmodified. */
+    memcpy(copy, "BTRCDM1\0\1\0\1\0", 12);
+    for (size_t index = 0; index < 4; index++) copy[12 + index] = (unsigned char)(size >> (8 * index));
+    if (__btrc_windows_supervisor_copy_startup(owner, copy + BTRC_DAEMON_HEADER_BYTES,
+            size, &required, &error) != 0 || required != size) return 43;
+    btrc_daemon_frame frame;
+    if (btrc_daemon_decode(copy, size + BTRC_DAEMON_HEADER_BYTES, &frame) != 0
+            || frame.type != BTRC_DAEMON_INIT || frame.name.size != 11
+            || memcmp(frame.name.data, "owner-probe", 11) != 0 || frame.arguments.count != 2
+            || frame.environment.count != 2 || frame.lifetime != 1 || frame.auto_restart != 1) return 44;
+    for (size_t index = 0; index < sizeof(frame.token); index++)
+        if (frame.token[index] != (unsigned char)(index + 1)) return 45;
+    if (frame.control_path.size != 22 || memcmp(frame.control_path.data, "C:\\state\\owner.control", 22) != 0
+            || frame.log_path.size != 18 || memcmp(frame.log_path.data, "C:\\state\\owner.log", 18) != 0
+            || frame.cwd.size != 8 || memcmp(frame.cwd.data, "C:\\state", 8) != 0
+            || frame.executable.size != 8 || memcmp(frame.executable.data, "tool.exe", 8) != 0
+            || frame.remaining_startup_ms != 500) return 48;
+    btrc_daemon_reader arguments = { frame.arguments.encoded.data, frame.arguments.encoded.size, 1 };
+    btrc_daemon_text program = btrc_daemon_read_text(&arguments), argument = btrc_daemon_read_text(&arguments);
+    btrc_daemon_reader environment = { frame.environment.encoded.data, frame.environment.encoded.size, 1 };
+    btrc_daemon_text drive = btrc_daemon_read_text(&environment), path = btrc_daemon_read_text(&environment);
+    if (!arguments.valid || arguments.remaining != 0 || !environment.valid || environment.remaining != 0
+            || program.size != 8 || memcmp(program.data, "tool.exe", 8) != 0
+            || argument.size != 9 || memcmp(argument.data, "two words", 9) != 0
+            || drive.size != 12 || memcmp(drive.data, "=C:=C:\\state", 12) != 0
+            || path.size != 13 || memcmp(path.data, "PATH=C:\\tools", 13) != 0) return 49;
+    memset(copy + BTRC_DAEMON_HEADER_BYTES, 0, size);
+    if (__btrc_windows_supervisor_copy_startup(owner, copy + BTRC_DAEMON_HEADER_BYTES,
+            size, &required, &error) != 0
+            || btrc_daemon_decode(copy, size + BTRC_DAEMON_HEADER_BYTES, &frame) != 0
+            || frame.token[0] != 1 || frame.name.size != 11) return 50;
+    SecureZeroMemory(copy, size + BTRC_DAEMON_HEADER_BYTES);
+    free(copy);
+    SecureZeroMemory(&frame, sizeof(frame));
+    if (__btrc_windows_supervisor_close(&owner, 0, &error) == 0 || owner == NULL
+            || error.stage != 1 || error.ownership_state != 1) return 46;
+    if (__btrc_windows_supervisor_close(&owner, 1000, &error) != 0 || owner != NULL
+            || __btrc_windows_supervisor_close(&owner, 0, &error) != 0) return 36;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &after) || after + 2 != before) return 51;
     return 0;
 }
 
@@ -1189,7 +1243,7 @@ static int child_bootstrap_admission(void) {
 static void check_bootstrap_admission(void) {
     DWORD before = 0, after = 0;
     CHECK("admission initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
-    for (int scenario = 0; scenario < 9; scenario++) {
+    for (int scenario = 0; scenario < 13; scenario++) {
         void *descriptor = NULL;
         int private_status = btrcWinPrivateDescriptor(0, &descriptor);
         CHECK("admission fixture private descriptor", private_status == 0);
@@ -1258,9 +1312,38 @@ static void check_bootstrap_admission(void) {
         for (size_t index = 0; index < 7; index++) {
             if (index != 1 && index != 2) { CloseHandle(handles[index]); handles[index] = NULL; }
         }
-        if (scenario == 0) {
+        if (scenario == 0 || scenario >= 9) {
+            btrc_daemon_init init;
+            memset(&init, 0, sizeof(init));
+            for (size_t index = 0; index < sizeof(init.token); index++) init.token[index] = (unsigned char)(index + 1);
+            init.remaining_startup_ms = 500;
+            init.lifetime = 1; init.auto_restart = 1;
+            init.name = (btrc_daemon_text){ (const unsigned char *)"owner-probe", 11 };
+            init.control_path = (btrc_daemon_text){ (const unsigned char *)"C:\\state\\owner.control", 22 };
+            init.log_path = (btrc_daemon_text){ (const unsigned char *)"C:\\state\\owner.log", 18 };
+            init.cwd = (btrc_daemon_text){ (const unsigned char *)"C:\\state", 8 };
+            init.executable = (btrc_daemon_text){ (const unsigned char *)"tool.exe", 8 };
+            btrc_daemon_text arguments[] = {
+                { (const unsigned char *)"tool.exe", 8 }, { (const unsigned char *)"two words", 9 }
+            };
+            btrc_daemon_text environment[] = {
+                { (const unsigned char *)"=C:=C:\\state", 12 }, { (const unsigned char *)"PATH=C:\\tools", 13 }
+            };
+            init.arguments = arguments; init.argument_count = 2;
+            init.environment = environment; init.environment_count = 2;
+            unsigned char bytes[512];
+            size_t encoded = 0;
+            CHECK("admission fixture encodes full startup", btrc_daemon_encode_init(&init, bytes, sizeof(bytes), &encoded) == 0);
+            if (scenario == 9) encoded--; /* EOF inside the last field */
+            if (scenario == 10) bytes[8] = 2; /* unsupported protocol */
+            if (scenario == 11) encoded = BTRC_DAEMON_HEADER_BYTES; /* writer remains idle */
+            if (scenario == 12) { bytes[14] = 0x20; encoded = BTRC_DAEMON_HEADER_BYTES; }
             DWORD written = 0;
-            CHECK("admitted supervisor receives from sole request writer", WriteFile(handles[1], "X", 1, &written, NULL) && written == 1);
+            CHECK("supervisor receives canonical INIT from sole writer",
+                WriteFile(handles[1], bytes, (DWORD)encoded, &written, NULL) && written == encoded);
+            SecureZeroMemory(bytes, sizeof(bytes));
+            SecureZeroMemory(&init, sizeof(init));
+            if (scenario == 9) { CloseHandle(handles[1]); handles[1] = NULL; }
         }
         DWORD waited = WaitForSingleObject(process.hProcess, 3000);
         CHECK("admission or refusal completes within deadline", waited == WAIT_OBJECT_0);
@@ -1283,11 +1366,11 @@ static void check_bootstrap_admission(void) {
                 if (WaitForSingleObject(operation.hEvent, 1000) != WAIT_OBJECT_0) ExitProcess(3);
                 read = GetOverlappedResult(handles[2], &operation, &got, FALSE);
             }
-            CHECK("admitted supervisor replies through its owned endpoint", read && got == 1 && byte == 'Y');
+            CHECK("supervisor close releases the sole reply writer", !read && got == 0 && GetLastError() == ERROR_BROKEN_PIPE);
             CloseHandle(operation.hEvent);
         }
         CloseHandle(process.hProcess);
-        CloseHandle(handles[1]);
+        if (handles[1] != NULL) CloseHandle(handles[1]);
         CloseHandle(handles[2]);
     }
     CHECK("admission final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
