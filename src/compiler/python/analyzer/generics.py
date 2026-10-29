@@ -17,7 +17,14 @@ from src.compiler.python.analyzer.program import (
 from src.compiler.python.analyzer.types import TypeIdentity, TypeShapeError
 from src.compiler.python.frontend.native_imports import NativeHeaderSource, NativeInstantiatedProjection
 from src.compiler.python.frontend.sources import CompilerStdlibSource
-from src.compiler.python.syntax.ast.generated import AssignExpr, FunctionDecl, Identifier, LambdaExpr, TypeExpr
+from src.compiler.python.syntax.ast.generated import (
+    AssignExpr,
+    BinaryExpr,
+    FunctionDecl,
+    Identifier,
+    LambdaExpr,
+    TypeExpr,
+)
 
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalysisSession
@@ -60,10 +67,10 @@ class GenericMethodInferencePlan:
 
 @dataclass(frozen=True)
 class GenericSpecializationScanPlan:
-    """Cached type and compound-operator facts revisited under substitutions."""
+    """Cached type and binary-operator facts revisited under substitutions."""
 
     type_uses: tuple[tuple[TypeExpr, frozenset[str]], ...]
-    compound_assignments: tuple[AssignExpr, ...]
+    binary_operations: tuple[AssignExpr | BinaryExpr, ...]
 
 
 @dataclass(frozen=True)
@@ -649,16 +656,17 @@ class GenericAnalyzer:
                     self._validate_specialized_contracts(resolved, resolved.line, resolved.col)
                     self._record_uses(type_expr)
                 self.collect_type_instances(resolved, unresolved)
-        self._scan_compound_operator_dependencies(plan.compound_assignments, substitutions)
+        self._scan_binary_operator_dependencies(plan.binary_operations, substitutions)
 
-    def _scan_compound_operator_dependencies(self, assignments, substitutions) -> None:
+    def _scan_binary_operator_dependencies(self, operations, substitutions) -> None:
         """Select concrete operator and conversion callables hidden by template types."""
-        for assignment in assignments:
-            target = self._specialized_node_type(assignment.target, substitutions)
-            source = self._specialized_node_type(assignment.value, substitutions)
+        for operation in operations:
+            compound = isinstance(operation, AssignExpr)
+            target = self._specialized_node_type(operation.target if compound else operation.left, substitutions)
+            source = self._specialized_node_type(operation.value if compound else operation.right, substitutions)
             if target is None or source is None:
                 continue
-            resolved = self.types.operator_method(target, assignment.op[:-1])
+            resolved = self.types.operator_method(target, operation.op[:-1] if compound else operation.op)
             if resolved is None:
                 continue
             method, method_substitutions = resolved
@@ -687,7 +695,7 @@ class GenericAnalyzer:
     def _build_scan_plan(self, root):
         """Index type-bearing nodes once for every reused template subtree."""
         plan: list[tuple[TypeExpr, frozenset[str]]] = []
-        compound_assignments: list[AssignExpr] = []
+        binary_operations: list[AssignExpr | BinaryExpr] = []
         seen_values: set[int] = set()
         seen_types: set[int] = set()
 
@@ -715,14 +723,14 @@ class GenericAnalyzer:
             if not is_dataclass(value) or id(value) in seen_values:
                 return
             seen_values.add(id(value))
-            if isinstance(value, AssignExpr) and value.op != "=":
-                compound_assignments.append(value)
+            if isinstance(value, BinaryExpr) or (isinstance(value, AssignExpr) and value.op != "="):
+                binary_operations.append(value)
             add_type(self.session.node_types.get(id(value)))
             for field in fields(value):
                 visit(getattr(value, field.name))
 
         visit(root)
-        return GenericSpecializationScanPlan(tuple(plan), tuple(compound_assignments))
+        return GenericSpecializationScanPlan(tuple(plan), tuple(binary_operations))
 
     @staticmethod
     def _substitution_names(type_expr):

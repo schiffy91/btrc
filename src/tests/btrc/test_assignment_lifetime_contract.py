@@ -250,9 +250,15 @@ def test_compound_overload_signature_must_fit_the_concrete_slot(
         assert reference_diagnostic in (reference.stdout + reference.stderr).lower(), name
 
 
+@pytest.mark.parametrize(
+    "update", ["self.value += value;", "self.value = self.value + value;"], ids=["compound", "binary"]
+)
+@pytest.mark.parametrize("argument_type", ["string", "Rhs"], ids=["declared-string", "bound-string"])
 def test_generic_compound_rhs_conversion_materializes_concrete_to_string(
     semantic_btrcc: Path,
     tmp_path: Path,
+    update: str,
+    argument_type: str,
 ) -> None:
     source = r"""
         #include <assert.h>
@@ -261,31 +267,31 @@ def test_generic_compound_rhs_conversion_materializes_concrete_to_string(
         int conversions = 0;
         int additions = 0;
 
-        class Value<T> {
+        class Value<T, Rhs> {
             public Value() { liveValues++; }
             public void __del__() { liveValues--; }
             public string toString() {
                 conversions++;
                 return "converted";
             }
-            public Value<T> __add__(string text) {
+            public Value<T, Rhs> __add__(RHS_TYPE text) {
                 additions++;
                 assert(text.equals("converted"));
-                return new Value<T>();
+                return new Value<T, Rhs>();
             }
         }
 
         class Box<T> {
             public T value;
             public Box(T value) { self.value = value; }
-            public void add(T value) { self.value += value; }
+            public void add(T value) { UPDATE }
         }
 
         int main() {
             {
-                Value<int> left = new Value<int>();
-                Value<int> right = new Value<int>();
-                Box<Value<int>> box = new Box<Value<int>>(left);
+                Value<int, string> left = new Value<int, string>();
+                Value<int, string> right = new Value<int, string>();
+                Box<Value<int, string>> box = new Box<Value<int, string>>(left);
                 box.add(right);
                 assert(conversions == 1 && additions == 1);
                 assert(liveValues == 3);
@@ -296,7 +302,7 @@ def test_generic_compound_rhs_conversion_materializes_concrete_to_string(
             assert(liveValues == 0);
             return 0;
         }
-    """
+    """.replace("RHS_TYPE", argument_type).replace("UPDATE", update)
     selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,

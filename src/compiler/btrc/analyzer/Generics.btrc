@@ -1933,6 +1933,20 @@ class GenericSpecializer {
 		self.demandCallable(self.genericClosureExpressionType(value, substitutions, self.analyzed, self.operators, variables), "method", "toString", unresolved);
 	}
 
+	private void demandOperatorConversion(Node? receiver, string name, Node? value, Map<string, Node> substitutions, Map<string, bool> unresolved, Map<string, Node> variables) {
+		Node? expected = receiver;
+		Node? method = null;
+		Map<string, Node> bindings = substitutions;
+		if (receiver != null && self.analyzed.isGenericClass(receiver.base)) {
+			method = self.analyzed.genericClassMethod(receiver.base, name);
+			bindings = SemanticTypeSystem.genericTypeMap(self.analyzed, receiver);
+		} else if (receiver != null && self.analyzed.isClass(receiver.base)) {
+			method = self.analyzed.classMethod(receiver.base, name);
+		}
+		if (method != null && method.params().len > 0) { expected = SemanticTypeSystem.resolveGenericType(method.params().get(0).type, bindings, self.analyzed); }
+		self.demandConversion(expected, value, substitutions, unresolved, variables);
+	}
+
 	private void demandCallConversions(Node call, Map<string, Node> substitutions, Map<string, bool> unresolved, Map<string, Node> variables) {
 		Node? callee = call.callee;
 		Node? declaration = null;
@@ -2082,7 +2096,7 @@ class GenericSpecializer {
 				Node? receiver = self.genericClosureExpressionType(node.kind == NK_BINARY_EXPR ? node.left : node.operand, substitutions, analyzed, operators, variables);
 				string name = node.kind == NK_UNARY_EXPR && node.op == "-" ? "__neg__" : operators.binaryMethodName(node.op);
 				self.demandCallable(receiver, "method", name, unresolved);
-				if (node.kind == NK_BINARY_EXPR) { self.demandConversion(receiver, node.right, substitutions, unresolved, variables); }
+				if (node.kind == NK_BINARY_EXPR) { self.demandOperatorConversion(receiver, name, node.right, substitutions, unresolved, variables); }
 			}
 			if (node.kind == NK_LIST_LITERAL || node.kind == NK_MAP_LITERAL) {
 				Node? receiver = self.genericClosureExpressionType(node, substitutions, analyzed, operators, variables);
@@ -2098,11 +2112,12 @@ class GenericSpecializer {
 				self.genericClosureWalkNode(target.obj, substitutions, unresolved, analyzed, operators, variables);
 				self.genericClosureWalkNode(target.index, substitutions, unresolved, analyzed, operators, variables);
 			} else { self.genericClosureWalkNode(target, substitutions, unresolved, analyzed, operators, variables); }
+			Node? receiver = self.genericClosureExpressionType(target, substitutions, analyzed, operators, variables);
 			if (read && node.kind == NK_ASSIGN_EXPR) {
-				Node? receiver = self.genericClosureExpressionType(target, substitutions, analyzed, operators, variables);
-				self.demandCallable(receiver, "method", operators.binaryMethodName(node.op.substring(0, node.op.length() - 1)), unresolved);
-			}
-			self.demandConversion(self.genericClosureExpressionType(target, substitutions, analyzed, operators, variables), node.valueNode, substitutions, unresolved, variables);
+				string name = operators.binaryMethodName(node.op.substring(0, node.op.length() - 1));
+				self.demandCallable(receiver, "method", name, unresolved);
+				self.demandOperatorConversion(receiver, name, node.valueNode, substitutions, unresolved, variables);
+			} else { self.demandConversion(receiver, node.valueNode, substitutions, unresolved, variables); }
 			self.genericClosureWalkNode(node.valueNode, substitutions, unresolved, analyzed, operators, variables);
 			return;
 		}
