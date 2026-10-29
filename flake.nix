@@ -319,6 +319,7 @@
         selfhostBundleSource = sourceSubset {
           prefixes = [
             "src/language/"
+            "src/runtime/c/"
             "src/stdlib/"
           ];
           files = [ "LICENSE" ];
@@ -433,6 +434,8 @@
             install -m 0644 src/language/grammar.ebnf \
               "$out/share/btrc/language/grammar.ebnf"
             cp -R src/stdlib "$out/share/btrc/stdlib"
+            mkdir -p "$out/share/btrc/runtime"
+            cp -R src/runtime/c "$out/share/btrc/runtime/c"
             wrapProgram "$out/bin/btrcc" \
               --set-default BTRC_HOME "$out/share/btrc" \
               ${lib.concatStringsSep " " (lib.mapAttrsToList (name: value:
