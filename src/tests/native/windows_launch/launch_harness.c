@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <winternl.h>
 
 #include "windows_os.h"
 #include "windows_bootstrap.h"
@@ -59,6 +60,83 @@ static void report(const char *format, ...) {
     if (failures != 0) {
         (void)fwrite(line, 1, (size_t)length, stderr);
         (void)fflush(stderr);
+    }
+}
+
+/* Test-only handle-table diagnostics. ProcessHandleInformation (51) and its
+ * layout follow https://github.com/winsiderss/phnt/blob/master/ntpsapi.h.
+ * Query only this process and object types; object-name queries can block on
+ * pipes. A fixed buffer bounds the diagnostic and never changes a census gate. */
+typedef struct {
+    HANDLE value;
+    SIZE_T handle_count, pointer_count;
+    ACCESS_MASK access;
+    ULONG type, attributes, reserved;
+} census_entry;
+typedef struct {
+    ULONG_PTR count, reserved;
+    census_entry entries[512];
+} census_snapshot;
+
+static int census_take(census_snapshot *snapshot) {
+    typedef NTSTATUS (NTAPI *query_fn)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
+    HMODULE module = GetModuleHandleW(L"ntdll.dll");
+    query_fn query = module == NULL ? NULL
+        : (query_fn)(void (*)(void))GetProcAddress(module, "NtQueryInformationProcess");
+    memset(snapshot, 0, sizeof(*snapshot));
+    if (query == NULL || query(GetCurrentProcess(), (PROCESSINFOCLASS)51,
+            snapshot, sizeof(*snapshot), NULL) != 0 || snapshot->count > 512) {
+        snapshot->count = 0;
+        return -1;
+    }
+    return 0;
+}
+
+static int census_contains(const census_snapshot *snapshot, const census_entry *entry) {
+    for (ULONG_PTR index = 0; index < snapshot->count; index++) {
+        const census_entry *candidate = &snapshot->entries[index];
+        if (candidate->value == entry->value && candidate->type == entry->type
+                && candidate->access == entry->access) return 1;
+    }
+    return 0;
+}
+
+static void census_type(HANDLE handle, char *text, int capacity) {
+    typedef NTSTATUS (NTAPI *query_fn)(HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+    HMODULE module = GetModuleHandleW(L"ntdll.dll");
+    query_fn query = module == NULL ? NULL
+        : (query_fn)(void (*)(void))GetProcAddress(module, "NtQueryObject");
+    union { max_align_t alignment; unsigned char bytes[1024]; } buffer;
+    text[0] = 0;
+    if (query == NULL || query(handle, ObjectTypeInformation, &buffer, sizeof(buffer), NULL) != 0) return;
+    const PUBLIC_OBJECT_TYPE_INFORMATION *type = (const PUBLIC_OBJECT_TYPE_INFORMATION *)buffer.bytes;
+    uintptr_t first = (uintptr_t)buffer.bytes, name = (uintptr_t)type->TypeName.Buffer;
+    if (name < first || name > first + sizeof(buffer) || type->TypeName.Length > first + sizeof(buffer) - name
+            || type->TypeName.Length % sizeof(wchar_t) != 0) return;
+    int length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, type->TypeName.Buffer,
+        type->TypeName.Length / sizeof(wchar_t), text, capacity - 1, NULL, NULL);
+    if (length > 0) text[length] = 0;
+}
+
+static void census_dump(HANDLE output, const char *label, DWORD before, DWORD after,
+        const census_snapshot *initial, const census_snapshot *final, int valid) {
+    char line[512]; DWORD written = 0;
+    int size = snprintf(line, sizeof(line), "%s handles %lu -> %lu; snapshots=%s\n", label,
+        (unsigned long)before, (unsigned long)after, valid ? "complete" : "unavailable");
+    if (size > 0) (void)WriteFile(output, line, (DWORD)size, &written, NULL);
+    if (!valid) return;
+    for (int added = 0; added < 2; added++) {
+        const census_snapshot *source = added ? final : initial, *other = added ? initial : final;
+        for (ULONG_PTR index = 0; index < source->count; index++) {
+            const census_entry *entry = &source->entries[index];
+            if (census_contains(other, entry)) continue;
+            char type[128] = { 0 };
+            if (added) census_type(entry->value, type, sizeof(type));
+            size = snprintf(line, sizeof(line), "%s handle=%llu type=%lu(%s) access=0x%lx attributes=0x%lx\n",
+                added ? "added" : "removed", (unsigned long long)(uintptr_t)entry->value,
+                (unsigned long)entry->type, type, (unsigned long)entry->access, (unsigned long)entry->attributes);
+            if (size > 0 && (size_t)size < sizeof(line)) (void)WriteFile(output, line, (DWORD)size, &written, NULL);
+        }
     }
 }
 
@@ -1361,6 +1439,8 @@ static int child_bootstrap_admission(void) {
     __btrc_windows_supervisor_owner *owner = NULL;
     __btrc_windows_launch_error_t error;
     DWORD before = 0, after = 0;
+    census_snapshot initial, final;
+    int snapshots_valid = census_take(&initial) == 0;
     if (!GetProcessHandleCount(GetCurrentProcess(), &before)) return 47;
     /* Invalid budgets must fail before adopting or consuming either pipe. */
     if (__btrc_windows_supervisor_accept(0, &owner, &error) == 0 || owner != NULL
@@ -1434,6 +1514,13 @@ static int child_bootstrap_admission(void) {
                 || btrc_daemon_decode(copy, size + BTRC_DAEMON_HEADER_BYTES, &frame) != 0
                 || frame.token[0] != 1 || frame.name.size != 11) return 50;
     }
+    wchar_t census_path[4096] = { 0 };
+    if (frame.control_path.size < 4000) {
+        char path[4096];
+        memcpy(path, frame.control_path.data, frame.control_path.size);
+        memcpy(path + frame.control_path.size, ".handles", sizeof(".handles"));
+        (void)to_wide(path, census_path, 4096);
+    }
     SecureZeroMemory(copy, size + BTRC_DAEMON_HEADER_BYTES);
     free(copy);
     SecureZeroMemory(&frame, sizeof(frame));
@@ -1441,7 +1528,18 @@ static int child_bootstrap_admission(void) {
             || error.stage != 1 || error.ownership_state != 1) return 46;
     if (__btrc_windows_supervisor_close(&owner, 1000, &error) != 0 || owner != NULL
             || __btrc_windows_supervisor_close(&owner, 0, &error) != 0) return 36;
-    if (!GetProcessHandleCount(GetCurrentProcess(), &after) || after + 2 != before) return 51;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &after) || after + 2 != before) {
+        snapshots_valid = census_take(&final) == 0 && snapshots_valid;
+        HANDLE diagnostic = CreateFileW(census_path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (diagnostic != INVALID_HANDLE_VALUE) {
+            census_dump(diagnostic, "supervisor close", before, after, &initial, &final, snapshots_valid);
+            char detail[64]; DWORD written = 0;
+            int length = snprintf(detail, sizeof(detail), "lifecycle outcome=%d\n", outcome);
+            if (length > 0) (void)WriteFile(diagnostic, detail, (DWORD)length, &written, NULL);
+            CloseHandle(diagnostic);
+        }
+        return 51;
+    }
     if (GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) != FILE_TYPE_CHAR
             || GetFileType(GetStdHandle(STD_ERROR_HANDLE)) != FILE_TYPE_CHAR) return 78;
     if (fputs("restored-to-nul\n", stdout) < 0 || fflush(stdout) != 0) return 79;
@@ -1470,6 +1568,8 @@ static int admission_read(HANDLE pipe, unsigned char *bytes, DWORD size) {
  * exercises I/O; bad inheritance, direction and mode fail before a read. */
 static void check_bootstrap_admission(void) {
     DWORD before = 0, after = 0;
+    census_snapshot initial, final;
+    int snapshots_valid = census_take(&initial) == 0;
     CHECK("admission initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
     for (int scenario = 0; scenario < 34; scenario++) {
         void *descriptor = NULL;
@@ -1662,8 +1762,8 @@ static void check_bootstrap_admission(void) {
         GetExitCodeProcess(process.hProcess, &exit_code);
         DWORD expected = scenario == 0 || scenario == 13 ? 0 : scenario >= 14 ? 72 : 31;
         if (scenario >= 20) expected = scenario == 20 || scenario >= 27 ? 0 : scenario <= 24 ? 80 : 81;
-        if (exit_code != expected) report("admission scenario=%d exit=%lu\n", scenario, (unsigned long)exit_code);
         CHECK("admission and preparation check native capabilities", exit_code == expected);
+        if (exit_code != expected) report("admission scenario=%d exit=%lu\n", scenario, (unsigned long)exit_code);
         if (scenario == 0 && exit_code == 0) {
             OVERLAPPED operation;
             memset(&operation, 0, sizeof(operation));
@@ -1686,6 +1786,17 @@ static void check_bootstrap_admission(void) {
         }
         if (handles[2] != NULL) CloseHandle(handles[2]);
         if (scenario >= 13) {
+            wchar_t diagnostic[1400];
+            swprintf(diagnostic, 1400, L"%ls.handles", prepared_control);
+            if (GetFileAttributesW(diagnostic) != INVALID_FILE_ATTRIBUTES) {
+                char detail[16384];
+                if (read_text(diagnostic, detail, sizeof(detail)) == 0) {
+                    emit(detail, strlen(detail));
+                    (void)fwrite(detail, 1, strlen(detail), stderr);
+                    (void)fflush(stderr);
+                }
+                CHECK("fixture releases handle diagnostics", DeleteFileW(diagnostic));
+            }
             HANDLE log = CreateFileW(prepared_log, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
             char bytes[128] = { 0 };
             DWORD received = 0;
@@ -1716,6 +1827,10 @@ static void check_bootstrap_admission(void) {
         }
     }
     CHECK("admission final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
+    if (before != after) {
+        snapshots_valid = census_take(&final) == 0 && snapshots_valid;
+        census_dump(GetStdHandle(STD_ERROR_HANDLE), "admission parent", before, after, &initial, &final, snapshots_valid);
+    }
     CHECK("admission releases parent fixture handles", before == after);
 }
 
