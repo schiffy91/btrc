@@ -229,8 +229,27 @@ bytes, including its BOM and newline encoding; cached plans revalidate it.
 The final executable digest belongs to the native build step described in
 [the Windows daemon design](../../docs/design/windows-os-services.md).
 
-Both compilers implement declaration and plan emission. Native builder support
-is still pending; the current adapter rejects plans containing this field.
+The native builder requires the consumer's frontend command from its caller
+(`frontend` in the Python API, `--frontend-command` in the CLI). Package plans
+cannot supply commands. It builds the leaf through that frontend with strict
+imports and the consumer's target, rejects recursion and the consumer-only image
+runtime in the leaf, and checks the final PE ABI, loader configuration and DLL
+imports. A signing owner may finalize the leaf before hashing it, then finalize
+the linked consumer. The resulting data-only metadata object binds the final
+leaf bytes to `<complete-consumer-name>.btrc-supervisor.exe` and protocol 1.
+
+Publication rechecks the staged bytes and replaces the companion and consumer
+through the existing rollback/recovery transaction. A failed build or second
+replacement preserves the previous pair. Object-cache and debug builds retain
+serialized work directories beside the output, so unchanged source paths reuse
+objects and debug references survive publication. Final PE timestamp changes can
+still require rebuilding the digest metadata object.
+
+Target bundles record an optional `companion` object with exactly `artifact` and
+`sha256`. The Windows executor stages and holds the pair together, verifies both
+digests and PE machines, and rejects missing or renamed companions. Native
+Windows lifecycle, real Authenticode signing, MSVC qualification and MSIX
+packaging remain separate acceptance work; this does not complete Daemon.
 
 ## Experimental native header imports
 

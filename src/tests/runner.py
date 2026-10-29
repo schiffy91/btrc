@@ -185,7 +185,7 @@ def _transpile_btrc_with_warnings(btrcc, btrc_path, native_directory=None):
     outputs = []
     if native_directory is not None:
         directory = Path(native_directory)
-        artifact = NativeCorpusBuild(directory / "program.c", directory / "program.json")
+        artifact = NativeCorpusBuild(directory / "program.c", directory / "program.json", (str(btrcc),))
         outputs = ["-o", str(artifact.primary), "--emit-link-plan", str(artifact.plan)]
     r = subprocess.run(
         [btrcc, btrc_path, *outputs],
@@ -236,7 +236,7 @@ def _transpile_btrc_module_units(btrcc, btrc_path, directory):
     for path in (primary, *units):
         with open(path) as unit_file:
             texts.append(unit_file.read())
-    artifact = NativeCorpusBuild(Path(primary), Path(plan))
+    artifact = NativeCorpusBuild(Path(primary), Path(plan), (str(btrcc),))
     return (artifact if artifact.required() else tuple(texts)), _selfhost_warnings(r.stderr)
 
 

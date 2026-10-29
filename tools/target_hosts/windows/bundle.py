@@ -8,10 +8,12 @@ import json
 import os
 import re
 import signal
+import stat
 import struct
 import subprocess
 import sys
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -20,6 +22,39 @@ CORPUS = ("strings/BracesInCodeGen", "stdlib/PathWindowsLexical")
 BUILD_TIMEOUT_S = 300
 METADATA_TIMEOUT_S = 30
 COMPILER_INPUTS = ("src/compiler", "src/language", "src/runtime", "src/stdlib", "tools/compiler_codegen")
+
+
+@dataclass(frozen=True)
+class CompanionArtifact:
+    """A bundle's one digest-bound sibling, never an arbitrary launcher."""
+
+    path: Path
+    sha256: str
+
+    @classmethod
+    def read(cls, directory, program_id, entry, label):
+        if "companion" not in entry:
+            return None
+        record = entry["companion"]
+        primary = f"{program_id}.exe"
+        if (
+            not label.startswith("windows-")
+            or entry.get("artifact") != primary
+            or not isinstance(record, dict)
+            or set(record) != {"artifact", "sha256"}
+            or record["artifact"] != primary + ".btrc-supervisor.exe"
+            or not re.fullmatch(r"[0-9a-f]{64}", str(record["sha256"]))
+        ):
+            raise ValueError(f"{program_id}: invalid Windows companion inventory")
+        path = directory / record["artifact"]
+        metadata = path.lstat()
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or getattr(metadata, "st_reparse_tag", 0)
+            or not path.resolve().is_relative_to(directory.resolve())
+        ):
+            raise ValueError(f"{program_id}: companion must be a regular file inside the bundle")
+        return cls(path, record["sha256"])
 
 
 def digest(data):

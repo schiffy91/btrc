@@ -1117,3 +1117,36 @@ def test_the_module_docstring_freezes_protocol_version_one():
         assert name in text, name
     manifest = tomllib.loads((REPO / "src/tests/fixtures/target-applicability.toml").read_text(encoding="utf-8"))
     assert manifest["schema"] == ApplicabilityManifest.SCHEMA
+
+
+def test_bundle_companion_inventory_round_trips_and_rejects_other_targets(tmp_path):
+    directory = tmp_path / "bundle"
+    directory.mkdir()
+    primary, name = "probe.exe", "probe.exe.btrc-supervisor.exe"
+    (directory / primary).write_bytes(b"consumer")
+    (directory / name).write_bytes(b"companion")
+    document = {
+        "schema": BUNDLE_SCHEMA,
+        "target": {"label": "windows-x86_64"},
+        "programs": {
+            "probe": {
+                "source": "probe.btrc",
+                "frontend": "reference",
+                "status": "built",
+                "artifact": primary,
+                "sha256": TargetBundle.digest(directory / primary),
+                "companion": {"artifact": name, "sha256": TargetBundle.digest(directory / name)},
+            }
+        },
+    }
+    TargetBundle(directory, document).write()
+    bundle = TargetBundle.load(directory)
+    record = bundle.programs["probe"]["companion"]
+    assert bundle.companion("probe").path.name == name
+    assert bundle.companion("probe").path.read_bytes() == b"companion"
+    result = BuildResult.from_entry("probe", bundle.programs["probe"])
+    assert result.entry(None, None, ())["companion"] == record
+    document["target"]["label"] = "linux-x86_64"
+    TargetBundle(directory, document).write()
+    with pytest.raises(ValueError, match="invalid Windows companion"):
+        TargetBundle.load(directory)

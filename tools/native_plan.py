@@ -24,14 +24,20 @@ import time
 import tomllib
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import ClassVar
 
 from src.compiler.python.abi.generated import TARGET_ROWS, GeneratedTargetRow
 from src.compiler.python.abi.hosted import TargetRepository
-from src.compiler.python.artifacts.publication import ArtifactPublisher
+from src.compiler.python.artifacts.publication import (
+    ArtifactPublisher,
+    ArtifactStorage,
+    PublishedArtifact,
+    StagedPublicationPolicy,
+)
+from tools.daemon_supervisor import SupervisorImage
 
 MAX_PLAN_BYTES = 8 * 1024 * 1024
 # Schema 5's root fields (platform-target-contract.md section 4.1). Its
@@ -196,6 +202,22 @@ class NativeGeneratedUnit:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeAuxiliaryExecutable:
+    path: Path
+    package: str
+    abi: str
+    protocol: int
+    sha256: str
+
+    def validate_source(self) -> None:
+        source = PlanPaths.regular_file(str(self.path), "auxiliary executable source")
+        with source.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if digest != self.sha256:
+            raise NativePlanError("auxiliary executable source changed; regenerate the consumer plan")
+
+
+@dataclass(frozen=True, slots=True)
 class NativeBuildPlan:
     """Validated fields needed by the build adapter."""
 
@@ -215,6 +237,7 @@ class NativeBuildPlan:
     schema: int = 5
     # System libraries the executable links (schema 5's optional `libraries`).
     libraries: tuple[str, ...] = ()
+    auxiliary: NativeAuxiliaryExecutable | None = None
 
     @property
     def operating_system(self) -> str:
@@ -325,7 +348,8 @@ class NativePlanReader:
             fields = ROOT_FIELDS
             if isinstance(payload, dict):
                 fields = fields | (
-                    {"generated-units", "emitted-units", "emitted-unit-digests", "libraries"} & payload.keys()
+                    {"generated-units", "emitted-units", "emitted-unit-digests", "libraries", "auxiliary-executables"}
+                    & payload.keys()
                 )
         root = PlanJson.exact_mapping(payload, fields, "native link plan")
         canonical = json.dumps(root, allow_nan=False, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
@@ -438,7 +462,43 @@ class NativePlanReader:
             sysroot_identity,
             schema,
             libraries,
+            self._auxiliary(root["auxiliary-executables"], package_roots, row)
+            if "auxiliary-executables" in root
+            else None,
         )
+
+    def _auxiliary(
+        self, value: object, roots: Mapping[str, Path], row: GeneratedTargetRow
+    ) -> NativeAuxiliaryExecutable:
+        entries = PlanJson.array(value, "auxiliary-executables")
+        if len(entries) != 1 or row.operating_system != "windows":
+            raise NativePlanError("a Windows consumer must select exactly one auxiliary executable")
+        entry = PlanJson.exact_mapping(
+            entries[0], frozenset({"abi", "kind", "package", "path", "protocol", "sha256"}), "auxiliary executable"
+        )
+        if entry["kind"] != "windows-daemon-supervisor" or type(entry["protocol"]) is not int or entry["protocol"] != 1:
+            raise NativePlanError("auxiliary executable requires windows-daemon-supervisor protocol 1")
+        if entry["abi"] != row.label:
+            raise NativePlanError("auxiliary executable ABI must equal the consumer target")
+        package = PlanJson.text(entry["package"], "auxiliary package")
+        if package not in roots:
+            raise NativePlanError("auxiliary executable names an unknown package")
+        path = PlanPaths.regular_file(PlanJson.text(entry["path"], "auxiliary path"), "auxiliary path")
+        PlanPaths.inside(path, roots[package], "auxiliary path")
+        if path.suffix != ".btrc":
+            raise NativePlanError("auxiliary executable must name a BTRC source")
+        owner = path.resolve().parent
+        root = roots[package].resolve()
+        while owner != root:
+            if (owner / "btrc.toml").exists():
+                raise NativePlanError("auxiliary executable is owned by a nested package")
+            owner = owner.parent
+        digest = PlanJson.text(entry["sha256"], "auxiliary source digest")
+        if not SHA256_DIGEST.fullmatch(digest):
+            raise NativePlanError("auxiliary source digest must be SHA-256")
+        result = NativeAuxiliaryExecutable(path, package, row.label, entry["protocol"], digest)
+        result.validate_source()
+        return result
 
     def _target_row(self, value: object) -> GeneratedTargetRow:
         """The schema-5 target, which must equal its targets.toml row exactly."""
@@ -704,6 +764,7 @@ class NativeBuildReport:
     # pins it off the host; on the host it is the toolchain's own setting.
     deployment_target: str = ""
     warnings: list[str] = field(default_factory=list)
+    auxiliary: dict[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         result = asdict(self)
@@ -1450,6 +1511,30 @@ class _DarwinSigner:
         self.validate_context()
 
 
+@dataclass(frozen=True)
+class _SupervisorPublication(StagedPublicationPolicy):
+    """Bind the staged pair to the exact bytes used by its metadata adapter."""
+
+    builder: NativePlanBuilder
+    auxiliary: NativeAuxiliaryExecutable
+    digests: tuple[str, str]
+    inputs: tuple[Path, ...]
+    destinations: tuple[Path, Path]
+    report: Path | None
+
+    def validate(self, staged: tuple[Path, ...]) -> None:
+        self.auxiliary.validate_source()
+        for path, expected in zip(staged, self.digests, strict=True):
+            with path.open("rb") as stream:
+                if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
+                    raise NativePlanError("finalized companion pair changed before publication")
+        companion, consumer = self.destinations
+        self.builder._validate_destination(consumer, self.inputs, "native output")
+        self.builder._validate_destination(companion, (*self.inputs, consumer), "companion output")
+        if self.report is not None:
+            self.builder._validate_destination(self.report, (*self.inputs, *self.destinations), "native report")
+
+
 class NativePlanBuilder:
     """Compile and link exactly one validated plan without a command shell."""
 
@@ -1487,6 +1572,250 @@ class NativePlanBuilder:
         signing: DarwinSigning | None = None,
         compile_flags: Sequence[str] = (),
         link_flags: Sequence[str] = (),
+        frontend: Sequence[str] | None = None,
+        finalize_image: Callable[[Path], None] | None = None,
+    ) -> NativeBuildReport:
+        """Use the consumer's frontend command for any declared companion.
+
+        The command is supplied by the build driver, never by a package plan.
+        A signing owner may finalize each staged image before publication.
+        """
+        options = dict(
+            plan_path=plan_path,
+            generated_c=generated_c,
+            output=output,
+            cc=cc,
+            cxx=cxx,
+            pkg_config=pkg_config,
+            optimization=optimization,
+            jobs=jobs,
+            debug_info=debug_info,
+            object_cache=object_cache,
+            report_path=report_path,
+            signing=signing,
+            compile_flags=compile_flags,
+            link_flags=link_flags,
+        )
+        if frontend is None:
+            if finalize_image is not None:
+                raise NativePlanError("image finalization requires the consumer frontend")
+            return self._build_single(**options)
+        if isinstance(frontend, str) or not frontend:
+            raise NativePlanError("consumer frontend must be a nonempty argument sequence")
+        for argument in frontend:
+            PlanJson.text(argument, "consumer frontend argument")
+        try:
+            return self._build_pair(options, tuple(frontend), finalize_image)
+        except ValueError as error:
+            if isinstance(error, NativePlanError):
+                raise
+            raise NativePlanError(str(error)) from error
+
+    @contextlib.contextmanager
+    def _auxiliary_workspace(self, parent: Path, output: Path, *, retain: bool, required: bool) -> Iterator[Path]:
+        """Keep source paths stable for native cache validation and debug info.
+
+        The owner lock precedes all compiler-generation leases and remains held
+        through pair publication. It is not a directory publication lock.
+        """
+        identity = hashlib.sha256(os.fsencode(output.name)).hexdigest()[:24]
+        with ArtifactPublisher().lock(parent, "native-auxiliary-" + identity):
+            if retain:
+                work = parent / (".btrc-supervisor-v1-" + identity)
+                try:
+                    work.mkdir(mode=0o700, exist_ok=True)
+                    metadata = ArtifactStorage().require_real_directory(work, "supervisor build directory")
+                    if os.name != "nt" and (metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) & 0o077):
+                        raise NativePlanError("supervisor build directory must be private to the current user")
+                except OSError:
+                    if required:
+                        raise
+                    # An unavailable cache only forfeits source-path reuse.
+                else:
+                    yield work
+                    return
+            with tempfile.TemporaryDirectory(prefix=".btrc-supervisor-", dir=parent) as temporary:
+                yield Path(temporary)
+
+    def _build_pair(
+        self,
+        options: dict,
+        frontend: tuple[str, ...],
+        finalize_image: Callable[[Path], None] | None,
+    ) -> NativeBuildReport:
+        started = time.perf_counter()
+        output = options["output"].absolute()
+        parent = PlanPaths.real_directory(str(output.parent), "native output directory")
+        companion = output.with_name(output.name + ".btrc-supervisor.exe")
+        plan_path = options["plan_path"].absolute()
+        generated = options["generated_c"].absolute()
+        # Avoid allocating a companion workspace for ordinary native plans.
+        if self._reader.read(plan_path).auxiliary is None:
+            if finalize_image is not None:
+                raise NativePlanError("image finalization requires a companion declaration")
+            return self._build_single(**options)
+        with self._auxiliary_workspace(
+            parent,
+            output,
+            retain=options["object_cache"] is not None or options["debug_info"],
+            required=options["debug_info"],
+        ) as work:
+            with self._reader.generation(plan_path, generated) as plan:
+                auxiliary = plan.auxiliary
+                if auxiliary is None:
+                    if finalize_image is not None:
+                        raise NativePlanError("image finalization requires a companion declaration")
+                    return self._build_single(**options, _validated_plan=plan)
+                if options["signing"] is not None:
+                    raise NativePlanError("Darwin signing cannot sign a Windows companion")
+                inputs = {
+                    plan_path,
+                    generated,
+                    auxiliary.path,
+                    *plan.emitted_paths,
+                    *(unit.path for unit in plan.units),
+                    *RuntimeObjects.sources(RuntimeObjects.rows()),
+                }
+                self._validate_destination(output, inputs, "native output")
+                self._validate_destination(companion, (*inputs, output), "companion output")
+                if options["report_path"] is not None:
+                    self._validate_destination(
+                        options["report_path"].absolute(), (*inputs, output, companion), "native report"
+                    )
+                leaf_directory = work / "leaf"
+                consumer_directory = work / "consumer"
+                for directory in (leaf_directory, consumer_directory):
+                    directory.mkdir(mode=0o700, exist_ok=True)
+                    ArtifactStorage().require_real_directory(directory, "supervisor build directory")
+                leaf_c = leaf_directory / "supervisor.c"
+                leaf_plan_path = leaf_directory / "supervisor.json"
+                command = [
+                    *frontend,
+                    str(auxiliary.path),
+                    "--strict-imports",
+                    "--target",
+                    plan.label,
+                    "-o",
+                    str(leaf_c),
+                    "--emit-link-plan",
+                    str(leaf_plan_path),
+                ]
+                completed = self._runner(command, capture_output=True, text=True, check=False, shell=False, timeout=900)
+                if completed.returncode:
+                    raise NativePlanError(f"supervisor frontend failed: {completed.stderr.strip()}")
+                auxiliary.validate_source()
+                leaf_output = leaf_directory / companion.name
+                leaf_options = {
+                    **options,
+                    "plan_path": leaf_plan_path,
+                    "generated_c": leaf_c,
+                    "output": leaf_output,
+                    "report_path": None,
+                    "signing": None,
+                }
+                with self._reader.generation(leaf_plan_path, leaf_c) as leaf_plan:
+                    if leaf_plan.row != plan.row or leaf_plan.sysroot_identity != plan.sysroot_identity:
+                        raise NativePlanError("supervisor frontend changed the consumer ABI or sysroot")
+                    if leaf_plan.auxiliary is not None:
+                        raise NativePlanError("recursive auxiliary executable declaration")
+                    retained = RuntimeObjects.selected(
+                        [path.read_text(encoding="utf-8") for path in (leaf_c, *leaf_plan.emitted_paths)]
+                    )
+                    if any(row.source == "windows_daemon_image.c" for row in retained):
+                        raise NativePlanError("supervisor leaf must not retain the consumer image runtime")
+                    if plan.row.environment == "gnu":
+                        unit = NativeGeneratedUnit(
+                            "BtrcSupervisorLoadConfig", "c", "c11", "manual", SupervisorImage.load_configuration()
+                        )
+                        if any(existing.name == unit.name for existing in leaf_plan.generated_units):
+                            raise NativePlanError("supervisor load-configuration unit name is reserved")
+                        leaf_plan = replace(leaf_plan, generated_units=(*leaf_plan.generated_units, unit))
+                        leaf_options["link_flags"] = (*options["link_flags"], "-static")
+                    else:
+                        leaf_options["compile_flags"] = (*options["compile_flags"], "-fms-runtime-lib=static")
+                        leaf_options["link_flags"] = (
+                            *options["link_flags"],
+                            "-fms-runtime-lib=static",
+                            "-Wl,/dependentloadflag:0x800",
+                        )
+                    leaf_report = self._build_single(**leaf_options, _validated_plan=leaf_plan)
+                if finalize_image is not None:
+                    finalize_image(leaf_output)
+                image = SupervisorImage(leaf_output, plan.architecture)
+                image_evidence = image.qualify()
+                unit = NativeGeneratedUnit(
+                    "BtrcWindowsDaemonMetadata",
+                    "c",
+                    "c11",
+                    "manual",
+                    image.metadata(plan.label, companion.name, auxiliary.protocol),
+                )
+                if any(existing.name == unit.name for existing in plan.generated_units):
+                    raise NativePlanError("consumer metadata unit name is reserved")
+                consumer_plan = replace(
+                    plan,
+                    auxiliary=None,
+                    generated_units=(*plan.generated_units, unit),
+                    include_directories=(*plan.include_directories, RuntimeObjects.DIRECTORY),
+                )
+                staged_consumer = consumer_directory / output.name
+                report = self._build_single(
+                    **{**options, "output": staged_consumer, "report_path": None}, _validated_plan=consumer_plan
+                )
+                if finalize_image is not None:
+                    finalize_image(staged_consumer)
+                consumer_image = SupervisorImage(staged_consumer, plan.architecture)
+                consumer_digest = hashlib.sha256(consumer_image.data).hexdigest()
+                auxiliary.validate_source()
+            # Compiler-generation leases are released before the publisher
+            # takes directory locks; inputs and outputs often share a parent.
+            self._validate_destination(output, inputs, "native output")
+            self._validate_destination(companion, (*inputs, output), "companion output")
+            name = "native-pair-" + hashlib.sha256(os.fsencode(output.name)).hexdigest()[:24]
+            ArtifactPublisher().publish(
+                name,
+                (PublishedArtifact(leaf_output, companion), PublishedArtifact(staged_consumer, output)),
+                policy=_SupervisorPublication(
+                    self,
+                    auxiliary,
+                    (image_evidence["sha256"], consumer_digest),
+                    tuple(inputs),
+                    (companion, output),
+                    options["report_path"].absolute() if options["report_path"] is not None else None,
+                ),
+            )
+            report.auxiliary = {
+                **image_evidence,
+                "path": str(companion),
+                "abi": plan.label,
+                "protocol": auxiliary.protocol,
+                "frontend": list(frontend),
+                "build": leaf_report.as_dict(),
+            }
+            report.wall_s = time.perf_counter() - started
+            report.executable_bytes = output.stat().st_size
+            if options["report_path"] is not None:
+                report.write(options["report_path"])
+            return report
+
+    def _build_single(
+        self,
+        *,
+        plan_path: Path,
+        generated_c: Path,
+        output: Path,
+        cc: str | Sequence[str] = "cc",
+        cxx: str | Sequence[str] = "c++",
+        pkg_config: str = "pkg-config",
+        optimization: int = 2,
+        jobs: int | None = None,
+        debug_info: bool = False,
+        object_cache: Path | None = None,
+        report_path: Path | None = None,
+        signing: DarwinSigning | None = None,
+        compile_flags: Sequence[str] = (),
+        link_flags: Sequence[str] = (),
+        _validated_plan: NativeBuildPlan | None = None,
     ) -> NativeBuildReport:
         # Caller flags retain corpus sanitizer and optimization settings. They
         # are part of the actual commands and therefore their cache receipts.
@@ -1505,7 +1834,14 @@ class NativePlanBuilder:
             raise NativePlanError("jobs must be a positive integer")
         plan_path = plan_path.parent.resolve(strict=True) / plan_path.name
         generated_c = generated_c.parent.resolve(strict=True) / generated_c.name
-        with self._reader.generation(plan_path, generated_c) as plan:
+        lease = (
+            self._reader.generation(plan_path, generated_c)
+            if _validated_plan is None
+            else contextlib.nullcontext(_validated_plan)
+        )
+        with lease as plan:
+            if plan.auxiliary is not None:
+                raise NativePlanError("auxiliary executable build requires the consumer frontend command")
             if signing is not None and (sys.platform != "darwin" or plan.operating_system != "macos"):
                 raise NativePlanError("codesign requires a Darwin host and macOS target")
             signer = _DarwinSigner(signing, self._runner) if signing is not None else None
@@ -1577,7 +1913,7 @@ class NativePlanBuilder:
                     object_cache,
                     self._runner,
                     target=cache_target,
-                    drivers=tuple(dict.fromkeys(driver[0] for driver in tools.values())),
+                    drivers=tuple(dict.fromkeys(tuple(driver) for driver in tools.values())),
                 )
                 if object_cache is not None
                 else None
@@ -2962,12 +3298,15 @@ class _ObjectCache:
         runner: Callable[..., subprocess.CompletedProcess[str]],
         *,
         target: str,
-        drivers: tuple[str, ...] = (),
+        drivers: tuple[tuple[str, ...], ...] = (),
     ) -> None:
         self.directory = directory
         self._runner = runner
         self._target = target
-        self._receipts = _PreprocessingReceipts(directory, drivers, runner)
+        self._drivers = tuple(sorted(drivers, key=len, reverse=True))
+        self._receipts = _PreprocessingReceipts(
+            directory, tuple(dict.fromkeys(driver[0] for driver in drivers)), runner
+        )
         self._manifests: dict[str, dict[str, object]] = {}
         # Each restored object's verified SHA-256, by its build path, so the
         # debug-object inventory does not read it again.
@@ -3094,7 +3433,8 @@ class _ObjectCache:
                 result.reason = "unsupported-input"
                 return result
             tool = Path(command[0])
-            version = self._runner([str(tool), "--version"], capture_output=True, text=True, check=False, shell=False)
+            driver = next((prefix for prefix in self._drivers if tuple(command[: len(prefix)]) == prefix), (str(tool),))
+            version = self._runner([*driver, "--version"], capture_output=True, text=True, check=False, shell=False)
             if version.returncode:
                 result.reason = "compiler-identity-unavailable"
                 return result
@@ -3250,6 +3590,9 @@ def main(argv: Sequence[str] | None = None, *, process_workers: bool = False) ->
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--cc", default="cc")
     parser.add_argument("--cxx", default="c++")
+    parser.add_argument(
+        "--frontend-command", help="the consumer's BTRC frontend argv, quoted as one argument; no shell is used"
+    )
     parser.add_argument("--pkg-config", default="pkg-config")
     parser.add_argument("--report-json", type=Path, help="write successful build timings and operation counts")
     parser.add_argument("--jobs", type=int, default=None, help="parallel translation-unit builds (default: CPU count)")
@@ -3304,6 +3647,7 @@ def main(argv: Sequence[str] | None = None, *, process_workers: bool = False) ->
             object_cache=arguments.object_cache,
             report_path=arguments.report_json,
             signing=signing,
+            frontend=shlex.split(arguments.frontend_command) if arguments.frontend_command is not None else None,
         )
     except (NativePlanError, OSError) as error:
         sys.stderr.write(f"btrc-native-plan: error: {error}\n")
