@@ -6069,7 +6069,7 @@ class DeclarationLowerer {
 		self.context.currentClass = decl.name;
 		self.emitClassStruct(decl, m);
 		self.emitClassStaticFields(decl, m);
-		self.emitMethodForwardDecls(decl, m);
+		if (self.context.declarationsElsewhere) { self.emitMethodForwardDecls(decl, m); }
 		self.emitConstructor(decl, m);
 		bool hasDestructorHook = self.emitDestructor(decl, m);
 		int interfaceCount = self.emitInterfaceBindings(decl.name, decl, m);
@@ -6680,10 +6680,8 @@ class DeclarationLowerer {
 		}
 	}
 
-	/* Phase 1 forward declarations (mirrors _emit_forward_decls): for each
-     * non-generic class, a `typedef struct X X;` and a `void X_destroy(X*);`
-     * prototype; then prototypes for every non-main function with a body. Class
-     * method/constructor prototypes are appended later by emitClassDecl. */
+	/* Phase 1 declares every non-generic class callable before generic bodies
+	 * lower, preserving the reference compiler's shared declaration order. */
 	public void appendEnumToStringForwardDecl(Node declaration, Vector<IRFunctionDecl> destination) {
 		IRFunctionDecl toString = IRFunctionDecl(declaration.name + "_toString", "const char*", true);
 		toString.params.push(IRParam(declaration.name, "val"));
@@ -6738,6 +6736,9 @@ class DeclarationLowerer {
 					IRFunctionDecl destroyDeclaration = IRFunctionDecl(d.name + "_destroy", "void", false);
 					destroyDeclaration.params.push(IRParam("void*", "object"));
 					functionDeclarations.push(destroyDeclaration);
+					IRModule classDeclarations = IRModule();
+					self.emitMethodForwardDecls(d, classDeclarations);
+					functionDeclarations.extend(classDeclarations.functionDecls);
 				} else if (d.kind == NK_RICH_ENUM_DECL) {
 					self.appendRichEnumForwardDecls(d, functionDeclarations);
 				}

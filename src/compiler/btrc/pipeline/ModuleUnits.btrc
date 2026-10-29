@@ -1272,9 +1272,7 @@ class ModuleUnitCompiler {
 		methods.sort();
 		sections.put("methods", methods);
 		Vector<string> policy = [];
-		/* Generic artifact parity is still under test. Keep these entries
-		 * separate until the full bundle exchange checks pass. */
-		if (classes.len > 0) { policy.push("native-demanded"); }
+		if (classes.len > 0) { policy.push("demanded"); }
 		sections.put("callable-policy", policy);
 		Vector<string> callables = [];
 		for instance in input.analyzed.classCallableInstances {

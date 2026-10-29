@@ -1,6 +1,7 @@
 """Program-fact keys preserve semantic differences and permit real cache interchange."""
 
 import json
+import subprocess
 from copy import deepcopy
 
 import pytest
@@ -9,6 +10,7 @@ from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.modules import ModuleUnitCompiler
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache, ModuleUnitArtifacts
+from src.tests.c_toolchains import configured_c_compiler
 from src.tests.python.test_module_record_interchange import _driver
 from src.tests.python.test_module_record_interchange import module_record_driver as module_record_driver
 
@@ -100,6 +102,37 @@ def _selfhost(driver, main, prefix, records=None):
     return json.loads(response.stdout)
 
 
+def _run_units(directory, primary, units):
+    directory.mkdir()
+    sources = []
+    for index, text in enumerate([primary, *units]):
+        path = directory / f"unit{index}.c"
+        path.write_text(text)
+        sources.append(str(path))
+    binary = directory / "program"
+    compiled = subprocess.run(
+        [
+            *configured_c_compiler(),
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            *sources,
+            "-o",
+            str(binary),
+            "-lm",
+            "-lpthread",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+    assert (ran.returncode, ran.stdout, ran.stderr) == (0, "", "")
+
+
 @pytest.mark.parametrize("shared, group_count", SHARED_PROGRAMS)
 def test_reference_program_facts_replay(tmp_path, monkeypatch, shared, group_count):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
@@ -131,6 +164,47 @@ def test_production_module_keys_and_entries_exchange(tmp_path, monkeypatch, modu
 
 
 GENERIC_PROGRAMS = [
+    pytest.param(
+        """int live = 0;
+        class Item {
+            public Item() { live++; }
+            public void __del__() { live--; }
+        }
+        class Box<T> {
+            public Box() {}
+            public T value { set { throw "setter"; } }
+        }""",
+        'Box<Item> box = new Box<Item>(); bool caught = false; try { box.value = new Item(); } catch (string error) { caught = error == "setter"; } return caught ? live : 1;',
+        id="throwing-property-store",
+    ),
+    pytest.param(
+        """class Box<T> {
+            public Box() {}
+            public T value { get; set; }
+        }""",
+        "Box<int> box = new Box<int>(); box.value = 3; int previous = box.value++; ++box.value; box.value += 2; return box.value - 7 + previous - 3;",
+        id="property-update",
+    ),
+    pytest.param(
+        """class Item { public int value; public Item(int value) { self.value = value; } }
+        class Box<T> {
+            private T value;
+            public Box(T value) { self.value = value; }
+            public T get(int index) { return self.value; }
+            public void set(int index, T value) { self.value = value; }
+        }""",
+        "Box<Item> box = new Box<Item>(new Item(1)); Item chosen = new Item(7); Item stored = (box[0] = chosen); return stored.value - 7;",
+        id="managed-index-store",
+    ),
+    pytest.param(
+        """class Box<T> {
+            public Box() {}
+            public string toString() { return "box"; }
+        }
+        int length(string value) { return value.len(); }""",
+        "return length(new Box<int>()) - 3;",
+        id="owned-string-conversion",
+    ),
     pytest.param(
         """class Box<T> {
             public T value;
@@ -233,12 +307,13 @@ GENERIC_PROGRAMS = [
         """class Vector<T> { public Vector() {} public void push(T value) {} }
         class Map<K, V> { public Map() {} public void put(K key, V value) {} }
         class Bucket<T> {
-            public Bucket() {}
-            public int iterLen() { return 0; }
-            public T iterGet(int index) { T value; return value; }
-            public T iterValueAt(int index) { T value; return value; }
+            private T value;
+            public Bucket(T value) { self.value = value; }
+            public int iterLen() { return 1; }
+            public T iterGet(int index) { return self.value; }
+            public T iterValueAt(int index) { return self.value; }
         }""",
-        'Vector<int> values = [1]; Map<string, int> mapped = {"one": 1}; Bucket<int> bucket = new Bucket<int>(); for key, value in bucket {} return 0;',
+        'Vector<int> values = [1]; Map<string, int> mapped = {"one": 1}; Bucket<int> bucket = new Bucket<int>(7); int total = 0; for key, value in bucket { total += key + value; } return total - 14;',
         id="collection-iteration",
     ),
 ]
@@ -255,6 +330,8 @@ def test_reference_generic_callable_replay(tmp_path, monkeypatch, shared, body):
     assert len(warm.module_units_reused) == 2 and not warm.module_units_lowered
     assert warm.c_units == cold.c_units
 
+    _run_units(tmp_path / "reference-executable", cold.c_source, cold.c_units)
+
 
 @pytest.mark.parametrize("shared, body", GENERIC_PROGRAMS)
 def test_generic_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, shared, body):
@@ -265,6 +342,7 @@ def test_generic_callable_entries_exchange(tmp_path, monkeypatch, module_record_
     reference, records = _reference(main, tmp_path / "reference")
     cold = _selfhost(module_record_driver, main, tmp_path / "selfhost")
     assert _modules(records) == _modules(cold["records"])
+    _run_units(tmp_path / "selfhost-executable", cold["output"], cold["units"])
     warm = _selfhost(module_record_driver, main, tmp_path / "warm", cold["records"])
     assert (warm["lowered"], warm["reused"]) == (0, 2)
     assert warm["units"] == cold["units"]

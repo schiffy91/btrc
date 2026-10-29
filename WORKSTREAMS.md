@@ -4672,3 +4672,32 @@ tests, with no skips or weaker comparisons. Evidence lives in
 `build/issue-gates/generic-callable-demand/`. No further build ran; no issue
 is complete. Resolve the remaining storage/conversion differences before the
 next combined driver build.
+
+Verified follow-up: ordinary and generic class prototypes now use the reference
+declaration order. Native physical, property and indexed stores share a
+stabilized target; compound and prefix/postfix updates evaluate their receiver,
+key and RHS once. Virtual stores protect a managed RHS across the setter and
+hand its reference to the assignment result. Automatic getters and string
+conversions avoid redundant receiver retains. The reference now protects an
+owned assignment result while releasing its receiver under exceptions.
+
+The final combined driver run passed all 299 checks in 269.20 seconds,
+including 14 generic programs with exact cache-key and four-file bundle
+comparisons, cold/warm replay, cross-frontend replay in both directions, and
+strict C11 compilation and execution. The focused reference and ownership
+structure run passed 34 checks; these overlap the combined run. Ruff, format,
+generated-source and diff checks pass. Final driver:
+`build/test-btrcc/drivers/530345435fff92b66f43bf81cf94e64a/driver`.
+Evidence: `build/issue-gates/generic-callable-demand/proof.json`.
+
+One broad lifetime-test selection accidentally started a full-compiler
+transpile; it was terminated before native compilation. Its replacement used
+three explicit static test IDs. Two combined driver builds completed during
+the repair: the first isolated three failures, the second verified their fixes.
+No CI, GitHub writes, application execution, guests or measurements occurred.
+
+Issue #8 remains open. Its BTRSmith build rules still select the whole-program
+split through `--emit-units`; module-mode integration and the required warm
+transpile measurement remain outstanding. Broader parity and final-tree gates
+also remain necessary before claiming the whole issue or goal complete. The
+read-only build-rule audit is recorded beside the test evidence.

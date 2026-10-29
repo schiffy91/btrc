@@ -2382,6 +2382,7 @@ class ExpressionLowerer:
                 ),
                 result_type=result_type,
                 keep_nodes=self._ownership.kept_target_operands(node.target, target_nodes, provenance),
+                result_owned=rhs_supplies_result,
                 promote_result=bool(
                     self._values.is_managed(result_type) and result_is_owned and not rhs_supplies_result
                 ),

@@ -466,6 +466,40 @@ class ManagedTypeLowerer {
 		return target;
 	}
 
+	/* A virtual store owns a managed RHS across the setter, then hands its
+	 * reference to the assignment result. The cleanup slot is cleared on
+	 * handoff so a throwing setter and a normal return each release once. */
+	public IRNode materializeVirtualStore(Vector<IRNode> declarations, string setter, Vector<IRNode> receiverArguments, Node valueType, string valueCType, IRNode loweredValue, bool valueOwned) {
+		Node concreteType = self.canonicalStorageType(valueType);
+		bool managed = self.managedValues.isManaged(concreteType);
+		string valueName = self.context.freshTemporary("__btrc_store_value");
+		IRNode? initializer = managed ? IRNode.literal("NULL") : null;
+		IRNode declaration = IRNode.variableDeclaration(valueCType, valueName, initializer);
+		self.context.recordLocal(declaration);
+		declarations.push(declaration);
+		IRNode value = IRNode.variable(valueName);
+		Vector<IRNode> sequence = [IRNode.binary(value, "=", loweredValue)];
+		if (managed && !valueOwned) { sequence.push(self.lifetime.retainValue(value, concreteType)); }
+		if (managed) {
+			self.lifetime.protectTemporary(declaration, self.managedValues.runtimeType(concreteType), "__btrc_store_value_cleanup", declarations, sequence);
+		}
+		Vector<IRNode> arguments = [];
+		arguments.extend(receiverArguments);
+		arguments.push(value);
+		sequence.push(IRNode.call(setter, arguments));
+		if (managed) {
+			string resultName = self.context.freshTemporary("__btrc_store_result");
+			IRNode resultDeclaration = IRNode.variableDeclaration(valueCType, resultName, IRNode.literal("NULL"));
+			self.context.recordLocal(resultDeclaration);
+			declarations.push(resultDeclaration);
+			IRNode result = IRNode.variable(resultName);
+			sequence.push(IRNode.binary(result, "=", value));
+			sequence.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
+			sequence.push(result);
+		} else { sequence.push(value); }
+		return IRNode.commaExpression(sequence);
+	}
+
 	/* Commit exactly one persistent ownership unit after the receiver setup.
 	 * ARC fields publish one protected caller reference through the topology
 	 * transaction; strings use strong-slot replacement. Yield the final slot
