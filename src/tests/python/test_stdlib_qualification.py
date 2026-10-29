@@ -162,6 +162,40 @@ def test_check_refuses_inputs_changed_after_inventory(inventory, tmp_path):
         checker.run(tmp_path / "output", modules=("API.btrc",))
 
 
+@pytest.mark.parametrize("change", ["edit", "add", "remove"])
+def test_coverage_and_check_refuse_changed_shared_runtime(inventory, tmp_path, change):
+    runtime = tmp_path / "runtime/c"
+    runtime.mkdir(parents=True)
+    header = runtime / "shared.h"
+    if change != "add":
+        header.write_text("int nativeValue(void);\n")
+    before = StdlibInventory(inventory.root, runtime_root=runtime)
+    targets = (PackageTarget.parse("linux-x64"), PackageTarget.parse("windows-x64"))
+    reports = reports_for(before, targets)
+    assert StdlibCoverage(before).validate(reports, targets)["modules"] == 4
+    if change == "remove":
+        header.unlink()
+    elif change == "edit":
+        original = header.stat()
+        header.write_text("int nativeValue(int );\n")
+        os.utime(header, ns=(original.st_atime_ns, original.st_mtime_ns))
+        assert header.stat().st_size == original.st_size
+    else:
+        header.write_text("int nativeValue(void);\n")
+    after = StdlibInventory(inventory.root, runtime_root=runtime)
+    assert all(after.rows(target) == before.rows(target) for target in targets)
+    with pytest.raises(ValueError, match="stale stdlib report"):
+        StdlibCoverage(after).validate(reports, targets)
+    checker = StdlibCheck(before, targets[0], "python", None)
+    with pytest.raises(ValueError, match="stdlib inputs changed"):
+        checker.run(tmp_path / "output", modules=("API.btrc",))
+
+
+def test_inventory_refuses_missing_shared_runtime(inventory, tmp_path):
+    with pytest.raises(ValueError, match="missing qualification input directory"):
+        StdlibInventory(inventory.root, runtime_root=tmp_path / "missing")
+
+
 def test_current_inventory_has_desktop_coverage_for_every_source():
     inventory = StdlibInventory()
     targets = tuple(PackageTarget.parse(name) for name in ("linux-x64", "macos-arm64", "windows-x64"))
@@ -257,6 +291,7 @@ Right = { path = "Right" }
         directory.mkdir()
         (directory / "Native.h").write_text(
             ("#include <qualification-sdk.h>\n" if with_sdk else "")
+            + '#include "../../runtime/c/windows_utf.h"\n'
             + f"static inline int {symbol}(void) {{ return 7; }}\n"
         )
         (directory / "Native.btrc").write_text("// Native declarations belong to this module.\n")

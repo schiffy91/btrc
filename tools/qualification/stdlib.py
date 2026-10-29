@@ -44,12 +44,13 @@ STDLIB = REPO / "src/stdlib"
 class StdlibInventory:
     """All source files, including private providers, and their target dependencies."""
 
-    def __init__(self, root: Path = STDLIB) -> None:
+    def __init__(self, root: Path = STDLIB, *, runtime_root: Path | None = None) -> None:
         self.root = root.resolve()
+        self.runtime_root = (runtime_root if runtime_root is not None else REPO / "src/runtime/c").resolve()
         self.modules = tuple(sorted(self.root.rglob("*.btrc")))
         if not self.modules:
             raise ValueError(f"no stdlib modules in {self.root}")
-        self.sha256 = self.fingerprint(self.root)
+        self.sha256 = self.fingerprint(self.root, self.runtime_root)
         self.constraints: dict[Path, list[tuple[str, tuple[TargetSelector, ...]]]] = defaultdict(list)
         reader = PackageManifestReader()
         validator = PackageManifestValidator()
@@ -70,17 +71,22 @@ class StdlibInventory:
         self._dependencies: dict[tuple[str, Path], tuple[Path, ...]] = {}
 
     @staticmethod
-    def fingerprint(root: Path) -> str:
+    def fingerprint(root: Path, runtime_root: Path) -> str:
         """Bind reports to every library input, including transitive native headers.
 
         Headers need not have an extension or appear directly in a manifest.
-        Hash the complete library snapshot rather than guessing its include graph.
+        Hash the library and its shared runtime snapshot rather than guessing
+        the include graph. Preserve their sibling layout in disposable checks.
         """
         digest = hashlib.sha256()
-        for source in sorted(path for path in root.rglob("*") if path.is_file()):
-            for value in (source.relative_to(root).as_posix().encode(), source.read_bytes()):
-                digest.update(len(value).to_bytes(8, "big"))
-                digest.update(value)
+        for label, directory in (("stdlib", root), ("runtime/c", runtime_root)):
+            if not directory.is_dir():
+                raise ValueError(f"missing qualification input directory: {directory}")
+            for source in sorted(path for path in directory.rglob("*") if path.is_file()):
+                name = f"{label}/{source.relative_to(directory).as_posix()}".encode()
+                for value in (name, source.read_bytes()):
+                    digest.update(len(value).to_bytes(8, "big"))
+                    digest.update(value)
         return digest.hexdigest()
 
     def restriction(self, module: Path, target: PackageTarget) -> str | None:
@@ -241,7 +247,8 @@ class StdlibCheck:
         with tempfile.TemporaryDirectory(prefix="sources-", dir=output) as directory:
             data = Path(directory)
             shutil.copytree(self.inventory.root, data / "stdlib")
-            if self.inventory.fingerprint(data / "stdlib") != self.inventory.sha256:
+            shutil.copytree(self.inventory.runtime_root, data / "runtime/c")
+            if self.inventory.fingerprint(data / "stdlib", data / "runtime/c") != self.inventory.sha256:
                 raise ValueError("stdlib inputs changed while preparing qualification")
             shutil.copytree(REPO / "src/language", data / "language")
             for row in rows:
