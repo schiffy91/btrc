@@ -3824,7 +3824,7 @@ def test_instance_demand_keeps_cross_unit_roots_and_cycles(route, cached, dce):
 @pytest.mark.parametrize(
     ("before", "after"),
     [
-        ("record\t5", "record\t4"),
+        ("record\t6", "record\t5"),
         ("graph-roots\tgenericA\n", ""),
         ("graph-instances\tgenericA", "graph-instances\tmissing"),
         ("graph-instances\tgenericA", "graph-instances\tgenericA\tgenericA"),

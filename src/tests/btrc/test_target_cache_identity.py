@@ -551,8 +551,9 @@ def test_the_target_spec_is_part_of_every_toolchain_identity(immutable_btrcc: Pa
     The reference compiler's toolchain fingerprint, which every artifact,
     module unit and stdlib archive key carries, covers the generated module
     that holds TARGET_SPEC_FINGERPRINT. btrcc compiles its tables in, and
-    salts every stored key with its own executable's content: a byte-identical
-    copy reuses the units, a changed one lowers them again. (A whole-program
+    verifies its build receipt against the executable and runtime data. A copy
+    with the same receipt reuses the units; a changed executable rejects the
+    receipt and lowers them again under its binary-specific identity. (A whole-program
     key also names the files the compile read, the executable among them, so
     a copy elsewhere misses there whatever its bytes.)
     """
@@ -580,6 +581,10 @@ def test_the_target_spec_is_part_of_every_toolchain_identity(immutable_btrcc: Pa
     same.parent.mkdir()
     shutil.copyfile(immutable_btrcc, same)
     shutil.copyfile(immutable_btrcc, changed)
+    receipt = immutable_btrcc.with_name(immutable_btrcc.name + ".compiler-build")
+    if receipt.is_file():
+        for binary in (same, changed):
+            shutil.copyfile(receipt, binary.with_name(binary.name + ".compiler-build"))
     with changed.open("ab") as handle:
         handle.write(b"\0")
     for binary in (same, changed):

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.c_toolchains import configured_c_compiler, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -102,6 +103,7 @@ def test_native_jump_lowering_runs(jump_validation_driver, tmp_path, source):
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     execution = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
     assert execution.returncode == 0, execution.stdout + execution.stderr

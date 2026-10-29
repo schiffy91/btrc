@@ -25,6 +25,7 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.tests.c_toolchains import configured_c_compiler, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT
 from src.tests.python.test_jump_lowering import _emit
 
 
@@ -216,6 +217,7 @@ def test_source_backward_jump_qualifies_and_preserves_an_aggregate(tmp_path):
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr

@@ -30,6 +30,7 @@ from src.compiler.python.ir.nodes import (
 )
 from src.compiler.python.ir.verifier import IRVerifier
 from src.tests.c_toolchains import configured_c_compiler, requires_host_c_compiler
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
 
 def _module(statements, *, language="c", realtime=False):
@@ -173,5 +174,6 @@ def test_emitted_forward_jump_compiles_and_runs_as_strict_c11(tmp_path):
         check=True,
         capture_output=True,
         text=True,
+        timeout=C_COMPILE_TIMEOUT,
     )
-    subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+    subprocess.run([str(binary)], check=True, capture_output=True, text=True, timeout=RUN_TIMEOUT)
