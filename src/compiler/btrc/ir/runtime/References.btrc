@@ -55,10 +55,10 @@ class RuntimeReferenceCollector {
 
 	class bool isIdentifierStart(char character) { return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || character == '_'; }
 
-	class int skipQuoted(string source, int start) {
+	class int skipQuoted(string source, int start, int length) {
 		char quote = source[start];
 		int index = start + 1;
-		while (index < source.length()) {
+		while (index < length) {
 			if (source[index] == '\\') {
 				index = index + 2;
 			} else if (source[index] == quote) {
@@ -67,7 +67,7 @@ class RuntimeReferenceCollector {
 				index = index + 1;
 			}
 		}
-		return source.length();
+		return length;
 	}
 
 	private void scanTextForNames(string source, Vector<string> names, Map<string, bool> references) {
@@ -83,25 +83,26 @@ class RuntimeReferenceCollector {
 	/* C dependencies exclude comments and quoted data. Module-unit header
 	 * selection uses the same scan without a known helper-name filter. */
 	class void collectIdentifiers(string source, Map<string, bool> references, Map<string, bool>? candidates = null) {
+		int length = source.length();
 		int index = 0;
-		while (index < source.length()) {
+		while (index < length) {
 			char current = source[index];
 			if (current == '"' || current == '\'') {
-				index = RuntimeReferenceCollector.skipQuoted(source, index);
-			} else if (current == '/' && index + 1 < source.length() && source[index + 1] == '/') {
+				index = RuntimeReferenceCollector.skipQuoted(source, index, length);
+			} else if (current == '/' && index + 1 < length && source[index + 1] == '/') {
 				index = index + 2;
-				while (index < source.length() && source[index] != '\n') {
+				while (index < length && source[index] != '\n') {
 					index = index + 1;
 				}
-			} else if (current == '/' && index + 1 < source.length() && source[index + 1] == '*') {
+			} else if (current == '/' && index + 1 < length && source[index + 1] == '*') {
 				index = index + 2;
-				while (index + 1 < source.length() && !(source[index] == '*' && source[index + 1] == '/')) {
+				while (index + 1 < length && !(source[index] == '*' && source[index + 1] == '/')) {
 					index = index + 1;
 				}
 				index = index + 2;
 			} else if (RuntimeReferenceCollector.isIdentifierStart(current) && (index == 0 || !RuntimeReferenceCollector.isIdentifierChar(source[index - 1]))) {
 				int end = index + 1;
-				while (end < source.length() && RuntimeReferenceCollector.isIdentifierChar(source[end])) {
+				while (end < length && RuntimeReferenceCollector.isIdentifierChar(source[end])) {
 					end = end + 1;
 				}
 				string identifier = source.substring(index, end - index);
