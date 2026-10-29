@@ -15,6 +15,9 @@ import pytest
 from src.compiler.python.abi.generated import TARGET_ROWS
 from src.tests.c_toolchains import configured_c_compiler
 from src.tests.process_limits import RUN_TIMEOUT, TOOL_TIMEOUT
+from src.tests.python.test_windows_process import transpile
+from tools.compiler_codegen.runtime import RuntimeManifest
+from tools.native_plan import RuntimeObjects, TargetToolchain
 
 REPO = Path(__file__).resolve().parents[3]
 RUNTIME = REPO / "src/runtime/c"
@@ -35,6 +38,7 @@ def run_build(command: list[str], *, success: bool = True):
 def metadata(destination: Path, image: Path, label: str, *, protocol: int = 1, basename: str | None = None):
     digest = ", ".join(f"0x{byte:02x}" for byte in hashlib.sha256(image.read_bytes()).digest())
     destination.write_text(
+        '#include <stddef.h>\n#include <stdint.h>\n#include "windows_os.h"\n'
         '#include "windows_daemon_image.h"\n'
         "const __btrc_windows_daemon_metadata_t __btrc_windows_daemon_metadata = {\n"
         f"    {{ {digest} }}, {protocol}, {json.dumps(label)}, {json.dumps(basename or image.name)}\n"
@@ -105,6 +109,72 @@ def bundle(request, tmp_path_factory):
 def test_consumer_image_object_requires_metadata_and_links_both_windows_abis(bundle):
     _, root = bundle
     assert (root / "consumer.exe").read_bytes().startswith(b"MZ")
+
+
+def test_image_catalog_exposes_only_consumer_operations():
+    manifest = RuntimeManifest.load(RUNTIME / "manifest.toml")
+    expected = {
+        "__btrc_windows_supervisor_image_types",
+        "__btrc_windows_supervisor_image_verify",
+        "__btrc_windows_supervisor_image_close",
+        "__btrc_windows_supervisor_transfer",
+    }
+    assert {helper.name for helper in manifest.helpers if helper.asset == "windows_daemon_image.h"} == expected
+    selected = RuntimeObjects.selected(["__btrc_windows_supervisor_transfer();"])
+    assert [row.source for row in selected] == ["windows_os.c", "windows_daemon_image.c"]
+    assert RuntimeObjects.library_flags(selected, "windows") == ["-lkernel32", "-ladvapi32", "-lbcrypt"]
+    for code in ("__btrc_windows_launch();", "__btrc_windows_supervisor_accept();"):
+        rows = RuntimeObjects.selected([code])
+        assert [row.source for row in rows] == ["windows_os.c"]
+        assert "-lbcrypt" not in RuntimeObjects.library_flags(rows, "windows")
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_image_catalog_emits_sdk_free_declarations_and_requires_metadata(frontend, bundle, request, tmp_path):
+    label, built = bundle
+    source = tmp_path / "ImageSeam.btrc"
+    source.write_text("""#include <stddef.h>
+#include <stdint.h>
+int main() {
+    __btrc_windows_image_owner* image = NULL;
+    __btrc_windows_daemon_startup startup;
+    __btrc_windows_transfer_result result;
+    __btrc_windows_launch_error_t error;
+    memset(&startup, 0, sizeof(startup));
+    int status = __btrc_windows_supervisor_image_verify(&image, &error);
+    status += __btrc_windows_supervisor_transfer(image, &startup, NULL, 1000, &result, &error);
+    status += __btrc_windows_supervisor_image_close(&image, &error);
+    return status;
+}
+""")
+    c_source = transpile(frontend, source, label, request)
+    manifest = RuntimeManifest.load(RUNTIME / "manifest.toml")
+    for helper in manifest.helpers:
+        if helper.asset == "windows_daemon_image.h":
+            assert helper.source.strip() in c_source, helper.name
+    assert "#include <windows.h>" not in c_source
+    rows = RuntimeObjects.selected([c_source])
+    assert [row.source for row in rows] == ["windows_os.c", "windows_daemon_image.c"]
+    generated = tmp_path / "program.c"
+    generated.write_text(c_source)
+    toolchain = TargetToolchain(TARGETS[label])
+    program = tmp_path / "program.o"
+    run_build(toolchain.compile_command(generated, program, generated=True, flags=STRICT))
+    objects = [program]
+    for index, runtime in enumerate(RuntimeObjects.sources(rows)):
+        output = tmp_path / f"runtime-{index}.o"
+        run_build(toolchain.compile_command(runtime, output, generated=False, flags=STRICT))
+        objects.append(output)
+    link = [
+        *toolchain.drivers["cc"],
+        *toolchain.arguments,
+        *(str(path) for path in objects),
+        *RuntimeObjects.library_flags(rows, "windows"),
+        *toolchain.runtime_libraries(),
+    ]
+    missing = run_build([*link, "-o", str(tmp_path / "missing.exe")], success=False)
+    assert "__btrc_windows_daemon_metadata" in missing.stderr
+    run_build([*link, "-I", str(RUNTIME), str(built / "consumer-metadata.c"), "-o", str(tmp_path / "program.exe")])
 
 
 def test_native_image_verification_holds_and_releases_files(bundle, tmp_path):

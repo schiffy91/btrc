@@ -131,9 +131,13 @@ def test_runtime_assets_are_cohesive_domains_with_no_behavior_outside_markers() 
         "threads.c",
         "trycatch.c",
         "windows_os.h",
+        "windows_daemon_image.h",
     }
     # A declaration asset only declares; its external object defines it.
-    assert {(row.source, row.declarations) for row in manifest.external_objects} == {("windows_os.c", "windows_os.h")}
+    assert {(row.source, row.declarations) for row in manifest.external_objects} == {
+        ("windows_os.c", "windows_os.h"),
+        ("windows_daemon_image.c", "windows_daemon_image.h"),
+    }
 
 
 def test_runtime_helpers_do_not_aggregate_initialize_local_error_buffers() -> None:
@@ -159,7 +163,11 @@ def test_external_object_dependencies_reject_invalid_sources(tmp_path, dependenc
     runtime = tmp_path / "runtime"
     shutil.copytree(RUNTIME_ROOT, runtime)
     path = runtime / "manifest.toml"
-    path.write_text(path.read_text() + f"\ndependencies = {json.dumps(dependencies)}\n")
+    path.write_text(
+        path.read_text().replace(
+            'source = "windows_os.c"\n', f'source = "windows_os.c"\ndependencies = {json.dumps(dependencies)}\n', 1
+        )
+    )
     with pytest.raises(RuntimeManifestError, match=diagnostic):
         RuntimeManifest.load(path)
 

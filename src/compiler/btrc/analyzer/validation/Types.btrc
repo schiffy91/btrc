@@ -1201,7 +1201,7 @@ class TypeValidator {
 			return true;
 		}
 		string base = typeExpr.base;
-		return self.state.typeParams.has(base) || NumericSemantics.isIntegralBase(base) || NumericSemantics.isStandardTypedef(base) || base == "float" || base == "double" || base == "long double" || base == "bool" || base == "string" || base == "void" || self.runtimeTypeBase(base) || self.state.analyzed.isClass(base) || self.state.analyzed.isGenericClass(base) || self.state.interfaces.has(base) || self.state.analyzed.isEnum(base) || self.state.analyzed.isRichEnum(base) || self.state.analyzed.structTable.has(base) || self.state.analyzed.typedefTable.has(base) || base.endsWith("_t") || self.explicitCTag(base);
+		return self.state.typeParams.has(base) || NumericSemantics.isIntegralBase(base) || NumericSemantics.isStandardTypedef(base) || base == "float" || base == "double" || base == "long double" || base == "bool" || base == "string" || base == "void" || self.runtimeTypeBase(base) || self.hostedAbi.typeName(base) || self.state.analyzed.isClass(base) || self.state.analyzed.isGenericClass(base) || self.state.interfaces.has(base) || self.state.analyzed.isEnum(base) || self.state.analyzed.isRichEnum(base) || self.state.analyzed.structTable.has(base) || self.state.analyzed.typedefTable.has(base) || base.endsWith("_t") || self.explicitCTag(base);
 	}
 
 	private int declaredGenericArity(string base) {

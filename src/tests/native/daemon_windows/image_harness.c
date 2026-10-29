@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
+#include <stdint.h>
+#include "windows_os.h"
 #include "windows_daemon_image.h"
 
 #if defined(_WIN32)

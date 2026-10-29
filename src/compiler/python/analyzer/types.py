@@ -2656,7 +2656,7 @@ class TypeSystem:
             return True
         if base in self.NUMERIC_TYPES or base in {"bool", "string", "void"}:
             return True
-        if base in _RUNTIME_TYPE_BASES:
+        if base in _RUNTIME_TYPE_BASES or base in HOSTED_ABI.types:
             return True
         if base in self.index.class_table or base in self.index.interface_table:
             return True

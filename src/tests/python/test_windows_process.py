@@ -32,6 +32,7 @@ from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.runtime.generated import RUNTIME_HELPER_ROWS
 from src.tests.process_limits import TOOL_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.target_runner import FRONTENDS, TargetBundle, TargetCorpusRunner
+from tools.compiler_codegen.runtime import RuntimeManifest
 from tools.native_plan import RuntimeObjects, TargetToolchain
 
 REPO = Path(__file__).resolve().parents[3]
@@ -196,9 +197,9 @@ def build(c_source: str, label: str, executable: Path, work: Path) -> None:
 def test_supervisor_seam_emits_sdk_free_declarations_and_links(frontend, label, request, tmp_path):
     c_source = transpile(frontend, write(tmp_path, "SupervisorSeam.btrc", SUPERVISOR), label, request)
     assert [row.source for row in RuntimeObjects.selected([c_source])] == ["windows_os.c"]
-    for row in RUNTIME_HELPER_ROWS:
-        if row.name.startswith("__btrc_windows_supervisor_"):
-            assert row.c_source.strip() in c_source, row.name
+    for row in RuntimeManifest.load(RUNTIME / "manifest.toml").helpers:
+        if row.name.startswith("__btrc_windows_supervisor_") and row.asset == "windows_os.h":
+            assert row.source.strip() in c_source, row.name
     assert "#include <windows.h>" not in c_source
     build(c_source, label, tmp_path / "supervisor-seam.exe", tmp_path)
 

@@ -1,13 +1,7 @@
-/* Consumer-only supervisor image capability. The build supplies one strong,
- * immutable metadata definition after hashing the final supervisor bytes.
- * This declaration has no dependency on the Windows SDK. */
-#ifndef BTRC_WINDOWS_DAEMON_IMAGE_H
-#define BTRC_WINDOWS_DAEMON_IMAGE_H
-
-#include <stddef.h>
-#include <stdint.h>
-#include "windows_os.h"
-
+/* Consumer-only supervisor capability. Include stddef.h, stdint.h and
+ * windows_os.h first. These SDK-free sections are also emitted through the
+ * runtime catalog. The build supplies one strong immutable metadata object. */
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_image_types */
 typedef struct __btrc_windows_image_owner __btrc_windows_image_owner;
 typedef struct {
     unsigned char sha256[32];
@@ -26,7 +20,23 @@ typedef struct {
     uint32_t state; /* 0 confirmed, 1 failed before COMMIT, 2 indeterminate */
     uint32_t supervisor_pid, lifetime; /* lifetime: 0 independent, 1 contained */
 } __btrc_windows_transfer_result;
-
+/* btrc-runtime-helper:end __btrc_windows_supervisor_image_types */
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_image_verify */
+/* out initializes to null. Failure retains an owner only if cleanup is
+ * uncertain; ownership_state=2 forbids retry and leaves release to process
+ * teardown. Successful admission holds the image and every ancestor against
+ * replacement until close. After transfer, pending cleanup retains a live
+ * owner (ownership_state=1); image_close polls cleanup without adding a wait
+ * budget and may be retried. Uncertain release poisons it (state=2). Calls on
+ * one owner, including transfer and close, must not overlap. */
+int __btrc_windows_supervisor_image_verify(__btrc_windows_image_owner **out,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_image_verify */
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_image_close */
+int __btrc_windows_supervisor_image_close(__btrc_windows_image_owner **image,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_image_close */
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_transfer */
 /* Strings/token are copied for this call. Daemon policy fixes stdio: command
  * input/output options do not create extra mappings. One positive finite
  * budget covers snapshot, launch, handshake, record verification and cleanup.
@@ -37,18 +47,4 @@ int __btrc_windows_supervisor_transfer(const __btrc_windows_image_owner *image,
     const __btrc_windows_daemon_startup *startup, const unsigned char token[16],
     uint64_t startup_timeout_ms, __btrc_windows_transfer_result *result,
     __btrc_windows_launch_error_t *error);
-
-
-/* out initializes to null. Failure retains an owner only if cleanup is
- * uncertain; ownership_state=2 forbids retry and leaves release to process
- * teardown. Successful admission holds the image and every ancestor against
- * replacement until close. After transfer, pending cleanup retains a live
- * owner (ownership_state=1); image_close polls cleanup without adding a wait
- * budget and may be retried. Uncertain release poisons it (state=2). Calls on
- * one owner, including transfer and close, must not overlap. */
-int __btrc_windows_supervisor_image_verify(__btrc_windows_image_owner **out,
-    __btrc_windows_launch_error_t *error);
-int __btrc_windows_supervisor_image_close(__btrc_windows_image_owner **image,
-    __btrc_windows_launch_error_t *error);
-
-#endif
+/* btrc-runtime-helper:end __btrc_windows_supervisor_transfer */

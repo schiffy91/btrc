@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
+#include <stdint.h>
+#include "windows_os.h"
 #include "windows_daemon_image.h"
 #include <windows.h>
 #include "windows_security.h"

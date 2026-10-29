@@ -197,7 +197,7 @@ class RuntimeManifest:
     _OPERATING_SYSTEMS = frozenset({"android", "ios", "linux", "macos", "windows"})
     # Declaration assets: their sections are pasted like helpers, but they only
     # declare what one external object defines.
-    _DECLARATION_ASSETS = ("windows_os.h",)
+    _DECLARATION_ASSETS = ("windows_os.h", "windows_daemon_image.h")
     _FREESTANDING_KEYS = frozenset({"calls", "objects", "types", "literals"})
     _CALL_FEATURE_KEYS = frozenset({"prefix", "macro"})
     _HEADER_FEATURE_KEYS = frozenset({"header", "macro"})
@@ -244,6 +244,7 @@ class RuntimeManifest:
         "trycatch.c",
         "gpu.c",
         "windows_os.h",
+        "windows_daemon_image.h",
     )
     _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
     # A function definition: a parameter list followed by a body.

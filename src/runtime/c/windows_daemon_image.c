@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "windows_os.h"
 #include "windows_daemon_image.h"
 
 static int btrc_wdi_fail(__btrc_windows_launch_error_t *error,

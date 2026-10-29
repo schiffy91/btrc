@@ -786,6 +786,7 @@ class BoundaryManifest:
             "asset.threads_c",
             "asset.trycatch_c",
             "asset.windows_os_h",
+            "asset.windows_daemon_image_h",
         }
         expected = {
             "runtime-helper-source": assets,
@@ -1247,12 +1248,16 @@ class _BoundaryCaptureSession:
             "asset.threads_c": "threads.c",
             "asset.trycatch_c": "trycatch.c",
             "asset.windows_os_h": "windows_os.h",
+            "asset.windows_daemon_image_h": "windows_daemon_image.h",
         }
         manifest_metadata, helpers, orders = self._runtime_snapshot()
         channels: dict[str, bytes] = {}
         for channel in capability.channels:
             if capability.boundary == "runtime-helper-source" and channel in assets:
-                channels[channel] = (self.execution_repository / "src/runtime/c" / assets[channel]).read_bytes()
+                asset = self.execution_repository / "src/runtime/c" / assets[channel]
+                channels[channel] = (
+                    b"" if channel == "asset.windows_daemon_image_h" and not asset.exists() else asset.read_bytes()
+                )
                 continue
             if capability.boundary == "runtime-helper-metadata" and channel == "manifest":
                 channels[channel] = self._canonical_json_line(manifest_metadata)
@@ -1335,6 +1340,9 @@ class _BoundaryCaptureSession:
             "gpu.c",
             "windows_os.h",
         )
+        # Older frozen revisions predate this consumer-only declaration asset.
+        if (root / "windows_daemon_image.h").is_file():
+            asset_names += ("windows_daemon_image.h",)
         source_by_name = {}
         source_asset_by_name = {}
         source_marker = RuntimeSourceMarker()
