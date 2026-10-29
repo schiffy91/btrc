@@ -335,6 +335,26 @@ def test_reference_generic_callable_replay(tmp_path, monkeypatch, shared, body):
 
 @pytest.mark.parametrize("shared, body", GENERIC_PROGRAMS)
 def test_generic_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, shared, body):
+    _assert_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, shared, body)
+
+
+@pytest.mark.parametrize("intermediate", [False, True], ids=["direct", "grandparent"])
+@pytest.mark.parametrize("automatic", [False, True], ids=["getter", "automatic-accessors"])
+def test_inherited_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, intermediate, automatic):
+    property_body = "get; set;" if automatic else "get { return 3; }"
+    shared = f"class Parent {{ public int value {{ {property_body} }} public int answer() {{ return 4; }} }}"
+    if intermediate:
+        shared += " class Middle extends Parent {} class Child extends Middle {}"
+    else:
+        shared += " class Child extends Parent {}"
+    body = "Child child = new Child(); "
+    if automatic:
+        body += "child.value = 3; "
+    body += "return child.value + child.answer() - 7;"
+    _assert_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, shared, body)
+
+
+def _assert_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, shared, body):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
     main = tmp_path / "Main.btrc"
     main.write_text('import "Shared.btrc";\nint main() { ' + body + " }\n")

@@ -289,8 +289,9 @@ def test_interface_edit_and_corrupt_records_rebuild(tmp_path, monkeypatch):
         'public string title() { return "shape"; }\n\n\tpublic string label() {',
     )
     widened, _ = workspace.build("GalleryMain.btrc", tmp_path / "widened", monkeypatch)
-    # Stage A digests the whole program interface: every group rebuilds.
-    assert not widened.module_units_reused
+    # The changed interface reaches its consumers, but not unrelated stdlib units.
+    assert _names(widened.module_units_lowered) == {"Shapes.btrc", "Gallery.btrc", "GalleryMain.btrc"}
+    assert _names(widened.module_units_reused) == {"Iterable.btrc", "Vector.btrc"}
     records = list(workspace.cache.glob("modules-v1/*/record.txt"))
     assert records
     for position, record in enumerate(records):

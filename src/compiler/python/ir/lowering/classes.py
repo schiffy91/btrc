@@ -507,7 +507,7 @@ class ClassLowerer:
             elif isinstance(member, PropertyDecl):
                 declarations.extend(self._property_declarations(name, member, self._signatures, selected_callables))
         declarations.extend(
-            self._inherited_property_declarations(
+            self._inherited_method_declarations(
                 name,
                 declaration,
                 class_info,
@@ -516,7 +516,7 @@ class ClassLowerer:
             )
         )
         declarations.extend(
-            self._inherited_method_declarations(
+            self._inherited_property_declarations(
                 name,
                 declaration,
                 class_info,
@@ -1306,12 +1306,6 @@ class ClassLowerer:
                     selected_callables,
                 )
                 own_properties.add(member.name)
-        self.emit_inherited_properties(
-            decl,
-            cls_info,
-            own_properties,
-            selected_callables,
-        )
         if cls_info.parent and cls_info.parent in self._analyzed.class_table:
             self.emit_inherited_methods(
                 decl,
@@ -1319,6 +1313,12 @@ class ClassLowerer:
                 own_methods,
                 selected_callables,
             )
+        self.emit_inherited_properties(
+            decl,
+            cls_info,
+            own_properties,
+            selected_callables,
+        )
         self._session.current_class = None
         self._session.current_class_name = ""
 
