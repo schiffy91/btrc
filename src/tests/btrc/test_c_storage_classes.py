@@ -183,6 +183,32 @@ def test_register_scalar_storage(tmp_path, request, frontend, source):
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("contract", ["interface", "override"])
+@pytest.mark.parametrize("declaration_storage, definition_storage", [("register ", ""), ("", "register ")])
+def test_register_parameter_storage_does_not_change_method_signature(
+    tmp_path, request, frontend, contract, declaration_storage, definition_storage
+):
+    if contract == "interface":
+        parent = f"interface Add {{ int add({declaration_storage}int value); }}"
+        inheritance = "implements Add"
+        modifier = ""
+    else:
+        parent = f"class Add {{ public int add({declaration_storage}int value) {{ return value; }} }}"
+        inheritance = "extends Add"
+        modifier = "override "
+    source = (
+        f"{parent} class Item {inheritance} {{ "
+        f"public {modifier}int add({definition_storage}int value) {{ return value + 2; }} "
+        "} int main() { Item item = new Item(); return item.add(5) - 7; }"
+    )
+    success, text, diagnostics = _compile(tmp_path, request, frontend, source)
+    assert success and not diagnostics, diagnostics
+    generated = tmp_path / "signature.c"
+    generated.write_text(text)
+    strict_build_and_run(generated, tmp_path / "signature", optimization="-O0")
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize(
     "source, message",
     [

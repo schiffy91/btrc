@@ -2,7 +2,7 @@
 
 PLAN.md Stage 20 (`ccompat-r11-goto-labels`) adds `goto` and labels. D19 approves the row, and its consumer is the Stage 14 probe battery. Header inline functions never reach btrc, because the C compiler compiles their bodies.
 
-Both parsers accept `goto name;` and `name:`. Reference source-to-C execution is covered by `src/tests/python/test_goto_syntax.py`. Current native execution and the two recorded C-compatibility inventory outcomes still need qualification before issue #17 can close.
+Both parsers accept `goto name;` and `name:`. Source-to-C execution is covered by `src/tests/python/test_goto_syntax.py`, the native runtime cases in `src/tests/btrc/test_jump_validation_records.py`, and `src/tests/c_compat/GotoForwardLabel.btrc`.
 
 A drafter and two adversarial reviewers compared the options on 2026-10-02 (workflow `wf_926e5dfc-b6e`). One reviewer covered implementability in both compilers; the other covered ARC and setjmp. Every finding was re-checked against the code at `3812e44`, or with gcc 13.3 and clang 18.1 under the gate flags (`Makefile:321`). Each finding and its resolution is listed at the end of this section.
 
@@ -68,8 +68,8 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
   - **Why lowering rebuilds it.** btrc module units can replay validation records instead of validating live (`analyzer/validation/Validator.btrc:154-176`), so an index that only live validation writes would be missing.
 - **Jump-body marker.** Python `AnalyzedProgram.jump_body_ids`, keyed by `id(body)`; btrc `Analyzed.jumpBodyKeys`, keyed by `AstIdentity.key`.
   - The analyzer records every callable body that contains a goto or a label.
-  - btrc journals the new fact `VALIDATION_JUMP_BODY = 13` (`analyzer/Models.btrc:46-59`), and `Validator.replay` installs it.
-  - The record context becomes `validation-record-v5` (`pipeline/ModuleUnits.btrc:2748`, `:2842`, `:3057`).
+  - btrc journals `VALIDATION_JUMP_BODY = 18` in `analyzer/Models.btrc`, and `Validator.replay` installs it.
+  - The record context is `validation-record-v12` in `pipeline/ModuleUnits.btrc`.
   - Lowering builds frames only for marked bodies. btrc checks the map's emptiness before computing any key, so a program without goto pays one check per body.
 - **Plain-value owner.** Python `TypeSystem.is_plain_c_object(type)` and `declaration_is_plain(type, initializer_type)`; btrc `TypeValidator.plainCObject` and `plainDeclaration`. The native policy belongs to validation because it needs lexical type parameters, proven bounds and `NumericSemantics`; placing it in `SemanticTypeSystem` would create an import cycle with `Operators.btrc`. The table is applied after typedef resolution and fails closed:
 
@@ -118,7 +118,7 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
 
 The native IR name audit checks reads on explicitly typed `IRNode` parameters and locals. Branch and short-circuit kind guards distinguish label names from value references; constructor-only and declaration-only readers have recorded input contracts. Canonical rendering preserves the name as metadata. The reference optimizer regression proves that labels named like otherwise unused functions and globals do not retain those values.
 
-The audit found backward-goto realtime detection in native `collectLocals`, before `jumpRoot` was installed. It now belongs to `RealtimeAnalyzer.visit`, after `scanCallable` installs the callable's jump root, matching the reference compiler. Both source-syntax and marker-based native regression cases remain required at the next native execution gate.
+The audit found backward-goto realtime detection in native `collectLocals`, before `jumpRoot` was installed. It now belongs to `RealtimeAnalyzer.visit`, after `scanCallable` installs the callable's jump root, matching the reference compiler. Source-syntax and marker-based native regression cases cover this path.
 
 ## Rules
 
@@ -194,6 +194,7 @@ btrc stops at its first error. Python continues, and its first error is the same
 - **The recipe.** `ManagedLocal` gains `cleanup_registration`, a small `CleanupRegistration` record of the `register` inputs: the declaration, the callback names and the direct flag. btrc `Managed` gains `cleanupRegistration: CleanupRegistration?`, null by default.
 - **Where it is attached.** Python `register_named_cleanup` and `register_direct_cleanup` return the recipe; storage and iteration pass it to `OwnershipLowerer.record_cleanup_registration`, which attaches it to the owner with that C name in the innermost managed scope. This keeps lifetime lowering independent of the ownership owner that uses it. Native `maybeRegisterCleanup` and `maybeRegisterDirectCleanup` attach it within `ManagedLifetimeLowerer`, which owns both operations. These paths cover named locals, for-in owners and `Thread` locals. A return temporary's unwind registration has no lexical owner and needs no replay recipe.
 - **How it is re-issued.** By calling `CleanupSlotRegistry.register` again (`ownership.py:150-171`). That builds fresh argument nodes and reuses the declaration's own `IRCleanupSlot`, as a second registration already does. A deep copy would fail the verifier, which matches slot metadata by identity (`ir/verifier.py:366-371`). The emitted call is the plain one, never the register-once ternary.
+- **Verifier contract.** Both verifiers allow multiple registration sites for one declaration. Each registration must match that declaration's typed slot and static take adapter; every declared cleanup slot must have a registration. Native runtime tests check that re-registering preserved owners after a backward jump still destroys each owner exactly once when a later call throws.
 - **A4:** every owner of F before the label must have a recipe when F's marker is active.
 
 **`lower_label`:**

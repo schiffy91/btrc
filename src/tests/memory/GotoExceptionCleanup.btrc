@@ -1,0 +1,28 @@
+#include <assert.h>
+
+int destroyed = 0;
+
+class Box {
+	public Box() {}
+
+	public void __del__() { destroyed++; }
+}
+
+void fail() { throw "failure"; }
+
+void exercise() {
+	Box prefix = new Box();
+	int n = 0;
+	again:
+	Box iteration = new Box();
+	n++;
+	if (n < 3) { goto again; }
+	fail();
+}
+
+int main() {
+	try { exercise(); } catch (string error) {}
+	assert(destroyed == 4);
+	print("PASS: goto exception cleanup");
+	return 0;
+}

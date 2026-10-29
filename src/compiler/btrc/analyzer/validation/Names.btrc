@@ -603,7 +603,7 @@ class NameValidator {
 			Node expected = inherited.params().get(index);
 			Node actual = implementation.params().get(index);
 			Node expectedType = SemanticTypeSystem.resolveGenericType(expected.type, substitutions, self.state.analyzed);
-			if (!self.types.aliasTypesSame(actual.type, expectedType) || actual.keep_ != expected.keep_) { return false; }
+			if (!self.types.aliasTypesSame(CallableSignature.component(actual.type), CallableSignature.component(expectedType)) || actual.keep_ != expected.keep_) { return false; }
 			index++;
 		}
 		return true;

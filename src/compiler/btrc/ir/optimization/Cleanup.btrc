@@ -145,9 +145,8 @@ class CleanupSlotValidator {
 			if (metadata.name != declared.name || metadata.cType != declared.cType || metadata.takeFunction != declared.takeFunction) {
 				self.fail("cleanup registration metadata does not match " + "its declaration in function " + name + ": " + metadata.name);
 			}
-			if (used.has(metadata.site)) {
-				self.fail("cleanup slot is registered more than once " + "in function " + name + ": " + metadata.name);
-			}
+			/* A backward goto re-registers preserved owners after discarding
+			 * the frame's cleanup entries. Each call still names the same slot. */
 			IRFunction? adapter = self.adapterDefinition(metadata.takeFunction);
 			if (adapter == null || !adapter.isStatic) {
 				self.fail("missing static cleanup adapter: " + metadata.takeFunction);

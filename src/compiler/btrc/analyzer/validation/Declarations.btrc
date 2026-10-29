@@ -374,7 +374,7 @@ class DeclarationValidator {
 			if (substitutions.len > 0) {
 				expectedType = SemanticTypeSystem.resolveGenericType(expectedType, substitutions, self.state.analyzed);
 			}
-			if (!self.types.aliasTypesSame(expectedType, actual.type) || expected.keep_ != actual.keep_) {
+			if (!self.types.aliasTypesSame(CallableSignature.component(expectedType), CallableSignature.component(actual.type)) || expected.keep_ != actual.keep_) {
 				return false;
 			}
 			index = index + 1;
