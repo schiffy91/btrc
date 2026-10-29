@@ -277,6 +277,7 @@
           "src/compiler/python/"
           "src/devex/lsp/"
           "src/language/"
+          "src/runtime/c/"
           "src/stdlib/"
         ];
         sourceSubset = { prefixes, files ? [ ], excludedPrefixes ? [ ] }:
