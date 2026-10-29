@@ -220,6 +220,7 @@ class SemanticAnalyzer:
             rich_enum_unsafe_default_ids=set(state.rich_enum_unsafe_default_ids),
             array_iteration_capacity_ids=set(state.array_iteration_capacity_ids),
             constant_array_bound_ids=set(state.constant_array_bound_ids),
+            jump_body_ids=set(state.jump_body_ids),
             array_bound_values=dict(state.array_bound_values),
             initializer_slot_plans=dict(state.initializer_slot_plans),
             designator_index_values=dict(state.designator_index_values),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from src.compiler.python.abi.hosted import HOSTED_ABI
@@ -244,6 +245,79 @@ class ControlFlowAnalyzer:
         self._nonreturning_callables: set[int] = set()
         # One root per class whose static fields a path names, global like a global variable.
         self._class_roots: dict[str, SymbolInfo] = {}
+        self._jump_roots: list[Block] = []
+        self._jump_indexes: dict[int, JumpScopeIndex] = {}
+
+    def reset_jump_scopes(self) -> None:
+        self._jump_roots.clear()
+        self._jump_indexes.clear()
+
+    @contextmanager
+    def callable_jump_scope(self, body):
+        self._jump_roots.append(body)
+        try:
+            yield
+        finally:
+            self._jump_roots.pop()
+
+    def jump_index(self, body=None) -> JumpScopeIndex:
+        root = body if body is not None else self._jump_roots[-1]
+        key = id(root)
+        if key not in self._jump_indexes:
+            self._jump_indexes[key] = JumpScopeIndex.build(root)
+        return self._jump_indexes[key]
+
+    def mark_jump_body(self) -> None:
+        self.session.jump_body_ids.add(id(self._jump_roots[-1]))
+
+    def validate_goto(self, jump: GotoStmt) -> None:
+        self.mark_jump_body()
+        index = self.jump_index()
+        target = index.target(jump)
+        message = None
+        if target is None:
+            for root in reversed(self._jump_roots[:-1]):
+                outer = self.jump_index(root).labels.get(jump.name)
+                if outer is not None:
+                    message = (
+                        f"goto '{jump.name}' cannot leave a lambda body (label at {outer.node.line}:{outer.node.col})"
+                    )
+                    break
+            if message is None:
+                nested = index.nested_lambda_label(jump.name)
+                message = (
+                    f"goto '{jump.name}' cannot enter a lambda body (label at {nested.line}:{nested.col})"
+                    if nested is not None
+                    else f"Label '{jump.name}' is not defined in this function"
+                )
+        else:
+            for scope in index.left_lists(jump):
+                if scope.kind in {"try", "catch", "finally"}:
+                    message = f"goto '{jump.name}' cannot leave a {scope.kind} block; set a flag and test it after the try statement"
+                    break
+                if scope.kind == "parallel":
+                    message = f"goto '{jump.name}' cannot leave a parallel for body"
+                    break
+            entered = index.entered_lists(jump)
+            if message is None:
+                for scope in entered:
+                    if scope.kind in {"try", "catch", "finally"}:
+                        message = f"goto '{jump.name}' cannot enter a {scope.kind} block"
+                        break
+                if message is None and entered:
+                    message = f"goto '{jump.name}' cannot jump into a nested block; jump only to a label in the same block or an enclosing one"
+        if message is not None:
+            self.session.error(message, jump.line, jump.col)
+
+    def validate_label_identity(self, label: LabelStmt) -> None:
+        self.mark_jump_body()
+        first = self.jump_index().labels[label.name].node
+        if first is not label:
+            self.session.error(
+                f"Duplicate label '{label.name}' in this function (first at {first.line}:{first.col})",
+                label.line,
+                label.col,
+            )
 
     def compute_nonreturning_callables(self, program) -> None:
         """Find every function and method that cannot return to its caller.

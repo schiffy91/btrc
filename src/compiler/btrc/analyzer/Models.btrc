@@ -77,6 +77,7 @@ enum ValidationFactKind {
 	VALIDATION_DESIGNATOR_INDEX = 15,
 	VALIDATION_ARRAY_BOUND_VALUE = 16,
 	VALIDATION_CLASS_CALLABLE = 17,
+	VALIDATION_JUMP_BODY = 18,
 };
 
 /* The per-declaration analysis passes a record covers, in program order:
@@ -503,6 +504,7 @@ class Analyzed {
      * expression. IR generation uses this to fail closed if an invalid VLA
      * initializer somehow bypasses validation. */
 	public Map<string, bool> constantArrayBoundKeys;
+	public Map<string, bool> jumpBodyKeys;
 	public Map<string, long long> arrayBoundValues;
 	/* Record brace-initializer identity -> its slot plan, recorded by
 	 * ExpressionValidator.validateStructInitializer. A replayed module-unit
@@ -564,6 +566,7 @@ class Analyzed {
 		self.genericConstructorIndex = {};
 		self.arrayIterationCapacityKeys = {};
 		self.constantArrayBoundKeys = {};
+		self.jumpBodyKeys = {};
 		self.arrayBoundValues = {};
 		self.initializerPlans = {};
 		self.designatorIndexValues = {};
@@ -599,6 +602,11 @@ class Analyzed {
 	public void recordHostedCall(Node call) {
 		self.hostedCallKeys.put(AstIdentity.key(call), true);
 		self.journalFact(VALIDATION_HOSTED_CALL, call, null);
+	}
+
+	public void recordJumpBody(Node body) {
+		self.jumpBodyKeys.put(AstIdentity.key(body), true);
+		self.journalFact(VALIDATION_JUMP_BODY, body, null);
 	}
 
 	public void recordConstantArrayBound(Node bound) {

@@ -487,6 +487,7 @@ class AnalyzedProgram:
     rich_enum_unsafe_default_ids: set[int] = field(default_factory=set)
     array_iteration_capacity_ids: set[int] = field(default_factory=set)
     constant_array_bound_ids: set[int] = field(default_factory=set)
+    jump_body_ids: set[int] = field(default_factory=set)
     array_bound_values: dict[int, int] = field(default_factory=dict)
     initializer_slot_plans: dict[int, InitializerSlotPlan] = field(default_factory=dict)
     designator_index_values: dict[int, int] = field(default_factory=dict)
@@ -560,6 +561,7 @@ class AnalysisSession(AnalysisContext):
         self._analyzed_array_bounds: set[int] = set()
         self._array_bound_values: dict[int, int] = {}
         self.constant_array_bound_ids: set[int] = set()
+        self.jump_body_ids: set[int] = set()
         self.initializer_slot_plans: dict[int, InitializerSlotPlan] = {}
         self.designator_index_values: dict[int, int] = {}
         self.array_iteration_capacity_ids: set[int] = set()
@@ -601,6 +603,7 @@ class AnalysisSession(AnalysisContext):
         self._analyzed_array_bounds = set()
         self._array_bound_values = {}
         self.constant_array_bound_ids = set()
+        self.jump_body_ids = set()
         self.initializer_slot_plans = {}
         self.designator_index_values = {}
         self.rich_enum_unsafe_default_ids = set()

@@ -300,6 +300,64 @@ class ControlFlowValidator {
 	private BorrowValidator borrows;
 	private ExpressionValidator expressions;
 	public NullableFlow flow;
+	private Vector<Node> jumpRoots = [];
+	private Map<string, JumpScopeIndex> jumpIndexes = {};
+
+	private JumpScopeIndex jumpIndex(Node root) {
+		string key = AstIdentity.key(root);
+		if (!self.jumpIndexes.has(key)) { self.jumpIndexes.put(key, JumpScopeIndex.build(root)); }
+		return self.jumpIndexes.get(key);
+	}
+
+	public void validateCallableBlock(Node body, Map<string, Node> vars) {
+		self.jumpRoots.push(body);
+		self.validateBlock(body, vars);
+		self.jumpRoots.pop();
+	}
+
+	private void validateGoto(Node jump) {
+		Node root = self.jumpRoots.get(self.jumpRoots.len - 1);
+		self.state.analyzed.recordJumpBody(root);
+		JumpScopeIndex index = self.jumpIndex(root);
+		JumpSite? target = index.target(jump);
+		if (target == null) {
+			int depth = self.jumpRoots.len - 2;
+			while (depth >= 0) {
+				JumpSite? outer = self.jumpIndex(self.jumpRoots.get(depth)).target(jump);
+				if (outer != null) {
+					TypeValidator.fail(f"goto '{jump.name}' cannot leave a lambda body (label at {outer.node.line}:{outer.node.col})", jump);
+				}
+				depth = depth - 1;
+			}
+			Node? nested = index.nestedLambdaLabel(jump.name);
+			if (nested != null) { TypeValidator.fail(f"goto '{jump.name}' cannot enter a lambda body (label at {nested.line}:{nested.col})", jump); }
+			TypeValidator.fail(f"Label '{jump.name}' is not defined in this function", jump);
+		}
+		for scope in index.leftLists(jump) {
+			if (scope.kind == "try" || scope.kind == "catch" || scope.kind == "finally") {
+				TypeValidator.fail(f"goto '{jump.name}' cannot leave a {scope.kind} block; set a flag and test it after the try statement", jump);
+			}
+			if (scope.kind == "parallel") { TypeValidator.fail(f"goto '{jump.name}' cannot leave a parallel for body", jump); }
+		}
+		Vector<JumpList> entered = index.enteredLists(jump);
+		for scope in entered {
+			if (scope.kind == "try" || scope.kind == "catch" || scope.kind == "finally") {
+				TypeValidator.fail(f"goto '{jump.name}' cannot enter a {scope.kind} block", jump);
+			}
+		}
+		if (entered.len > 0) { TypeValidator.fail(f"goto '{jump.name}' cannot jump into a nested block; jump only to a label in the same block or an enclosing one", jump); }
+	}
+
+	private void validateLabelIdentity(Node label) {
+		Node root = self.jumpRoots.get(self.jumpRoots.len - 1);
+		self.state.analyzed.recordJumpBody(root);
+		if (self.state.analyzed.sourceMacros != null && self.state.analyzed.sourceMacros.declared(label.name)) {
+			TypeValidator.fail(f"Label name '{label.name}' collides with source macro '{label.name}'", label);
+		}
+		self.names.validateDeclaredNameContext(label.name, "Label", label, true);
+		Node first = self.jumpIndex(root).labels.get(label.name).node;
+		if (first != label) { TypeValidator.fail(f"Duplicate label '{label.name}' in this function (first at {first.line}:{first.col})", label); }
+	}
 
 	public ControlFlowValidator(SemanticValidationState state, OperatorSemantics operators, TypeValidator types, ConstantValidator constants, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, ExpressionValidator expressions, NullableFlow flow) {
 		self.state = state;
@@ -339,7 +397,7 @@ class ControlFlowValidator {
 		self.flow.enterBody();
 		for parameter in expression.params() { self.flow.bind(parameter.name); }
 		if (body.kind == NK_LAMBDA_BLOCK) {
-			self.validateBlock(body.bodyNode, plan.variables);
+			self.validateCallableBlock(body.bodyNode, plan.variables);
 			bool nonVoid = !TypeValidator.scalarVoid(plan.resultType);
 			if (nonVoid && !ControlFlowValidator.blockTerminates(body.bodyNode)) {
 				TypeValidator.fail("Non-void lambda does not return on every path", expression);
@@ -1166,7 +1224,11 @@ class ControlFlowValidator {
 	}
 
 	public void validateStmt(Node statement, Map<string, Node> vars) {
-		if (statement.kind == NK_VAR_DECL_STMT) {
+		if (statement.kind == NK_GOTO_STMT) {
+			self.validateGoto(statement);
+		} else if (statement.kind == NK_LABEL_STMT) {
+			self.validateLabelIdentity(statement);
+		} else if (statement.kind == NK_VAR_DECL_STMT) {
 			self.validateVariable(statement,  vars);
 		} else if (statement.kind == NK_RETURN_STMT) {
 			self.validateReturn(statement,  vars);

@@ -228,6 +228,9 @@ class SemanticValidator {
 			}
 			if (fact.kind == VALIDATION_HOSTED_CALL) {
 				self.state.analyzed.recordHostedCall(node);
+			} else if (fact.kind == VALIDATION_JUMP_BODY) {
+				if (node.kind != NK_BLOCK) { return false; }
+				self.state.analyzed.recordJumpBody(node);
 			} else if (fact.kind == VALIDATION_CONSTANT_BOUND) {
 				self.state.analyzed.recordConstantArrayBound(node);
 			} else if (fact.kind == VALIDATION_ARRAY_BOUND_VALUE) {

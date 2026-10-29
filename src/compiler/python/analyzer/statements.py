@@ -44,11 +44,13 @@ from src.compiler.python.syntax.ast.generated import (
     ForInStmt,
     FStringLiteral,
     FunctionDecl,
+    GotoStmt,
     Identifier,
     IfStmt,
     IndexExpr,
     InterfaceDecl,
     KeepStmt,
+    LabelStmt,
     LambdaBlock,
     LambdaExpr,
     LambdaExprBody,
@@ -129,6 +131,7 @@ class StatementAnalyzer:
     def begin(self) -> None:
         self._analyzed_root_blocks.clear()
         self._prepared_callables.clear()
+        self.flow.reset_jump_scopes()
 
     def _inferred_array_binding_type(self, inferred, initializer):
         """Represent `var alias = arrayValue` as a pointer-valued binding."""
@@ -1180,7 +1183,7 @@ class StatementAnalyzer:
         else:
             self.session.current_return_type = None
         if isinstance(expr.body, LambdaBlock):
-            self._analyze_root_block(expr.body.body)
+            self._analyze_callable_root(expr.body.body)
             if (
                 expr.return_type
                 and (not self.types.is_nonpointer_void_object(expr.return_type))
@@ -1982,7 +1985,7 @@ class StatementAnalyzer:
         self._prepared_callables.add(id(method))
         if id(method.body) in self.session.unreached_stdlib_bodies:
             return
-        self._analyze_root_block(method.body)
+        self._analyze_callable_root(method.body)
         if (
             not is_constructor
             and method.return_type
@@ -2016,7 +2019,7 @@ class StatementAnalyzer:
             with self.session.scope_frame(), self.session.nonnull_frame((), reachable=True):
                 self_type = self.types.current_self_type()
                 self.session.scope.define("self", SymbolInfo("self", self_type, "param"))
-                self._analyze_root_block(prop.getter_body)
+                self._analyze_callable_root(prop.getter_body)
                 if not self.flow.block_must_terminate(prop.getter_body):
                     self.session.error(
                         f"Property getter '{self.session.current_class.name}.{prop.name}' does not return a value on every path",
@@ -2039,7 +2042,7 @@ class StatementAnalyzer:
                 self.session.scope.define(
                     "value", SymbolInfo("value", self.aggregates.array_parameter_value_type(prop.type), "param")
                 )
-                self._analyze_root_block(prop.setter_body)
+                self._analyze_callable_root(prop.setter_body)
             self.session.in_virtual_setter = previous_virtual_setter
         self.session.current_method = prev_method
         self.session.current_class_callable = prev_class_callable
@@ -2121,7 +2124,7 @@ class StatementAnalyzer:
         self._prepared_callables.add(id(func))
         if id(func.body) in self.session.unreached_stdlib_bodies:
             return
-        self._analyze_root_block(func.body)
+        self._analyze_callable_root(func.body)
         if func.is_gpu:
             self.gpu.validate_kernel(func)
         if (
@@ -2256,6 +2259,11 @@ class StatementAnalyzer:
         with self.session.scope_frame():
             self._analyze_statement_sequence(block)
 
+    def _analyze_callable_root(self, block):
+        if block is not None:
+            with self.flow.callable_jump_scope(block):
+                self._analyze_root_block(block)
+
     def _analyze_root_block(self, block):
         """Analyze a callable body in the same scope as its parameters."""
         if block is not None:
@@ -2286,7 +2294,12 @@ class StatementAnalyzer:
                     found_terminal = True
 
     def _analyze_stmt(self, stmt):
-        if isinstance(stmt, VarDeclStmt):
+        if isinstance(stmt, GotoStmt):
+            self.flow.validate_goto(stmt)
+        elif isinstance(stmt, LabelStmt):
+            if self.declarations.validate_name(stmt.name, "Label", stmt.line, stmt.col, c_name_generated=True):
+                self.flow.validate_label_identity(stmt)
+        elif isinstance(stmt, VarDeclStmt):
             self._analyze_var_decl(stmt)
         elif isinstance(stmt, ReturnStmt):
             if stmt.value:

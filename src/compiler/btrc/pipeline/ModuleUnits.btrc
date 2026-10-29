@@ -2813,7 +2813,9 @@ class ValidationRecordCodec {
 				string? at = self.position(node, ownSlot, own, foreign);
 				if (at == null) { return null; }
 				line = line + "\t" + at;
-				if (fact.kind == VALIDATION_GENERIC_CONSTRUCTOR) {
+				if (fact.kind == VALIDATION_JUMP_BODY) {
+					if (node.kind != NK_BLOCK) { return null; }
+				} else if (fact.kind == VALIDATION_GENERIC_CONSTRUCTOR) {
 					Node? value = fact.value;
 					if (value == null) { return null; }
 					string? valueText = self.typeText(value, ownSlot, own, foreign);
@@ -2983,6 +2985,8 @@ class ValidationRecordCodec {
 				if (fields.len != 7) { return null; }
 				fact.name = fields.get(5);
 				fact.member = fields.get(6);
+			} else if (kind == VALIDATION_JUMP_BODY) {
+				if (fields.len != 5 || node.kind != NK_BLOCK) { return null; }
 			} else if (kind == VALIDATION_BOUNDED_LOOP) {
 				if (fields.len != 5) { return null; }
 			} else if (kind == VALIDATION_WARNING) {
@@ -3084,7 +3088,7 @@ class ModuleUnitInterfaces {
 		}
 	}
 
-	class string context(BtrccOptions options, string target) { return f"validation-record-v9;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
+	class string context(BtrccOptions options, string target) { return f"validation-record-v10;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
 
 	class string headerPrefix() { return "btrc-module-interface-v1\n"; }
 
@@ -3283,7 +3287,7 @@ class ValidationRecords implements IValidationRecords {
 
 	private void load(string group) {
 		BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.keys.get(group));
-		if (payload == null || !payload.record.equals("validation-record-v6")) { return; }
+		if (payload == null || !payload.record.equals("validation-record-v7")) { return; }
 		Map<string, string> declarations = {};
 		StringBuilder dependencies = StringBuilder();
 		string slot = "";
@@ -3551,7 +3555,7 @@ class ValidationRecords implements IValidationRecords {
 				}
 			}
 			for slot in written.keys() { text.append("d\t" + slot + "\n" + written.get(slot)); }
-			self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-v6", text.toString()));
+			self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-v7", text.toString()));
 		}
 		for group in self.instancesWritten.keys() {
 			if (self.instancesUnwritable.has(group) || self.verify) { continue; }

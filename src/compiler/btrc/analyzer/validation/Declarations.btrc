@@ -907,7 +907,7 @@ class DeclarationValidator {
 		Map<string, Node> kernelVars = TypeValidator.cloneTypes(vars);
 		if (callable.bodyNode != null && self.state.analyzed.bodyReached(callable.bodyNode)) {
 			bool ownsMemo = self.expressions.beginBodyMemo();
-			self.controlFlow.validateBlock(callable.bodyNode,  vars);
+			self.controlFlow.validateCallableBlock(callable.bodyNode, vars);
 			self.expressions.endBodyMemo(ownsMemo);
 		}
 		if (callable.isGpu && classDeclaration == null && self.state.analyzed.bodyReached(callable.bodyNode)) {
