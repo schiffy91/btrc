@@ -218,7 +218,9 @@ class IterationLowerer:
                     cycle_seed=not self._values.is_string(type_expr),
                 )
                 self._ownership.declare_local_ownership(binding.name, provenance, runtime_type)
-                self._lifetime.register_named_cleanup(binding_c_name, runtime_type, result)
+                self._ownership.record_cleanup_registration(
+                    self._lifetime.register_named_cleanup(binding_c_name, runtime_type, result)
+                )
         return result
 
     def _plan_range_for(
@@ -467,7 +469,9 @@ class IterationLowerer:
             provenance,
             cycle_seed=owner.cycle_seed,
         )
-        self._lifetime.register_named_cleanup(owner.name, owner.type_name, prefix)
+        self._ownership.record_cleanup_registration(
+            self._lifetime.register_named_cleanup(owner.name, owner.type_name, prefix)
+        )
         return owner
 
     def finish_owned_iterable(self, owner: ManagedLocal | None, provenance: CallableProvenance) -> list[IRStmt]:

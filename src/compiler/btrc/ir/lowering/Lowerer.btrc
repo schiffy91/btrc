@@ -100,7 +100,7 @@ class IRLowerer {
 		self.expressions = ExpressionLowerer(analyzed, hostedAbi, semanticDeclarations, operators, expressionTypes, managedValues, cycles, callableValues, callableBoundaries, callableLowering, assignments, self.context, operandPlanner, ownershipSemantics, callOwnership, managedLifetime, managedTypes, aggregateValues, self.gpuPipeline, self.cTypes, callTargets, calls, strings, concurrency);
 		self.controlFlow = ControlFlowLowerer();
 		self.statements = StatementLowerer(analyzed, hostedAbi, managedValues, cycles, callableValues, callableBoundaries, callableLowering, self.context, operandPlanner, ownershipSemantics, managedLifetime, managedTypes, aggregateValues, self.gpuPipeline, self.cTypes, self.expressions, concurrency, self.controlFlow);
-		self.functions = FunctionLowerer(analyzed, hostedAbi, semanticDeclarations, expressionTypes, managedValues, cycles, callableLowering, calls, self.context, managedLifetime, managedTypes, cycleBoundaries, cycleReturns, self.gpuPipeline, self.cTypes, self.statements);
+		self.functions = FunctionLowerer(analyzed, hostedAbi, semanticDeclarations, expressionTypes, managedValues, cycles, callableLowering, calls, self.context, managedLifetime, managedTypes, cycleBoundaries, cycleReturns, self.gpuPipeline, self.cTypes, self.statements, self.controlFlow);
 		self.genericPlans = GenericLowerer(analyzed);
 		self.declarations = DeclarationLowerer(analyzed, hostedAbi, semanticDeclarations, managedValues, cycles, self.cleanupSlots, callableValues, callableBoundaries, self.context, managedLifetime, managedTypes, cycleBoundaries, cycleReturns, self.cTypes, self.functions, self.expressions);
 	}

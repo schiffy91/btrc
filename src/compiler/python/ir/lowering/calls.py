@@ -1059,6 +1059,45 @@ class CallableProvenance:
         self._scopes.append(scope)
         return scope
 
+    @property
+    def scope_depth(self) -> int:
+        return len(self._scopes)
+
+    def declared_names(self, depth: int) -> frozenset[str]:
+        return frozenset(self._scopes[depth - 1].declared)
+
+    def project_goto(
+        self, depth: int, *, declared: frozenset[str] | None = None, entered: set[str] = frozenset()
+    ) -> CallableFlowSnapshot:
+        bindings = self._bindings.copy()
+        for scope in reversed(self._scopes[depth:]):
+            for name in scope.declared:
+                displaced = scope.shadowed[name]
+                if displaced is None:
+                    bindings.pop(name, None)
+                else:
+                    bindings[name] = displaced
+        if declared is not None:
+            scope = self._scopes[depth - 1]
+            for name in scope.declared - declared:
+                displaced = scope.shadowed[name]
+                if displaced is None:
+                    bindings.pop(name, None)
+                else:
+                    bindings[name] = displaced
+        for name in entered:
+            bindings.pop(name, None)
+        return CallableFlowSnapshot(bindings)
+
+    def enter_label(self, pending: list[CallableFlowSnapshot], *, falls_in: bool) -> CallableFlowSnapshot:
+        states = [*([self.snapshot()] if falls_in else []), *pending]
+        if states:
+            self.join_flows(*states)
+        return self.snapshot()
+
+    def require_goto_back_edge(self, name: str, entry: CallableFlowSnapshot, incoming: CallableFlowSnapshot) -> None:
+        self.require_loop_edge_invariant(entry, incoming, edge=f"back-edge from goto '{name}'")
+
     def finish_scope(self, scope: CallableLexicalScope) -> None:
         if not self._scopes or self._scopes[-1] is not scope:
             raise RuntimeError("callable lexical scopes must be properly nested")

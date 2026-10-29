@@ -671,6 +671,16 @@ class CycleMetadata:
         return type_expr.base
 
 
+@dataclass(frozen=True, slots=True)
+class CleanupRegistration:
+    """Inputs for rebuilding a registration against the same typed slot."""
+
+    declaration: IRVarDecl
+    destroy: str | None
+    visitor: str | None = None
+    direct: bool = False
+
+
 @dataclass
 class ManagedLocal:
     """A local owner and whether releasing it may expose an unreachable cycle."""
@@ -681,6 +691,7 @@ class ManagedLocal:
     value_type: TypeExpr | None = None
     c_name: str | None = None
     cleanup_kind: str = "arc"
+    cleanup_registration: CleanupRegistration | None = None
 
     def mark_cycle_seed(self) -> None:
         """Conservatively dirty this live ARC alias after graph mutation."""
@@ -902,6 +913,13 @@ class CleanupScopeState:
             (marker for marker in self._markers if self.is_active(marker)),
             None,
         )
+
+    @property
+    def depth(self) -> int:
+        return len(self._markers)
+
+    def marker_from(self, position: int) -> str | None:
+        return next((marker for marker in self._markers[position:] if self.is_active(marker)), None)
 
     def entry(self, marker: str | None) -> list[IRStmt]:
         if marker is None:
@@ -1289,7 +1307,9 @@ class ManagedLifetimeLowerer:
         )
         return self._cleanup_slots.register(declaration, destroy_callback, visitor=visitor, direct=direct_cleanup)
 
-    def register_named_cleanup(self, var_name: str, emitted_name: str, statements: list[IRStmt]) -> None:
+    def register_named_cleanup(
+        self, var_name: str, emitted_name: str, statements: list[IRStmt]
+    ) -> CleanupRegistration | None:
         """Register one named managed local with the active cleanup scope."""
         if not self._cleanup_scope.exception_cleanup_active():
             return
@@ -1299,28 +1319,38 @@ class ManagedLifetimeLowerer:
         if emitted_name == STRING_RUNTIME_NAME or self._values.is_native_name(emitted_name):
             if emitted_name == STRING_RUNTIME_NAME:
                 self._session.require_helper(destroy)
-            statements.append(
-                IRExprStmt(expr=self._cleanup_slots.register(declaration, IRFunctionRef(name=destroy), direct=True))
-            )
-            return
+            recipe = CleanupRegistration(declaration, destroy, direct=True)
+            statements.extend(self.reissue_cleanup(recipe))
+            return recipe
         visitor_name = self._cycles.emitted_visitor_symbol(emitted_name)
         if emitted_name == MUTEX_RUNTIME_NAME:
             self._session.require_helper("__btrc_mutex_arc_type")
-        visitor = IRFunctionRef(name=visitor_name) if visitor_name else IRLiteral(text="NULL")
-        destroy_callback = (
-            IRLiteral(text="NULL") if emitted_name in self._analyzed.interface_table else IRFunctionRef(name=destroy)
+        recipe = CleanupRegistration(
+            declaration, None if emitted_name in self._analyzed.interface_table else destroy, visitor_name
         )
-        statements.append(IRExprStmt(expr=self._cleanup_slots.register(declaration, destroy_callback, visitor=visitor)))
+        statements.extend(self.reissue_cleanup(recipe))
+        return recipe
 
-    def register_direct_cleanup(self, var_name: str, cleanup_fn: str, statements: list[IRStmt]) -> None:
+    def register_direct_cleanup(
+        self, var_name: str, cleanup_fn: str, statements: list[IRStmt]
+    ) -> CleanupRegistration | None:
         if not self._cleanup_scope.exception_cleanup_active():
             return
         self._cleanup_scope.mark_cleanup_registration()
         declaration = self._cleanup_slots.require_declaration(statements, var_name)
         self._session.require_helper(cleanup_fn)
-        statements.append(
-            IRExprStmt(expr=self._cleanup_slots.register(declaration, IRFunctionRef(name=cleanup_fn), direct=True))
-        )
+        recipe = CleanupRegistration(declaration, cleanup_fn, direct=True)
+        statements.extend(self.reissue_cleanup(recipe))
+        return recipe
+
+    def reissue_cleanup(self, recipe: CleanupRegistration) -> list[IRStmt]:
+        destroy = IRFunctionRef(name=recipe.destroy) if recipe.destroy else IRLiteral(text="NULL")
+        visitor = IRFunctionRef(name=recipe.visitor) if recipe.visitor else IRLiteral(text="NULL")
+        return [
+            IRExprStmt(
+                expr=self._cleanup_slots.register(recipe.declaration, destroy, visitor=visitor, direct=recipe.direct)
+            )
+        ]
 
     def protect_temporary(
         self, declaration, type_expr, declarations, prefix, flag_prefix, *, active: bool | None = None
@@ -1935,6 +1965,9 @@ class OwnershipLowerer:
             self._session.ownership_overrides,
             self._session.type_overrides,
             self._session.c_array_scopes,
+            self._session.jump_index,
+            self._session.jump_frames,
+            self._session.variable_length_declarations,
         )
         self._managed_vars_stack = []
         self._local_c_name_scopes = []
@@ -1953,6 +1986,9 @@ class OwnershipLowerer:
         self._session.ownership_overrides = {}
         self._session.type_overrides = {}
         self._session.c_array_scopes = []
+        self._session.jump_index = None
+        self._session.jump_frames = []
+        self._session.variable_length_declarations = set()
         try:
             with self._cleanup_scope.isolated():
                 yield
@@ -1977,6 +2013,9 @@ class OwnershipLowerer:
                 self._session.ownership_overrides,
                 self._session.type_overrides,
                 self._session.c_array_scopes,
+                self._session.jump_index,
+                self._session.jump_frames,
+                self._session.variable_length_declarations,
             ) = session_state
 
     def push_control_context(self, kind: str) -> None:
@@ -2014,6 +2053,28 @@ class OwnershipLowerer:
 
     def push_managed_scope(self) -> None:
         self._managed_vars_stack.append([])
+
+    @property
+    def managed_scope_depth(self) -> int:
+        return len(self._managed_vars_stack)
+
+    def managed_scope(self, position: int) -> list[ManagedLocal]:
+        return self._managed_vars_stack[position]
+
+    def jump_owners(self, position: int, prefix: int) -> list[ManagedLocal]:
+        return [
+            *self._managed_vars_stack[position][prefix:],
+            *(owner for scope in self._managed_vars_stack[position + 1 :] for owner in scope),
+        ]
+
+    def record_cleanup_registration(self, recipe: CleanupRegistration | None) -> None:
+        if recipe is None:
+            return
+        for owner in reversed(self._managed_vars_stack[-1]):
+            if (owner.c_name or owner.name) == recipe.declaration.name:
+                owner.cleanup_registration = recipe
+                return
+        raise CodegenError("named cleanup registration has no local owner")
 
     def pop_managed_scope(self) -> list[ManagedLocal]:
         if self._managed_vars_stack:

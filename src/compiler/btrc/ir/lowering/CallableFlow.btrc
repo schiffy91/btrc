@@ -905,6 +905,52 @@ class CallableFlowState {
 		return enclosing;
 	}
 
+	public int scopeDepth() { return self.scopeStarts.len; }
+
+	public Vector<string> declaredNames(int depth) {
+		Vector<string> result = [];
+		int end = depth < self.scopeStarts.len ? self.scopeStarts.get(depth) : self.declarations.len;
+		int index = self.scopeStarts.get(depth - 1);
+		while (index < end) { result.push(self.declarations.get(index)); index++; }
+		return result;
+	}
+
+	public CallableFlowSnapshot projectGoto(int depth, Vector<string>? declared, Vector<string> entered) {
+		CallableFlowSnapshot current = self.snapshot();
+		Vector<string> names = [];
+		self.appendSnapshotNames(current, names);
+		int scope = depth - 1;
+		while (scope < self.scopeEnclosings.len) {
+			self.appendSnapshotNames(self.scopeEnclosings.get(scope), names);
+			scope++;
+		}
+		CallableFlowSnapshot result = CallableFlowSnapshot();
+		for name in names {
+			if (self.contains(entered, name)) { continue; }
+			CallableFlowSnapshot visible = current;
+			scope = self.scopeStarts.len - 1;
+			while (scope >= depth) {
+				if (self.declaredInScope(scope, name)) { visible = self.scopeEnclosings.get(scope); }
+				scope--;
+			}
+			if (declared != null && self.declaredInScope(depth - 1, name) && !self.contains(declared, name)) {
+				visible = self.scopeEnclosings.get(depth - 1);
+			}
+			self.appendSnapshotBinding(result, visible, name);
+		}
+		return result;
+	}
+
+	public CallableFlowSnapshot enterLabel(Vector<CallableFlowSnapshot> pending, bool fallsIn) {
+		Vector<CallableFlowSnapshot> states = [];
+		if (fallsIn) { states.push(self.snapshot()); }
+		for state in pending { states.push(state); }
+		if (states.len > 0) { self.join(states); }
+		return self.snapshot();
+	}
+
+	public void requireGotoBackEdge(string name, CallableFlowSnapshot entry, CallableFlowSnapshot incoming) { self.requireInvariant(entry, incoming, "back-edge from goto '" + name + "'"); }
+
 	public void declare(string name) {
 		if (self.scopeStarts.len > 0) {
 			self.declarations.push(name);

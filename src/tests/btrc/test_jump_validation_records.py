@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import configured_c_compiler, requires_host_c_compiler
+
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -37,6 +39,72 @@ def test_jump_record_fixture_analyzes_without_building():
     parsed = pipeline.parse(resolved, str(source), options)
     analyzed = pipeline.analyze(parsed.program, prune_stdlib=True)
     assert analyzed.errors == []
+
+
+@requires_host_c_compiler
+@pytest.mark.parametrize(
+    "source",
+    [
+        'int main() { int n = 0; label("again"); n++; if (n < 3) { jump("again"); } return n - 3; }',
+        'int main() { var run = () => { jump("done"); label("done"); return 0; }; jump("done"); label("done"); return run(); }',
+        """
+        int destroyed = 0;
+        class Box { public Box() {} public void __del__() { destroyed++; } }
+        void fail() { throw "failure"; }
+        void exercise() {
+            Box prefix = new Box(); int n = 0;
+            label("again"); Box iteration = new Box(); n++;
+            if (n < 3) { jump("again"); }
+            fail();
+        }
+        int main() { try { exercise(); } catch (string error) {} return destroyed - 4; }
+        """,
+        """
+        int destroyed = 0;
+        class Box { public Box() {} public void __del__() { destroyed++; } }
+        void possibleException() { throw "failure"; }
+        int main() {
+            Box prefix = new Box(); int n = 0;
+            label("again"); Box iteration = new Box(); n++;
+            if (n < 3) { Box nested = new Box(); jump("again"); }
+            { Box outward = new Box(); jump("done"); }
+            label("done");
+            if (destroyed != 5) { return 10; }
+            try { possibleException(); } catch (string error) {}
+            delete iteration; delete prefix; return destroyed - 7;
+        }
+    """,
+    ],
+)
+def test_native_jump_lowering_runs(jump_validation_driver, tmp_path, source):
+    result = subprocess.run(
+        [str(jump_validation_driver), str(ROOT / "src/language/grammar.ebnf"), source, "lower"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    generated = tmp_path / "goto.c"
+    generated.write_text(result.stdout)
+    executable = tmp_path / "goto"
+    subprocess.run(
+        [
+            *configured_c_compiler(),
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(generated),
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    execution = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
+    assert execution.returncode == 0, execution.stdout + execution.stderr
 
 
 @pytest.mark.parametrize(

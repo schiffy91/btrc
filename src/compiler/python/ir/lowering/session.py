@@ -13,9 +13,11 @@ from src.compiler.python.syntax.ast.generated import ClassDecl, MethodDecl, Type
 from ..nodes import IRFunctionDecl, IRModule, IRVarDecl
 
 if TYPE_CHECKING:
+    from src.compiler.python.analyzer.flow import JumpScopeIndex
     from src.compiler.python.analyzer.reachability import StdlibReachabilityPlan
     from src.compiler.python.frontend.sources import SourceMap
 
+    from .control_flow import JumpLoweringFrame
     from .generics import SpecializationView, SpecializedDeclarationView
 
 
@@ -101,6 +103,9 @@ class LoweringSession:
     persistent_edge_owner_c_name: str | None = None
     c_array_scopes: list[dict[str, bool]] = field(default_factory=list)
     control_context: list[object] = field(default_factory=list)
+    jump_index: JumpScopeIndex | None = None
+    jump_frames: list[JumpLoweringFrame] = field(default_factory=list)
+    variable_length_declarations: set[int] = field(default_factory=set)
     # Module-unit lowering: the one compilation group whose bodies this session
     # lowers. A declaration owned by another group keeps its declaration-level
     # IR but no body; `definition_owners` names the group behind every function

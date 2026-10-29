@@ -880,6 +880,13 @@ class StorageLowerer:
         )
         self._session.record_declaration(declaration)
         self.declare_c_binding(source.name, is_array=is_array, logical_length=logical_length)
+        if (
+            self._session.jump_index is not None
+            and is_array
+            and plan.array_size is not None
+            and id(plan.array_size) not in self._analyzed.constant_array_bound_ids
+        ):
+            self._session.variable_length_declarations.add(id(declaration))
         self._ownership.declare_local_ownership(source.name, provenance, c_name=plan.c_name)
         if source.type is not None and source.type.is_register:
             self._ownership.mark_register_local(source.name)
@@ -918,7 +925,9 @@ class StorageLowerer:
                 cycle_seed=bool(owns_initializer and not self._values.is_string(managed_type)),
             )
             self._ownership.declare_local_ownership(source.name, provenance, runtime_type, c_name=plan.c_name)
-            self._lifetime.register_named_cleanup(plan.c_name, runtime_type, result)
+            self._ownership.record_cleanup_registration(
+                self._lifetime.register_named_cleanup(plan.c_name, runtime_type, result)
+            )
         canonical = self._types.canonical_type(source.type)
         if (
             source.initializer is not None
@@ -928,7 +937,9 @@ class StorageLowerer:
         ):
             self._ownership.register_thread_var(source.name, provenance)
             self._session.require_helper("__btrc_thread_free")
-            self._lifetime.register_direct_cleanup(plan.c_name, "__btrc_thread_free", result)
+            self._ownership.record_cleanup_registration(
+                self._lifetime.register_direct_cleanup(plan.c_name, "__btrc_thread_free", result)
+            )
         return result
 
     def _empty_managed_slot(

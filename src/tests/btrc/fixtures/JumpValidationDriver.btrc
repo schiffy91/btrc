@@ -9,6 +9,14 @@ import ../../../compiler/btrc/analyzer/Models.btrc;
 import ../../../compiler/btrc/generated/ast/Node.btrc;
 import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
 import ../../../compiler/btrc/generated/runtime/Catalog.btrc;
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/ir/Emitter.btrc;
+import ../../../compiler/btrc/ir/Model.btrc;
+import ../../../compiler/btrc/ir/lowering/Lowerer.btrc;
+import ../../../compiler/btrc/ir/optimization/Optimizer.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Safety.btrc;
+import ../../../compiler/btrc/ir/runtime/Catalog.btrc;
 import ../../../compiler/btrc/lexer/Lexer.btrc;
 import ../../../compiler/btrc/parser/Parser.btrc;
 import ../../../compiler/btrc/parser/SourceMacros.btrc;
@@ -97,7 +105,7 @@ class JumpValidationFixture {
 		return program;
 	}
 
-	class Analyzed analyze(Node program, JumpRecords? records = null) {
+	class Analyzed analyze(Node program, JumpRecords? records = null, bool lower = false) {
 		var tables = GeneratedHostedAbiData();
 		var abi = HostedAbiRepository(tables);
 		var runtime = GeneratedRuntimeCatalogData();
@@ -105,16 +113,26 @@ class JumpValidationFixture {
 		var rules = SourceMacroRules(TokenVocabulary(), noNames, noNames, noNames);
 		var analyzer = SemanticAnalyzer(SourceRuntimeSymbols(runtime.rows, runtime.intrinsicEffects), rules, tables.targetRows().get(0));
 		if (records != null) { analyzer.configureValidationRecords(records); }
-		return analyzer.analyze(program, abi);
+		Analyzed analyzed = analyzer.analyze(program, abi);
+		if (lower) {
+			var helpers = RuntimeHelperCatalog(runtime.rows, runtime.intrinsicEffects);
+			Vector<FeLine> lines = [];
+			var lowerer = IRLowerer(analyzed, abi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), helpers, "Jump.btrc", 0, lines);
+			IRModule module = lowerer.lower(program);
+			var safety = SetjmpSafetyPlanner(SetjmpEffectAnalysis(abi), abi);
+			IROptimizer(safety, helpers).optimize(module, true);
+			print(CEmitter().emit(module));
+		}
+		return analyzed;
 	}
 }
 
 int main(int argc, char** argv) {
-	assert(argc == 2 || argc == 3);
+	assert(argc == 2 || argc == 3 || argc == 4);
 	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
-	if (argc == 3) {
-		Analyzed result = JumpValidationFixture.analyze(JumpValidationFixture.program(grammar, Strings.copy(argv[2])));
-		for warning in result.warnings { print(warning.message); }
+	if (argc >= 3) {
+		Analyzed result = JumpValidationFixture.analyze(JumpValidationFixture.program(grammar, Strings.copy(argv[2])), null, argc == 4);
+		if (argc == 3) { for warning in result.warnings { print(warning.message); } }
 		return 0;
 	}
 	Node first = JumpValidationFixture.program(grammar);

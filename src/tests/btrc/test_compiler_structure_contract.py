@@ -148,10 +148,6 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("TypeComposition", "substitutionPointerDepth"),
         ("TypeIdentity", "symbolComponent"),
-        # JumpIRDriver exercises these typed IR factories before source lowering
-        # consumes them. Remove these entries when that production caller lands.
-        ("IRNode", "gotoStatement"),
-        ("IRNode", "labelStatement"),
         # Called by the stdlib worker pool through IWorkerRequestHandler.
         ("ModuleUnitWorker", "handle"),
     }

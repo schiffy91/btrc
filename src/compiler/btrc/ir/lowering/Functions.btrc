@@ -18,6 +18,7 @@ import ./CallableFlow.btrc;
 import ./Callables.btrc;
 import ./Calls.btrc;
 import ./Context.btrc;
+import ./ControlFlow.btrc;
 import ./Statements.btrc;
 import ./ownership/CycleBoundaries.btrc;
 import ./ownership/Lifetime.btrc;
@@ -28,6 +29,7 @@ import ./Types.btrc;
 
 class ScopeSnapshot {
 	public ManagedLifetimeSnapshot lifetime;
+	public JumpLoweringState jumps = JumpLoweringState();
 	public string retC;
 	public Node? retType;
 	public bool retOwned;
@@ -72,8 +74,9 @@ class FunctionLowerer {
 	private GpuPipeline gpuPipeline;
 	private CTypeLowerer cTypes;
 	private StatementLowerer statements;
+	private ControlFlowLowerer controlFlow;
 
-	public FunctionLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry declarations, ExpressionTypeResolver expressionTypes, ManagedValueSemantics managedValues, CycleSemantics cycles, CallableValueLowerer callableLowering, CallLowerer calls, LoweringContext context, ManagedLifetimeLowerer managedLifetime, ManagedTypeLowerer managedTypes, CycleBoundaryLowerer cycleBoundaries, CycleReturnBoundaryLowerer cycleReturns, GpuPipeline gpuPipeline, CTypeLowerer cTypes, StatementLowerer statements) {
+	public FunctionLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, DeclarationRegistry declarations, ExpressionTypeResolver expressionTypes, ManagedValueSemantics managedValues, CycleSemantics cycles, CallableValueLowerer callableLowering, CallLowerer calls, LoweringContext context, ManagedLifetimeLowerer managedLifetime, ManagedTypeLowerer managedTypes, CycleBoundaryLowerer cycleBoundaries, CycleReturnBoundaryLowerer cycleReturns, GpuPipeline gpuPipeline, CTypeLowerer cTypes, StatementLowerer statements, ControlFlowLowerer controlFlow) {
 		self.analyzed = analyzed;
 		self.hostedAbi = hostedAbi;
 		self.declarations = declarations;
@@ -88,6 +91,7 @@ class FunctionLowerer {
 		self.cycleReturns = cycleReturns;
 		self.gpuPipeline = gpuPipeline; self.cTypes = cTypes;
 		self.statements = statements;
+		self.controlFlow = controlFlow;
 	}
 
 	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
@@ -138,6 +142,7 @@ class FunctionLowerer {
 		snap.tryDepth = self.context.tryDepth;
 		snap.trycatchDepth = self.context.tryCatchDepth;
 		snap.lifetime = self.managedLifetime.isolate();
+		snap.jumps = self.controlFlow.isolateJumps();
 		snap.funcVarDecls = self.context.snapshotFunctionLocals();
 		Vector<string> borrowed = self.context.snapshotBorrowedBindings();
 		int borrowedIndex = 0;
@@ -169,6 +174,7 @@ class FunctionLowerer {
      * the snapshot, then restore the return context. */
 	public void exitIsolatedScope(ScopeSnapshot snap) {
 		self.managedLifetime.restore(snap.lifetime);
+		self.controlFlow.restoreJumps(snap.jumps);
 		self.context.restoreFunctionLocals(snap.funcVarDecls);
 		self.context.restoreBorrowedBindings(snap.borrowedLocalBindings);
 		self.context.restoreSourceBindings(snap.sourceLexicalBindings);

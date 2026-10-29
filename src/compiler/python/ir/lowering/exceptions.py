@@ -1779,7 +1779,8 @@ class ExceptionLowerer:
         self._session.require_helper("__btrc_push_try")
         self._session.require_helper("__btrc_throw")
         finally_only = node.catch_block is None and node.finally_block is not None
-        try_terminates = finally_only and ControlFlowAnalyzer.block_must_terminate(node.try_block)
+        targeted = self._session.jump_index.targeted_names if self._session.jump_index is not None else frozenset()
+        try_terminates = finally_only and ControlFlowAnalyzer.block_must_terminate(node.try_block, targeted)
         pending_name = (
             self._session.fresh_temp("__btrc_finally_pending") if finally_only and (not try_terminates) else None
         )

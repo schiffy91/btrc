@@ -168,7 +168,7 @@ btrc stops at its first error. Python continues, and its first error is the same
 **Frames** exist only in marked bodies.
 - **Classes.** `JumpLoweringFrame` and `LoweredLabel` live in Python `ir/lowering/control_flow.py` and btrc `ir/lowering/ControlFlow.btrc`.
 - **Who pushes them.** `lower_block` (`statements.py:155-217`; btrc `lowerBlockWithBindings`) pushes a frame after its scope pushes and pops it before its scope pops. The switch-case lowering does the same (`control_flow.py:164-220`).
-- **Isolation.** `OwnershipLowerer.isolated_function_state` (`ownership.py:1880`) and its btrc counterpart isolate the frame stack, `jump_index` and the variable-length registry for each lifted lambda.
+- **Isolation.** Python `OwnershipLowerer.isolated_function_state` isolates the session's frame stack, `jump_index` and variable-length registry for each lifted lambda. Native `ControlFlowLowerer` owns a `JumpLoweringState`, saved and restored by `FunctionLowerer.enterIsolatedScope`/`exitIsolatedScope`. Keeping the native state with control flow avoids an import cycle from the data-only `LoweringContext` through `CallableFlowState` back to that context.
 - **A frame records:**
   - the list node, and its index on the managed-scope stack;
   - its marker's position in `CleanupScopeState._markers`;
@@ -191,7 +191,7 @@ btrc stops at its first error. Python continues, and its first error is the same
 
 **Re-issuing a registration.**
 - **The recipe.** `ManagedLocal` gains `cleanup_registration`, a small `CleanupRegistration` record of the `register` inputs: the declaration, the callback names and the direct flag. btrc `Managed` gains `cleanupRegistration: CleanupRegistration?`, null by default.
-- **Where it is attached.** `register_named_cleanup` and `register_direct_cleanup` (`ownership.py:1273-1304`; btrc `maybeRegisterCleanup` and `maybeRegisterDirectCleanup`, `Lifetime.btrc:474-489`) attach it to the owner with that C name in the innermost managed scope. Those are the paths for named locals, for-in owners and `Thread` locals; `Thread` locals are `ManagedLocal`s with `cleanup_kind="thread"` (`ownership.py:2007-2018`).
+- **Where it is attached.** Python `register_named_cleanup` and `register_direct_cleanup` return the recipe; storage and iteration pass it to `OwnershipLowerer.record_cleanup_registration`, which attaches it to the owner with that C name in the innermost managed scope. This keeps lifetime lowering independent of the ownership owner that uses it. Native `maybeRegisterCleanup` and `maybeRegisterDirectCleanup` attach it within `ManagedLifetimeLowerer`, which owns both operations. These paths cover named locals, for-in owners and `Thread` locals. A return temporary's unwind registration has no lexical owner and needs no replay recipe.
 - **How it is re-issued.** By calling `CleanupSlotRegistry.register` again (`ownership.py:150-171`). That builds fresh argument nodes and reuses the declaration's own `IRCleanupSlot`, as a second registration already does. A deep copy would fail the verifier, which matches slot metadata by identity (`ir/verifier.py:366-371`). The emitted call is the plain one, never the register-once ternary.
 - **A4:** every owner of F before the label must have a recipe when F's marker is active.
 
