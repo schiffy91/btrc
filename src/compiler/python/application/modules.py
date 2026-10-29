@@ -705,7 +705,7 @@ class ProgramInterface:
             "true" if value else "false"
             for value in (options.strict_imports, options.include_stdlib, options.stdlib_strict)
         ]
-        return f"validation-record-v8;target={target};strict={flags[0]};stdlib={flags[1]};stdlib-strict={flags[2]}"
+        return f"validation-record-v9;target={target};strict={flags[0]};stdlib={flags[1]};stdlib-strict={flags[2]}"
 
     @staticmethod
     def cache_key(context: str, group: str, source: str) -> str:
@@ -1207,8 +1207,6 @@ class ModuleUnitCompiler:
             "method-views": [view.symbol for view in facts.method_views or ()],
             "classes": classes,
             "methods": methods,
-            # The self-host lowerer still emits every generic class callable.
-            # Keep that semantic difference visible even with an empty demand set.
             "callable-policy": ["demanded"] if classes else [],
             "callables": callables,
             "stdlib": ["1" if plan is not None else "0"],

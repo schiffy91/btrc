@@ -4656,3 +4656,19 @@ mismatch from keys. No CI, GitHub writes, full compiler or application runs.
 The existing generic guard baseline passes on the retained driver. An initial
 baseline invocation omitted BTRC_CC and selected a different compiler identity;
 its redundant transpile was stopped. Pin BTRC_CC=/usr/bin/clang for all runs.
+
+Local checkpoint, unfinished: the combined driver run completed with 281
+passes and 10 generic bundle-exchange failures in 259.18 seconds. The retained
+driver replays all ten cases from its own cache with identical output and no
+lowered units. That check took less than one second and required no rebuild.
+Inspection found declaration-order differences, redundant empty-method IR,
+property/index storage differences, and extra string-conversion retains.
+The reference also failed to select toString for a borrowed string argument.
+That reference defect now has a regression test; 27 focused reference tests
+pass. Native declaration order and empty-body handling are repaired in source,
+but have not been rebuilt. Generic entries retain a native-specific policy
+key until bundle parity passes. The exchange tests remain failing acceptance
+tests, with no skips or weaker comparisons. Evidence lives in
+`build/issue-gates/generic-callable-demand/`. No further build ran; no issue
+is complete. Resolve the remaining storage/conversion differences before the
+next combined driver build.

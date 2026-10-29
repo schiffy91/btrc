@@ -572,6 +572,11 @@ class CallAnalyzer:
             )
             argument_line = getattr(argument, "line", line)
             argument_col = getattr(argument, "col", col)
+            # Borrowed string parameters also convert class arguments before
+            # the call, so their conversion method must be emitted.
+            actual = self.types.canonical_type(self.type_of(argument))
+            if self.types.requires_string_conversion(expected, actual):
+                self.generics.record_class_method_use(actual, "toString")
             if params[param_index].keep or param_index in transferred:
                 self.validate_managed_string_source(
                     expected,

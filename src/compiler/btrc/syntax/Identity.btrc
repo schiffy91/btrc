@@ -1136,6 +1136,15 @@ class TypeIdentity {
 
 	class string genericInstanceKey(string base, Vector<Node> args) { return TypeIdentity.encodeNameAndTypes(base, args); }
 
+	class string classCallableKey(Node receiver, string kind, string name) {
+		StringBuilder out = StringBuilder();
+		TypeIdentity.appendHexField(out, "b", receiver.base);
+		TypeIdentity.appendTypes(out, receiver.genericArgs());
+		TypeIdentity.appendHexField(out, "k", kind);
+		TypeIdentity.appendHexField(out, "m", name);
+		return out.toString();
+	}
+
 	class string methodInstanceKey(string classBase, Vector<Node> classArgs, string methodName, Vector<Node> methodArgs) {
 		StringBuilder out = StringBuilder();
 		TypeIdentity.appendHexField(out, "b", classBase);

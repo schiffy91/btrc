@@ -45,6 +45,19 @@ class MethodGenInstance {
 	}
 }
 
+/* One ordinary callable selected for a concrete generic class. */
+class ClassCallableInstance {
+	public Node receiver;
+	public string kind;
+	public string name;
+
+	public ClassCallableInstance(Node receiver, string kind, string name) {
+		self.receiver = receiver;
+		self.kind = kind;
+		self.name = name;
+	}
+}
+
 /* What body validation leaves behind for later stages, per kind of fact. */
 enum ValidationFactKind {
 	VALIDATION_HOSTED_CALL = 1,
@@ -63,6 +76,7 @@ enum ValidationFactKind {
 	VALIDATION_DIVERGENCE = 14,
 	VALIDATION_DESIGNATOR_INDEX = 15,
 	VALIDATION_ARRAY_BOUND_VALUE = 16,
+	VALIDATION_CLASS_CALLABLE = 17,
 };
 
 /* The per-declaration analysis passes a record covers, in program order:
@@ -410,6 +424,8 @@ class Analyzed {
 	/* Concrete generic instances in discovery (declaration-walk) order, deduped
      * by mangled name. Mirrors analyzer.generic_instances flattened. */
 	public Vector<GenInstance> genericInstances;
+	public Vector<ClassCallableInstance> classCallableInstances = [];
+	public Map<string, bool> classCallableSeen = {};
 	/* Whether realtime validation proved any callable safe. */
 	public bool hasRealtimeSafeCallable = false;
 	/* set of canonical recursive instance keys already collected (dedup). */

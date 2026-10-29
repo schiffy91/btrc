@@ -1271,12 +1271,19 @@ class ModuleUnitCompiler {
 		}
 		methods.sort();
 		sections.put("methods", methods);
-		/* Keep the broader self-host callable selection explicit. It must not
-		 * impersonate the reference lowerer's per-specialization demand set. */
 		Vector<string> policy = [];
-		if (classes.len > 0) { policy.push("all"); }
+		/* Generic artifact parity is still under test. Keep these entries
+		 * separate until the full bundle exchange checks pass. */
+		if (classes.len > 0) { policy.push("native-demanded"); }
 		sections.put("callable-policy", policy);
-		sections.put("callables", []);
+		Vector<string> callables = [];
+		for instance in input.analyzed.classCallableInstances {
+			Vector<string> values = [instance.receiver.base, instance.kind, instance.name];
+			values.extend(ModuleUnitCompiler.factArguments(instance.receiver.genericArgs(), renderer));
+			callables.push(ModuleUnitCompiler.factRow(values));
+		}
+		callables.sort();
+		sections.put("callables", callables);
 		StdlibReachability? reachability = self.facts.reachability;
 		sections.put("stdlib", [reachability != null ? "1" : "0"]);
 		Vector<string> names = [];
@@ -2788,7 +2795,12 @@ class ValidationRecordCodec {
 		StringBuilder out = StringBuilder();
 		for fact in journal.facts {
 			string line = Strings.fromInt(fact.kind);
-			if (fact.kind == VALIDATION_GENERIC_CLASS) {
+			if (fact.kind == VALIDATION_CLASS_CALLABLE) {
+				if (fact.value == null || !ValidationRecordCodec.plain(fact.name) || !ValidationRecordCodec.plain(fact.member) || !ValidationRecordCodec.plain(fact.detail)) { return null; }
+				string? receiver = self.typeText(fact.value, ownSlot, own, foreign);
+				if (receiver == null) { return null; }
+				line = line + "\t" + fact.name + "\t" + fact.member + "\t" + fact.detail + "\t" + receiver;
+			} else if (fact.kind == VALIDATION_GENERIC_CLASS) {
 				string? arguments = self.typesText(fact.arguments, ownSlot, own, foreign);
 				if (arguments == null) { return null; }
 				line = line + "\t" + fact.name + "\t" + arguments;
@@ -2905,6 +2917,16 @@ class ValidationRecordCodec {
 			Vector<string> fields = Strings.split(line, "\t");
 			int kind = Strings.toInt(fields.get(0));
 			Vector<int> cursor = [1];
+			if (kind == VALIDATION_CLASS_CALLABLE) {
+				if (fields.len < 6 || (fields.get(3) != "method" && fields.get(3) != "get" && fields.get(3) != "set")) { return null; }
+				ValidationFact demand = ValidationFact(kind, null);
+				demand.name = fields.get(1); demand.member = fields.get(2); demand.detail = fields.get(3);
+				cursor.set(0, 4);
+				demand.value = self.typeAt(fields, cursor);
+				if (demand.value == null || cursor.get(0) != fields.len) { return null; }
+				facts.push(demand);
+				continue;
+			}
 			if (kind == VALIDATION_GENERIC_CLASS || kind == VALIDATION_GENERIC_METHOD) {
 				if (fields.len < 3) { return null; }
 				ValidationFact demand = ValidationFact(kind, null);
@@ -3064,7 +3086,7 @@ class ModuleUnitInterfaces {
 		}
 	}
 
-	class string context(BtrccOptions options, string target) { return f"validation-record-v8;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
+	class string context(BtrccOptions options, string target) { return f"validation-record-v9;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
 
 	class string headerPrefix() { return "btrc-module-interface-v1\n"; }
 

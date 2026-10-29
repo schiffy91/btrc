@@ -130,17 +130,146 @@ def test_production_module_keys_and_entries_exchange(tmp_path, monkeypatch, modu
     assert from_selfhost.c_units == reference.c_units
 
 
-def test_generic_callable_selection_keeps_distinct_keys(tmp_path, monkeypatch, module_record_driver):
+GENERIC_PROGRAMS = [
+    pytest.param(
+        """class Box<T> {
+            public T value;
+            public Box(T value) { self.value = value; }
+            public T get() { return self.value; }
+            public T unused() { return self.value; }
+        }""",
+        "Box<int> box = new Box<int>(7); return box.get() - 7;",
+        id="method",
+    ),
+    pytest.param(
+        """class Box<T> {
+            public T value;
+            public Box(T value) { self.value = value; }
+            public T helper() { return self.value; }
+            public T _prop_get_fake() { return self.helper(); }
+            public T unused() { return self.helper(); }
+        }""",
+        "Box<int> box = new Box<int>(7); Box<double> other = new Box<double>(2.0); return box._prop_get_fake() - 7;",
+        id="specialization-dependencies",
+    ),
+    pytest.param(
+        """class Item {}
+        class Box<T> {
+            private T value;
+            public Box(T value) { self.value = value; }
+            public void touch() {}
+            public T chosen { get { self.touch(); return self.value; } }
+            public T writable { get; set; }
+            public bool invalid { get { return self.value < self.value; } }
+        }""",
+        "Box<Item> box = new Box<Item>(new Item()); Item chosen = box.chosen; box.writable = chosen; return 0;",
+        id="properties",
+    ),
+    pytest.param(
+        """class Box<T> {
+            public T value;
+            public Box(T value) { self.value = value; }
+            public T get(int index) { return self.value; }
+            public void set(int index, T value) { self.value = value; }
+            public T unused() { return self.value; }
+        }""",
+        "Box<int> box = new Box<int>(3); box[0] += 4; return box[0] - 7;",
+        id="index-update",
+    ),
+    pytest.param(
+        """class Box<T> {
+            public T value;
+            public Box(T value) { self.value = value; }
+            public Box<T> __add__(Box<T> other) { return new Box<T>(self.value + other.value); }
+            public bool unused(Box<T> other) { return self.value == other.value; }
+        }""",
+        "Box<int> a = new Box<int>(3); Box<int> b = new Box<int>(4); Box<int> c = a + b; return c.value - 7;",
+        id="operator",
+    ),
+    pytest.param(
+        """class Box<T> {
+            public T value;
+            public Box(T value) { self.value = value; }
+            public string toString() { return \"box\"; }
+            public T unused() { return self.value; }
+        }
+        int length(string value) { return value.len(); }""",
+        "Box<int> box = new Box<int>(7); return length(box) - 3;",
+        id="string-conversion",
+    ),
+    pytest.param(
+        """class Box<T> {
+            public T value;
+            public Box(T value) { self.set(value); }
+            public void set(T value) { self.value = value; }
+            public void clear() {}
+            public void __del__() { self.clear(); }
+            public T unused() { return self.value; }
+        }""",
+        "Box<int> box = new Box<int>(7); return box.value - 7;",
+        id="lifecycle",
+    ),
+    pytest.param(
+        """class Box<T> {
+            public T value;
+            public Box(T value) { self.value = value; }
+            public T get() { return self.value; }
+            public U convert<U>(U value) { self.get(); return value; }
+            public T unused() { return self.value; }
+        }""",
+        "Box<int> box = new Box<int>(7); return box.convert(7) - 7;",
+        id="generic-method",
+    ),
+    pytest.param(
+        """class Box<T> {
+            public T value;
+            public Box(T value) { self.value = value; }
+            public string toString() { return \"box\"; }
+        }""",
+        'Box<int> box = new Box<int>(7); string text = f"{box}"; return text.len() - 3;',
+        id="formatted-value",
+    ),
+    pytest.param(
+        """class Vector<T> { public Vector() {} public void push(T value) {} }
+        class Map<K, V> { public Map() {} public void put(K key, V value) {} }
+        class Bucket<T> {
+            public Bucket() {}
+            public int iterLen() { return 0; }
+            public T iterGet(int index) { T value; return value; }
+            public T iterValueAt(int index) { T value; return value; }
+        }""",
+        'Vector<int> values = [1]; Map<string, int> mapped = {"one": 1}; Bucket<int> bucket = new Bucket<int>(); for key, value in bucket {} return 0;',
+        id="collection-iteration",
+    ),
+]
+
+
+@pytest.mark.parametrize("shared, body", GENERIC_PROGRAMS)
+def test_reference_generic_callable_replay(tmp_path, monkeypatch, shared, body):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
     main = tmp_path / "Main.btrc"
-    main.write_text('import "Shared.btrc";\nint main() { Box<int> box = new Box<int>(7); return box.get() - 7; }\n')
-    (tmp_path / "Shared.btrc").write_text("""class Box<T> {
-        public T value;
-        public Box(T value) { self.value = value; }
-        public T get() { return self.value; }
-        public T unused() { return self.value; }
-    }\n""")
-    _, records = _reference(main, tmp_path / "reference")
-    actual = _selfhost(module_record_driver, main, tmp_path / "selfhost", records)
-    assert (actual["lowered"], actual["reused"]) == (2, 0)
-    assert len(_modules(actual["records"])) == 4
+    main.write_text('import "Shared.btrc";\nint main() { ' + body + " }\n")
+    (tmp_path / "Shared.btrc").write_text(shared + "\n")
+    cold, records = _reference(main, tmp_path / "cold")
+    warm, _ = _reference(main, tmp_path / "warm", records)
+    assert len(warm.module_units_reused) == 2 and not warm.module_units_lowered
+    assert warm.c_units == cold.c_units
+
+
+@pytest.mark.parametrize("shared, body", GENERIC_PROGRAMS)
+def test_generic_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, shared, body):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    main = tmp_path / "Main.btrc"
+    main.write_text('import "Shared.btrc";\nint main() { ' + body + " }\n")
+    (tmp_path / "Shared.btrc").write_text(shared + "\n")
+    reference, records = _reference(main, tmp_path / "reference")
+    cold = _selfhost(module_record_driver, main, tmp_path / "selfhost")
+    assert _modules(records) == _modules(cold["records"])
+    warm = _selfhost(module_record_driver, main, tmp_path / "warm", cold["records"])
+    assert (warm["lowered"], warm["reused"]) == (0, 2)
+    assert warm["units"] == cold["units"]
+    from_reference = _selfhost(module_record_driver, main, tmp_path / "from-reference", records)
+    assert (from_reference["lowered"], from_reference["reused"]) == (0, 2)
+    from_selfhost, _ = _reference(main, tmp_path / "from-selfhost", cold["records"])
+    assert len(from_selfhost.module_units_reused) == 2 and not from_selfhost.module_units_lowered
+    assert from_selfhost.c_units == reference.c_units

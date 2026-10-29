@@ -5692,6 +5692,10 @@ class DeclarationLowerer {
 			}
 		}
 
+		IRFunctionDecl destroyDeclaration = IRFunctionDecl(mangled + "_destroy", "void", true);
+		destroyDeclaration.params.push(IRParam("void*", "object"));
+		m.functionDecls.push(destroyDeclaration);
+
 		IRFunctionDecl initDeclaration = IRFunctionDecl(mangled + "_init", "void", true);
 		initDeclaration.params.push(IRParam(mangled + "*", "self"));
 		int cp = 0;
@@ -5709,15 +5713,12 @@ class DeclarationLowerer {
 		}
 		m.functionDecls.push(newDeclaration);
 
-		IRFunctionDecl destroyDeclaration = IRFunctionDecl(mangled + "_destroy", "void", true);
-		destroyDeclaration.params.push(IRParam("void*", "object"));
-		m.functionDecls.push(destroyDeclaration);
 		StdlibReachability? reachability = self.context.reachability;
 		int mi = 0;
 		while (mi < decl.members().len) {
 			Node mem = decl.members().get(mi);
 			bool lowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.reachesMethod(decl, mem);
-			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0) {
+			if (lowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0 && GenericLowerer.selects(self.analyzed, inst, "method", mem.name)) {
 				string retC = self.cTypes.lowerGeneric(mem.returnType, typeMap);
 				IRFunctionDecl methodDeclaration = IRFunctionDecl(mangled + "_" + mem.name, retC, true);
 				methodDeclaration.params.push(IRParam(mangled + "*", "self"));
@@ -5875,7 +5876,7 @@ class DeclarationLowerer {
 		while (m2 < decl.members().len) {
 			Node mem = decl.members().get(m2);
 			bool bodyLowered = reachability == null || mem.kind != NK_METHOD_DECL || reachability.reachesMethod(decl, mem);
-			if (bodyLowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0) {
+			if (bodyLowered && mem.kind == NK_METHOD_DECL && !mem.isConstructor && mem.name != "__del__" && mem.genericParams().len == 0 && GenericLowerer.selects(self.analyzed, inst, "method", mem.name)) {
 				IRFunction fn = IRFunction();
 				fn.name = mangled + "_" + mem.name;
 				Node rrt = SemanticTypeSystem.resolveGenericType(mem.returnType, typeMap, self.analyzed);
@@ -5904,9 +5905,6 @@ class DeclarationLowerer {
 					int b = 0;
 					while (b < blk.stmts().len) { mbody.push(blk.stmts().get(b)); b = b + 1; }
 					self.context.restoreSourceBindings(methodSourceBindings);
-				}
-				if (mbody.len == 0) {
-					mbody.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable("self"))));
 				}
 				fn.body = IRNode.block(mbody);
 				if (topologyCollection) {
@@ -7119,12 +7117,12 @@ class DeclarationLowerer {
 			if (property.kind == NK_PROPERTY_DECL) {
 				Node resolvedType = SemanticTypeSystem.resolveGenericType(property.type, typeMap, self.analyzed);
 				string propertyType = self.cTypes.lowerGeneric(property.type, typeMap);
-				if (property.hasGetter) {
+				if (property.hasGetter && GenericLowerer.selects(self.analyzed, instance, "get", property.name)) {
 					IRFunctionDecl getter = IRFunctionDecl(instance.mangled + "_get_" + property.name, propertyType, true);
 					getter.params.push(IRParam(instance.mangled + "*", "self"));
 					module.functionDecls.push(getter);
 				}
-				if (property.hasSetter) {
+				if (property.hasSetter && GenericLowerer.selects(self.analyzed, instance, "set", property.name)) {
 					IRFunctionDecl setter = IRFunctionDecl(instance.mangled + "_set_" + property.name, "void", true);
 					setter.params.push(IRParam(instance.mangled + "*", "self"));
 					setter.params.push(self.cTypes.lowerNamedParameter(resolvedType, propertyType, self.lexicalBindingCName("value")));
@@ -7147,7 +7145,7 @@ class DeclarationLowerer {
 				Node resolvedType = SemanticTypeSystem.resolveGenericType(property.type, typeMap, self.analyzed);
 				string propertyType = self.cTypes.lowerGeneric(property.type, typeMap);
 				string backing = DeclarationRegistry.instanceStorageName(property);
-				if (property.hasGetter) {
+				if (property.hasGetter && GenericLowerer.selects(self.analyzed, instance, "get", property.name)) {
 					IRFunction getter = IRFunction();
 					getter.name = instance.mangled + "_get_" + property.name;
 					getter.returnType = propertyType;
@@ -7179,7 +7177,7 @@ class DeclarationLowerer {
 					getter.body = IRNode.block(body);
 					module.functions.push(getter);
 				}
-				if (property.hasSetter) {
+				if (property.hasSetter && GenericLowerer.selects(self.analyzed, instance, "set", property.name)) {
 					string valueCName = self.lexicalBindingCName("value");
 					IRFunction setter = IRFunction();
 					setter.name = instance.mangled + "_set_" + property.name;
