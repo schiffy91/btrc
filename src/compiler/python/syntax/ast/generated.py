@@ -418,6 +418,22 @@ class ReleaseStmt:
 
 
 @dataclass(kw_only=True)
+class GotoStmt:
+    name: str = ""
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
+@dataclass(kw_only=True)
+class LabelStmt:
+    name: str = ""
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
+@dataclass(kw_only=True)
 class ElseBlock:
     body: Block
 
@@ -736,7 +752,7 @@ decl = Union[PreprocessorDirective, ImportDecl, ClassDecl, InterfaceDecl, Functi
 import_spec = Union[LibraryGlob, LibraryModules, PackagePath, RelativePath, QuotedPath]
 class_member = Union[FieldDecl, MethodDecl, PropertyDecl]
 field_def = Union[FieldDef, AnonymousMember]
-stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt]
+stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt, GotoStmt, LabelStmt]
 if_else = Union[ElseBlock, ElseIf]
 for_init = Union[ForInitVar, ForInitExpr]
 expr = Union[IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral, Identifier, SelfExpr, SuperExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, FieldAccessExpr, CastExpr, SizeofExpr, TernaryExpr, AssignExpr, ListLiteral, MapLiteral, BraceInitializer, FStringLiteral, NewExpr, TupleLiteral, LambdaExpr, SpawnExpr, StringConcat, CommaExpr, CompoundLiteral]
