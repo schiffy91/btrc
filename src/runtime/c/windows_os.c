@@ -24,6 +24,8 @@
 #include <wchar.h>
 
 #include "windows_os.h"
+#include "windows_bootstrap.h"
+#include "windows_daemon_protocol.h"
 #include "windows_utf.h"
 
 #if defined(_WIN32)
@@ -31,6 +33,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include "windows_security.h"
 #endif
 
 /* Error stages, domains and validation reasons (windows_os.h). */
@@ -281,6 +284,246 @@ static int btrc_wos_win32(__btrc_windows_launch_error_t *error, uint32_t stage) 
 static void btrc_wos_close(HANDLE *handle) {
     if (*handle != NULL && *handle != INVALID_HANDLE_VALUE) CloseHandle(*handle);
     *handle = NULL;
+}
+
+/* ---- Bounded daemon bootstrap transport -------------------------------- */
+
+struct btrc_wos_bootstrap_pipe {
+    HANDLE handle;
+    OVERLAPPED operation;
+    unsigned char *buffer;
+    size_t size;
+    int reading;
+    int pending;
+    int failed;
+    int cancelled;
+    int poisoned;
+};
+
+static int btrc_wos_bootstrap_fail(btrc_wos_bootstrap_pipe *pipe,
+        __btrc_windows_launch_error_t *error, uint32_t stage, DWORD code) {
+    pipe->failed = 1;
+    btrc_wos_fail(error, stage, BTRC_WOS_DOMAIN_WIN32, (uint32_t)code);
+    if (error != NULL) error->ownership_state = pipe->poisoned ? 2u : 1u;
+    return -1;
+}
+
+static DWORD btrc_wos_bootstrap_remaining(uint64_t deadline) {
+    uint64_t now = (uint64_t)GetTickCount64();
+    if (now >= deadline) return 0;
+    uint64_t remaining = deadline - now;
+    return remaining >= (uint64_t)INFINITE ? INFINITE - 1u : (DWORD)remaining;
+}
+
+/* Poll before waiting so an already completed operation can always be drained,
+ * even after its caller's deadline. Never use GetOverlappedResult(..., TRUE). */
+static int btrc_wos_bootstrap_complete(btrc_wos_bootstrap_pipe *pipe,
+        uint64_t deadline, DWORD *transferred, __btrc_windows_launch_error_t *error) {
+    for (;;) {
+        if (GetOverlappedResult(pipe->handle, &pipe->operation, transferred, FALSE)) {
+            pipe->pending = 0;
+            return 0;
+        }
+        DWORD failure = GetLastError();
+        if (failure != ERROR_IO_INCOMPLETE) {
+            /* An invalid handle cannot prove that the kernel released storage. */
+            if (failure == ERROR_INVALID_HANDLE) pipe->poisoned = 1;
+            else pipe->pending = 0;
+            return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_PIPE, failure);
+        }
+        DWORD remaining = btrc_wos_bootstrap_remaining(deadline);
+        if (remaining == 0)
+            return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_WAIT, ERROR_TIMEOUT);
+        DWORD waited = WaitForSingleObject(pipe->operation.hEvent, remaining);
+        if (waited == WAIT_OBJECT_0) continue;
+        return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_WAIT,
+            waited == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError());
+    }
+}
+
+static void btrc_wos_bootstrap_discard(btrc_wos_bootstrap_pipe *pipe) {
+    if (pipe->buffer != NULL) {
+        SecureZeroMemory(pipe->buffer, pipe->size);
+        free(pipe->buffer);
+        pipe->buffer = NULL;
+    }
+    pipe->size = 0;
+}
+
+int btrc_wos_bootstrap_close(btrc_wos_bootstrap_pipe **slot, uint64_t deadline,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (slot == NULL || *slot == NULL) return 0;
+    btrc_wos_bootstrap_pipe *pipe = *slot;
+    if (pipe->poisoned)
+        return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_PIPE, ERROR_INVALID_HANDLE);
+    if (pipe->pending) {
+        if (!pipe->cancelled) {
+            if (CancelIoEx(pipe->handle, &pipe->operation) || GetLastError() == ERROR_NOT_FOUND)
+                pipe->cancelled = 1;
+        }
+        DWORD transferred = 0;
+        __btrc_windows_launch_error_t completion;
+        memset(&completion, 0, sizeof(completion));
+        (void)btrc_wos_bootstrap_complete(pipe, deadline, &transferred, &completion);
+        if (pipe->pending || pipe->poisoned) {
+            if (error != NULL) *error = completion;
+            return -1;
+        }
+        /* Aborted, broken-pipe and other completed errors have all released the
+         * kernel's references; close still succeeds after draining them. */
+    }
+    HANDLE *handles[] = { &pipe->handle, &pipe->operation.hEvent };
+    for (size_t index = 0; index < sizeof(handles) / sizeof(handles[0]); index++) {
+        if (*handles[index] == NULL || *handles[index] == INVALID_HANDLE_VALUE) continue;
+        if (!CloseHandle(*handles[index])) {
+            pipe->poisoned = 1;
+            return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_PIPE, GetLastError());
+        }
+        *handles[index] = NULL;
+    }
+    btrc_wos_bootstrap_discard(pipe);
+    free(pipe);
+    *slot = NULL;
+    return 0;
+}
+
+int btrc_wos_bootstrap_pair(const unsigned char nonce[16],
+        btrc_wos_bootstrap_pipe **reader, btrc_wos_bootstrap_pipe **writer,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (reader != NULL) *reader = NULL;
+    if (writer != NULL) *writer = NULL;
+    if (reader == NULL || writer == NULL || reader == writer || nonce == NULL)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION,
+            BTRC_WOS_REASON_ARGUMENT);
+    btrc_wos_bootstrap_pipe *input = (btrc_wos_bootstrap_pipe *)calloc(1, sizeof(*input));
+    btrc_wos_bootstrap_pipe *output = (btrc_wos_bootstrap_pipe *)calloc(1, sizeof(*output));
+    int status = -1;
+    void *descriptor = NULL;
+    if (input == NULL || output == NULL) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+        goto done;
+    }
+    input->reading = 1;
+    int security = btrcWinPrivateDescriptor(0, &descriptor);
+    if (security != 0) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_WIN32, (DWORD)security);
+        goto done;
+    }
+    wchar_t name[96];
+    int prefix = swprintf(name, sizeof(name) / sizeof(name[0]),
+        L"\\\\.\\pipe\\btrc-daemon-%lu-", (unsigned long)GetCurrentProcessId());
+    if (prefix < 0 || (size_t)prefix + 33 > sizeof(name) / sizeof(name[0])) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_WIN32, ERROR_BUFFER_OVERFLOW);
+        goto done;
+    }
+    static const wchar_t hex[] = L"0123456789abcdef";
+    for (size_t index = 0; index < 16; index++) {
+        name[(size_t)prefix + index * 2] = hex[nonce[index] >> 4];
+        name[(size_t)prefix + index * 2 + 1] = hex[nonce[index] & 15];
+    }
+    name[(size_t)prefix + 32] = 0;
+    SECURITY_ATTRIBUTES attributes = { sizeof(attributes), descriptor, FALSE };
+    input->handle = CreateNamedPipeW(name,
+        PIPE_ACCESS_INBOUND | READ_CONTROL | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+        1, 4096, 4096, 0, &attributes);
+    if (input->handle == INVALID_HANDLE_VALUE) {
+        btrc_wos_win32(error, BTRC_WOS_STAGE_PIPE);
+        goto done;
+    }
+    output->handle = CreateFileW(name, GENERIC_WRITE | READ_CONTROL,
+        0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+    if (output->handle == INVALID_HANDLE_VALUE) {
+        btrc_wos_win32(error, BTRC_WOS_STAGE_PIPE);
+        goto done;
+    }
+    ULONG client_pid = 0;
+    if (!GetNamedPipeClientProcessId(input->handle, &client_pid) || client_pid != GetCurrentProcessId()
+            || btrcWinCheckPrivate(input->handle, 1) != 0
+            || btrcWinCheckPrivate(output->handle, 1) != 0) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_REFUSAL, ERROR_ACCESS_DENIED);
+        goto done;
+    }
+    input->operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    output->operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (input->operation.hEvent == NULL || output->operation.hEvent == NULL) {
+        btrc_wos_win32(error, BTRC_WOS_STAGE_PIPE);
+        goto done;
+    }
+    status = 0;
+done:
+    free(descriptor);
+    if (status != 0) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_bootstrap_close(&input, 0, &cleanup) != 0 && error != NULL)
+            error->ownership_state = cleanup.ownership_state;
+        if (btrc_wos_bootstrap_close(&output, 0, &cleanup) != 0 && error != NULL)
+            error->ownership_state = cleanup.ownership_state;
+    }
+    *reader = input;
+    *writer = output;
+    return status;
+}
+
+static int btrc_wos_bootstrap_transfer(btrc_wos_bootstrap_pipe *pipe,
+        unsigned char *destination, const unsigned char *source, size_t size,
+        uint64_t deadline, int reading, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (pipe == NULL || pipe->reading != reading || (size != 0 && destination == NULL && source == NULL)
+            || size > BTRC_DAEMON_MAX_PAYLOAD + BTRC_DAEMON_HEADER_BYTES || deadline == 0) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION,
+            BTRC_WOS_REASON_ARGUMENT);
+        if (pipe != NULL) {
+            pipe->failed = 1;
+            if (error != NULL) error->ownership_state = pipe->poisoned ? 2u : 1u;
+        }
+        return -1;
+    }
+    if (pipe->failed || pipe->pending || pipe->poisoned)
+        return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_PIPE, ERROR_INVALID_STATE);
+    if (size == 0) return 0;
+    pipe->buffer = (unsigned char *)malloc(size);
+    if (pipe->buffer == NULL)
+        return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_ALLOCATION, ERROR_NOT_ENOUGH_MEMORY);
+    pipe->size = size;
+    if (!reading) memcpy(pipe->buffer, source, size);
+    for (size_t offset = 0; offset < size;) {
+        if (btrc_wos_bootstrap_remaining(deadline) == 0)
+            return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_WAIT, ERROR_TIMEOUT);
+        if (!ResetEvent(pipe->operation.hEvent))
+            return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_PIPE, GetLastError());
+        DWORD transferred = 0;
+        DWORD count = (DWORD)(size - offset);
+        BOOL completed = reading
+            ? ReadFile(pipe->handle, pipe->buffer + offset, count, &transferred, &pipe->operation)
+            : WriteFile(pipe->handle, pipe->buffer + offset, count, &transferred, &pipe->operation);
+        if (!completed) {
+            DWORD failure = GetLastError();
+            if (failure != ERROR_IO_PENDING)
+                return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_PIPE, failure);
+            pipe->pending = 1;
+            if (btrc_wos_bootstrap_complete(pipe, deadline, &transferred, error) != 0) return -1;
+        }
+        if (transferred == 0 || transferred > count)
+            return btrc_wos_bootstrap_fail(pipe, error, BTRC_WOS_STAGE_PIPE,
+                reading ? ERROR_BROKEN_PIPE : ERROR_WRITE_FAULT);
+        offset += (size_t)transferred;
+    }
+    if (reading) memcpy(destination, pipe->buffer, size);
+    btrc_wos_bootstrap_discard(pipe);
+    return 0;
+}
+
+int btrc_wos_bootstrap_read(btrc_wos_bootstrap_pipe *pipe, unsigned char *buffer,
+        size_t size, uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    return btrc_wos_bootstrap_transfer(pipe, buffer, NULL, size, deadline, 1, error);
+}
+
+int btrc_wos_bootstrap_write(btrc_wos_bootstrap_pipe *pipe, const unsigned char *buffer,
+        size_t size, uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    return btrc_wos_bootstrap_transfer(pipe, NULL, buffer, size, deadline, 0, error);
 }
 
 /* ---- Wide strings ------------------------------------------------------ */

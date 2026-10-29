@@ -236,7 +236,7 @@ def test_runtime_objects_follow_retained_code(text, selected):
 
 def test_runtime_object_libraries_are_per_operating_system():
     rows = RuntimeObjects.selected([DECLARATION])
-    assert RuntimeObjects.library_flags(rows, "windows") == ["-lkernel32"]
+    assert RuntimeObjects.library_flags(rows, "windows") == ["-lkernel32", "-ladvapi32"]
     assert RuntimeObjects.library_flags(rows, "linux") == []
     assert RuntimeObjects.sources(rows) == [RUNTIME / "windows_os.c"]
 
@@ -308,7 +308,7 @@ def test_the_windows_harness_exercises_every_seam_section():
 @pytest.mark.parametrize("target", sorted(TARGETS))
 def test_launch_harness_builds_for_windows(target, tmp_path):
     executable = tmp_path / f"windows-launch-seam-{target}.exe"
-    zig_compile(target, [NATIVE / "launch_harness.c", RUNTIME / "windows_os.c"], executable, "-lshell32")
+    zig_compile(target, [NATIVE / "launch_harness.c", RUNTIME / "windows_os.c"], executable, "-lshell32", "-ladvapi32")
     assert executable.read_bytes()[:2] == b"MZ"
     evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
     if evidence:

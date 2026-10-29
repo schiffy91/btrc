@@ -23,6 +23,7 @@
 #include <wchar.h>
 
 #include "windows_os.h"
+#include "windows_bootstrap.h"
 
 static int checks = 0;
 static int failures = 0;
@@ -875,13 +876,139 @@ static void check_terminate(void) {
     DeleteFileW(started);
 }
 
+/* The bootstrap path uses real overlapped pipes. No fake completion event can
+ * stand in for the kernel releasing its buffer after cancellation. */
+static unsigned int bootstrap_serial = 0;
+
+static int bootstrap_pair(btrc_wos_bootstrap_pipe **reader, btrc_wos_bootstrap_pipe **writer) {
+    /* Deterministic names are fixture-only; production callers must use fresh
+     * cryptographic nonces from the image owner's random source. */
+    unsigned char nonce[16] = { 0 };
+    unsigned int serial = ++bootstrap_serial;
+    memcpy(nonce, &serial, sizeof(serial));
+    __btrc_windows_launch_error_t error;
+    int status = btrc_wos_bootstrap_pair(nonce, reader, writer, &error);
+    CHECK("bootstrap creates private overlapped endpoints", status == 0 && *reader != NULL && *writer != NULL);
+    if (status != 0) {
+        report("bootstrap create stage=%u code=%u ownership=%u\n", error.stage, error.native_code, error.ownership_state);
+        return -1;
+    }
+    btrc_wos_bootstrap_pipe *other_reader = NULL;
+    btrc_wos_bootstrap_pipe *other_writer = NULL;
+    CHECK("bootstrap refuses an existing pipe name",
+        btrc_wos_bootstrap_pair(nonce, &other_reader, &other_writer, &error) != 0
+        && other_reader == NULL && other_writer == NULL);
+    return 0;
+}
+
+static void bootstrap_close(btrc_wos_bootstrap_pipe **pipe) {
+    __btrc_windows_launch_error_t error;
+    CHECK("bootstrap cancellation drains and releases storage",
+        btrc_wos_bootstrap_close(pipe, GetTickCount64() + 1000, &error) == 0 && *pipe == NULL);
+    CHECK("bootstrap close is idempotent", btrc_wos_bootstrap_close(pipe, 0, &error) == 0);
+}
+
+typedef struct {
+    btrc_wos_bootstrap_pipe *writer;
+    uint64_t deadline;
+    int status;
+} bootstrap_fragments;
+
+static DWORD WINAPI bootstrap_write_fragments(LPVOID context) {
+    bootstrap_fragments *fragments = (bootstrap_fragments *)context;
+    __btrc_windows_launch_error_t error;
+    fragments->status = btrc_wos_bootstrap_write(fragments->writer,
+        (const unsigned char *)"one", 3, fragments->deadline, &error);
+    if (fragments->status == 0)
+        fragments->status = btrc_wos_bootstrap_write(fragments->writer,
+            (const unsigned char *)"two", 3, fragments->deadline, &error);
+    return 0;
+}
+
+static void check_bootstrap_pipes(void) {
+    DWORD handles_before = 0, handles_after = 0;
+    CHECK("bootstrap initial handle census", GetProcessHandleCount(GetCurrentProcess(), &handles_before));
+    for (int iteration = 0; iteration < 12; iteration++) {
+        btrc_wos_bootstrap_pipe *reader = NULL, *writer = NULL;
+        __btrc_windows_launch_error_t error;
+        if (bootstrap_pair(&reader, &writer) != 0) return;
+        bootstrap_fragments fragments = { writer, GetTickCount64() + 2000, -1 };
+        HANDLE thread = CreateThread(NULL, 0, bootstrap_write_fragments, &fragments, 0, NULL);
+        CHECK("bootstrap fragment writer starts", thread != NULL);
+        if (thread == NULL) { bootstrap_close(&writer); bootstrap_close(&reader); return; }
+        unsigned char bytes[6] = { 0 };
+        CHECK("bootstrap read assembles partial writes",
+            btrc_wos_bootstrap_read(reader, bytes, sizeof(bytes), fragments.deadline, &error) == 0
+            && memcmp(bytes, "onetwo", sizeof(bytes)) == 0);
+        DWORD joined = WaitForSingleObject(thread, 3000);
+        CHECK("bootstrap writer completes", joined == WAIT_OBJECT_0 && fragments.status == 0);
+        /* Never release thread-borrowed owner/stack storage while it is live. */
+        if (joined != WAIT_OBJECT_0) ExitProcess(3);
+        CloseHandle(thread);
+        bootstrap_close(&reader);
+        bootstrap_close(&writer);
+
+        if (bootstrap_pair(&reader, &writer) != 0) return;
+        CHECK("bootstrap truncated message begins",
+            btrc_wos_bootstrap_write(writer, (const unsigned char *)"x", 1, GetTickCount64() + 1000, &error) == 0);
+        memset(bytes, 0xA5, sizeof(bytes));
+        uint64_t started = GetTickCount64();
+        CHECK("bootstrap idle pipe expires without exposing partial input",
+            btrc_wos_bootstrap_read(reader, bytes, sizeof(bytes), started + 20, &error) != 0
+            && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1
+            && GetTickCount64() - started < 1000);
+        for (size_t index = 0; index < sizeof(bytes); index++)
+            CHECK("bootstrap timed-out read copies nothing", bytes[index] == 0xA5);
+        CHECK("bootstrap failed endpoint refuses further operations",
+            btrc_wos_bootstrap_read(reader, bytes, 1, GetTickCount64() + 1000, &error) != 0);
+        started = GetTickCount64();
+        int closed = btrc_wos_bootstrap_close(&reader, started, &error);
+        CHECK("bootstrap expired close drains or preserves a retryable owner",
+            GetTickCount64() - started < 1000
+            && ((closed == 0 && reader == NULL)
+                || (closed != 0 && reader != NULL && error.ownership_state == 1)));
+        bootstrap_close(&reader);
+        bootstrap_close(&writer);
+
+        if (bootstrap_pair(&reader, &writer) != 0) return;
+        bootstrap_close(&writer);
+        CHECK("bootstrap EOF is distinct from timeout",
+            btrc_wos_bootstrap_read(reader, bytes, 1, GetTickCount64() + 1000, &error) != 0
+            && error.native_code == ERROR_BROKEN_PIPE && error.ownership_state == 1);
+        bootstrap_close(&reader);
+
+        if (bootstrap_pair(&reader, &writer) != 0) return;
+        unsigned char *large = (unsigned char *)malloc(1048576);
+        CHECK("bootstrap backpressure allocation", large != NULL);
+        if (large == NULL) { bootstrap_close(&writer); bootstrap_close(&reader); return; }
+        memset(large, 0xBD, 1048576);
+        started = GetTickCount64();
+        CHECK("bootstrap backpressured write keeps a bounded wait",
+            btrc_wos_bootstrap_write(writer, large, 1048576, started + 20, &error) != 0
+            && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1
+            && GetTickCount64() - started < 1000);
+        /* Pending native I/O uses a runtime copy, not this caller allocation. */
+        free(large);
+        bootstrap_close(&writer);
+        bootstrap_close(&reader);
+    }
+    CHECK("bootstrap final handle census", GetProcessHandleCount(GetCurrentProcess(), &handles_after));
+    CHECK("bootstrap cycles release every native handle", handles_after == handles_before);
+}
+
 int main(int argc, char **argv) {
     wchar_t self_wide[1024];
     DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
     if (length == 0 || length >= 1024 || to_utf8(self_wide, self_utf8, (int)sizeof(self_utf8)) != 0) return 2;
+    if (argc == 2 && strcmp(argv[1], "--bootstrap-io") == 0) {
+        check_bootstrap_pipes();
+        report("windows-bootstrap-io %s checks=%d\n", failures == 0 ? "PASS" : "FAIL", checks);
+        return failures == 0 ? 0 : 1;
+    }
     if (argc >= 2) return child(argc, argv);
     DWORD temp_length = GetTempPathW(1024, temp_root);
     if (temp_length == 0 || temp_length >= 1000) return 3;
+    check_bootstrap_pipes();
     check_quoting();
     check_exit_codes();
     check_tree_timeout();
