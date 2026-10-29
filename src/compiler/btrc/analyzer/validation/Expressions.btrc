@@ -171,12 +171,7 @@ class ExpressionValidator {
 		}
 	}
 
-	public Node arrayElementType(Node arrayType) {
-		Node element = TypeShape.withoutOuterArray(arrayType);
-		element.isStatic = false;
-		element.isExtern = false;
-		return element;
-	}
+	public Node arrayElementType(Node arrayType) { return TypeShape.valueType(TypeShape.withoutOuterArray(arrayType)); }
 
 	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
@@ -1364,6 +1359,7 @@ class ExpressionValidator {
 				TypeValidator.fail("'super' used in a class without a parent", expression);
 			}
 		} else if (expression.kind == NK_CAST_EXPR) {
+			self.types.validateTypeNameStorage(expression.targetType);
 			self.types.validateTagKeyword(expression.targetType, expression);
 			self.types.rejectRuntimeInterfaceType(expression.targetType, expression);
 			self.validateExpr(expression.expr,  vars);
@@ -1393,6 +1389,7 @@ class ExpressionValidator {
 					TypeValidator.fail("sizeof cannot be applied to flexible array member '" + flexibleMember + "'", expression);
 				}
 			} else if (expression.operand != null && expression.operand.kind == NK_SIZEOF_TYPE) {
+				self.types.validateTypeNameStorage(expression.operand.type);
 				/* sizeof(x) names the object when x is a binding in scope (C11
 				 * 6.5.3.4), as the reference's sizeof_value_operand reads it. */
 				string name = TypeIdentity.ordinaryIdentifier(expression.operand.type);
@@ -1427,6 +1424,7 @@ class ExpressionValidator {
 		} else if (expression.kind == NK_F_STRING_LITERAL) {
 			self.validateFStringParts(expression.parts(),  vars);
 		} else if (expression.kind == NK_NEW_EXPR) {
+			self.types.validateTypeNameStorage(expression.type);
 			self.types.validateTagKeyword(expression.type, expression);
 			self.contextualizeNewGenericConstructors(expression,  vars);
 			self.validateExprList(expression.args(),  vars);

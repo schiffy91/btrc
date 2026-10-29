@@ -3,7 +3,7 @@
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.analyzer.types import TypeIdentity, TypeShapeError
+from src.compiler.python.analyzer.types import TypeIdentity, TypeShapeError, TypeSystem
 from src.compiler.python.ir.lowering.generics import TypeSubstitution
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.session import LoweringSession
@@ -35,6 +35,24 @@ def test_shape_key_distinguishes_recursive_pointer_nullable_and_array_shape():
 
     assert len(keys) == 5
     assert IDENTITY.shape_key(_type("Box", generic_args=[scalar])) != IDENTITY.shape_key(nested)
+
+
+@pytest.mark.parametrize("flag, bit", [("is_register", 16), ("is_auto", 32)])
+def test_storage_classes_survive_substitution_and_identity_but_not_callable_values(flag, bit):
+    plain = _type("int")
+    declared = _type("int", **{flag: True})
+    assert IDENTITY.shape_key(declared) != IDENTITY.shape_key(plain)
+    assert IDENTITY.symbol_component(declared) == f"ZQtb6_696e74p0n0o0a0q{bit}k0"
+    assert IDENTITY.ordinary_identifier(declared) is None
+    assert TypeSystem.function_signature_component(declared) == plain
+    assert getattr(declared, flag)
+    substituted = IDENTITY.substitute(_type("T", **{flag: True}), {"T": plain})
+    assert substituted == declared
+    nested = IDENTITY.substitute(_type("Box", generic_args=[_type("T", **{flag: True})]), {"T": plain})
+    assert nested.generic_args == [declared]
+    problem, rejected = IDENTITY.generic_argument_problem(declared)
+    assert problem == f"generic arguments cannot be {flag.removeprefix('is_')}-qualified"
+    assert rejected is declared
 
 
 def test_safe_legacy_symbols_and_simple_shape_suffixes_are_stable():

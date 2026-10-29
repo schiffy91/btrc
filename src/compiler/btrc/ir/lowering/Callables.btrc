@@ -321,12 +321,7 @@ class CallableValueSemantics {
 		return null;
 	}
 
-	public Node arrayElement(Node arrayType) {
-		Node element = TypeShape.withoutOuterArray(arrayType);
-		element.isStatic = false;
-		element.isExtern = false;
-		return element;
-	}
+	public Node arrayElement(Node arrayType) { return TypeShape.valueType(TypeShape.withoutOuterArray(arrayType)); }
 
 	public Node? structDeclaration(Node typeExpr) {
 		if (typeExpr.pointerDepth > 0) { return null; }

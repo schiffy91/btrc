@@ -103,6 +103,10 @@ class Parser {
 	}
 
 	public void refuseDeferredCSpecifier(Token token) {
+		if (token.type == "AUTO" && self.peek(1).type == "IDENT" && self.peek(2).type == "EQ") {
+			self.failAt("'auto' is C11's storage class, not type inference; write 'var x = ...' or give a type", token);
+			return;
+		}
 		if (token.type != "IDENT") { return; }
 		string message = self.deferredCSpecifierMessage(token.value);
 		if (message != "") { self.failAt(message, token); }
@@ -194,7 +198,7 @@ class Parser {
 		return tok;
 	}
 
-	public bool isTypeKeyword(string t) { return t == "VOID" || t == "INT" || t == "FLOAT" || t == "DOUBLE" || t == "CHAR" || t == "SHORT" || t == "LONG" || t == "UNSIGNED" || t == "SIGNED" || t == "STRING" || t == "BOOL" || t == "STRUCT" || t == "ENUM" || t == "UNION" || t == "CONST" || t == "STATIC" || t == "EXTERN" || t == "VOLATILE"; }
+	public bool isTypeKeyword(string t) { return t == "VOID" || t == "INT" || t == "FLOAT" || t == "DOUBLE" || t == "CHAR" || t == "SHORT" || t == "LONG" || t == "UNSIGNED" || t == "SIGNED" || t == "STRING" || t == "BOOL" || t == "STRUCT" || t == "ENUM" || t == "UNION" || t == "CONST" || t == "STATIC" || t == "EXTERN" || t == "VOLATILE" || t == "AUTO"; }
 
 	/* ---- Top level ---- */
 
@@ -1140,7 +1144,7 @@ class Parser {
 		return self.tokens.get(p).type;
 	}
 
-	public bool isTypeQualifier(string tt) { return tt == "CONST" || tt == "STATIC" || tt == "EXTERN" || tt == "VOLATILE"; }
+	public bool isTypeQualifier(string tt) { return tt == "CONST" || tt == "STATIC" || tt == "EXTERN" || tt == "VOLATILE" || tt == "AUTO"; }
 
 	public bool isSimpleTypeBase(string tt) { return tt == "VOID" || tt == "INT" || tt == "FLOAT" || tt == "DOUBLE" || tt == "CHAR" || tt == "BOOL" || tt == "STRING" || tt == "IDENT"; }
 
@@ -1250,6 +1254,7 @@ class Parser {
 
 	public Node parseType() {
 		Token tok = self.peek();
+		self.refuseDeferredCSpecifier(tok);
 		int line = tok.line;
 		int col = tok.col;
 
@@ -1257,12 +1262,17 @@ class Parser {
 		bool hasStatic = false;
 		bool hasExtern = false;
 		bool hasVolatile = false;
-		while (self.check("CONST") || self.check("STATIC") || self.check("EXTERN") || self.check("VOLATILE")) {
+		bool hasAuto = false;
+		while (self.isTypeQualifier(self.peek().type)) {
 			string qt = self.peek().type;
 			if (qt == "CONST") { hasConst = true; }
 			else if (qt == "STATIC") { hasStatic = true; }
 			else if (qt == "EXTERN") { hasExtern = true; }
 			else if (qt == "VOLATILE") { hasVolatile = true; }
+			else if (qt == "AUTO") {
+				if (hasAuto) { self.failAt("Duplicate storage class 'auto'", self.peek()); }
+				hasAuto = true;
+			}
 			self.advance();
 		}
 
@@ -1348,6 +1358,7 @@ class Parser {
 		ty.isConst = hasConst;
 		ty.isStatic = hasStatic;
 		ty.isExtern = hasExtern;
+		ty.isAuto = hasAuto;
 		ty.isVolatile = hasVolatile;
 		ty.genericArgsStorage = genericArgs;
 
@@ -1531,8 +1542,12 @@ class Parser {
 		functionType.col = result.col;
 		functionType.isStatic = result.isStatic;
 		functionType.isExtern = result.isExtern;
+		functionType.isRegister = result.isRegister;
+		functionType.isAuto = result.isAuto;
 		result.isStatic = false;
 		result.isExtern = false;
+		result.isRegister = false;
+		result.isAuto = false;
 		functionType.genericArgsMut().push(result);
 		declarator.type = functionType;
 		if (self.check("LPAREN")) {
@@ -1758,6 +1773,8 @@ class Parser {
 		duplicate.nullableOuterDepth = source.nullableOuterDepth;
 		duplicate.isStatic = source.isStatic;
 		duplicate.isExtern = source.isExtern;
+		duplicate.isRegister = source.isRegister;
+		duplicate.isAuto = source.isAuto;
 		duplicate.isVolatile = source.isVolatile;
 		duplicate.arrayPointerDepth = source.arrayPointerDepth;
 		duplicate.line = source.line;
@@ -2809,6 +2826,7 @@ class Parser {
 
 	public Node parsePrimary() {
 		Token tok = self.peek();
+		self.refuseDeferredCSpecifier(tok);
 		string tt = tok.type;
 
 		if (tt == "INT_LIT") {

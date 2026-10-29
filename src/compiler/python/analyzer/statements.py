@@ -466,6 +466,10 @@ class StatementAnalyzer:
         if type_expr is None:
             return
         subject = f"Global '{declaration.name}'" if is_global else f"Variable '{declaration.name}'"
+        if is_global:
+            self.types.validate_declaration_specifiers(
+                type_expr, subject, "global", type_expr.line or declaration.line, type_expr.col or declaration.col
+            )
         self.types.validate_declared_type(
             type_expr,
             subject,
@@ -2220,6 +2224,7 @@ class StatementAnalyzer:
         with self.session.scope_frame():
             catch_type = statement.catch_type
             if catch_type is not None:
+                self.types.validate_type_name_storage(catch_type)
                 catch_type = self.types.upgrade_class_type(catch_type)
                 self.generics.collect_type_instances(catch_type)
                 self.session.record_node_type(statement, catch_type)

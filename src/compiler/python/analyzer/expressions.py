@@ -1509,8 +1509,10 @@ class ExpressionAnalyzer:
                     )
                 ):
                     value_type = sym.type
-                if value_type is not None and (value_type.is_extern or value_type.is_static):
-                    value_type = replace(value_type, is_extern=False, is_static=False)
+                if value_type is not None and (
+                    value_type.is_extern or value_type.is_static or value_type.is_auto or value_type.is_register
+                ):
+                    value_type = self.types.value_type(value_type)
                 return value_type
             function = self.index.function_table.get(expr.name)
             if function:
@@ -2165,6 +2167,7 @@ class ExpressionAnalyzer:
             self._reject_flexible_array_operand(expr, "Conditional expression")
         elif isinstance(expr, CastExpr):
             expr.target_type = self.types.upgrade_class_type(expr.target_type)
+            self.types.validate_type_name_storage(expr.target_type)
             self.generics.collect_type_instances(expr.target_type)
             self._analyze_expr(expr.expr)
             self._validate_cast_expr(expr)
@@ -2175,6 +2178,7 @@ class ExpressionAnalyzer:
                 self._analyze_expr(value)
             else:
                 if isinstance(expr.operand, SizeofType):
+                    self.types.validate_type_name_storage(expr.operand.type)
                     self.generics.collect_type_instances(expr.operand.type)
                 elif isinstance(expr.operand, SizeofExprOp):
                     self._analyze_expr(expr.operand.expr)
@@ -2230,6 +2234,7 @@ class ExpressionAnalyzer:
             self._reject_flexible_array_lambda(expr)
         elif isinstance(expr, NewExpr):
             self.types.validate_tag_keyword(expr.type, expr.line, expr.col)
+            self.types.validate_type_name_storage(expr.type)
             # A re-analysed tree already carries the implicit class pointer.
             written_depth = expr.type.pointer_depth - int(getattr(expr.type, "auto_upgraded", False))
             if written_depth or expr.type.is_array or expr.type.is_nullable:

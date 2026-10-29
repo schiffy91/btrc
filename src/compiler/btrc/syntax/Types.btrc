@@ -43,6 +43,8 @@ class TypeShape {
 		result.nullableOuterDepth = typeExpr.nullableOuterDepth;
 		result.isStatic = typeExpr.isStatic;
 		result.isExtern = typeExpr.isExtern;
+		result.isRegister = typeExpr.isRegister;
+		result.isAuto = typeExpr.isAuto;
 		result.isVolatile = typeExpr.isVolatile;
 		result.arrayPointerDepth = typeExpr.arrayPointerDepth;
 		result.line = typeExpr.line;
@@ -51,6 +53,15 @@ class TypeShape {
 	}
 
 	class Node copy(Node typeExpr) { return TypeShape.copyWithArguments(typeExpr, typeExpr.genericArgs()); }
+
+	class Node valueType(Node typeExpr) {
+		Node result = TypeShape.copy(typeExpr);
+		result.isStatic = false;
+		result.isExtern = false;
+		result.isRegister = false;
+		result.isAuto = false;
+		return result;
+	}
 
 	class Node copyTree(Node typeExpr) {
 		Vector<Node> genericArgs = [];
@@ -165,6 +176,8 @@ class TypeComposition {
 		}
 		result.isStatic = applied.isStatic || resolved.isStatic;
 		result.isExtern = applied.isExtern || resolved.isExtern;
+		result.isRegister = applied.isRegister || resolved.isRegister;
+		result.isAuto = applied.isAuto || resolved.isAuto;
 		result.isVolatile = applied.isVolatile || resolved.isVolatile;
 		if (applied.line != 0) { result.line = applied.line; }
 		if (applied.col != 0) { result.col = applied.col; }
@@ -184,12 +197,7 @@ class TypeComposition {
 }
 
 class CallableSignature {
-	class Node component(Node declarationType) {
-		Node result = TypeShape.copyTree(declarationType);
-		result.isStatic = false;
-		result.isExtern = false;
-		return result;
-	}
+	class Node component(Node declarationType) { return TypeShape.copyTree(TypeShape.valueType(declarationType)); }
 
 	class Node sourceFunctionPointer(Node declaration) {
 		Node callable = Node();

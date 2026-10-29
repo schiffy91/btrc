@@ -472,6 +472,8 @@ class TypeIdentity:
                     ("is_static", "static"),
                     ("is_extern", "extern"),
                     ("is_volatile", "volatile"),
+                    ("is_register", "register"),
+                    ("is_auto", "auto"),
                 )
             ),
         )
@@ -508,6 +510,8 @@ class TypeIdentity:
             or type_expr.is_static
             or type_expr.is_extern
             or type_expr.is_volatile
+            or type_expr.is_register
+            or type_expr.is_auto
             or type_expr.array_pointer_depth
         ):
             return None
@@ -530,6 +534,8 @@ class TypeIdentity:
             bool(type_expr.is_static),
             bool(type_expr.is_extern),
             bool(type_expr.is_volatile),
+            bool(type_expr.is_register),
+            bool(type_expr.is_auto),
         )
 
     def generic_instance_key(self, base: str, arguments: Iterable[TypeExpr]) -> tuple:
@@ -1765,8 +1771,13 @@ class TypeSystem:
         )
 
     @staticmethod
+    def value_type(type_expr: TypeExpr) -> TypeExpr:
+        """Copy a value's type without the declaration's storage classes."""
+        return replace(type_expr, is_extern=False, is_static=False, is_register=False, is_auto=False)
+
+    @staticmethod
     def function_signature_component(type_expr: TypeExpr) -> TypeExpr:
-        return replace(type_expr, is_extern=False, is_static=False)
+        return TypeSystem.value_type(type_expr)
 
     def current_self_type(self) -> TypeExpr | None:
         """Return the specialized receiver type for the active class body."""
@@ -2286,7 +2297,7 @@ class TypeSystem:
         type_line = type_expr.line or line
         type_col = type_expr.col or col
         self.validate_tag_keyword(type_expr, type_line, type_col)
-        self._validate_storage_qualifiers(type_expr, subject, role, type_line, type_col)
+        self.validate_declaration_specifiers(type_expr, subject, role, type_line, type_col)
         if role == "return" and self._return_type_has_outer_cv_qualifier(type_expr):
             self.session.error(
                 f"{subject} cannot carry an outer const/volatile qualifier; C discards qualifiers on returned values",
@@ -2505,7 +2516,7 @@ class TypeSystem:
         for index, argument in enumerate(arguments):
             result_slot = (type_expr.base in _FUNCTION_POINTER_BASES or type_expr.base == "Thread") and index == 0
             parameter_slot = type_expr.base in _FUNCTION_POINTER_BASES and index > 0
-            argument_role = "return" if result_slot else "parameter" if parameter_slot else "object"
+            argument_role = "return" if result_slot else "parameter" if parameter_slot else "type-name"
             self.validate_declared_type(
                 argument,
                 f"Generic argument {index + 1} of {subject}",
@@ -2811,11 +2822,35 @@ class TypeSystem:
             self.contains_realtime_function_storage(field.type, nested) for field in self.record_fields(declaration)
         )
 
-    def _validate_storage_qualifiers(self, type_expr, subject, role, line, col) -> None:
+    def validate_declaration_specifiers(self, type_expr, subject, role, line, col) -> None:
+        if type_expr is None:
+            return
         if type_expr.is_static and type_expr.is_extern:
             self.session.error(f"{subject} cannot be both static and extern", line, col)
         if role in {"parameter", "field", "stable_field"} and (type_expr.is_static or type_expr.is_extern):
             self.session.error(f"{subject} cannot carry static/extern storage qualifiers", line, col)
+        if type_expr.is_auto and (type_expr.is_static or type_expr.is_extern or type_expr.is_register):
+            self.session.error(f"{subject} has more than one storage class", line, col)
+        if type_expr.is_auto and role != "object":
+            if role == "type-name":
+                message = "'auto' is a storage class; it cannot appear in a type name"
+            else:
+                position = (
+                    "at file scope"
+                    if role == "global"
+                    else "in a typedef"
+                    if role == "alias"
+                    else f"on {subject[0].lower()}{subject[1:]}"
+                )
+                message = f"'auto' is not allowed {position}; C11 auto declares a block-scope object"
+            self.session.error(message, line, col)
+
+    def validate_type_name_storage(self, type_expr) -> None:
+        if type_expr is None:
+            return
+        self.validate_declaration_specifiers(type_expr, "Type name", "type-name", type_expr.line, type_expr.col)
+        for argument in type_expr.generic_args:
+            self.validate_type_name_storage(argument)
 
     def upgrade_class_type(self, type_expr, shadowed_names=None):
         """Auto-upgrade class references without capturing type parameters.
@@ -3633,6 +3668,8 @@ class TypeSystem:
             nullable_outer_depth=nullable_outer_depth,
             is_static=applied.is_static or resolved.is_static,
             is_extern=applied.is_extern or resolved.is_extern,
+            is_register=applied.is_register or resolved.is_register,
+            is_auto=applied.is_auto or resolved.is_auto,
             is_volatile=applied.is_volatile or resolved.is_volatile,
             line=applied.line or resolved.line,
             col=applied.col or resolved.col,

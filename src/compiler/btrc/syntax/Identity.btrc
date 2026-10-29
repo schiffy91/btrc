@@ -307,6 +307,8 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_args=" + self.canonNodeList(node.genericArgs(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "pointer_depth=" + self.canonInt(node.pointerDepth);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_array=" + self.canonBool(node.isArray);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_register=" + self.canonBool(node.isRegister);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_auto=" + self.canonBool(node.isAuto);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "array_size=" + self.canonNode(node.arraySize, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_const=" + self.canonBool(node.isConst);
@@ -953,6 +955,8 @@ class TypeIdentity {
 		if (typeExpr.isStatic) { bits = bits + 2; }
 		if (typeExpr.isExtern) { bits = bits + 4; }
 		if (typeExpr.isVolatile) { bits = bits + 8; }
+		if (typeExpr.isRegister) { bits = bits + 16; }
+		if (typeExpr.isAuto) { bits = bits + 32; }
 		return bits;
 	}
 
@@ -1099,7 +1103,7 @@ class TypeIdentity {
 		int array = TypeIdentity.decodeTagged(text, 'a', cursor);
 		int qualifiers = TypeIdentity.decodeTagged(text, 'q', cursor);
 		int count = TypeIdentity.decodeTagged(text, 'k', cursor);
-		if (base == null || pointers < 0 || nullable < 0 || nullable > 1 || outer < 0 || array < 0 || array > 1 || qualifiers < 0 || qualifiers > 15 || count < 0) { return null; }
+		if (base == null || pointers < 0 || nullable < 0 || nullable > 1 || outer < 0 || array < 0 || array > 1 || qualifiers < 0 || qualifiers > 63 || count < 0) { return null; }
 		Node result = Node();
 		result.kind = NK_TYPE_EXPR;
 		result.base = base;
@@ -1111,6 +1115,8 @@ class TypeIdentity {
 		result.isStatic = (qualifiers / 2) % 2 == 1;
 		result.isExtern = (qualifiers / 4) % 2 == 1;
 		result.isVolatile = (qualifiers / 8) % 2 == 1;
+		result.isRegister = (qualifiers / 16) % 2 == 1;
+		result.isAuto = (qualifiers / 32) % 2 == 1;
 		int index = 0;
 		while (index < count) {
 			string? argument = TypeIdentity.decodeField(text, "t", cursor);
@@ -1180,6 +1186,12 @@ class TypeIdentity {
 		if (!qualifiedComponent && typeExpr.isVolatile) {
 			return "generic arguments cannot be volatile-qualified";
 		}
+		if (!qualifiedComponent && typeExpr.isRegister) {
+			return "generic arguments cannot be register-qualified";
+		}
+		if (!qualifiedComponent && typeExpr.isAuto) {
+			return "generic arguments cannot be auto-qualified";
+		}
 		bool childIsStructuralComponent = typeExpr.base == "Tuple" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr";
 		int index = 0;
 		while (index < typeExpr.genericArgs().len) {
@@ -1213,7 +1225,7 @@ class TypeIdentity {
 	 * when an ordinary identifier x is in scope, so the caller checks the name
 	 * against its own bindings. */
 	class string ordinaryIdentifier(Node? typeExpr) {
-		if (typeExpr == null || typeExpr.genericArgs().len > 0 || typeExpr.pointerDepth != 0 || typeExpr.isArray || typeExpr.arraySize != null || typeExpr.elements().len > 0 || typeExpr.isConst || typeExpr.isNullable || typeExpr.isStatic || typeExpr.isExtern || typeExpr.isVolatile || typeExpr.arrayPointerDepth != 0) {
+		if (typeExpr == null || typeExpr.genericArgs().len > 0 || typeExpr.pointerDepth != 0 || typeExpr.isArray || typeExpr.arraySize != null || typeExpr.elements().len > 0 || typeExpr.isConst || typeExpr.isNullable || typeExpr.isStatic || typeExpr.isExtern || typeExpr.isVolatile || typeExpr.isRegister || typeExpr.isAuto || typeExpr.arrayPointerDepth != 0) {
 			return "";
 		}
 		return typeExpr.base;
@@ -1228,7 +1240,7 @@ class TypeIdentity {
 		}
 	}
 
-	class bool legacyComponentPossible(Node typeExpr) { return typeExpr.genericArgs().len == 0 && TypeIdentity.safeBase(typeExpr.base) && typeExpr.nullableOuterDepth == 0 && !typeExpr.isConst && !typeExpr.isStatic && !typeExpr.isExtern && !typeExpr.isVolatile; }
+	class bool legacyComponentPossible(Node typeExpr) { return typeExpr.genericArgs().len == 0 && TypeIdentity.safeBase(typeExpr.base) && typeExpr.nullableOuterDepth == 0 && !typeExpr.isConst && !typeExpr.isStatic && !typeExpr.isExtern && !typeExpr.isVolatile && !typeExpr.isRegister && !typeExpr.isAuto; }
 
 	class string legacyComponent(Node typeExpr) {
 		string component = typeExpr.base;

@@ -655,12 +655,7 @@ class TypeValidator {
 		return !typeExpr.isArray && typeExpr.pointerDepth <= 1 && (SemanticTypeSystem.isString(typeExpr) || (typeExpr.base == "Mutex" && typeExpr.genericArgs().len == 1 && typeExpr.pointerDepth == 0) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base));
 	}
 
-	public Node arrayElementType(Node arrayType) {
-		Node element = TypeShape.withoutOuterArray(arrayType);
-		element.isStatic = false;
-		element.isExtern = false;
-		return element;
-	}
+	public Node arrayElementType(Node arrayType) { return TypeShape.valueType(TypeShape.withoutOuterArray(arrayType)); }
 
 	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
@@ -1223,6 +1218,30 @@ class TypeValidator {
 		return -1;
 	}
 
+	public void validateDeclarationSpecifiers(Node? typeExpr, string subject, string role, Node site) {
+		if (typeExpr == null) { return; }
+		if (typeExpr.isStatic && typeExpr.isExtern) {
+			TypeValidator.fail(subject + " cannot be both static and extern", site);
+		}
+		if ((role == "parameter" || role == "field" || role == "stable_field") && (typeExpr.isStatic || typeExpr.isExtern)) {
+			TypeValidator.fail(subject + " cannot carry static/extern storage qualifiers", site);
+		}
+		if (typeExpr.isAuto && (typeExpr.isStatic || typeExpr.isExtern || typeExpr.isRegister)) {
+			TypeValidator.fail(subject + " has more than one storage class", site);
+		}
+		if (typeExpr.isAuto && role != "object") {
+			if (role == "type-name") { TypeValidator.fail("'auto' is a storage class; it cannot appear in a type name", site); }
+			string position = role == "global" ? "at file scope" : role == "alias" ? "in a typedef" : "on " + subject.substring(0, 1).toLower() + subject.substring(1);
+			TypeValidator.fail("'auto' is not allowed " + position + "; C11 auto declares a block-scope object", site);
+		}
+	}
+
+	public void validateTypeNameStorage(Node? typeExpr) {
+		if (typeExpr == null) { return; }
+		self.validateDeclarationSpecifiers(typeExpr, "Type name", "type-name", typeExpr);
+		for argument in typeExpr.genericArgs() { self.validateTypeNameStorage(argument); }
+	}
+
 	public void validateDeclaredType(Node? typeExpr, string subject, string role, Node site) {
 		if (typeExpr == null) { return; }
 		self.validateTagKeyword(typeExpr, site);
@@ -1230,12 +1249,7 @@ class TypeValidator {
 		if (expectedArguments >= 0 && !self.state.typeParams.has(typeExpr.base) && typeExpr.genericArgs().len != expectedArguments) {
 			TypeValidator.fail("Type '" + typeExpr.base + "' expects " + Strings.fromInt(expectedArguments) + " generic argument(s) but got " + Strings.fromInt(typeExpr.genericArgs().len), site);
 		}
-		if (typeExpr.isStatic && typeExpr.isExtern) {
-			TypeValidator.fail(subject + " cannot be both static and extern", site);
-		}
-		if ((role == "parameter" || role == "field" || role == "stable_field") && (typeExpr.isStatic || typeExpr.isExtern)) {
-			TypeValidator.fail(subject + " cannot carry static/extern storage qualifiers", site);
-		}
+		self.validateDeclarationSpecifiers(typeExpr, subject, role, site);
 		if (role == "return" && (SemanticTypeSystem.typeEffectiveOuterConst(typeExpr, self.state.analyzed.typedefTable) || SemanticTypeSystem.typeEffectiveOuterVolatile(typeExpr, self.state.analyzed.typedefTable))) {
 			TypeValidator.fail(subject + " cannot carry an outer const/volatile qualifier; " + "C discards qualifiers on returned values", site);
 		}
@@ -1342,7 +1356,7 @@ class TypeValidator {
 		}
 		int index = 0;
 		while (index < typeExpr.genericArgs().len) {
-			string argumentRole = "object";
+			string argumentRole = "type-name";
 			if ((typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr" || typeExpr.base == "Thread") && index == 0) {
 				argumentRole = "return";
 			} else if (typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr") {

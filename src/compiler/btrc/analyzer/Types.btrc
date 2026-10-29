@@ -1120,6 +1120,8 @@ class SemanticTypeSystem {
 			result.nullableOuterDepth = typeExpr.nullableOuterDepth;
 			result.isStatic = typeExpr.isStatic;
 			result.isExtern = typeExpr.isExtern;
+			result.isRegister = typeExpr.isRegister;
+			result.isAuto = typeExpr.isAuto;
 			result.isVolatile = typeExpr.isVolatile;
 			result.arrayPointerDepth = typeExpr.arrayPointerDepth;
 			result.line = typeExpr.line;

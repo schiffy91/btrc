@@ -82,6 +82,25 @@ int main() {
 	qualified.isVolatile = true;
 	assert(TypeIdentity.qualifierBits(qualified) == 15);
 	assert(TypeIdentity.symbolComponent(qualified).equals("ZQtb6_696e74p0n0o0a0q15k0"));
+	Node registerType = identityType("int");
+	registerType.isRegister = true;
+	assert(TypeIdentity.symbolComponent(registerType) == "ZQtb6_696e74p0n0o0a0q16k0");
+	assert(TypeIdentity.ordinaryIdentifier(registerType) == "");
+	assert(TypeShape.copyTree(registerType).isRegister);
+	assert(TypeComposition.compose(registerType, scalar, false).isRegister);
+	assert(!CallableSignature.component(registerType).isRegister);
+	Node? decodedRegister = TypeIdentity.decode(TypeIdentity.encode(registerType));
+	assert(decodedRegister != null && decodedRegister.isRegister && !decodedRegister.isAuto);
+	Node autoType = identityType("int");
+	autoType.isAuto = true;
+	assert(TypeIdentity.symbolComponent(autoType) == "ZQtb6_696e74p0n0o0a0q32k0");
+	assert(TypeIdentity.ordinaryIdentifier(autoType) == "");
+	assert(TypeShape.copyTree(autoType).isAuto);
+	assert(TypeComposition.compose(autoType, scalar, false).isAuto);
+	assert(!CallableSignature.component(autoType).isAuto);
+	Node? decodedAuto = TypeIdentity.decode(TypeIdentity.encode(autoType));
+	assert(decodedAuto != null && decodedAuto.isAuto && !decodedAuto.isRegister);
+	assert(TypeIdentity.decode("b6_696e74p0n0o0a0q64k0") == null);
 	assert(TypeIdentity.utf8Hex("é").equals("c3a9"));
 
 	Node voidType = identityType("void");

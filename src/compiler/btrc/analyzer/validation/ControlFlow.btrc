@@ -833,6 +833,7 @@ class ControlFlowValidator {
 			Map<string, Node> catchVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> catchNames = {};
 			Node catchType = statement.catchType;
+			self.types.validateTypeNameStorage(catchType);
 			// Exceptions carry a string message, so only `string e` names one.
 			if (catchType != null && !(catchType.base == "string" && catchType.pointerDepth == 0)) {
 				TypeValidator.fail(f"Catch type '{catchType.base}' is not supported — exceptions carry a string message; use 'string {statement.catchVar}' or an untyped catch", catchType);

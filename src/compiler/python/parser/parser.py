@@ -235,6 +235,16 @@ class Parser:
         return self._token_kind_at(position + 1) in self._DECLARATOR_NAME_FOLLOWERS
 
     def _refuse_deferred_c_specifier(self, token: Token) -> None:
+        if (
+            token.type == TokenKind.AUTO
+            and self._peek(1).type == TokenKind.IDENT
+            and self._peek(2).type == TokenKind.EQ
+        ):
+            raise ParseError(
+                "'auto' is C11's storage class, not type inference; write 'var x = ...' or give a type",
+                token.line,
+                token.col,
+            )
         if token.type == TokenKind.IDENT and token.value in self._DEFERRED_C_SPECIFIERS:
             raise ParseError(self._DEFERRED_C_SPECIFIERS[token.value], token.line, token.col)
 
@@ -296,6 +306,7 @@ class Parser:
             TokenKind.CONST,
             TokenKind.STATIC,
             TokenKind.EXTERN,
+            TokenKind.AUTO,
             TokenKind.VOLATILE,
         }
     )
@@ -484,14 +495,16 @@ class Parser:
 
     def _parse_type_expr(self) -> TypeExpr:
         tok = self._peek()
+        self._refuse_deferred_c_specifier(tok)
         line, col = tok.line, tok.col
 
-        # Handle const/static/extern/volatile qualifiers
+        # Read declaration specifiers before the base type.
         has_const = False
         has_static = False
         has_extern = False
         has_volatile = False
-        while self._check(TokenKind.CONST, TokenKind.STATIC, TokenKind.EXTERN, TokenKind.VOLATILE):
+        has_auto = False
+        while self._peek().type in self._QUALIFIERS:
             qt = self._peek().type
             if qt == TokenKind.CONST:
                 has_const = True
@@ -501,6 +514,10 @@ class Parser:
                 has_extern = True
             elif qt == TokenKind.VOLATILE:
                 has_volatile = True
+            elif qt == TokenKind.AUTO:
+                if has_auto:
+                    raise self._error("Duplicate storage class 'auto'")
+                has_auto = True
             self._advance()
 
         generic_args = []
@@ -570,6 +587,7 @@ class Parser:
             is_static=has_static,
             is_extern=has_extern,
             is_volatile=has_volatile,
+            is_auto=has_auto,
             line=line,
             col=col,
         )
@@ -739,11 +757,15 @@ class Parser:
             generic_args=[result],
             is_static=result.is_static,
             is_extern=result.is_extern,
+            is_register=result.is_register,
+            is_auto=result.is_auto,
             line=result.line,
             col=result.col,
         )
         result.is_static = False
         result.is_extern = False
+        result.is_register = False
+        result.is_auto = False
         if self._check(TokenKind.LPAREN):
             raise self._error(FUNCTION_POINTER_RETURN)
         if name_tok is None and self._check(TokenKind.LBRACKET):
@@ -2511,6 +2533,7 @@ class Parser:
 
     def _parse_primary(self):
         tok = self._peek()
+        self._refuse_deferred_c_specifier(tok)
 
         if tok.type == TokenKind.INT_LIT:
             self._advance()

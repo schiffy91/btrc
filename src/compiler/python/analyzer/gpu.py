@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from src.compiler.python.abi.hosted import HOSTED_ABI
 from src.compiler.python.analyzer.aggregates import AggregateAnalyzer
 from src.compiler.python.analyzer.program import AnalysisContext, AnalysisSession, DeclarationIndex, Scope
@@ -362,7 +360,7 @@ class GpuDispatchValidator:
             return None
         if element is None:
             return None
-        return replace(element, is_static=False, is_extern=False)
+        return self._types.value_type(element)
 
     def _buffer_elements_exact(self, expected: TypeExpr, actual: TypeExpr) -> bool:
         expected_element = self._buffer_element_type(expected)

@@ -325,10 +325,8 @@ class ExpressionTypeResolver {
 			if (node.name == "NULL") { return operators.nullType(); }
 			if (varTypes.has(node.name)) {
 				Node valueType = self.identifierValueType(varTypes.get(node.name), a);
-				if (valueType.isExtern || valueType.isStatic) {
-					valueType = TypeShape.copy(valueType);
-					valueType.isExtern = false;
-					valueType.isStatic = false;
+				if (valueType.isExtern || valueType.isStatic || valueType.isAuto || valueType.isRegister) {
+					valueType = TypeShape.valueType(valueType);
 				}
 				return valueType;
 			}

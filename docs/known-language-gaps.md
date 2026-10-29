@@ -60,8 +60,14 @@ The existing signature and static/instance checks apply, and class dispatch
 remains static. It can follow `abstract` and precedes execution and ownership
 modifiers. Constructors, fields, properties and methods that only implement
 an interface cannot use it. Existing overrides without the modifier remain
-valid. `auto`, `register` and `goto` still await the approved C vocabulary
-and control-flow work in PLAN.md Stages 19 and 20 (issue #17).
+valid.
+
+`auto` is a declaration storage class, as in `auto int count = 0;`. It is
+allowed on block-scope objects and C-for initializers, uses the existing
+prefix qualifier syntax, and does not change the generated C. It cannot
+declare a parameter, field, function, typedef or file-scope object, or appear
+in a type name. Type inference still uses `var`. `register` and `goto` remain
+pending under issue #17.
 
 Tuple element names such as `_0` and `_1` are ordinary postfix members, and
 `value.1.0` selects twice: digits after a `.` lex as a field index alone, so

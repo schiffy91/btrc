@@ -940,6 +940,7 @@ class StorageValidator {
 		string subject = isGlobal ? "Global '" : "Variable '";
 		subject = subject + declaration.name + "'";
 		self.types.validateDeclaredType(declaration.type, subject, "object", declaration);
+		if (isGlobal) { self.types.validateDeclarationSpecifiers(declaration.type, subject, "global", declaration); }
 		Node? canonical = self.types.resolveAliases(declaration.type);
 		if (canonical != null && canonical.base == "Span" && canonical.pointerDepth == 0) {
 			if (isGlobal || canonical.isStatic || canonical.isExtern) {
