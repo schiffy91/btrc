@@ -6,6 +6,8 @@
         generic_args=[]
         pointer_depth=0
         is_array=false
+        is_register=false
+        is_auto=false
         array_size=nil
         elements=[]
         is_const=false
@@ -46,6 +48,8 @@
         generic_args=[]
         pointer_depth=0
         is_array=false
+        is_register=false
+        is_auto=false
         array_size=nil
         elements=[]
         is_const=false

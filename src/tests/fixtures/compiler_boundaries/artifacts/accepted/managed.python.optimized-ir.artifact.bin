@@ -393,7 +393,8 @@
               "is_extern": false,
               "cleanup_slot": null,
               "is_cycle_return_temp": false,
-              "effective_is_volatile": false
+              "effective_is_volatile": false,
+              "is_register": false
             },
             {
               "$type": "IRExprStmt",
@@ -439,7 +440,8 @@
                     "is_extern": false,
                     "cleanup_slot": null,
                     "is_cycle_return_temp": false,
-                    "effective_is_volatile": false
+                    "effective_is_volatile": false,
+                    "is_register": false
                   },
                   {
                     "$type": "IRVarDecl",
@@ -456,7 +458,8 @@
                     "is_extern": false,
                     "cleanup_slot": null,
                     "is_cycle_return_temp": false,
-                    "effective_is_volatile": false
+                    "effective_is_volatile": false,
+                    "is_register": false
                   },
                   {
                     "$type": "IRVarDecl",
@@ -473,7 +476,8 @@
                     "is_extern": false,
                     "cleanup_slot": null,
                     "is_cycle_return_temp": false,
-                    "effective_is_volatile": false
+                    "effective_is_volatile": false,
+                    "is_register": false
                   }
                 ],
                 "result": {
@@ -621,7 +625,8 @@
               "is_extern": false,
               "cleanup_slot": null,
               "is_cycle_return_temp": false,
-              "effective_is_volatile": false
+              "effective_is_volatile": false,
+              "is_register": false
             },
             {
               "$type": "IRVarDecl",
@@ -665,7 +670,8 @@
               "is_extern": false,
               "cleanup_slot": null,
               "is_cycle_return_temp": false,
-              "effective_is_volatile": false
+              "effective_is_volatile": false,
+              "is_register": false
             },
             {
               "$type": "IRExprStmt",
@@ -752,7 +758,8 @@
               "is_extern": false,
               "cleanup_slot": null,
               "is_cycle_return_temp": false,
-              "effective_is_volatile": false
+              "effective_is_volatile": false,
+              "is_register": false
             },
             {
               "$type": "IRVarDecl",
@@ -774,7 +781,8 @@
               "is_extern": false,
               "cleanup_slot": null,
               "is_cycle_return_temp": false,
-              "effective_is_volatile": false
+              "effective_is_volatile": false,
+              "is_register": false
             },
             {
               "$type": "IRAssign",
@@ -828,7 +836,8 @@
               "is_extern": false,
               "cleanup_slot": null,
               "is_cycle_return_temp": false,
-              "effective_is_volatile": false
+              "effective_is_volatile": false,
+              "is_register": false
             },
             {
               "$type": "IRAssign",
