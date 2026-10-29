@@ -463,3 +463,29 @@ def test_typed_lambda_tail_target_requires_return():
         'void f() { var callback = int function(bool flag) { if (flag) { jump("done"); } return 1; label("done"); }; }'
     )
     assert any("lambda does not return" in error for error in result.errors), result.errors
+
+
+def test_realtime_rejects_backward_goto_but_allows_forward_goto():
+    messages = _messages('@realtime int f(int n) { label("again"); if (n > 0) { jump("again"); } return n; }')
+    assert len(messages) == 1, messages
+    assert "backward goto 'again'" in messages[0]
+    assert _messages('@realtime int f(int n) { if (n > 0) { jump("done"); } return 0; label("done"); return n; }') == []
+
+
+@pytest.mark.parametrize(
+    "body, statement",
+    [
+        ('jump("done"); label("done"); return;', "goto"),
+        ('label("unused"); return;', "labeled"),
+    ],
+)
+def test_gpu_rejects_goto_and_labels(body, statement):
+    messages = _messages("@gpu void f(int n) { " + body + " }")
+    assert len(messages) == (2 if statement == "goto" else 1), messages
+    assert statement + " statement is not allowed in GPU functions" in messages[0]
+
+
+def test_realtime_uses_the_nested_lambda_jump_scope():
+    messages = _messages('@realtime void f() { var callback = () => { label("again"); jump("again"); }; }')
+    assert messages
+    assert any("closure construction" in message or "ARC" in message for message in messages)

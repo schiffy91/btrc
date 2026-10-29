@@ -14,6 +14,7 @@ from .nodes import (
     IRBinOp,
     IRBlock,
     IRCall,
+    IRCase,
     IRCast,
     IRCleanupSlot,
     IRCompoundLiteral,
@@ -33,12 +34,14 @@ from .nodes import (
     IRFunctionPointerTypedef,
     IRFunctionRef,
     IRGlobalDecl,
+    IRGoto,
     IRGpuKernel,
     IRHelperDecl,
     IRIf,
     IRInclude,
     IRIndex,
     IRInitializerList,
+    IRLabel,
     IRLiteral,
     IRMacroDef,
     IRMacroUndef,
@@ -53,6 +56,7 @@ from .nodes import (
     IRObjectiveCSelector,
     IRParam,
     IRReturn,
+    IRStmtExpr,
     IRStructDef,
     IRStructField,
     IRStructForward,
@@ -155,11 +159,87 @@ class IRVerifier:
         self.validate_schema()
         self._functions = {function.name: function for function in self.module.function_defs}
         self._validate_register_storage()
+        self._validate_jumps()
         self._validate_cleanup_slots()
         self.validate_java_adapters()
         self.validate_type_declarations()
         for unit in self.module.native_units.values():
             IRVerifier(unit).validate()
+
+    def _validate_jumps(self) -> None:
+        if not self._jump_nodes:
+            return
+        visited: set[int] = set()
+        for kernel in self.module.gpu_kernels:
+            if any(isinstance(node, (IRGoto, IRLabel)) for node in kernel.walk()):
+                raise ValueError("IR goto and label are not allowed in GPU kernels")
+        for function in self.module.function_defs:
+            self._validate_jump_body(function.body, visited)
+        for declaration in self.module.objective_c_classes:
+            for method in declaration.methods:
+                self._validate_jump_body(method.body, visited)
+        if visited != self._jump_nodes:
+            raise ValueError("IR goto and label require a function body")
+
+    def _validate_jump_body(self, body, visited) -> None:
+        labels = {}
+        jumps = []
+        self._collect_jump_sites(body, (), None, False, labels, jumps, visited)
+        targeted = set()
+        for jump, path, region in jumps:
+            if jump.name not in labels:
+                raise ValueError(f"IR goto '{jump.name}' has no label in this function")
+            target_path, target_region = labels[jump.name]
+            if path[: len(target_path)] != target_path:
+                raise ValueError(f"IR goto '{jump.name}' enters a nested statement list")
+            if region != target_region:
+                raise ValueError(f"IR goto '{jump.name}' crosses an exception or autorelease boundary")
+            targeted.add(jump.name)
+        for name in labels.keys() - targeted:
+            raise ValueError(f"IR label '{name}' has no goto in this function")
+
+    def _collect_jump_sites(self, value, path, region, in_expression, labels, jumps, visited) -> None:
+        if isinstance(value, (list, tuple)):
+            for child in value:
+                self._collect_jump_sites(child, path, region, in_expression, labels, jumps, visited)
+            return
+        if not isinstance(value, IRNode):
+            return
+        if isinstance(value, IRGpuKernel):
+            if any(isinstance(node, (IRGoto, IRLabel)) for node in value.walk()):
+                raise ValueError("IR goto and label are not allowed in GPU kernels")
+            return
+        if isinstance(value, IRObjectiveCBlock):
+            self._validate_jump_body(value.body, visited)
+            return
+        if isinstance(value, (IRBlock, IRCase)):
+            path = (*path, id(value))
+        in_expression = in_expression or isinstance(value, IRStmtExpr)
+        if isinstance(value, (IRGoto, IRLabel)):
+            if in_expression or not path:
+                raise ValueError("IR goto and label cannot appear in a statement expression")
+            visited.add(id(value))
+            if isinstance(value, IRGoto):
+                jumps.append((value, path, region))
+            else:
+                if value.name in labels:
+                    raise ValueError(f"Duplicate IR label '{value.name}' in this function")
+                labels[value.name] = (path, region)
+            return
+        boundary_fields = set()
+        if isinstance(value, IRIf) and any(
+            isinstance(node, IRCall) and node.callee == "setjmp" for node in IRNode.walk_value(value.condition)
+        ):
+            boundary_fields = {"then_block", "else_block"}
+        elif isinstance(value, (IRObjectiveCAutoreleasePool, IRObjectiveCExceptionBoundary, IRCxxExceptionBoundary)):
+            boundary_fields = {"body", "failure", "allocation_failure"}
+        for field in fields(value):
+            if not field.metadata.get("ir_traverse", True):
+                continue
+            child_region = (id(value), field.name) if field.name in boundary_fields else region
+            self._collect_jump_sites(
+                getattr(value, field.name), path, child_region, in_expression, labels, jumps, visited
+            )
 
     def _validate_register_storage(self) -> None:
         if not self._has_register_storage:
@@ -400,6 +480,7 @@ class IRVerifier:
         """Reject raw strings and values in the wrong declaration category."""
 
         self._has_register_storage = False
+        self._jump_nodes: set[int] = set()
         if self.module.language not in ("c", "objective-c", "c++"):
             raise ValueError("unsupported IR translation-unit language")
         if not isinstance(self.module.native_units, dict):
@@ -418,6 +499,12 @@ class IRVerifier:
         designations: list[IRDesignation] = []
         designation_slots: set[int] = set()
         for node in self.module.walk():
+            if isinstance(node, (IRGoto, IRLabel)):
+                self._jump_nodes.add(id(node))
+                if not isinstance(node.name, str) or not node.name.isascii() or not node.name.isidentifier():
+                    raise ValueError("IR goto and label require identifier names")
+                if isinstance(node, IRLabel) and not isinstance(node.falls_through, bool):
+                    raise TypeError("IRLabel.falls_through requires bool")
             if isinstance(node, (IRVarDecl, IRParam)) and node.is_register:
                 self._has_register_storage = True
             if isinstance(node, (IRAddressOf, IRDesignation, IRInitializerList, IRCompoundLiteral)):
@@ -714,7 +801,12 @@ class IRVerifier:
             raise ValueError(f"IR realtime backstop rejected recursive call cycle via {' -> '.join(cycle)}")
         visiting = visiting | {function.name}
         path = (*path, function.name)
+        labels = set()
         for node in IRNode.walk_value(function.body):
+            if isinstance(node, IRLabel):
+                labels.add(node.name)
+            elif isinstance(node, IRGoto) and node.name in labels:
+                raise ValueError(f"IR realtime backstop rejected backward goto '{node.name}' via {' -> '.join(path)}")
             if isinstance(node, (IRCxxNew, IRCxxDelete, IRCxxExceptionBoundary)):
                 raise ValueError(f"IR realtime backstop rejected C++ lifetime operation via {' -> '.join(path)}")
             if isinstance(node, IRCast) and node.bridge:

@@ -1,0 +1,35 @@
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/ir/Model.btrc;
+import ../../../compiler/btrc/ir/Emitter.btrc;
+import ../../../compiler/btrc/ir/lowering/ControlFlow.btrc;
+import ../../../compiler/btrc/ir/optimization/Realtime.btrc;
+#include <assert.h>
+
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	string mode = Strings.copy(argv[1]);
+	Vector<IRNode> statements = [IRNode.gotoStatement("done"), IRNode.labelStatement("done", false), IRNode.returnStatement(IRNode.literal("0"))];
+	assert(!IRStatementSequence([IRNode.gotoStatement("done")]).mayFallThrough());
+	assert(IRStatementSequence([IRNode.gotoStatement("done"), IRNode.labelStatement("done", false)]).mayFallThrough());
+	if (mode == "missing") { statements = [IRNode.gotoStatement("missing")]; }
+	if (mode == "unused") { statements = [IRNode.labelStatement("unused", false)]; }
+	if (mode == "duplicate") { statements.push(IRNode.labelStatement("done", false)); }
+	if (mode == "nested") { statements = [IRNode.gotoStatement("done"), IRNode.block([IRNode.labelStatement("done", false)])]; }
+	if (mode == "sibling") { statements = [IRNode.block([IRNode.gotoStatement("done")]), IRNode.block([IRNode.labelStatement("done", false)])]; }
+	if (mode == "setjmp") { statements = [IRNode.ifStatement(IRNode.call("setjmp", []), IRNode.block([IRNode.gotoStatement("done")]), null), IRNode.labelStatement("done", false)]; }
+	if (mode == "realtime") { statements = [IRNode.labelStatement("again", false), IRNode.gotoStatement("again")]; }
+	IRFunction definition = IRFunction();
+	definition.name = "main";
+	definition.returnType = "int";
+	definition.body = IRNode.block(statements);
+	IRModule module = IRModule();
+	module.functions.push(definition);
+	if (mode == "realtime") {
+		definition.isRealtime = true;
+		RealtimeIRVerifier(module).validate(module);
+	}
+	print(CEmitter().emit(module));
+	return 0;
+}

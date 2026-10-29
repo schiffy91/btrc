@@ -12,6 +12,7 @@ import ./Expressions.btrc;
 import ./HostedAbi.btrc;
 import ./Models.btrc;
 import ./Operators.btrc;
+import ./validation/ControlFlow.btrc;
 
 class RealtimeEvent {
 	public bool isEffect;
@@ -227,6 +228,8 @@ class RealtimeAnalyzer {
 	private Map<string, string> declarationKeys;
 	private Map<string, string> propertyKeys;
 	private Vector<RealtimeLoopGuard> loopGuards;
+	private Node? jumpRoot = null;
+	private Map<string, JumpScopeIndex> jumpIndexes = {};
 	private IValidationRecords? records = null;
 	private Node? indexOwner = null;
 	/* Stage B: the top-level declaration each callable belongs to, and the
@@ -394,6 +397,14 @@ class RealtimeAnalyzer {
 
 	private void collectLocals(Node? node, RealtimeCallable callable) {
 		if (node == null || node.kind == NK_TYPE_EXPR) { return; }
+		if (node.kind == NK_GOTO_STMT) {
+			if (self.jumpRoot != null) {
+				string key = AstIdentity.key(self.jumpRoot);
+				if (!self.jumpIndexes.has(key)) { self.jumpIndexes.put(key, JumpScopeIndex.build(self.jumpRoot)); }
+				if (self.jumpIndexes.get(key).isBackward(node)) { self.effect(callable, "blocking", "backward goto '" + node.name + "'", node); }
+			}
+			return;
+		}
 		if (node.kind == NK_VAR_DECL_STMT) {
 			callable.localNames.put(node.name, true);
 		}
@@ -430,7 +441,9 @@ class RealtimeAnalyzer {
 		if (declaration.kind != NK_PROPERTY_DECL && declaration.returnType != null && self.managedType(declaration.returnType, {})) {
 			self.effect(callable, "ARC", "managed return type", declaration.returnType);
 		}
+		self.jumpRoot = callable.body;
 		self.visit(callable.body, callable);
+		self.jumpRoot = null;
 	}
 
 	private void visit(Node? node, RealtimeCallable callable) {
@@ -444,11 +457,14 @@ class RealtimeAnalyzer {
 			return;
 		}
 		if (node.kind == NK_LAMBDA_EXPR) {
+			Node? previousRoot = self.jumpRoot;
+			self.jumpRoot = node.bodyNode != null && node.bodyNode.kind == NK_LAMBDA_BLOCK ? node.bodyNode.bodyNode : null;
 			self.effect(callable, "allocation", "closure construction", node);
 			callable.openScope();
 			for parameter in node.params() { callable.bindLocal(parameter.name, parameter.type); }
 			self.collectChildren(node, callable, false);
 			callable.closeScope();
+			self.jumpRoot = previousRoot;
 			return;
 		}
 		if (node.kind == NK_PARALLEL_FOR_STMT) {

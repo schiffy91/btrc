@@ -52,7 +52,7 @@ class IRStatementSequence {
 
 	private bool statementMayFallThrough(IRNode? statement) {
 		if (statement == null) { return true; }
-		if (statement.kind == IRK_RETURN || statement.kind == IRK_BREAK || statement.kind == IRK_CONTINUE) {
+		if (statement.kind == IRK_RETURN || statement.kind == IRK_BREAK || statement.kind == IRK_CONTINUE || statement.kind == IRK_GOTO) {
 			return false;
 		}
 		if (statement.kind == IRK_EXPR_STMT) {
@@ -76,14 +76,12 @@ class IRStatementSequence {
 	}
 
 	public bool mayFallThrough() {
-		int index = 0;
-		while (index < self.statements.len) {
-			if (!self.statementMayFallThrough(self.statements.get(index))) {
-				return false;
-			}
-			index = index + 1;
+		bool fallsThrough = true;
+		for statement in self.statements {
+			if (statement.kind == IRK_LABEL) { fallsThrough = true; }
+			else if (fallsThrough) { fallsThrough = self.statementMayFallThrough(statement); }
 		}
-		return true;
+		return fallsThrough;
 	}
 
 	private bool nodeReferencesVariable(IRNode? node, string name) {

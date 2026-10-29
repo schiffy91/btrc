@@ -37,11 +37,13 @@ from ..ir.nodes import (
     IRFunctionPointerTypedef,
     IRFunctionRef,
     IRGlobalDecl,
+    IRGoto,
     IRGpuKernel,
     IRIf,
     IRInclude,
     IRIndex,
     IRInitializerList,
+    IRLabel,
     IRLineMarker,
     IRLiteral,
     IRMacroDef,
@@ -956,6 +958,12 @@ class CEmitter:
             self._line("}")
         elif isinstance(statement, IRExprStmt):
             self._line(f"{self._discarded_expr(statement.expr)};")
+        elif isinstance(statement, IRGoto):
+            self._line(f"goto {statement.name};")
+        elif isinstance(statement, IRLabel):
+            if statement.falls_through:
+                self._line("/* fall through */")
+            self._line(f"{statement.name}: ;")
         elif isinstance(statement, IRBreak):
             self._line("break;")
         elif isinstance(statement, IRContinue):

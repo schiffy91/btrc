@@ -148,6 +148,10 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("TypeComposition", "substitutionPointerDepth"),
         ("TypeIdentity", "symbolComponent"),
+        # JumpIRDriver exercises these typed IR factories before source lowering
+        # consumes them. Remove these entries when that production caller lands.
+        ("IRNode", "gotoStatement"),
+        ("IRNode", "labelStatement"),
         # Called by the stdlib worker pool through IWorkerRequestHandler.
         ("ModuleUnitWorker", "handle"),
     }
@@ -1070,6 +1074,8 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
         "analyzer/validation/Declarations.btrc",
         "analyzer/validation/Names.btrc",
         "analyzer/validation/Ownership.btrc",
+        # Goto's plain-C-object policy queries the generated hosted type names.
+        "analyzer/validation/Types.btrc",
         "ir/gpu/Pipeline.btrc",
         "ir/lowering/Callables.btrc",
         "ir/lowering/Calls.btrc",
@@ -1104,7 +1110,11 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
     assert pipeline.count("HostedAbiRepository(") == 1
     assert "self.hostedAbi = HostedAbiRepository(" in pipeline
     assert "HostedAbiRepository" not in models
-    assert "hostedAbi" not in validation_state
+    # The state transports semantic facts; the following TypeValidator owns
+    # ABI queries and receives the pipeline's repository through its constructor.
+    state_declaration = validation_state.split("class SemanticValidationState", 1)[1].split("class TypeValidator", 1)[0]
+    assert "hostedAbi" not in state_declaration
+    assert "HostedAbiRepository(" not in validation_state
     assert "HostedAbiRepository" not in analyzer.split("public SemanticAnalyzer(", 1)[0]
     assert "HostedAbiRepository" not in lowerer.split("public IRLowerer(", 1)[0]
     assert "HostedAbiRepository" not in _path("ir/optimization/Optimizer.btrc").read_text()

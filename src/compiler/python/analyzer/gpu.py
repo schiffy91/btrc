@@ -31,11 +31,13 @@ from src.compiler.python.syntax.ast.generated import (
     ForInStmt,
     FStringLiteral,
     FunctionDecl,
+    GotoStmt,
     Identifier,
     IfStmt,
     IndexExpr,
     IntLiteral,
     KeepStmt,
+    LabelStmt,
     LambdaExpr,
     ListLiteral,
     MapLiteral,
@@ -766,6 +768,8 @@ class GpuIntrinsicResolver:
 
 
 _STATEMENT_LABELS = {
+    GotoStmt: "goto",
+    LabelStmt: "labeled",
     Block: "nested block",
     DoWhileStmt: "do-while",
     ForInStmt: "for-in",

@@ -327,6 +327,8 @@ class GpuKernelValidator {
 	}
 
 	private string statementLabel(Node statement) {
+		if (statement.kind == NK_GOTO_STMT) { return "goto"; }
+		if (statement.kind == NK_LABEL_STMT) { return "labeled"; }
 		if (statement.kind == NK_BLOCK) { return "nested block"; }
 		if (statement.kind == NK_DO_WHILE_STMT) { return "do-while"; }
 		if (statement.kind == NK_FOR_IN_STMT) { return "for-in"; }

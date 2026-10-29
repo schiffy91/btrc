@@ -3088,7 +3088,7 @@ class ModuleUnitInterfaces {
 		}
 	}
 
-	class string context(BtrccOptions options, string target) { return f"validation-record-v11;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
+	class string context(BtrccOptions options, string target) { return f"validation-record-v12;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
 
 	class string headerPrefix() { return "btrc-module-interface-v1\n"; }
 

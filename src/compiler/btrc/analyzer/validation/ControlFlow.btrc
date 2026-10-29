@@ -310,7 +310,7 @@ class ControlFlowValidator {
 		return self.jumpIndexes.get(key);
 	}
 
-	private bool targetedLabel(Node statement) { return statement.kind == NK_LABEL_STMT && self.jumpIndex(self.jumpRoots.get(self.jumpRoots.len - 1)).targetedNames.has(statement.name); }
+	private bool targetedLabel(Node statement) { return statement.kind == NK_LABEL_STMT && self.jumpIndex(self.jumpRoots.get(self.jumpRoots.len - 1)).targeted(statement.name); }
 
 	private Map<string, bool>? activeJumpTargets() {
 		if (self.jumpRoots.len == 0) { return null; }
@@ -327,7 +327,7 @@ class ControlFlowValidator {
 
 	private void enterLabelFlow(Node label) {
 		JumpScopeIndex index = self.jumpIndex(self.jumpRoots.get(self.jumpRoots.len - 1));
-		if (!index.targetedNames.has(label.name)) { return; }
+		if (!index.targeted(label.name)) { return; }
 		bool backward = false;
 		for site in index.gotos {
 			if (site.node.name == label.name && index.isBackward(site.node)) { backward = true; }

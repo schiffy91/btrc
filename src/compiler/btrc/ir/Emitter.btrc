@@ -3,6 +3,8 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
+import ../generated/ast/Node.btrc;
+import ../syntax/Identity.btrc;
 import ./Model.btrc;
 import ./optimization/Optimizer.btrc;
 import ./RuntimeState.btrc;
@@ -48,6 +50,7 @@ class CEmitter {
 	private string dbgPresumed = "";
 	private Map<string, string> lineFilenames;
 	private Map<string, bool> registerBindings;
+	private bool sawJump = false;
 
 	public CEmitter() {
 		self.lines = [];
@@ -353,9 +356,11 @@ class CEmitter {
 	private void emitObjectiveCImplementation(IRObjectiveCClass declaration) {
 		self.line("@implementation " + declaration.name);
 		for method in declaration.methods {
+			self.sawJump = false;
 			self.line(self.objectiveCMethodSignature(method) + " {");
 			self.indent++;
 			self.emitBlockContents(method.body);
+			if (self.sawJump) { IRJumpVerifier().validate(method.body); }
 			self.indent--;
 			self.line("}");
 		}
@@ -383,6 +388,11 @@ class CEmitter {
 		int index = 0;
 		while (index < module.gpuKernels.len) {
 			IRGpuKernel kernel = module.gpuKernels.get(index);
+			if (kernel.declaration != null) {
+				for node in AstStructure.preorder(kernel.declaration) {
+					if (node.kind == NK_GOTO_STMT || node.kind == NK_LABEL_STMT) { throw "IR goto and label are not allowed in GPU kernels"; }
+				}
+			}
 			if (self.declarationsOnly) { self.line("extern char* " + kernel.name + "_wgsl;"); }
 			else if (self.sharedLinkage) { self.line("char* " + kernel.name + "_wgsl = \"" + self.escapedGpuShader(kernel.wgslSource) + "\";"); }
 			else { self.line("static char* " + kernel.name + "_wgsl = \"" + self.escapedGpuShader(kernel.wgslSource) + "\";"); }
@@ -708,6 +718,7 @@ class CEmitter {
 	/* --- function emission --- */
 
 	private void emitFunction(IRFunction fn) {
+		self.sawJump = false;
 		Map<string, bool> enclosingRegisters = self.registerBindings;
 		for parameter in fn.params { if (parameter.isRegister) { self.recordRegisterBinding(parameter.name, true); } }
 		string prefix = "";
@@ -727,6 +738,7 @@ class CEmitter {
 		self.line("}");
 		self.line("");
 		self.registerBindings = enclosingRegisters;
+		if (self.sawJump) { IRJumpVerifier().validate(fn.body); }
 	}
 
 	/* One C string-literal payload for a #line directive. */
@@ -937,6 +949,16 @@ class CEmitter {
 			}
 			self.line("}");
 			self.registerBindings = enclosingRegisters;
+			return;
+		}
+		if (s.kind == IRK_GOTO || s.kind == IRK_LABEL) {
+			self.sawJump = true;
+			self.validateSelectorIdentifier(s.name);
+			if (s.kind == IRK_GOTO) { self.line("goto " + s.name + ";"); }
+			else {
+				if (((IRControlPayload)s.payload).fallsThrough) { self.line("/* fall through */"); }
+				self.line(s.name + ": ;");
+			}
 			return;
 		}
 		if (s.kind == IRK_BREAK) { self.line("break;"); return; }
@@ -1223,6 +1245,7 @@ class CEmitter {
 			body.registerBindings = self.registerBindings;
 			for parameter in ((IRNativePayload)e.payload).params { body.recordRegisterBinding(parameter.name, parameter.isRegister); }
 			body.emitBlockContents(((IRNativePayload)e.payload).body);
+			if (body.sawJump) { IRJumpVerifier().validate(((IRNativePayload)e.payload).body); }
 			return "^" + ((IRNativePayload)e.payload).targetType + "(" + self.paramList(((IRNativePayload)e.payload).params) + ") {\n" + Strings.join(body.lines, "\n") + "\n}";
 		}
 		if (e.kind == IRK_FIELD_ACCESS) {
@@ -1422,4 +1445,126 @@ class CEmitter {
 	}
 
 	private bool whitespace(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+}
+
+/* A jump's lexical list ancestry and innermost protected region. */
+class IRJumpSite {
+	public IRNode node;
+	public Vector<IRNode> path;
+	public IRNode? region;
+
+	public IRJumpSite(IRNode node, Vector<IRNode> path, IRNode? region) {
+		self.node = node;
+		self.path = path;
+		self.region = region;
+	}
+}
+
+/* Emission invokes this only for bodies containing a jump or label. */
+class IRJumpVerifier {
+	private Map<string, IRJumpSite> labels = {};
+	private Vector<IRJumpSite> jumps = [];
+
+	public void validate(IRNode? body) {
+		self.labels = {};
+		self.jumps = [];
+		Vector<IRNode> path = [];
+		self.collect(body, path, null, false);
+		Map<string, bool> targeted = {};
+		for jump in self.jumps {
+			if (!self.labels.has(jump.node.name)) { throw "IR goto '" + jump.node.name + "' has no label in this function"; }
+			IRJumpSite label = self.labels.get(jump.node.name);
+			if (label.path.len > jump.path.len) { throw "IR goto enters a nested statement list"; }
+			for (int index = 0; index < label.path.len; index++) {
+				if (label.path.get(index) != jump.path.get(index)) { throw "IR goto enters a nested statement list"; }
+			}
+			if (label.region != jump.region) { throw "IR goto crosses an exception or autorelease boundary"; }
+			targeted.put(jump.node.name, true);
+		}
+		for name in self.labels.keys() {
+			if (!targeted.has(name)) { throw "IR label '" + name + "' has no goto in this function"; }
+		}
+	}
+
+	private bool containsSetjmp(IRNode? node) {
+		if (node == null) { return false; }
+		if (node.kind == IRK_CALL && ((IRCallPayload)node.payload).callee == "setjmp") { return true; }
+		for child in self.children(node) { if (self.containsSetjmp(child)) { return true; } }
+		return false;
+	}
+
+	private void collect(IRNode? node, Vector<IRNode> path, IRNode? region, bool inExpression) {
+		if (node == null) { return; }
+		if (node.kind == IRK_OBJECTIVE_C_BLOCK) { IRJumpVerifier().validate(((IRNativePayload)node.payload).body); return; }
+		Vector<IRNode> nested = path;
+		if (node.kind == IRK_BLOCK || node.kind == IRK_CASE) {
+			nested = [];
+			for parent in path { nested.push(parent); }
+			nested.push(node);
+		}
+		bool expression = inExpression || node.kind == IRK_STMT_EXPR;
+		if (node.kind == IRK_GOTO || node.kind == IRK_LABEL) {
+			if (expression || nested.len == 0) { throw "IR goto and label cannot appear in a statement expression"; }
+			IRJumpSite site = IRJumpSite(node, nested, region);
+			if (node.kind == IRK_GOTO) { self.jumps.push(site); }
+			else {
+				if (self.labels.has(node.name)) { throw "Duplicate IR label '" + node.name + "' in this function"; }
+				self.labels.put(node.name, site);
+			}
+			return;
+		}
+		bool setjmpBranch = node.kind == IRK_IF && self.containsSetjmp(((IRControlPayload)node.payload).condition);
+		bool nativeBoundary = node.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL || node.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY || node.kind == IRK_CXX_EXCEPTION_BOUNDARY;
+		for child in self.children(node) {
+			IRNode? childRegion = region;
+			if (setjmpBranch && (child == ((IRControlPayload)node.payload).thenBlock || child == ((IRControlPayload)node.payload).elseBlock)) { childRegion = child; }
+			if (nativeBoundary && (child == ((IRNativePayload)node.payload).body || child == ((IRNativePayload)node.payload).thenBlock || child == ((IRNativePayload)node.payload).elseBlock)) { childRegion = child; }
+			self.collect(child, nested, childRegion, expression);
+		}
+	}
+
+	private Vector<IRNode> children(IRNode node) {
+		Vector<IRNode> result = [];
+		int domain = node.payloadDomain();
+		IRNode? child = null;
+		child = node.left;
+		if (child != null) { result.push(child); }
+		child = node.right;
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null);
+		if (child != null) { result.push(child); }
+		child = node.expr;
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null);
+		if (child != null) { result.push(child); }
+		child = (domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null);
+		if (child != null) { result.push(child); }
+		for argument in node.args() { result.push(argument); }
+		for statement in node.stmts() { result.push(statement); }
+		return result;
+	}
 }

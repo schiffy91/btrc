@@ -129,3 +129,29 @@ def test_native_jump_nullable_flow(jump_validation_driver, body, warnings):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.count("Non-optional access") == warnings
+
+
+@pytest.mark.parametrize(
+    "source, diagnostic",
+    [
+        ('@realtime int f(int n) { label("again"); if (n > 0) { jump("again"); } return n; }', "backward goto 'again'"),
+        ('@realtime int f(int n) { if (n > 0) { jump("done"); } return 0; label("done"); return n; }', None),
+        (
+            '@gpu void f(int n) { jump("done"); label("done"); return; }',
+            "goto statement is not allowed in GPU functions",
+        ),
+        ('@gpu void f(int n) { label("unused"); return; }', "labeled statement is not allowed in GPU functions"),
+    ],
+)
+def test_native_jump_execution_domains(jump_validation_driver, source, diagnostic):
+    result = subprocess.run(
+        [str(jump_validation_driver), str(ROOT / "src/language/grammar.ebnf"), source],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if diagnostic is None:
+        assert result.returncode == 0, result.stdout + result.stderr
+    else:
+        assert result.returncode != 0
+        assert diagnostic in result.stdout + result.stderr
