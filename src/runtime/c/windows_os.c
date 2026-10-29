@@ -24,6 +24,7 @@
 #include <wchar.h>
 
 #include "windows_os.h"
+#include "windows_utf.h"
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -92,44 +93,6 @@ static int btrc_wos_fail(__btrc_windows_launch_error_t *error, uint32_t stage,
     return -1;
 }
 
-/* One strict UTF-8 scalar value: overlong forms, surrogates and values past
- * U+10FFFF are malformed. Returns the bytes consumed, or 0. */
-static size_t btrc_wos_utf8_next(const unsigned char *text, uint32_t *value) {
-    unsigned char lead = text[0];
-    if (lead < 0x80u) {
-        *value = lead;
-        return 1;
-    }
-    size_t length;
-    uint32_t scalar;
-    uint32_t minimum;
-    if ((lead & 0xE0u) == 0xC0u) {
-        length = 2;
-        scalar = lead & 0x1Fu;
-        minimum = 0x80u;
-    } else if ((lead & 0xF0u) == 0xE0u) {
-        length = 3;
-        scalar = lead & 0x0Fu;
-        minimum = 0x800u;
-    } else if ((lead & 0xF8u) == 0xF0u) {
-        length = 4;
-        scalar = lead & 0x07u;
-        minimum = 0x10000u;
-    } else {
-        return 0;
-    }
-    for (size_t index = 1; index < length; index++) {
-        unsigned char next = text[index];
-        if ((next & 0xC0u) != 0x80u) return 0;
-        scalar = (scalar << 6) | (next & 0x3Fu);
-    }
-    if (scalar < minimum || scalar > 0x10FFFFu
-            || (scalar >= 0xD800u && scalar <= 0xDFFFu))
-        return 0;
-    *value = scalar;
-    return length;
-}
-
 /* Appends UTF-16 units to an optional buffer while counting them. */
 typedef struct {
     uint16_t *data;
@@ -180,9 +143,10 @@ static int btrc_wos_quote_pass(char **argv, size_t argc, btrc_wos_units *units,
         int quoted = program || btrc_wos_needs_quotes((const char *)argument);
         if (quoted) btrc_wos_put(units, (uint32_t)'"');
         size_t backslashes = 0;
-        for (size_t offset = 0; argument[offset] != 0;) {
+        size_t bytes = strlen((const char *)argument);
+        for (size_t offset = 0; offset < bytes;) {
             uint32_t value = 0;
-            size_t consumed = btrc_wos_utf8_next(argument + offset, &value);
+            size_t consumed = btrc_windows_utf8_next(argument + offset, bytes - offset, &value);
             if (consumed == 0)
                 return btrc_wos_fail(error, BTRC_WOS_STAGE_UTF,
                     BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_UTF8);
@@ -324,9 +288,10 @@ static void btrc_wos_close(HANDLE *handle) {
 static wchar_t *btrc_wos_widen(const char *text, __btrc_windows_launch_error_t *error) {
     const unsigned char *bytes = (const unsigned char *)text;
     btrc_wos_units counting = { NULL, 0 };
-    for (size_t offset = 0; bytes[offset] != 0;) {
+    size_t length = strlen(text);
+    for (size_t offset = 0; offset < length;) {
         uint32_t value = 0;
-        size_t consumed = btrc_wos_utf8_next(bytes + offset, &value);
+        size_t consumed = btrc_windows_utf8_next(bytes + offset, length - offset, &value);
         if (consumed == 0) {
             btrc_wos_fail(error, BTRC_WOS_STAGE_UTF, BTRC_WOS_DOMAIN_VALIDATION,
                 BTRC_WOS_REASON_UTF8);
@@ -342,9 +307,9 @@ static wchar_t *btrc_wos_widen(const char *text, __btrc_windows_launch_error_t *
         return NULL;
     }
     btrc_wos_units writing = { (uint16_t *)result, 0 };
-    for (size_t offset = 0; bytes[offset] != 0;) {
+    for (size_t offset = 0; offset < length;) {
         uint32_t value = 0;
-        offset += btrc_wos_utf8_next(bytes + offset, &value);
+        offset += btrc_windows_utf8_next(bytes + offset, length - offset, &value);
         btrc_wos_put(&writing, value);
     }
     return result;
