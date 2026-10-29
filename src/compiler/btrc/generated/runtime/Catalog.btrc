@@ -80,6 +80,8 @@ class GeneratedRuntimeCatalogData {
 		self.pushRows24();
 		self.pushRows25();
 		self.pushRows26();
+		self.pushRows27();
+		self.pushRows28();
 		self.intrinsicEffects = [];
 		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "compareExchangeStrong", "safe", "atomic_compare_exchange_strong_explicit", "Atomic.compareExchangeStrong"));
 		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "exchange", "safe", "atomic_exchange_explicit", "Atomic.exchange"));
@@ -2856,5 +2858,131 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"safe"));
+	}
+
+	private void pushRows27() {
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_types",
+			[
+			"typedef struct __btrc_windows_supervisor_owner __btrc_windows_supervisor_owner;",
+		],
+			["__btrc_windows_launch_types"],
+			self.emptyStrings(),
+			["__btrc_windows_supervisor_owner"],
+			self.emptyStrings(),
+			false,
+			"unknown"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_accept",
+			[
+			"/* Admit the inherited bootstrap handles and receive one complete INIT within\n * a positive finite budget. Failure releases acquired resources, or retains\n * *out and reports live/poisoned ownership when cleanup cannot finish. */\nint __btrc_windows_supervisor_accept(uint64_t startup_timeout_ms,\n    __btrc_windows_supervisor_owner **out, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_copy_startup",
+			[
+			"/* Query/copy the canonical INIT payload, without its 16-byte frame header.\n * Includes the token; the caller must scrub its copy. Insufficient capacity\n * reports the required byte count and makes no partial copy. */\nint __btrc_windows_supervisor_copy_startup(__btrc_windows_supervisor_owner *owner,\n    unsigned char *buffer, size_t capacity, size_t *required_bytes,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_prepare",
+			[
+			"/* Validate and retain the command/environment snapshot, create an unnamed\n * kill-on-close job, hold the private append log, and redirect CRT/native\n * diagnostics to it. No managed command runs during preparation. */\nint __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_ready_wait_commit",
+			[
+			"/* READY and the complete authenticated COMMIT share accept's deadline. A\n * failed exchange aborts preparation; no managed command has started. */\nint __btrc_windows_supervisor_ready_wait_commit(__btrc_windows_supervisor_owner *owner,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_ack",
+			[
+			"/* Verify the protected record before ACK. After verification, ordinary ACK\n * loss succeeds with delivered=0. Failed cleanup poisons the retained owner.\n * Success scrubs startup storage, so copy_startup must precede this call. */\nint __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,\n    uint32_t *ack_delivered, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_spawn_managed",
+			[
+			"/* Start only after COMMIT, protected publication and completed bootstrap\n * cleanup. An active generation cannot be replaced. A restart gets a new job\n * and the exact retained command/environment snapshot. */\nint __btrc_windows_supervisor_spawn_managed(__btrc_windows_supervisor_owner *owner,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_poll_managed",
+			[
+			"/* Poll never waits. running stays true until the root and all descendants\n * have exited; only then is native_exit_code the root's complete DWORD code. */\nint __btrc_windows_supervisor_poll_managed(__btrc_windows_supervisor_owner *owner,\n    uint32_t *running, uint32_t *native_exit_code, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+	}
+
+	private void pushRows28() {
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_terminate_managed",
+			[
+			"/* Idempotent termination of the current tree; poll or close reaps it. */\nint __btrc_windows_supervisor_terminate_managed(__btrc_windows_supervisor_owner *owner,\n    uint32_t exit_code, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_close",
+			[
+			"/* Terminate/reap the managed tree, cancel/drain bootstrap operations, release\n * preparation and scrub storage within one timeout. Only complete release\n * nulls *owner; live state is never freed on timeout. A retained\n * poisoned owner must be left to process teardown, not retried. */\nint __btrc_windows_supervisor_close(__btrc_windows_supervisor_owner **owner,\n    uint64_t timeout_ms, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
 	}
 }

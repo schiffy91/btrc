@@ -5220,6 +5220,175 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         source_visible=True,
         realtime_effect='safe',
     ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_types',
+        c_source=(
+            'typedef struct __btrc_windows_supervisor_owner __btrc_windows_supervisor'
+            '_owner;'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=('__btrc_windows_supervisor_owner',),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_accept',
+        c_source=(
+            '/* Admit the inherited bootstrap handles and receive one complete INIT w'
+            'ithin\n * a positive finite budget. Failure releases acquired resources, '
+            'or retains\n * *out and reports live/poisoned ownership when cleanup cann'
+            'ot finish. */\nint __btrc_windows_supervisor_accept(uint64_t startup_time'
+            'out_ms,\n    __btrc_windows_supervisor_owner **out, __btrc_windows_launch'
+            '_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_copy_startup',
+        c_source=(
+            '/* Query/copy the canonical INIT payload, without its 16-byte frame head'
+            'er.\n * Includes the token; the caller must scrub its copy. Insufficient '
+            'capacity\n * reports the required byte count and makes no partial copy. *'
+            '/\nint __btrc_windows_supervisor_copy_startup(__btrc_windows_supervisor_o'
+            'wner *owner,\n    unsigned char *buffer, size_t capacity, size_t *require'
+            'd_bytes,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_prepare',
+        c_source=(
+            '/* Validate and retain the command/environment snapshot, create an unnam'
+            'ed\n * kill-on-close job, hold the private append log, and redirect CRT/n'
+            'ative\n * diagnostics to it. No managed command runs during preparation. '
+            '*/\nint __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner'
+            ' *owner,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_ready_wait_commit',
+        c_source=(
+            "/* READY and the complete authenticated COMMIT share accept's deadline. "
+            'A\n * failed exchange aborts preparation; no managed command has started.'
+            ' */\nint __btrc_windows_supervisor_ready_wait_commit(__btrc_windows_super'
+            'visor_owner *owner,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_ack',
+        c_source=(
+            '/* Verify the protected record before ACK. After verification, ordinary '
+            'ACK\n * loss succeeds with delivered=0. Failed cleanup poisons the retain'
+            'ed owner.\n * Success scrubs startup storage, so copy_startup must preced'
+            'e this call. */\nint __btrc_windows_supervisor_ack(__btrc_windows_supervi'
+            'sor_owner *owner,\n    uint32_t *ack_delivered, __btrc_windows_launch_err'
+            'or_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_spawn_managed',
+        c_source=(
+            '/* Start only after COMMIT, protected publication and completed bootstra'
+            'p\n * cleanup. An active generation cannot be replaced. A restart gets a '
+            'new job\n * and the exact retained command/environment snapshot. */\nint _'
+            '_btrc_windows_supervisor_spawn_managed(__btrc_windows_supervisor_owner *'
+            'owner,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_poll_managed',
+        c_source=(
+            '/* Poll never waits. running stays true until the root and all descendan'
+            "ts\n * have exited; only then is native_exit_code the root's complete DWO"
+            'RD code. */\nint __btrc_windows_supervisor_poll_managed(__btrc_windows_su'
+            'pervisor_owner *owner,\n    uint32_t *running, uint32_t *native_exit_code'
+            ', __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_terminate_managed',
+        c_source=(
+            '/* Idempotent termination of the current tree; poll or close reaps it. *'
+            '/\nint __btrc_windows_supervisor_terminate_managed(__btrc_windows_supervi'
+            'sor_owner *owner,\n    uint32_t exit_code, __btrc_windows_launch_error_t '
+            '*error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_close',
+        c_source=(
+            '/* Terminate/reap the managed tree, cancel/drain bootstrap operations, r'
+            'elease\n * preparation and scrub storage within one timeout. Only complet'
+            'e release\n * nulls *owner; live state is never freed on timeout. A retai'
+            'ned\n * poisoned owner must be left to process teardown, not retried. */\n'
+            'int __btrc_windows_supervisor_close(__btrc_windows_supervisor_owner **ow'
+            'ner,\n    uint64_t timeout_ms, __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
 )
 
 INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (
