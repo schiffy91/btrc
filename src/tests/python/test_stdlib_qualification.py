@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shlex
 import shutil
 
@@ -126,6 +127,39 @@ def test_coverage_refuses_incomplete_or_changed_evidence(inventory, defect):
         report["modules"][0]["excluded"] = "invented exclusion"
     with pytest.raises(ValueError):
         StdlibCoverage(inventory).validate(reports, targets)
+
+
+@pytest.mark.parametrize("filename", ["Native.h", "include/NativeDefinitions"])
+@pytest.mark.parametrize("change", ["edit", "add", "remove"])
+def test_coverage_refuses_changed_native_inputs(inventory, filename, change):
+    header = inventory.root / filename
+    header.parent.mkdir(exist_ok=True)
+    if change != "add":
+        header.write_text("int nativeValue(void);\n")
+    before = StdlibInventory(inventory.root)
+    targets = (PackageTarget.parse("linux-x64"), PackageTarget.parse("windows-x64"))
+    reports = reports_for(before, targets)
+    assert StdlibCoverage(before).validate(reports, targets)["modules"] == 4
+    if change == "remove":
+        header.unlink()
+    elif change == "edit":
+        original = header.stat()
+        header.write_text("int nativeValue(int );\n")
+        os.utime(header, ns=(original.st_atime_ns, original.st_mtime_ns))
+        assert header.stat().st_size == original.st_size
+    else:
+        header.write_text("int nativeValue(void);\n")
+    after = StdlibInventory(inventory.root)
+    assert all(after.rows(target) == before.rows(target) for target in targets)
+    with pytest.raises(ValueError, match="stale stdlib report"):
+        StdlibCoverage(after).validate(reports, targets)
+
+
+def test_check_refuses_inputs_changed_after_inventory(inventory, tmp_path):
+    (inventory.root / "Native.h").write_text("int nativeValue(void);\n")
+    checker = StdlibCheck(inventory, PackageTarget.parse("linux-x64"), "python", None)
+    with pytest.raises(ValueError, match="stdlib inputs changed"):
+        checker.run(tmp_path / "output", modules=("API.btrc",))
 
 
 def test_current_inventory_has_desktop_coverage_for_every_source():

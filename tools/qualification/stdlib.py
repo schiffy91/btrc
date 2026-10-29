@@ -49,10 +49,7 @@ class StdlibInventory:
         self.modules = tuple(sorted(self.root.rglob("*.btrc")))
         if not self.modules:
             raise ValueError(f"no stdlib modules in {self.root}")
-        digest = hashlib.sha256()
-        for source in sorted((*self.modules, *self.root.rglob("btrc.toml"))):
-            digest.update(source.relative_to(self.root).as_posix().encode() + b"\0" + source.read_bytes() + b"\0")
-        self.sha256 = digest.hexdigest()
+        self.sha256 = self.fingerprint(self.root)
         self.constraints: dict[Path, list[tuple[str, tuple[TargetSelector, ...]]]] = defaultdict(list)
         reader = PackageManifestReader()
         validator = PackageManifestValidator()
@@ -71,6 +68,20 @@ class StdlibInventory:
         self.resolver = ImportResolver(StdlibRepository(directory=str(self.root)))
         self.scanner = SourceDirectiveScanner()
         self._dependencies: dict[tuple[str, Path], tuple[Path, ...]] = {}
+
+    @staticmethod
+    def fingerprint(root: Path) -> str:
+        """Bind reports to every library input, including transitive native headers.
+
+        Headers need not have an extension or appear directly in a manifest.
+        Hash the complete library snapshot rather than guessing its include graph.
+        """
+        digest = hashlib.sha256()
+        for source in sorted(path for path in root.rglob("*") if path.is_file()):
+            for value in (source.relative_to(root).as_posix().encode(), source.read_bytes()):
+                digest.update(len(value).to_bytes(8, "big"))
+                digest.update(value)
+        return digest.hexdigest()
 
     def restriction(self, module: Path, target: PackageTarget) -> str | None:
         relative = module.relative_to(self.root)
@@ -230,6 +241,8 @@ class StdlibCheck:
         with tempfile.TemporaryDirectory(prefix="sources-", dir=output) as directory:
             data = Path(directory)
             shutil.copytree(self.inventory.root, data / "stdlib")
+            if self.inventory.fingerprint(data / "stdlib") != self.inventory.sha256:
+                raise ValueError("stdlib inputs changed while preparing qualification")
             shutil.copytree(REPO / "src/language", data / "language")
             for row in rows:
                 module = row["module"]
