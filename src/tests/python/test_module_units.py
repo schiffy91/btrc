@@ -3377,6 +3377,98 @@ def test_native_record_input_declarations_match_frontends(
 
 
 @pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("dispatch", [False, True], ids=["field-only", "interface-call"])
+def test_generic_interface_tables_retain_implementation_dependencies(tmp_path, immutable_btrcc, module_units, dispatch):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Box.btrc").write_text("""interface IValue { int read(); }
+class Helper<T> {
+ public T value;
+ public Helper(T value) { self.value = value; }
+ public int answer() { return 42; }
+}
+class Box<T> implements IValue {
+ public T value;
+ public Box(T value) { self.value = value; }
+ public int read() {
+  var helper = new Helper<T>(self.value);
+  return helper.answer();
+ }
+}
+""")
+    use = "IValue value = box; assert(value.read() == 42);" if dispatch else "assert(box.value == 7);"
+    (source / "Main.btrc").write_text(
+        "import ./Box.btrc;\nint main() { var box = new Box<int>(7); " + use + ' print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+def test_generic_interface_demand_survives_validation_record_replay(tmp_path, immutable_btrcc):
+    NativeBindingPackage.require_reader()
+    assert C_COMPILER is not None
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Box.btrc").write_text("""interface IValue { int read(); }
+class Box<T> implements IValue {
+ public T value;
+ public Box(T value) { self.value = value; }
+ public int read() { return 42; }
+}
+""")
+    (workspace.modules / "Version.btrc").write_text("int version() { return 0; }\n")
+    (workspace.modules / "Main.btrc").write_text(
+        "import ./Box.btrc;\nimport ./Version.btrc;\n"
+        "int main() { IValue box = new Box<int>(7); assert(box.read() == 42); "
+        'assert(version() == 0); print("PASS"); return 0; }\n'
+    )
+    previous = None
+    for phase in ("cold", "edit", "verify", "fresh"):
+        if phase == "edit":
+            workspace.edit("Version.btrc", "return 0;", "return 1 - 1;")
+        if phase == "fresh":
+            shutil.rmtree(workspace.cache)
+        output = workspace.root / phase
+        _, units, primary, log = _btrcc_build_logged(
+            immutable_btrcc,
+            workspace,
+            "Main.btrc",
+            output,
+            {"BTRC_VERIFY_VALIDATION_RECORDS": "1"} if phase == "verify" else None,
+            jobs=1,
+        )
+        if phase == "edit":
+            assert _validation_records(log)["replayed"] > 0
+        if phase in {"verify", "fresh"}:
+            assert (units, primary) == previous
+        executable = output / "program"
+        compiled = subprocess.run(
+            [
+                *C_COMPILER,
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-O2",
+                *map(str, sorted(output.glob("program*.c"))),
+                "-o",
+                str(executable),
+                "-lm",
+                "-lpthread",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0 and ran.stdout == "PASS\n", (phase, ran.stdout, ran.stderr)
+        previous = units, primary
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
 @pytest.mark.parametrize("shape", ["cycle", "scalar", "phantom"])
 def test_generic_interface_cycles_preserve_retained_owners(tmp_path, immutable_btrcc, module_units, shape):
     source = tmp_path / "src"
