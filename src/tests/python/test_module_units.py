@@ -3645,6 +3645,51 @@ int main() {{
 
 
 @pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_contextual_nested_literals_retain_insertions_and_conversions(tmp_path, immutable_btrcc, module_units):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "Main.btrc").write_text("""import Library.Map;
+import Library.Vector;
+class Token<T> {
+ public T value;
+ public Token(T value) { self.value = value; }
+ public string toString() { return "token"; }
+}
+typedef Vector<Vector<string>> Nested;
+class Holder {
+ public Nested values = [[], [new Token<int>(1)]];
+ public Holder() {}
+}
+class Factory<T> {
+ public Factory() {}
+ public Vector<Vector<T>> build(T value) { return [[], [value]]; }
+}
+Nested returned() { return [[], [new Token<int>(2)]]; }
+void accept(Nested values = [[], [new Token<int>(3)]]) {
+ assert(values.len == 2 && values.get(0).len == 0 && values.get(1).get(0) == "token");
+}
+int main() {
+ Nested values = [[], [new Token<int>(4)]];
+ accept(values);
+ values = [[], [new Token<int>(5)]];
+ accept(values);
+ accept([[], [new Token<int>(6)]]);
+ accept();
+ accept(returned());
+ accept(new Holder().values);
+ accept(new Factory<string>().build("token"));
+ Vector<Map<string, string>> maps = [{}, {new Token<int>(7): new Token<int>(8)}];
+ assert(maps.get(1).get("token") == "token");
+ Vector<Vector<float>> numbers = [[], [1.5, 2.5]];
+ assert(numbers.get(1).get(0) == 1.5f && numbers.get(1).get(1) == 2.5f);
+ print("PASS");
+ return 0;
+}
+""")
+    _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
 @pytest.mark.parametrize("cycle", [False, True], ids=["acyclic", "cycle"])
 def test_generic_class_method_demand_matches_frontends(tmp_path, immutable_btrcc, module_units, cycle):
     source = tmp_path.resolve() / "source"

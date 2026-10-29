@@ -110,6 +110,17 @@ class ControlFlowLowerer:
         self._ownership = ownership
         self._lifetime = lifetime
         self._cleanup_scope = cleanup_scope
+        self._jump_frames: list[JumpLoweringFrame] = []
+
+    @contextmanager
+    def isolated_jump_frames(self):
+        """Keep a lifted function's jumps separate from its enclosing body."""
+        previous = self._jump_frames
+        self._jump_frames = []
+        try:
+            yield
+        finally:
+            self._jump_frames = previous
 
     @contextmanager
     def jump_frame(self, source, statements: list[IRStmt], provenance: CallableProvenance, marker):
@@ -132,19 +143,19 @@ class ControlFlowLowerer:
             provenance.scope_depth,
             statements,
         )
-        self._session.jump_frames.append(frame)
+        self._jump_frames.append(frame)
         try:
             yield
             self._validate_forward_entries(frame)
         finally:
-            self._session.jump_frames.pop()
+            self._jump_frames.pop()
             if root:
                 self._session.jump_index = previous_index
                 self._session.variable_length_declarations = previous_vlas
 
     @contextmanager
     def jump_statement(self, source):
-        frames = self._session.jump_frames
+        frames = self._jump_frames
         if not frames:
             yield
             return
@@ -162,7 +173,7 @@ class ControlFlowLowerer:
         frame = next(
             (
                 frame
-                for frame in reversed(self._session.jump_frames)
+                for frame in reversed(self._jump_frames)
                 if target is not None and frame.source is target.path[-1][0].node
             ),
             None,
@@ -205,7 +216,7 @@ class ControlFlowLowerer:
             raise CodegenError("label has no active jump index")
         if not index.targeted(source.name):
             return []
-        frame = self._session.jump_frames[-1]
+        frame = self._jump_frames[-1]
         entry = provenance.enter_label(
             frame.pending.pop(source.name, []), falls_in=IRStatementSequence(frame.statements).may_fall_through()
         )

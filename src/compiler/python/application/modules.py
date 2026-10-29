@@ -22,7 +22,6 @@ from typing import NoReturn, Protocol
 from ..abi.hosted import HOSTED_ABI
 from ..analyzer.ownership import OwnershipAnalyzer
 from ..analyzer.reachability import StdlibReachability
-from ..artifacts.cache import ModuleUnitArtifacts
 from ..backend.c_emitter import CEmitter
 from ..frontend.native_imports import NativeHeaderSource
 from ..frontend.packages import NativeLinkPlan
@@ -52,12 +51,28 @@ _C_TYPE_WORDS = frozenset(
 )
 
 
+class CachedModuleArtifacts(Protocol):
+    """Value-only view of one verified module artifact bundle."""
+
+    @property
+    def record(self) -> str: ...
+
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def interface_header(self) -> str: ...
+
+    @property
+    def link_plan_fragment(self) -> str: ...
+
+
 class ModuleUnitStore(Protocol):
     """Persistent per-group artifacts; the store frames keys with its toolchain."""
 
     def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None: ...
 
-    def load_module_artifacts(self, identity: str, input_path: str | None = None) -> ModuleUnitArtifacts | None: ...
+    def load_module_artifacts(self, identity: str, input_path: str | None = None) -> CachedModuleArtifacts | None: ...
 
     def store_module_unit(
         self,
@@ -705,7 +720,7 @@ class ProgramInterface:
             "true" if value else "false"
             for value in (options.strict_imports, options.include_stdlib, options.stdlib_strict)
         ]
-        return f"validation-record-v9;target={target};strict={flags[0]};stdlib={flags[1]};stdlib-strict={flags[2]}"
+        return f"validation-record-v12;target={target};strict={flags[0]};stdlib={flags[1]};stdlib-strict={flags[2]}"
 
     @staticmethod
     def cache_key(context: str, group: str, source: str) -> str:

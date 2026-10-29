@@ -1928,9 +1928,44 @@ class GenericSpecializer {
 
 	private void demandConversion(Node? expected, Node? value, Map<string, Node> substitutions, Map<string, bool> unresolved, Map<string, Node> variables) {
 		if (!self.validated || expected == null || value == null) { return; }
-		Node target = SemanticTypeSystem.resolveGenericType(expected, substitutions, self.analyzed);
-		if (!TypeComposition.isSemanticScalarString(target)) { return; }
-		self.demandCallable(self.genericClosureExpressionType(value, substitutions, self.analyzed, self.operators, variables), "method", "toString", unresolved);
+		Node? canonical = SemanticTypeSystem.resolveTypedefType(SemanticTypeSystem.resolveGenericType(expected, substitutions, self.analyzed), self.analyzed.typedefTable);
+		if (canonical == null) { return; }
+		Node target = canonical;
+		if (value.kind == NK_TERNARY_EXPR) {
+			self.demandConversion(target, value.trueExpr, substitutions, unresolved, variables);
+			self.demandConversion(target, value.falseExpr, substitutions, unresolved, variables);
+			return;
+		}
+		if (TypeComposition.isSemanticScalarString(target)) {
+			self.demandCallable(self.genericClosureExpressionType(value, substitutions, self.analyzed, self.operators, variables), "method", "toString", unresolved);
+			return;
+		}
+		if (value.kind == NK_MAP_LITERAL && target.base == "Map" && target.genericArgs().len == 2) {
+			self.genericClosureRegisterType(target, substitutions, unresolved, self.analyzed);
+			if (value.entries().len > 0) { self.demandCallable(target, "method", "put", unresolved); }
+			for entry in value.entries() {
+				self.demandConversion(target.genericArgs().get(0), entry.key, substitutions, unresolved, variables);
+				self.demandConversion(target.genericArgs().get(1), entry.valueNode, substitutions, unresolved, variables);
+			}
+			return;
+		}
+		if (value.kind != NK_LIST_LITERAL && value.kind != NK_BRACE_INITIALIZER && value.kind != NK_TUPLE_LITERAL) { return; }
+		if (target.isArray) {
+			Node elementType = TypeShape.withoutOuterArray(target);
+			for element in value.elements() { self.demandConversion(elementType, element, substitutions, unresolved, variables); }
+		} else if (target.base == "Tuple") {
+			for (int index = 0; index < value.elements().len && index < target.genericArgs().len; index++) {
+				self.demandConversion(target.genericArgs().get(index), value.elements().get(index), substitutions, unresolved, variables);
+			}
+		} else if (target.genericArgs().len == 1 && (target.base == "Array" || target.base == "List" || target.base == "Set" || target.base == "Vector")) {
+			self.genericClosureRegisterType(target, substitutions, unresolved, self.analyzed);
+			if (value.elements().len > 0) { self.demandCallable(target, "method", "push", unresolved); }
+			for element in value.elements() { self.demandConversion(target.genericArgs().get(0), element, substitutions, unresolved, variables); }
+		} else if (self.analyzed.structTable.has(target.base)) {
+			for slot in SemanticTypeSystem.initializerSlots(self.analyzed.structTable.get(target.base), value, self.analyzed).slots {
+				self.demandConversion(slot.type, slot.element, substitutions, unresolved, variables);
+			}
+		}
 	}
 
 	private void demandOperatorConversion(Node? receiver, string name, Node? value, Map<string, Node> substitutions, Map<string, bool> unresolved, Map<string, Node> variables) {
@@ -1977,7 +2012,10 @@ class GenericSpecializer {
 					if (declaration.params().get(candidate).name == call.argNames().get(index)) { parameter = candidate; break; }
 				}
 			}
-			if (parameter >= 0 && parameter < declaration.params().len) { self.demandConversion(declaration.params().get(parameter).type, call.args().get(index), bindings, unresolved, variables); }
+			if (parameter >= 0 && parameter < declaration.params().len) {
+				Node expected = SemanticTypeSystem.resolveGenericType(declaration.params().get(parameter).type, bindings, self.analyzed);
+				self.demandConversion(expected, call.args().get(index), substitutions, unresolved, variables);
+			}
 		}
 	}
 
@@ -2056,6 +2094,7 @@ class GenericSpecializer {
 			Node resolved = SemanticTypeSystem.resolveGenericType(value.type, substitutions, analyzed);
 			self.genericClosureRegisterType(value.type, substitutions, unresolved, analyzed);
 			nested.put(value.name, resolved);
+			self.demandConversion(resolved, value.default_, substitutions, unresolved, nested);
 			self.genericClosureWalkNode(value.default_, substitutions, unresolved, analyzed, operators, nested);
 			parameter = parameter + 1;
 		}

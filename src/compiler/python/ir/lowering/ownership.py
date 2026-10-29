@@ -1966,7 +1966,6 @@ class OwnershipLowerer:
             self._session.type_overrides,
             self._session.c_array_scopes,
             self._session.jump_index,
-            self._session.jump_frames,
             self._session.variable_length_declarations,
         )
         self._managed_vars_stack = []
@@ -1987,7 +1986,6 @@ class OwnershipLowerer:
         self._session.type_overrides = {}
         self._session.c_array_scopes = []
         self._session.jump_index = None
-        self._session.jump_frames = []
         self._session.variable_length_declarations = set()
         try:
             with self._cleanup_scope.isolated():
@@ -2014,7 +2012,6 @@ class OwnershipLowerer:
                 self._session.type_overrides,
                 self._session.c_array_scopes,
                 self._session.jump_index,
-                self._session.jump_frames,
                 self._session.variable_length_declarations,
             ) = session_state
 

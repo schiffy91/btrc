@@ -88,6 +88,7 @@ if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalyzedProgram
 
     from .concurrency import ConcurrencyLowerer
+    from .control_flow import ControlFlowLowerer
     from .exceptions import ExceptionLowerer
     from .expressions import ExpressionLowerer
     from .generics import SpecializedDeclarationView
@@ -114,6 +115,7 @@ class FunctionLowerer:
         gpu: GpuLowerer,
         calls: CallLowerer,
         lifetime: ManagedLifetimeLowerer,
+        control_flow: ControlFlowLowerer,
     ) -> None:
         self._session = session
         self._analyzed = analyzed
@@ -128,6 +130,7 @@ class FunctionLowerer:
         self._gpu = gpu
         self._calls = calls
         self._lifetime = lifetime
+        self._control_flow = control_flow
         self._emitted_gpu_functions: set[str] = set()
         self._last_lambda_id = 0
         self._normalizing_void_main = False
@@ -8531,7 +8534,10 @@ class FunctionLowerer:
         self._last_lambda_id = 0
         self._normalizing_void_main = False
         try:
-            with self._ownership.isolated_function_state(return_c_type, return_type):
+            with (
+                self._ownership.isolated_function_state(return_c_type, return_type),
+                self._control_flow.isolated_jump_frames(),
+            ):
                 yield
         finally:
             self._last_lambda_id = previous_lambda_id

@@ -772,7 +772,7 @@ class CollectionLowerer:
         instead of storing the class pointer.
         """
 
-        collection_type = self._session.type_of(plan.source)
+        collection_type = self._types.canonical_type(self._session.type_of(plan.source))
         arguments = collection_type.generic_args if collection_type is not None else []
         if plan.entry_width == 1:
             element = arguments[0] if arguments else None
@@ -804,7 +804,7 @@ class CollectionLowerer:
         lowered_elements: list[IRExpr],
     ):
         """Build a typed list/vector and consume caller-owned elements."""
-        list_type = self._session.type_of(node)
+        list_type = self._types.canonical_type(self._session.type_of(node))
         element_type = (
             list_type.generic_args[0]
             if list_type is not None and list_type.generic_args
@@ -836,7 +836,7 @@ class CollectionLowerer:
         lowered_entries: list[tuple[IRExpr, IRExpr]],
     ):
         """Build a typed map and consume caller-owned keys and values."""
-        map_type = self._session.type_of(node)
+        map_type = self._types.canonical_type(self._session.type_of(node))
         if map_type is not None and len(map_type.generic_args) == 2:
             key_type, value_type = map_type.generic_args
         elif node.entries:

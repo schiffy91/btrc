@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Protocol
 
 from ..abi.hosted import TargetRepository, TargetSelectionError
-from ..artifacts.cache import ModuleUnitArtifacts
 from ..frontend.packages import IncludeResolutionError, NativeLinkPlan, PackageTarget
 from ..frontend.sources import PreprocessorConditionalError, ResolvedSource, SourceFileReader, SourceText
+from .modules import CachedModuleArtifacts
 from .pipeline import CompilationPipeline
 from .results import (
     CompilerActionResult,
@@ -89,7 +89,7 @@ class CompilerCachePort(Protocol):
 
     def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None: ...
 
-    def load_module_artifacts(self, identity: str, input_path: str | None = None) -> ModuleUnitArtifacts | None: ...
+    def load_module_artifacts(self, identity: str, input_path: str | None = None) -> CachedModuleArtifacts | None: ...
 
     def store_module_unit(
         self,

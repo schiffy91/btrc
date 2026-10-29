@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from src.compiler.python.analyzer.reachability import StdlibReachabilityPlan
     from src.compiler.python.frontend.sources import SourceMap
 
-    from .control_flow import JumpLoweringFrame
     from .generics import SpecializationView, SpecializedDeclarationView
 
 
@@ -104,7 +103,6 @@ class LoweringSession:
     c_array_scopes: list[dict[str, bool]] = field(default_factory=list)
     control_context: list[object] = field(default_factory=list)
     jump_index: JumpScopeIndex | None = None
-    jump_frames: list[JumpLoweringFrame] = field(default_factory=list)
     variable_length_declarations: set[int] = field(default_factory=set)
     # Module-unit lowering: the one compilation group whose bodies this session
     # lowers. A declaration owned by another group keeps its declaration-level

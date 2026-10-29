@@ -276,6 +276,7 @@ class IRLowerer:
             gpu,
             calls,
             lifetime,
+            control_flow,
         )
         classes = ClassLowerer(
             session,

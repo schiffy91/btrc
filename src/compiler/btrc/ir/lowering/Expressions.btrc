@@ -3627,6 +3627,8 @@ class ExpressionLowerer {
 	 * prepared value has the target's type, not the type its first element
 	 * would infer: [1, 2] passed as Vector<double> is a Vector<double>. */
 	private Node? preparedSourceType(Node expression, Node? targetType, Map<string, Node> varTypes) {
+		Node? stagedType = self.context.expressionOverrideType(expression);
+		if (stagedType != null) { return stagedType; }
 		if (targetType != null && (expression.kind == NK_LIST_LITERAL || expression.kind == NK_MAP_LITERAL)) {
 			Node? collection = SemanticTypeSystem.resolveTypedefType(targetType, self.analyzed.typedefTable);
 			if (collection != null && !collection.isArray && ((expression.kind == NK_LIST_LITERAL && collection.base == "Vector") || (expression.kind == NK_MAP_LITERAL && collection.base == "Map"))) { return targetType; }

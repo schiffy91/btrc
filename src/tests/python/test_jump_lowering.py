@@ -128,6 +128,31 @@ def test_generic_method_has_an_independent_jump_frame():
     """)
 
 
+@requires_host_c_compiler
+def test_lifted_lambda_restores_the_enclosing_backward_jump_frame(tmp_path):
+    emitted = _emit("""
+        int main() {
+            int visits = 0;
+            label("again");
+            var run = () => {
+                int inner = 0;
+                label("again");
+                inner++;
+                if (inner < 3) { jump("again"); }
+                return inner;
+            };
+            visits += run();
+            if (visits < 6) { jump("again"); }
+            return visits - 6;
+        }
+    """)
+    from src.tests.btrc.selfhost_snippet_harness import strict_build_and_run
+
+    generated = tmp_path / "nested-jumps.c"
+    generated.write_text(emitted)
+    strict_build_and_run(generated, tmp_path / "nested-jumps")
+
+
 def test_forward_jump_releases_hidden_owned_iterable():
     _emit("""
         string values() { return "abc"; }

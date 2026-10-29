@@ -89,6 +89,7 @@ EXPECTED_INTERNAL_IMPORTS = {
     "functions.py": {
         "calls.py",
         "concurrency.py",
+        "control_flow.py",
         "exceptions.py",
         "expressions.py",
         "generics.py",
@@ -238,6 +239,7 @@ EXPECTED_PRIMARY_RETAINED = {
     },
     "FunctionLowerer": {
         "LoweringSession",
+        "ControlFlowLowerer",
         "CTypeLowerer",
         "DefaultArgumentLoweringContext",
         "ExpressionLowerer",
