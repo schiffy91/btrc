@@ -1,0 +1,138 @@
+/* Synthetic ASTs exercise jump scopes before source syntax is enabled. */
+import Library.Vector;
+
+import ../../../compiler/btrc/generated/ast/Node.btrc;
+import ../../../compiler/btrc/syntax/Identity.btrc;
+import ../../../compiler/btrc/analyzer/validation/ControlFlow.btrc;
+#include <assert.h>
+
+class JumpScopeProbe {
+	class Node node(int kind) {
+		Node result = Node();
+		result.kind = kind;
+		return result;
+	}
+
+	class Node named(int kind, string name) {
+		Node node = JumpScopeProbe.node(kind);
+		node.name = name;
+		return node;
+	}
+
+	class Node block(Vector<Node> statements) {
+		Node node = JumpScopeProbe.node(NK_BLOCK);
+		node.statementsStorage = statements;
+		return node;
+	}
+
+	class Node lambda(Node body) {
+		Node wrapper = JumpScopeProbe.node(NK_LAMBDA_BLOCK);
+		wrapper.bodyNode = body;
+		Node node = JumpScopeProbe.node(NK_LAMBDA_EXPR);
+		node.bodyNode = wrapper;
+		return node;
+	}
+
+	class void scopes() {
+		Node jump = JumpScopeProbe.named(NK_GOTO_STMT, "done");
+		Node direct = JumpScopeProbe.named(NK_VAR_DECL_STMT, "direct");
+		Node final = JumpScopeProbe.named(NK_VAR_DECL_STMT, "final");
+		Node recursive = JumpScopeProbe.named(NK_VAR_DECL_STMT, "recursive");
+		Node nestedTry = JumpScopeProbe.node(NK_TRY_CATCH_STMT);
+		nestedTry.tryBlock = JumpScopeProbe.block([]);
+		nestedTry.finallyBlock = JumpScopeProbe.block([recursive]);
+		Node region = JumpScopeProbe.node(NK_TRY_CATCH_STMT);
+		region.tryBlock = JumpScopeProbe.block([JumpScopeProbe.named(NK_VAR_DECL_STMT, "hidden")]);
+		region.finallyBlock = JumpScopeProbe.block([final, nestedTry]);
+		Node label = JumpScopeProbe.named(NK_LABEL_STMT, "done");
+		Node backward = JumpScopeProbe.named(NK_GOTO_STMT, "done");
+		Node duplicate = JumpScopeProbe.named(NK_LABEL_STMT, "done");
+		Node missing = JumpScopeProbe.named(NK_GOTO_STMT, "missing");
+		Node inner = JumpScopeProbe.block([backward]);
+		Node loop = JumpScopeProbe.node(NK_WHILE_STMT);
+		loop.condition = JumpScopeProbe.node(NK_BOOL_LITERAL);
+		loop.bodyNode = JumpScopeProbe.block([inner]);
+		Node root = JumpScopeProbe.block([jump, direct, region, label, loop, duplicate, missing]);
+		JumpScopeIndex index = JumpScopeIndex.build(root);
+		assert(index.target(jump)?.node == label);
+		assert(index.target(backward)?.node == label);
+		assert(!index.isBackward(jump));
+		assert(index.isBackward(backward));
+		assert(index.target(missing) == null);
+		assert(index.enclosing(missing) == null);
+		assert(index.leftLists(missing).len == 0);
+		assert(index.enteredLists(missing).len == 0);
+		assert(index.targeted("missing") && index.targeted("done") && !index.targeted("unused"));
+		Vector<Node> declarations = index.enteredDeclarations(jump);
+		assert(declarations.len == 3);
+		assert(declarations.get(0) == direct && declarations.get(1) == final && declarations.get(2) == recursive);
+		assert(index.enteredDeclarations(backward).len == 0);
+		Vector<JumpList> left = index.leftLists(backward);
+		assert(left.len == 2 && left.get(0).node == inner && left.get(1).node == loop.bodyNode);
+		assert(left.get(0).kind == "block" && left.get(1).kind == "loop");
+		assert(index.enteredLists(backward).len == 0);
+		JumpEnclosure? enclosure = index.enclosing(backward);
+		assert(enclosure != null && enclosure.scope.node == root && enclosure.start == 4 && enclosure.end == 3);
+		assert(index.sites.get(AstIdentity.key(duplicate)).ordinal == 3);
+	}
+
+	class void siblings() {
+		Node jump = JumpScopeProbe.named(NK_GOTO_STMT, "sibling");
+		Node label = JumpScopeProbe.named(NK_LABEL_STMT, "sibling");
+		Node other = JumpScopeProbe.node(NK_ELSE_BLOCK);
+		other.bodyNode = JumpScopeProbe.block([label]);
+		Node branch = JumpScopeProbe.node(NK_IF_STMT);
+		branch.condition = JumpScopeProbe.node(NK_BOOL_LITERAL);
+		branch.thenBlock = JumpScopeProbe.block([jump]);
+		branch.elseBlock = other;
+		JumpScopeIndex index = JumpScopeIndex.build(JumpScopeProbe.block([branch]));
+		assert(index.enclosing(jump) == null);
+		assert(index.leftLists(jump).get(0).kind == "if");
+		assert(index.enteredLists(jump).get(0).kind == "else");
+		assert(index.enteredDeclarations(jump).len == 0);
+	}
+
+	class void lambdas() {
+		Node first = JumpScopeProbe.named(NK_LABEL_STMT, "inner");
+		Node second = JumpScopeProbe.named(NK_LABEL_STMT, "inner");
+		Node init = JumpScopeProbe.node(NK_FOR_INIT_EXPR);
+		init.expression = JumpScopeProbe.lambda(JumpScopeProbe.block([first]));
+		Node expression = JumpScopeProbe.node(NK_EXPR_STMT);
+		expression.expr = JumpScopeProbe.lambda(JumpScopeProbe.block([second, JumpScopeProbe.named(NK_GOTO_STMT, "outside")]));
+		Node loop = JumpScopeProbe.node(NK_C_FOR_STMT);
+		loop.init = init;
+		loop.bodyNode = JumpScopeProbe.block([expression]);
+		Node jump = JumpScopeProbe.named(NK_GOTO_STMT, "inner");
+		JumpScopeIndex index = JumpScopeIndex.build(JumpScopeProbe.block([loop, jump]));
+		assert(index.target(jump) == null);
+		assert(index.nestedLambdaLabel("inner") == first);
+		assert(index.nestedLambdaLabel("absent") == null);
+		assert(!index.targeted("outside"));
+		assert(index.gotos.len == 1);
+	}
+
+	class void reachability() {
+		Node root = JumpScopeProbe.block([
+			JumpScopeProbe.named(NK_LABEL_STMT, "before"),
+			JumpScopeProbe.named(NK_VAR_DECL_STMT, "value"),
+			JumpScopeProbe.named(NK_LABEL_STMT, "early"),
+			JumpScopeProbe.named(NK_GOTO_STMT, "before"),
+			JumpScopeProbe.named(NK_LABEL_STMT, "middle"),
+			JumpScopeProbe.block([JumpScopeProbe.named(NK_GOTO_STMT, "early")]),
+			JumpScopeProbe.named(NK_LABEL_STMT, "end"),
+			JumpScopeProbe.block([JumpScopeProbe.named(NK_GOTO_STMT, "middle")])
+		]);
+		JumpScopeIndex index = JumpScopeIndex.build(root);
+		JumpList scope = index.lists.get(AstIdentity.key(root));
+		assert(index.reachStart(scope, 1, 6) == 2);
+		assert(index.reachStart(scope, 4, 6) == 6);
+	}
+}
+
+int main() {
+	JumpScopeProbe.scopes();
+	JumpScopeProbe.siblings();
+	JumpScopeProbe.lambdas();
+	JumpScopeProbe.reachability();
+	return 0;
+}

@@ -901,6 +901,17 @@ class IRExprStmt(IRStmt):
 
 
 @dataclass
+class IRGoto(IRStmt):
+    name: str = ""
+
+
+@dataclass
+class IRLabel(IRStmt):
+    name: str = ""
+    falls_through: bool = False
+
+
+@dataclass
 class IRBreak(IRStmt):
     """Break statement."""
 

@@ -19,6 +19,276 @@ import ./Ownership.btrc;
 import ./Storage.btrc;
 import ./Types.btrc;
 
+/* Lexical jump relationships are rebuilt from a callable body by each pass. */
+class JumpList {
+	public Node node;
+	public string kind;
+	public JumpList? parent;
+	public int parentIndex;
+
+	public JumpList(Node node, string kind, JumpList? parent, int parentIndex) {
+		self.node = node;
+		self.kind = kind;
+		self.parent = parent;
+		self.parentIndex = parentIndex;
+	}
+
+	public Vector<Node> statements() {
+		if (self.node.kind == NK_CASE_CLAUSE) { return self.node.bodyNodeList(); }
+		return self.node.statements();
+	}
+}
+
+class JumpStep {
+	public JumpList scope;
+	public int index;
+
+	public JumpStep(JumpList scope, int index) {
+		self.scope = scope;
+		self.index = index;
+	}
+}
+
+class JumpSite {
+	public Node node;
+	public Vector<JumpStep> path;
+	public int ordinal;
+
+	public JumpSite(Node node, Vector<JumpStep> path, int ordinal) {
+		self.node = node;
+		self.path = path;
+		self.ordinal = ordinal;
+	}
+}
+
+class JumpEnclosure {
+	public JumpList scope;
+	public int start;
+	public int end;
+
+	public JumpEnclosure(JumpList scope, int start, int end) {
+		self.scope = scope;
+		self.start = start;
+		self.end = end;
+	}
+}
+
+class JumpScopeIndex {
+	public Map<string, JumpList> lists = {};
+	public Map<string, JumpSite> sites = {};
+	public Map<string, JumpSite> labels = {};
+	public Vector<JumpSite> gotos = [];
+	public Map<string, bool> targetedNames = {};
+	private Map<string, Node> nestedLabels = {};
+	private int ordinal = 0;
+
+	class JumpScopeIndex build(Node root) {
+		JumpScopeIndex result = JumpScopeIndex();
+		Vector<JumpStep> path = [];
+		result.walkList(root, "body", path);
+		result.collectNested(root, false);
+		return result;
+	}
+
+	public JumpSite? target(Node jump) {
+		if (!self.labels.has(jump.name)) { return null; }
+		return self.labels.get(jump.name);
+	}
+
+	public bool targeted(string name) { return self.targetedNames.has(name); }
+
+	public bool isBackward(Node jump) {
+		JumpSite? target = self.target(jump);
+		return target != null && target.ordinal < self.sites.get(AstIdentity.key(jump)).ordinal;
+	}
+
+	public JumpEnclosure? enclosing(Node jump) {
+		JumpSite? target = self.target(jump);
+		if (target == null) { return null; }
+		JumpStep destination = target.path.get(target.path.len - 1);
+		for step in self.sites.get(AstIdentity.key(jump)).path {
+			if (step.scope == destination.scope) {
+				return JumpEnclosure(destination.scope, step.index, destination.index);
+			}
+		}
+		return null;
+	}
+
+	private int commonDepth(Node jump) {
+		JumpSite? target = self.target(jump);
+		if (target == null) { return 0; }
+		Vector<JumpStep> path = self.sites.get(AstIdentity.key(jump)).path;
+		int depth = 0;
+		while (depth < path.len && depth < target.path.len) {
+			if (path.get(depth).scope != target.path.get(depth).scope) { break; }
+			depth = depth + 1;
+		}
+		return depth;
+	}
+
+	public Vector<JumpList> leftLists(Node jump) {
+		Vector<JumpList> result = [];
+		if (self.target(jump) == null) { return result; }
+		Vector<JumpStep> path = self.sites.get(AstIdentity.key(jump)).path;
+		int common = self.commonDepth(jump);
+		int index = path.len - 1;
+		while (index >= common) {
+			result.push(path.get(index).scope);
+			index = index - 1;
+		}
+		return result;
+	}
+
+	public Vector<JumpList> enteredLists(Node jump) {
+		Vector<JumpList> result = [];
+		JumpSite? target = self.target(jump);
+		if (target == null) { return result; }
+		int index = self.commonDepth(jump);
+		while (index < target.path.len) {
+			result.push(target.path.get(index).scope);
+			index = index + 1;
+		}
+		return result;
+	}
+
+	public Vector<Node> enteredDeclarations(Node jump) {
+		Vector<Node> result = [];
+		JumpEnclosure? enclosing = self.enclosing(jump);
+		if (enclosing == null) { return result; }
+		Vector<Node> statements = enclosing.scope.statements();
+		int index = enclosing.start + 1;
+		while (index < enclosing.end) {
+			JumpScopeIndex.collectDeclaration(statements.get(index), result);
+			index = index + 1;
+		}
+		return result;
+	}
+
+	class void collectDeclaration(Node statement, Vector<Node> result) {
+		if (statement.kind == NK_VAR_DECL_STMT) {
+			result.push(statement);
+		} else if (statement.kind == NK_TRY_CATCH_STMT && statement.finallyBlock != null) {
+			for child in statement.finallyBlock.statements() { JumpScopeIndex.collectDeclaration(child, result); }
+		}
+	}
+
+	public Node? nestedLambdaLabel(string name) {
+		if (!self.nestedLabels.has(name)) { return null; }
+		return self.nestedLabels.get(name);
+	}
+
+	public int reachStart(JumpList scope, int declarationIndex, int labelIndex) {
+		int start = labelIndex;
+		while (true) {
+			int previous = start;
+			for jump in self.gotos {
+				bool reachable = false;
+				for step in jump.path {
+					if (step.scope == scope && step.index >= start) { reachable = true; }
+				}
+				if (!reachable) { continue; }
+				JumpSite? target = self.target(jump.node);
+				if (target == null) { continue; }
+				JumpStep destination = target.path.get(target.path.len - 1);
+				if (destination.scope == scope && declarationIndex < destination.index && destination.index < start) {
+					start = destination.index;
+				}
+			}
+			if (start == previous) { return start; }
+		}
+		return start;
+	}
+
+	private void walkList(Node node, string kind, Vector<JumpStep> path) {
+		JumpList? parent = null;
+		int parentIndex = -1;
+		if (path.len > 0) {
+			JumpStep step = path.get(path.len - 1);
+			parent = step.scope;
+			parentIndex = step.index;
+		}
+		JumpList scope = JumpList(node, kind, parent, parentIndex);
+		self.lists.put(AstIdentity.key(node), scope);
+		Vector<Node> statements = scope.statements();
+		int index = 0;
+		while (index < statements.len) {
+			Vector<JumpStep> childPath = [];
+			for step in path { childPath.push(step); }
+			childPath.push(JumpStep(scope, index));
+			self.walkStatement(statements.get(index), childPath);
+			index = index + 1;
+		}
+	}
+
+	private void walkStatement(Node statement, Vector<JumpStep> path) {
+		int kind = statement.kind;
+		if (kind == NK_GOTO_STMT || kind == NK_LABEL_STMT) {
+			JumpSite site = JumpSite(statement, path, self.ordinal);
+			self.ordinal = self.ordinal + 1;
+			self.sites.put(AstIdentity.key(statement), site);
+			if (kind == NK_GOTO_STMT) {
+				self.gotos.push(site);
+				self.targetedNames.put(statement.name, true);
+			} else if (!self.labels.has(statement.name)) {
+				self.labels.put(statement.name, site);
+			}
+		} else if (kind == NK_BLOCK) {
+			self.walkList(statement, "block", path);
+		} else if (kind == NK_IF_STMT) {
+			self.walkList(statement.thenBlock, "if", path);
+			Node? other = statement.elseBlock;
+			if (other != null && other.kind == NK_ELSE_BLOCK) { self.walkList(other.bodyNode, "else", path); }
+			if (other != null && other.kind == NK_ELSE_IF) { self.walkStatement(other.ifStmt, path); }
+		} else if (kind == NK_WHILE_STMT || kind == NK_DO_WHILE_STMT || kind == NK_C_FOR_STMT || kind == NK_FOR_IN_STMT || kind == NK_PARALLEL_FOR_STMT) {
+			self.walkList(statement.bodyNode, kind == NK_PARALLEL_FOR_STMT ? "parallel" : "loop", path);
+		} else if (kind == NK_SWITCH_STMT) {
+			for clause in statement.cases() { self.walkList(clause, "case", path); }
+		} else if (kind == NK_TRY_CATCH_STMT) {
+			self.walkList(statement.tryBlock, "try", path);
+			if (statement.catchBlock != null) { self.walkList(statement.catchBlock, "catch", path); }
+			if (statement.finallyBlock != null) { self.walkList(statement.finallyBlock, "finally", path); }
+		}
+	}
+
+	private void collectNested(Node? node, bool nested) {
+		if (node == null) { return; }
+		nested = nested || node.kind == NK_LAMBDA_EXPR;
+		if (nested && node.kind == NK_LABEL_STMT && !self.nestedLabels.has(node.name)) {
+			self.nestedLabels.put(node.name, node);
+		}
+		Vector<Node> children = [];
+		/* The fat-node field order differs from ASDL for these constructors.
+		 * Preserve source-tree preorder when choosing a nested label diagnostic. */
+		if (node.kind == NK_WHILE_STMT) {
+			self.collectNested(node.condition, nested);
+			self.collectNested(node.bodyNode, nested);
+		} else if (node.kind == NK_C_FOR_STMT) {
+			self.collectNested(node.init, nested);
+			self.collectNested(node.condition, nested);
+			self.collectNested(node.update, nested);
+			self.collectNested(node.bodyNode, nested);
+		} else if (node.kind == NK_FOR_IN_STMT || node.kind == NK_PARALLEL_FOR_STMT) {
+			self.collectNested(node.iterable, nested);
+			self.collectNested(node.bodyNode, nested);
+		} else if (node.kind == NK_ASSIGN_EXPR) {
+			self.collectNested(node.target, nested);
+			self.collectNested(node.valueNode, nested);
+		} else if (node.kind == NK_MAP_ENTRY) {
+			self.collectNested(node.key, nested);
+			self.collectNested(node.valueNode, nested);
+		} else if (node.kind == NK_CAST_EXPR) {
+			self.collectNested(node.targetType, nested);
+			self.collectNested(node.expr, nested);
+		} else if (node.kind == NK_COMPOUND_LITERAL) {
+			self.collectNested(node.targetType, nested);
+			self.collectNested(node.initializer, nested);
+		} else {
+			AstStructure.children(node, children);
+			for child in children { self.collectNested(child, nested); }
+		}
+	}
+}
+
 class ControlFlowValidator {
 	private SemanticValidationState state;
 	private OperatorSemantics operators;

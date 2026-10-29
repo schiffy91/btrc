@@ -546,6 +546,20 @@ class AstCanonicalRenderer {
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
+		} else if (node.kind == NK_GOTO_STMT) {
+			string out = "(GotoStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
+			return out + ")";
+		} else if (node.kind == NK_LABEL_STMT) {
+			string out = "(LabelStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
+			return out + ")";
 		} else if (node.kind == NK_ELSE_BLOCK) {
 			string out = "(ElseBlock";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.bodyNode, d + 1);

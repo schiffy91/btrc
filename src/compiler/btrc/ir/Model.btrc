@@ -65,6 +65,8 @@ enum IRKind {
 	IRK_CXX_DELETE,
 	IRK_CXX_EXCEPTION_BOUNDARY,
 	IRK_LINE_MARKER,
+	IRK_GOTO,
+	IRK_LABEL,
 };
 
 /* Payload ownership follows the tagged node, never a shared default.
@@ -380,11 +382,11 @@ class IRNode {
 			case IRK_INDEX: case IRK_FIELD_ACCESS: case IRK_DESIGNATION: return IR_PAYLOAD_PROJECTION_DESIGNATION;
 			case IRK_CALL: return IR_PAYLOAD_CALL;
 			case IRK_VAR_DECL: return IR_PAYLOAD_DECLARATION;
-			case IRK_TERNARY: case IRK_IF: case IRK_WHILE: case IRK_DO_WHILE: case IRK_FOR: case IRK_BLOCK: case IRK_SWITCH: case IRK_CASE: case IRK_STMT_EXPR: return IR_PAYLOAD_CONTROL_SEQUENCE;
+			case IRK_TERNARY: case IRK_IF: case IRK_WHILE: case IRK_DO_WHILE: case IRK_FOR: case IRK_BLOCK: case IRK_SWITCH: case IRK_CASE: case IRK_STMT_EXPR: case IRK_LABEL: return IR_PAYLOAD_CONTROL_SEQUENCE;
 			case IRK_OBJECTIVE_C_MESSAGE: case IRK_OBJECTIVE_C_BLOCK: case IRK_OBJECTIVE_C_AUTORELEASE_POOL: case IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY: case IRK_CXX_NEW: case IRK_CXX_DELETE: case IRK_CXX_EXCEPTION_BOUNDARY: return IR_PAYLOAD_NATIVE;
 			case IRK_LINE_MARKER: return IR_PAYLOAD_SOURCE;
 			case IRK_ASSIGN: case IRK_RETURN: return IR_PAYLOAD_VALUE_FLOW;
-			case IRK_NONE: case IRK_LITERAL: case IRK_VAR: case IRK_FUNCTION_REF: case IRK_BINOP: case IRK_COMMA_EXPR: case IRK_ADDRESS_OF: case IRK_DEREF: case IRK_EXPR_STMT: case IRK_INITIALIZER_LIST: case IRK_INVALID_EXPR: case IRK_OBJECTIVE_C_SELECTOR: case IRK_BREAK: case IRK_CONTINUE: return IR_PAYLOAD_NONE;
+			case IRK_NONE: case IRK_LITERAL: case IRK_VAR: case IRK_FUNCTION_REF: case IRK_BINOP: case IRK_COMMA_EXPR: case IRK_ADDRESS_OF: case IRK_DEREF: case IRK_EXPR_STMT: case IRK_INITIALIZER_LIST: case IRK_INVALID_EXPR: case IRK_OBJECTIVE_C_SELECTOR: case IRK_BREAK: case IRK_CONTINUE: case IRK_GOTO: return IR_PAYLOAD_NONE;
 			default: fprintf(stderr, "internal compiler error: unsupported IR kind for payload\n");
 			exit(1);
 		}
@@ -645,6 +647,20 @@ class IRNode {
 		if (update != null) { ((IRControlPayload)n.payload).update = update; }
 		((IRControlPayload)n.payload).body = body;
 		return n;
+	}
+
+	class IRNode gotoStatement(string name) {
+		IRNode node = IRNode(IRK_GOTO);
+		node.name = name;
+		node.canFallThrough = false;
+		return node;
+	}
+
+	class IRNode labelStatement(string name, bool fallsThrough = false) {
+		IRNode node = IRNode(IRK_LABEL);
+		node.name = name;
+		((IRControlPayload)node.payload).fallsThrough = fallsThrough;
+		return node;
 	}
 
 	class IRNode breakStatement() {

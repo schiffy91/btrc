@@ -162,6 +162,8 @@ module Btrc {
          | ThrowStmt(expr expr)
          | KeepStmt(expr expr)
          | ReleaseStmt(expr expr)
+         | GotoStmt(identifier name, int name_line, int name_col)
+         | LabelStmt(identifier name)
          attributes(int line, int col)
 
     -- Statement sub-types

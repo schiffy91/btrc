@@ -15,6 +15,7 @@ from src.compiler.python.syntax.ast.generated import (
     BoolLiteral,
     BreakStmt,
     CallExpr,
+    CaseClause,
     CForStmt,
     ClassDecl,
     ContinueStmt,
@@ -25,9 +26,11 @@ from src.compiler.python.syntax.ast.generated import (
     FieldAccessExpr,
     ForInStmt,
     FunctionDecl,
+    GotoStmt,
     Identifier,
     IfStmt,
     IndexExpr,
+    LabelStmt,
     LambdaExpr,
     MethodDecl,
     NullLiteral,
@@ -60,6 +63,174 @@ class AccessPath:
     def contains(self, other: AccessPath) -> bool:
         """Whether assigning this path can change *other*."""
         return self.root is other.root and other.fields[: len(self.fields)] == self.fields
+
+
+@dataclass(frozen=True, eq=False)
+class JumpList:
+    """One lexical statement list in a callable's jump scope."""
+
+    node: Block | CaseClause
+    kind: str
+    parent: JumpList | None
+    parent_index: int
+
+    @property
+    def statements(self) -> list:
+        return self.node.body if isinstance(self.node, CaseClause) else self.node.statements
+
+
+@dataclass(frozen=True)
+class JumpSite:
+    node: GotoStmt | LabelStmt
+    path: tuple[tuple[JumpList, int], ...]
+    ordinal: int
+
+
+class JumpScopeIndex:
+    """Lexical jump relationships, independent of semantic and lowering state."""
+
+    def __init__(self) -> None:
+        self.lists: dict[int, JumpList] = {}
+        self.sites: dict[int, JumpSite] = {}
+        self.labels: dict[str, JumpSite] = {}
+        self.gotos: list[JumpSite] = []
+        self.targeted_names: set[str] = set()
+        self._nested_labels: dict[str, LabelStmt] = {}
+
+    @classmethod
+    def build(cls, root: Block) -> JumpScopeIndex:
+        result = cls()
+        result._walk_list(root, "body", ())
+        result._collect_nested(root, False)
+        return result
+
+    def target(self, jump: GotoStmt) -> JumpSite | None:
+        return self.labels.get(jump.name)
+
+    def targeted(self, name: str) -> bool:
+        return name in self.targeted_names
+
+    def is_backward(self, jump: GotoStmt) -> bool:
+        target = self.target(jump)
+        return target is not None and target.ordinal < self.sites[id(jump)].ordinal
+
+    def enclosing(self, jump: GotoStmt) -> tuple[JumpList, int, int] | None:
+        target = self.target(jump)
+        if target is not None:
+            target_list, target_index = target.path[-1]
+            for source_list, source_index in self.sites[id(jump)].path:
+                if source_list is target_list:
+                    return target_list, source_index, target_index
+        return None
+
+    def _common_depth(self, jump: GotoStmt) -> int:
+        target = self.target(jump)
+        if target is None:
+            return 0
+        depth = 0
+        for source, destination in zip(self.sites[id(jump)].path, target.path):
+            if source[0] is not destination[0]:
+                break
+            depth += 1
+        return depth
+
+    def left_lists(self, jump: GotoStmt) -> tuple[JumpList, ...]:
+        if self.target(jump) is None:
+            return ()
+        return tuple(item[0] for item in reversed(self.sites[id(jump)].path[self._common_depth(jump) :]))
+
+    def entered_lists(self, jump: GotoStmt) -> tuple[JumpList, ...]:
+        target = self.target(jump)
+        if target is None:
+            return ()
+        return tuple(item[0] for item in target.path[self._common_depth(jump) :])
+
+    def entered_declarations(self, jump: GotoStmt) -> list[VarDeclStmt]:
+        enclosing = self.enclosing(jump)
+        if enclosing is None:
+            return []
+        scope, start, end = enclosing
+        result: list[VarDeclStmt] = []
+        if start < end:
+            self._collect_declarations(scope.statements[start + 1 : end], result)
+        return result
+
+    @classmethod
+    def _collect_declarations(cls, statements: list, result: list[VarDeclStmt]) -> None:
+        for statement in statements:
+            if isinstance(statement, VarDeclStmt):
+                result.append(statement)
+            elif isinstance(statement, TryCatchStmt) and statement.finally_block is not None:
+                cls._collect_declarations(statement.finally_block.statements, result)
+
+    def nested_lambda_label(self, name: str) -> LabelStmt | None:
+        return self._nested_labels.get(name)
+
+    def reach_start(self, scope: JumpList, declaration_index: int, label_index: int) -> int:
+        """Earliest direct label reachable from the suffix, stopping at the declaration."""
+        start = label_index
+        while True:
+            previous = start
+            for jump in self.gotos:
+                if not any(item is scope and index >= start for item, index in jump.path):
+                    continue
+                target = self.target(jump.node)
+                if target is not None:
+                    target_list, target_index = target.path[-1]
+                    if target_list is scope and declaration_index < target_index < start:
+                        start = target_index
+            if start == previous:
+                return start
+
+    def _walk_list(self, node: Block | CaseClause, kind: str, path: tuple) -> None:
+        parent, parent_index = path[-1] if path else (None, -1)
+        scope = JumpList(node, kind, parent, parent_index)
+        self.lists[id(node)] = scope
+        for index, statement in enumerate(scope.statements):
+            self._walk_statement(statement, (*path, (scope, index)))
+
+    def _walk_statement(self, statement, path: tuple) -> None:
+        if isinstance(statement, (GotoStmt, LabelStmt)):
+            site = JumpSite(statement, path, len(self.sites))
+            self.sites[id(statement)] = site
+            if isinstance(statement, GotoStmt):
+                self.gotos.append(site)
+                self.targeted_names.add(statement.name)
+            else:
+                self.labels.setdefault(statement.name, site)
+        elif isinstance(statement, Block):
+            self._walk_list(statement, "block", path)
+        elif isinstance(statement, IfStmt):
+            self._walk_list(statement.then_block, "if", path)
+            if isinstance(statement.else_block, ElseBlock):
+                self._walk_list(statement.else_block.body, "else", path)
+            elif isinstance(statement.else_block, ElseIf):
+                self._walk_statement(statement.else_block.if_stmt, path)
+        elif isinstance(statement, (WhileStmt, DoWhileStmt, CForStmt, ForInStmt, ParallelForStmt)):
+            self._walk_list(statement.body, "parallel" if isinstance(statement, ParallelForStmt) else "loop", path)
+        elif isinstance(statement, SwitchStmt):
+            for case in statement.cases:
+                self._walk_list(case, "case", path)
+        elif isinstance(statement, TryCatchStmt):
+            self._walk_list(statement.try_block, "try", path)
+            if statement.catch_block is not None:
+                self._walk_list(statement.catch_block, "catch", path)
+            if statement.finally_block is not None:
+                self._walk_list(statement.finally_block, "finally", path)
+
+    def _collect_nested(self, node, nested: bool) -> None:
+        if not dataclasses.is_dataclass(node):
+            return
+        nested = nested or isinstance(node, LambdaExpr)
+        if nested and isinstance(node, LabelStmt):
+            self._nested_labels.setdefault(node.name, node)
+        for field in dataclasses.fields(node):
+            value = getattr(node, field.name)
+            if isinstance(value, list):
+                for child in value:
+                    self._collect_nested(child, nested)
+            else:
+                self._collect_nested(value, nested)
 
 
 class ControlFlowAnalyzer:
