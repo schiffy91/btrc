@@ -805,3 +805,25 @@ def test_leading_dot_constants_keep_their_operator_spacing() -> None:
     result = BtrcFormatter().format(source, "LeadingDot.btrc")
     assert result == source
     assert BtrcFormatter().format(result, "LeadingDot.btrc") == result
+
+
+def test_labels_keep_statement_indentation_and_no_space_before_colon():
+    source = "void f() {\nint count = 0;\nagain :\nnext:\ncount++;\nif (count < 2) goto again;\nlast :\n}\n"
+    result = formatted(source)
+    assert "\n\tagain:\n\tnext:\n\tcount++;\n" in result
+    assert "\n\tlast:\n}" in result
+    assert formatted(result) == result
+
+
+def test_labels_in_braceless_bodies_keep_the_body_indent():
+    source = "void f() {\nif (true)\nlabel :\n;\nprint(1);\n}\n"
+    result = formatted(source)
+    assert "\n\t\tlabel:\n\t\t;\n\tprint(1);" in result
+    assert formatted(result) == result
+
+
+def test_label_layout_does_not_change_named_arguments_or_ternaries():
+    source = "void f() {\nint x = true ? 1 : 2;\nprint(value=x);\n}\n"
+    result = formatted(source)
+    assert "true ? 1 : 2" in result
+    assert "value=x" in result

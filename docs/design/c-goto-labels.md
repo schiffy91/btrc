@@ -2,7 +2,7 @@
 
 PLAN.md Stage 20 (`ccompat-r11-goto-labels`) adds `goto` and labels. D19 approves the row, and its consumer is the Stage 14 probe battery. Header inline functions never reach btrc, because the C compiler compiles their bodies.
 
-`goto` is already a keyword (`grammar.ebnf:38`). The RESERVED note says no rule consumes it (`grammar.ebnf:22-31`), so today each parser refuses it with its own wording (`c3_c4.toml:5-47`, `:745-766`).
+Both parsers accept `goto name;` and `name:`. Reference source-to-C execution is covered by `src/tests/python/test_goto_syntax.py`. Current native execution and the two recorded C-compatibility inventory outcomes still need qualification before issue #17 can close.
 
 A drafter and two adversarial reviewers compared the options on 2026-10-02 (workflow `wf_926e5dfc-b6e`). One reviewer covered implementability in both compilers; the other covered ARC and setjmp. Every finding was re-checked against the code at `3812e44`, or with gcc 13.3 and clang 18.1 under the gate flags (`Makefile:321`). Each finding and its resolution is listed at the end of this section.
 

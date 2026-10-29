@@ -1913,7 +1913,7 @@ class Parser {
 
 	/* One block item; a declaration splices one statement per declarator. */
 	public void parseBlockItemInto(Vector<Node> statements) {
-		if (self.isVarDeclStart()) {
+		if (self.peekAt(1).type != "COLON" && self.isVarDeclStart()) {
 			self.parseVarDeclStmtsInto(statements);
 			self.expect("SEMICOLON");
 			return;
@@ -1935,9 +1935,17 @@ class Parser {
 		blk.kind = NK_BLOCK;
 		blk.line = tok.line;
 		blk.col = tok.col;
+		while (self.peek().type == "IDENT" && self.peekAt(1).type == "COLON") {
+			blk.statementsMut().push(self.parseStatement());
+		}
 		if (self.matchTok("SEMICOLON")) { return blk; }
-		if (self.isVarDeclStart()) {
-			self.failAt("A declaration cannot be the body of a control statement; enclose it in braces", tok);
+		if (blk.statements().len > 0 && (self.check("RBRACE") || self.atEnd())) {
+			string label = blk.statements().get(blk.statements().len - 1).name;
+			self.failAt(f"Expected a statement after label '{label}'", self.peek());
+			return blk;
+		}
+		if (self.peekAt(1).type != "COLON" && self.isVarDeclStart()) {
+			self.failAt("A declaration cannot be the body of a control statement; enclose it in braces", self.peek());
 			return blk;
 		}
 		Node s = self.parseStatement();
@@ -1947,6 +1955,35 @@ class Parser {
 
 	public Node parseStatement() {
 		Token tok = self.peek();
+		if (self.peekAt(1).type == "COLON") {
+			if (tok.type != "CASE" && tok.type != "DEFAULT" && self.grammar.vocabulary.keywordToken(tok.value) == tok.type) {
+				self.failAt(f"'{tok.value}' is a reserved word and cannot be used as a name", tok);
+				return Node();
+			}
+			if (tok.type == "IDENT") {
+				Token name = self.expect("IDENT");
+				self.expect("COLON");
+				Node label = Node();
+				label.kind = NK_LABEL_STMT;
+				label.name = name.value;
+				label.line = name.line;
+				label.col = name.col;
+				return label;
+			}
+		}
+		if (tok.type == "GOTO") {
+			self.advance();
+			Token name = self.expect("IDENT");
+			self.expect("SEMICOLON");
+			Node jump = Node();
+			jump.kind = NK_GOTO_STMT;
+			jump.name = name.value;
+			jump.nameLine = name.line;
+			jump.nameCol = name.col;
+			jump.line = tok.line;
+			jump.col = tok.col;
+			return jump;
+		}
 
 		if (tok.type == "LBRACE") { return self.parseBlock(); }
 		if (tok.type == "RETURN") { return self.parseReturnStmt(); }

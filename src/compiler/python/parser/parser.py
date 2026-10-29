@@ -43,6 +43,7 @@ from src.compiler.python.syntax.ast.generated import (
     FStringLiteral,
     FStringText,
     FunctionDecl,
+    GotoStmt,
     Identifier,
     IfStmt,
     ImportDecl,
@@ -51,6 +52,7 @@ from src.compiler.python.syntax.ast.generated import (
     InterfaceDecl,
     IntLiteral,
     KeepStmt,
+    LabelStmt,
     LambdaBlock,
     LambdaExpr,
     LambdaExprBody,
@@ -1896,7 +1898,7 @@ class Parser:
 
     def _parse_block_item(self, statements: list) -> None:
         """Append one block item; a declaration splices one statement per declarator."""
-        if self._is_var_decl_start():
+        if self._peek(1).type != TokenKind.COLON and self._is_var_decl_start():
             statements.extend(self._parse_var_decl_stmts())
         else:
             statements.append(self._parse_statement())
@@ -1908,6 +1910,7 @@ class Parser:
         synthesized ``Block`` positioned at the statement's first token, so
         the body keeps exactly the scope a braced body has; an empty
         statement ``;`` becomes an empty ``Block`` positioned at the ``;``.
+        Leading labels share that synthesized block with the substatement.
         A declaration is not a statement in C (C11 6.8), so it is refused as
         a body. ``for``-in, parallel ``for``, ``try``/``catch``/``finally``
         and ``switch`` keep requiring braces through ``_parse_block``.
@@ -1915,14 +1918,34 @@ class Parser:
         tok = self._peek()
         if tok.type == TokenKind.LBRACE:
             return self._parse_block()
+        statements = []
+        while self._peek().type == TokenKind.IDENT and self._peek(1).type == TokenKind.COLON:
+            statements.append(self._parse_statement())
         if self._match(TokenKind.SEMICOLON):
-            return Block(statements=[], line=tok.line, col=tok.col)
-        if self._is_var_decl_start():
+            return Block(statements=statements, line=tok.line, col=tok.col)
+        if statements and self._check(TokenKind.RBRACE, TokenKind.EOF):
+            raise self._error(f"Expected a statement after label '{statements[-1].name}'")
+        if self._peek(1).type != TokenKind.COLON and self._is_var_decl_start():
             raise self._error("A declaration cannot be the body of a control statement; enclose it in braces")
-        return Block(statements=[self._parse_statement()], line=tok.line, col=tok.col)
+        statements.append(self._parse_statement())
+        return Block(statements=statements, line=tok.line, col=tok.col)
 
     def _parse_statement(self):
         tok = self._peek()
+        if self._peek(1).type == TokenKind.COLON:
+            if tok.type not in (TokenKind.CASE, TokenKind.DEFAULT) and (
+                TokenVocabulary.canonical().keywords.get(tok.value) == tok.type
+            ):
+                raise ParseError(f"'{tok.value}' is a reserved word and cannot be used as a name", tok.line, tok.col)
+            if tok.type == TokenKind.IDENT:
+                name = self._expect(TokenKind.IDENT)
+                self._expect(TokenKind.COLON)
+                return LabelStmt(name=name.value, line=name.line, col=name.col)
+        if tok.type == TokenKind.GOTO:
+            self._advance()
+            name = self._expect(TokenKind.IDENT)
+            self._expect(TokenKind.SEMICOLON)
+            return GotoStmt(name=name.value, name_line=name.line, name_col=name.col, line=tok.line, col=tok.col)
 
         if tok.type == TokenKind.LBRACE:
             return self._parse_block()

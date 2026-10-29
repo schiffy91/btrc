@@ -72,7 +72,16 @@ in a type name. Type inference still uses `var`.
 scalar plain C value or raw pointer; arrays, records and managed references
 are refused. Taking the object's address or capturing it in a lambda or
 `spawn` is also refused. It is emitted as C `register` and does not affect
-function signature compatibility. `goto` remains pending under issue #17.
+function signature compatibility.
+
+`goto name;` and `name:` labels are supported within a callable. Labels have
+a separate namespace from variables, and each lambda has its own labels.
+Labels may precede declarations, occur consecutively or end a block. A jump
+may target its own block or an enclosing block; entering a nested block,
+crossing a try/catch/finally boundary, or leaving a parallel loop is refused.
+A forward jump cannot skip a variable-length or managed declaration, or a
+plain automatic declaration used on a path reachable from its target.
+See [the goto rules](design/c-goto-labels.md) for the diagnostic contracts.
 
 Tuple element names such as `_0` and `_1` are ordinary postfix members, and
 `value.1.0` selects twice: digits after a `.` lex as a field index alone, so
@@ -414,9 +423,7 @@ compilers (`btrc/test_c_compatibility_refusals.py`):
 Like a fixed-size local array, a VLA of a managed element type (a class,
 `string` or collection) is shallow storage of borrowed references: storing a
 freshly owned value in it is refused (`caller-owned temporary cannot be stored
-in a shallow aggregate`). `goto` is not part of the grammar yet (PLAN.md Stage
-20), so a jump into a VLA's scope cannot be written; Stage 20's negative
-fixtures must cover it.
+in a shallow aggregate`). A forward `goto` into a VLA's scope is refused.
 
 ## Flexible array members (C row 13)
 

@@ -2191,9 +2191,8 @@ Planned but not yet implemented:
   methods on generic classes, and lambdas or `spawn` declared inside a generic
   body. Each is rejected explicitly rather than mis-lowered, and the full list
   with its regression status is in [docs/known-language-gaps.md](docs/known-language-gaps.md)
-- **Reserved syntax** -- `goto`, `override`, `auto`, and `register` lex as
-  keywords but no rule consumes them; `parallel for` parses and type-checks but
-  still lowers sequentially
+- **Parallel execution** -- `parallel for` parses and type-checks but still
+  lowers sequentially
 - **Pattern matching** -- `match` expressions for rich enums with exhaustiveness checking
 - **Weak references** -- `weak` keyword for intentional non-owning references
 - **Typed exception payloads** -- exceptions currently carry string messages only

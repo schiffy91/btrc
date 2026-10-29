@@ -15,9 +15,9 @@ from src.devex.lsp.analysis.resolution import LexicalScopeIndex, SemanticResolve
 from src.devex.lsp.catalog.builtins import BuiltinCatalog
 from src.devex.lsp.catalog.generated import BuiltinMemberSpec
 
-_RESERVED_WITHOUT_SYNTAX = frozenset({"goto"})
 _KEYWORD_DOCS = MappingProxyType(
     {
+        "goto": "Jump to a label in this function, in the same block or an enclosing block.",
         "abstract": "Declare a class or method that requires an implementation",
         "break": "Exit the nearest loop or switch",
         "case": "Declare a switch branch",
@@ -113,7 +113,6 @@ class CompletionProvider:
                 insert_text=keyword,
             )
             for keyword in sorted(TokenVocabulary.canonical().keywords)
-            if keyword not in _RESERVED_WITHOUT_SYNTAX
         ]
 
     def type_completions(self) -> list[lsp.CompletionItem]:
