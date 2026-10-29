@@ -24,6 +24,7 @@
 
 #include "windows_os.h"
 #include "windows_bootstrap.h"
+#include "windows_daemon_transfer.h"
 #include "windows_security.h"
 #include "windows_daemon_files.h"
 
@@ -1352,6 +1353,7 @@ static int child_supervisor_commit(__btrc_windows_supervisor_owner *owner, const
     size_t size = 99;
     if (__btrc_windows_supervisor_copy_startup(owner, NULL, 0, &size, &error) == 0 || size != 0) return 91;
     if (__btrc_windows_supervisor_ack(owner, &delivered, &error) == 0 || delivered != 0) return 92;
+    if (scenario == 34) { Sleep(30000); return 0; }
     return scenario >= 27 ? child_supervisor_managed(owner, scenario, frame) : 0;
 }
 
@@ -1403,6 +1405,9 @@ static int child_bootstrap_admission(void) {
         outcome = child_supervisor_commit(owner, &frame);
     } else if (frame.name.size >= 7 && memcmp(frame.name.data, "prepare", 7) == 0) {
         outcome = child_supervisor_preparation(owner);
+    } else if (frame.name.size == 18 && memcmp(frame.name.data, "transfer-admission", 18) == 0) {
+        if (frame.type != BTRC_DAEMON_INIT || GetConsoleWindow() != NULL
+                || frame.lifetime > 1 || frame.token[0] != 1) return 118;
     } else {
         if (frame.type != BTRC_DAEMON_INIT || frame.name.size != 11
                 || memcmp(frame.name.data, "owner-probe", 11) != 0 || frame.arguments.count != 2
@@ -1799,14 +1804,175 @@ static void check_daemon_files(void) {
     CHECK("daemon file refusals release all handles", before == after);
 }
 
+/* Exercise the production launch owner with a real suspended image and the
+ * supervisor admission/handshake above. The observer handle belongs only to
+ * this fixture and proves whether release terminated the child. */
+static void check_transfer_launch(int parent_contained) {
+    DWORD before = 0, after = 0;
+    CHECK("transfer initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
+    wchar_t self[1024], temporary[1024], other_path[MAX_PATH];
+    if (to_wide(self_utf8, self, 1024) != 0 || !GetTempPathW(1024, temporary)
+            || !GetTempFileNameW(temporary, L"btr", 0, other_path)) ExitProcess(3);
+    HANDLE image = CreateFileW(self, FILE_READ_DATA | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+        NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    HANDLE other = CreateFileW(other_path, FILE_READ_DATA | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+        NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (image == INVALID_HANDLE_VALUE || other == INVALID_HANDLE_VALUE) ExitProcess(3);
+    for (int scenario = 0; scenario < 8; scenario++) {
+        unsigned char nonces[32] = { 0 };
+        DWORD caller = GetCurrentProcessId();
+        for (size_t pair = 0; pair < 2; pair++) {
+            unsigned int serial = ++bootstrap_serial;
+            memcpy(nonces + pair * 16, &caller, sizeof(caller));
+            memcpy(nonces + pair * 16 + 8, &serial, sizeof(serial));
+        }
+        btrc_wos_transfer *owner = NULL;
+        uint32_t pid = 99, lifetime = 99;
+        __btrc_windows_launch_error_t error;
+        uint64_t deadline = GetTickCount64() + (scenario == 6 ? 1000 : 10000);
+        if (scenario == 3) deadline = GetTickCount64();
+        int opened = btrc_wos_transfer_open((const uint16_t *)self, scenario == 2 ? other : image,
+            nonces, deadline, &owner, &pid, &lifetime, scenario == 1 ? NULL : &error);
+        if (scenario == 2 || scenario == 3) {
+            CHECK("refused transfer clears outputs and reaps its child", opened != 0
+                && owner == NULL && pid == 0 && lifetime == 0
+                && error.native_code == (scenario == 2 ? ERROR_FILE_INVALID : ERROR_TIMEOUT));
+            continue;
+        }
+        CHECK("transfer creates a suspended, verified supervisor", opened == 0 && owner != NULL
+            && pid > 1 && lifetime <= 1 && btrc_wos_transfer_request(owner) != NULL
+            && btrc_wos_transfer_reply(owner) != NULL);
+        if (opened != 0) ExitProcess(3);
+        if (parent_contained) CHECK("restrictive parent job forces contained lifetime", lifetime == 1);
+        HANDLE observer = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, FALSE, pid);
+        if (observer == NULL) ExitProcess(3);
+        CHECK("suspended supervisor is alive", WaitForSingleObject(observer, 0) == WAIT_TIMEOUT);
+        CHECK("COMMIT cannot precede resume", btrc_wos_transfer_begin_commit(owner, deadline, &error) != 0
+            && error.ownership_state == 1);
+        if (scenario == 6) {
+            uint64_t now = GetTickCount64();
+            if (now < deadline) Sleep((DWORD)(deadline - now));
+            CHECK("expired launch cannot resume", btrc_wos_transfer_resume(owner, &error) != 0
+                && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1);
+        } else if (scenario != 0) {
+            CHECK("verified supervisor resumes once", btrc_wos_transfer_resume(owner, &error) == 0
+                && btrc_wos_transfer_resume(owner, &error) != 0 && error.ownership_state == 1);
+        }
+        wchar_t directory[1200] = { 0 }, log[1300] = { 0 }, control[1300] = { 0 };
+        char directory_text[4096], log_text[4096], control_text[4096];
+        if (scenario == 4 || scenario == 5 || scenario == 7) {
+            void *descriptor = NULL;
+            if (btrcWinPrivateDescriptor(0, &descriptor) != 0) ExitProcess(3);
+            SECURITY_ATTRIBUTES security = { sizeof(security), descriptor, FALSE };
+            swprintf(directory, 1200, L"%lsbtrc-transfer-%lu-%d", temporary, (unsigned long)caller, scenario);
+            swprintf(log, 1300, L"%ls\\worker.log", directory);
+            swprintf(control, 1300, L"%ls\\worker.control", directory);
+            if (!CreateDirectoryW(directory, &security) || daemon_fixture_file(log, "", descriptor) != 0
+                    || to_utf8(directory, directory_text, 4096) != 0
+                    || to_utf8(log, log_text, 4096) != 0 || to_utf8(control, control_text, 4096) != 0) ExitProcess(3);
+            free(descriptor);
+            btrc_daemon_init init;
+            memset(&init, 0, sizeof(init));
+            for (size_t index = 0; index < 16; index++) init.token[index] = (unsigned char)(index + 1);
+            init.remaining_startup_ms = 5000;
+            init.lifetime = lifetime;
+            const char *name = scenario == 4 ? "transfer-admission" : "commit-34";
+            init.name = (btrc_daemon_text){ (const unsigned char *)name, strlen(name) };
+            init.control_path = (btrc_daemon_text){ (const unsigned char *)control_text, strlen(control_text) };
+            init.log_path = (btrc_daemon_text){ (const unsigned char *)log_text, strlen(log_text) };
+            init.cwd = (btrc_daemon_text){ (const unsigned char *)directory_text, strlen(directory_text) };
+            init.executable = (btrc_daemon_text){ (const unsigned char *)self_utf8, strlen(self_utf8) };
+            init.arguments = &init.executable; init.argument_count = 1;
+            btrc_daemon_handshake state;
+            btrc_daemon_handshake_start(&state, BTRC_DAEMON_LAUNCHER, pid, lifetime, init.token);
+            CHECK("production transfer delivers INIT", btrc_wos_bootstrap_send_init(btrc_wos_transfer_request(owner),
+                &state, &init, deadline, &error) == 0);
+            if (scenario == 4) {
+                DWORD code = 99;
+                CHECK("real launch passes five-handle admission", WaitForSingleObject(observer, 5000) == WAIT_OBJECT_0
+                    && GetExitCodeProcess(observer, &code) && code == 0);
+            } else {
+                btrc_wos_bootstrap_message message = { 0 };
+                int ready = btrc_wos_bootstrap_receive(btrc_wos_transfer_reply(owner), &state, &message, deadline, &error);
+                CHECK("real transfer authenticates READY", ready == 0 && message.frame.type == BTRC_DAEMON_READY
+                    && message.frame.supervisor_pid == pid && message.frame.lifetime == lifetime);
+                btrc_wos_bootstrap_message_release(&message);
+                if (ready != 0) ExitProcess(3);
+                if (scenario == 7) {
+                    CHECK("expired COMMIT leaves rollback enabled", btrc_wos_transfer_begin_commit(owner,
+                        GetTickCount64(), &error) != 0 && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1);
+                } else {
+                    CHECK("COMMIT changes native cleanup policy once", btrc_wos_transfer_begin_commit(owner, deadline, &error) == 0
+                        && btrc_wos_transfer_begin_commit(owner, deadline, &error) != 0);
+                    btrc_daemon_frame commit;
+                    memset(&commit, 0, sizeof(commit));
+                    commit.type = BTRC_DAEMON_COMMIT;
+                    memcpy(commit.token, init.token, sizeof(commit.token));
+                    CHECK("real transfer sends COMMIT", btrc_wos_bootstrap_send_signal(btrc_wos_transfer_request(owner),
+                        &state, &commit, deadline, &error) == 0);
+                    CHECK("published supervisor sends matching ACK", btrc_wos_bootstrap_receive(btrc_wos_transfer_reply(owner),
+                        &state, &message, deadline, &error) == 0 && message.frame.type == BTRC_DAEMON_ACK);
+                    btrc_wos_bootstrap_message_release(&message);
+                    SecureZeroMemory(&commit, sizeof(commit));
+                }
+            }
+            btrc_daemon_handshake_clear(&state);
+            SecureZeroMemory(&init, sizeof(init));
+        }
+        if (scenario == 5) {
+            CHECK("post-COMMIT close releases ownership", btrc_wos_transfer_close(&owner, deadline, &error) == 0 && owner == NULL);
+            CHECK("post-COMMIT close leaves supervisor alive", WaitForSingleObject(observer, 100) == WAIT_TIMEOUT);
+            CHECK("fixture terminates its committed supervisor", TerminateProcess(observer, 0));
+        } else {
+            /* The observer can retain the terminated process in job accounting.
+             * First request termination without waiting, then release that
+             * reference before asking the runtime to finish its own cleanup. */
+            int closed = btrc_wos_transfer_close(&owner, GetTickCount64(), &error);
+            CHECK("bounded rollback either completes or retains ownership", closed == 0
+                || (owner != NULL && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1));
+        }
+        CHECK("aborted supervisor is reaped", WaitForSingleObject(observer, 5000) == WAIT_OBJECT_0);
+        CHECK("fixture releases observer", CloseHandle(observer));
+        CHECK("transfer closes within cleanup budget", btrc_wos_transfer_close(&owner, GetTickCount64() + 5000, &error) == 0
+            && owner == NULL && btrc_wos_transfer_close(&owner, 0, &error) == 0);
+        if (directory[0] != 0) {
+            if (scenario == 5) CHECK("fixture removes published record", DeleteFileW(control));
+            CHECK("fixture removes transfer log", DeleteFileW(log));
+            CHECK("fixture removes transfer directory", RemoveDirectoryW(directory));
+        }
+    }
+    CHECK("fixture releases held images", CloseHandle(image) && CloseHandle(other));
+    CHECK("fixture removes mismatched image", DeleteFileW(other_path));
+    CHECK("transfer final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
+    CHECK("transfer releases every handle", before == after);
+}
+
+static void check_transfer_containment(void) {
+    spec_t spec;
+    spec_init(&spec, "--transfer-contained");
+    outcome_t outcome = run(&spec);
+    CHECK("ordinary Process job contains supervisor despite breakaway attempt", exited_with(&outcome, 0));
+    if (!exited_with(&outcome, 0)) {
+        if (outcome.out != NULL) report("%s", (const char *)outcome.out);
+        if (outcome.err != NULL) report("%s", (const char *)outcome.err);
+    }
+    release(&outcome);
+}
+
 int main(int argc, char **argv) {
     wchar_t self_wide[1024];
     DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
     if (length == 0 || length >= 1024 || to_utf8(self_wide, self_utf8, (int)sizeof(self_utf8)) != 0) return 2;
+    if (argc == 2 && strcmp(argv[1], "--transfer-contained") == 0) {
+        check_transfer_launch(1);
+        return failures == 0 ? 0 : 1;
+    }
     if (argc == 2 && strcmp(argv[1], "--bootstrap-io") == 0) {
         check_bootstrap_pipes();
         check_bootstrap_exchange();
         check_bootstrap_admission();
+        check_transfer_launch(0);
+        check_transfer_containment();
         check_daemon_files();
         report("windows-bootstrap-io %s checks=%d\n", failures == 0 ? "PASS" : "FAIL", checks);
         return failures == 0 ? 0 : 1;
@@ -1817,6 +1983,8 @@ int main(int argc, char **argv) {
     check_bootstrap_pipes();
     check_bootstrap_exchange();
     check_bootstrap_admission();
+    check_transfer_launch(0);
+    check_transfer_containment();
     check_daemon_files();
     check_quoting();
     check_exit_codes();

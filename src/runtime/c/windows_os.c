@@ -25,6 +25,7 @@
 
 #include "windows_os.h"
 #include "windows_bootstrap.h"
+#include "windows_daemon_transfer.h"
 #include "windows_daemon_protocol.h"
 #include "windows_daemon_files.h"
 #include "windows_utf.h"
@@ -2046,21 +2047,23 @@ static int btrc_wos_create_stdio(const __btrc_windows_launch_options_t *options,
     return 0;
 }
 
-/* Both launch owners hold the spawn lock and own every handle in inherited.
+/* Launch callers hold the spawn lock and own every handle in inherited.
  * This shared creation step borrows them and returns a suspended process. */
 static int btrc_wos_create_suspended(const wchar_t *application, wchar_t *command_line,
-        wchar_t *block, const wchar_t *directory, const HANDLE inherited[3],
-        PROCESS_INFORMATION *process, __btrc_windows_launch_error_t *error) {
-    HANDLE listed[3] = { NULL, NULL, NULL };
+        wchar_t *block, const wchar_t *directory, const HANDLE *inherited,
+        size_t inherited_count, DWORD creation_flags, PROCESS_INFORMATION *process, __btrc_windows_launch_error_t *error) {
+    HANDLE listed[5] = { NULL, NULL, NULL, NULL, NULL };
     DWORD count = 0;
     DWORD flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED
-        | CREATE_NEW_PROCESS_GROUP;
+        | CREATE_NEW_PROCESS_GROUP | creation_flags;
+    if (inherited_count < 3 || inherited_count > 5)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_ATTRIBUTES, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
     int status = -1;
     LPPROC_THREAD_ATTRIBUTE_LIST attributes = NULL;
     SIZE_T attribute_size = 0;
     STARTUPINFOEXW startup;
     memset(&startup, 0, sizeof(startup));
-    for (int index = 0; index < 3; index++)
+    for (size_t index = 0; index < inherited_count; index++)
         if (inherited[index] != NULL) listed[count++] = inherited[index];
     InitializeProcThreadAttributeList(NULL, 1, 0, &attribute_size);
     attributes = (LPPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(GetProcessHeap(), 0, attribute_size);
@@ -2085,7 +2088,7 @@ static int btrc_wos_create_suspended(const wchar_t *application, wchar_t *comman
     startup.StartupInfo.hStdOutput = inherited[1];
     startup.StartupInfo.hStdError = inherited[2] != NULL ? inherited[2] : inherited[1];
     startup.lpAttributeList = attributes;
-    if (GetConsoleWindow() == NULL) flags |= CREATE_NO_WINDOW;
+    if ((flags & DETACHED_PROCESS) == 0 && GetConsoleWindow() == NULL) flags |= CREATE_NO_WINDOW;
     if (!CreateProcessW(application, command_line, NULL, NULL, TRUE, flags, block, directory,
             &startup.StartupInfo, process)) {
         DWORD failure = GetLastError();
@@ -2124,7 +2127,7 @@ static int btrc_wos_spawn(const wchar_t *application, wchar_t *command_line, wch
             goto done;
         }
     }
-    status = btrc_wos_create_suspended(application, command_line, block, directory, inherited, process, error);
+    status = btrc_wos_create_suspended(application, command_line, block, directory, inherited, 3, 0, process, error);
 done:
     for (int index = 0; index < 3; index++) btrc_wos_close(&inherited[index]);
     ReleaseSRWLockExclusive(&btrc_wos_spawn_lock);
@@ -2868,7 +2871,7 @@ int __btrc_windows_supervisor_spawn_managed(__btrc_windows_supervisor_owner *own
         }
     }
     if (btrc_wos_create_suspended(owner->application, command, owner->environment,
-            owner->directory, owner->inherited, &process, error) != 0) goto unlock;
+            owner->directory, owner->inherited, 3, 0, &process, error) != 0) goto unlock;
     owner->managed_process = process.hProcess;
     owner->managed_thread = process.hThread;
     owner->managed_started = 1;
@@ -3050,7 +3053,349 @@ int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
     return 0;
 }
 
+/* ---- Launcher process and temporary containment ownership -------------- */
+
+struct btrc_wos_transfer {
+    HANDLE process, thread, job, observed_image;
+    HANDLE nulls[3], inherited[5];
+    btrc_wos_bootstrap_pipe *request, *reply, *child_request, *child_reply;
+    uint64_t deadline;
+    int assigned, resumed, commit_attempted, terminated, poisoned;
+};
+
+static int btrc_wos_transfer_invalid(btrc_wos_transfer *owner,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_STATE);
+    if (error != NULL && owner != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+    return -1;
+}
+
+static int btrc_wos_transfer_handle_close(btrc_wos_transfer *owner, HANDLE *handle,
+        __btrc_windows_launch_error_t *error) {
+    if (*handle == NULL) return 0;
+    if (!CloseHandle(*handle)) {
+        owner->poisoned = 1;
+        btrc_wos_win32(error, BTRC_WOS_STAGE_CREATE);
+        if (error != NULL) error->ownership_state = 2;
+        return -1;
+    }
+    *handle = NULL;
+    return 0;
+}
+
+static int btrc_wos_transfer_stop(btrc_wos_transfer *owner,
+        __btrc_windows_launch_error_t *error) {
+    if (owner->process == NULL || owner->terminated) return 0;
+    if (!(owner->assigned ? TerminateJobObject(owner->job, 1) : TerminateProcess(owner->process, 1))) {
+        DWORD failure = GetLastError();
+        if (WaitForSingleObject(owner->process, 0) != WAIT_OBJECT_0)
+            return btrc_wos_fail(error, BTRC_WOS_STAGE_TERMINATE, BTRC_WOS_DOMAIN_WIN32, failure);
+    }
+    owner->terminated = 1;
+    return 0;
+}
+
+int btrc_wos_transfer_close(btrc_wos_transfer **slot, uint64_t deadline,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (slot == NULL || *slot == NULL) return 0;
+    btrc_wos_transfer *owner = *slot;
+    if (!owner->commit_attempted && btrc_wos_transfer_stop(owner, error) != 0) goto retained;
+    if (owner->poisoned) { btrc_wos_transfer_invalid(owner, error); goto retained; }
+    if (!owner->commit_attempted && owner->process != NULL) {
+        uint64_t now = GetTickCount64(), remaining = deadline > now ? deadline - now : 0;
+        DWORD wait = remaining >= INFINITE ? INFINITE - 1 : (DWORD)remaining;
+        DWORD waited = WaitForSingleObject(owner->process, wait);
+        if (waited != WAIT_OBJECT_0) {
+            btrc_wos_fail(error, BTRC_WOS_STAGE_WAIT, BTRC_WOS_DOMAIN_WIN32,
+                waited == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError());
+            goto retained;
+        }
+    }
+    if (btrc_wos_transfer_handle_close(owner, &owner->thread, error) != 0
+            || btrc_wos_transfer_handle_close(owner, &owner->process, error) != 0) goto retained;
+    if (!owner->commit_attempted && owner->assigned) {
+        for (;;) {
+            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting;
+            if (!QueryInformationJobObject(owner->job, JobObjectBasicAccountingInformation,
+                    &accounting, sizeof(accounting), NULL)) {
+                btrc_wos_win32(error, BTRC_WOS_STAGE_JOB); goto retained;
+            }
+            if (accounting.ActiveProcesses == 0) break;
+            uint64_t now = GetTickCount64();
+            if (now >= deadline) {
+                btrc_wos_fail(error, BTRC_WOS_STAGE_WAIT, BTRC_WOS_DOMAIN_WIN32, ERROR_TIMEOUT);
+                goto retained;
+            }
+            Sleep((DWORD)(deadline - now < 10 ? deadline - now : 10));
+        }
+    }
+    btrc_wos_bootstrap_pipe **pipes[] = { &owner->child_request, &owner->child_reply, &owner->request, &owner->reply };
+    for (size_t index = 0; index < sizeof(pipes) / sizeof(pipes[0]); index++) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_bootstrap_close(pipes[index], deadline, &cleanup) != 0) {
+            if (cleanup.ownership_state == 2) owner->poisoned = 1;
+            if (error != NULL) *error = cleanup;
+            goto retained;
+        }
+    }
+    for (size_t index = 0; index < 5; index++)
+        if (btrc_wos_transfer_handle_close(owner, &owner->inherited[index], error) != 0) goto retained;
+    for (size_t index = 0; index < 3; index++)
+        if (btrc_wos_transfer_handle_close(owner, &owner->nulls[index], error) != 0) goto retained;
+    if (btrc_wos_transfer_handle_close(owner, &owner->observed_image, error) != 0
+            || btrc_wos_transfer_handle_close(owner, &owner->job, error) != 0) goto retained;
+    free(owner);
+    *slot = NULL;
+    return 0;
+retained:
+    if (error != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+    return -1;
+}
+
+/* Match the still-suspended child's actual image to the held, hashed file.
+ * Filename equality alone would not establish identity after path replacement. */
+static int btrc_wos_transfer_image(btrc_wos_transfer *owner, HANDLE verified,
+        __btrc_windows_launch_error_t *error) {
+    wchar_t *path = calloc(32768, sizeof(*path));
+    if (path == NULL)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+    DWORD units = 32768;
+    if (!QueryFullProcessImageNameW(owner->process, 0, path, &units)) {
+        DWORD failure = GetLastError(); free(path);
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_REFUSED, BTRC_WOS_DOMAIN_WIN32, failure);
+    }
+    owner->observed_image = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+        NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    DWORD failure = GetLastError();
+    free(path);
+    if (owner->observed_image == INVALID_HANDLE_VALUE) {
+        owner->observed_image = NULL;
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_REFUSED, BTRC_WOS_DOMAIN_WIN32, failure);
+    }
+    long long expected[BTRC_WIN_FIELD_COUNT], actual[BTRC_WIN_FIELD_COUNT];
+    int status = btrcWinDescribeHandle(verified, expected);
+    if (status == 0) status = btrcWinDescribeHandle(owner->observed_image, actual);
+    if (status != 0) return btrc_wos_daemon_file_error(error, status, 0);
+    if (expected[BTRC_WIN_FIELD_KIND] != BTRC_WIN_KIND_REGULAR
+            || actual[BTRC_WIN_FIELD_KIND] != BTRC_WIN_KIND_REGULAR
+            || expected[BTRC_WIN_FIELD_DELETE_PENDING] || actual[BTRC_WIN_FIELD_DELETE_PENDING]
+            || expected[BTRC_WIN_FIELD_VOLUME] != actual[BTRC_WIN_FIELD_VOLUME]
+            || expected[BTRC_WIN_FIELD_FILE_ID] != actual[BTRC_WIN_FIELD_FILE_ID]
+            || expected[BTRC_WIN_FIELD_FILE_ID_HIGH] != actual[BTRC_WIN_FIELD_FILE_ID_HIGH]
+            || expected[BTRC_WIN_FIELD_REPARSE_TAG] != actual[BTRC_WIN_FIELD_REPARSE_TAG])
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_REFUSED, BTRC_WOS_DOMAIN_REFUSAL, ERROR_FILE_INVALID);
+    return btrc_wos_transfer_handle_close(owner, &owner->observed_image, error);
+}
+
+int btrc_wos_transfer_open(const uint16_t *image_path, void *verified_image,
+        const unsigned char nonces[32], uint64_t deadline, btrc_wos_transfer **out,
+        uint32_t *pid, uint32_t *lifetime, __btrc_windows_launch_error_t *error) {
+    __btrc_windows_launch_error_t local_error;
+    if (error == NULL) error = &local_error;
+    btrc_wos_clear(error);
+    if (out != NULL) *out = NULL;
+    if (pid != NULL) *pid = 0;
+    if (lifetime != NULL) *lifetime = 0;
+    if (out == NULL || pid == NULL || lifetime == NULL || pid == lifetime || image_path == NULL
+            || verified_image == NULL || verified_image == INVALID_HANDLE_VALUE || nonces == NULL)
+        return btrc_wos_transfer_invalid(NULL, error);
+    if (GetTickCount64() >= deadline)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_WAIT, BTRC_WOS_DOMAIN_WIN32, ERROR_TIMEOUT);
+    size_t units = wcslen((const wchar_t *)image_path);
+    if (units == 0 || units + 96 >= BTRC_WOS_COMMAND_LINE_UNITS || wcschr((const wchar_t *)image_path, L'"') != NULL)
+        return btrc_wos_transfer_invalid(NULL, error);
+    wchar_t *command = calloc(units + 96, sizeof(*command));
+    btrc_wos_transfer *owner = calloc(1, sizeof(*owner));
+    if (owner == NULL || command == NULL) {
+        free(owner); free(command);
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+    }
+    owner->deadline = deadline;
+    int status = -1;
+    if (btrc_wos_bootstrap_pair(nonces, &owner->child_request, &owner->request, error) != 0
+            || btrc_wos_bootstrap_pair(nonces + 16, &owner->reply, &owner->child_reply, error) != 0) goto done;
+    owner->job = CreateJobObjectW(NULL, NULL);
+    if (owner->job == NULL) { btrc_wos_win32(error, BTRC_WOS_STAGE_JOB); goto done; }
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+    memset(&limits, 0, sizeof(limits));
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!SetInformationJobObject(owner->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+        btrc_wos_win32(error, BTRC_WOS_STAGE_JOB); goto done;
+    }
+    BOOL in_job = FALSE;
+    if (!IsProcessInJob(GetCurrentProcess(), NULL, &in_job)) { btrc_wos_win32(error, BTRC_WOS_STAGE_JOB); goto done; }
+    AcquireSRWLockExclusive(&btrc_wos_spawn_lock);
+    for (size_t index = 0; index < 3; index++) {
+        owner->nulls[index] = btrc_wos_null(index != 0);
+        if (owner->nulls[index] == NULL || owner->nulls[index] == INVALID_HANDLE_VALUE) {
+            owner->nulls[index] = NULL;
+            btrc_wos_win32(error, BTRC_WOS_STAGE_STDIO); goto unlock;
+        }
+    }
+    HANDLE sources[5] = { owner->nulls[0], owner->nulls[1], owner->nulls[2],
+        owner->child_request->handle, owner->child_reply->handle };
+    for (size_t index = 0; index < 5; index++) {
+        if (!DuplicateHandle(GetCurrentProcess(), sources[index], GetCurrentProcess(),
+                &owner->inherited[index], 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+            owner->inherited[index] = NULL;
+            btrc_wos_win32(error, BTRC_WOS_STAGE_STDIO); goto unlock;
+        }
+    }
+    PROCESS_INFORMATION process;
+    memset(&process, 0, sizeof(process));
+    for (int attempt = 0; attempt < 2; attempt++) {
+        int written = swprintf(command, units + 96, L"\"%ls\" --btrc-daemon-bootstrap-v1 %llu %llu",
+            (const wchar_t *)image_path, (unsigned long long)(uintptr_t)owner->inherited[3],
+            (unsigned long long)(uintptr_t)owner->inherited[4]);
+        if (written <= 0 || (size_t)written >= units + 96) { btrc_wos_transfer_invalid(owner, error); goto unlock; }
+        int breakaway = in_job && attempt == 0;
+        status = btrc_wos_create_suspended((const wchar_t *)image_path, command, NULL, NULL,
+            owner->inherited, 5, DETACHED_PROCESS | (breakaway ? CREATE_BREAKAWAY_FROM_JOB : 0), &process, error);
+        owner->process = process.hProcess;
+        owner->thread = process.hThread;
+        if (status == 0 || !breakaway || owner->process != NULL || owner->thread != NULL
+                || error->domain != BTRC_WOS_DOMAIN_WIN32 || error->native_code != ERROR_ACCESS_DENIED) break;
+        btrc_wos_clear(error);
+    }
+    if (status != 0) goto unlock;
+    status = -1;
+    BOOL inherited_job = FALSE;
+    if (!IsProcessInJob(owner->process, NULL, &inherited_job)) { btrc_wos_win32(error, BTRC_WOS_STAGE_JOB); goto unlock; }
+    if (process.dwProcessId < 2 || process.dwProcessId > INT_MAX) { btrc_wos_transfer_invalid(owner, error); goto unlock; }
+    *pid = process.dwProcessId;
+    *lifetime = inherited_job ? 1u : 0u;
+    if (!AssignProcessToJobObject(owner->job, owner->process)) { btrc_wos_win32(error, BTRC_WOS_STAGE_ASSIGN); goto unlock; }
+    owner->assigned = 1;
+    status = btrc_wos_transfer_image(owner, verified_image, error);
+unlock:
+    for (size_t index = 0; index < 5; index++) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_transfer_handle_close(owner, &owner->inherited[index], &cleanup) != 0) {
+            if (error != NULL) *error = cleanup;
+            status = -1;
+        }
+    }
+    for (size_t index = 0; index < 3; index++) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_transfer_handle_close(owner, &owner->nulls[index], &cleanup) != 0) {
+            if (error != NULL) *error = cleanup;
+            status = -1;
+        }
+    }
+    ReleaseSRWLockExclusive(&btrc_wos_spawn_lock);
+    if (status == 0 && (btrc_wos_bootstrap_close(&owner->child_request, deadline, error) != 0
+            || btrc_wos_bootstrap_close(&owner->child_reply, deadline, error) != 0)) status = -1;
+done:
+    free(command);
+    if (status == 0 && GetTickCount64() >= deadline)
+        status = btrc_wos_fail(error, BTRC_WOS_STAGE_WAIT, BTRC_WOS_DOMAIN_WIN32, ERROR_TIMEOUT);
+    if (status != 0) {
+        *pid = 0;
+        *lifetime = 0;
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_transfer_close(&owner, deadline, &cleanup) != 0 && error != NULL)
+            error->ownership_state = cleanup.ownership_state;
+    }
+    *out = owner;
+    return status;
+}
+
+int btrc_wos_transfer_resume(btrc_wos_transfer *owner, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (owner == NULL || owner->poisoned || owner->resumed || owner->terminated
+            || !owner->assigned || owner->child_request != NULL || owner->child_reply != NULL)
+        return btrc_wos_transfer_invalid(owner, error);
+    if (GetTickCount64() >= owner->deadline) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_WAIT, BTRC_WOS_DOMAIN_WIN32, ERROR_TIMEOUT);
+        if (error != NULL) error->ownership_state = 1;
+        return -1;
+    }
+    if (ResumeThread(owner->thread) == (DWORD)-1) {
+        btrc_wos_win32(error, BTRC_WOS_STAGE_RESUME);
+        if (error != NULL) error->ownership_state = 1;
+        return -1;
+    }
+    owner->resumed = 1;
+    return btrc_wos_transfer_handle_close(owner, &owner->thread, error);
+}
+
+btrc_wos_bootstrap_pipe *btrc_wos_transfer_request(btrc_wos_transfer *owner) {
+    return owner == NULL || owner->poisoned ? NULL : owner->request;
+}
+
+btrc_wos_bootstrap_pipe *btrc_wos_transfer_reply(btrc_wos_transfer *owner) {
+    return owner == NULL || owner->poisoned ? NULL : owner->reply;
+}
+
+int btrc_wos_transfer_begin_commit(btrc_wos_transfer *owner, uint64_t deadline,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (owner == NULL || owner->poisoned || !owner->resumed || owner->terminated || owner->commit_attempted)
+        return btrc_wos_transfer_invalid(owner, error);
+    uint64_t now = GetTickCount64();
+    if (now >= deadline || now >= owner->deadline) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_WAIT, BTRC_WOS_DOMAIN_WIN32, ERROR_TIMEOUT);
+        if (error != NULL) error->ownership_state = 1;
+        return -1;
+    }
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+    if (!QueryInformationJobObject(owner->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits), NULL))
+        goto failed;
+    limits.BasicLimitInformation.LimitFlags &= ~JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!SetInformationJobObject(owner->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)))
+        goto failed;
+    owner->commit_attempted = 1;
+    return 0;
+failed:
+    btrc_wos_win32(error, BTRC_WOS_STAGE_JOB);
+    if (error != NULL) error->ownership_state = 1;
+    return -1;
+}
+
 #else
+
+int btrc_wos_transfer_open(const uint16_t *image_path, void *verified_image,
+        const unsigned char nonces[32], uint64_t deadline, btrc_wos_transfer **out,
+        uint32_t *pid, uint32_t *lifetime, __btrc_windows_launch_error_t *error) {
+    (void)image_path; (void)verified_image; (void)nonces; (void)deadline;
+    btrc_wos_clear(error);
+    if (out != NULL) *out = NULL;
+    if (pid != NULL) *pid = 0;
+    if (lifetime != NULL) *lifetime = 0;
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
+
+int btrc_wos_transfer_resume(btrc_wos_transfer *owner, __btrc_windows_launch_error_t *error) {
+    (void)owner;
+    btrc_wos_clear(error);
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
+
+btrc_wos_bootstrap_pipe *btrc_wos_transfer_request(btrc_wos_transfer *owner) {
+    (void)owner;
+    return NULL;
+}
+
+btrc_wos_bootstrap_pipe *btrc_wos_transfer_reply(btrc_wos_transfer *owner) {
+    (void)owner;
+    return NULL;
+}
+
+int btrc_wos_transfer_begin_commit(btrc_wos_transfer *owner, uint64_t deadline,
+        __btrc_windows_launch_error_t *error) {
+    (void)owner; (void)deadline;
+    btrc_wos_clear(error);
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
+
+int btrc_wos_transfer_close(btrc_wos_transfer **owner, uint64_t deadline,
+        __btrc_windows_launch_error_t *error) {
+    (void)deadline;
+    btrc_wos_clear(error);
+    if (owner != NULL) *owner = NULL;
+    return 0;
+}
 
 int __btrc_windows_supervisor_spawn_managed(__btrc_windows_supervisor_owner *owner,
         __btrc_windows_launch_error_t *error) {

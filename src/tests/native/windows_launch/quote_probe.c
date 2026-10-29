@@ -14,6 +14,22 @@
 
 #include "windows_os.h"
 #include "windows_bootstrap.h"
+#include "windows_daemon_transfer.h"
+
+static int transfer_off_windows(void) {
+    __btrc_windows_launch_error_t error;
+    btrc_wos_transfer *owner = (btrc_wos_transfer *)(void *)&error;
+    uint32_t pid = 99, lifetime = 99;
+    int opened = btrc_wos_transfer_open(NULL, NULL, NULL, 1000, &owner, &pid, &lifetime, &error);
+    int resumed = btrc_wos_transfer_resume(owner, &error);
+    int committed = btrc_wos_transfer_begin_commit(owner, 1000, &error);
+    printf("open=%d owner=%s pid=%u lifetime=%u resume=%d commit=%d request=%s reply=%s stage=%u domain=%u ",
+        opened != 0, owner == NULL ? "null" : "set", (unsigned)pid, (unsigned)lifetime,
+        resumed != 0, committed != 0, btrc_wos_transfer_request(owner) == NULL ? "null" : "set",
+        btrc_wos_transfer_reply(owner) == NULL ? "null" : "set", (unsigned)error.stage, (unsigned)error.domain);
+    printf("close=%d\n", btrc_wos_transfer_close(&owner, 0, &error));
+    return 0;
+}
 
 static int supervisor_off_windows(void) {
     __btrc_windows_launch_error_t error;
@@ -90,6 +106,7 @@ static int launch_off_windows(void) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--transfer") == 0) return transfer_off_windows();
     if (argc == 2 && strcmp(argv[1], "--supervisor") == 0) return supervisor_off_windows();
     if (argc == 2 && strcmp(argv[1], "--bootstrap-invocation") == 0) return bootstrap_invocation();
     if (argc == 2 && strcmp(argv[1], "--launch") == 0) return launch_off_windows();
