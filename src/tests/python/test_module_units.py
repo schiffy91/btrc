@@ -3623,6 +3623,28 @@ int probe() {
 
 
 @pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("member", ["keys", "values"])
+def test_generic_method_sharing_a_field_name_matches_frontends(tmp_path, immutable_btrcc, module_units, member):
+    source = tmp_path / "source"
+    source.mkdir()
+    expected = "name" if member == "keys" else "value"
+    (source / "Main.btrc").write_text(f"""import Library.Map;
+import Library.Vector;
+int main() {{
+    Map<string, string> aliases = {{"name": "value"}};
+    var names = aliases.{member}();
+    assert(names.len == 1 && names.get(0) == "{expected}");
+    print("PASS");
+    return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
 @pytest.mark.parametrize("cycle", [False, True], ids=["acyclic", "cycle"])
 def test_generic_class_method_demand_matches_frontends(tmp_path, immutable_btrcc, module_units, cycle):
     source = tmp_path.resolve() / "source"

@@ -1889,7 +1889,7 @@ class GenericSpecializer {
 
 	private void demandCallable(Node? receiver, string kind, string name, Map<string, bool> unresolved) {
 		if (!self.validated || receiver == null || receiver.isArray || receiver.genericArgs().len == 0 || !self.analyzed.isGenericClass(receiver.base) || TypeIdentity.referencesNames(receiver, unresolved)) { return; }
-		Node? member = SemanticTypeSystem.genericMember(self.analyzed, receiver.base, name);
+		Node? member = kind == "method" ? self.analyzed.genericClassMethod(receiver.base, name) : SemanticTypeSystem.genericMember(self.analyzed, receiver.base, name);
 		if (member == null) { return; }
 		if (kind == "method" && (member.kind != NK_METHOD_DECL || member.genericParams().len > 0)) { return; }
 		if (kind == "get" && (member.kind != NK_PROPERTY_DECL || !member.hasGetter)) { return; }
