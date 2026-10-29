@@ -604,10 +604,60 @@ def test_runtime_object_rows_match_the_validated_manifest():
     rows = RuntimeObjects.rows()
     assert rows and len(rows) == len(expected)
     for row, spec in zip(rows, expected, strict=True):
-        assert (row.source, row.helpers) == (spec.source, spec.helpers)
+        assert (row.source, row.helpers, row.dependencies) == (spec.source, spec.helpers, spec.dependencies)
         for operating_system in ("linux", "macos", "windows", "ios", "android"):
             assert row.libraries_for(operating_system) == spec.libraries_for(operating_system)
         assert (RuntimeObjects.DIRECTORY / row.source).is_file()
+
+
+def test_runtime_object_dependencies_link_once_and_track_cached_sources(tmp_path, monkeypatch):
+    """The consumer mentions only the root; two hidden dependencies must link.
+
+    A cycle and a shared dependency retain each object once. An unrelated
+    object deliberately cannot compile, and changing a leaf invalidates only
+    that cached object. No compiler or generated catalog is needed here.
+    """
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    entries = []
+    for name, dependencies in (
+        ("leaf", ["root.c"]),
+        ("middle", ["leaf.c"]),
+        ("unused", []),
+        ("root", ["middle.c", "leaf.c"]),
+    ):
+        entries.append(
+            f'[[helpers]]\nname = "{name}"\nasset = "{name}.h"\n'
+            f'[[external_objects]]\nsource = "{name}.c"\ndeclarations = "{name}.h"\n'
+            f"dependencies = {json.dumps(dependencies)}\n"
+            'libraries = [{ os = ["windows"], names = ["kernel32"] }]\n'
+        )
+    (runtime / "manifest.toml").write_text("\n".join(entries))
+    (runtime / "leaf.c").write_text("int leaf(void) { return 21; }\n")
+    (runtime / "middle.c").write_text("int leaf(void); int middle(void) { return leaf() * 2; }\n")
+    (runtime / "root.c").write_text("int middle(void); int root(void) { return middle(); }\n")
+    (runtime / "unused.c").write_text('#error "unselected object compiled"\n')
+    monkeypatch.setattr(RuntimeObjects, "DIRECTORY", runtime)
+    monkeypatch.setattr(RuntimeObjects, "_ROWS", None)
+    assert RuntimeObjects.selected(['/* root */ const char *text = "root";']) == ()
+    selected = RuntimeObjects.selected(["int root(void);"])
+    assert [row.source for row in selected] == ["leaf.c", "middle.c", "root.c"]
+    assert RuntimeObjects.library_flags(selected, "windows") == ["-lkernel32"]
+    source = tmp_path / "main.c"
+    source.write_text('#include <stdio.h>\nint root(void); int main(void) { printf("%d\\n", root()); return 0; }\n')
+    plan = tmp_path / "program.link.json"
+    plan.write_text(NativeLinkPlan.empty(PackageTarget.parse(None)).canonical_json())
+    output = tmp_path / "program"
+    for iteration, expected, counts in ((0, "42", (4, 0)), (1, "42", (0, 4)), (2, "44", (1, 3))):
+        if iteration == 2:
+            (runtime / "leaf.c").write_text("int leaf(void) { return 22; }\n")
+        report = NativePlanBuilder().build(
+            plan_path=plan, generated_c=source, output=output, object_cache=tmp_path / "objects"
+        )
+        result = subprocess.run([str(output)], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT)
+        assert result.stdout.strip() == expected
+        recorded = report.as_dict()
+        assert (recorded["compiled_units"], recorded["reused_units"]) == counts
 
 
 def test_standalone_native_plan_distribution_reuses_cached_objects(tmp_path):

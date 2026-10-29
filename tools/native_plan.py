@@ -745,6 +745,7 @@ class RuntimeObject:
     source: str
     helpers: tuple[str, ...]
     libraries: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...]
+    dependencies: tuple[str, ...] = ()
 
     def libraries_for(self, operating_system: str) -> tuple[str, ...]:
         return tuple(name for systems, names in self.libraries if operating_system in systems for name in names)
@@ -784,6 +785,7 @@ class RuntimeObjects:
                     source=row["source"],
                     helpers=tuple(helper["name"] for helper in helpers if helper.get("asset") == row["declarations"]),
                     libraries=tuple((tuple(entry["os"]), tuple(entry["names"])) for entry in row["libraries"]),
+                    dependencies=tuple(row.get("dependencies", ())),
                 )
                 for row in document.get("external_objects", [])
             )
@@ -793,14 +795,25 @@ class RuntimeObjects:
     def selected(cls, texts: Sequence[str]) -> tuple:
         """The object rows any of these emitted units retains, in manifest order:
         a row is retained when a unit's code (not a comment or literal) names
-        one of its sections' helpers."""
+        one of its sections' helpers. Its object dependencies are retained even
+        when their helpers never appear in the emitted unit. Cycles are valid:
+        these are whole object files, not order-sensitive static archives."""
         rows = cls.rows()
         wanted = {name for row in rows for name in row.helpers}
         present: set[str] = set()
         for text in texts:
             if any(name in text for name in wanted):
                 present.update(wanted.intersection(cls._IDENTIFIER.findall(cls._NON_CODE.sub(" ", text))))
-        return tuple(row for row in rows if present.intersection(row.helpers))
+        by_source = {row.source: row for row in rows}
+        pending = [row.source for row in rows if present.intersection(row.helpers)]
+        selected: set[str] = set()
+        while pending:
+            source = pending.pop()
+            if source in selected:
+                continue
+            selected.add(source)
+            pending.extend(by_source[source].dependencies)
+        return tuple(row for row in rows if row.source in selected)
 
     @classmethod
     def sources(cls, rows: Sequence) -> list[Path]:
