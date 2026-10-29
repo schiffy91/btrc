@@ -40,3 +40,27 @@ def test_explicit_compiler_override_remains_first_candidate(monkeypatch):
 
     assert candidates[0].command == ("custom-cc", "--driver-flag")
     assert candidates[1].command == ("/usr/bin/clang",)
+
+
+def test_explicit_apple_clang_keeps_its_isolated_fallback(monkeypatch, tmp_path):
+    isolated = {"PATH": "/usr/bin:/bin"}
+    monkeypatch.setenv("BTRC_CC", "/usr/bin/clang")
+    monkeypatch.setattr(harness, "CC", ["/usr/bin/clang"])
+    monkeypatch.setattr(harness, "HOST_CLANG", "/usr/bin/clang")
+    monkeypatch.setattr(harness, "HOST_GCC", None)
+    monkeypatch.setattr(harness, "_host_clang_environment", lambda: isolated)
+    monkeypatch.setattr(harness.shutil, "which", lambda name, path=None: name)
+    monkeypatch.setattr(harness.os, "access", lambda path, mode: True)
+    monkeypatch.setattr(harness.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        harness,
+        "_probe_sanitizer_candidate",
+        lambda candidate, _path, _index: None if candidate.environment == isolated else "incompatible runtime",
+    )
+
+    candidates = harness._sanitizer_candidates()
+    assert [(candidate.command, candidate.environment) for candidate in candidates] == [
+        (("/usr/bin/clang",), None),
+        (("/usr/bin/clang",), isolated),
+    ]
+    assert harness._select_sanitizer_toolchain(tmp_path).environment == isolated

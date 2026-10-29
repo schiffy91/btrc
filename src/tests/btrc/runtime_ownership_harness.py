@@ -72,7 +72,7 @@ def _sanitizer_candidates() -> tuple[SanitizerToolchain, ...]:
             candidates.append(SanitizerToolchain((path,)))
 
     unique: list[SanitizerToolchain] = []
-    seen: set[tuple[str, ...]] = set()
+    seen: set[tuple[tuple[str, ...], tuple[tuple[str, str], ...] | None]] = set()
     for candidate in candidates:
         executable = shutil.which(
             candidate.command[0],
@@ -82,8 +82,12 @@ def _sanitizer_candidates() -> tuple[SanitizerToolchain, ...]:
             os.path.realpath(executable or candidate.command[0]),
             *candidate.command[1:],
         )
-        if identity not in seen:
-            seen.add(identity)
+        # The same driver can load a different SDK/runtime in the inherited
+        # Nix environment and the isolated Apple environment.
+        environment = tuple(sorted(candidate.environment.items())) if candidate.environment is not None else None
+        key = identity, environment
+        if key not in seen:
+            seen.add(key)
             unique.append(candidate)
     return tuple(unique)
 
