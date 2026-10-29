@@ -97,7 +97,8 @@ static int census_contains(const census_snapshot *snapshot, const census_entry *
     for (ULONG_PTR index = 0; index < snapshot->count; index++) {
         const census_entry *candidate = &snapshot->entries[index];
         if (candidate->value == entry->value && candidate->type == entry->type
-                && candidate->access == entry->access) return 1;
+                && candidate->access == entry->access
+                && candidate->attributes == entry->attributes) return 1;
     }
     return 0;
 }
@@ -157,6 +158,55 @@ static int to_utf8(const wchar_t *wide, char *buffer, int capacity) {
 
 static int to_wide(const char *text, wchar_t *buffer, int capacity) {
     return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, buffer, capacity) > 0 ? 0 : -1;
+}
+
+/* First CreateProcessW use initializes process-wide registry/ETW handles on
+ * Windows. Establish that baseline using only Win32, never the launch owner
+ * whose cleanup we test. A second spawn must preserve the exact handle table;
+ * no handle type or count allowance is excluded from the later leak checks. */
+static int census_spawn_once(void) {
+    wchar_t self[1024], command[1100];
+    if (to_wide(self_utf8, self, 1024) != 0) return -1;
+    int length = swprintf(command, 1100, L"\"%ls\" --exit 0", self);
+    if (length < 0 || length >= 1100) return -1;
+    STARTUPINFOW startup;
+    PROCESS_INFORMATION process;
+    memset(&startup, 0, sizeof(startup));
+    memset(&process, 0, sizeof(process));
+    startup.cb = sizeof(startup);
+    if (!CreateProcessW(self, command, NULL, NULL, FALSE, CREATE_NO_WINDOW,
+            NULL, NULL, &startup, &process)) return -1;
+    int valid = CloseHandle(process.hThread) != 0;
+    DWORD waited = WaitForSingleObject(process.hProcess, 5000), code = 1;
+    if (waited != WAIT_OBJECT_0) {
+        (void)TerminateProcess(process.hProcess, 99);
+        (void)WaitForSingleObject(process.hProcess, 5000);
+        valid = 0;
+    } else if (!GetExitCodeProcess(process.hProcess, &code) || code != 0) {
+        valid = 0;
+    }
+    if (!CloseHandle(process.hProcess)) valid = 0;
+    return valid ? 0 : -1;
+}
+
+static int census_process_baseline(void) {
+    census_snapshot initial, final;
+    for (int attempt = 0; attempt < 2; attempt++) {
+        DWORD before = 0, after = 0;
+        if (census_take(&initial) != 0 || !GetProcessHandleCount(GetCurrentProcess(), &before)
+                || census_spawn_once() != 0 || census_take(&final) != 0
+                || !GetProcessHandleCount(GetCurrentProcess(), &after)) return -1;
+        int equal = before == after && initial.count == final.count;
+        for (ULONG_PTR index = 0; index < initial.count; index++)
+            if (!census_contains(&final, &initial.entries[index])) equal = 0;
+        if (!equal) {
+            census_dump(GetStdHandle(STD_ERROR_HANDLE),
+                attempt == 0 ? "Win32 process initialization" : "Win32 repeated spawn",
+                before, after, &initial, &final, 1);
+            if (attempt != 0) return -1;
+        }
+    }
+    return 0;
 }
 
 /* ---- Child modes -------------------------------------------------------- */
@@ -2250,6 +2300,14 @@ int main(int argc, char **argv) {
     wchar_t self_wide[1024];
     DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
     if (length == 0 || length >= 1024 || to_utf8(self_wide, self_utf8, (int)sizeof(self_utf8)) != 0) return 2;
+    if (argc == 1 || (argc >= 2 && (strcmp(argv[1], "--bootstrap-io") == 0
+            || strcmp(argv[1], "--transfer-contained") == 0
+            || strcmp(argv[1], "--btrc-daemon-bootstrap-v1") == 0))) {
+        if (census_process_baseline() != 0) {
+            report("FAIL Win32 process census baseline\n");
+            return 52;
+        }
+    }
     if (argc == 2 && strcmp(argv[1], "--daemon-files") == 0) {
         check_daemon_files();
         report("windows-daemon-files %s checks=%d\n", failures == 0 ? "PASS" : "FAIL", checks);
