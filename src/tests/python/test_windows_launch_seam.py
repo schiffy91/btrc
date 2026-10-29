@@ -32,6 +32,7 @@ import pytest
 from src.tests.c_toolchains import configured_c_compiler
 from src.tests.gui_provider_root import GUIProviderRoot
 from src.tests.process_limits import RUN_TIMEOUT, TOOL_TIMEOUT
+from src.tests.python.windows_evidence_fixtures import build_corpus_program
 from tools.compiler_codegen.runtime import RuntimeManifest, RuntimeManifestError
 from tools.native_plan import RuntimeObjects
 
@@ -171,6 +172,13 @@ def test_gui_provider_root_preserves_native_filesystem_dependencies(target, tmp_
         tmp_path / "filesystem.o",
         "-c",
     )
+
+
+@pytest.mark.parametrize("target", sorted(TARGETS))
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_daemon_capability_tokens_build_for_windows(frontend, target, request, tmp_path):
+    compiler = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+    build_corpus_program("stdlib/DaemonToken.btrc", frontend, target, compiler, tmp_path)
 
 
 ROUND_TRIPS = [

@@ -1,0 +1,21 @@
+/* The same capability encoding is used by control records and probe challenges. */
+import Library.Daemon.DaemonControl;
+import Library.Daemon.DaemonControlProtocol;
+
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+	string previous = "";
+	for (int index = 0; index < 64; index++) {
+		string token = DaemonControlProtocol.randomToken();
+		assert(DaemonControlRecord.validToken(token));
+		assert(!token.equals(previous));
+		DaemonControlRecord record = DaemonControlRecord.parse(f"btrc-daemon-v1\n{token}\n42\n");
+		assert(record.valid && record.supervisorPid == 42 && record.token.equals(token));
+		assert(DaemonControlPaths.probe("state", token, token).equals(f"state.{token}.probe.{token}"));
+		previous = token;
+	}
+	printf("PASS: daemon capability tokens\n");
+	return 0;
+}

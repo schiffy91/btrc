@@ -1,0 +1,4 @@
+/* The system RNG fills one 128-bit capability; a failed call yields no token. */
+class DaemonRandomProvider {
+	class bool fill(unsigned char* bytes) { return BCryptGenRandom(null, bytes, (ULONG)16, (ULONG)BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0; }
+}
