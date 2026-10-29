@@ -1243,7 +1243,7 @@ class TypeValidator {
 		}
 		if (typeExpr.isAuto && role != "object") {
 			if (role == "type-name") { TypeValidator.fail("'auto' is a storage class; it cannot appear in a type name", site); }
-			string position = role == "global" ? "at file scope" : role == "alias" ? "in a typedef" : "on " + subject.substring(0, 1).toLower() + subject.substring(1);
+			string position = role == "global" ? "at file scope" : role == "alias" ? "in a typedef" : "on " + subject.substring(0, 1).toLower() + subject.substring(1, subject.length() - 1);
 			TypeValidator.fail("'auto' is not allowed " + position + "; C11 auto declares a block-scope object", site);
 		}
 	}
