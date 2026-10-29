@@ -125,6 +125,7 @@ def records():
     return [
         *LedgerDocument.load(INVENTORY),
         *LedgerDocument.load(INVENTORY.with_suffix("") / "windows-supervisor.toml"),
+        *LedgerDocument.load(INVENTORY.with_suffix("") / "windows-supervisor-image.toml"),
     ]
 
 

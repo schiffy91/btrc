@@ -115,11 +115,14 @@ functions = [
   "__btrc_windows_supervisor_ack",
   "__btrc_windows_supervisor_close",
   "__btrc_windows_supervisor_copy_startup",
+  "__btrc_windows_supervisor_image_close",
+  "__btrc_windows_supervisor_image_verify",
   "__btrc_windows_supervisor_poll_managed",
   "__btrc_windows_supervisor_prepare",
   "__btrc_windows_supervisor_ready_wait_commit",
   "__btrc_windows_supervisor_spawn_managed",
   "__btrc_windows_supervisor_terminate_managed",
+  "__btrc_windows_supervisor_transfer",
   "_setjmp",
   "a64l",
   "abort",
@@ -3771,11 +3774,14 @@ types = [
   "BtrcGPUAsyncWaitOutcome",
   "DIR",
   "FILE",
+  "__btrc_windows_daemon_startup",
+  "__btrc_windows_image_owner",
   "__btrc_windows_launch_error_t",
   "__btrc_windows_launch_options_t",
   "__btrc_windows_launch_owner_t",
   "__btrc_windows_launch_result_t",
   "__btrc_windows_supervisor_owner",
+  "__btrc_windows_transfer_result",
   "accessx_descriptor",
   "active_reg_t",
   "atomic_bool",
@@ -4069,11 +4075,14 @@ typedefs = [
   "BtrcGPUAsyncWaitOutcome",
   "DIR",
   "FILE",
+  "__btrc_windows_daemon_startup",
+  "__btrc_windows_image_owner",
   "__btrc_windows_launch_error_t",
   "__btrc_windows_launch_options_t",
   "__btrc_windows_launch_owner_t",
   "__btrc_windows_launch_result_t",
   "__btrc_windows_supervisor_owner",
+  "__btrc_windows_transfer_result",
   "active_reg_t",
   "atomic_bool",
   "atomic_char",
@@ -6699,6 +6708,8 @@ owned = [
   "__btrc_terminal_foreground_group",
   "__btrc_validate_executable_descriptor",
   "__btrc_validate_working_directory_descriptor",
+  "__btrc_windows_daemon_startup",
+  "__btrc_windows_image_owner",
   "__btrc_windows_launch",
   "__btrc_windows_launch_close",
   "__btrc_windows_launch_copy_output",
@@ -6713,12 +6724,16 @@ owned = [
   "__btrc_windows_supervisor_ack",
   "__btrc_windows_supervisor_close",
   "__btrc_windows_supervisor_copy_startup",
+  "__btrc_windows_supervisor_image_close",
+  "__btrc_windows_supervisor_image_verify",
   "__btrc_windows_supervisor_owner",
   "__btrc_windows_supervisor_poll_managed",
   "__btrc_windows_supervisor_prepare",
   "__btrc_windows_supervisor_ready_wait_commit",
   "__btrc_windows_supervisor_spawn_managed",
   "__btrc_windows_supervisor_terminate_managed",
+  "__btrc_windows_supervisor_transfer",
+  "__btrc_windows_transfer_result",
   "_setjmp",
   "a64l",
   "abort",
@@ -12110,6 +12125,34 @@ raw_lifetime = false
 realtime_effect = "blocking"
 
 [[functions]]
+name = "__btrc_windows_supervisor_image_close"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_image_owner", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_image_verify"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_image_owner", pointer_depth = 2, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
 name = "__btrc_windows_supervisor_poll_managed"
 origin = "runtime"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -12175,6 +12218,24 @@ parameters_known = true
 parameters = [
   { base = "__btrc_windows_supervisor_owner", pointer_depth = 1, is_const = false, effect = "mutate" },
   { base = "uint32_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_supervisor_transfer"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_image_owner", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "__btrc_windows_daemon_startup", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "unsigned char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "uint64_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "__btrc_windows_transfer_result", pointer_depth = 1, is_const = false, effect = "mutate" },
   { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
 ]
 variadic = false
@@ -16511,6 +16572,7 @@ raw_lifetime = false
 
 # No [platform] name needed a btrc stdlib self-declaration to count as declared.
 # GPU runtime names read from src/runtime/gpu: 35.
+
 [[platform_targets]]
 target = "android-aarch64"
 unavailable_functions = [

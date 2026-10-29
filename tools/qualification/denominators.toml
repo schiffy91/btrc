@@ -72,3 +72,14 @@ ids = 10
 slots = 60
 sha256 = "5218123d7bf687621aa5edb54ce3b5487a0f4a2584f8cbfe60aa8238fe988bc3"
 source = { ledger = "docs/design/platform-inventory/windows-supervisor.toml" }
+
+[[denominators]]
+kind = "operation"
+release = "p0-windows-supervisor-image-2026-10-29"
+platforms = ["windows", "ios", "android"]
+slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
+frontends = []
+ids = 4
+slots = 24
+sha256 = "058b5060fa442b93dba3684dcba97d574ef706a46b2e4208516b01a0d8f4a3e3"
+source = { ledger = "docs/design/platform-inventory/windows-supervisor-image.toml" }

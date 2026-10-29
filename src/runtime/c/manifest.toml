@@ -2609,3 +2609,50 @@ order = { python = 239, btrc = 225 }
 source = "windows_os.c"
 declarations = "windows_os.h"
 libraries = [{ os = ["windows"], names = ["kernel32", "advapi32"] }]
+
+[[helpers]]
+name = "__btrc_windows_supervisor_image_types"
+category = "process"
+asset = "windows_daemon_image.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+provided_types = ["__btrc_windows_image_owner", "__btrc_windows_daemon_metadata_t", "__btrc_windows_daemon_startup", "__btrc_windows_transfer_result"]
+provided_objects = ["__btrc_windows_daemon_metadata"]
+source_visible = false
+order = { python = 240, btrc = 226 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_image_verify"
+category = "process"
+asset = "windows_daemon_image.h"
+dependencies = ["__btrc_windows_supervisor_image_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 241, btrc = 227 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_image_close"
+category = "process"
+asset = "windows_daemon_image.h"
+dependencies = ["__btrc_windows_supervisor_image_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 242, btrc = 228 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_transfer"
+category = "process"
+asset = "windows_daemon_image.h"
+dependencies = ["__btrc_windows_supervisor_image_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 243, btrc = 229 }
+
+[[external_objects]]
+source = "windows_daemon_image.c"
+declarations = "windows_daemon_image.h"
+dependencies = ["windows_os.c"]
+libraries = [{ os = ["windows"], names = ["bcrypt"] }]

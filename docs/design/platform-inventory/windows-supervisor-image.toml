@@ -1,0 +1,60 @@
+# Consumer image admission and transfer, separate from the frozen P0 seed.
+schema = "btrc.qualification.ledger/1"
+
+provenance = { recorded_at = "2026-10-29T00:00:00+00:00", btrc_revision = "b62d9570" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_image_types"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_image_types (windows_daemon_image.c)"
+regression = ["src/tests/python/test_windows_daemon_image.py::test_image_catalog_exposes_only_consumer_operations"]
+note = "corpus-unreached (target-only): the consumer-only image API has native harness and emitted-C link checks; public Daemon integration remains unfinished"
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C does not include host SDK headers" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C does not include host SDK headers" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C does not include host SDK headers" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C does not include host SDK headers" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C does not include host SDK headers" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C does not include host SDK headers" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_image_verify"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_image_verify (windows_daemon_image.c)"
+regression = ["src/tests/python/test_windows_daemon_image.py::test_image_catalog_exposes_only_consumer_operations"]
+note = "corpus-unreached (target-only): the consumer-only image API has native harness and emitted-C link checks; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Consumer image and transfer harnesses cross-build for both Windows ABIs; native execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Consumer image and transfer harnesses cross-build for both Windows ABIs; native execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_image_close"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_image_close (windows_daemon_image.c)"
+regression = ["src/tests/python/test_windows_daemon_image.py::test_image_catalog_exposes_only_consumer_operations"]
+note = "corpus-unreached (target-only): the consumer-only image API has native harness and emitted-C link checks; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Consumer image and transfer harnesses cross-build for both Windows ABIs; native execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Consumer image and transfer harnesses cross-build for both Windows ABIs; native execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_supervisor_transfer"
+group = "runtime/process"
+title = "__btrc_windows_supervisor_transfer (windows_daemon_image.c)"
+regression = ["src/tests/python/test_windows_daemon_image.py::test_image_catalog_exposes_only_consumer_operations"]
+note = "corpus-unreached (target-only): the consumer-only image API has native harness and emitted-C link checks; public Daemon integration remains unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Consumer image and transfer harnesses cross-build for both Windows ABIs; native execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Consumer image and transfer harnesses cross-build for both Windows ABIs; native execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported implementation initializes outputs; no provider for this target retains it" }
