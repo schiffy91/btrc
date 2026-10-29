@@ -3,3 +3,28 @@ manifest-version = 1
 [package]
 name = "btrc_stdlib_daemon"
 exports = ["Daemon", "DaemonControl", "DaemonControlFiles", "DaemonControlProtocol"]
+
+[[package.providers]]
+module = "DaemonControlProtocol"
+implementation = "Unix.DaemonRandomProvider"
+os = ["android", "ios", "linux", "macos"]
+
+[[package.providers]]
+module = "DaemonControlProtocol"
+implementation = "Windows.DaemonRandomProvider"
+os = ["windows"]
+
+[[native.bindings]]
+module = "Windows.DaemonRandomProvider"
+header = "Windows/Win32Daemon.h"
+language = "c"
+standard = "c11"
+symbols = ["ULONG", "BCryptGenRandom", "BCRYPT_USE_SYSTEM_PREFERRED_RNG"]
+os = ["windows"]
+env = ["gnu"]
+
+[[native.libraries]]
+name = "bcrypt"
+modules = ["Windows.DaemonRandomProvider"]
+os = ["windows"]
+env = ["gnu"]
