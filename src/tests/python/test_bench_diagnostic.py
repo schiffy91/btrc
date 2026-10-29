@@ -185,13 +185,33 @@ def test_matched_guard_uses_own_tools_and_original_strict_three_sample_check(tmp
     assert "--strict" in argv and argv[argv.index("--timings") + 1] == "report"
     assert "--programs" not in argv and "--no-peaks" not in argv and "--no-reference" not in argv
     assert not any("tolerance" in argument or "budget" in argument for argument in argv)
+    scratch = Path(argv[argv.index("--out-dir") + 1])
+    assert scratch.is_relative_to(owner.scratch) and not scratch.is_relative_to(owner.output)
+    assert Path(argv[argv.index("--json") + 1]).is_relative_to(owner.output)
     assert cwd == tree and env["BTRC_HOME"] == str(tree / "src")
     assert owner.receipt["guards"]["main"] == 1
+
+
+def test_failed_diagnostic_keeps_bounded_evidence_in_logs_without_environment(tmp_path, capsys):
+    owner = diagnostic(tmp_path)
+    owner.output.mkdir()
+    owner.receipt.update(status="diagnostic completed with failures", guards={"main": 0, "candidate": 1})
+    owner.receipt["commands"].append(
+        {"label": "guard-candidate", "returncode": 1, "stderr": "guard.stderr", "environment": {"SECRET": "hidden"}}
+    )
+    (owner.output / "guard.stderr").write_bytes(b"discarded-prefix" + b"x" * 15000 + b"budget failure\n")
+    owner.print_summary()
+    output = capsys.readouterr().out
+    assert '"candidate": 1' in output and "budget failure" in output
+    assert "discarded-prefix" not in output and "hidden" not in output and len(output) < 13000
 
 
 def test_fresh_builds_use_matching_home_and_retain_partial_failed_build(tmp_path: Path, monkeypatch) -> None:
     owner = diagnostic(tmp_path)
     builds = []
+    cc = tmp_path / "fixture-cc"
+    cc.write_bytes(b"fixture compiler identity\n")
+    monkeypatch.setattr("tools.bench.diagnostic.shutil.which", lambda name: str(cc))
 
     def git(*args):
         if args == ("rev-parse", "HEAD"):
