@@ -344,6 +344,7 @@
           prefixes = [ "src/runtime/c/" "src/runtime/windows/" ];
           files = [
             "tools/native_plan.py"
+            "tools/daemon_supervisor.py"
             "src/compiler/python/__init__.py"
             "src/compiler/python/abi/__init__.py"
             "src/compiler/python/abi/declarations.py"
