@@ -26,6 +26,7 @@
 #include "windows_os.h"
 #include "windows_bootstrap.h"
 #include "windows_daemon_protocol.h"
+#include "windows_daemon_files.h"
 #include "windows_utf.h"
 
 #if defined(_WIN32)
@@ -35,6 +36,7 @@
 #include <windows.h>
 #include <winternl.h>
 #include "windows_security.h"
+#include "windows_filesystem.h"
 #endif
 
 /* Error stages, domains and validation reasons (windows_os.h). */
@@ -817,6 +819,226 @@ int btrc_wos_bootstrap_receive(btrc_wos_bootstrap_pipe *pipe,
     }
     btrc_wos_bootstrap_message_release(message);
     return -1;
+}
+
+/* ---- Held daemon log and control files --------------------------------- */
+
+typedef struct {
+    HANDLE handle;
+    long long identity[BTRC_WIN_FIELD_COUNT];
+} btrc_wos_held_directory;
+
+struct btrc_wos_daemon_file {
+    HANDLE handle;
+    btrc_wos_held_directory *directories;
+    size_t count;
+    long long identity[BTRC_WIN_FIELD_COUNT];
+    int poisoned;
+};
+
+int btrc_wos_daemon_file_close(btrc_wos_daemon_file **slot,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (slot == NULL || *slot == NULL) return 0;
+    btrc_wos_daemon_file *file = *slot;
+    if (file->poisoned) {
+        if (error != NULL) error->ownership_state = 2;
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_WIN32, ERROR_INVALID_HANDLE);
+    }
+    for (size_t index = file->count + 1; index > 0; index--) {
+        HANDLE *handle = index == file->count + 1 ? &file->handle : &file->directories[index - 1].handle;
+        if (*handle == NULL) continue;
+        if (!CloseHandle(*handle)) {
+            file->poisoned = 1;
+            if (error != NULL) error->ownership_state = 2;
+            return btrc_wos_win32(error, BTRC_WOS_STAGE_DIRECTORY);
+        }
+        *handle = NULL;
+    }
+    free(file->directories);
+    free(file);
+    *slot = NULL;
+    return 0;
+}
+
+static int btrc_wos_daemon_file_error(__btrc_windows_launch_error_t *error, int status, NTSTATUS native) {
+    if (native != 0)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_NTSTATUS, (uint32_t)native);
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY,
+        status > 0 ? BTRC_WOS_DOMAIN_WIN32 : BTRC_WOS_DOMAIN_VALIDATION,
+        status > 0 ? (uint32_t)status : BTRC_WOS_REASON_ARGUMENT);
+}
+
+static int btrc_wos_daemon_directory(btrc_wos_held_directory *directory,
+        __btrc_windows_launch_error_t *error) {
+    int status = btrcWinDescribeHandle(directory->handle, directory->identity);
+    if (status != 0) return btrc_wos_daemon_file_error(error, status, 0);
+    if (directory->identity[BTRC_WIN_FIELD_KIND] != BTRC_WIN_KIND_DIRECTORY
+            || IsReparseTagNameSurrogate((DWORD)directory->identity[BTRC_WIN_FIELD_REPARSE_TAG])
+            || directory->identity[BTRC_WIN_FIELD_DELETE_PENDING])
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_REFUSAL, ERROR_CANT_ACCESS_FILE);
+    return 0;
+}
+
+static int btrc_wos_daemon_file_open(const unsigned char *path, size_t size, int log,
+        btrc_wos_daemon_file **out, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (out != NULL) *out = NULL;
+    btrc_daemon_text text = { path, size };
+    if (out == NULL || size == 0 || !btrc_daemon_text_valid(text))
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    char *names = (char *)malloc(size + 1);
+    btrc_wos_daemon_file *file = (btrc_wos_daemon_file *)calloc(1, sizeof(*file));
+    if (names == NULL || file == NULL) {
+        free(names); free(file);
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+    }
+    memcpy(names, path, size); names[size] = 0;
+    size_t capacity = 1;
+    for (size_t index = 0; index < size; index++) if (names[index] == '/' || names[index] == '\\') capacity++;
+    file->directories = (btrc_wos_held_directory *)calloc(capacity, sizeof(*file->directories));
+    int status = -1;
+    void *descriptor = NULL;
+    if (file->directories == NULL) {
+        btrc_wos_daemon_file_error(error, ERROR_NOT_ENOUGH_MEMORY, 0);
+        goto done;
+    }
+    int root = btrcWinRootLength(names);
+    if (root <= 0 || (size_t)root >= size) {
+        btrc_wos_daemon_file_error(error, BTRC_WIN_STATUS_INVALID, 0);
+        goto done;
+    }
+    /* Validate every component before opening anything, including UNC server
+     * and share names. A canonical root is drive-absolute or a complete UNC. */
+    size_t component = 0;
+    if (names[0] == '\\' || names[0] == '/') {
+        component = size >= 8 && names[2] == '?' ? 8 : 2;
+        if (size >= 7 && names[2] == '?' && names[5] == ':') component = (size_t)root;
+    } else component = (size_t)root;
+    for (size_t index = component; index <= size; index++) {
+        if (index != size && names[index] != '/' && names[index] != '\\') continue;
+        char saved = names[index]; names[index] = 0;
+        int valid = btrcWinValidComponent(names + component);
+        names[index] = saved;
+        if (!valid) {
+            btrc_wos_daemon_file_error(error, BTRC_WIN_STATUS_INVALID, 0);
+            goto done;
+        }
+        component = index + 1;
+    }
+    BtrcWinFileOpen policy = {
+        FILE_TRAVERSE | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN, BTRC_WIN_SHAPE_DIRECTORY, NULL
+    };
+    char saved = names[root]; names[root] = 0;
+    int opened = btrcWinOpenPathOptions(names, &policy, (void **)&file->directories[0].handle);
+    names[root] = saved;
+    if (opened != 0) { btrc_wos_daemon_file_error(error, opened, 0); goto done; }
+    file->count = 1;
+    if (btrc_wos_daemon_directory(&file->directories[0], error) != 0) goto done;
+    component = (size_t)root;
+    for (size_t index = component; index < size; index++) {
+        if (names[index] != '/' && names[index] != '\\') continue;
+        names[index] = 0;
+        NTSTATUS native = 0;
+        opened = btrcWinOpenAtOptions(file->directories[file->count - 1].handle,
+            names + component, &policy, (void **)&file->directories[file->count].handle, &native);
+        if (opened != 0) { btrc_wos_daemon_file_error(error, opened, native); goto done; }
+        file->count++;
+        if (btrc_wos_daemon_directory(&file->directories[file->count - 1], error) != 0) goto done;
+        component = index + 1;
+    }
+    HANDLE parent = file->directories[file->count - 1].handle;
+    int secure = btrcWinCheckPrivate(parent, 1);
+    if (secure != 0) { btrc_wos_daemon_file_error(error, secure, 0); goto done; }
+    if (log) {
+        secure = btrcWinPrivateDescriptor(0, &descriptor);
+        if (secure != 0) { btrc_wos_daemon_file_error(error, secure, 0); goto done; }
+    }
+    policy.access = (log ? FILE_APPEND_DATA : FILE_READ_DATA) | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
+    policy.share = log ? FILE_SHARE_READ | FILE_SHARE_WRITE : FILE_SHARE_READ;
+    policy.disposition = log ? FILE_OPEN_IF : FILE_OPEN;
+    policy.shape = BTRC_WIN_SHAPE_FILE;
+    policy.descriptor = descriptor;
+    NTSTATUS native = 0;
+    opened = btrcWinOpenAtOptions(parent, names + component, &policy, (void **)&file->handle, &native);
+    if (opened != 0) { btrc_wos_daemon_file_error(error, opened, native); goto done; }
+    secure = btrcWinDescribeHandle(file->handle, file->identity);
+    if (secure == 0) secure = btrcWinCheckPrivate(file->handle, 1);
+    if (secure != 0) { btrc_wos_daemon_file_error(error, secure, 0); goto done; }
+    if (file->identity[BTRC_WIN_FIELD_KIND] != BTRC_WIN_KIND_REGULAR
+            || file->identity[BTRC_WIN_FIELD_REPARSE_TAG] != 0
+            || file->identity[BTRC_WIN_FIELD_LINKS] != 1
+            || file->identity[BTRC_WIN_FIELD_DELETE_PENDING]) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_REFUSAL, ERROR_CANT_ACCESS_FILE);
+        goto done;
+    }
+    for (size_t index = 0; index < file->count; index++) {
+        btrc_wos_held_directory current = { 0 };
+        current.handle = file->directories[index].handle;
+        if (btrc_wos_daemon_directory(&current, error) != 0) goto done;
+        const int fields[] = { BTRC_WIN_FIELD_VOLUME, BTRC_WIN_FIELD_FILE_ID, BTRC_WIN_FIELD_FILE_ID_HIGH, BTRC_WIN_FIELD_REPARSE_TAG };
+        for (size_t field = 0; field < sizeof(fields) / sizeof(fields[0]); field++) {
+            if (current.identity[fields[field]] != file->directories[index].identity[fields[field]]) {
+                btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_REFUSAL, ERROR_FILE_INVALID);
+                goto done;
+            }
+        }
+    }
+    status = 0;
+done:
+    free(descriptor);
+    free(names);
+    if (status != 0) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_daemon_file_close(&file, &cleanup) != 0 && error != NULL)
+            error->ownership_state = cleanup.ownership_state;
+    }
+    *out = file;
+    return status;
+}
+
+int btrc_wos_daemon_log_open(const unsigned char *path, size_t size,
+        btrc_wos_daemon_file **out, __btrc_windows_launch_error_t *error) {
+    return btrc_wos_daemon_file_open(path, size, 1, out, error);
+}
+
+int btrc_wos_daemon_record_open(const unsigned char *path, size_t size,
+        const unsigned char token[16], uint32_t supervisor_pid,
+        btrc_wos_daemon_file **out, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (out != NULL) *out = NULL;
+    if (out == NULL || token == NULL || supervisor_pid < 2 || supervisor_pid > INT_MAX)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    btrc_wos_daemon_file *file = NULL;
+    if (btrc_wos_daemon_file_open(path, size, 0, &file, error) != 0) { *out = file; return -1; }
+    char expected[80] = "btrc-daemon-v1\n";
+    size_t length = strlen(expected);
+    static const char hex[] = "0123456789abcdef";
+    for (size_t index = 0; index < 16; index++) {
+        expected[length++] = hex[token[index] >> 4];
+        expected[length++] = hex[token[index] & 15];
+    }
+    int tail = snprintf(expected + length, sizeof(expected) - length, "\n%lu\n", (unsigned long)supervisor_pid);
+    unsigned char received[sizeof(expected)];
+    DWORD got = 0;
+    int status = 0;
+    if (tail < 0 || (size_t)tail >= sizeof(expected) - length)
+        status = btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_DATA);
+    else length += (size_t)tail;
+    if (status == 0 && !ReadFile(file->handle, received, sizeof(received), &got, NULL))
+        status = btrc_wos_win32(error, BTRC_WOS_STAGE_DIRECTORY);
+    else if (status == 0 && (got != length || memcmp(received, expected, length) != 0))
+        status = btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_DATA);
+    SecureZeroMemory(expected, sizeof(expected));
+    SecureZeroMemory(received, sizeof(received));
+    if (status != 0) {
+        __btrc_windows_launch_error_t cleanup;
+        if (btrc_wos_daemon_file_close(&file, &cleanup) != 0 && error != NULL)
+            error->ownership_state = cleanup.ownership_state;
+    }
+    *out = file;
+    return status;
 }
 
 /* ---- Wide strings ------------------------------------------------------ */

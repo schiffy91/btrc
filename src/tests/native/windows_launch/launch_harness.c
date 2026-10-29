@@ -25,6 +25,7 @@
 #include "windows_os.h"
 #include "windows_bootstrap.h"
 #include "windows_security.h"
+#include "windows_daemon_files.h"
 
 static int checks = 0;
 static int failures = 0;
@@ -1293,6 +1294,91 @@ static void check_bootstrap_admission(void) {
     CHECK("admission releases parent fixture handles", before == after);
 }
 
+static int daemon_fixture_file(const wchar_t *path, const char *contents, void *descriptor) {
+    SECURITY_ATTRIBUTES attributes = { sizeof(attributes), descriptor, FALSE };
+    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, &attributes, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return -1;
+    DWORD size = (DWORD)strlen(contents), written = 0;
+    BOOL ok = WriteFile(file, contents, size, &written, NULL);
+    BOOL closed = CloseHandle(file);
+    return ok && written == size && closed ? 0 : -1;
+}
+
+static void check_daemon_files(void) {
+    DWORD before = 0, after = 0;
+    CHECK("daemon files initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
+    wchar_t temporary[1024], directory[1200], moved[1220], log[1300], record[1300], alias[1300];
+    DWORD length = GetTempPathW(1024, temporary);
+    if (length == 0 || length >= 1024) ExitProcess(3);
+    swprintf(directory, 1200, L"%lsbtrc-daemon-files-%lu", temporary, (unsigned long)GetCurrentProcessId());
+    swprintf(moved, 1220, L"%ls-moved", directory);
+    swprintf(log, 1300, L"%ls\\test.log", directory);
+    swprintf(record, 1300, L"%ls\\test.control", directory);
+    swprintf(alias, 1300, L"%ls\\alias", directory);
+    void *directory_descriptor = NULL, *file_descriptor = NULL;
+    if (btrcWinPrivateDescriptor(1, &directory_descriptor) != 0
+            || btrcWinPrivateDescriptor(0, &file_descriptor) != 0) ExitProcess(3);
+    SECURITY_ATTRIBUTES attributes = { sizeof(attributes), directory_descriptor, FALSE };
+    if (!CreateDirectoryW(directory, &attributes)) ExitProcess(3);
+    char log_utf8[5200], record_utf8[5200];
+    if (to_utf8(log, log_utf8, sizeof(log_utf8)) != 0 || to_utf8(record, record_utf8, sizeof(record_utf8)) != 0) ExitProcess(3);
+    btrc_wos_daemon_file *held = NULL;
+    __btrc_windows_launch_error_t error;
+    CHECK("daemon log creates a private empty append file",
+        btrc_wos_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
+    CHECK("held daemon directory cannot be renamed", !MoveFileW(directory, moved));
+    CHECK("daemon log closes its capability", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("daemon log fixture writes existing content", daemon_fixture_file(log, "preserve\n", file_descriptor) == 0);
+    CHECK("daemon log opens existing content without truncating",
+        btrc_wos_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
+    char contents[128];
+    CHECK("daemon log kept its existing bytes", read_text(log, contents, sizeof(contents)) == 0 && strcmp(contents, "preserve\n") == 0);
+    CHECK("daemon log releases its ancestor holds", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("directory rename works after close", MoveFileW(directory, moved));
+    CHECK("fixture restores directory name", MoveFileW(moved, directory));
+    unsigned char token[16]; memset(token, 0x12, sizeof(token));
+    const char *valid = "btrc-daemon-v1\n12121212121212121212121212121212\n42\n";
+    CHECK("daemon record fixture publishes protected bytes", daemon_fixture_file(record, valid, file_descriptor) == 0);
+    CHECK("daemon record authenticates exact token and PID",
+        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) == 0 && held != NULL);
+    CHECK("verified record cannot be deleted", !DeleteFileW(record));
+    HANDLE writer = CreateFileW(record, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL, OPEN_EXISTING, 0, NULL);
+    CHECK("verified record refuses a concurrent writer", writer == INVALID_HANDLE_VALUE);
+    if (writer != INVALID_HANDLE_VALUE) CloseHandle(writer);
+    CHECK("daemon record closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    token[3] ^= 1;
+    CHECK("wrong token cannot grant a record capability",
+        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
+    token[3] ^= 1;
+    CHECK("wrong PID cannot grant a record capability",
+        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 43, &held, &error) != 0 && held == NULL);
+    snprintf(contents, sizeof(contents), "%sx", valid);
+    CHECK("daemon record fixture appends an unwanted byte", daemon_fixture_file(record, contents, file_descriptor) == 0);
+    CHECK("record with trailing bytes is refused",
+        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
+    CHECK("daemon record fixture restores canonical bytes", daemon_fixture_file(record, valid, file_descriptor) == 0);
+    CHECK("daemon record fixture creates hardlink", CreateHardLinkW(alias, record, NULL));
+    CHECK("multiply linked record is refused",
+        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
+    CHECK("fixture deletes hardlink", DeleteFileW(alias));
+    CHECK("fixture removes log", DeleteFileW(log));
+    CHECK("fixture creates directory in place of log", CreateDirectoryW(log, &attributes));
+    CHECK("directory cannot become daemon log",
+        btrc_wos_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) != 0 && held == NULL);
+    CHECK("fixture removes false log directory", RemoveDirectoryW(log));
+    char unsafe[5300];
+    snprintf(unsafe, sizeof(unsafe), "%s\\..\\escape", log_utf8);
+    CHECK("unsafe component is refused before file creation",
+        btrc_wos_daemon_log_open((const unsigned char *)unsafe, strlen(unsafe), &held, &error) != 0 && held == NULL);
+    CHECK("daemon file close is idempotent", btrc_wos_daemon_file_close(&held, &error) == 0);
+    CHECK("fixture removes record", DeleteFileW(record));
+    CHECK("fixture removes private directory", RemoveDirectoryW(directory));
+    free(directory_descriptor); free(file_descriptor);
+    CHECK("daemon files final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
+    CHECK("daemon file refusals release all handles", before == after);
+}
+
 int main(int argc, char **argv) {
     wchar_t self_wide[1024];
     DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
@@ -1301,6 +1387,7 @@ int main(int argc, char **argv) {
         check_bootstrap_pipes();
         check_bootstrap_exchange();
         check_bootstrap_admission();
+        check_daemon_files();
         report("windows-bootstrap-io %s checks=%d\n", failures == 0 ? "PASS" : "FAIL", checks);
         return failures == 0 ? 0 : 1;
     }
@@ -1310,6 +1397,7 @@ int main(int argc, char **argv) {
     check_bootstrap_pipes();
     check_bootstrap_exchange();
     check_bootstrap_admission();
+    check_daemon_files();
     check_quoting();
     check_exit_codes();
     check_tree_timeout();

@@ -141,6 +141,8 @@ def test_relocated_bundle_shares_windows_object_security(architecture, zig, tmp_
         PROVIDER_C,
         "src/stdlib/Windows/Win32FileIdentity.c",
         "src/runtime/c/windows_security.h",
+        "src/runtime/c/windows_file_identity.h",
+        "src/runtime/c/windows_filesystem.h",
     ):
         destination = source_root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -288,7 +290,7 @@ def test_the_nt_values_the_provider_names_are_the_sdk_declarations(target, zig, 
     NtSetInformationFile, must have FILE_RENAME_INFORMATION's layout, on each
     architecture."""
 
-    provider = (REPO / PROVIDER_C).read_text(encoding="utf-8")
+    provider = (REPO / "src/runtime/c/windows_filesystem.h").read_text(encoding="utf-8")
     offsets = dict(re.findall(r"^#define (BTRC_WIN_REPARSE_\w+) (\d+)$", provider, re.MULTILINE))
     fields = {
         "BTRC_WIN_REPARSE_NAME_FIELDS": "SymbolicLinkReparseBuffer.SubstituteNameOffset",
