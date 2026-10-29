@@ -77,6 +77,10 @@ int main(void) {
     if (__btrc_windows_supervisor_image_verify(&image, &error) == 0 || image != NULL
             || error.stage != 15 || error.domain != 4 || error.ownership_state != 0) return 1;
     if (__btrc_windows_supervisor_image_close(&image, &error) != 0) return 2;
+    __btrc_windows_transfer_result result = { 99, 99, 99 };
+    if (__btrc_windows_supervisor_transfer(NULL, NULL, NULL, 0, &result, &error) == 0
+            || result.state != 1 || result.supervisor_pid != 0 || result.lifetime != 0
+            || error.stage != 15 || error.domain != 4 || error.ownership_state != 0) return 3;
     puts("image-unsupported PASS");
     return 0;
 }

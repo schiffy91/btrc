@@ -74,9 +74,14 @@ def bundle(request, tmp_path_factory):
     run_build([*driver, str(leaf), "-o", str(image)])
     native_object = root / "image.o"
     harness_object = root / "harness.o"
-    for source, output in [(RUNTIME / "windows_daemon_image.c", native_object), (HARNESS, harness_object)]:
+    process_object = root / "windows_os.o"
+    for source, output in [
+        (RUNTIME / "windows_daemon_image.c", native_object),
+        (RUNTIME / "windows_os.c", process_object),
+        (HARNESS, harness_object),
+    ]:
         run_build([*driver, "-c", str(source), "-o", str(output)])
-    link = [*driver, str(harness_object), str(native_object), "-lbcrypt"]
+    link = [*driver, str(harness_object), str(native_object), str(process_object), "-lbcrypt", "-ladvapi32"]
     missing = run_build([*link, "-o", str(root / "missing.exe")], success=False)
     assert "__btrc_windows_daemon_metadata" in missing.stderr
     for name, abi, protocol, basename in [

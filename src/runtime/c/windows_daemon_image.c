@@ -24,6 +24,8 @@ static int btrc_wdi_fail(__btrc_windows_launch_error_t *error,
 #include <windows.h>
 #include <bcrypt.h>
 #include "windows_filesystem.h"
+#include "windows_daemon_transfer.h"
+#include "windows_daemon_files.h"
 
 #define BTRC_WDI_PATH_UNITS 32768u
 
@@ -31,6 +33,15 @@ typedef struct {
     HANDLE handle;
     long long identity[BTRC_WIN_FIELD_COUNT];
 } btrc_wdi_file;
+
+/* Mutable cleanup state is separate from the verified image capability. A
+ * const image borrow can retain pending process/I/O ownership without casting
+ * away constness or making a timed-out native operation unreachable. */
+typedef struct {
+    btrc_wos_transfer *launch;
+    btrc_wos_daemon_file *record;
+    int poisoned;
+} btrc_wdi_transfer;
 
 struct __btrc_windows_image_owner {
     btrc_wdi_file module;
@@ -40,6 +51,7 @@ struct __btrc_windows_image_owner {
     wchar_t *path;
     BCRYPT_ALG_HANDLE algorithm;
     BCRYPT_HASH_HANDLE hash;
+    btrc_wdi_transfer *transfer;
     int poisoned;
 };
 
@@ -64,7 +76,7 @@ static int btrc_wdi_describe(btrc_wdi_file *file, int kind,
     return 0;
 }
 
-static int btrc_wdi_same(btrc_wdi_file *file, __btrc_windows_launch_error_t *error) {
+static int btrc_wdi_same(const btrc_wdi_file *file, __btrc_windows_launch_error_t *error) {
     btrc_wdi_file current;
     memset(&current, 0, sizeof(current));
     current.handle = file->handle;
@@ -78,7 +90,7 @@ static int btrc_wdi_same(btrc_wdi_file *file, __btrc_windows_launch_error_t *err
     return 0;
 }
 
-static int btrc_wdi_recheck(__btrc_windows_image_owner *owner,
+static int btrc_wdi_recheck(const __btrc_windows_image_owner *owner,
         __btrc_windows_launch_error_t *error) {
     if (btrc_wdi_same(&owner->module, error) != 0 || btrc_wdi_same(&owner->image, error) != 0) return -1;
     for (size_t index = 0; index < owner->directory_count; index++)
@@ -102,11 +114,34 @@ static int btrc_wdi_close_crypto(__btrc_windows_image_owner *owner,
     return 0;
 }
 
+static int btrc_wdi_transfer_close(btrc_wdi_transfer *state, uint64_t deadline,
+        __btrc_windows_launch_error_t *error) {
+    if (state == NULL) return 0;
+    if (state->poisoned) {
+        btrc_wdi_fail(error, 5, 4, ERROR_INVALID_HANDLE);
+        if (error != NULL) error->ownership_state = 2;
+        return -1;
+    }
+    __btrc_windows_launch_error_t launch_error, record_error;
+    int launched = btrc_wos_transfer_close(&state->launch, deadline, &launch_error);
+    int recorded = btrc_wos_daemon_file_close(&state->record, &record_error);
+    if (launched == 0 && recorded == 0) return 0;
+    state->poisoned = (launched != 0 && launch_error.ownership_state == 2)
+        || (recorded != 0 && record_error.ownership_state == 2);
+    if (error != NULL) {
+        *error = recorded != 0 && record_error.ownership_state == 2 ? record_error
+            : launched != 0 ? launch_error : record_error;
+        error->ownership_state = state->poisoned ? 2 : 1;
+    }
+    return -1;
+}
+
 int __btrc_windows_supervisor_image_close(__btrc_windows_image_owner **slot,
         __btrc_windows_launch_error_t *error) {
     if (error != NULL) memset(error, 0, sizeof(*error));
     if (slot == NULL || *slot == NULL) return 0;
     __btrc_windows_image_owner *owner = *slot;
+    if (btrc_wdi_transfer_close(owner->transfer, GetTickCount64(), error) != 0) return -1;
     if (owner->poisoned) {
         btrc_wdi_fail(error, 5, 4, ERROR_INVALID_HANDLE);
         goto poisoned;
@@ -123,6 +158,7 @@ int __btrc_windows_supervisor_image_close(__btrc_windows_image_owner **slot,
     }
     free(owner->directories);
     free(owner->path);
+    free(owner->transfer);
     free(owner);
     *slot = NULL;
     return 0;
@@ -335,7 +371,9 @@ int __btrc_windows_supervisor_image_verify(__btrc_windows_image_owner **out,
     if (btrc_wdi_metadata(&machine, error) != 0) return -1;
     __btrc_windows_image_owner *owner = (__btrc_windows_image_owner *)calloc(1, sizeof(*owner));
     if (owner == NULL) return btrc_wdi_fail(error, 3, 2, ERROR_NOT_ENOUGH_MEMORY);
-    int status = btrc_wdi_open(owner, error);
+    owner->transfer = calloc(1, sizeof(*owner->transfer));
+    int status = owner->transfer == NULL
+        ? btrc_wdi_fail(error, 3, 2, ERROR_NOT_ENOUGH_MEMORY) : btrc_wdi_open(owner, error);
     if (status == 0) status = btrc_wdi_pe(owner, machine, error);
     if (status == 0) status = btrc_wdi_hash(owner, error);
     if (status == 0) status = btrc_wdi_recheck(owner, error);
@@ -348,7 +386,167 @@ int __btrc_windows_supervisor_image_verify(__btrc_windows_image_owner **out,
     return status;
 }
 
+static int btrc_wdi_transfer_deadline(uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    return GetTickCount64() < deadline ? 0 : btrc_wdi_fail(error, 13, 2, ERROR_TIMEOUT);
+}
+
+#if defined(BTRC_RUNTIME_DAEMON_FAULT_POINT)
+/* Only the daemon_windows driver compiles this object with a fault point.
+ * Its fixture owns observation/termination handles; production has no such
+ * symbol or branch, and windows_os.c remains the production HANDLE owner. */
+extern void btrc_daemon_fault_terminate(uint32_t supervisor_pid);
+static int btrc_wdi_fault(const char *point) {
+    return strcmp(BTRC_RUNTIME_DAEMON_FAULT_POINT, point) == 0;
+}
+#endif
+
+int __btrc_windows_supervisor_transfer(const __btrc_windows_image_owner *image,
+        const __btrc_windows_daemon_startup *startup, const unsigned char token[16],
+        uint64_t startup_timeout_ms, __btrc_windows_transfer_result *result,
+        __btrc_windows_launch_error_t *error) {
+    __btrc_windows_launch_error_t local_error;
+    if (error == NULL) error = &local_error;
+    memset(error, 0, sizeof(*error));
+    if (result != NULL) { memset(result, 0, sizeof(*result)); result->state = 1; }
+    if (image == NULL || result == NULL || startup == NULL || token == NULL
+            || startup->name_utf8 == NULL || startup->control_path_utf8 == NULL || startup->log_path_utf8 == NULL) {
+        btrc_wdi_fail(error, 1, 1, ERROR_INVALID_PARAMETER);
+        error->ownership_state = image == NULL ? 0 : 1;
+        return -1;
+    }
+    btrc_wdi_transfer *state = image->transfer;
+    if (image->poisoned || state == NULL || state->poisoned || state->launch != NULL || state->record != NULL) {
+        btrc_wdi_fail(error, 1, 4, ERROR_INVALID_STATE);
+        error->ownership_state = image->poisoned || (state != NULL && state->poisoned) ? 2 : 1;
+        return -1;
+    }
+    uint64_t now = GetTickCount64();
+    if (startup_timeout_ms == 0 || startup_timeout_ms >= UINT64_MAX - now) {
+        btrc_wdi_fail(error, 1, 1, ERROR_INVALID_PARAMETER);
+        error->ownership_state = 1;
+        return -1;
+    }
+    uint64_t deadline = now + startup_timeout_ms;
+    int status = -1;
+    btrc_wos_startup_snapshot *snapshot = NULL;
+    btrc_wos_bootstrap_message message = { 0 };
+    btrc_daemon_handshake handshake;
+    memset(&handshake, 0, sizeof(handshake));
+    btrc_daemon_init init;
+    memset(&init, 0, sizeof(init));
+    memcpy(init.token, token, sizeof(init.token));
+    init.remaining_startup_ms = startup_timeout_ms;
+    init.auto_restart = startup->auto_restart;
+    init.name = (btrc_daemon_text){ (const unsigned char *)startup->name_utf8, strlen(startup->name_utf8) };
+    init.control_path = (btrc_daemon_text){ (const unsigned char *)startup->control_path_utf8, strlen(startup->control_path_utf8) };
+    init.log_path = (btrc_daemon_text){ (const unsigned char *)startup->log_path_utf8, strlen(startup->log_path_utf8) };
+    unsigned char nonces[32] = { 0 };
+    __btrc_windows_launch_options_t command = startup->command;
+    /* Managed stdio is fixed to NUL input and the verified append log. */
+    command.stdin_bytes = NULL; command.stdin_size = 0;
+    command.stdin_mode = 0; command.stdout_mode = 0; command.stderr_mode = 0;
+    command.stdout_limit = 0; command.stderr_limit = 0;
+    if (btrc_wos_startup_snapshot_open(&command, &init, &snapshot, error) != 0) goto done;
+    init = *btrc_wos_startup_snapshot_get(snapshot);
+    if (btrc_wdi_recheck(image, error) != 0) goto done;
+    NTSTATUS random_status = BCryptGenRandom(NULL, nonces, sizeof(nonces), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (random_status < 0) { btrc_wdi_fail(error, 5, 3, (uint32_t)random_status); goto done; }
+    if (btrc_wos_transfer_open((const uint16_t *)image->path, image->image.handle, nonces, deadline,
+            &state->launch, &result->supervisor_pid, &result->lifetime, error) != 0) goto done;
+    init.lifetime = result->lifetime;
+    if (btrc_daemon_handshake_start(&handshake, BTRC_DAEMON_LAUNCHER,
+            result->supervisor_pid, result->lifetime, init.token) != 0) {
+        btrc_wdi_fail(error, 1, 4, ERROR_INVALID_DATA); goto done;
+    }
+    if (btrc_wos_transfer_resume(state->launch, error) != 0
+            || btrc_wos_bootstrap_send_init(btrc_wos_transfer_request(state->launch), &handshake, &init, deadline, error) != 0
+            || btrc_wos_bootstrap_receive(btrc_wos_transfer_reply(state->launch), &handshake, &message, deadline, error) != 0)
+        goto done;
+    btrc_wos_bootstrap_message_release(&message);
+#if defined(BTRC_RUNTIME_DAEMON_FAULT_POINT)
+    if (btrc_wdi_fault("kill-before-commit")) {
+        btrc_daemon_fault_terminate(result->supervisor_pid);
+        btrc_wdi_fail(error, 12, 4, ERROR_PROCESS_ABORTED);
+        goto done;
+    }
+#endif
+    if (btrc_wos_transfer_begin_commit(state->launch, deadline, error) != 0) goto done;
+    /* No failure after this point may terminate the supervisor or authorize a
+     * replacement. Even a deadline reached before the write is indeterminate. */
+    result->state = 2;
+    btrc_daemon_frame commit;
+    memset(&commit, 0, sizeof(commit));
+    commit.type = BTRC_DAEMON_COMMIT;
+    memcpy(commit.token, init.token, sizeof(commit.token));
+#if defined(BTRC_RUNTIME_DAEMON_FAULT_POINT)
+    if (btrc_wdi_fault("partial-commit")) {
+        unsigned char bytes[BTRC_DAEMON_HEADER_BYTES + 16];
+        size_t size = 0;
+        int encoded = btrc_daemon_encode_signal(&commit, bytes, sizeof(bytes), &size);
+        if (encoded == 0) (void)btrc_wos_bootstrap_write(btrc_wos_transfer_request(state->launch), bytes, size - 1, deadline, error);
+        SecureZeroMemory(bytes, sizeof(bytes));
+        SecureZeroMemory(&commit, sizeof(commit));
+        btrc_wdi_fail(error, 12, 4, ERROR_WRITE_FAULT);
+        goto done;
+    }
+#endif
+    int committed = btrc_wos_bootstrap_send_signal(btrc_wos_transfer_request(state->launch),
+        &handshake, &commit, deadline, error);
+    SecureZeroMemory(&commit, sizeof(commit));
+    if (committed != 0) goto done;
+#if defined(BTRC_RUNTIME_DAEMON_FAULT_POINT)
+    if (btrc_wdi_fault("commit-then-exit")) ExitProcess(73);
+#endif
+    if (btrc_wos_bootstrap_receive(btrc_wos_transfer_reply(state->launch),
+            &handshake, &message, deadline, error) != 0) goto done;
+    btrc_wos_bootstrap_message_release(&message);
+#if defined(BTRC_RUNTIME_DAEMON_FAULT_POINT)
+    if (btrc_wdi_fault("drop-ack") || btrc_wdi_fault("drop-ack-kill")) {
+        if (btrc_wdi_fault("drop-ack-kill")) btrc_daemon_fault_terminate(result->supervisor_pid);
+        btrc_wdi_fail(error, 12, 4, ERROR_BROKEN_PIPE);
+        goto done;
+    }
+#endif
+    if (btrc_wdi_transfer_deadline(deadline, error) != 0
+            || btrc_wos_daemon_record_open(init.control_path.data, init.control_path.size, init.token,
+                result->supervisor_pid, &state->record, error) != 0
+            || btrc_wdi_transfer_deadline(deadline, error) != 0) goto done;
+    if (btrc_daemon_handshake_record_verified(&handshake) != 0
+            || btrc_daemon_handshake_result(&handshake) != 0) {
+        btrc_wdi_fail(error, 12, 4, ERROR_INVALID_DATA); goto done;
+    }
+    status = 0;
+done:
+    btrc_wos_bootstrap_message_release(&message);
+    btrc_wos_startup_snapshot_close(&snapshot);
+    btrc_daemon_handshake_clear(&handshake);
+    SecureZeroMemory(&init, sizeof(init));
+    SecureZeroMemory(nonces, sizeof(nonces));
+    SecureZeroMemory(&command, sizeof(command));
+    __btrc_windows_launch_error_t cleanup;
+    if (btrc_wdi_transfer_close(state, deadline, &cleanup) != 0) {
+        if (status == 0 || cleanup.ownership_state == 2) *error = cleanup;
+        status = -1;
+    }
+    if (status == 0 && btrc_wdi_transfer_deadline(deadline, error) != 0) status = -1;
+    if (status == 0) {
+        result->state = 0;
+        memset(error, 0, sizeof(*error));
+    } else error->ownership_state = state->poisoned ? 2 : 1;
+    return status;
+}
+
 #else
+int __btrc_windows_supervisor_transfer(const __btrc_windows_image_owner *image,
+        const __btrc_windows_daemon_startup *startup, const unsigned char token[16],
+        uint64_t startup_timeout_ms, __btrc_windows_transfer_result *result,
+        __btrc_windows_launch_error_t *error) {
+    (void)image; (void)startup; (void)token; (void)startup_timeout_ms;
+    if (result != NULL) { memset(result, 0, sizeof(*result)); result->state = 1; }
+    if (error != NULL) memset(error, 0, sizeof(*error));
+    return btrc_wdi_fail(error, 15, 4, 0);
+}
+
 int __btrc_windows_supervisor_image_verify(__btrc_windows_image_owner **out,
         __btrc_windows_launch_error_t *error) {
     if (out != NULL) *out = NULL;

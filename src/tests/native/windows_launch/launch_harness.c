@@ -1349,11 +1349,11 @@ static int child_supervisor_commit(__btrc_windows_supervisor_owner *owner, const
     if (scenario == 25 || scenario == 26)
         return acknowledged != 0 && delivered == 0 && error.ownership_state == 1
             && supervisor_refuses_execution(owner) ? 81 : 89;
-    if (acknowledged != 0 || delivered != (scenario == 27 ? 0u : 1u)) return 90;
+    if (acknowledged != 0 || (scenario == 35 ? delivered > 1 : delivered != (scenario == 27 ? 0u : 1u))) return 90;
     size_t size = 99;
     if (__btrc_windows_supervisor_copy_startup(owner, NULL, 0, &size, &error) == 0 || size != 0) return 91;
     if (__btrc_windows_supervisor_ack(owner, &delivered, &error) == 0 || delivered != 0) return 92;
-    if (scenario == 34) { Sleep(30000); return 0; }
+    if (scenario == 34 || scenario == 35) { Sleep(30000); return 0; }
     return scenario >= 27 ? child_supervisor_managed(owner, scenario, frame) : 0;
 }
 
