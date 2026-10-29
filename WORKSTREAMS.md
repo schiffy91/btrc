@@ -4604,3 +4604,16 @@ Issue #8 remains open: generic callable lowering parity, shared interface-header
 and link-plan fragment artifacts, precise remaining invalidation and the real
 BTRSmith warm-build budget still need work. Link-plan fragments must store
 output-independent unit identities and resolve output paths at use time.
+
+### 2026-10-28 issue #8 complete module artifact bundles
+
+Packet: CX-MODULE-ARTIFACT-BUNDLES. Branch
+`codex/module-artifact-bundles-20261028`, base `c0551940`. Own the paired
+pre-analysis interface snapshots, module bundle persistence and output-independent
+link-plan fragments, with focused tests and artifact documentation. The language
+interface retains canonical declarations and generic bodies used by import keys;
+it is not reconstructed from C text. A bundle must bind C, metadata, interface
+and link fragment under one publication receipt. Missing or corrupt components
+are misses. Preserve analysis-record compatibility and the current key inputs.
+Review and run reference/structure checks before one combined local driver build.
+No CI, GitHub writes, full compiler builds, applications or measurements.
