@@ -52,6 +52,13 @@ static void report(const char *format, ...) {
     if (length < 0) return;
     if ((size_t)length >= sizeof(line)) length = (int)sizeof(line) - 1;
     emit(line, (size_t)length);
+    /* The CI shell captures stdout under errexit/pipefail. A failing process
+     * exits that assignment before echoing its captured output. Preserve every
+     * diagnostic after a failed check on the uncaptured error stream too. */
+    if (failures != 0) {
+        (void)fwrite(line, 1, (size_t)length, stderr);
+        (void)fflush(stderr);
+    }
 }
 
 #define CHECK(name, condition)                                                  \
