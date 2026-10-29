@@ -579,8 +579,10 @@ int btrc_wos_bootstrap_pair(const unsigned char nonce[16],
     }
     name[(size_t)prefix + 32] = 0;
     SECURITY_ATTRIBUTES attributes = { sizeof(attributes), descriptor, FALSE };
+    /* PIPE_ACCESS_INBOUND grants FILE_GENERIC_READ, including READ_CONTROL.
+     * READ_CONTROL itself is not a permitted CreateNamedPipeW dwOpenMode flag. */
     input->handle = CreateNamedPipeW(name,
-        PIPE_ACCESS_INBOUND | READ_CONTROL | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
         PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
         1, 4096, 4096, 0, &attributes);
     if (input->handle == INVALID_HANDLE_VALUE) {

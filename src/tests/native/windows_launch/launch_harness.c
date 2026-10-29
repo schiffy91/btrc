@@ -1264,7 +1264,7 @@ static void check_bootstrap_admission(void) {
             DWORD access = scenario == 5 && pair == 0 ? PIPE_ACCESS_DUPLEX : PIPE_ACCESS_INBOUND;
             DWORD mode = scenario == 4 && pair == 0 ? 0 : FILE_FLAG_OVERLAPPED;
             handles[pair * 2] = CreateNamedPipeW(name,
-                access | READ_CONTROL | FILE_FLAG_FIRST_PIPE_INSTANCE | mode,
+                access | FILE_FLAG_FIRST_PIPE_INSTANCE | mode,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
                 1, 4096, 4096, 0, &security);
             handles[pair * 2 + 1] = CreateFileW(name, GENERIC_WRITE | FILE_READ_ATTRIBUTES | READ_CONTROL,
