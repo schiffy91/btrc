@@ -39,15 +39,29 @@ static int supervisor_off_windows(void) {
     return 0;
 }
 
-static int bootstrap_invocation(const char *hex) {
-    size_t units = strlen(hex) / 4;
-    uint16_t *command = (uint16_t *)calloc(units + 1, sizeof(*command));
-    if (command == NULL || strlen(hex) % 4 != 0) { free(command); return 2; }
-    for (size_t index = 0; index < units; index++) {
-        char word[5] = { 0 };
-        memcpy(word, hex + 4 * index, 4);
-        command[index] = (uint16_t)strtoul(word, NULL, 16);
+/* Read test data from stdin: the command-line limit being tested can exceed
+ * the host's per-argument limit after UTF-16 hex encoding. */
+static int bootstrap_invocation(void) {
+    size_t units = 0, capacity = 128;
+    uint16_t *command = (uint16_t *)malloc(capacity * sizeof(*command));
+    if (command == NULL) return 2;
+    char word[5] = { 0 };
+    size_t bytes;
+    while ((bytes = fread(word, 1, 4, stdin)) != 0) {
+        if (bytes != 4) { free(command); return 2; }
+        char *end = NULL;
+        unsigned long value = strtoul(word, &end, 16);
+        if (end != word + 4 || value > UINT16_MAX) { free(command); return 2; }
+        if (units == capacity) {
+            if (capacity > SIZE_MAX / sizeof(*command) / 2) { free(command); return 2; }
+            capacity *= 2;
+            uint16_t *grown = (uint16_t *)realloc(command, capacity * sizeof(*command));
+            if (grown == NULL) { free(command); return 2; }
+            command = grown;
+        }
+        command[units++] = (uint16_t)value;
     }
+    if (ferror(stdin)) { free(command); return 2; }
     size_t image = 99;
     uintptr_t request = 99, reply = 99;
     int status = btrc_wos_bootstrap_invocation(command, units, &image, &request, &reply);
@@ -77,7 +91,7 @@ static int launch_off_windows(void) {
 
 int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--supervisor") == 0) return supervisor_off_windows();
-    if (argc == 3 && strcmp(argv[1], "--bootstrap-invocation") == 0) return bootstrap_invocation(argv[2]);
+    if (argc == 2 && strcmp(argv[1], "--bootstrap-invocation") == 0) return bootstrap_invocation();
     if (argc == 2 && strcmp(argv[1], "--launch") == 0) return launch_off_windows();
     size_t required = 0;
     __btrc_windows_launch_error_t error;

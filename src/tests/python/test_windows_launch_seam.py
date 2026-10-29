@@ -248,7 +248,15 @@ def test_runtime_object_builds_strictly_for_the_host(probe):
     ],
 )
 def test_reserved_bootstrap_invocation_is_exact_and_clears_failed_outputs(probe, command, expected):
-    assert quote(probe, ["--bootstrap-invocation", command.encode("utf-16-be").hex()]).strip() == expected
+    completed = subprocess.run(
+        [str(probe), "--bootstrap-invocation"],
+        input=command.encode("utf-16-be").hex().encode("ascii"),
+        capture_output=True,
+        timeout=RUN_TIMEOUT,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.decode("ascii").strip() == expected
 
 
 DECLARATION = (RUNTIME / "windows_os.h").read_text(encoding="utf-8")
