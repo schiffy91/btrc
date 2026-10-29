@@ -212,7 +212,7 @@ def test_a_launch_off_windows_reports_an_unsupported_host(probe):
 
 def test_supervisor_off_windows_clears_outputs_and_preserves_copy_buffer(probe):
     assert quote(probe, ["--supervisor"]).strip() == (
-        "accept=1 owner=null copy=1 required=0 output=165 stage=15 domain=4 close=0"
+        "accept=1 owner=null copy=1 prepare=1 required=0 output=165 stage=15 domain=4 close=0"
     )
 
 

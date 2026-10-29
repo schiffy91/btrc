@@ -36,6 +36,9 @@
 #endif
 #include <windows.h>
 #include <winternl.h>
+#include <fcntl.h>
+#include <io.h>
+#include <stdio.h>
 #include "windows_security.h"
 #include "windows_filesystem.h"
 #endif
@@ -831,8 +834,17 @@ struct __btrc_windows_supervisor_owner {
     btrc_wos_bootstrap_message startup;
     btrc_daemon_handshake handshake;
     uint64_t deadline;
+    HANDLE job;
+    btrc_wos_daemon_file *log;
+    wchar_t *application, *directory, *command_line, *environment;
+    size_t environment_units;
+    HANDLE diagnostic_copy;
+    int saved_output, saved_errors, log_descriptor, diagnostics_changed;
     int closing, poisoned;
 };
+
+static int btrc_wos_supervisor_prepared_release(__btrc_windows_supervisor_owner *owner,
+    __btrc_windows_launch_error_t *error);
 
 static int btrc_wos_supervisor_deadline(uint64_t timeout, uint64_t *deadline,
         __btrc_windows_launch_error_t *error) {
@@ -867,6 +879,13 @@ static int btrc_wos_supervisor_release(__btrc_windows_supervisor_owner **slot,
             status = -1;
         }
     }
+    __btrc_windows_launch_error_t prepared_cleanup;
+    btrc_wos_clear(&prepared_cleanup);
+    if (btrc_wos_supervisor_prepared_release(owner, &prepared_cleanup) != 0) {
+        if (status == 0 && error != NULL) *error = prepared_cleanup;
+        if (prepared_cleanup.ownership_state > ownership) ownership = prepared_cleanup.ownership_state;
+        status = -1;
+    }
     /* Pipe operations own independent copies, so no pending kernel reference
      * reaches the decoded frame or the authentication state. */
     btrc_wos_bootstrap_message_release(&owner->startup);
@@ -896,6 +915,7 @@ int __btrc_windows_supervisor_accept(uint64_t startup_timeout_ms,
         return btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION,
             BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
     owner->deadline = deadline;
+    owner->saved_output = owner->saved_errors = owner->log_descriptor = -1;
     int status = btrc_wos_bootstrap_admit(&owner->request, &owner->reply, error);
     if (status == 0 && btrc_daemon_handshake_start(&owner->handshake,
             BTRC_DAEMON_SUPERVISOR, GetCurrentProcessId(), 0, NULL) != 0)
@@ -930,7 +950,7 @@ int __btrc_windows_supervisor_copy_startup(__btrc_windows_supervisor_owner *owne
         __btrc_windows_launch_error_t *error) {
     btrc_wos_clear(error);
     if (required_bytes != NULL) *required_bytes = 0;
-    if (owner == NULL || owner->closing || owner->poisoned || required_bytes == NULL
+    if (owner == NULL || owner->closing || owner->poisoned || owner->handshake.failed || required_bytes == NULL
             || owner->startup.bytes == NULL || (buffer == NULL && capacity != 0)) {
         btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION,
             BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
@@ -1020,6 +1040,33 @@ static int btrc_wos_daemon_directory(btrc_wos_held_directory *directory,
     return 0;
 }
 
+static int btrc_wos_daemon_path(char *names, size_t size, int *root_length,
+        __btrc_windows_launch_error_t *error) {
+    int root = btrcWinRootLength(names);
+    if (root <= 0 || (size_t)root >= size) {
+        return btrc_wos_daemon_file_error(error, BTRC_WIN_STATUS_INVALID, 0);
+    }
+    /* Validate every component before opening anything, including UNC server
+     * and share names. A canonical root is drive-absolute or a complete UNC. */
+    size_t component = 0;
+    if (names[0] == '\\' || names[0] == '/') {
+        component = size >= 8 && names[2] == '?' ? 8 : 2;
+        if (size >= 7 && names[2] == '?' && names[5] == ':') component = (size_t)root;
+    } else component = (size_t)root;
+    for (size_t index = component; index <= size; index++) {
+        if (index != size && names[index] != '/' && names[index] != '\\') continue;
+        char saved = names[index]; names[index] = 0;
+        int valid = btrcWinValidComponent(names + component);
+        names[index] = saved;
+        if (!valid) {
+            return btrc_wos_daemon_file_error(error, BTRC_WIN_STATUS_INVALID, 0);
+        }
+        component = index + 1;
+    }
+    *root_length = root;
+    return 0;
+}
+
 static int btrc_wos_daemon_file_open(const unsigned char *path, size_t size, int log,
         btrc_wos_daemon_file **out, __btrc_windows_launch_error_t *error) {
     btrc_wos_clear(error);
@@ -1043,29 +1090,9 @@ static int btrc_wos_daemon_file_open(const unsigned char *path, size_t size, int
         btrc_wos_daemon_file_error(error, ERROR_NOT_ENOUGH_MEMORY, 0);
         goto done;
     }
-    int root = btrcWinRootLength(names);
-    if (root <= 0 || (size_t)root >= size) {
-        btrc_wos_daemon_file_error(error, BTRC_WIN_STATUS_INVALID, 0);
-        goto done;
-    }
-    /* Validate every component before opening anything, including UNC server
-     * and share names. A canonical root is drive-absolute or a complete UNC. */
+    int root = 0;
+    if (btrc_wos_daemon_path(names, size, &root, error) != 0) goto done;
     size_t component = 0;
-    if (names[0] == '\\' || names[0] == '/') {
-        component = size >= 8 && names[2] == '?' ? 8 : 2;
-        if (size >= 7 && names[2] == '?' && names[5] == ':') component = (size_t)root;
-    } else component = (size_t)root;
-    for (size_t index = component; index <= size; index++) {
-        if (index != size && names[index] != '/' && names[index] != '\\') continue;
-        char saved = names[index]; names[index] = 0;
-        int valid = btrcWinValidComponent(names + component);
-        names[index] = saved;
-        if (!valid) {
-            btrc_wos_daemon_file_error(error, BTRC_WIN_STATUS_INVALID, 0);
-            goto done;
-        }
-        component = index + 1;
-    }
     BtrcWinFileOpen policy = {
         FILE_TRAVERSE | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE,
         FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN, BTRC_WIN_SHAPE_DIRECTORY, NULL
@@ -2440,7 +2467,288 @@ int __btrc_windows_launch_close(__btrc_windows_launch_owner_t **launch,
     return 0;
 }
 
+/* ---- Supervisor preparation -------------------------------------------- */
+
+static char *btrc_wos_supervisor_text(btrc_daemon_text view,
+        __btrc_windows_launch_error_t *error) {
+    char *text = malloc(view.size + 1);
+    if (text == NULL) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+        return NULL;
+    }
+    memcpy(text, view.data, view.size);
+    text[view.size] = 0;
+    return text;
+}
+
+static void btrc_wos_supervisor_text_free(char *text) {
+    if (text != NULL) { SecureZeroMemory(text, strlen(text)); free(text); }
+}
+
+static void btrc_wos_supervisor_wide_free(wchar_t **text) {
+    if (*text != NULL) { SecureZeroMemory(*text, wcslen(*text) * sizeof(wchar_t)); free(*text); *text = NULL; }
+}
+
+/* INIT contains a complete sorted snapshot, including hidden drive entries.
+ * Never merge it with this process's environment: an unset variable must stay
+ * absent, and a restart must use exactly the environment that was authorized. */
+static int btrc_wos_supervisor_environment(__btrc_windows_supervisor_owner *owner,
+        const wchar_t **path, __btrc_windows_launch_error_t *error) {
+    btrc_daemon_vector vector = owner->startup.frame.environment;
+    btrc_daemon_reader reader = { vector.encoded.data, vector.encoded.size, 1 };
+    wchar_t **entries = calloc(vector.count == 0 ? 1 : vector.count, sizeof(*entries));
+    if (entries == NULL)
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+    int status = -1;
+    size_t units = vector.count == 0 ? 2 : 1;
+    size_t previous_name = 0;
+    for (uint32_t index = 0; index < vector.count; index++) {
+        char *text = btrc_wos_supervisor_text(btrc_daemon_read_text(&reader), error);
+        if (text == NULL) goto done;
+        entries[index] = btrc_wos_widen(text, error);
+        btrc_wos_supervisor_text_free(text);
+        if (entries[index] == NULL) goto done;
+        size_t length = wcslen(entries[index]);
+        size_t name = btrc_wos_name_length(entries[index], length);
+        if (name == 0 || name == length || (entries[index][0] == L'=' && name == 1)
+                || (index != 0 && CompareStringOrdinal(entries[index - 1], (int)previous_name,
+                    entries[index], (int)name, TRUE) != CSTR_LESS_THAN)) {
+            btrc_wos_fail(error, BTRC_WOS_STAGE_ENVIRONMENT, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ENVIRONMENT);
+            goto done;
+        }
+        previous_name = name;
+        units += length + 1;
+    }
+    owner->environment = calloc(units, sizeof(*owner->environment));
+    if (owner->environment == NULL) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+        goto done;
+    }
+    owner->environment_units = units;
+    wchar_t *next = owner->environment;
+    *path = NULL;
+    for (uint32_t index = 0; index < vector.count; index++) {
+        size_t length = wcslen(entries[index]), name = btrc_wos_name_length(entries[index], length);
+        memcpy(next, entries[index], (length + 1) * sizeof(wchar_t));
+        if (btrc_wos_equal_ignoring_case(next, name, L"PATH", 4)) *path = next + name + 1;
+        next += length + 1;
+    }
+    status = 0;
+done:
+    for (uint32_t index = 0; index < vector.count; index++) btrc_wos_supervisor_wide_free(&entries[index]);
+    free(entries);
+    return status;
+}
+
+static int btrc_wos_supervisor_command(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    const btrc_daemon_frame *frame = &owner->startup.frame;
+    int status = -1, root = 0;
+    char *control = NULL, *log = NULL, *cwd = NULL, *executable = NULL;
+    wchar_t *control_wide = NULL, *log_wide = NULL, *executable_wide = NULL;
+    char **arguments = NULL;
+    if (frame->name.size == 0 || (frame->name.size == 1 && frame->name.data[0] == '.')
+            || (frame->name.size == 2 && memcmp(frame->name.data, "..", 2) == 0)) goto invalid;
+    for (size_t index = 0; index < frame->name.size; index++) {
+        unsigned char value = frame->name.data[index];
+        if (!((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')
+                || (value >= '0' && value <= '9') || value == '-' || value == '_' || value == '.')) goto invalid;
+    }
+    control = btrc_wos_supervisor_text(frame->control_path, error);
+    log = btrc_wos_supervisor_text(frame->log_path, error);
+    cwd = btrc_wos_supervisor_text(frame->cwd, error);
+    executable = btrc_wos_supervisor_text(frame->executable, error);
+    if (control == NULL || log == NULL || cwd == NULL || executable == NULL) goto done;
+    if (btrc_wos_daemon_path(control, frame->control_path.size, &root, error) != 0
+            || btrc_wos_daemon_path(log, frame->log_path.size, &root, error) != 0) goto done;
+    control_wide = btrc_wos_widen(control, error);
+    log_wide = btrc_wos_widen(log, error);
+    if (control_wide == NULL || log_wide == NULL) goto done;
+    for (wchar_t *cursor = control_wide; *cursor; cursor++) if (*cursor == L'/') *cursor = L'\\';
+    for (wchar_t *cursor = log_wide; *cursor; cursor++) if (*cursor == L'/') *cursor = L'\\';
+    if (btrc_wos_equal_ignoring_case(control_wide, wcslen(control_wide), log_wide, wcslen(log_wide))
+            || btrcWinRootLength(cwd) <= 0 || executable[0] == 0) goto invalid;
+    owner->directory = btrc_wos_base_directory(cwd, error);
+    if (owner->directory == NULL) goto done;
+    const wchar_t *path = NULL;
+    if (btrc_wos_supervisor_environment(owner, &path, error) != 0) goto done;
+    executable_wide = btrc_wos_widen(executable, error);
+    if (executable_wide == NULL
+            || btrc_wos_resolve(executable_wide, owner->directory, path, &owner->application, error) != 0) goto done;
+    arguments = calloc(frame->arguments.count, sizeof(*arguments));
+    if (arguments == NULL) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+        goto done;
+    }
+    btrc_daemon_reader reader = { frame->arguments.encoded.data, frame->arguments.encoded.size, 1 };
+    for (uint32_t index = 0; index < frame->arguments.count; index++) {
+        arguments[index] = btrc_wos_supervisor_text(btrc_daemon_read_text(&reader), error);
+        if (arguments[index] == NULL) goto done;
+    }
+    size_t units = 0;
+    if (__btrc_windows_quote_argv_utf8(arguments, frame->arguments.count, NULL, 0, &units, error) != 0) goto done;
+    owner->command_line = calloc(units, sizeof(*owner->command_line));
+    if (owner->command_line == NULL) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+        goto done;
+    }
+    status = __btrc_windows_quote_argv_utf8(arguments, frame->arguments.count,
+        (uint16_t *)owner->command_line, units, &units, error);
+    goto done;
+invalid:
+    btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+done:
+    btrc_wos_supervisor_text_free(control); btrc_wos_supervisor_text_free(log);
+    btrc_wos_supervisor_text_free(cwd); btrc_wos_supervisor_text_free(executable);
+    btrc_wos_supervisor_wide_free(&control_wide); btrc_wos_supervisor_wide_free(&log_wide);
+    btrc_wos_supervisor_wide_free(&executable_wide);
+    if (arguments != NULL) {
+        for (uint32_t index = 0; index < frame->arguments.count; index++) btrc_wos_supervisor_text_free(arguments[index]);
+        free(arguments);
+    }
+    return status;
+}
+
+static int btrc_wos_supervisor_stdio_error(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    owner->poisoned = 1;
+    btrc_wos_fail(error, BTRC_WOS_STAGE_STDIO, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_HANDLE);
+    if (error != NULL) error->ownership_state = 2;
+    return -1;
+}
+
+/* Both callers hold the spawn lock. _dup/_dup2 may create inheritable handles,
+ * so restore the CRT and Win32 streams and clear inheritance before unlocking. */
+static int btrc_wos_supervisor_restore_stdio(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    if (owner->diagnostics_changed) {
+        if (fflush(stdout) != 0 || fflush(stderr) != 0
+                || _dup2(owner->saved_output, 1) != 0 || _dup2(owner->saved_errors, 2) != 0)
+            return btrc_wos_supervisor_stdio_error(owner, error);
+        HANDLE output = (HANDLE)_get_osfhandle(1), errors = (HANDLE)_get_osfhandle(2);
+        if (!SetHandleInformation(output, HANDLE_FLAG_INHERIT, 0)
+                || !SetHandleInformation(errors, HANDLE_FLAG_INHERIT, 0)
+                || !SetStdHandle(STD_OUTPUT_HANDLE, output) || !SetStdHandle(STD_ERROR_HANDLE, errors))
+            return btrc_wos_supervisor_stdio_error(owner, error);
+        owner->diagnostics_changed = 0;
+    }
+    int *descriptors[] = { &owner->saved_output, &owner->saved_errors, &owner->log_descriptor };
+    for (size_t index = 0; index < sizeof(descriptors) / sizeof(descriptors[0]); index++) {
+        if (*descriptors[index] < 0) continue;
+        if (_close(*descriptors[index]) != 0) return btrc_wos_supervisor_stdio_error(owner, error);
+        *descriptors[index] = -1;
+    }
+    return 0;
+}
+
+static int btrc_wos_supervisor_diagnostics(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    int status = -1;
+    AcquireSRWLockExclusive(&btrc_wos_spawn_lock);
+    owner->saved_output = _dup(1);
+    owner->saved_errors = _dup(2);
+    if (owner->saved_output < 0 || owner->saved_errors < 0) goto failed;
+    if (!SetHandleInformation((HANDLE)_get_osfhandle(owner->saved_output), HANDLE_FLAG_INHERIT, 0)
+            || !SetHandleInformation((HANDLE)_get_osfhandle(owner->saved_errors), HANDLE_FLAG_INHERIT, 0)) goto failed;
+    if (!DuplicateHandle(GetCurrentProcess(), owner->log->handle, GetCurrentProcess(),
+            &owner->diagnostic_copy, 0, FALSE, DUPLICATE_SAME_ACCESS)) goto failed;
+    owner->log_descriptor = _open_osfhandle((intptr_t)owner->diagnostic_copy, _O_APPEND | _O_BINARY);
+    if (owner->log_descriptor < 0) goto failed;
+    owner->diagnostic_copy = NULL; /* the CRT descriptor now owns this copy */
+    if (fflush(stdout) != 0 || fflush(stderr) != 0) goto failed;
+    if (_dup2(owner->log_descriptor, 1) != 0) goto failed;
+    owner->diagnostics_changed = 1;
+    if (_dup2(owner->log_descriptor, 2) != 0) goto failed;
+    HANDLE output = (HANDLE)_get_osfhandle(1), errors = (HANDLE)_get_osfhandle(2);
+    if (!SetHandleInformation(output, HANDLE_FLAG_INHERIT, 0)
+            || !SetHandleInformation(errors, HANDLE_FLAG_INHERIT, 0)
+            || !SetStdHandle(STD_OUTPUT_HANDLE, output) || !SetStdHandle(STD_ERROR_HANDLE, errors)) goto failed;
+    if (_close(owner->log_descriptor) != 0) {
+        btrc_wos_supervisor_stdio_error(owner, error);
+        goto done;
+    }
+    owner->log_descriptor = -1;
+    status = 0;
+    goto done;
+failed:
+    btrc_wos_fail(error, BTRC_WOS_STAGE_STDIO, BTRC_WOS_DOMAIN_REFUSAL, ERROR_OPEN_FAILED);
+    if (btrc_wos_supervisor_restore_stdio(owner, error) != 0) goto done;
+done:
+    ReleaseSRWLockExclusive(&btrc_wos_spawn_lock);
+    return status;
+}
+
+static int btrc_wos_supervisor_prepared_release(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    AcquireSRWLockExclusive(&btrc_wos_spawn_lock);
+    int status = btrc_wos_supervisor_restore_stdio(owner, error);
+    ReleaseSRWLockExclusive(&btrc_wos_spawn_lock);
+    if (status != 0) return -1;
+    HANDLE *handles[] = { &owner->diagnostic_copy, &owner->job };
+    for (size_t index = 0; index < sizeof(handles) / sizeof(handles[0]); index++) {
+        if (*handles[index] == NULL) continue;
+        if (!CloseHandle(*handles[index])) {
+            owner->poisoned = 1;
+            btrc_wos_win32(error, index == 0 ? BTRC_WOS_STAGE_STDIO : BTRC_WOS_STAGE_JOB);
+            if (error != NULL) error->ownership_state = 2;
+            return -1;
+        }
+        *handles[index] = NULL;
+    }
+    if (btrc_wos_daemon_file_close(&owner->log, error) != 0) { owner->poisoned = 1; return -1; }
+    btrc_wos_supervisor_wide_free(&owner->application);
+    btrc_wos_supervisor_wide_free(&owner->directory);
+    btrc_wos_supervisor_wide_free(&owner->command_line);
+    if (owner->environment != NULL) {
+        SecureZeroMemory(owner->environment, owner->environment_units * sizeof(wchar_t));
+        free(owner->environment); owner->environment = NULL; owner->environment_units = 0;
+    }
+    return 0;
+}
+
+int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (owner == NULL || owner->closing || owner->poisoned || owner->handshake.failed
+            || owner->handshake.prepared || owner->handshake.last_type != BTRC_DAEMON_INIT) {
+        btrc_wos_fail(error, BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+        if (error != NULL && owner != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+        return -1;
+    }
+    if (btrc_wos_bootstrap_remaining(owner->deadline) == 0) goto expired;
+    if (btrc_wos_supervisor_command(owner, error) != 0) goto failed;
+    owner->job = CreateJobObjectW(NULL, NULL);
+    if (owner->job == NULL) { btrc_wos_win32(error, BTRC_WOS_STAGE_JOB); goto failed; }
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+    memset(&limits, 0, sizeof(limits));
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!SetInformationJobObject(owner->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+        btrc_wos_win32(error, BTRC_WOS_STAGE_JOB);
+        goto failed;
+    }
+    if (btrc_wos_daemon_log_open(owner->startup.frame.log_path.data,
+            owner->startup.frame.log_path.size, &owner->log, error) != 0) goto failed;
+    if (btrc_wos_bootstrap_remaining(owner->deadline) == 0) goto expired;
+    if (btrc_wos_supervisor_diagnostics(owner, error) != 0) goto failed;
+    (void)btrc_daemon_handshake_prepared(&owner->handshake);
+    return 0;
+expired:
+    btrc_wos_fail(error, BTRC_WOS_STAGE_WAIT, BTRC_WOS_DOMAIN_WIN32, ERROR_TIMEOUT);
+failed:
+    owner->handshake.failed = 1;
+    if (error != NULL && error->ownership_state == 2) owner->poisoned = 1;
+    if (error != NULL) error->ownership_state = owner->poisoned ? 2 : 1;
+    return -1;
+}
+
 #else
+
+int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
+        __btrc_windows_launch_error_t *error) {
+    (void)owner;
+    btrc_wos_clear(error);
+    return btrc_wos_fail(error, BTRC_WOS_STAGE_UNSUPPORTED, BTRC_WOS_DOMAIN_REFUSAL, 0);
+}
 
 int __btrc_windows_supervisor_accept(uint64_t startup_timeout_ms,
         __btrc_windows_supervisor_owner **out, __btrc_windows_launch_error_t *error) {

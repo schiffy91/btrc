@@ -1,6 +1,6 @@
 /* Supervisor runtime entry points, shared with its native harness. Include
  * windows_os.h first. The BTRC runtime catalog will expose this seam together
- * with preparation, commit and managed-process ownership. No SDK type crosses
+ * with commit and managed-process ownership. No SDK type crosses
  * this boundary. The caller serializes every operation on one owner. */
 #ifndef BTRC_WINDOWS_SUPERVISOR_H
 #define BTRC_WINDOWS_SUPERVISOR_H
@@ -18,6 +18,12 @@ int __btrc_windows_supervisor_accept(uint64_t startup_timeout_ms,
  * reports the required byte count and makes no partial copy. */
 int __btrc_windows_supervisor_copy_startup(__btrc_windows_supervisor_owner *owner,
     unsigned char *buffer, size_t capacity, size_t *required_bytes,
+    __btrc_windows_launch_error_t *error);
+
+/* Validate and retain the command/environment snapshot, create an unnamed
+ * kill-on-close job, hold the private append log, and redirect CRT/native
+ * diagnostics to it. No managed command runs during preparation. */
+int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
     __btrc_windows_launch_error_t *error);
 
 /* Cancel/drain bootstrap operations and scrub startup storage. Only complete

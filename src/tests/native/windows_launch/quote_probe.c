@@ -23,8 +23,9 @@ static int supervisor_off_windows(void) {
     size_t required = 99;
     unsigned char output = 0xA5;
     int copied = __btrc_windows_supervisor_copy_startup(owner, &output, 1, &required, &error);
-    printf("accept=%d owner=%s copy=%d required=%zu output=%u stage=%u domain=%u ",
-        accepted != 0, owner == NULL ? "null" : "set", copied != 0, required, (unsigned)output,
+    int prepared = __btrc_windows_supervisor_prepare(owner, &error);
+    printf("accept=%d owner=%s copy=%d prepare=%d required=%zu output=%u stage=%u domain=%u ",
+        accepted != 0, owner == NULL ? "null" : "set", copied != 0, prepared != 0, required, (unsigned)output,
         (unsigned)error.stage, (unsigned)error.domain);
     printf("close=%d\n", __btrc_windows_supervisor_close(&owner, 0, &error));
     return 0;
