@@ -1949,6 +1949,12 @@ static void check_daemon_files(void) {
             BTRC_WOS_CONTROL_REMOVE, &held, &error) == 0 && held != NULL
         && btrc_wos_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) == 0
         && transferred == 7 && memcmp(bytes, "inXtial", 7) == 0);
+    CHECK("fixture makes held control file read-only", SetFileAttributesW(record, FILE_ATTRIBUTE_READONLY));
+    CHECK("read-only control deletion is refused before mutation",
+        btrc_wos_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 0
+        && error.native_code == ERROR_ACCESS_DENIED
+        && (GetFileAttributesW(record) & FILE_ATTRIBUTE_READONLY) != 0);
+    CHECK("fixture restores writable control file", SetFileAttributesW(record, FILE_ATTRIBUTE_NORMAL));
     HANDLE retained_reader = CreateFileW(record, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         NULL, OPEN_EXISTING, 0, NULL);
     CHECK("fixture retains a reader of the original object", retained_reader != INVALID_HANDLE_VALUE);

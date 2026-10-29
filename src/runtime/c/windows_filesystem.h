@@ -607,10 +607,22 @@ static inline int btrcWinDuplicate(void* handle, void** copy) {
     return 0;
 }
 
+/* Query the volume through the held object before an exact mutation. */
+static inline int btrcWinPosixUnlinkSupported(void* handle, int* supported) {
+    *supported = 0;
+    DWORD flags = 0;
+    if (!GetVolumeInformationByHandleW(handle, NULL, 0, NULL, NULL, &flags, NULL, 0)) {
+        return (int)GetLastError();
+    }
+    *supported = (flags & FILE_SUPPORTS_POSIX_UNLINK_RENAME) != 0;
+    return 0;
+}
+
 /* Mark the object a handle holds (opened with DELETE), never by name.
  * POSIX disposition removes the name when this handle closes, even while
- * other readers still hold the file. `ignoreReadOnly` lets a recursive removal delete read-only entries, as
- * the POSIX removal grants itself write permission. */
+ * other readers still hold the file. `ignoreReadOnly` lets a recursive
+ * removal delete read-only entries, as the POSIX removal grants itself
+ * write permission. Exact mutations pass zero and preserve that attribute. */
 static inline int btrcWinDeletePosix(void* handle, int ignoreReadOnly) {
     FILE_DISPOSITION_INFO_EX extended;
     extended.Flags = FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS;

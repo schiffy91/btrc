@@ -1102,6 +1102,7 @@ static int btrc_wos_daemon_file_check(btrc_wos_daemon_file *file,
     }
     inspected = btrcWinCheckPrivate(file->directories[file->count - 1].handle, 1);
     if (inspected != 0) { btrc_wos_daemon_file_error(error, inspected, 0); goto done; }
+    memcpy(file->identity, current, sizeof(current));
     status = 0;
 done:
     if (status != 0 && error != NULL) error->ownership_state = file->poisoned ? 2 : 1;
@@ -1305,6 +1306,17 @@ int btrc_wos_daemon_file_dispose(btrc_wos_daemon_file *file, uint32_t *state,
     if (file->access != BTRC_WOS_CONTROL_CREATE && file->access != BTRC_WOS_CONTROL_REMOVE) {
         if (error != NULL) error->ownership_state = 1;
         return btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_REFUSAL, ERROR_ACCESS_DENIED);
+    }
+    if ((file->identity[BTRC_WIN_FIELD_ATTRIBUTES] & FILE_ATTRIBUTE_READONLY) != 0) {
+        if (error != NULL) error->ownership_state = 1;
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_REFUSAL, ERROR_ACCESS_DENIED);
+    }
+    int supported = 0;
+    int queried = btrcWinPosixUnlinkSupported(file->handle, &supported);
+    if (queried != 0 || !supported) {
+        if (error != NULL) error->ownership_state = 1;
+        if (queried != 0) return btrc_wos_daemon_file_error(error, queried, 0);
+        return btrc_wos_fail(error, BTRC_WOS_STAGE_DIRECTORY, BTRC_WOS_DOMAIN_REFUSAL, ERROR_NOT_SUPPORTED);
     }
     int status = btrcWinDeletePosix(file->handle, 0);
     if (status == 0) {
