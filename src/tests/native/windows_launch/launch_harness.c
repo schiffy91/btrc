@@ -996,12 +996,171 @@ static void check_bootstrap_pipes(void) {
     CHECK("bootstrap cycles release every native handle", handles_after == handles_before);
 }
 
+/* These tests exercise the framing layer over real kernel pipes. Preparation
+ * and record verification are fixture grants, not filesystem evidence. */
+typedef struct {
+    btrc_wos_bootstrap_pipe *request_read, *request_write, *reply_read, *reply_write;
+    btrc_daemon_handshake launcher, supervisor;
+    uint64_t deadline;
+} bootstrap_exchange;
+
+static btrc_daemon_frame bootstrap_signal(const bootstrap_exchange *exchange, uint16_t type) {
+    btrc_daemon_frame frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.type = type;
+    frame.supervisor_pid = exchange->supervisor.supervisor_pid;
+    frame.lifetime = exchange->supervisor.lifetime;
+    memcpy(frame.token, exchange->supervisor.token, sizeof(frame.token));
+    return frame;
+}
+
+static void bootstrap_exchange_close(bootstrap_exchange *exchange) {
+    bootstrap_close(&exchange->request_read);
+    bootstrap_close(&exchange->request_write);
+    bootstrap_close(&exchange->reply_read);
+    bootstrap_close(&exchange->reply_write);
+    if (exchange->supervisor.commit_accepted && exchange->supervisor.record_verified
+            && exchange->request_read == NULL && exchange->request_write == NULL
+            && exchange->reply_read == NULL && exchange->reply_write == NULL) {
+        CHECK("closed bootstrap grants execution after verified publication",
+            btrc_daemon_handshake_bootstrap_closed(&exchange->supervisor) == 0
+            && btrc_daemon_handshake_can_run(&exchange->supervisor));
+    }
+    btrc_daemon_handshake_clear(&exchange->launcher);
+    btrc_daemon_handshake_clear(&exchange->supervisor);
+}
+
+static int bootstrap_exchange_ready(bootstrap_exchange *exchange) {
+    memset(exchange, 0, sizeof(*exchange));
+    if (bootstrap_pair(&exchange->request_read, &exchange->request_write) != 0
+            || bootstrap_pair(&exchange->reply_read, &exchange->reply_write) != 0) return -1;
+    exchange->deadline = GetTickCount64() + 2000;
+    unsigned char token[16];
+    memset(token, 0xA3, sizeof(token));
+    btrc_daemon_handshake_start(&exchange->launcher, BTRC_DAEMON_LAUNCHER, 42, 1, token);
+    btrc_daemon_handshake_start(&exchange->supervisor, BTRC_DAEMON_SUPERVISOR, 42, 0, NULL);
+    btrc_daemon_init startup;
+    memset(&startup, 0, sizeof(startup));
+    memcpy(startup.token, token, sizeof(token));
+    startup.lifetime = 1;
+    startup.remaining_startup_ms = 60000;
+    btrc_daemon_text executable = { (const unsigned char *)"fixture.exe", 11 };
+    startup.executable = executable;
+    startup.arguments = &executable;
+    startup.argument_count = 1;
+    __btrc_windows_launch_error_t error;
+    btrc_wos_bootstrap_message message = { 0 };
+    int status = btrc_wos_bootstrap_send_init(exchange->request_write, &exchange->launcher,
+        &startup, exchange->deadline, &error);
+    CHECK("framed INIT send", status == 0);
+    if (status != 0) return -1;
+    status = btrc_wos_bootstrap_receive(exchange->request_read, &exchange->supervisor,
+        &message, exchange->deadline, &error);
+    CHECK("framed INIT retains data and clamps its startup budget", status == 0
+        && message.frame.remaining_startup_ms > 0 && message.frame.remaining_startup_ms <= 2000
+        && message.frame.executable.size == 11
+        && memcmp(message.frame.executable.data, "fixture.exe", 11) == 0);
+    btrc_wos_bootstrap_message_release(&message);
+    CHECK("released message retains no token or borrowed views",
+        message.bytes == NULL && message.size == 0 && message.frame.type == 0);
+    if (status != 0) return -1;
+    CHECK("fixture grants preparation", btrc_daemon_handshake_prepared(&exchange->supervisor) == 0);
+    btrc_daemon_frame ready = bootstrap_signal(exchange, BTRC_DAEMON_READY);
+    status = btrc_wos_bootstrap_send_signal(exchange->reply_write, &exchange->supervisor,
+        &ready, exchange->deadline, &error);
+    CHECK("framed READY send", status == 0);
+    if (status != 0) return -1;
+    status = btrc_wos_bootstrap_receive(exchange->reply_read, &exchange->launcher,
+        &message, exchange->deadline, &error);
+    CHECK("framed READY receive", status == 0);
+    btrc_wos_bootstrap_message_release(&message);
+    return status;
+}
+
+static void check_bootstrap_exchange(void) {
+    DWORD before = 0, after = 0;
+    CHECK("framed initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
+    /* Happy path, wrong token, truncated COMMIT, lost ACK, expired COMMIT,
+     * oversized header, pre-COMMIT peer ERROR. All writes fit the pipe buffer. */
+    for (int scenario = 0; scenario < 7; scenario++) {
+        bootstrap_exchange exchange;
+        if (bootstrap_exchange_ready(&exchange) != 0) { bootstrap_exchange_close(&exchange); return; }
+        btrc_wos_bootstrap_message message = { 0 };
+        __btrc_windows_launch_error_t error;
+        btrc_daemon_frame commit = bootstrap_signal(&exchange, BTRC_DAEMON_COMMIT);
+        if (scenario == 1 || scenario == 2 || scenario == 5) {
+            unsigned char bytes[40];
+            size_t size = 0;
+            if (scenario == 1) commit.token[7] ^= 1;
+            CHECK("fixture encodes adversarial COMMIT", btrc_daemon_encode_signal(&commit, bytes, sizeof(bytes), &size) == 0);
+            if (scenario == 2) size--;
+            if (scenario == 5) { bytes[14] = 0x10; bytes[12] = 1; size = BTRC_DAEMON_HEADER_BYTES; }
+            CHECK("fixture sends adversarial frame", btrc_wos_bootstrap_write(exchange.request_write,
+                bytes, size, exchange.deadline, &error) == 0);
+            bootstrap_close(&exchange.request_write);
+            CHECK("bad COMMIT cannot authorize execution", btrc_wos_bootstrap_receive(exchange.request_read,
+                &exchange.supervisor, &message, exchange.deadline, &error) != 0
+                && !exchange.supervisor.commit_accepted && !btrc_daemon_handshake_can_run(&exchange.supervisor)
+                && message.bytes == NULL && message.size == 0 && message.frame.type == 0);
+        } else if (scenario == 6) {
+            btrc_daemon_frame failure = bootstrap_signal(&exchange, BTRC_DAEMON_ERROR);
+            failure.stage = 3; failure.domain = 1; failure.native_code = ERROR_ACCESS_DENIED;
+            failure.ownership_state = 2;
+            CHECK("pre-COMMIT peer ERROR send", btrc_wos_bootstrap_send_signal(exchange.reply_write,
+                &exchange.supervisor, &failure, exchange.deadline, &error) == 0);
+            CHECK("peer ERROR preserves diagnostic but not remote ownership", btrc_wos_bootstrap_receive(
+                exchange.reply_read, &exchange.launcher, &message, exchange.deadline, &error) != 0
+                && error.stage == 3 && error.domain == 1 && error.native_code == ERROR_ACCESS_DENIED
+                && error.ownership_state == 1 && btrc_daemon_handshake_result(&exchange.launcher) == 1);
+        } else {
+            uint64_t deadline = scenario == 4 ? GetTickCount64() : exchange.deadline;
+            int sent = btrc_wos_bootstrap_send_signal(exchange.request_write, &exchange.launcher,
+                &commit, deadline, &error);
+            CHECK("COMMIT attempt is indeterminate until confirmed", btrc_daemon_handshake_result(&exchange.launcher) == 2);
+            if (scenario == 4) {
+                CHECK("expired COMMIT fails without authorizing supervisor", sent != 0
+                    && error.native_code == ERROR_TIMEOUT && !exchange.supervisor.commit_accepted);
+            } else {
+                CHECK("framed COMMIT send", sent == 0);
+                CHECK("complete COMMIT still needs verified record", btrc_wos_bootstrap_receive(exchange.request_read,
+                    &exchange.supervisor, &message, exchange.deadline, &error) == 0
+                    && exchange.supervisor.commit_accepted && !btrc_daemon_handshake_can_run(&exchange.supervisor));
+                btrc_wos_bootstrap_message_release(&message);
+                CHECK("fixture grants record verification", btrc_daemon_handshake_record_verified(&exchange.supervisor) == 0);
+                btrc_daemon_frame ack = bootstrap_signal(&exchange, BTRC_DAEMON_ACK);
+                if (scenario == 3) bootstrap_close(&exchange.reply_read);
+                sent = btrc_wos_bootstrap_send_signal(exchange.reply_write, &exchange.supervisor,
+                    &ack, exchange.deadline, &error);
+                if (scenario == 3) {
+                    CHECK("lost ACK retains publication but still requires cleanup", sent != 0
+                        && exchange.supervisor.commit_accepted && exchange.supervisor.record_verified
+                        && !btrc_daemon_handshake_can_run(&exchange.supervisor)
+                        && btrc_daemon_handshake_result(&exchange.launcher) == 2);
+                } else {
+                    CHECK("framed ACK send", sent == 0);
+                    CHECK("ACK alone leaves launcher indeterminate", btrc_wos_bootstrap_receive(exchange.reply_read,
+                        &exchange.launcher, &message, exchange.deadline, &error) == 0
+                        && btrc_daemon_handshake_result(&exchange.launcher) == 2);
+                    CHECK("ACK plus verified record confirms transfer",
+                        btrc_daemon_handshake_record_verified(&exchange.launcher) == 0
+                        && btrc_daemon_handshake_result(&exchange.launcher) == 0);
+                }
+            }
+        }
+        btrc_wos_bootstrap_message_release(&message);
+        bootstrap_exchange_close(&exchange);
+    }
+    CHECK("framed final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
+    CHECK("framed failures release all native handles", before == after);
+}
+
 int main(int argc, char **argv) {
     wchar_t self_wide[1024];
     DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
     if (length == 0 || length >= 1024 || to_utf8(self_wide, self_utf8, (int)sizeof(self_utf8)) != 0) return 2;
     if (argc == 2 && strcmp(argv[1], "--bootstrap-io") == 0) {
         check_bootstrap_pipes();
+        check_bootstrap_exchange();
         report("windows-bootstrap-io %s checks=%d\n", failures == 0 ? "PASS" : "FAIL", checks);
         return failures == 0 ? 0 : 1;
     }
@@ -1009,6 +1168,7 @@ int main(int argc, char **argv) {
     DWORD temp_length = GetTempPathW(1024, temp_root);
     if (temp_length == 0 || temp_length >= 1000) return 3;
     check_bootstrap_pipes();
+    check_bootstrap_exchange();
     check_quoting();
     check_exit_codes();
     check_tree_timeout();

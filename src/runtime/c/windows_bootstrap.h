@@ -6,7 +6,30 @@
 #ifndef BTRC_WINDOWS_BOOTSTRAP_H
 #define BTRC_WINDOWS_BOOTSTRAP_H
 
+#include "windows_daemon_handshake.h"
+
 typedef struct btrc_wos_bootstrap_pipe btrc_wos_bootstrap_pipe;
+
+typedef struct {
+    unsigned char *bytes;
+    size_t size;
+    btrc_daemon_frame frame;
+} btrc_wos_bootstrap_message;
+
+/* Framed exchange enforces ordering before sending and after fully receiving.
+ * Incoming views borrow message->bytes until release. Receive requires an empty
+ * message; release it before reuse. Lifecycle callers mark
+ * prepared/record_verified only after performing their native checks. */
+int btrc_wos_bootstrap_send_init(btrc_wos_bootstrap_pipe *pipe,
+    btrc_daemon_handshake *state, const btrc_daemon_init *startup,
+    uint64_t deadline, __btrc_windows_launch_error_t *error);
+int btrc_wos_bootstrap_send_signal(btrc_wos_bootstrap_pipe *pipe,
+    btrc_daemon_handshake *state, const btrc_daemon_frame *frame,
+    uint64_t deadline, __btrc_windows_launch_error_t *error);
+int btrc_wos_bootstrap_receive(btrc_wos_bootstrap_pipe *pipe,
+    btrc_daemon_handshake *state, btrc_wos_bootstrap_message *message,
+    uint64_t deadline, __btrc_windows_launch_error_t *error);
+void btrc_wos_bootstrap_message_release(btrc_wos_bootstrap_message *message);
 
 /* The image owner supplies fresh cryptographic randomness for each pipe name,
  * never the control token.

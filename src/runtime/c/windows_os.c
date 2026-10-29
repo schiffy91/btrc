@@ -526,6 +526,148 @@ int btrc_wos_bootstrap_write(btrc_wos_bootstrap_pipe *pipe, const unsigned char 
     return btrc_wos_bootstrap_transfer(pipe, NULL, buffer, size, deadline, 0, error);
 }
 
+/* ---- Framed bootstrap exchange ----------------------------------------- */
+
+static int btrc_wos_bootstrap_protocol_fail(btrc_wos_bootstrap_pipe *pipe,
+        btrc_daemon_handshake *state, __btrc_windows_launch_error_t *error,
+        uint32_t stage, uint32_t domain, uint32_t code) {
+    if (state != NULL) btrc_daemon_handshake_fail(state);
+    if (pipe != NULL) pipe->failed = 1;
+    btrc_wos_fail(error, stage, domain, code);
+    if (pipe != NULL && error != NULL) error->ownership_state = pipe->poisoned ? 2u : 1u;
+    return -1;
+}
+
+void btrc_wos_bootstrap_message_release(btrc_wos_bootstrap_message *message) {
+    if (message == NULL) return;
+    if (message->bytes != NULL) {
+        SecureZeroMemory(message->bytes, message->size);
+        free(message->bytes);
+    }
+    SecureZeroMemory(message, sizeof(*message));
+}
+
+static int btrc_wos_bootstrap_send_encoded(btrc_wos_bootstrap_pipe *pipe,
+        btrc_daemon_handshake *state, unsigned char *bytes, size_t size,
+        uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    btrc_daemon_frame frame;
+    int status = -1;
+    if (btrc_daemon_decode(bytes, size, &frame) != 0
+            || btrc_daemon_handshake_message(state, &frame, 1) != 0) {
+        btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_DATA);
+    } else {
+        /* COMMIT is marked attempted before entering the write path. Any
+         * failure from that point keeps the launcher outcome indeterminate. */
+        status = btrc_wos_bootstrap_write(pipe, bytes, size, deadline, error);
+        if (status != 0) btrc_daemon_handshake_fail(state);
+    }
+    SecureZeroMemory(&frame, sizeof(frame));
+    return status;
+}
+
+int btrc_wos_bootstrap_send_init(btrc_wos_bootstrap_pipe *pipe,
+        btrc_daemon_handshake *state, const btrc_daemon_init *startup,
+        uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (pipe == NULL || state == NULL || startup == NULL)
+        return btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    uint64_t now = (uint64_t)GetTickCount64();
+    uint64_t remaining = deadline > now ? deadline - now : 0;
+    if (remaining == 0)
+        return btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_WAIT, BTRC_WOS_DOMAIN_WIN32, ERROR_TIMEOUT);
+    btrc_daemon_init bounded = *startup;
+    if (bounded.remaining_startup_ms > remaining) bounded.remaining_startup_ms = remaining;
+    size_t size = 0;
+    if (btrc_daemon_encode_init(&bounded, NULL, 0, &size) != 0) {
+        SecureZeroMemory(&bounded, sizeof(bounded));
+        return btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    }
+    size_t capacity = size;
+    unsigned char *bytes = (unsigned char *)malloc(capacity);
+    if (bytes == NULL) {
+        SecureZeroMemory(&bounded, sizeof(bounded));
+        return btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+    }
+    int status = btrc_daemon_encode_init(&bounded, bytes, size, &size);
+    if (status == 0) status = btrc_wos_bootstrap_send_encoded(pipe, state, bytes, size, deadline, error);
+    else btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+        BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    SecureZeroMemory(bytes, capacity);
+    free(bytes);
+    SecureZeroMemory(&bounded, sizeof(bounded));
+    return status;
+}
+
+int btrc_wos_bootstrap_send_signal(btrc_wos_bootstrap_pipe *pipe,
+        btrc_daemon_handshake *state, const btrc_daemon_frame *frame,
+        uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    unsigned char bytes[BTRC_DAEMON_HEADER_BYTES + 24];
+    size_t size = 0;
+    if (pipe == NULL || state == NULL || btrc_daemon_encode_signal(frame, bytes, sizeof(bytes), &size) != 0) {
+        SecureZeroMemory(bytes, sizeof(bytes));
+        return btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    }
+    int status = btrc_wos_bootstrap_send_encoded(pipe, state, bytes, size, deadline, error);
+    SecureZeroMemory(bytes, sizeof(bytes));
+    return status;
+}
+
+int btrc_wos_bootstrap_receive(btrc_wos_bootstrap_pipe *pipe,
+        btrc_daemon_handshake *state, btrc_wos_bootstrap_message *message,
+        uint64_t deadline, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (message != NULL) memset(message, 0, sizeof(*message));
+    if (pipe == NULL || state == NULL || message == NULL || state->failed)
+        return btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_VALIDATION, BTRC_WOS_DOMAIN_VALIDATION, BTRC_WOS_REASON_ARGUMENT);
+    unsigned char header[BTRC_DAEMON_HEADER_BYTES];
+    uint16_t type = 0;
+    uint32_t payload_size = 0;
+    if (btrc_wos_bootstrap_read(pipe, header, sizeof(header), deadline, error) != 0) {
+        btrc_daemon_handshake_fail(state);
+        return -1;
+    }
+    if (btrc_daemon_header(header, sizeof(header), &type, &payload_size) != 0)
+        return btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_DATA);
+    message->size = sizeof(header) + payload_size;
+    message->bytes = (unsigned char *)malloc(message->size);
+    if (message->bytes == NULL) {
+        message->size = 0;
+        return btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_ALLOCATION, BTRC_WOS_DOMAIN_WIN32, ERROR_NOT_ENOUGH_MEMORY);
+    }
+    memcpy(message->bytes, header, sizeof(header));
+    if (btrc_wos_bootstrap_read(pipe, message->bytes + sizeof(header), payload_size, deadline, error) != 0) {
+        btrc_daemon_handshake_fail(state);
+        btrc_wos_bootstrap_message_release(message);
+        return -1;
+    }
+    if (btrc_daemon_decode(message->bytes, message->size, &message->frame) != 0) {
+        btrc_wos_bootstrap_message_release(message);
+        return btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_DATA);
+    }
+    int accepted = btrc_daemon_handshake_message(state, &message->frame, 0);
+    if (accepted == 0) return 0;
+    if (accepted == 1) {
+        btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            message->frame.stage, message->frame.domain, message->frame.native_code);
+    } else {
+        btrc_wos_bootstrap_protocol_fail(pipe, state, error,
+            BTRC_WOS_STAGE_PIPE, BTRC_WOS_DOMAIN_REFUSAL, ERROR_INVALID_DATA);
+    }
+    btrc_wos_bootstrap_message_release(message);
+    return -1;
+}
+
 /* ---- Wide strings ------------------------------------------------------ */
 
 static wchar_t *btrc_wos_widen(const char *text, __btrc_windows_launch_error_t *error) {
