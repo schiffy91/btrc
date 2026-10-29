@@ -8,6 +8,19 @@
 
 typedef struct btrc_wos_daemon_file btrc_wos_daemon_file;
 
+/* Open a protected directory, optionally creating only its final component.
+ * Existing parents need not have the private-leaf ACL, but every ancestor is
+ * retained and checked. An existing leaf must already satisfy that ACL; its
+ * permissions are never rewritten. Close through daemon_file_close. */
+int btrc_wos_daemon_directory_open(const unsigned char *path, size_t size,
+    uint32_t create, btrc_wos_daemon_file **out, __btrc_windows_launch_error_t *error);
+/* Copy the canonical path obtained from this held directory. required_bytes
+ * includes the NUL. A null/zero query succeeds; a short buffer is untouched.
+ * The owner retains one immutable path snapshot for query/copy consistency. */
+int btrc_wos_daemon_directory_path(btrc_wos_daemon_file *directory,
+    unsigned char *buffer, size_t capacity, size_t *required_bytes,
+    __btrc_windows_launch_error_t *error);
+
 /* Control files use the same held ancestry and private ACL as verified
  * records. Creation is exclusive and never truncates an existing name.
  * REMOVE grants read plus handle-based disposition, so policy can compare

@@ -1910,15 +1910,89 @@ static void check_daemon_files(void) {
     if (btrcWinPrivateDescriptor(1, &directory_descriptor) != 0
             || btrcWinPrivateDescriptor(0, &file_descriptor) != 0) ExitProcess(3);
     SECURITY_ATTRIBUTES attributes = { sizeof(attributes), directory_descriptor, FALSE };
-    if (!CreateDirectoryW(directory, &attributes)) ExitProcess(3);
-    char log_utf8[5200], record_utf8[5200];
-    if (to_utf8(log, log_utf8, sizeof(log_utf8)) != 0 || to_utf8(record, record_utf8, sizeof(record_utf8)) != 0) ExitProcess(3);
+    char directory_utf8[5200], log_utf8[5200], record_utf8[5200];
+    if (to_utf8(directory, directory_utf8, sizeof(directory_utf8)) != 0
+            || to_utf8(log, log_utf8, sizeof(log_utf8)) != 0
+            || to_utf8(record, record_utf8, sizeof(record_utf8)) != 0) ExitProcess(3);
     btrc_wos_daemon_file *held = NULL;
     __btrc_windows_launch_error_t error;
+    CHECK("directory inspection never creates a missing leaf",
+        btrc_wos_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+            0, &held, &error) != 0 && held == NULL && error.ownership_state == 0
+        && GetFileAttributesW(directory) == INVALID_FILE_ATTRIBUTES);
+    CHECK("directory creation rejects an invalid mode",
+        btrc_wos_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+            2, &held, &error) != 0 && held == NULL
+        && GetFileAttributesW(directory) == INVALID_FILE_ATTRIBUTES);
+    CHECK("private leaf creation works beneath an ordinary temporary root",
+        btrc_wos_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+            1, &held, &error) == 0 && held != NULL);
+    if (held == NULL) ExitProcess(3);
+    CHECK("held private directory cannot be renamed", !MoveFileW(directory, moved));
+    size_t path_size = 0, repeated_size = 0, directory_io = 99;
+    unsigned char canonical[5400] = { 0 }, too_small[2] = { 0xA5, 0xA5 };
+    CHECK("directory path query sizes the complete NUL terminated result",
+        btrc_wos_daemon_directory_path(held, NULL, 0, &path_size, &error) == 0 && path_size > 2);
+    CHECK("short directory path copy leaves the entire buffer untouched",
+        btrc_wos_daemon_directory_path(held, too_small, sizeof(too_small), &repeated_size, &error) != 0
+        && repeated_size == path_size && too_small[0] == 0xA5 && too_small[1] == 0xA5);
+    CHECK("directory path copy uses the same snapshot as its query",
+        btrc_wos_daemon_directory_path(held, canonical, sizeof(canonical), &repeated_size, &error) == 0
+        && repeated_size == path_size && strlen((const char *)canonical) + 1 == path_size);
+    btrc_wos_daemon_file *directory_copy = NULL;
+    CHECK("canonical directory path reopens the protected directory",
+        btrc_wos_daemon_directory_open(canonical, strlen((const char *)canonical), 0, &directory_copy, &error) == 0
+        && directory_copy != NULL);
+    CHECK("canonical directory copy closes independently", btrc_wos_daemon_file_close(&directory_copy, &error) == 0);
+    CHECK("directory capability refuses file I/O without touching its buffer",
+        btrc_wos_daemon_file_read(held, 0, too_small, sizeof(too_small), &directory_io, &error) != 0
+        && directory_io == 0 && too_small[0] == 0xA5 && too_small[1] == 0xA5);
+    CHECK("directory capability refuses file flush", btrc_wos_daemon_file_flush(held, &error) != 0);
+    CHECK("fixture removes directory ACL protection",
+        SetNamedSecurityInfoW(directory, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            NULL, NULL, NULL, NULL) == ERROR_SUCCESS);
+    CHECK("directory path copy rechecks its current ACL",
+        btrc_wos_daemon_directory_path(held, too_small, sizeof(too_small), &repeated_size, &error) != 0
+        && repeated_size == 0 && too_small[0] == 0xA5 && too_small[1] == 0xA5 && error.ownership_state == 1);
+    PACL directory_acl = NULL;
+    BOOL directory_acl_present = FALSE, directory_acl_defaulted = FALSE;
+    CHECK("fixture reads its private directory ACL",
+        GetSecurityDescriptorDacl(directory_descriptor, &directory_acl_present, &directory_acl, &directory_acl_defaulted)
+        && directory_acl_present);
+    CHECK("fixture restores directory ACL",
+        SetNamedSecurityInfoW(directory, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            NULL, NULL, directory_acl, NULL) == ERROR_SUCCESS);
+    CHECK("private directory owner closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("create mode accepts an already private directory without replacing it",
+        btrc_wos_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+            1, &held, &error) == 0 && held != NULL);
+    CHECK("reopened directory owner closes", btrc_wos_daemon_file_close(&held, &error) == 0);
+
+    wchar_t nested[1300];
+    swprintf(nested, 1300, L"%ls\\namespace-\u00e9", directory);
+    char nested_utf8[5400];
+    if (to_utf8(nested, nested_utf8, sizeof(nested_utf8)) != 0) ExitProcess(3);
+    CHECK("private directory creation preserves Unicode names",
+        btrc_wos_daemon_directory_open((const unsigned char *)nested_utf8, strlen(nested_utf8),
+            1, &held, &error) == 0 && held != NULL);
+    CHECK("Unicode canonical path retains its name",
+        btrc_wos_daemon_directory_path(held, canonical, sizeof(canonical), &path_size, &error) == 0
+        && strstr((const char *)canonical, "namespace-\xc3\xa9") != NULL);
+    CHECK("Unicode directory owner closes", btrc_wos_daemon_file_close(&held, &error) == 0);
+    CHECK("fixture removes Unicode directory", RemoveDirectoryW(nested));
+    CHECK("fixture creates an unprotected directory", CreateDirectoryW(nested, NULL));
+    CHECK("create mode refuses an existing unprotected directory",
+        btrc_wos_daemon_directory_open((const unsigned char *)nested_utf8, strlen(nested_utf8),
+            1, &held, &error) != 0 && held == NULL && error.ownership_state == 0);
+    CHECK("refusal leaves existing directory in place", GetFileAttributesW(nested) != INVALID_FILE_ATTRIBUTES);
+    CHECK("fixture removes unprotected directory", RemoveDirectoryW(nested));
     CHECK("daemon log creates a private empty append file",
         btrc_wos_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
     CHECK("held daemon directory cannot be renamed", !MoveFileW(directory, moved));
     CHECK("daemon log closes its capability", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("private directory creation never replaces a regular file",
+        btrc_wos_daemon_directory_open((const unsigned char *)log_utf8, strlen(log_utf8),
+            1, &held, &error) != 0 && held == NULL);
     CHECK("daemon log fixture writes existing content", daemon_fixture_file(log, "preserve\n", file_descriptor) == 0);
     CHECK("daemon log opens existing content without truncating",
         btrc_wos_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
