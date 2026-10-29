@@ -14,6 +14,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <aclapi.h>
 #include <shellapi.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -1876,6 +1877,97 @@ static void check_daemon_files(void) {
     CHECK("daemon log releases its ancestor holds", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
     CHECK("directory rename works after close", MoveFileW(directory, moved));
     CHECK("fixture restores directory name", MoveFileW(moved, directory));
+    btrc_wos_daemon_file *competing = NULL;
+    size_t transferred = 99;
+    uint32_t disposition = 99;
+    unsigned char bytes[128];
+    CHECK("missing control file cannot be opened for reading",
+        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_READ, &held, &error) != 0 && held == NULL && error.ownership_state == 0);
+    CHECK("control creation is private and exclusive",
+        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_CREATE, &held, &error) == 0 && held != NULL);
+    CHECK("control owner retains its parent", !MoveFileW(directory, moved));
+    CHECK("control write reports its byte count",
+        btrc_wos_daemon_file_write(held, 0, (const unsigned char *)"initial", 7, &transferred, &error) == 0
+        && transferred == 7);
+    CHECK("control writes use explicit offsets",
+        btrc_wos_daemon_file_write(held, 2, (const unsigned char *)"X", 1, &transferred, &error) == 0
+        && transferred == 1);
+    CHECK("second creator cannot truncate an existing control file",
+        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_CREATE, &competing, &error) != 0 && competing == NULL);
+    CHECK("control read uses its own explicit offset",
+        btrc_wos_daemon_file_read(held, 1, bytes, 4, &transferred, &error) == 0
+        && transferred == 4 && memcmp(bytes, "nXti", 4) == 0);
+    CHECK("control flush confirms written bytes", btrc_wos_daemon_file_flush(held, &error) == 0);
+    CHECK("zero length control I/O permits null buffers",
+        btrc_wos_daemon_file_write(held, 0, NULL, 0, &transferred, &error) == 0 && transferred == 0
+        && btrc_wos_daemon_file_read(held, 0, NULL, 0, &transferred, &error) == 0 && transferred == 0);
+    memset(bytes, 0xA5, sizeof(bytes));
+    CHECK("invalid control offset clears count and preserves buffer",
+        btrc_wos_daemon_file_read(held, UINT64_MAX, bytes, 1, &transferred, &error) != 0
+        && transferred == 0 && bytes[0] == 0xA5 && error.ownership_state == 1);
+    CHECK("oversized control I/O is refused before touching its buffer",
+        btrc_wos_daemon_file_read(held, 0, bytes, (size_t)INT_MAX + 1, &transferred, &error) != 0
+        && transferred == 0 && bytes[0] == 0xA5);
+    CHECK("control read beyond EOF reports no bytes",
+        btrc_wos_daemon_file_read(held, 100, bytes, 1, &transferred, &error) == 0
+        && transferred == 0 && bytes[0] == 0xA5);
+    CHECK("created control owner closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("control read reopens protected content",
+        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_READ, &held, &error) == 0 && held != NULL
+        && btrc_wos_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) == 0
+        && transferred == 7 && memcmp(bytes, "inXtial", 7) == 0);
+    CHECK("read-only control owner refuses writes",
+        btrc_wos_daemon_file_write(held, 0, (const unsigned char *)"overwrite", 9, &transferred, &error) != 0
+        && transferred == 0 && error.ownership_state == 1);
+    CHECK("read-only control owner cannot claim a flush", btrc_wos_daemon_file_flush(held, &error) != 0);
+    CHECK("read-only control owner cannot delete",
+        btrc_wos_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 0);
+    CHECK("held control reader excludes removal",
+        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_REMOVE, &competing, &error) != 0 && competing == NULL);
+    CHECK("fixture removes control ACL protection",
+        SetNamedSecurityInfoW(record, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            NULL, NULL, NULL, NULL) == ERROR_SUCCESS);
+    bytes[0] = 0xA5;
+    CHECK("held control reader rechecks ACL before I/O",
+        btrc_wos_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) != 0
+        && transferred == 0 && bytes[0] == 0xA5 && error.ownership_state == 1);
+    PACL private_acl = NULL;
+    BOOL acl_present = FALSE, acl_defaulted = FALSE;
+    CHECK("fixture reads its private ACL",
+        GetSecurityDescriptorDacl(file_descriptor, &acl_present, &private_acl, &acl_defaulted) && acl_present);
+    CHECK("fixture restores control ACL",
+        SetNamedSecurityInfoW(record, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            NULL, NULL, private_acl, NULL) == ERROR_SUCCESS);
+    CHECK("control reader closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("control removal opens the same protected object for inspection",
+        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_REMOVE, &held, &error) == 0 && held != NULL
+        && btrc_wos_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) == 0
+        && transferred == 7 && memcmp(bytes, "inXtial", 7) == 0);
+    HANDLE retained_reader = CreateFileW(record, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL, OPEN_EXISTING, 0, NULL);
+    CHECK("fixture retains a reader of the original object", retained_reader != INVALID_HANDLE_VALUE);
+    CHECK("control deletion commits disposition through the held handle",
+        btrc_wos_daemon_file_dispose(held, &disposition, &error) == 0 && disposition == 1);
+    CHECK("disposed control owner refuses further operations",
+        btrc_wos_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 1
+        && btrc_wos_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) != 0 && transferred == 0);
+    CHECK("disposed control owner still closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("POSIX disposition removes the name while another reader holds the object",
+        GetFileAttributesW(record) == INVALID_FILE_ATTRIBUTES);
+    CHECK("fixture creates a replacement at the deleted path", daemon_fixture_file(record, "replacement", file_descriptor) == 0);
+    DWORD retained_count = 0;
+    CHECK("retained reader still names the deleted object",
+        ReadFile(retained_reader, bytes, sizeof(bytes), &retained_count, NULL)
+        && retained_count == 7 && memcmp(bytes, "inXtial", 7) == 0);
+    CHECK("fixture releases the old object", CloseHandle(retained_reader));
+    CHECK("replacement survives old-object cleanup", read_text(record, contents, sizeof(contents)) == 0 && strcmp(contents, "replacement") == 0);
+    CHECK("fixture removes replacement", DeleteFileW(record));
     unsigned char token[16]; memset(token, 0x12, sizeof(token));
     const char *valid = "btrc-daemon-v1\n12121212121212121212121212121212\n42\n";
     CHECK("daemon record fixture publishes protected bytes", daemon_fixture_file(record, valid, file_descriptor) == 0);
@@ -2152,6 +2244,11 @@ int main(int argc, char **argv) {
     wchar_t self_wide[1024];
     DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
     if (length == 0 || length >= 1024 || to_utf8(self_wide, self_utf8, (int)sizeof(self_utf8)) != 0) return 2;
+    if (argc == 2 && strcmp(argv[1], "--daemon-files") == 0) {
+        check_daemon_files();
+        report("windows-daemon-files %s checks=%d\n", failures == 0 ? "PASS" : "FAIL", checks);
+        return failures == 0 ? 0 : 1;
+    }
     if (argc == 2 && strcmp(argv[1], "--transfer-contained") == 0) {
         check_transfer_launch(1);
         return failures == 0 ? 0 : 1;

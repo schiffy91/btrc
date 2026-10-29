@@ -553,13 +553,30 @@ static inline int btrcWinReadAt(void* handle, long long offset, char* buffer, in
     position.Offset = (DWORD)((unsigned long long)offset & 0xffffffffULL);
     position.OffsetHigh = (DWORD)((unsigned long long)offset >> 32);
     DWORD read = 0;
-    if (!ReadFile(handle, buffer, (DWORD)count, &read, &position)) {
-        DWORD error = GetLastError();
+    BOOL ok = ReadFile(handle, buffer, (DWORD)count, &read, &position);
+    DWORD error = ok ? 0 : GetLastError();
+    *received = (int)read;
+    if (!ok) {
         if (error == ERROR_HANDLE_EOF) { return 0; }
         return (int)error;
     }
-    *received = (int)read;
     return 0;
+}
+
+/* One synchronous write at an explicit offset, preserving partial progress
+ * on failure. The caller retains the buffer only for this call. */
+static inline int btrcWinWriteAt(void* handle, long long offset, const char* buffer, int count, int* transferred) {
+    *transferred = 0;
+    if (offset < 0 || count < 0) { return BTRC_WIN_STATUS_INVALID; }
+    OVERLAPPED position;
+    memset(&position, 0, sizeof(position));
+    position.Offset = (DWORD)((unsigned long long)offset & 0xffffffffULL);
+    position.OffsetHigh = (DWORD)((unsigned long long)offset >> 32);
+    DWORD written = 0;
+    BOOL ok = WriteFile(handle, buffer, (DWORD)count, &written, &position);
+    DWORD error = ok ? 0 : GetLastError();
+    *transferred = (int)written;
+    return (int)error;
 }
 
 static inline int btrcWinWriteAll(void* handle, char* data, int count) {
@@ -590,16 +607,21 @@ static inline int btrcWinDuplicate(void* handle, void** copy) {
     return 0;
 }
 
-/* Delete the object a handle holds (opened with DELETE), by the handle, never
- * by name: the name goes at once (POSIX semantics) where the volume supports
- * it. `ignoreReadOnly` lets a recursive removal delete read-only entries, as
+/* Mark the object a handle holds (opened with DELETE), never by name.
+ * POSIX disposition removes the name when this handle closes, even while
+ * other readers still hold the file. `ignoreReadOnly` lets a recursive removal delete read-only entries, as
  * the POSIX removal grants itself write permission. */
-static inline int btrcWinDelete(void* handle, int ignoreReadOnly) {
+static inline int btrcWinDeletePosix(void* handle, int ignoreReadOnly) {
     FILE_DISPOSITION_INFO_EX extended;
     extended.Flags = FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS;
     if (ignoreReadOnly) { extended.Flags |= FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE; }
     if (SetFileInformationByHandle(handle, FileDispositionInfoEx, &extended, (DWORD)sizeof(extended))) { return 0; }
-    DWORD error = GetLastError();
+    return (int)GetLastError();
+}
+
+static inline int btrcWinDelete(void* handle, int ignoreReadOnly) {
+    int error = btrcWinDeletePosix(handle, ignoreReadOnly);
+    if (error == 0) { return 0; }
     if (error != ERROR_INVALID_PARAMETER && error != ERROR_NOT_SUPPORTED && error != ERROR_INVALID_FUNCTION) { return (int)error; }
     /* A volume without the extended class (FAT, older redirectors). */
     if (ignoreReadOnly) {
