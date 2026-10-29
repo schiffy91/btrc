@@ -881,6 +881,8 @@ class StorageLowerer:
         self._session.record_declaration(declaration)
         self.declare_c_binding(source.name, is_array=is_array, logical_length=logical_length)
         self._ownership.declare_local_ownership(source.name, provenance, c_name=plan.c_name)
+        if source.type is not None and source.type.is_register:
+            self._ownership.mark_register_local(source.name)
         provenance.bind_local(source.name, source.type, source.initializer)
         result: list[IRStmt] = [declaration]
         if external:
@@ -1147,6 +1149,7 @@ class StorageLowerer:
         return {
             "is_static": bool(getattr(type_expr, "is_static", False)),
             "is_extern": bool(getattr(type_expr, "is_extern", False)),
+            "is_register": bool(getattr(type_expr, "is_register", False)),
             "is_volatile": bool(getattr(type_expr, "is_volatile", False)),
             "effective_is_volatile": StorageModel.effective_outer_volatile(type_expr, self._analyzed.typedef_table),
         }

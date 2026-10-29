@@ -149,6 +149,7 @@ class IRDeclarationPayload extends IRNodePayload {
 	public bool setjmpInferredVolatile;
 	public bool isStatic;
 	public bool isExtern;
+	public bool isRegister;
 	public bool isCycleReturnTemp;
 
 	public IRDeclarationPayload() {
@@ -717,6 +718,7 @@ class IRNode {
 /* --- IR top-level entities (functions + module) --- */
 
 class IRParam {
+	public bool isRegister = false;
 	public string cType;
 	public string name;
 	public bool isVolatile;
@@ -1231,7 +1233,7 @@ class IRCanonicalRenderer {
 	private void params(int depth, Vector<IRParam>? params) {
 		if (params == null) { return; }
 		for param in params {
-			self.line(depth, f"param cType={self.quoted(param.cType)} name={self.quoted(param.name)}{self.flag("volatile", param.isVolatile)}{self.flag("effectiveVolatile", param.effectiveIsVolatile)}{self.flag("setjmpInferredVolatile", param.setjmpInferredVolatile)}");
+			self.line(depth, f"param cType={self.quoted(param.cType)} name={self.quoted(param.name)}{self.flag("register", param.isRegister)}{self.flag("volatile", param.isVolatile)}{self.flag("effectiveVolatile", param.effectiveIsVolatile)}{self.flag("setjmpInferredVolatile", param.setjmpInferredVolatile)}");
 		}
 	}
 
@@ -1254,7 +1256,7 @@ class IRCanonicalRenderer {
 		if (node == null) { return; }
 		IRKind kind = (IRKind)node.kind;
 		int domain = node.payloadDomain();
-		string scalars = f"{self.flag("prefix", (domain == IR_PAYLOAD_UNARY && ((IRUnaryPayload)node.payload).prefix))}{self.flag("arrow", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION && ((IRProjectionPayload)node.payload).arrow))}{self.flag("storageRootKnown", node.storageRootKnown)}{self.flag("sourceAddress", node.sourceAddress)}{self.flag("arrayStorageKnown", node.arrayStorageKnown)}{self.flag("arrayDecl", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isArrayDecl))}{self.flag("volatile", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isVolatile))}{self.flag("effectiveVolatile", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).effectiveIsVolatile))}{self.flag("setjmpInferredVolatile", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).setjmpInferredVolatile))}{self.flag("static", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isStatic))}{self.flag("extern", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isExtern))}{self.flag("cycleReturnTemp", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isCycleReturnTemp))}{self.flag("fallsThrough", (domain == IR_PAYLOAD_CONTROL_SEQUENCE && ((IRControlPayload)node.payload).fallsThrough))}{self.flag("noFallThrough", !node.canFallThrough)}{self.flag("neverReturns", (domain == IR_PAYLOAD_CALL && ((IRCallPayload)node.payload).neverReturns))}{self.flag("realtimeBounded", (domain == IR_PAYLOAD_CONTROL_SEQUENCE && ((IRControlPayload)node.payload).realtimeBounded))}{self.flag("bitField", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION && ((IRProjectionPayload)node.payload).bitField))}";
+		string scalars = f"{self.flag("prefix", (domain == IR_PAYLOAD_UNARY && ((IRUnaryPayload)node.payload).prefix))}{self.flag("arrow", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION && ((IRProjectionPayload)node.payload).arrow))}{self.flag("storageRootKnown", node.storageRootKnown)}{self.flag("sourceAddress", node.sourceAddress)}{self.flag("arrayStorageKnown", node.arrayStorageKnown)}{self.flag("arrayDecl", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isArrayDecl))}{self.flag("volatile", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isVolatile))}{self.flag("effectiveVolatile", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).effectiveIsVolatile))}{self.flag("setjmpInferredVolatile", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).setjmpInferredVolatile))}{self.flag("static", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isStatic))}{self.flag("extern", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isExtern))}{self.flag("register", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isRegister))}{self.flag("cycleReturnTemp", (domain == IR_PAYLOAD_DECLARATION && ((IRDeclarationPayload)node.payload).isCycleReturnTemp))}{self.flag("fallsThrough", (domain == IR_PAYLOAD_CONTROL_SEQUENCE && ((IRControlPayload)node.payload).fallsThrough))}{self.flag("noFallThrough", !node.canFallThrough)}{self.flag("neverReturns", (domain == IR_PAYLOAD_CALL && ((IRCallPayload)node.payload).neverReturns))}{self.flag("realtimeBounded", (domain == IR_PAYLOAD_CONTROL_SEQUENCE && ((IRControlPayload)node.payload).realtimeBounded))}{self.flag("bitField", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION && ((IRProjectionPayload)node.payload).bitField))}";
 		string texts = f"{self.text("text", node.text)}{self.text("name", node.name)}{self.text("callee", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""))}{self.text("op", node.op)}{self.text("targetType", (domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : ""))}{self.text("bridge", (domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).bridge : ""))}{self.text("field", (domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).field : ""))}{self.text("storageRoot", node.storageRoot)}{self.text("arrayStorageRoot", node.arrayStorageRoot)}{self.text("cType", (domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : ""))}{self.text("sourceFile", (domain == IR_PAYLOAD_SOURCE ? ((IRSourcePayload)node.payload).sourceFile : ""))}{self.text("helperRef", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).helperRef : ""))}{self.text("realtimeProvenance", (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).realtimeProvenance : ""))}";
 		string line = (domain == IR_PAYLOAD_SOURCE ? ((IRSourcePayload)node.payload).sourceLine : 0) == 0 ? "" : f" line={(domain == IR_PAYLOAD_SOURCE ? ((IRSourcePayload)node.payload).sourceLine : 0)}";
 		self.line(depth, f"{role}: {kind.toString()}{texts}{scalars}{line}");

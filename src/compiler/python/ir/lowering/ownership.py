@@ -1904,6 +1904,7 @@ class OwnershipLowerer:
         self._managed_vars_stack: list[list[ManagedLocal]] = []
         self._session.local_ownership_scopes: list[dict[str, str | None]] = []
         self._local_c_name_scopes: list[dict[str, str]] = []
+        self._local_register_scopes: list[set[str]] = []
         self._loop_scope_depths: list[int] = []
         self._session.control_context = []
         self._control_managed_depths: list[int] = []
@@ -1917,6 +1918,7 @@ class OwnershipLowerer:
         owner_state = (
             self._managed_vars_stack,
             self._local_c_name_scopes,
+            self._local_register_scopes,
             self._loop_scope_depths,
             self._control_managed_depths,
         )
@@ -1936,6 +1938,7 @@ class OwnershipLowerer:
         )
         self._managed_vars_stack = []
         self._local_c_name_scopes = []
+        self._local_register_scopes = []
         self._loop_scope_depths = []
         self._control_managed_depths = []
         self._session.local_ownership_scopes = []
@@ -1957,6 +1960,7 @@ class OwnershipLowerer:
             (
                 self._managed_vars_stack,
                 self._local_c_name_scopes,
+                self._local_register_scopes,
                 self._loop_scope_depths,
                 self._control_managed_depths,
             ) = owner_state
@@ -2063,11 +2067,24 @@ class OwnershipLowerer:
     def push_local_ownership_scope(self) -> None:
         self._session.local_ownership_scopes.append({})
         self._local_c_name_scopes.append({})
+        self._local_register_scopes.append(set())
 
     def pop_local_ownership_scope(self) -> None:
         if self._session.local_ownership_scopes:
             self._session.local_ownership_scopes.pop()
             self._local_c_name_scopes.pop()
+            self._local_register_scopes.pop()
+
+    def mark_register_local(self, name: str) -> None:
+        self._local_register_scopes[-1].add(name)
+
+    def is_register_c_name(self, name: str) -> bool:
+        for bindings, registers in zip(
+            reversed(self._local_c_name_scopes), reversed(self._local_register_scopes), strict=True
+        ):
+            if name in bindings.values():
+                return any(bindings[source] == name for source in registers)
+        return False
 
     def next_source_binding_c_name(self, var_name: str, provenance: CallableBodyFacts) -> str:
         """Allocate a C identity without making the source binding visible."""

@@ -23,7 +23,6 @@
   -- RESERVED (lexed as keywords, but no @syntax rule consumes them yet —
   -- using them is a parse error; they are reserved to keep the C surface
   -- intact and to leave room for future syntax):
-  --   register        -- C storage class, not implemented
   --   goto            -- no goto/label syntax
   -- These remain in @keywords so the keyword/token round-trip stays total
   -- (every keyword maps to an existing TokenKind, and syntax/tokens.py validates it).
@@ -394,7 +393,7 @@
                  pointer-valued T[]. A cast to an array type is refused
                  (C11 6.5.4p2). *) ;
 
-  type_qualifier = "const" | "static" | "extern" | "volatile" | "auto" ;
+  type_qualifier = "const" | "static" | "extern" | "volatile" | "auto" | "register" ;
                   (* auto declares a block-scope object, including a C-for
                      initializer; var remains the type-inference spelling. *)
 

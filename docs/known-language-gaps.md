@@ -66,8 +66,13 @@ valid.
 allowed on block-scope objects and C-for initializers, uses the existing
 prefix qualifier syntax, and does not change the generated C. It cannot
 declare a parameter, field, function, typedef or file-scope object, or appear
-in a type name. Type inference still uses `var`. `register` and `goto` remain
-pending under issue #17.
+in a type name. Type inference still uses `var`.
+
+`register` is allowed on block-scope objects and parameters. It requires a
+scalar plain C value or raw pointer; arrays, records and managed references
+are refused. Taking the object's address or capturing it in a lambda or
+`spawn` is also refused. It is emitted as C `register` and does not affect
+function signature compatibility. `goto` remains pending under issue #17.
 
 Tuple element names such as `_0` and `_1` are ordinary postfix members, and
 `value.1.0` selects twice: digits after a `.` lex as a field index alone, so

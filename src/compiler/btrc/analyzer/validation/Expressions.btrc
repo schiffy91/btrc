@@ -736,6 +736,9 @@ class ExpressionValidator {
 
 	public void validateUnary(Node expression, Map<string, Node> vars) {
 		if (expression.op == "&") {
+			if (expression.operand.kind == NK_IDENTIFIER && vars.has(expression.operand.name) && vars.get(expression.operand.name).isRegister) {
+				TypeValidator.fail("Cannot take the address of register object '" + expression.operand.name + "'", expression);
+			}
 			string flexibleMember = self.storage.flexibleArrayTarget(expression.operand, vars);
 			if (flexibleMember != "") {
 				TypeValidator.fail("Cannot take the address of flexible array member '" + flexibleMember + "'; use the member itself or an element's address", expression);
@@ -1095,6 +1098,7 @@ class ExpressionValidator {
 		while (captureIndex < names.len) {
 			string name = names.get(captureIndex);
 			if (vars.has(name) && self.state.localBindings.has(name)) {
+				if (vars.get(name).isRegister) { TypeValidator.fail("Cannot capture register object '" + name + "'", expression); }
 				/* Lifted environment fields are non-owning copies.  Model them as
                  * borrowed lexical proxies even when the enclosing local owns its
                  * slot, so rebind/release validation matches generated code. */
@@ -1191,6 +1195,7 @@ class ExpressionValidator {
 			string name = names.get(captureIndex);
 			if (vars.has(name) && (self.state.localBindings.has(name) || !self.state.analyzed.globalVarTypes.has(name))) {
 				Node captureType = vars.get(name);
+				if (captureType.isRegister) { TypeValidator.fail("Cannot capture register object '" + name + "'", expression); }
 				Node? canonical = self.types.resolveAliases(captureType);
 				if (canonical != null && (canonical.base == "Span" || canonical.base == "Atomic") && canonical.pointerDepth == 0 && !canonical.isArray) {
 					TypeValidator.fail("spawn cannot capture " + canonical.base + " value '" + name + "' by value", expression);

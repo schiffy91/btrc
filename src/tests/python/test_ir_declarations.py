@@ -746,3 +746,60 @@ def test_local_array_initializer_executes_under_strict_c11(
         timeout=C_COMPILE_TIMEOUT,
     )
     subprocess.run([str(executable)], check=True, timeout=RUN_TIMEOUT)
+
+
+@pytest.mark.parametrize("parameter", [False, True])
+def test_register_storage_verifier_rejects_synthesized_addresses(parameter):
+    declaration = IRVarDecl(CType("int"), "value", ir_nodes.IRLiteral("1"), is_register=True)
+    address = ir_nodes.IRAddressOf(expr=ir_nodes.IRVar(name="value"))
+    function = IRFunctionDef(
+        name="read",
+        return_type=CType("int"),
+        params=[IRParam(CType("int"), "value", is_register=True)] if parameter else [],
+        body=IRBlock(stmts=([] if parameter else [declaration]) + [IRReturn(ir_nodes.IRDeref(expr=address))]),
+    )
+    module = IRModule(function_defs=[function])
+    with pytest.raises(ValueError, match="Cannot take the address of register object 'value'"):
+        IRVerifier(module).validate()
+
+
+def test_register_storage_verifier_respects_shadowing_and_pointer_indirection():
+    pointer = IRParam(CType("int*"), "pointer", is_register=True)
+    ordinary = IRVarDecl(CType("int"), "value", ir_nodes.IRLiteral("3"))
+    shadow = IRBlock(stmts=[IRVarDecl(CType("int"), "value", ir_nodes.IRLiteral("7"), is_register=True)])
+    function = IRFunctionDef(
+        name="read",
+        return_type=CType("int"),
+        params=[pointer],
+        body=IRBlock(
+            stmts=[
+                ordinary,
+                shadow,
+                IRReturn(
+                    ir_nodes.IRBinOp(
+                        left=ir_nodes.IRDeref(expr=ir_nodes.IRAddressOf(expr=ir_nodes.IRVar(name="value"))),
+                        op="+",
+                        right=ir_nodes.IRDeref(
+                            expr=ir_nodes.IRAddressOf(expr=ir_nodes.IRDeref(expr=ir_nodes.IRVar(name="pointer")))
+                        ),
+                    )
+                ),
+            ]
+        ),
+    )
+    IRVerifier(IRModule(function_defs=[function])).validate()
+
+
+def test_register_storage_verifier_checks_nested_native_block_parameters():
+    block = ir_nodes.IRObjectiveCBlock(
+        return_type=CType("int"),
+        params=[IRParam(CType("int"), "value", is_register=True)],
+        body=IRBlock(stmts=[IRReturn(ir_nodes.IRDeref(expr=ir_nodes.IRAddressOf(expr=ir_nodes.IRVar(name="value"))))]),
+    )
+    function = IRFunctionDef(
+        name="outer",
+        return_type=CType("void"),
+        body=IRBlock(stmts=[ir_nodes.IRExprStmt(expr=block)]),
+    )
+    with pytest.raises(ValueError, match="Cannot take the address of register object 'value'"):
+        IRVerifier(IRModule(language="objective-c", function_defs=[function])).validate()

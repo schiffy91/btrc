@@ -307,6 +307,7 @@ class Parser:
             TokenKind.STATIC,
             TokenKind.EXTERN,
             TokenKind.AUTO,
+            TokenKind.REGISTER,
             TokenKind.VOLATILE,
         }
     )
@@ -504,6 +505,7 @@ class Parser:
         has_extern = False
         has_volatile = False
         has_auto = False
+        has_register = False
         while self._peek().type in self._QUALIFIERS:
             qt = self._peek().type
             if qt == TokenKind.CONST:
@@ -518,6 +520,10 @@ class Parser:
                 if has_auto:
                     raise self._error("Duplicate storage class 'auto'")
                 has_auto = True
+            elif qt == TokenKind.REGISTER:
+                if has_register:
+                    raise self._error("Duplicate storage class 'register'")
+                has_register = True
             self._advance()
 
         generic_args = []
@@ -588,6 +594,7 @@ class Parser:
             is_extern=has_extern,
             is_volatile=has_volatile,
             is_auto=has_auto,
+            is_register=has_register,
             line=line,
             col=col,
         )

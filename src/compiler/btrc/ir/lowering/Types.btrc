@@ -150,6 +150,7 @@ class CTypeLowerer {
 	public IRParam lowerResolvedParameter(Node parameter, Node? resolvedType, string rendered) {
 		IRParam result = IRParam(rendered, self.lexicalBindingCName(parameter.name));
 		result.isVolatile = resolvedType != null && resolvedType.isVolatile;
+		result.isRegister = parameter.type != null && parameter.type.isRegister;
 		result.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(resolvedType, self.analyzed.typedefTable);
 		return result;
 	}
@@ -161,6 +162,7 @@ class CTypeLowerer {
 	public IRParam copyParameter(IRParam parameter) {
 		IRParam result = IRParam(parameter.cType, parameter.name);
 		result.isVolatile = parameter.isVolatile;
+		result.isRegister = parameter.isRegister;
 		result.effectiveIsVolatile = parameter.effectiveIsVolatile;
 		result.setjmpInferredVolatile = parameter.setjmpInferredVolatile;
 		return result;

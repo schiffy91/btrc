@@ -943,6 +943,7 @@ class CallableSignatureLowerer:
             c_type=c_type if isinstance(c_type, CType) else CType(text=c_type),
             name=self.source_binding_c_name(name),
             is_volatile=bool(represented_type and represented_type.is_volatile),
+            is_register=bool(type_expr and type_expr.is_register),
             effective_is_volatile=StorageModel.effective_outer_volatile(
                 represented_type,
                 self._analyzed.typedef_table,

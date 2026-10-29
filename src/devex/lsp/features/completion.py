@@ -15,7 +15,7 @@ from src.devex.lsp.analysis.resolution import LexicalScopeIndex, SemanticResolve
 from src.devex.lsp.catalog.builtins import BuiltinCatalog
 from src.devex.lsp.catalog.generated import BuiltinMemberSpec
 
-_RESERVED_WITHOUT_SYNTAX = frozenset({"goto", "register"})
+_RESERVED_WITHOUT_SYNTAX = frozenset({"goto"})
 _KEYWORD_DOCS = MappingProxyType(
     {
         "abstract": "Declare a class or method that requires an implementation",

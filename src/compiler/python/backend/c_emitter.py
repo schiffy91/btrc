@@ -718,7 +718,7 @@ class CEmitter:
             body._emit_block_contents(expression.body)
             parameters = (
                 ", ".join(
-                    f"{CType.qualify_volatile_object(str(param.c_type), param.is_volatile)} {param.name}"
+                    f"{'register ' if param.is_register else ''}{CType.qualify_volatile_object(str(param.c_type), param.is_volatile)} {param.name}"
                     for param in expression.params
                 )
                 or "void"
@@ -809,7 +809,15 @@ class CEmitter:
 
         if declaration.is_static and declaration.is_extern:
             raise ValueError(f"IR variable {declaration.name!r} is both static and extern")
-        storage = "static " if declaration.is_static else "extern " if declaration.is_extern else ""
+        storage = (
+            "register "
+            if declaration.is_register
+            else "static "
+            if declaration.is_static
+            else "extern "
+            if declaration.is_extern
+            else ""
+        )
         return storage + CType.qualify_volatile_object(
             str(declaration.c_type),
             declaration.is_volatile,
@@ -1033,7 +1041,11 @@ class CEmitter:
                 " ".join(
                     filter(
                         None,
-                        (CType.qualify_volatile_object(str(parameter.c_type), parameter.is_volatile), parameter.name),
+                        (
+                            "register" if parameter.is_register else "",
+                            CType.qualify_volatile_object(str(parameter.c_type), parameter.is_volatile),
+                            parameter.name,
+                        ),
                     )
                 )
                 for parameter in declaration.params

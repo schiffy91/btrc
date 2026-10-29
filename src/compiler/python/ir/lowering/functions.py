@@ -8626,6 +8626,8 @@ class FunctionLowerer:
                         provenance.shadow(name)
                     for parameter in node.params:
                         provenance.bind_borrowed(parameter.name, parameter.type)
+                        if parameter.type is not None and parameter.type.is_register:
+                            self._ownership.mark_register_local(parameter.name)
                     for capture, return_abi in capture_abis:
                         provenance.bind_with_abi(capture.name, capture.type, return_abi)
                     body_stmts.extend(

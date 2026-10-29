@@ -546,6 +546,7 @@ TYPE_KEYWORDS: frozenset[TokenKind] = frozenset(
         TokenKind.STATIC,
         TokenKind.EXTERN,
         TokenKind.AUTO,
+        TokenKind.REGISTER,
         TokenKind.VOLATILE,
     }
 )

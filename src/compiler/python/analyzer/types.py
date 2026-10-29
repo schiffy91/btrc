@@ -2829,6 +2829,13 @@ class TypeSystem:
             self.session.error(f"{subject} cannot be both static and extern", line, col)
         if role in {"parameter", "field", "stable_field"} and (type_expr.is_static or type_expr.is_extern):
             self.session.error(f"{subject} cannot carry static/extern storage qualifiers", line, col)
+        if type_expr.is_register:
+            if type_expr.is_static or type_expr.is_extern or type_expr.is_auto:
+                self.session.error(f"{subject} has more than one storage class", line, col)
+            if role not in {"object", "parameter"}:
+                self.session.error("'register' is allowed only on block-scope objects and parameters", line, col)
+            if not self.register_storage_type(type_expr):
+                self.session.error("'register' requires a scalar plain C value or raw pointer", line, col)
         if type_expr.is_auto and (type_expr.is_static or type_expr.is_extern or type_expr.is_register):
             self.session.error(f"{subject} has more than one storage class", line, col)
         if type_expr.is_auto and role != "object":
@@ -2844,6 +2851,19 @@ class TypeSystem:
                 )
                 message = f"'auto' is not allowed {position}; C11 auto declares a block-scope object"
             self.session.error(message, line, col)
+
+    def register_storage_type(self, type_expr) -> bool:
+        canonical = self.canonical_type(type_expr)
+        if canonical is None or canonical.is_array:
+            return False
+        managed = canonical.pointer_depth <= 1 and (
+            canonical.base in {"string", "Mutex"}
+            or canonical.base in self.index.class_table
+            or canonical.base in self.index.interface_table
+        )
+        return not managed and (
+            canonical.pointer_depth > 0 or self.is_numeric_value(canonical) or canonical.base == "__fn_ptr"
+        )
 
     def validate_type_name_storage(self, type_expr) -> None:
         if type_expr is None:

@@ -344,6 +344,12 @@ class ExpressionAnalyzer:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
+        symbol = self.session.scope.lookup(operand.name) if isinstance(operand, Identifier) else None
+        if symbol is not None and symbol.type is not None and symbol.type.is_register:
+            self.session.error(
+                f"Cannot take the address of register object '{operand.name}'", expression.line, expression.col
+            )
+            return
         flexible_member = self.aggregates.flexible_array_target(operand)
         if flexible_member is not None:
             self.session.error(
@@ -2459,6 +2465,11 @@ class ExpressionAnalyzer:
             return
         for outer_symbols, captures in self.session.lambda_capture_contexts:
             if outer_symbols.get(expression.name) is symbol:
+                if symbol.type is not None and symbol.type.is_register:
+                    self.session.error(
+                        f"Cannot capture register object '{expression.name}'", expression.line, expression.col
+                    )
+                    return
                 captures[expression.name] = symbol.type
         current_outer, _current_captures = self.session.lambda_capture_contexts[-1]
         if current_outer.get(expression.name) is symbol:

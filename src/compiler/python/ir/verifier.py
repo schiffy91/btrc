@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from typing import ClassVar
 
 from .nodes import (
@@ -51,6 +51,7 @@ from .nodes import (
     IRObjectiveCMessage,
     IRObjectiveCMethod,
     IRObjectiveCSelector,
+    IRParam,
     IRReturn,
     IRStructDef,
     IRStructField,
@@ -153,11 +154,53 @@ class IRVerifier:
 
         self.validate_schema()
         self._functions = {function.name: function for function in self.module.function_defs}
+        self._validate_register_storage()
         self._validate_cleanup_slots()
         self.validate_java_adapters()
         self.validate_type_declarations()
         for unit in self.module.native_units.values():
             IRVerifier(unit).validate()
+
+    def _validate_register_storage(self) -> None:
+        if not self._has_register_storage:
+            return
+        for function in self.module.function_defs:
+            if any(parameter.is_register for parameter in function.params) or any(
+                isinstance(node, (IRVarDecl, IRParam)) and node.is_register for node in IRNode.walk_value(function.body)
+            ):
+                bindings = {parameter.name: parameter.is_register for parameter in function.params}
+                self._validate_register_value(function.body, bindings)
+
+    def _validate_register_value(self, value, bindings: dict[str, bool]) -> None:
+        if isinstance(value, (list, tuple)):
+            for child in value:
+                self._validate_register_value(child, bindings)
+            return
+        if not isinstance(value, IRNode):
+            return
+        if isinstance(value, (IRBlock, IRFor, IRObjectiveCBlock)):
+            bindings = bindings.copy()
+        if isinstance(value, IRParam):
+            bindings[value.name] = value.is_register
+        if isinstance(value, IRVarDecl):
+            bindings[value.name] = value.is_register
+            if value.is_register and (
+                value.is_static
+                or value.is_extern
+                or value.array_size is not None
+                or value.is_unsized_array
+                or value.cleanup_slot is not None
+            ):
+                raise ValueError(f"register object '{value.name}' has incompatible storage or cleanup metadata")
+        if isinstance(value, IRAddressOf):
+            root = value.expr
+            while isinstance(root, IRFieldAccess) and not root.arrow:
+                root = root.obj
+            if isinstance(root, IRVar) and bindings.get(root.name, False):
+                raise ValueError(f"Cannot take the address of register object '{root.name}'")
+        for node_field in fields(value):
+            if node_field.metadata.get("ir_traverse", True):
+                self._validate_register_value(getattr(value, node_field.name), bindings)
 
     def validate_java_adapters(self) -> None:
         """Rule 2: every generated JNI adapter checks, frames and protects as section 2.3 requires.
@@ -356,6 +399,7 @@ class IRVerifier:
     def validate_schema(self) -> None:
         """Reject raw strings and values in the wrong declaration category."""
 
+        self._has_register_storage = False
         if self.module.language not in ("c", "objective-c", "c++"):
             raise ValueError("unsupported IR translation-unit language")
         if not isinstance(self.module.native_units, dict):
@@ -374,6 +418,8 @@ class IRVerifier:
         designations: list[IRDesignation] = []
         designation_slots: set[int] = set()
         for node in self.module.walk():
+            if isinstance(node, (IRVarDecl, IRParam)) and node.is_register:
+                self._has_register_storage = True
             if isinstance(node, (IRAddressOf, IRDesignation, IRInitializerList, IRCompoundLiteral)):
                 self._validate_initializer_or_address(node, designations, designation_slots)
             if isinstance(node, (IRFunctionDecl, IRFunctionDef)) and node.c_linkage:

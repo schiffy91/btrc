@@ -1051,7 +1051,7 @@ class DeclarationRegistry:
         return all(
             (first.name == second.name or not first.name or not second.name)
             and first.keep == second.keep
-            and self._type_identity.shape_key(first.type) == self._type_identity.shape_key(second.type)
+            and self._function_type_key(first.type) == self._function_type_key(second.type)
             and self._compatible_defaults(first.default, second.default)
             for first, second in zip(left.params, right.params)
         )

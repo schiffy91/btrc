@@ -733,6 +733,8 @@ class ExpressionLowerer:
 
     def _rewrite_stores(self, expression: IRExpr, shared: set[str], node: TernaryExpr) -> IRExpr:
         if isinstance(expression, IRBinOp) and expression.op == "=" and isinstance(expression.left, IRVar):
+            if self._ownership.is_register_c_name(expression.left.name):
+                return expression
             declared = self._session.type_of(node.condition)
             for target in self._assignment_targets(node.condition):
                 if target.name in shared:

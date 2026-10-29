@@ -47,12 +47,14 @@ class CEmitter {
 	private bool dbgPresumedKnown = false;
 	private string dbgPresumed = "";
 	private Map<string, string> lineFilenames;
+	private Map<string, bool> registerBindings;
 
 	public CEmitter() {
 		self.lines = [];
 		self.indent = 0;
 		self.language = "c";
 		self.lineFilenames = {};
+		self.registerBindings = {};
 	}
 
 	private string qualifyVolatileObjectType(string ctype, bool isVolatile) {
@@ -706,6 +708,8 @@ class CEmitter {
 	/* --- function emission --- */
 
 	private void emitFunction(IRFunction fn) {
+		Map<string, bool> enclosingRegisters = self.registerBindings;
+		for parameter in fn.params { if (parameter.isRegister) { self.recordRegisterBinding(parameter.name, true); } }
 		string prefix = "";
 		if (fn.isStatic && !self.sharedLinkage) { prefix = "static "; }
 		if (fn.cLinkage) { self.requireCpp(); if (fn.isStatic) { throw "C language linkage requires a nonstatic C++ adapter function"; } prefix = "extern \"C\" "; }
@@ -722,6 +726,7 @@ class CEmitter {
 		}
 		self.line("}");
 		self.line("");
+		self.registerBindings = enclosingRegisters;
 	}
 
 	/* One C string-literal payload for a #line directive. */
@@ -796,6 +801,7 @@ class CEmitter {
 				IRParam p = declarations.get(i);
 				if (i > 0) { params = params + ", "; }
 				string paramType = self.qualifyVolatileObjectType(p.cType, p.isVolatile);
+				if (p.isRegister) { paramType = "register " + paramType; }
 				params = params + paramType;
 				/* An unnamed prototype parameter is an abstract declarator: its type alone. */
 				if (!p.name.isEmpty()) { params = params + " " + p.name; }
@@ -806,11 +812,13 @@ class CEmitter {
 	}
 
 	private void emitBlockContents(IRNode block) {
+		Map<string, bool> enclosingRegisters = self.registerBindings;
 		int i = 0;
 		while (i < block.stmts().len) {
 			self.emitStmt(block.stmts().get(i));
 			i = i + 1;
 		}
+		self.registerBindings = enclosingRegisters;
 	}
 
 	/* --- statement emission --- */
@@ -909,6 +917,7 @@ class CEmitter {
 			return;
 		}
 		if (s.kind == IRK_FOR) {
+			Map<string, bool> enclosingRegisters = self.registerBindings;
 			string initText = self.forInitText(((IRControlPayload)s.payload).init);
 			string condText = "";
 			if (((IRControlPayload)s.payload).condition != null) { condText = self.expr(((IRControlPayload)s.payload).condition); }
@@ -927,6 +936,7 @@ class CEmitter {
 				self.indent = self.indent - 1;
 			}
 			self.line("}");
+			self.registerBindings = enclosingRegisters;
 			return;
 		}
 		if (s.kind == IRK_BREAK) { self.line("break;"); return; }
@@ -986,9 +996,21 @@ class CEmitter {
 		return "";
 	}
 
+	private void recordRegisterBinding(string name, bool isRegister) {
+		if (!isRegister && !self.registerBindings.has(name)) { return; }
+		Map<string, bool> bindings = {};
+		for key in self.registerBindings.keys() { bindings.put(key, self.registerBindings.get(key)); }
+		bindings.put(name, isRegister);
+		self.registerBindings = bindings;
+	}
+
 	private string qualifiedDeclType(IRNode declaration) {
+		IRDeclarationPayload payload = (IRDeclarationPayload)declaration.payload;
+		if (payload.isRegister && (payload.isStatic || payload.isExtern || payload.isArrayDecl || payload.cleanupSlot != null)) { self.shapeError("register object '" + declaration.name + "' has incompatible storage or cleanup metadata"); }
+		self.recordRegisterBinding(declaration.name, payload.isRegister);
 		string storage = "";
-		if (((IRDeclarationPayload)declaration.payload).isStatic) { storage = "static "; }
+		if (((IRDeclarationPayload)declaration.payload).isRegister) { storage = "register "; }
+		else if (((IRDeclarationPayload)declaration.payload).isStatic) { storage = "static "; }
 		else if (((IRDeclarationPayload)declaration.payload).isExtern) { storage = "extern "; }
 		string ctype = self.qualifyVolatileObjectType(((IRDeclarationPayload)declaration.payload).cType, ((IRDeclarationPayload)declaration.payload).isVolatile);
 		return storage + ctype;
@@ -1198,6 +1220,8 @@ class CEmitter {
 			var body = CEmitter();
 			body.language = self.language;
 			body.indent = 1;
+			body.registerBindings = self.registerBindings;
+			for parameter in ((IRNativePayload)e.payload).params { body.recordRegisterBinding(parameter.name, parameter.isRegister); }
 			body.emitBlockContents(((IRNativePayload)e.payload).body);
 			return "^" + ((IRNativePayload)e.payload).targetType + "(" + self.paramList(((IRNativePayload)e.payload).params) + ") {\n" + Strings.join(body.lines, "\n") + "\n}";
 		}
@@ -1278,6 +1302,9 @@ class CEmitter {
 		}
 		if (e.kind == IRK_DESIGNATION) { self.shapeError("IRDesignation is legal only as an initializer-list element or a positional compound-literal value"); }
 		if (e.kind == IRK_ADDRESS_OF) {
+			IRNode root = e.expr;
+			while (root.kind == IRK_FIELD_ACCESS && !((IRProjectionPayload)root.payload).arrow) { root = ((IRProjectionPayload)root.payload).obj; }
+			if (root.kind == IRK_VAR && self.registerBindings.has(root.name) && self.registerBindings.get(root.name)) { self.shapeError("Cannot take the address of register object '" + root.name + "'"); }
 			if (CEmitter.bitFieldRoot(e.expr)) { self.shapeError("the address of a bit-field cannot be taken"); }
 			Vector<string> values = [self.expr(e.expr)];
 			return self.compound("(&", values, ")", "", "\n");

@@ -551,6 +551,7 @@ class StatementLowerer {
 			if (node.type != null) {
 				((IRDeclarationPayload)vdecl.payload).isStatic = node.type.isStatic;
 				((IRDeclarationPayload)vdecl.payload).isExtern = node.type.isExtern;
+				((IRDeclarationPayload)vdecl.payload).isRegister = node.type.isRegister;
 				((IRDeclarationPayload)vdecl.payload).isVolatile = node.type.isVolatile;
 				((IRDeclarationPayload)vdecl.payload).effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(declType, self.analyzed.typedefTable);
 			}

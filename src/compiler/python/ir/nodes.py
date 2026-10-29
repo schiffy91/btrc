@@ -740,6 +740,7 @@ class IRParam(IRNode):
     name: str
     is_volatile: bool = False
     effective_is_volatile: bool = False
+    is_register: bool = False
 
 
 @dataclass
@@ -820,6 +821,7 @@ class IRVarDecl(IRStmt):
     cleanup_slot: IRCleanupSlot | None = None
     is_cycle_return_temp: bool = False
     effective_is_volatile: bool = False
+    is_register: bool = False
 
 
 @dataclass

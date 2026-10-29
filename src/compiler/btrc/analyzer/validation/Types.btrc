@@ -1218,6 +1218,13 @@ class TypeValidator {
 		return -1;
 	}
 
+	public bool registerStorageType(Node typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null || canonical.isArray) { return false; }
+		bool managed = canonical.pointerDepth <= 1 && (canonical.base == "string" || canonical.base == "Mutex" || self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isGenericClass(canonical.base) || self.state.analyzed.isInterface(canonical.base));
+		return !managed && (canonical.pointerDepth > 0 || NumericSemantics.isType(canonical, self.state.analyzed) || canonical.base == "__fn_ptr");
+	}
+
 	public void validateDeclarationSpecifiers(Node? typeExpr, string subject, string role, Node site) {
 		if (typeExpr == null) { return; }
 		if (typeExpr.isStatic && typeExpr.isExtern) {
@@ -1225,6 +1232,11 @@ class TypeValidator {
 		}
 		if ((role == "parameter" || role == "field" || role == "stable_field") && (typeExpr.isStatic || typeExpr.isExtern)) {
 			TypeValidator.fail(subject + " cannot carry static/extern storage qualifiers", site);
+		}
+		if (typeExpr.isRegister) {
+			if (typeExpr.isStatic || typeExpr.isExtern || typeExpr.isAuto) { TypeValidator.fail(subject + " has more than one storage class", site); }
+			if (role != "object" && role != "parameter") { TypeValidator.fail("'register' is allowed only on block-scope objects and parameters", site); }
+			if (!self.registerStorageType(typeExpr)) { TypeValidator.fail("'register' requires a scalar plain C value or raw pointer", site); }
 		}
 		if (typeExpr.isAuto && (typeExpr.isStatic || typeExpr.isExtern || typeExpr.isRegister)) {
 			TypeValidator.fail(subject + " has more than one storage class", site);

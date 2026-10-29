@@ -186,6 +186,8 @@ class StatementLowerer:
                 else:
                     name, type_expr = (binding.name, binding.type)
                 provenance.bind_borrowed(name, type_expr)
+                if type_expr is not None and type_expr.is_register:
+                    self._ownership.mark_register_local(name)
             for binding, return_abi in callable_abis:
                 provenance.bind_with_abi(binding.name, binding.type, return_abi)
             if iteration_bindings:
