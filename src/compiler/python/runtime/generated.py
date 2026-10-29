@@ -5389,6 +5389,86 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         source_visible=True,
         realtime_effect='blocking',
     ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_image_types',
+        c_source=(
+            'typedef struct __btrc_windows_image_owner __btrc_windows_image_owner;\nty'
+            'pedef struct {\n    unsigned char sha256[32];\n    uint32_t protocol;\n    '
+            'const char *abi_utf8;\n    const char *basename_utf8;\n} __btrc_windows_da'
+            'emon_metadata_t;\nextern const __btrc_windows_daemon_metadata_t __btrc_wi'
+            'ndows_daemon_metadata;\n\ntypedef struct {\n    __btrc_windows_launch_optio'
+            'ns_t command;\n    const char *name_utf8, *control_path_utf8, *log_path_u'
+            'tf8;\n    uint32_t auto_restart;\n} __btrc_windows_daemon_startup;\ntypedef'
+            ' struct {\n    uint32_t state; /* 0 confirmed, 1 failed before COMMIT, 2 '
+            'indeterminate */\n    uint32_t supervisor_pid, lifetime; /* lifetime: 0 i'
+            'ndependent, 1 contained */\n} __btrc_windows_transfer_result;'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=('__btrc_windows_image_owner', '__btrc_windows_daemon_metadata_t', '__btrc_windows_daemon_startup', '__btrc_windows_transfer_result'),
+        provided_objects=('__btrc_windows_daemon_metadata',),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_image_verify',
+        c_source=(
+            '/* out initializes to null. Failure retains an owner only if cleanup is\n'
+            ' * uncertain; ownership_state=2 forbids retry and leaves release to proc'
+            'ess\n * teardown. Successful admission holds the image and every ancestor'
+            ' against\n * replacement until close. After transfer, pending cleanup ret'
+            'ains a live\n * owner (ownership_state=1); image_close polls cleanup with'
+            'out adding a wait\n * budget and may be retried. Uncertain release poison'
+            's it (state=2). Calls on\n * one owner, including transfer and close, mus'
+            't not overlap. */\nint __btrc_windows_supervisor_image_verify(__btrc_wind'
+            'ows_image_owner **out,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_image_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_image_close',
+        c_source=(
+            'int __btrc_windows_supervisor_image_close(__btrc_windows_image_owner **i'
+            'mage,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_image_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_transfer',
+        c_source=(
+            '/* Strings/token are copied for this call. Daemon policy fixes stdio: co'
+            'mmand\n * input/output options do not create extra mappings. One positive'
+            ' finite\n * budget covers snapshot, launch, handshake, record verificatio'
+            'n and cleanup.\n * State 2 never authorizes an automatic retry; the contr'
+            'oller reconciles the\n * token-bound record and liveness separately. Pend'
+            'ing cleanup stays reachable\n * through image; image_close never terminat'
+            'es after COMMIT was attempted. */\nint __btrc_windows_supervisor_transfer'
+            '(const __btrc_windows_image_owner *image,\n    const __btrc_windows_daemo'
+            'n_startup *startup, const unsigned char token[16],\n    uint64_t startup_'
+            'timeout_ms, __btrc_windows_transfer_result *result,\n    __btrc_windows_l'
+            'aunch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_image_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
 )
 
 INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (

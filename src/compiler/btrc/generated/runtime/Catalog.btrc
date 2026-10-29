@@ -2984,5 +2984,53 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_image_types",
+			[
+			"typedef struct __btrc_windows_image_owner __btrc_windows_image_owner;\ntypedef struct {\n    unsigned char sha256[32];\n    uint32_t protocol;\n    const char *abi_utf8;\n    const char *basename_utf8;\n} __btrc_windows_daemon_metadata_t;\nextern const __btrc_windows_daemon_metadata_t __btrc_windows_daemon_metadata;\n\ntypedef struct {\n    __btrc_windows_launch_options_t command;\n    const char *name_utf8, *control_path_utf8, *log_path_utf8;\n    uint32_t auto_restart;\n} __btrc_windows_daemon_startup;\ntypedef struct {\n    uint32_t state; /* 0 confirmed, 1 failed before COMMIT, 2 indeterminate */\n    uint32_t supervisor_pid, lifetime; /* lifetime: 0 independent, 1 contained */\n} __btrc_windows_transfer_result;",
+		],
+			["__btrc_windows_launch_types"],
+			self.emptyStrings(),
+			["__btrc_windows_image_owner", "__btrc_windows_daemon_metadata_t", "__btrc_windows_daemon_startup", "__btrc_windows_transfer_result"],
+			["__btrc_windows_daemon_metadata"],
+			false,
+			"unknown"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_image_verify",
+			[
+			"/* out initializes to null. Failure retains an owner only if cleanup is\n * uncertain; ownership_state=2 forbids retry and leaves release to process\n * teardown. Successful admission holds the image and every ancestor against\n * replacement until close. After transfer, pending cleanup retains a live\n * owner (ownership_state=1); image_close polls cleanup without adding a wait\n * budget and may be retried. Uncertain release poisons it (state=2). Calls on\n * one owner, including transfer and close, must not overlap. */\nint __btrc_windows_supervisor_image_verify(__btrc_windows_image_owner **out,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_image_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_image_close",
+			[
+			"int __btrc_windows_supervisor_image_close(__btrc_windows_image_owner **image,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_image_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_supervisor_transfer",
+			[
+			"/* Strings/token are copied for this call. Daemon policy fixes stdio: command\n * input/output options do not create extra mappings. One positive finite\n * budget covers snapshot, launch, handshake, record verification and cleanup.\n * State 2 never authorizes an automatic retry; the controller reconciles the\n * token-bound record and liveness separately. Pending cleanup stays reachable\n * through image; image_close never terminates after COMMIT was attempted. */\nint __btrc_windows_supervisor_transfer(const __btrc_windows_image_owner *image,\n    const __btrc_windows_daemon_startup *startup, const unsigned char token[16],\n    uint64_t startup_timeout_ms, __btrc_windows_transfer_result *result,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_supervisor_image_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
 	}
 }
