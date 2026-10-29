@@ -177,6 +177,8 @@ class Node {
 	public Vector<Node>? genericArgsStorage;
 	public int pointerDepth;
 	public bool isArray;
+	public bool isRegister;
+	public bool isAuto;
 	public Node arraySize;
 	/* Null until written: a node pays neither a list allocation nor a
      * managed edge for a `elements` it never fills. Read it
@@ -310,6 +312,8 @@ class Node {
 		self.base = "";
 		self.pointerDepth = 0;
 		self.isArray = false;
+		self.isRegister = false;
+		self.isAuto = false;
 		self.isConst = false;
 		self.isNullable = false;
 		self.nullableOuterDepth = 0;

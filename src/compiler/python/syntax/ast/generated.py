@@ -153,6 +153,8 @@ class TypeExpr:
     generic_args: list[TypeExpr] = _dc_field(default_factory=list)
     pointer_depth: int = 0
     is_array: bool = False
+    is_register: bool = False
+    is_auto: bool = False
     array_size: Optional[expr] = None
     elements: list[expr] = _dc_field(default_factory=list)
     is_const: bool = False
