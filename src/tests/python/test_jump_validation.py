@@ -363,3 +363,103 @@ def test_generic_template_cannot_skip_unresolved_storage():
 
 def test_backward_jump_does_not_enter_variable_length_storage():
     assert _messages('void f(int count) { label("again"); int values[count]; jump("again"); }') == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'int f() { jump("done"); label("done"); return 1; }',
+        'int f() { label("again"); jump("again"); }',
+        'int f(bool flag) { label("again"); while (true) { if (flag) { jump("again"); } return 1; } }',
+        'int f(bool flag) { if (flag) { jump("done"); } else { return 1; } label("done"); return 2; }',
+        'int f(bool flag) { { if (flag) { jump("done"); } return 1; } label("done"); return 2; }',
+        'int f(int n) { return 0; label("again"); n++; jump("again"); }',
+        'int f(int n) { switch (n) { case 0: jump("done"); default: return 1; } label("done"); return 2; }',
+        'class Box { public int value(bool flag) { if (flag) { jump("done"); } return 1; label("done"); return 2; } }',
+    ],
+)
+def test_jump_completion_accepts_returning_and_repeated_paths(source):
+    assert _messages(source) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'if (flag) { jump("done"); } return 1; label("done");',
+        '{ if (flag) { jump("done"); } return 1; } label("done");',
+        'while (true) { jump("done"); } label("done");',
+        'switch (flag) { case 0: jump("done"); default: return 1; } label("done");',
+    ],
+)
+def test_targeted_tail_label_requires_return(body):
+    messages = _messages("int f(bool flag) { " + body + " }")
+    assert len(messages) == 1, messages
+    assert messages[0] == "Function 'f' has non-void return type but no return statement"
+
+
+@pytest.mark.parametrize("terminal", ["return;", 'throw "stop";', 'jump("done");'])
+def test_only_a_targeted_label_can_follow_a_direct_terminal(terminal):
+    messages = _messages("void f() { " + terminal + ' label("unused"); label("done"); jump("done"); }')
+    assert messages == ["Unreachable code after return/throw/break/continue/goto"]
+
+
+def test_dead_statement_between_jump_and_target_is_rejected():
+    assert _messages('void f() { jump("done"); int value = 1; label("done"); }') == [
+        "Unreachable code after return/throw/break/continue/goto"
+    ]
+
+
+@pytest.mark.parametrize(
+    "body, count",
+    [
+        ('if (box == null) { jump("done"); } box.value; label("done"); box.value;', 1),
+        ('if (box != null) { jump("done"); } return; label("done"); box.value;', 0),
+        ('if (box != null) { if (flag) { jump("done"); } jump("done"); } return; label("done"); box.value;', 0),
+        ('if (flag) { jump("done"); } if (box == null) { return; } label("done"); box.value;', 1),
+        ('if (box == null) { return; } label("again"); box.value; if (flag) { box = null; jump("again"); }', 1),
+        ('if (box == null) { return; } label("unused"); box.value;', 0),
+        ('{ if (box != null) { jump("done"); } } return; label("done"); box.value;', 0),
+        ('{ Box? box = new Box(); jump("done"); } label("done"); box.value;', 1),
+        ('if (box == null) { return; } { jump("inner"); label("inner"); } box.value;', 0),
+        ('while (true) { if (box != null) { jump("done"); } return; } label("done"); box.value;', 0),
+        ('for (;;) { if (box != null) { jump("done"); } return; } label("done"); box.value;', 0),
+        ('do { if (box != null) { jump("done"); } return; } while (flag); label("done"); box.value;', 0),
+    ],
+)
+def test_jump_nullable_facts_join_only_paths_reaching_label(body, count):
+    result = _analyze("class Box { public int value; } void f(Box? box, bool flag) { " + body + " }")
+    assert result.errors == [], result.errors
+    warnings = [warning for warning in result.warnings if "Non-optional access" in warning]
+    assert len(warnings) == count, warnings
+
+
+def test_goto_bypassing_throw_does_not_make_callee_nonreturning():
+    result = _analyze("""
+        class Box { public int value; }
+        void maybe(bool flag) { if (flag) { jump("done"); } throw "stop"; label("done"); }
+        int use(Box? box, bool flag) { maybe(flag); return box.value; }
+    """)
+    assert result.errors == []
+    assert len([warning for warning in result.warnings if "Non-optional access" in warning]) == 1
+
+
+def test_lambda_jump_names_do_not_change_outer_completion_or_nullable_flow():
+    result = _analyze("""class Box { public int value; }
+        void f(Box? box) {
+            var callback = (Box? inner) => {
+                if (inner != null) { jump("done"); }
+                return;
+                label("done"); inner.value;
+            };
+            jump("done"); label("done"); box.value;
+        }
+    """)
+    assert result.errors == []
+    assert len([warning for warning in result.warnings if "Non-optional access" in warning]) == 1
+
+
+def test_typed_lambda_tail_target_requires_return():
+    result = _analyze(
+        'void f() { var callback = int function(bool flag) { if (flag) { jump("done"); } return 1; label("done"); }; }'
+    )
+    assert any("lambda does not return" in error for error in result.errors), result.errors

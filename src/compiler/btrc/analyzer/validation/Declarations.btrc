@@ -914,7 +914,7 @@ class DeclarationValidator {
 			self.kernels.validate(callable, kernelVars);
 		}
 		bool nonVoid = self.state.returnType != null && !TypeValidator.scalarVoid(self.state.returnType);
-		if (callable.bodyNode != null && self.state.analyzed.bodyReached(callable.bodyNode) && nonVoid && !ControlFlowValidator.blockTerminates(callable.bodyNode)) {
+		if (callable.bodyNode != null && self.state.analyzed.bodyReached(callable.bodyNode) && nonVoid && !self.controlFlow.callableTerminates(callable.bodyNode)) {
 			TypeValidator.fail("Callable '" + self.state.owner + "' has non-void return type but does not return on every path", callable);
 		}
 		self.state.returnType = previousReturn;

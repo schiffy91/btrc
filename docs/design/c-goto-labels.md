@@ -158,7 +158,7 @@ btrc stops at its first error. Python continues, and its first error is the same
   - **Limitation:** a targeted label that is reachable only from code after it (a dead labeled cycle such as `return 0; again: n++; goto again;`) is accepted. Its C is valid and warning-free, and a test pins it.
 - **Rebase on r15b.** Stage 19 r15b replaces these predicates with the completion owner, which also covers `_Noreturn` call statements. Stage 20 rebases after r15b and extends that owner. R14's wording follows whatever terminal set r15b chooses.
 
-### Python nullable facts (warnings only; btrc has no counterpart)
+### Nullable facts (warnings in both compilers)
 
 - At a targeted label, the facts become the intersection of two sets: the fall-through facts, when the list up to the label may fall through, and the facts recorded at each forward goto. Facts whose root is not visible at the label are dropped.
 - A label that any backward goto targets starts with no facts.

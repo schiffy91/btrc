@@ -113,7 +113,8 @@ int main(int argc, char** argv) {
 	assert(argc == 2 || argc == 3);
 	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
 	if (argc == 3) {
-		JumpValidationFixture.analyze(JumpValidationFixture.program(grammar, Strings.copy(argv[2])));
+		Analyzed result = JumpValidationFixture.analyze(JumpValidationFixture.program(grammar, Strings.copy(argv[2])));
+		for warning in result.warnings { print(warning.message); }
 		return 0;
 	}
 	Node first = JumpValidationFixture.program(grammar);

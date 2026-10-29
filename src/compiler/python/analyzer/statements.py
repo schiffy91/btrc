@@ -1135,7 +1135,7 @@ class StatementAnalyzer:
                 )
         expr.captures = [Capture(name=name, type=captures[name]) for name in sorted(captures)]
         self.session.lambda_body_facts[id(expr)] = LambdaBodyFacts(
-            terminates=bool(isinstance(expr.body, LambdaBlock) and self.flow.block_must_terminate(expr.body.body))
+            terminates=bool(isinstance(expr.body, LambdaBlock) and self.flow.callable_must_terminate(expr.body.body))
         )
 
     def _analyze_lambda_body(self, expr) -> None:
@@ -1187,7 +1187,7 @@ class StatementAnalyzer:
             if (
                 expr.return_type
                 and (not self.types.is_nonpointer_void_object(expr.return_type))
-                and (not self.flow.block_must_terminate(expr.body.body))
+                and (not self.flow.callable_must_terminate(expr.body.body))
             ):
                 self.session.error("Non-void lambda does not return a value on every path", expr.line, expr.col)
         elif isinstance(expr.body, LambdaExprBody):
@@ -1991,7 +1991,7 @@ class StatementAnalyzer:
             and method.return_type
             and (not self.types.is_nonpointer_void_object(method.return_type))
             and method.body
-            and (not self.flow.block_must_terminate(method.body))
+            and (not self.flow.callable_must_terminate(method.body))
         ):
             class_name = self.session.current_class.name if self.session.current_class else ""
             self.session.error(
@@ -2020,7 +2020,7 @@ class StatementAnalyzer:
                 self_type = self.types.current_self_type()
                 self.session.scope.define("self", SymbolInfo("self", self_type, "param"))
                 self._analyze_callable_root(prop.getter_body)
-                if not self.flow.block_must_terminate(prop.getter_body):
+                if not self.flow.callable_must_terminate(prop.getter_body):
                     self.session.error(
                         f"Property getter '{self.session.current_class.name}.{prop.name}' does not return a value on every path",
                         prop.line,
@@ -2131,7 +2131,7 @@ class StatementAnalyzer:
             func.return_type
             and (not self.types.is_nonpointer_void_object(func.return_type))
             and func.body
-            and (not self.flow.block_must_terminate(func.body))
+            and (not self.flow.callable_must_terminate(func.body))
         ):
             self.session.error(
                 f"Function '{func.name}' has non-void return type but no return statement", func.line, func.col
@@ -2277,10 +2277,11 @@ class StatementAnalyzer:
         found_terminal = False
         with self.session.statement_sequence():
             for stmt in statements:
-                if found_terminal:
+                targeted_label = self.flow.targeted_label(stmt)
+                if found_terminal and not targeted_label:
                     line = getattr(stmt, "line", 0)
                     col = getattr(stmt, "col", 0)
-                    self.session.error("Unreachable code after return/throw/break/continue", line, col)
+                    self.session.error("Unreachable code after return/throw/break/continue/goto", line, col)
                     break
                 reached = not self.session.flow_unreachable
                 with self._inferred_literal_checks():
@@ -2288,10 +2289,11 @@ class StatementAnalyzer:
                 self.session.advance_statement(stmt)
                 # Code after a return, a throw or a call that never returns is
                 # unreachable, and so is everything after unreachable code.
-                if not reached or self.flow.statement_ends_flow(stmt):
+                if (not reached and not targeted_label) or self.flow.statement_ends_flow(stmt):
                     self.session.mark_flow_unreachable()
-                if isinstance(stmt, (ReturnStmt, BreakStmt, ContinueStmt, ThrowStmt)):
-                    found_terminal = True
+                found_terminal = isinstance(stmt, (ReturnStmt, BreakStmt, ContinueStmt, ThrowStmt)) or (
+                    isinstance(stmt, GotoStmt) and self.flow.goto_is_valid(stmt)
+                )
 
     @classmethod
     def _names_after_jump(cls, node, name: str) -> bool:
@@ -2343,10 +2345,12 @@ class StatementAnalyzer:
     def _analyze_stmt(self, stmt):
         if isinstance(stmt, GotoStmt):
             self.flow.validate_goto(stmt)
+            self.flow.record_goto_flow(stmt)
         elif isinstance(stmt, LabelStmt):
             if self.declarations.validate_name(stmt.name, "Label", stmt.line, stmt.col, c_name_generated=True):
                 if self.flow.validate_label_identity(stmt):
                     self._validate_jump_declarations(stmt)
+                    self.flow.enter_label_flow(stmt)
         elif isinstance(stmt, VarDeclStmt):
             self._analyze_var_decl(stmt)
         elif isinstance(stmt, ReturnStmt):

@@ -248,11 +248,13 @@ class ControlFlowAnalyzer:
         self._jump_roots: list[Block] = []
         self._jump_indexes: dict[int, JumpScopeIndex] = {}
         self._valid_gotos: set[int] = set()
+        self._jump_flows: dict[int, list[frozenset | None]] = {}
 
     def reset_jump_scopes(self) -> None:
         self._jump_roots.clear()
         self._jump_indexes.clear()
         self._valid_gotos.clear()
+        self._jump_flows.clear()
 
     @contextmanager
     def callable_jump_scope(self, body):
@@ -268,6 +270,53 @@ class ControlFlowAnalyzer:
         if key not in self._jump_indexes:
             self._jump_indexes[key] = JumpScopeIndex.build(root)
         return self._jump_indexes[key]
+
+    def goto_is_valid(self, jump) -> bool:
+        return id(jump) in self._valid_gotos
+
+    def targeted_label(self, statement) -> bool:
+        return isinstance(statement, LabelStmt) and self.jump_index().targeted(statement.name)
+
+    def active_jump_targets(self) -> set[str] | frozenset[str]:
+        index = self._jump_indexes.get(id(self._jump_roots[-1])) if self._jump_roots else None
+        return index.targeted_names if index is not None else frozenset()
+
+    def callable_must_terminate(self, body) -> bool:
+        index = self._jump_indexes.get(id(body))
+        return self.block_must_terminate(body, index.targeted_names if index is not None else frozenset())
+
+    def record_goto_flow(self, jump) -> None:
+        target = self.jump_index().target(jump)
+        if target is not None and not self.jump_index().is_backward(jump):
+            self._jump_flows.setdefault(id(target.node), []).append(self.session.nonnull_flow)
+
+    def enter_label_flow(self, label) -> None:
+        index = self.jump_index()
+        if not index.targeted(label.name):
+            return
+        if any(site.node.name == label.name and index.is_backward(site.node) for site in index.gotos):
+            self.session.replace_nonnull_flow(set())
+            return
+        flows = [self.session.nonnull_flow, *self._jump_flows.get(id(label), ())]
+        joined = self.join_nonnull_flows(flows)
+        if joined is not None:
+            joined = {
+                fact
+                for fact in joined
+                if self.session.scope.lookup(fact.root.name) is fact.root
+                or self._class_roots.get(fact.root.name) is fact.root
+            }
+        self.session.replace_nonnull_flow(joined)
+
+    @staticmethod
+    def decisive_suffix(statements, targeted_names):
+        if not targeted_names:
+            return statements
+        start = 0
+        for position, statement in enumerate(statements):
+            if isinstance(statement, LabelStmt) and statement.name in targeted_names:
+                start = position + 1
+        return statements[start:] if start else statements
 
     def mark_jump_body(self) -> None:
         self.session.jump_body_ids.add(id(self._jump_roots[-1]))
@@ -382,7 +431,7 @@ class ControlFlowAnalyzer:
 
     def statement_ends_flow(self, statement) -> bool:
         """Whether no statement after this one in its sequence can run."""
-        if isinstance(statement, (ReturnStmt, ThrowStmt)):
+        if self.statement_must_terminate(statement, self.active_jump_targets()):
             return True
         return (
             isinstance(statement, ExprStmt)
@@ -461,7 +510,7 @@ class ControlFlowAnalyzer:
         for statement in statements:
             if self._statement_diverges(statement, owner, local_names):
                 return True
-            if self._contains_return(statement):
+            if self._contains_return_or_jump(statement):
                 return False
         return False
 
@@ -511,11 +560,11 @@ class ControlFlowAnalyzer:
             and self._statements_diverge(statement.body.statements, owner, local_names)
         )
 
-    def _contains_return(self, statement) -> bool:
-        """Whether a return statement (outside any lambda) is nested in a statement."""
-        if isinstance(statement, ReturnStmt):
+    def _contains_return_or_jump(self, statement) -> bool:
+        """Whether a return or jump (outside any lambda) can bypass a later statement."""
+        if isinstance(statement, (ReturnStmt, GotoStmt)):
             return True
-        return any(self._contains_return(child) for child in self._child_statements(statement))
+        return any(self._contains_return_or_jump(child) for child in self._child_statements(statement))
 
     @staticmethod
     def _child_statements(statement) -> list:
@@ -568,10 +617,13 @@ class ControlFlowAnalyzer:
     def block_stops_fallthrough(self, block) -> bool:
         if block is None:
             return False
-        return any(self.statement_stops_fallthrough(statement) for statement in block.statements)
+        return any(
+            self.statement_stops_fallthrough(statement)
+            for statement in self.decisive_suffix(block.statements, self.active_jump_targets())
+        )
 
     def statement_stops_fallthrough(self, statement) -> bool:
-        if isinstance(statement, (ReturnStmt, ThrowStmt, BreakStmt, ContinueStmt)):
+        if isinstance(statement, (ReturnStmt, ThrowStmt, BreakStmt, ContinueStmt, GotoStmt)):
             return True
         if isinstance(statement, Block):
             return self.block_stops_fallthrough(statement)
@@ -795,63 +847,70 @@ class ControlFlowAnalyzer:
         )
 
     @staticmethod
-    def block_must_terminate(block) -> bool:
-        """Whether every path through a block returns or throws."""
+    def block_must_terminate(block, targeted_names=frozenset()) -> bool:
+        """Whether the decisive suffix leaves the block on every path."""
         return block is not None and any(
-            ControlFlowAnalyzer.statement_must_terminate(statement) for statement in block.statements
+            ControlFlowAnalyzer.statement_must_terminate(statement, targeted_names)
+            for statement in ControlFlowAnalyzer.decisive_suffix(block.statements, targeted_names)
         )
 
     @staticmethod
-    def statement_must_terminate(statement) -> bool:
-        if isinstance(statement, (ReturnStmt, ThrowStmt)):
+    def statement_must_terminate(statement, targeted_names=frozenset()) -> bool:
+        if isinstance(statement, (ReturnStmt, ThrowStmt, GotoStmt)):
             return True
         if isinstance(statement, Block):
-            return ControlFlowAnalyzer.block_must_terminate(statement)
+            return ControlFlowAnalyzer.block_must_terminate(statement, targeted_names)
         if isinstance(statement, IfStmt):
-            if not ControlFlowAnalyzer.block_must_terminate(statement.then_block):
+            if not ControlFlowAnalyzer.block_must_terminate(statement.then_block, targeted_names):
                 return False
             if isinstance(statement.else_block, ElseBlock):
-                return ControlFlowAnalyzer.block_must_terminate(statement.else_block.body)
+                return ControlFlowAnalyzer.block_must_terminate(statement.else_block.body, targeted_names)
             if isinstance(statement.else_block, ElseIf):
-                return ControlFlowAnalyzer.statement_must_terminate(statement.else_block.if_stmt)
+                return ControlFlowAnalyzer.statement_must_terminate(statement.else_block.if_stmt, targeted_names)
             return False
         if isinstance(statement, SwitchStmt):
             return (
                 bool(statement.cases)
                 and any(case.value is None for case in statement.cases)
-                and all(ControlFlowAnalyzer.statement_sequence_must_terminate(case.body) for case in statement.cases)
+                and all(
+                    ControlFlowAnalyzer.statement_sequence_must_terminate(case.body, targeted_names)
+                    for case in statement.cases
+                )
             )
         if isinstance(statement, TryCatchStmt):
-            if ControlFlowAnalyzer.block_must_terminate(statement.finally_block):
+            if ControlFlowAnalyzer.block_must_terminate(statement.finally_block, targeted_names):
                 return True
-            try_terminates = ControlFlowAnalyzer.block_must_terminate(statement.try_block)
+            try_terminates = ControlFlowAnalyzer.block_must_terminate(statement.try_block, targeted_names)
             return (
                 try_terminates
                 if statement.catch_block is None
-                else try_terminates and ControlFlowAnalyzer.block_must_terminate(statement.catch_block)
+                else try_terminates and ControlFlowAnalyzer.block_must_terminate(statement.catch_block, targeted_names)
             )
         if isinstance(statement, WhileStmt):
             return (
                 isinstance(statement.condition, BoolLiteral)
                 and statement.condition.value
                 and (not ControlFlowAnalyzer.contains_loop_break(statement.body))
-                and ControlFlowAnalyzer.block_must_terminate(statement.body)
+                and ControlFlowAnalyzer.block_must_terminate(statement.body, targeted_names)
             )
         if isinstance(statement, DoWhileStmt):
             return not ControlFlowAnalyzer.contains_loop_break(
                 statement.body
-            ) and ControlFlowAnalyzer.block_must_terminate(statement.body)
+            ) and ControlFlowAnalyzer.block_must_terminate(statement.body, targeted_names)
         if isinstance(statement, CForStmt):
             return (
                 statement.condition is None
                 and (not ControlFlowAnalyzer.contains_loop_break(statement.body))
-                and ControlFlowAnalyzer.block_must_terminate(statement.body)
+                and ControlFlowAnalyzer.block_must_terminate(statement.body, targeted_names)
             )
         return False
 
     @staticmethod
-    def statement_sequence_must_terminate(statements) -> bool:
-        return any(ControlFlowAnalyzer.statement_must_terminate(statement) for statement in statements)
+    def statement_sequence_must_terminate(statements, targeted_names=frozenset()) -> bool:
+        return any(
+            ControlFlowAnalyzer.statement_must_terminate(statement, targeted_names)
+            for statement in ControlFlowAnalyzer.decisive_suffix(statements, targeted_names)
+        )
 
     @staticmethod
     def contains_loop_break(node) -> bool:

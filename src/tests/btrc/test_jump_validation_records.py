@@ -75,3 +75,57 @@ def test_native_jump_declaration_safety(jump_validation_driver, source, diagnost
     else:
         assert result.returncode != 0
         assert diagnostic in result.stderr
+
+
+@pytest.mark.parametrize(
+    "source, diagnostic",
+    [
+        ('int f() { jump("done"); label("done"); return 1; }', None),
+        ('int f() { label("again"); jump("again"); }', None),
+        ('int f(int n) { return 0; label("again"); n++; jump("again"); }', None),
+        ('int f(bool flag) { label("again"); while (true) { if (flag) { jump("again"); } return 1; } }', None),
+        ('int f(bool flag) { if (flag) { jump("done"); } return 1; label("done"); }', "does not return on every path"),
+        ('int f() { while (true) { jump("done"); } label("done"); }', "does not return on every path"),
+        (
+            'void f() { jump("done"); int value = 1; label("done"); }',
+            "Unreachable code after return/throw/break/continue/goto",
+        ),
+        ('void f() { return; label("unused"); }', "Unreachable code after return/throw/break/continue/goto"),
+    ],
+)
+def test_native_jump_completion(jump_validation_driver, source, diagnostic):
+    result = subprocess.run(
+        [str(jump_validation_driver), str(ROOT / "src/language/grammar.ebnf"), source],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if diagnostic is None:
+        assert result.returncode == 0, result.stdout + result.stderr
+    else:
+        assert result.returncode != 0
+        assert diagnostic in result.stderr
+
+
+@pytest.mark.parametrize(
+    "body, warnings",
+    [
+        ('if (box == null) { jump("done"); } box.value; label("done"); box.value;', 1),
+        ('if (box != null) { jump("done"); } return; label("done"); box.value;', 0),
+        ('if (flag) { jump("done"); } if (box == null) { return; } label("done"); box.value;', 1),
+        ('if (box == null) { return; } label("again"); box.value; if (flag) { box = null; jump("again"); }', 1),
+        ('{ Box? box = new Box(); jump("done"); } label("done"); box.value;', 1),
+        ('if (box == null) { return; } { jump("inner"); label("inner"); } box.value;', 0),
+        ('while (true) { if (box != null) { jump("done"); } return; } label("done"); box.value;', 0),
+    ],
+)
+def test_native_jump_nullable_flow(jump_validation_driver, body, warnings):
+    source = "class Box { public int value; } void f(Box? box, bool flag) { " + body + " }"
+    result = subprocess.run(
+        [str(jump_validation_driver), str(ROOT / "src/language/grammar.ebnf"), source],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.count("Non-optional access") == warnings
