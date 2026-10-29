@@ -164,9 +164,8 @@ class OwnershipSemantics {
 			if (self.expressionOwnsResult(expression.obj, environment, callableFlow)) {
 				return true;
 			}
-			if (expression.kind == NK_FIELD_ACCESS_EXPR && self.propertyGetterProjection(expression, environment)) {
-				return true;
-			}
+			/* An automatic getter borrows its backing field. Only a custom
+			 * getter or an owned receiver above transfers an owned result. */
 			if (expression.kind == NK_INDEX_EXPR) {
 				Node? receiverType = self.expressionType(expression.obj, environment);
 				return receiverType != null && !StorageValidator.rawIndexedPointer(receiverType, self.analyzed) && StorageValidator.validIndexedGetter(StorageValidator.indexedMethod(receiverType, "get", self.analyzed));

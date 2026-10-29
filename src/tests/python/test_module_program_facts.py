@@ -354,12 +354,39 @@ def test_inherited_callable_entries_exchange(tmp_path, monkeypatch, module_recor
     _assert_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, shared, body)
 
 
+@pytest.mark.parametrize("inherited", [False, True], ids=["direct", "inherited"])
+@pytest.mark.parametrize("custom", [False, True], ids=["automatic", "custom"])
+@pytest.mark.parametrize("temporary", [False, True], ids=["borrowed-owner", "owned-owner"])
+def test_managed_property_result_lifetime_and_cache_exchange(
+    tmp_path, monkeypatch, module_record_driver, inherited, custom, temporary
+):
+    property_body = "get { return self.stored; } set { self.stored = value; }" if custom else "get; set;"
+    storage = "private Item stored;" if custom else ""
+    shared = (
+        "int destroyed = 0; "
+        "class Item { public int value; public Item(int value) { self.value = value; } "
+        "public void __del__() { destroyed++; } } "
+        f"class Parent {{ {storage} public Item amount {{ {property_body} }} }} "
+        "class Child extends Parent {}"
+    )
+    owner = "Child" if inherited else "Parent"
+    body = (
+        f"{owner} owner = new {owner}(); owner.amount = new Item(7); "
+        "int result = owner.amount.value; if (destroyed != 0) { return 10; } return result - 7;"
+    )
+    if temporary:
+        shared += f" {owner} makeOwner() {{ {owner} owner = new {owner}(); owner.amount = new Item(7); return owner; }}"
+        body = "int result = makeOwner().amount.value; if (destroyed != 1) { return 11; } return result - 7;"
+    _assert_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, shared, body)
+
+
 def _assert_callable_entries_exchange(tmp_path, monkeypatch, module_record_driver, shared, body):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
     main = tmp_path / "Main.btrc"
     main.write_text('import "Shared.btrc";\nint main() { ' + body + " }\n")
     (tmp_path / "Shared.btrc").write_text(shared + "\n")
     reference, records = _reference(main, tmp_path / "reference")
+    _run_units(tmp_path / "reference-executable", reference.c_source, reference.c_units)
     cold = _selfhost(module_record_driver, main, tmp_path / "selfhost")
     assert _modules(records) == _modules(cold["records"])
     _run_units(tmp_path / "selfhost-executable", cold["output"], cold["units"])
