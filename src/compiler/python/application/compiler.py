@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..abi.hosted import TargetRepository, TargetSelectionError
+from ..artifacts.cache import ModuleUnitArtifacts
 from ..frontend.packages import IncludeResolutionError, NativeLinkPlan, PackageTarget
 from ..frontend.sources import PreprocessorConditionalError, ResolvedSource, SourceFileReader, SourceText
 from .pipeline import CompilationPipeline
@@ -88,7 +89,18 @@ class CompilerCachePort(Protocol):
 
     def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None: ...
 
-    def store_module_unit(self, identity: str, record: str, text: str, input_path: str | None = None) -> None: ...
+    def load_module_artifacts(self, identity: str, input_path: str | None = None) -> ModuleUnitArtifacts | None: ...
+
+    def store_module_unit(
+        self,
+        identity: str,
+        record: str,
+        text: str,
+        input_path: str | None = None,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None: ...
 
 
 class DisabledCompilerCache:
@@ -100,8 +112,21 @@ class DisabledCompilerCache:
         return None
 
     @staticmethod
-    def store_module_unit(identity: str, record: str, text: str, input_path: str | None = None) -> None:
-        del identity, record, text, input_path
+    def load_module_artifacts(identity: str, input_path: str | None = None) -> None:
+        del identity, input_path
+        return None
+
+    @staticmethod
+    def store_module_unit(
+        identity: str,
+        record: str,
+        text: str,
+        input_path: str | None = None,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None:
+        del identity, record, text, input_path, interface_header, link_plan_fragment
 
     @staticmethod
     def load_artifacts(

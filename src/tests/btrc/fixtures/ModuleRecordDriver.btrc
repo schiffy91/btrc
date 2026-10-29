@@ -6,6 +6,7 @@ import Library.JSON;
 import Library.Digest.SHA256;
 
 import ../../../compiler/btrc/pipeline/ModuleUnits.btrc;
+import ../../../compiler/btrc/cli/Driver.btrc;
 import ../../../compiler/btrc/pipeline/Models.btrc;
 import ../../../compiler/btrc/pipeline/Pipeline.btrc;
 import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
@@ -102,7 +103,7 @@ class InterfaceProbeCache implements IBtrccArtifactCache {
 	public Map<string, BtrccModuleUnitPayload> records = {};
 	public Vector<string> writes = [];
 	public InterfaceProbeCache(JSONValue rows) {
-		for key in rows.keys() { var row = rows.get(key); self.records.put(key, BtrccModuleUnitPayload(row.at(0).asString(), row.at(1).asString())); }
+		for key in rows.keys() { var row = rows.get(key); self.records.put(key, BtrccModuleUnitPayload(row.at(0).asString(), row.at(1).asString(), row.size() > 2 ? row.at(2).asString() : "", row.size() > 3 ? row.at(3).asString() : "")); }
 	}
 
 	public BtrccCompilationResult? load(string identity) { return null; }
@@ -165,6 +166,10 @@ class GroupedInterfaceProbe {
 			var row = JSONValue.makeArray();
 			row.push(JSONValue.makeString(payload.record));
 			row.push(JSONValue.makeString(payload.text));
+			if (!payload.interfaceHeader.isEmpty() || !payload.linkPlanFragment.isEmpty()) {
+				row.push(JSONValue.makeString(payload.interfaceHeader));
+				row.push(JSONValue.makeString(payload.linkPlanFragment));
+			}
 			records.set(key, row);
 		}
 		result.set("records", records);
@@ -202,6 +207,10 @@ class ModulePipelineProbe {
 			var row = JSONValue.makeArray();
 			row.push(JSONValue.makeString(payload.record));
 			row.push(JSONValue.makeString(payload.text));
+			if (!payload.interfaceHeader.isEmpty() || !payload.linkPlanFragment.isEmpty()) {
+				row.push(JSONValue.makeString(payload.interfaceHeader));
+				row.push(JSONValue.makeString(payload.linkPlanFragment));
+			}
 			records.set(key, row);
 		}
 		result.set("records", records);
@@ -213,6 +222,43 @@ int main(int argc, char** argv) {
 	if (argc != 4) { return 3; }
 	string mode = Strings.copy(argv[1]);
 	string group = Strings.copy(argv[3]);
+	if (mode == "artifacts") {
+		var input = JSONValue.parse(Path.readAll(Strings.copy(argv[2])));
+		var files = FeSourceFileReader();
+		string prefix = input.has("prefix") ? input.get("prefix").asString() : "";
+		var cache = BtrccArtifactCache(input.get("executable").asString(), files, prefix, null, input.get("data_root").asString(), "");
+		string key = input.get("module").asString();
+		if (input.get("mode").asString() == "put") {
+			cache.storeModuleUnit(key, BtrccModuleUnitPayload(input.get("record").asString(), input.get("text").asString(), input.get("interface_header").asString(), input.get("link_plan_fragment").asString()));
+		}
+		var result = JSONValue.makeObject();
+		string action = input.get("mode").asString();
+		if (action == "generation-put") {
+			var generation = BtrccCompilationResult(true, "primary", "", input.get("plan").asString());
+			generation.units.push(input.get("text").asString());
+			generation.unitKeys.push(key);
+			cache.store("generation", generation);
+		}
+		if (action == "generation-put" || action == "generation-get") {
+			var generation = cache.load("generation");
+			result.set("generation_hit", JSONValue.makeBool(generation != null));
+			if (generation != null) { result.set("unit", JSONValue.makeString(generation.units.get(0))); }
+		}
+		var payload = cache.loadModuleUnit(key);
+		result.set("hit", JSONValue.makeBool(payload != null));
+		if (payload != null) {
+			result.set("record", JSONValue.makeString(payload.record));
+			result.set("text", JSONValue.makeString(payload.text));
+			result.set("interface_header", JSONValue.makeString(payload.interfaceHeader));
+			result.set("link_plan_fragment", JSONValue.makeString(payload.linkPlanFragment));
+		}
+		print(result.stringify());
+		return 0;
+	}
+	if (mode == "interface-header") {
+		print(ModuleUnitInterfaces.headerDigest(Path.readAll(Strings.copy(argv[2]))));
+		return 0;
+	}
 	if (mode == "program-facts") {
 		var input = JSONValue.parse(Path.readAll(Strings.copy(argv[2])));
 		Map<string, Vector<string>> sections = {};

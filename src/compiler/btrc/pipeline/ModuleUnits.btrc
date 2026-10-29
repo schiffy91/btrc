@@ -2,6 +2,7 @@
 
 import Library.BackgroundJobs.WorkerPools;
 import Library.Timer;
+import Library.Bytes;
 import Library.Digest.SHA256;
 import Library.JSON;
 import Library.Map;
@@ -10,6 +11,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ../frontend/Models.btrc;
+import ../frontend/Packages.btrc;
 import ../frontend/SourceIo.btrc;
 import ../frontend/Timing.btrc;
 import ../syntax/Literals.btrc;
@@ -894,6 +896,7 @@ class ModuleUnitProgram {
 	 * computed it (per-group, cached); empty otherwise. */
 	public string interfaceDigest = "";
 	public Map<string, string> scopedInterfaces = {};
+	public Map<string, string> interfaceHeaders = {};
 	/* Source digests of groups already taken, by module-unit group name; a
 	 * group's digest is of its lines, in order, as groupSourceDigests takes. */
 	public Map<string, string> knownSourceDigests = {};
@@ -962,6 +965,11 @@ class ModuleUnitCompiler {
 	/* The unit that defines every runtime helper of the program; a group's
 	 * unit is named for its path hash and so never takes this name. */
 	class string runtimeUnitName() { return "unit-runtime"; }
+
+	private string interfaceHeader(string group) {
+		string key = "group:" + group;
+		return self.input.interfaceHeaders.has(key) ? self.input.interfaceHeaders.get(key) : ModuleUnitInterfaces.headerPrefix();
+	}
 
 	/* A stable output name for a group's unit: its file stem and path hash. */
 	class string unitName(string group) {
@@ -2085,6 +2093,10 @@ class ModuleUnitCompiler {
 				BtrccModuleUnitPayload? payload = store.loadModuleUnit(identity);
 				BtrccPhaseTimer.mark("u-record-load");
 				state.record = ModuleUnitRecord.fromPayload(payload, name);
+				ModuleUnitRecord? cached = state.record;
+				if (cached != null && payload != null && (!payload.interfaceHeader.equals(self.interfaceHeader(name)) || !payload.linkPlanFragment.equals(FeNativeLinkPlan.moduleFragment(ModuleUnitCompiler.unitName(name), cached.text, cached.kept)))) {
+					state.record = null;
+				}
 				state.stored = state.record != null;
 				/* A unit that copied another group's bodies or positions is
 				 * exact only while that group's source is unchanged. */
@@ -2294,7 +2306,9 @@ class ModuleUnitCompiler {
 			hostedReferences.extend(hosted);
 			IBtrccArtifactCache? store = self.store;
 			string recordText = hosted.len == 0 ? record.toText() : "";
-			if (store != null && !recordText.isEmpty()) { store.storeModuleUnit(state.key, BtrccModuleUnitPayload(recordText, record.text)); }
+			if (store != null && !recordText.isEmpty()) {
+				store.storeModuleUnit(state.key, BtrccModuleUnitPayload(recordText, record.text, self.interfaceHeader(state.name), FeNativeLinkPlan.moduleFragment(ModuleUnitCompiler.unitName(state.name), record.text, record.kept)));
+			}
 			state.stored = store != null && !recordText.isEmpty();
 			state.record = record;
 		}
@@ -2980,6 +2994,7 @@ class ModuleUnitInterfaces {
 	public string contextValue;
 	public string digest;
 	public Map<string, string> scopedDigests = {};
+	public Map<string, string> groupHeaders = {};
 	private Map<string, string> groupDigests = {};
 	private string nativesDigest = "";
 	private string othersDigest = "";
@@ -3051,9 +3066,31 @@ class ModuleUnitInterfaces {
 
 	class string context(BtrccOptions options, string target) { return f"validation-record-v8;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
 
+	class string headerPrefix() { return "btrc-module-interface-v1\n"; }
+
+	class string headerDigest(string header) {
+		string prefix = ModuleUnitInterfaces.headerPrefix();
+		if (!header.startsWith(prefix) || !Bytes.fromString(header).isNulFreeUtf8()) { return ""; }
+		int offset = prefix.length();
+		var digest = SHA256();
+		while (offset < header.length()) {
+			int colon = offset;
+			while (colon < header.length() && header[colon] != ':') { colon++; }
+			if (colon == header.length()) { return ""; }
+			int size = ModuleUnitSummaries.decimal(header.substring(offset, colon - offset));
+			offset = colon + 1;
+			if (size <= 0 || size > header.length() - offset) { return ""; }
+			string declaration = header.substring(offset, size);
+			if (!Bytes.fromString(declaration).isNulFreeUtf8()) { return ""; }
+			digest.appendText(SHA256.digest(declaration));
+			offset = offset + size;
+		}
+		return digest.finish();
+	}
+
 	class string cacheKey(string context, string group, string source) {
 		var digest = SHA256();
-		digest.appendText("validation-interface-v2\n");
+		digest.appendText("validation-interface-v3\n");
 		ModuleUnitCompiler.appendKeyField(digest, context);
 		ModuleUnitCompiler.appendKeyField(digest, group);
 		ModuleUnitCompiler.appendKeyField(digest, source);
@@ -3098,12 +3135,15 @@ class ModuleUnitInterfaces {
 		string context = self.contextValue;
 		Map<string, string> sources = self.sourceDigests;
 		var renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
-		Map<string, SHA256> rendered = {};
+		Map<string, StringBuilder> rendered = {};
 		Map<string, string> cached = {};
 		if (store != null) {
 			for group in sources.keys() {
-				string digest = self.cachedDigest(store.loadModuleUnit(ModuleUnitInterfaces.cacheKey(context, group, sources.get(group))), "validation-interface-v2");
-				if (!digest.isEmpty()) { cached.put(group, digest); }
+				var payload = store.loadModuleUnit(ModuleUnitInterfaces.cacheKey(context, group, sources.get(group)));
+				if (payload != null && payload.record.equals("validation-interface-v3")) {
+					string digest = ModuleUnitInterfaces.headerDigest(payload.text);
+					if (!digest.isEmpty()) { cached.put(group, digest); self.groupHeaders.put(group, payload.text); }
+				}
 			}
 		}
 		string nativesKey = nativeIdentity.isEmpty() ? "" : ModuleUnitInterfaces.nativeKey(context, nativeIdentity);
@@ -3119,14 +3159,21 @@ class ModuleUnitInterfaces {
 				if (!native) { others.appendText(SHA256.digest(renderer.render(declaration))); }
 				else if (nativesDigest.isEmpty()) { natives.appendText(SHA256.digest(renderer.render(declaration))); }
 			} else if (!cached.has(group)) {
-				if (!rendered.has(group)) { rendered.put(group, SHA256()); }
-				rendered.get(group).appendText(SHA256.digest(renderer.render(declaration)));
+				if (!rendered.has(group)) {
+					var header = StringBuilder();
+					header.append(ModuleUnitInterfaces.headerPrefix());
+					rendered.put(group, header);
+				}
+				string text = renderer.render(declaration);
+				rendered.get(group).append(Strings.fromInt(text.length()) + ":" + text);
 			}
 		}
 		for group in rendered.keys() {
-			string digest = rendered.get(group).finish();
+			string header = rendered.get(group).toString();
+			string digest = ModuleUnitInterfaces.headerDigest(header);
 			cached.put(group, digest);
-			if (store != null) { store.storeModuleUnit(ModuleUnitInterfaces.cacheKey(context, group, sources.get(group)), BtrccModuleUnitPayload("validation-interface-v2", digest)); }
+			self.groupHeaders.put(group, header);
+			if (store != null) { store.storeModuleUnit(ModuleUnitInterfaces.cacheKey(context, group, sources.get(group)), BtrccModuleUnitPayload("validation-interface-v3", header)); }
 		}
 		if (nativesDigest.isEmpty()) {
 			nativesDigest = natives.finish();

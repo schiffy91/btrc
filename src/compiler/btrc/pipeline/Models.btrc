@@ -28,10 +28,14 @@ class BtrccResolvedCompilation {
 class BtrccModuleUnitPayload {
 	public string record;
 	public string text;
+	public string interfaceHeader;
+	public string linkPlanFragment;
 
-	public BtrccModuleUnitPayload(string record, string text) {
+	public BtrccModuleUnitPayload(string record, string text, string interfaceHeader = "", string linkPlanFragment = "") {
 		self.record = record;
 		self.text = text;
+		self.interfaceHeader = interfaceHeader;
+		self.linkPlanFragment = linkPlanFragment;
 	}
 }
 

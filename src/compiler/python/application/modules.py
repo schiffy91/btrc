@@ -22,8 +22,10 @@ from typing import NoReturn, Protocol
 from ..abi.hosted import HOSTED_ABI
 from ..analyzer.ownership import OwnershipAnalyzer
 from ..analyzer.reachability import StdlibReachability
+from ..artifacts.cache import ModuleUnitArtifacts
 from ..backend.c_emitter import CEmitter
 from ..frontend.native_imports import NativeHeaderSource
+from ..frontend.packages import NativeLinkPlan
 from ..frontend.sources import CompilationGroups, ResolvedSource, SourceDependencyGraph
 from ..ir.lowering.exceptions import ExceptionLowerer, FunctionEffect, ParameterEffect, SetjmpUnitSolver
 from ..ir.lowering.session import ModuleLoweringFacts, ProgramLoweringFacts
@@ -55,7 +57,18 @@ class ModuleUnitStore(Protocol):
 
     def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None: ...
 
-    def store_module_unit(self, identity: str, record: str, text: str, input_path: str | None = None) -> None: ...
+    def load_module_artifacts(self, identity: str, input_path: str | None = None) -> ModuleUnitArtifacts | None: ...
+
+    def store_module_unit(
+        self,
+        identity: str,
+        record: str,
+        text: str,
+        input_path: str | None = None,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None: ...
 
 
 class DisabledModuleUnitStore:
@@ -67,8 +80,21 @@ class DisabledModuleUnitStore:
         return None
 
     @staticmethod
-    def store_module_unit(identity: str, record: str, text: str, input_path: str | None = None) -> None:
-        del identity, record, text, input_path
+    def load_module_artifacts(identity: str, input_path: str | None = None) -> None:
+        del identity, input_path
+        return None
+
+    @staticmethod
+    def store_module_unit(
+        identity: str,
+        record: str,
+        text: str,
+        input_path: str | None = None,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None:
+        del identity, record, text, input_path, interface_header, link_plan_fragment
 
 
 @dataclass(frozen=True)
@@ -623,13 +649,46 @@ class ProgramInterface:
     statements consume. Source positions are not part of the interface.
     """
 
-    def digest(self, declarations: Iterable[object]) -> str:
-        digest = hashlib.sha256()
+    HEADER = "btrc-module-interface-v1\n"
+
+    def header(self, declarations: Iterable[object]) -> str:
         renderer = AstCanonicalRenderer.interface_renderer(self.callable_body)
-        for declaration in declarations:
-            text = renderer.render(declaration).encode("utf-8")
-            digest.update(hashlib.sha256(text).hexdigest().encode("ascii"))
+        return self.HEADER + "".join(
+            ModuleUnitCompiler._fact_row([renderer.render(declaration)]) for declaration in declarations
+        )
+
+    @classmethod
+    def header_digest(cls, header: str) -> str | None:
+        if not header.startswith(cls.HEADER) or "\0" in header:
+            return None
+        content = header[len(cls.HEADER) :].encode("utf-8")
+        offset = 0
+        digest = hashlib.sha256()
+        try:
+            while offset < len(content):
+                colon = content.index(b":", offset)
+                raw = content[offset:colon]
+                if not raw or raw.startswith(b"0") or not raw.isdigit():
+                    return None
+                size = int(raw)
+                offset = colon + 1
+                if size > len(content) - offset:
+                    return None
+                declaration = content[offset : offset + size]
+                declaration.decode("utf-8")
+                digest.update(hashlib.sha256(declaration).hexdigest().encode("ascii"))
+                offset += size
+        except (ValueError, UnicodeError):
+            return None
         return digest.hexdigest()
+
+    def digest(self, declarations: Iterable[object]) -> str:
+        digest = self.header_digest(self.header(declarations))
+        assert digest is not None
+        return digest
+
+    def group_header(self, group: str) -> str:
+        return self.group_headers.get("group:" + group, self.HEADER)
 
     @staticmethod
     def callable_body(node: object) -> str:
@@ -650,7 +709,7 @@ class ProgramInterface:
 
     @staticmethod
     def cache_key(context: str, group: str, source: str) -> str:
-        digest = hashlib.sha256(b"validation-interface-v2\n")
+        digest = hashlib.sha256(b"validation-interface-v3\n")
         for value in (context, group, source):
             ModuleUnitCompiler._append_key_field(digest, value)
         return digest.hexdigest()
@@ -697,10 +756,14 @@ class ProgramInterface:
         context = self.context(options, source.native_plan.target.label)
         keys = {group: self.cache_key(context, group, digest) for group, digest in sources.items()}
         cached = {}
+        headers = {}
         for group, key in keys.items():
-            digest = self._cached_digest(store.load_module_unit(key, input_path), "validation-interface-v2")
-            if digest is not None:
-                cached[group] = digest
+            payload = store.load_module_unit(key, input_path)
+            if payload is not None and payload[0] == "validation-interface-v3":
+                digest = self.header_digest(payload[1])
+                if digest is not None:
+                    cached[group] = digest
+                    headers[group] = payload[1]
         native_key = self.native_key(context, source.native_cache_identity) if source.native_cache_identity else None
         natives_digest = (
             self._cached_digest(store.load_module_unit(native_key, input_path), "validation-natives-v2")
@@ -724,14 +787,18 @@ class ProgramInterface:
             elif group not in cached:
                 buckets.setdefault(group, []).append(declaration)
         for group, items in buckets.items():
-            digest = self.digest(items)
+            header = self.header(items)
+            digest = self.header_digest(header)
+            assert digest is not None
             cached[group] = digest
-            store.store_module_unit(keys[group], "validation-interface-v2", digest, input_path)
+            headers[group] = header
+            store.store_module_unit(keys[group], "validation-interface-v3", header, input_path)
         if natives_digest is None:
             natives_digest = self.digest(natives)
             if native_key is not None:
                 store.store_module_unit(native_key, "validation-natives-v2", natives_digest, input_path)
         self.group_digests = cached
+        self.group_headers = headers
         self.natives_digest = natives_digest
         self.others_digest = self.digest(others)
         return self.compose(cached, natives_digest, self.others_digest)
@@ -1225,8 +1292,16 @@ class ModuleUnitCompiler:
             )
             identity = self._cache_key(context, name, group_sources.get(name, ""), program_identity)
             state = _GroupState(name, identity, lines=group_lines.get(name, 0))
-            payload = store.load_module_unit(identity, input_path)
-            state.record = ModuleUnitRecord.from_text(*payload, name) if payload is not None else None
+            payload = store.load_module_artifacts(identity, input_path)
+            state.record = (
+                ModuleUnitRecord.from_text(payload.record, payload.text, name) if payload is not None else None
+            )
+            if state.record is not None and (
+                payload.interface_header != interfaces.group_header(name)
+                or payload.link_plan_fragment
+                != NativeLinkPlan.module_fragment(self.unit_name(name), state.record.text, state.record.kept)
+            ):
+                state.record = None
             if state.record is not None and state.record.declaration_digest != shared.dependency_digest(
                 state.record.declaration_roots
             ):
@@ -1375,7 +1450,16 @@ class ModuleUnitCompiler:
                 # and is never stored, so a reused unit never names one.
                 hosted.extend(reply["hosted"])
                 if not reply["hosted"]:
-                    store.store_module_unit(state.key, record.to_text(), record.text, input_path)
+                    store.store_module_unit(
+                        state.key,
+                        record.to_text(),
+                        record.text,
+                        input_path,
+                        interface_header=interfaces.group_header(state.name),
+                        link_plan_fragment=NativeLinkPlan.module_fragment(
+                            self.unit_name(state.name), record.text, record.kept
+                        ),
+                    )
                 state.record = record
             worker_profiles: tuple[str, ...] = ()
             if self._workers is not None:

@@ -8,7 +8,7 @@ import pytest
 from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.modules import ModuleUnitCompiler
 from src.compiler.python.application.results import CompilerOptions
-from src.compiler.python.artifacts.cache import CompilerCache
+from src.compiler.python.artifacts.cache import CompilerCache, ModuleUnitArtifacts
 from src.tests.python.test_module_record_interchange import _driver
 from src.tests.python.test_module_record_interchange import module_record_driver as module_record_driver
 
@@ -66,10 +66,15 @@ class RecordingCache(CompilerCache):
         self.records = dict(records or {})
 
     def load_module_unit(self, identity, input_path=None):
-        return tuple(self.records[identity]) if identity in self.records else None
+        return tuple(self.records[identity][:2]) if identity in self.records else None
 
-    def store_module_unit(self, identity, record, text, input_path=None):
+    def load_module_artifacts(self, identity, input_path=None):
+        return ModuleUnitArtifacts(*self.records[identity]) if identity in self.records else None
+
+    def store_module_unit(self, identity, record, text, input_path=None, *, interface_header="", link_plan_fragment=""):
         self.records[identity] = [record, text]
+        if interface_header or link_plan_fragment:
+            self.records[identity].extend([interface_header, link_plan_fragment])
 
 
 def _modules(records):

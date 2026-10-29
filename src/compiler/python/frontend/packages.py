@@ -907,6 +907,20 @@ class NativeLinkPlan:
         return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
     @classmethod
+    def module_fragment(cls, name: str, source: str, kept: bool) -> str:
+        """A module's emitted-unit contribution, independent of output location."""
+        if not _UNIT_NAME.fullmatch(name):
+            raise ValueError("module fragment requires a portable unit name")
+        return (
+            json.dumps(
+                {"kept": kept, "name": name, "schema": 1, "sha256": cls.unit_digest(source)},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
+
+    @classmethod
     def cached_unit_names(cls, serialized: str, units_prefix: str | None, count: int) -> tuple[str, ...] | None:
         """Recover a cached generation's unit names from its stored link plan.
 

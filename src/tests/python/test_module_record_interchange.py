@@ -116,7 +116,7 @@ def test_reference_cache_replays_selfhost_reencoded_records(tmp_path, monkeypatc
         assert result.returncode == 0, result.stderr
         assert result.stdout == metadata + "\n"
         metadata = result.stdout[:-1]
-        hashes = hashlib.sha256(metadata.encode()).hexdigest() + " " + hashes.split(" ")[1]
+        hashes = hashlib.sha256(metadata.encode()).hexdigest() + " " + " ".join(hashes.split(" ")[1:])
         path.write_text("\n".join((header, key, hashes, metadata)))
     # A new output path bypasses the complete-generation cache while retaining
     # the release-mode module identities, so this must exercise record replay.
@@ -647,10 +647,10 @@ def test_production_pipelines_share_interface_records_across_edit_builds(tmp_pat
     reference_records = {}
     store_record = CompilerCache.store_module_unit
 
-    def observe_record(self, identity, record, text, input_path=None):
-        if record == "validation-interface-v2":
+    def observe_record(self, identity, record, text, input_path=None, **artifacts):
+        if record == "validation-interface-v3":
             reference_records[identity] = [record, text]
-        return store_record(self, identity, record, text, input_path)
+        return store_record(self, identity, record, text, input_path, **artifacts)
 
     monkeypatch.setattr(CompilerCache, "store_module_unit", observe_record)
     records = {}
@@ -672,7 +672,7 @@ def test_production_pipelines_share_interface_records_across_edit_builds(tmp_pat
         actual = json.loads(completed.stdout)
         assert (actual["lowered"], actual["reused"]) == counts
         records = actual["records"]
-        selfhost_records = {key: value for key, value in records.items() if value[0] == "validation-interface-v2"}
+        selfhost_records = {key: value for key, value in records.items() if value[0] == "validation-interface-v3"}
         assert selfhost_records == reference_records
         if phase == "warm":
             assert (actual["output"], actual["units"]) == previous

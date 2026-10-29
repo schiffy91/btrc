@@ -4617,3 +4617,27 @@ and link fragment under one publication receipt. Missing or corrupt components
 are misses. Preserve analysis-record compatibility and the current key inputs.
 Review and run reference/structure checks before one combined local driver build.
 No CI, GitHub writes, full compiler builds, applications or measurements.
+
+Both pipelines now persist the pre-analysis language header and an
+output-independent link fragment with each module's C and metadata. A v2
+receipt binds all four components; analysis records retain v1 storage.
+Replay validates the current header and the fragment's unit name, C digest
+and kept state. The native whole-generation reader verifies all artifacts
+of every referenced module. Changing the output directory preserves reuse;
+missing either added artifact relowers only its affected module.
+
+Before the native build, 218 reference, invalidation and structural checks
+passed. Generated-source, targeted lint/format and diff checks also passed.
+A broad reference test filter accidentally started a native transpile; it
+was stopped before C compilation. Exact test names replaced that filter.
+Three initial test failures were an invalid same-line import/main fixture;
+the corrected fixture passes. One combined local driver build passed all 272 storage, program-fact and
+record/interface interchange checks in 257.44 seconds. Together with the
+pre-build run, 459 distinct checks pass with no failures or skips. Logs, XML
+and binary provenance are retained under
+`build/issue-gates/module-artifact-bundles/`.
+
+Generic callable parity, complete invalidation coverage, stamped-output
+integration and BTRSmith warm-build qualification remain open. No issue is
+closed by this packet. No CI, GitHub write, full compiler build, application,
+guest or measurement ran.

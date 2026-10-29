@@ -949,10 +949,21 @@ class CompiledArtifacts:
     split_source_spaces: bool = False
 
 
+@dataclass(frozen=True)
+class ModuleUnitArtifacts:
+    """One module's metadata, C, language interface and link-plan contribution."""
+
+    record: str
+    text: str
+    interface_header: str = ""
+    link_plan_fragment: str = ""
+
+
 class ModuleUnitStore:
     """Shared module payloads, with a per-entry lock and a last-written receipt."""
 
     HEADER = "btrc-module-cache-entry-v1\n"
+    BUNDLE_HEADER = "btrc-module-cache-entry-v2\n"
 
     def __init__(self, files: AtomicFileStore, maximum_bytes: int) -> None:
         self._files = files
@@ -1002,45 +1013,72 @@ class ModuleUnitStore:
             raise ValueError("invalid module cache payload")
         return result
 
-    def load(self, directory: Path, key: str) -> tuple[str, str] | None:
+    def load_artifacts(self, directory: Path, key: str) -> ModuleUnitArtifacts | None:
         with self._entry(directory, key) as entry:
-            prefix = (self.HEADER + key + "\n").encode()
-            framed = self._read(entry / "record.txt", self._maximum_bytes + len(prefix) + 130)
+            prefix = (self.BUNDLE_HEADER + key + "\n").encode()
+            framed = self._read(entry / "record.txt", self._maximum_bytes + len(prefix) + 260)
+            bundle = framed.startswith(prefix)
+            if not bundle:
+                prefix = (self.HEADER + key + "\n").encode()
             if not framed.startswith(prefix):
                 return None
             framed = framed[len(prefix) :]
-            if len(framed) <= 130 or framed[64:65] != b" " or framed[129:130] != b"\n":
+            hashes, separator, record = framed.partition(b"\n")
+            digests = hashes.split(b" ")
+            if not separator or not record or len(digests) != (4 if bundle else 2):
                 return None
-            record = framed[130:]
-            if hashlib.sha256(record).hexdigest().encode() != framed[:64]:
+            if any(re.fullmatch(rb"[0-9a-f]{64}", digest) is None for digest in digests):
                 return None
-            text = self._read(entry / "unit.c", self._maximum_bytes - len(record))
-            if hashlib.sha256(text).hexdigest().encode() != framed[65:129]:
+            if hashlib.sha256(record).hexdigest().encode() != digests[0]:
                 return None
-            result = record.decode("utf-8"), text.decode("utf-8")
+            remaining = self._maximum_bytes - len(record)
+            values = [record.decode("utf-8")]
+            names = ("unit.c", "interface.header", "link-plan.json") if bundle else ("unit.c",)
+            for name, digest in zip(names, digests[1:], strict=True):
+                content = self._read(entry / name, remaining)
+                remaining -= len(content)
+                if hashlib.sha256(content).hexdigest().encode() != digest:
+                    return None
+                values.append(content.decode("utf-8"))
+            if bundle and (not values[2] or not values[3]):
+                return None
+            result = ModuleUnitArtifacts(*values)
         return result
 
-    def store(self, directory: Path, key: str, record: str, text: str) -> None:
-        if not record or "\0" in record or "\0" in text:
+    def store(
+        self,
+        directory: Path,
+        key: str,
+        record: str,
+        text: str,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None:
+        bundle = bool(interface_header or link_plan_fragment)
+        if bundle and not (interface_header and link_plan_fragment):
             return
-        encoded, source = record.encode("utf-8"), text.encode("utf-8")
-        if len(encoded) + len(source) > self._maximum_bytes:
+        values = (record, text, interface_header, link_plan_fragment) if bundle else (record, text)
+        if not record or any("\0" in value for value in values):
+            return
+        encoded = [value.encode("utf-8") for value in values]
+        if sum(map(len, encoded)) > self._maximum_bytes:
             return
         framed = (
-            self.HEADER
+            (self.BUNDLE_HEADER if bundle else self.HEADER)
             + key
             + "\n"
-            + hashlib.sha256(encoded).hexdigest()
-            + " "
-            + hashlib.sha256(source).hexdigest()
+            + " ".join(hashlib.sha256(value).hexdigest() for value in encoded)
             + "\n"
             + record
         )
         with self._entry(directory, key) as entry:
-            for name in ("unit.c", "record.txt"):
+            names = ("unit.c", "interface.header", "link-plan.json") if bundle else ("unit.c",)
+            for name in (*names, "record.txt"):
                 if (entry / name).exists() or (entry / name).is_symlink():
                     self._regular(entry / name)
-            self._files.write_text(str(entry / "unit.c"), text, file_mode=0o600)
+            for name, value in zip(names, values[1:], strict=True):
+                self._files.write_text(str(entry / name), value, file_mode=0o600)
             self._files.write_text(str(entry / "record.txt"), framed, file_mode=0o600)
 
 
@@ -1237,18 +1275,37 @@ class CompilerCache:
 
     def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None:
         """Read a shared, verified module record and C payload."""
+        payload = self.load_module_artifacts(identity, input_path)
+        return (payload.record, payload.text) if payload is not None else None
+
+    def load_module_artifacts(self, identity: str, input_path: str | None = None) -> ModuleUnitArtifacts | None:
+        """Read and verify every artifact bound by one module receipt."""
         try:
-            return ModuleUnitStore(self._files, self._max_entry_bytes).load(
+            return ModuleUnitStore(self._files, self._max_entry_bytes).load_artifacts(
                 self._module_directory(input_path), self.module_key_for(identity)
             )
         except (OSError, UnicodeError, ValueError, RecursionError):
             return None
 
-    def store_module_unit(self, identity: str, record: str, text: str, input_path: str | None = None) -> None:
+    def store_module_unit(
+        self,
+        identity: str,
+        record: str,
+        text: str,
+        input_path: str | None = None,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None:
         """Store one shared module; interrupted publication only costs reuse."""
         try:
             ModuleUnitStore(self._files, self._max_entry_bytes).store(
-                self._module_directory(input_path), self.module_key_for(identity), record, text
+                self._module_directory(input_path),
+                self.module_key_for(identity),
+                record,
+                text,
+                interface_header=interface_header,
+                link_plan_fragment=link_plan_fragment,
             )
         except (OSError, UnicodeError, ValueError, RecursionError):
             return

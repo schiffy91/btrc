@@ -3423,6 +3423,17 @@ class FeNativeLinkPlan {
 		return true;
 	}
 
+	/* Output paths are bound when the enclosing plan publishes its units. */
+	class string moduleFragment(string name, string source, bool kept) {
+		if (!FeNativeLinkPlan.validUnitName(name)) { throw "module fragment requires a portable unit name"; }
+		var fragment = JSONValue.makeObject();
+		fragment.set("kept", JSONValue.makeBool(kept));
+		fragment.set("name", JSONValue.makeString(name));
+		fragment.set("schema", JSONValue.makeInt(1));
+		fragment.set("sha256", JSONValue.makeString(SHA256.digest(source)));
+		return fragment.stringify() + "\n";
+	}
+
 	/* The emitted unit paths a stored plan records under the current prefix,
 	 * or null unless there are exactly `count` distinct well-formed ones. */
 	class Vector<string>? cachedUnitPaths(JSONValue document, string prefix, int count) {

@@ -134,16 +134,27 @@ or under the nearest source package's `build/btrc/` by default. Without a packag
 manifest, the default is the input file's directory plus `build/btrc/`.
 Program fact differences below still prevent general cross-frontend cache reuse.
 
-Each entry contains `unit.c` and `record.txt`. The record starts with
-`btrc-module-cache-entry-v1`, the key, then metadata/C SHA-256 digests separated
-by a space, each of those three rows newline-terminated. Module metadata follows.
+A module bundle contains `unit.c`, `interface.header`, `link-plan.json` and
+`record.txt`. The record starts with `btrc-module-cache-entry-v2`, the key,
+then SHA-256 digests of metadata, C, interface and fragment separated by spaces.
+Each of those three rows ends with a newline; module metadata follows.
+Analysis records retain the v1 receipt with metadata/C digests and two files.
 Both readers and writers hold `.btrc-publications.lock` in that entry. Directories
 are private (0700 on POSIX), and files are regular, owner-only files (0600).
-Writers replace C first and the record last. Missing, corrupt, mismatched or
-interrupted entries are misses. The combined metadata and C limit is 512 MiB.
-Whole-generation caches remain separate; the self-host generation reader follows
-its unit references into the shared store. Interface-header and link-plan fragment
-storage, complete key parity and performance qualification remain unfinished.
+Writers replace payloads first and the receipt last. Missing, corrupt, mismatched
+or interrupted entries are misses. The combined payload limit is 512 MiB.
+Whole-generation caches remain separate; the self-host generation reader verifies
+every component of each module bundle it references.
+
+The language interface starts with `btrc-module-interface-v1\n`, followed by
+canonical declaration text framed with decimal UTF-8 byte lengths and colons.
+It preserves generic bodies and omits ordinary bodies and source positions as
+described below. It is a language declaration snapshot, not a generated C include.
+The link fragment is compact, newline-terminated JSON with sorted keys: `kept`,
+`name`, `schema` (1) and `sha256` (the C digest). Its stable unit name has no output
+path. The enclosing freshly resolved native plan binds paths and supplies package
+requirements. Replay also checks that the header matches the current interface
+and that the fragment matches the record's unit name, C and kept state.
 
 Both module owners encode metadata as `btrc-module-unit-record\t6`, with
 generated C carried separately. The record contains the group, six boolean
@@ -222,19 +233,19 @@ by the `<native>` and `<other>` name/digest pairs. Source-file traversal order
 remains a separate program fact, since it controls directive/prototype order.
 Neither lowering pipeline falls back to hashing an analyzed declaration tree.
 
-Per-source interface records contain `validation-interface-v2` and a lowercase
-SHA-256 digest. Their keys start with `validation-interface-v2\n` and frame
+Per-source interface records contain `validation-interface-v3` and the complete
+language interface header. Their keys start with `validation-interface-v3\n` and frame
 validation context, group and source digest. The context includes canonical
 target, strict imports, stdlib inclusion and strict stdlib analysis. Native
 records use `validation-natives-v2`, with keys framing context and native input
 identity after `validation-natives-v2\n`; absent native identity disables native
-reuse. Malformed digest text is a miss. A private body edit rerenders only its
+reuse. Malformed framing, invalid UTF-8 and NUL bytes are misses. Native digest
+records require lowercase SHA-256 text. A private body edit rerenders only its
 source group's interface and keeps the program-interface digest unchanged.
 
-The shared store verifies separate SHA-256 digests for metadata and C in its
-`record.txt` and `unit.c` pair. Generic callable selection still prevents
-general interchange. Issue #8 also requires shared interface/link-plan artifacts,
-dependent-only invalidation and the real application's warm-build budget.
+Generic callable selection still prevents general interchange. Issue #8 still
+requires complete invalidation coverage, stamped-output integration and the real
+application's warm-build budget.
 
 ## Source identity
 

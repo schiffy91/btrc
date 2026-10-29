@@ -1833,7 +1833,7 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 	/* One payload of a generation: its own part, or the text of the module
 	 * unit it references. Either way its bytes must have the listed digest. */
 	private string? readPayload(ExclusiveFileLease lease, string name, int slot, string digest, Vector<int> remaining) {
-		if (remaining.get(0) <= 0) { return null; }
+		if (remaining.get(0) < 0) { return null; }
 		var payload = lease.readRegularChild(name, remaining.get(0));
 		if (!payload.ok() || !payload.found()) { return null; }
 		var bytes = payload.bytes();
@@ -1873,7 +1873,13 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 			string? content = null;
 			if (self.open(reference, false, true)) {
 				var unitLease = self.lease;
-				if (unitLease != null) { content = self.readPayload(unitLease, "unit.c", index, hashes.at(index).asString(), remaining); }
+				if (unitLease != null) {
+					var module = self.readModuleUnit(reference, unitLease);
+					if (module != null && module.text.length() <= remaining.get(0) && self.payloadDigest(index, module.text).equals(hashes.at(index).asString())) {
+						content = module.text;
+						remaining.set(0, remaining.get(0) - module.text.length());
+					}
+				}
 			}
 			if (content == null) { return null; }
 			payloads.set(index, content);
@@ -1949,32 +1955,44 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		self.close();
 	}
 
-	/* A module unit under its key, or null on any doubt. `record.txt` binds
-	 * the entry version/key and the digests of its metadata and `unit.c`. */
+	/* A receipt binds every file in the entry; the record is published last. */
+	private BtrccModuleUnitPayload? readModuleUnit(string identity, ExclusiveFileLease lease) {
+		string key = self.key(identity, true);
+		string prefix = "btrc-module-cache-entry-v2\n" + key + "\n";
+		var stored = lease.readRegularChild("record.txt", 536870912 + prefix.length() + 260);
+		if (!stored.ok() || !stored.found() || !stored.bytes().isNulFreeUtf8()) { return null; }
+		string framed = stored.bytes().toString();
+		bool bundle = framed.startsWith(prefix);
+		if (!bundle) { prefix = "btrc-module-cache-entry-v1\n" + key + "\n"; }
+		if (!framed.startsWith(prefix)) { return null; }
+		framed = framed.substring(prefix.length(), framed.length() - prefix.length());
+		int newline = framed.indexOf("\n");
+		if (newline < 0 || newline == framed.length() - 1) { return null; }
+		Vector<string> hashes = Strings.split(framed.substring(0, newline), " ");
+		if (hashes.len != (bundle ? 4 : 2)) { return null; }
+		string record = framed.substring(newline + 1, framed.length() - newline - 1);
+		if (!self.payloadDigest(-1, record).equals(hashes.get(0))) { return null; }
+		Vector<int> remaining = [536870912 - record.length()];
+		Vector<string> names = bundle ? ["unit.c", "interface.header", "link-plan.json"] : ["unit.c"];
+		Vector<string> contents = [record];
+		for (int index = 0; index < names.len; index++) {
+			string? content = self.readPayload(lease, names.get(index), -2 - index, hashes.get(index + 1), remaining);
+			if (content == null) { return null; }
+			contents.push(content);
+		}
+		if (bundle) {
+			if (contents.get(2).isEmpty() || contents.get(3).isEmpty()) { return null; }
+			return BtrccModuleUnitPayload(record, contents.get(1), contents.get(2), contents.get(3));
+		}
+		return BtrccModuleUnitPayload(record, contents.get(1));
+	}
+
 	public BtrccModuleUnitPayload? loadModuleUnit(string identity) {
 		BtrccModuleUnitPayload? payload = null;
 		try {
 			if (self.open(identity, false, true)) {
 				var lease = self.lease;
-				if (lease != null) {
-					string prefix = "btrc-module-cache-entry-v1\n" + self.key(identity, true) + "\n";
-					var stored = lease.readRegularChild("record.txt", 536870912 + prefix.length() + 130);
-					if (stored.ok() && stored.found() && stored.bytes().isNulFreeUtf8()) {
-						string framed = stored.bytes().toString();
-						if (!framed.startsWith(prefix)) { self.close(); return null; }
-						framed = framed.substring(prefix.length(), framed.length() - prefix.length());
-						if (framed.length() > 130 && framed[64] == ' ' && framed[129] == '\n') {
-							string record = framed.substring(130, framed.length() - 130);
-							if (self.payloadDigest(-1, record).equals(framed.substring(0, 64))) {
-								var unit = lease.readRegularChild("unit.c", 536870912 - record.length());
-								if (unit.ok() && unit.found() && unit.bytes().isNulFreeUtf8()) {
-									string text = unit.bytes().toString();
-									if (self.payloadDigest(-2, text).equals(framed.substring(65, 64))) { payload = BtrccModuleUnitPayload(record, text); }
-								}
-							}
-						}
-					}
-				}
+				if (lease != null) { payload = self.readModuleUnit(identity, lease); }
 			}
 		}
 		catch (string error) { payload = null; }
@@ -1982,16 +2000,38 @@ class BtrccArtifactCache implements IBtrccArtifactCache {
 		return payload;
 	}
 
-	/* Replace one module unit; storage failure only costs reuse. The text is
-	 * written first, and a record whose digests do not match is a miss. */
+	private void writeModuleUnit(string identity, BtrccModuleUnitPayload payload, ExclusiveFileLease lease) {
+		bool bundle = !payload.interfaceHeader.isEmpty() || !payload.linkPlanFragment.isEmpty();
+		if (bundle && (payload.interfaceHeader.isEmpty() || payload.linkPlanFragment.isEmpty())) { return; }
+		Vector<string> contents = [payload.record, payload.text];
+		Vector<string> names = ["unit.c"];
+		if (bundle) {
+			contents.push(payload.interfaceHeader);
+			contents.push(payload.linkPlanFragment);
+			names.push("interface.header");
+			names.push("link-plan.json");
+		}
+		long long size = 0LL;
+		Vector<string> hashes = [];
+		for (int index = 0; index < contents.len; index++) {
+			string content = contents.get(index);
+			size = size + (long long)content.length();
+			if (size > 536870912LL || !Bytes.fromString(content).isNulFreeUtf8()) { return; }
+			hashes.push(self.payloadDigest(-1 - index, content));
+		}
+		for (int index = 0; index < names.len; index++) {
+			if (!lease.replaceRegularChildDurably(names.get(index), Bytes.fromString(contents.get(index + 1))).committed()) { return; }
+		}
+		string version = bundle ? "btrc-module-cache-entry-v2\n" : "btrc-module-cache-entry-v1\n";
+		string framed = version + self.key(identity, true) + "\n" + Strings.join(hashes, " ") + "\n" + payload.record;
+		lease.replaceRegularChildDurably("record.txt", Bytes.fromString(framed));
+	}
+
 	public void storeModuleUnit(string identity, BtrccModuleUnitPayload payload) {
 		try {
-			if (!payload.record.isEmpty() && (long long)payload.record.length() + (long long)payload.text.length() <= 536870912LL && self.open(identity, false, true)) {
+			if (!payload.record.isEmpty() && self.open(identity, false, true)) {
 				var lease = self.lease;
-				if (lease != null && lease.replaceRegularChildDurably("unit.c", Bytes.fromString(payload.text)).committed()) {
-					string framed = "btrc-module-cache-entry-v1\n" + self.key(identity, true) + "\n" + self.payloadDigest(-1, payload.record) + " " + self.payloadDigest(-2, payload.text) + "\n" + payload.record;
-					lease.replaceRegularChildDurably("record.txt", Bytes.fromString(framed));
-				}
+				if (lease != null) { self.writeModuleUnit(identity, payload, lease); }
 			}
 		}
 		catch (string error) { }

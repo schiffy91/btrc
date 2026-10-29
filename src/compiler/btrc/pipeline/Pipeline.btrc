@@ -256,6 +256,7 @@ class CompilerPipeline {
 			if (interfaces != null) {
 				unitProgram.interfaceDigest = interfaces.digest;
 				unitProgram.scopedInterfaces = interfaces.scopedDigests;
+				unitProgram.interfaceHeaders = interfaces.groupHeaders;
 				unitProgram.knownSourceDigests = interfaces.groupSourceDigests;
 			}
 			ModuleUnitBuild build = ModuleUnitCompiler(unitProgram, options, options.useCache ? self.moduleUnitStore : null, self.workerPools).compile();
