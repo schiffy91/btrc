@@ -139,6 +139,7 @@ class SetjmpSafetyPlanner {
 	}
 
 	private void validateStatement(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params) {
+		if (statement.kind == IRK_GOTO || statement.kind == IRK_LABEL) { return; }
 		if (statement.kind == IRK_VAR_DECL) {
 			self.validateExpression(((IRDeclarationPayload)statement.payload).arraySize, visible, params, statement.kind, "array_size");
 			self.addVisible(visible, statement);
@@ -283,6 +284,7 @@ class SetjmpSafetyPlanner {
 	}
 
 	private void collectStatementMutations(IRNode statement, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
+		if (statement.kind == IRK_GOTO || statement.kind == IRK_LABEL) { return; }
 		self.recordNodeWrites(statement, bound, modified, effects);
 		if (statement.kind == IRK_VAR_DECL) {
 			self.collectExpressionMutations(((IRDeclarationPayload)statement.payload).arraySize, bound, modified, effects);
@@ -747,7 +749,7 @@ class SetjmpSafetyPlanner {
 		while (index < block.stmts().len) {
 			IRNode statement = block.stmts().get(index);
 			if (self.containsSetjmp(statement)) {
-				Map<string, bool> continuation = self.mutatedSequenceAfter(block.stmts(), index + 1, effects);
+				Map<string, bool> continuation = self.mutatedSequenceAfter(block.stmts(), SetjmpJumpSequence(block.stmts()).continuationStart(index), effects);
 				self.markVisible(visible, params, continuation, true, effects);
 			}
 			self.scanStatement(statement, visible, params, effects);
@@ -816,6 +818,7 @@ class SetjmpSafetyPlanner {
 	}
 
 	private void scanStatement(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		if (statement.kind == IRK_GOTO || statement.kind == IRK_LABEL) { return; }
 		Map<string, bool> all = {};
 		if (statement.kind == IRK_VAR_DECL) {
 			self.prepareDeclaration(statement, visible, params, all, false, effects);

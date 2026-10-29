@@ -235,12 +235,14 @@ gcc warns for the nested-block form (probe `ft_more.c`, function `b`). The `IRIf
 
 - **Volatility region.** Today, in Python `_LexicalVisibilityPass.block` (`exceptions.py:954-962`) and btrc `SetjmpSafetyPlanner.scanBlock` (`setjmp/Safety.btrc:573-586`), the continuation of a setjmp-containing item `i` is `stmts[i+1:]`.
   - New rule: if labels at indices `≤ i` of the same list are targeted by gotos located anywhere in `stmts[i:]`, the continuation becomes `stmts[m:]`. `m` comes from the same fixpoint as `reach_start`.
+  - The IR sequence owners are Python `JumpContinuation` in `exceptions.py` and native `SetjmpJumpSequence` in `setjmp/Analysis.btrc`. Their walks follow structured statement bodies and exclude nested callable expressions.
   - This mirrors the structured-loop rule (`exceptions.py:1061-1070`) at every list level.
   - Gotos never cross a try, so writes inside a try body stay in its then-branch. The `finally` statements sit after the setjmp `IRIf` and fall under the continuation.
   - More inferred-volatile locals can reach the existing qualifier-safety refusal (R18).
 - **Pointer flow.** In Python `PointerFlow` (`exceptions.py:383-539`) and btrc `SetjmpEffectAnalysis` (`setjmp/Analysis.btrc:1350-1410`):
   - `IRGoto(L)` joins the current state into `pending[L]` and then sets the state to bottom (the empty alias state). Pending states accumulate per function.
   - At `IRLabel(L)`, `pending[L]` is restricted to the storages bound at that point, then joined into the state. This is one explicit restriction rule in both compilers.
+    Bound storage includes an enclosing object whose name is shadowed in the current block. Its alias facts must survive a local jump so they remain available when the enclosing name becomes visible again. Each repeated suffix restores its label's lexical bindings before revisiting declarations.
   - If a later goto targets `L`, the rest of the list is iterated: `header = join(entry, restricted pending[L])`, at most 16 times.
   - If it has not converged, both compilers widen the header with Python's `_widen` rule (`exceptions.py:530-533`) and run the suffix once more. btrc gains `flowWiden`.
   - The list's exit is the end state of the last run. The schedule must bound the iteration, because Python's origin depth is unbounded (`PointerOrigin.deeper`, `exceptions.py:146-149`). Structured loops keep today's schedules (see the findings below).

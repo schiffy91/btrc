@@ -5,6 +5,7 @@ import ../../../compiler/btrc/ir/Model.btrc;
 import ../../../compiler/btrc/analyzer/HostedAbi.btrc;
 import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
 import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Safety.btrc;
 import ../../../compiler/btrc/pipeline/ModuleUnits.btrc;
 import ../../../compiler/btrc/pipeline/Models.btrc;
 import ../../../compiler/btrc/analyzer/Analyzer.btrc;
@@ -19,6 +20,98 @@ import ../../../compiler/btrc/syntax/Tokens.btrc;
 /* Exercise the real solver, including effects transmitted through a recursive
  * pair whose per-node flows the safety-root policy does not retain. */
 class FlowFixture {
+	class SetjmpPointerFlowResult jumpFlow(Vector<IRNode> statements) {
+		var definition = IRFunction();
+		definition.name = "probe";
+		definition.returnType = "void";
+		definition.body = IRNode.block(statements);
+		var unit = IRModule();
+		unit.functions.push(definition);
+		Map<string, bool> roots = {"probe": true};
+		var abi = HostedAbiRepository(GeneratedHostedAbiData());
+		return SetjmpEffectAnalysis(abi).analyze(unit, roots).get("probe").flow;
+	}
+
+	class void checkJumpAliases() {
+		for (int mode = 0; mode < 3; mode++) {
+			Vector<IRNode> statements = [
+				IRNode.variableDeclaration("int", "first", IRNode.literal("0")),
+				IRNode.variableDeclaration("int", "second", IRNode.literal("0")),
+				IRNode.variableDeclaration("int*", "pointer", IRNode.addressOf(IRNode.variable("first")))
+			];
+			IRNode write = IRNode.assignment(IRNode.dereference(IRNode.variable("pointer")), IRNode.literal("1"));
+			if (mode == 0) {
+				statements.push(IRNode.ifStatement(IRNode.literal("flag"), IRNode.block([
+					IRNode.assignment(IRNode.variable("pointer"), IRNode.addressOf(IRNode.variable("second"))),
+					IRNode.gotoStatement("joined")
+				]), null));
+				statements.push(IRNode.assignment(IRNode.variable("pointer"), IRNode.addressOf(IRNode.variable("first"))));
+				statements.push(IRNode.labelStatement("joined", false));
+				statements.push(write);
+			} else if (mode == 1) {
+				statements.push(IRNode.block([
+					IRNode.variableDeclaration("int*", "pointer", IRNode.addressOf(IRNode.variable("second"))),
+					IRNode.gotoStatement("inside"), IRNode.labelStatement("inside", false)
+				]));
+				statements.push(write);
+			} else {
+				statements.push(IRNode.labelStatement("again", false));
+				statements.push(write);
+				statements.push(IRNode.assignment(IRNode.variable("pointer"), IRNode.addressOf(IRNode.variable("second"))));
+				statements.push(IRNode.ifStatement(IRNode.literal("flag"), IRNode.block([IRNode.gotoStatement("again")]), null));
+			}
+			Map<string, bool> written = {};
+			for origin in FlowFixture.jumpFlow(statements).writesFor(write) {
+				if (origin.depth == 0) { written.put(origin.storage.name, true); }
+			}
+			assert(written.has("first"));
+			assert(written.len == (mode == 1 ? 1 : 2));
+			assert(written.has("second") == (mode != 1));
+		}
+	}
+
+	class void checkJumpWidening() {
+		Vector<IRNode> statements = [];
+		for (int index = 0; index < 22; index++) {
+			statements.push(IRNode.variableDeclaration("int", f"value{index}", null));
+			statements.push(IRNode.variableDeclaration("int*", f"p{index}", IRNode.addressOf(IRNode.variable(f"value{index}"))));
+		}
+		IRNode write = IRNode.assignment(IRNode.dereference(IRNode.variable("p0")), IRNode.literal("1"));
+		statements.push(IRNode.labelStatement("again", false));
+		statements.push(write);
+		for (int index = 0; index < 21; index++) {
+			statements.push(IRNode.assignment(IRNode.variable(f"p{index}"), IRNode.variable(f"p{index + 1}")));
+		}
+		statements.push(IRNode.gotoStatement("again"));
+		Map<string, bool> written = {};
+		for origin in FlowFixture.jumpFlow(statements).writesFor(write) {
+			if (origin.depth == 0) { written.put(origin.storage.name, true); }
+		}
+		assert(written.len == 22 && written.has("value21"));
+	}
+
+	class void checkJumpContinuation() {
+		Vector<IRNode> statements = [
+			IRNode.labelStatement("first", false), IRNode.expressionStatement(IRNode.literal("1")),
+			IRNode.labelStatement("second", false), IRNode.ifStatement(IRNode.literal("flag"), IRNode.block([IRNode.gotoStatement("first")]), null),
+			IRNode.expressionStatement(IRNode.call("setjmp", [])), IRNode.gotoStatement("second")
+		];
+		assert(SetjmpJumpSequence(statements).continuationStart(4) == 0);
+		var aggregate = IRNode.variableDeclaration("struct Probe", "aggregate", null);
+		var definition = IRFunction();
+		definition.name = "probe";
+		definition.returnType = "void";
+		definition.body = IRNode.block([
+			aggregate, IRNode.labelStatement("again", false),
+			IRNode.assignment(IRNode.fieldAccess(IRNode.variable("aggregate"), "value", false), IRNode.literal("1")),
+			IRNode.ifStatement(IRNode.call("setjmp", []), IRNode.block([]), null), IRNode.gotoStatement("again")
+		]);
+		var unit = IRModule();
+		unit.functions.push(definition);
+		var abi = HostedAbiRepository(GeneratedHostedAbiData());
+		SetjmpSafetyPlanner(SetjmpEffectAnalysis(abi), abi).apply(unit);
+		assert(((IRDeclarationPayload)aggregate.payload).isVolatile);
+	}
 
 	/* Use a real initialized module owner, not a duplicate traversal. The
 	 * array-only function disappears from roots if declaration bounds are lost. */
@@ -74,6 +167,9 @@ class FlowFixture {
 }
 
 int main() {
+	FlowFixture.checkJumpAliases();
+	FlowFixture.checkJumpWidening();
+	FlowFixture.checkJumpContinuation();
 	FlowFixture.checkSafetyRoots();
 	var unit = FlowFixture.module();
 	var abi = HostedAbiRepository(GeneratedHostedAbiData());
