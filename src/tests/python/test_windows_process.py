@@ -63,6 +63,29 @@ int main() {
 }
 """
 
+SUPERVISOR = """#include <stddef.h>
+#include <stdint.h>
+
+int main() {
+    __btrc_windows_supervisor_owner* owner = NULL;
+    __btrc_windows_launch_error_t error;
+    size_t required = 0;
+    uint32_t delivered = 0;
+    uint32_t running = 0;
+    uint32_t code = 0;
+    int status = __btrc_windows_supervisor_accept(1000, &owner, &error);
+    status += __btrc_windows_supervisor_copy_startup(owner, NULL, 0, &required, &error);
+    status += __btrc_windows_supervisor_prepare(owner, &error);
+    status += __btrc_windows_supervisor_ready_wait_commit(owner, &error);
+    status += __btrc_windows_supervisor_ack(owner, &delivered, &error);
+    status += __btrc_windows_supervisor_spawn_managed(owner, &error);
+    status += __btrc_windows_supervisor_poll_managed(owner, &running, &code, &error);
+    status += __btrc_windows_supervisor_terminate_managed(owner, 1, &error);
+    status += __btrc_windows_supervisor_close(&owner, 1000, &error);
+    return status;
+}
+"""
+
 
 def transpile(frontend: str, source: Path, label: str, request, *, relaxed: bool = False) -> str:
     if frontend == "reference":
@@ -166,6 +189,18 @@ def build(c_source: str, label: str, executable: Path, work: Path) -> None:
     for command in commands:
         completed = subprocess.run(command, capture_output=True, text=True, timeout=TOOL_TIMEOUT, check=False)
         assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("label", sorted(TARGETS.values()))
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_supervisor_seam_emits_sdk_free_declarations_and_links(frontend, label, request, tmp_path):
+    c_source = transpile(frontend, write(tmp_path, "SupervisorSeam.btrc", SUPERVISOR), label, request)
+    assert [row.source for row in RuntimeObjects.selected([c_source])] == ["windows_os.c"]
+    for row in RUNTIME_HELPER_ROWS:
+        if row.name.startswith("__btrc_windows_supervisor_"):
+            assert row.c_source.strip() in c_source, row.name
+    assert "#include <windows.h>" not in c_source
+    build(c_source, label, tmp_path / "supervisor-seam.exe", tmp_path)
 
 
 def build_harness(label: str, executable: Path) -> None:

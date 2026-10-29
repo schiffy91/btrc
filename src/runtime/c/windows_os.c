@@ -27,7 +27,6 @@
 #include "windows_bootstrap.h"
 #include "windows_daemon_protocol.h"
 #include "windows_daemon_files.h"
-#include "windows_supervisor.h"
 #include "windows_utf.h"
 
 #if defined(_WIN32)

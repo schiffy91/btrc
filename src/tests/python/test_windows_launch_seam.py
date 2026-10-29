@@ -333,6 +333,16 @@ def test_the_windows_harness_exercises_every_seam_section():
         "__btrc_windows_launch_terminate": ("__btrc_windows_launch_terminate(",),
         "__btrc_windows_launch_close": ("__btrc_windows_launch_close(",),
         "__btrc_windows_quote_argv_utf8": ("__btrc_windows_quote_argv_utf8(",),
+        "__btrc_windows_supervisor_types": ("__btrc_windows_supervisor_owner",),
+        "__btrc_windows_supervisor_accept": ("__btrc_windows_supervisor_accept(",),
+        "__btrc_windows_supervisor_copy_startup": ("__btrc_windows_supervisor_copy_startup(",),
+        "__btrc_windows_supervisor_prepare": ("__btrc_windows_supervisor_prepare(",),
+        "__btrc_windows_supervisor_ready_wait_commit": ("__btrc_windows_supervisor_ready_wait_commit(",),
+        "__btrc_windows_supervisor_ack": ("__btrc_windows_supervisor_ack(",),
+        "__btrc_windows_supervisor_spawn_managed": ("__btrc_windows_supervisor_spawn_managed(",),
+        "__btrc_windows_supervisor_poll_managed": ("__btrc_windows_supervisor_poll_managed(",),
+        "__btrc_windows_supervisor_terminate_managed": ("__btrc_windows_supervisor_terminate_managed(",),
+        "__btrc_windows_supervisor_close": ("__btrc_windows_supervisor_close(",),
     }
     manifest = RuntimeManifest.load(RUNTIME / "manifest.toml")
     declared = {helper.name for helper in manifest.helpers if helper.asset == "windows_os.h"}

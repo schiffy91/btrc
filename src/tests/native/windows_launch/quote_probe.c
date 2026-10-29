@@ -14,7 +14,6 @@
 
 #include "windows_os.h"
 #include "windows_bootstrap.h"
-#include "windows_supervisor.h"
 
 static int supervisor_off_windows(void) {
     __btrc_windows_launch_error_t error;

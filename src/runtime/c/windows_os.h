@@ -113,3 +113,77 @@ int __btrc_windows_quote_argv_utf8(char **argv, size_t argc,
     uint16_t *buffer, size_t capacity_units, size_t *required_units,
     __btrc_windows_launch_error_t *error);
 /* btrc-runtime-helper:end __btrc_windows_quote_argv_utf8 */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_types */
+typedef struct __btrc_windows_supervisor_owner __btrc_windows_supervisor_owner;
+/* btrc-runtime-helper:end __btrc_windows_supervisor_types */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_accept */
+/* Admit the inherited bootstrap handles and receive one complete INIT within
+ * a positive finite budget. Failure releases acquired resources, or retains
+ * *out and reports live/poisoned ownership when cleanup cannot finish. */
+int __btrc_windows_supervisor_accept(uint64_t startup_timeout_ms,
+    __btrc_windows_supervisor_owner **out, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_accept */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_copy_startup */
+/* Query/copy the canonical INIT payload, without its 16-byte frame header.
+ * Includes the token; the caller must scrub its copy. Insufficient capacity
+ * reports the required byte count and makes no partial copy. */
+int __btrc_windows_supervisor_copy_startup(__btrc_windows_supervisor_owner *owner,
+    unsigned char *buffer, size_t capacity, size_t *required_bytes,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_copy_startup */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_prepare */
+/* Validate and retain the command/environment snapshot, create an unnamed
+ * kill-on-close job, hold the private append log, and redirect CRT/native
+ * diagnostics to it. No managed command runs during preparation. */
+int __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner *owner,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_prepare */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_ready_wait_commit */
+/* READY and the complete authenticated COMMIT share accept's deadline. A
+ * failed exchange aborts preparation; no managed command has started. */
+int __btrc_windows_supervisor_ready_wait_commit(__btrc_windows_supervisor_owner *owner,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_ready_wait_commit */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_ack */
+/* Verify the protected record before ACK. After verification, ordinary ACK
+ * loss succeeds with delivered=0. Failed cleanup poisons the retained owner.
+ * Success scrubs startup storage, so copy_startup must precede this call. */
+int __btrc_windows_supervisor_ack(__btrc_windows_supervisor_owner *owner,
+    uint32_t *ack_delivered, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_ack */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_spawn_managed */
+/* Start only after COMMIT, protected publication and completed bootstrap
+ * cleanup. An active generation cannot be replaced. A restart gets a new job
+ * and the exact retained command/environment snapshot. */
+int __btrc_windows_supervisor_spawn_managed(__btrc_windows_supervisor_owner *owner,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_spawn_managed */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_poll_managed */
+/* Poll never waits. running stays true until the root and all descendants
+ * have exited; only then is native_exit_code the root's complete DWORD code. */
+int __btrc_windows_supervisor_poll_managed(__btrc_windows_supervisor_owner *owner,
+    uint32_t *running, uint32_t *native_exit_code, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_poll_managed */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_terminate_managed */
+/* Idempotent termination of the current tree; poll or close reaps it. */
+int __btrc_windows_supervisor_terminate_managed(__btrc_windows_supervisor_owner *owner,
+    uint32_t exit_code, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_terminate_managed */
+
+/* btrc-runtime-helper:begin __btrc_windows_supervisor_close */
+/* Terminate/reap the managed tree, cancel/drain bootstrap operations, release
+ * preparation and scrub storage within one timeout. Only complete release
+ * nulls *owner; live state is never freed on timeout. A retained
+ * poisoned owner must be left to process teardown, not retried. */
+int __btrc_windows_supervisor_close(__btrc_windows_supervisor_owner **owner,
+    uint64_t timeout_ms, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_supervisor_close */

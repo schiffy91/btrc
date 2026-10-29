@@ -26,7 +26,6 @@
 #include "windows_bootstrap.h"
 #include "windows_security.h"
 #include "windows_daemon_files.h"
-#include "windows_supervisor.h"
 
 static int checks = 0;
 static int failures = 0;
