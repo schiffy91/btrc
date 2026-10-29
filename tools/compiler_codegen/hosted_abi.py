@@ -2081,7 +2081,7 @@ class HostedAbiCatalogGenerator:
         """The name sets the self-hosted analyzer consults (HostedAbiRepository).
 
         The reference tables carry every set; the self-host only ever asks
-        whether a name is a hosted function, macro, typedef, owned name,
+        whether a name is a hosted function, macro, type, typedef, owned name,
         adopting helper or non-returning function, and its structure contract rejects accessors nothing
         calls, so the other sets are not emitted for it.
         """
@@ -2089,6 +2089,7 @@ class HostedAbiCatalogGenerator:
         return (
             ("functionNames", self._manifest.names.functions),
             ("macroNames", self._manifest.names.macros),
+            ("typeNames", self._manifest.names.types),
             ("typedefNames", self._manifest.names.typedefs),
             ("arithmeticTypeNames", self._manifest.names.arithmetic_types),
             ("ownedNames", self._manifest.names.owned),

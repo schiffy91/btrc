@@ -57,6 +57,7 @@ class HostedAbiRepository {
 	private Map<string, bool>? functionNames = null;
 	private Map<string, bool>? macroNames = null;
 	private Map<string, bool>? typedefNames = null;
+	private Map<string, bool>? typeNames = null;
 	private Map<string, bool>? ownedNames = null;
 	private Map<string, bool>? adoptingHelpers = null;
 	private Map<string, bool>? noreturnFunctions = null;
@@ -101,6 +102,14 @@ class HostedAbiRepository {
 		if (existing != null) { return existing.has(name); }
 		Map<string, bool> built = self.indexNames(self.data.macroNames());
 		self.macroNames = built;
+		return built.has(name);
+	}
+
+	public bool typeName(string name) {
+		Map<string, bool>? existing = self.typeNames;
+		if (existing != null) { return existing.has(name); }
+		Map<string, bool> built = self.indexNames(self.data.typeNames());
+		self.typeNames = built;
 		return built.has(name);
 	}
 

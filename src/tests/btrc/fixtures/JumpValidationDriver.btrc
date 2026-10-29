@@ -78,40 +78,44 @@ class JumpRecords implements IValidationRecords {
 }
 
 class JumpValidationFixture {
-	class Node program(GrammarInfo grammar) {
-		var parser = Parser(Lexer("int main() { return 0; }", grammar).tokenize(), grammar);
+	class Node program(GrammarInfo grammar, string source = "int main() { jump(\"done\"); label(\"done\"); return 0; }") {
+		var parser = Parser(Lexer(source, grammar).tokenize(), grammar);
 		Node program = parser.parseProgram();
 		assert(!parser.failed);
-		Node body = program.declarations().get(0).bodyNode;
-		Node jump = Node();
-		jump.kind = NK_GOTO_STMT;
-		jump.name = "done";
-		jump.line = 1;
-		jump.col = 14;
-		Node label = Node();
-		label.kind = NK_LABEL_STMT;
-		label.name = "done";
-		label.line = 1;
-		label.col = 25;
-		body.statementsStorage = [jump, label, body.statements().get(0)];
+		for node in AstStructure.preorder(program) {
+			if (node.kind != NK_EXPR_STMT || node.expr.kind != NK_CALL_EXPR || node.expr.callee.kind != NK_IDENTIFIER) { continue; }
+			Node call = node.expr;
+			if (call.callee.name != "jump" && call.callee.name != "label") { continue; }
+			Node spelling = call.args().get(0);
+			assert(spelling.kind == NK_STRING_LITERAL);
+			node.kind = call.callee.name == "jump" ? NK_GOTO_STMT : NK_LABEL_STMT;
+			node.name = spelling.valueString.substring(1, spelling.valueString.length() - 2);
+			node.nameLine = spelling.line;
+			node.nameCol = spelling.col;
+			node.expr = null;
+		}
 		return program;
 	}
 
-	class Analyzed analyze(Node program, JumpRecords records) {
+	class Analyzed analyze(Node program, JumpRecords? records = null) {
 		var tables = GeneratedHostedAbiData();
 		var abi = HostedAbiRepository(tables);
 		var runtime = GeneratedRuntimeCatalogData();
 		Map<string, bool> noNames = {};
 		var rules = SourceMacroRules(TokenVocabulary(), noNames, noNames, noNames);
 		var analyzer = SemanticAnalyzer(SourceRuntimeSymbols(runtime.rows, runtime.intrinsicEffects), rules, tables.targetRows().get(0));
-		analyzer.configureValidationRecords(records);
+		if (records != null) { analyzer.configureValidationRecords(records); }
 		return analyzer.analyze(program, abi);
 	}
 }
 
 int main(int argc, char** argv) {
-	assert(argc == 2);
+	assert(argc == 2 || argc == 3);
 	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
+	if (argc == 3) {
+		JumpValidationFixture.analyze(JumpValidationFixture.program(grammar, Strings.copy(argv[2])));
+		return 0;
+	}
 	Node first = JumpValidationFixture.program(grammar);
 	Node second = JumpValidationFixture.program(grammar);
 	var written = JumpRecords(first, "");

@@ -46,7 +46,7 @@ class SemanticValidator {
 		SourceMacroNamespace sourceMacros = SourceMacroNamespace(program, hostedAbi, macroRules);
 		analyzed.sourceMacros = sourceMacros;
 
-		self.types = TypeValidator(self.state, operators, gpu, semanticTypes, declarationRegistry, expressionTypes);
+		self.types = TypeValidator(self.state, operators, gpu, semanticTypes, declarationRegistry, expressionTypes, hostedAbi);
 		self.constants = ConstantValidator(self.state, self.types, sourceMacros);
 		self.storage = StorageValidator(self.state, operators, self.types, self.constants);
 		self.ownership = OwnershipValidator(self.state, hostedAbi, operators, self.types, self.storage);

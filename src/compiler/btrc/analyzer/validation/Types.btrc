@@ -12,6 +12,7 @@ import ../Declarations.btrc;
 import ../Expressions.btrc;
 import ../Generics.btrc;
 import ../GPU.btrc;
+import ../HostedAbi.btrc;
 import ../Models.btrc;
 import ../Operators.btrc;
 import ../Types.btrc;
@@ -90,14 +91,16 @@ class TypeValidator {
 	private OperatorSemantics operators;
 	private GpuSemantics gpu;
 	private SemanticTypeSystem semanticTypes;
+	private HostedAbiRepository hostedAbi;
 	private DeclarationRegistry declarationRegistry;
 	private ExpressionTypeResolver expressionTypes;
 
-	public TypeValidator(SemanticValidationState state, OperatorSemantics operators, GpuSemantics gpu, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes) {
+	public TypeValidator(SemanticValidationState state, OperatorSemantics operators, GpuSemantics gpu, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes, HostedAbiRepository hostedAbi) {
 		self.state = state;
 		self.operators = operators;
 		self.gpu = gpu;
 		self.semanticTypes = semanticTypes;
+		self.hostedAbi = hostedAbi;
 		self.declarationRegistry = declarationRegistry;
 		self.expressionTypes = expressionTypes;
 	}
@@ -1216,6 +1219,56 @@ class TypeValidator {
 		}
 		if (base == "Map") { return 2; }
 		return -1;
+	}
+
+	public bool variablyModified(Node? typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		return canonical != null && canonical.arraySize != null && !self.state.analyzed.constantArrayBoundKeys.has(AstIdentity.key(canonical.arraySize));
+	}
+
+	/* Validation owns this policy beside registerStorageType: it needs the
+	 * numeric domain, lexical type parameters and proven array bounds. */
+	public bool plainCObject(Node? typeExpr) {
+		Map<string, bool> visiting = {};
+		return self.plainCObjectVisiting(typeExpr, visiting);
+	}
+
+	private bool plainCObjectVisiting(Node? typeExpr, Map<string, bool> visiting) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null) { return false; }
+		string base = canonical.base;
+		if (canonical.isNullable || self.state.typeParams.has(base) || canonical.genericArgs().len > 0) { return false; }
+		if (base == "string" || base == "Mutex" || base == "Thread" || base == "Tuple" || base == "Span" || base == "Atomic" || base == "__fn_ptr" || base == "__realtime_fn_ptr") { return false; }
+		if (self.state.analyzed.isClass(base) || self.state.analyzed.isGenericClass(base) || self.state.analyzed.isInterface(base) || self.state.analyzed.isRichEnum(base)) { return false; }
+		if (canonical.isArray) {
+			if (canonical.arraySize == null || self.variablyModified(canonical)) { return false; }
+			for extent in canonical.elements() {
+				if (extent.arraySize == null || self.variablyModified(extent)) { return false; }
+			}
+			Node element = TypeShape.copy(canonical);
+			element.isArray = false;
+			element.arraySize = null;
+			element.elementsStorage = null;
+			return self.plainCObjectVisiting(element, visiting);
+		}
+		if (canonical.pointerDepth > 0) { return true; }
+		if (NumericSemantics.isType(canonical, self.state.analyzed)) { return true; }
+		string name = SemanticTypeSystem.recordTagName(base);
+		if (self.state.analyzed.structTable.has(name)) {
+			if (visiting.has(name)) { return false; }
+			Map<string, bool> nested = self.cloneFlags(visiting);
+			nested.put(name, true);
+			for field in SemanticTypeSystem.recordFields(self.state.analyzed.structTable.get(name)) {
+				if (!self.plainCObjectVisiting(field.type, nested)) { return false; }
+			}
+			return true;
+		}
+		return self.hostedAbi.typeName(base) || self.hostedAbi.typedefName(base) || base.startsWith("struct ") || base.startsWith("union ");
+	}
+
+	public bool plainDeclaration(Node? declared, Node? initializer, bool initializerManaged) {
+		Node? actual = self.resolveAliases(initializer);
+		return self.plainCObject(declared) && !initializerManaged && (actual == null || !self.state.typeParams.has(actual.base));
 	}
 
 	public bool registerStorageType(Node typeExpr) {

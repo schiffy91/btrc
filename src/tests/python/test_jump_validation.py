@@ -182,3 +182,184 @@ def test_region_exit_diagnostic_names_the_innermost_forbidden_boundary():
     assert _messages('void f() { try { parallel for i in range(3) { jump("out"); } } finally {} label("out"); }') == [
         "goto 'out' cannot leave a parallel for body"
     ]
+
+
+@pytest.mark.parametrize(
+    "declaration, suffix, prefix",
+    [
+        ("int value = 3;", "", ""),
+        ("bool value = true;", "", ""),
+        ("int values[2];", "", ""),
+        ("int* pointer = null;", "", ""),
+        ("struct Item item;", "", "struct Item { int number; double weight; };"),
+        ("struct Link* link = null;", "", "struct Link { struct Link* next; };"),
+        ("Number value = 3;", "", "typedef int Number;"),
+        ("static int value = 3;", "value++;", ""),
+        ("extern int value;", "value++;", ""),
+        ('{ string text = "temporary"; }', "", ""),
+        ('try {} finally { string text = "temporary"; }', "", ""),
+    ],
+)
+def test_forward_jump_can_skip_unused_plain_or_nested_storage(declaration, suffix, prefix):
+    source = (
+        prefix + 'void f(bool flag) { if (flag) { jump("done"); } ' + declaration + ' label("done"); ' + suffix + " }"
+    )
+    assert _messages(source) == []
+
+
+@pytest.mark.parametrize(
+    "declaration, prefix",
+    [
+        ('string value = "owned";', ""),
+        ('char* value = "owned";', ""),
+        ('const char* value = "owned";', ""),
+        ("Box value = new Box();", "class Box {}"),
+        ("void* value = new Box();", "class Box {}"),
+        ('var value = "owned";', ""),
+        ("var value = () => 1;", ""),
+        ("int (*value)() = answer;", "int answer() { return 1; }"),
+    ],
+)
+def test_forward_jump_refuses_managed_or_callable_declarations(declaration, prefix):
+    source = prefix + 'void f(bool flag) { if (flag) { jump("done"); } ' + declaration + ' label("done"); }'
+    messages = _messages(source)
+    assert len(messages) == 1, messages
+    assert "skips the declaration of 'value'" in messages[0] and "not a plain C value" in messages[0]
+
+
+@pytest.mark.parametrize("suffix", ["value++;", "{ int value = 7; value++; }", "var callback = () => value;"])
+def test_forward_jump_refuses_reads_after_label_even_with_shadowing_or_capture(suffix):
+    source = 'void f(bool flag) { if (flag) { jump("done"); } int value = 3; label("done"); ' + suffix + " }"
+    messages = _messages(source)
+    assert len(messages) == 1, messages
+    assert "skips the declaration of 'value'" in messages[0] and "used after the label" in messages[0]
+
+
+def test_forward_jump_refuses_reads_reachable_through_backward_goto():
+    source = 'void f(bool flag) { if (flag) { jump("done"); } int value = 3; label("again"); value++; label("done"); jump("again"); }'
+    messages = _messages(source)
+    assert len(messages) == 1, messages
+    assert "skips the declaration of 'value'" in messages[0] and "used after the label" in messages[0]
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "int values[count];",
+        "try {} finally { int values[count]; }",
+        "try {} finally { try {} finally { int values[count]; } }",
+    ],
+)
+def test_forward_jump_refuses_vla_scope_including_spliced_finally(declaration):
+    source = 'void f(bool flag, int count) { if (flag) { jump("done"); } ' + declaration + ' label("done"); }'
+    messages = _messages(source)
+    assert len(messages) == 1, messages
+    assert "jumps into the scope of variable-length array 'values'" in messages[0]
+
+
+def test_initializer_type_keeps_the_binding_at_the_declaration_point():
+    source = 'string original() { return "owned"; } void f(bool flag) { if (flag) { jump("done"); } char* value = original(); int original = 3; label("done"); }'
+    messages = _messages(source)
+    assert len(messages) == 1, messages
+    assert "skips the declaration of 'value'" in messages[0] and "not a plain C value" in messages[0]
+
+
+@pytest.mark.parametrize(
+    "base, pointer_depth, nullable, expected",
+    [
+        ("bool", 0, False, True),
+        ("int", 0, False, True),
+        ("double", 0, False, True),
+        ("size_t", 0, False, True),
+        ("FILE", 0, False, True),
+        ("enum Foreign", 0, False, True),
+        ("struct Foreign", 0, False, True),
+        ("union Foreign", 0, False, True),
+        ("mystery_t", 0, False, False),
+        ("mystery_t", 1, False, True),
+        ("void", 0, False, False),
+        ("void", 1, False, True),
+        ("int", 1, True, False),
+        ("string", 0, False, False),
+        ("string", 2, False, False),
+        ("Box", 1, False, False),
+        ("Box", 2, False, False),
+        ("Contract", 1, False, False),
+        ("Tuple", 0, False, False),
+        ("Thread", 0, False, False),
+        ("Mutex", 0, False, False),
+        ("Atomic", 0, False, False),
+        ("Span", 0, False, False),
+        ("__fn_ptr", 0, False, False),
+        ("__realtime_fn_ptr", 0, False, False),
+    ],
+)
+def test_plain_c_object_type_policy(base, pointer_depth, nullable, expected):
+    from src.compiler.python.syntax.ast.generated import TypeExpr
+
+    analyzer = SemanticAnalyzer()
+    result = analyzer.analyze(_program("class Box {} interface Contract { void call(); }"))
+    assert result.errors == []
+    assert (
+        analyzer.types.is_plain_c_object(TypeExpr(base=base, pointer_depth=pointer_depth, is_nullable=nullable))
+        is expected
+    )
+
+
+def test_plain_c_records_follow_aliases_anonymous_members_and_constant_extents():
+    from src.compiler.python.syntax.ast.generated import AnonymousMember, FieldDef, IntLiteral, StructDecl, TypeExpr
+
+    analyzer = SemanticAnalyzer()
+    analyzer.index.typedef_table["Number"] = TypeExpr(base="int")
+    bound = IntLiteral(value=2)
+    values = TypeExpr(base="Number", is_array=True, array_size=bound)
+    record = StructDecl(
+        name="Record", fields=[AnonymousMember(is_union=True, fields=[FieldDef(name="values", type=values)])]
+    )
+    analyzer.index.struct_table["Record"] = record
+    assert not analyzer.types.is_plain_c_object(TypeExpr(base="struct Record"))
+    assert analyzer.types.is_variably_modified(values)
+    analyzer.session.constant_array_bound_ids.add(id(bound))
+    assert analyzer.types.is_plain_c_object(TypeExpr(base="struct Record"))
+    assert not analyzer.types.is_variably_modified(values)
+    record.fields.append(FieldDef(name="text", type=TypeExpr(base="string")))
+    assert not analyzer.types.is_plain_c_object(TypeExpr(base="Record"))
+    record.fields[-1].type = TypeExpr(base="Record")
+    assert not analyzer.types.is_plain_c_object(TypeExpr(base="Record"))
+    record.fields[-1].type = TypeExpr(base="Record", pointer_depth=1)
+    assert analyzer.types.is_plain_c_object(TypeExpr(base="Record"))
+
+
+def test_plain_c_policy_refuses_unresolved_type_parameters():
+    from src.compiler.python.syntax.ast.generated import MethodDecl, TypeExpr
+
+    analyzer = SemanticAnalyzer()
+    analyzer.session.current_method = MethodDecl(
+        name="generic", return_type=TypeExpr(base="void"), generic_params=["T"]
+    )
+    assert not analyzer.types.is_plain_c_object(TypeExpr(base="T"))
+    assert not analyzer.types.is_plain_c_object(TypeExpr(base="T", pointer_depth=1))
+    assert not analyzer.types.declaration_is_plain(
+        TypeExpr(base="void", pointer_depth=1), TypeExpr(base="T"), initializer_managed=False
+    )
+
+
+def test_forward_jump_accepts_record_with_fixed_array_member():
+    assert (
+        _messages(
+            'struct Packet { int values[2]; }; void f(bool flag) { if (flag) { jump("done"); } struct Packet packet; label("done"); }'
+        )
+        == []
+    )
+
+
+def test_generic_template_cannot_skip_unresolved_storage():
+    source = 'class Holder<T> { public void f(bool flag, T input) { if (flag) { jump("done"); } T value = input; label("done"); } }'
+    messages = _messages(source)
+    assert any(
+        "skips the declaration of 'value'" in message and "not a plain C value" in message for message in messages
+    ), messages
+
+
+def test_backward_jump_does_not_enter_variable_length_storage():
+    assert _messages('void f(int count) { label("again"); int values[count]; jump("again"); }') == []

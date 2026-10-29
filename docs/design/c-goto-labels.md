@@ -71,7 +71,7 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
   - btrc journals the new fact `VALIDATION_JUMP_BODY = 13` (`analyzer/Models.btrc:46-59`), and `Validator.replay` installs it.
   - The record context becomes `validation-record-v5` (`pipeline/ModuleUnits.btrc:2748`, `:2842`, `:3057`).
   - Lowering builds frames only for marked bodies. btrc checks the map's emptiness before computing any key, so a program without goto pays one check per body.
-- **Plain-value owner.** Python `TypeSystem.is_plain_c_object(type)` and `declaration_is_plain(type, initializer_type)`; btrc `SemanticTypeSystem.plainCObject` and `plainDeclaration`. The table is applied after typedef resolution and fails closed:
+- **Plain-value owner.** Python `TypeSystem.is_plain_c_object(type)` and `declaration_is_plain(type, initializer_type)`; btrc `TypeValidator.plainCObject` and `plainDeclaration`. The native policy belongs to validation because it needs lexical type parameters, proven bounds and `NumericSemantics`; placing it in `SemanticTypeSystem` would create an import cycle with `Operators.btrc`. The table is applied after typedef resolution and fails closed:
 
   | Plain | Not plain |
   |---|---|
@@ -85,7 +85,7 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
   | an unknown foreign `struct X`/`union X`, which is trusted C as today | |
 
   A declaration is plain when its declared type is plain and its initializer's type, if it has one, is neither a managed value type nor a type parameter. The managed-value test is Python `StorageModel.is_managed_value_type` (`analyzer/storage.py:263-277`) and its btrc counterpart. The initializer rule exists because `StorageLowerer` makes an owner from either type (`ir/lowering/storage.py:855-884`). Probes show scope-end releases for `void* p = new Box();`, `char* q = make();` and even `const char* r = "abc";` in both compilers.
-- **Variably modified.** Python `TypeSystem.is_variably_modified(type, constant_bounds)`; btrc `SemanticTypeSystem.variablyModified`. A type is variably modified when its outermost `array_size` is non-null and is *not* in `constant_array_bound_ids`/`constantArrayBoundKeys`. The analyzer adds a bound exactly when it is constant (`analyzer/statements.py:509-511`), and Stage 18 allows a run-time bound only on the outermost extent. Later rows for pointer-to-VLA and block-scope VM typedefs inherit this predicate.
+- **Variably modified.** Python `TypeSystem.is_variably_modified(type)`; btrc `TypeValidator.variablyModified`. A type is variably modified when its outermost `array_size` is non-null and is *not* in `constant_array_bound_ids`/`constantArrayBoundKeys`. The analyzer adds a bound exactly when it is constant (`analyzer/statements.py:509-511`), and Stage 18 allows a run-time bound only on the outermost extent. Later rows for pointer-to-VLA and block-scope VM typedefs inherit this predicate.
 - **The completion owner takes the targeted names.** Today's predicates are Python `ControlFlowAnalyzer.statement_must_terminate`, `block_must_terminate` and `statement_sequence_must_terminate` (`flow.py:249-306`) and btrc `ControlFlowValidator.statementTerminates`, `blockTerminates` and `statementSequenceTerminates` (`validation/ControlFlow.btrc:157-259`). Stage 19's r15b replaces them with one completion owner per compiler, `can_complete_normally` and `canCompleteNormally` (`c-vocabulary-specifiers.md`, "Completion owner"). Stage 20 gives that owner a targeted-name parameter, empty or null for bodies without jumps.
   - btrc's duplicate, `ExpressionTypeResolver.blockTerminates/elseTerminates/statementTerminates` (`analyzer/Expressions.btrc:86-119`), is already gone: the D-13 parity commit (`CL-C-02`) deleted it, with a both-compiler test (a typed lambda ending in `while (true) { return n; }` and one ending in a terminating `switch`, which Python accepted and btrc refused). btrc's one lambda check is now `ControlFlowValidator`'s statement-analysis path (`validation/ControlFlow.btrc:63`), as Python's is `_analyze_lambda`; `ExpressionValidator.validateLambda` no longer checks termination, because `validation/Expressions.btrc` cannot import `ControlFlowValidator` without the self-hosted compiler's first import cycle.
 
@@ -138,7 +138,7 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
    - **R9:** the declaration is variably modified;
    - **R10:** it is one of `E`'s automatic declarations and is not plain;
    - **R11:** it is one of `E`'s automatic declarations, and its name appears as an `Identifier` (inside lambda bodies too) anywhere in `E[reach_start(E, d, j):]`.
-   - Types are known by this point. Python reads `stmt.type`, which is set for `var` too, and the initializer's analyzed type. btrc reads the label list's `vars`.
+   - Types are known by this point. Python reads `stmt.type`, which is set for `var` too, and the initializer's analyzed type. btrc reads the label list's `vars` and saves each initializer's type at its declaration, before later bindings can shadow its inputs.
    - R11 matches by name and ignores shadowing, so it fails closed identically in both compilers. It keeps the C cleanup idiom: a resource declared after `if (!a) goto fail;` and released before `fail:` is never named after `fail:`.
    - R11 also covers a backward goto from after the label into the skipped region (fixture `backward-reach`), and clang's `-Wsometimes-uninitialized`, which fails the gate on a skipped initializer that is read later (probe `skipinit.c`, -O0 and -O2).
 
@@ -386,7 +386,7 @@ The construct is one commit (D5): Python first, then the btrc port by the same i
     - `validation/Names.btrc`: `validateLabelName`;
     - `analyzer/Models.btrc`: `jumpBodyKeys`, `VALIDATION_JUMP_BODY`;
     - `validation/Validator.btrc`: the replay arm;
-    - `analyzer/Types.btrc`: `plainCObject`, `plainDeclaration`, `variablyModified`;
+    - `analyzer/validation/Types.btrc`: `plainCObject`, `plainDeclaration`, `variablyModified`;
     - `analyzer/Realtime.btrc`; `analyzer/GPU.btrc`.
   - Lowering:
     - `ir/Model.btrc`; `ir/lowering/Context.btrc` (index, frames, registry);

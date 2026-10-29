@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import ClassVar
 
 from src.compiler.python.abi.generated import GeneratedTargetRow
-from src.compiler.python.abi.hosted import TargetRepository, TargetSelectionError
+from src.compiler.python.abi.hosted import HOSTED_ABI, TargetRepository, TargetSelectionError
 from src.compiler.python.analyzer.program import (
     AnalysisSession,
     DeclarationIndex,
@@ -2851,6 +2851,57 @@ class TypeSystem:
                 )
                 message = f"'auto' is not allowed {position}; C11 auto declares a block-scope object"
             self.session.error(message, line, col)
+
+    def is_variably_modified(self, type_expr) -> bool:
+        canonical = self.canonical_type(type_expr)
+        return bool(
+            canonical
+            and canonical.array_size is not None
+            and id(canonical.array_size) not in self.session.constant_array_bound_ids
+        )
+
+    def _jump_type_parameters(self) -> set[str]:
+        active = set(self.session.current_class.generic_params if self.session.current_class else ())
+        if self.session.current_method:
+            active.update(self.session.current_method.generic_params)
+        return active
+
+    def is_plain_c_object(self, type_expr, visiting=frozenset()) -> bool:
+        """Whether skipping this storage needs no language-managed initialization."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None:
+            return False
+        base = canonical.base
+        if canonical.is_nullable or base in self._jump_type_parameters() or canonical.generic_args:
+            return False
+        if base in {"string", "Mutex", "Thread", "Tuple", "Span", "Atomic", "__fn_ptr", "__realtime_fn_ptr"}:
+            return False
+        if base in self.index.class_table or base in self.index.interface_table or base in self.index.rich_enum_table:
+            return False
+        if canonical.is_array:
+            bounds = [canonical.array_size, *(extent.array_size for extent in canonical.elements)]
+            if any(bound is None or id(bound) not in self.session.constant_array_bound_ids for bound in bounds):
+                return False
+            return self.is_plain_c_object(replace(canonical, is_array=False, array_size=None, elements=[]), visiting)
+        if canonical.pointer_depth > 0:
+            return True
+        if base == "bool" or self.is_numeric_value(canonical):
+            return True
+        name = self.record_tag_name(base)
+        record = self.index.struct_table.get(name)
+        if record is not None:
+            if name in visiting:
+                return False
+            return all(self.is_plain_c_object(field.type, visiting | {name}) for field in self.record_fields(record))
+        return base in HOSTED_ABI.types or base in HOSTED_ABI.typedefs or base.startswith(("struct ", "union "))
+
+    def declaration_is_plain(self, type_expr, initializer_type, *, initializer_managed: bool) -> bool:
+        initializer = self.canonical_type(initializer_type)
+        return (
+            self.is_plain_c_object(type_expr)
+            and not initializer_managed
+            and (initializer is None or initializer.base not in self._jump_type_parameters())
+        )
 
     def register_storage_type(self, type_expr) -> bool:
         canonical = self.canonical_type(type_expr)

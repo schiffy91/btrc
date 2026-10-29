@@ -2293,12 +2293,60 @@ class StatementAnalyzer:
                 if isinstance(stmt, (ReturnStmt, BreakStmt, ContinueStmt, ThrowStmt)):
                     found_terminal = True
 
+    @classmethod
+    def _names_after_jump(cls, node, name: str) -> bool:
+        if isinstance(node, Identifier):
+            return node.name == name
+        if not dataclasses.is_dataclass(node):
+            return False
+        for field in dataclasses.fields(node):
+            value = getattr(node, field.name)
+            children = value if isinstance(value, list) else (value,)
+            if any(cls._names_after_jump(child, name) for child in children):
+                return True
+        return False
+
+    def _validate_jump_declarations(self, label):
+        index = self.flow.jump_index()
+        for site in self.flow.valid_forward_gotos(label):
+            jump = site.node
+            enclosing = index.enclosing(jump)
+            if enclosing is None:
+                continue
+            scope, _, label_index = enclosing
+            direct = {id(statement): position for position, statement in enumerate(scope.statements)}
+            for declaration in index.entered_declarations(jump):
+                name = declaration.name
+                position = f"{declaration.line}:{declaration.col}"
+                declared = self.types.canonical_type(declaration.type)
+                message = None
+                if self.types.is_variably_modified(declared):
+                    message = f"goto '{jump.name}' jumps into the scope of variable-length array '{name}' declared at {position}"
+                elif (
+                    id(declaration) in direct
+                    and declared is not None
+                    and not (declared.is_static or declared.is_extern)
+                ):
+                    initializer = self.storage.type_of(declaration.initializer)
+                    if not self.types.declaration_is_plain(
+                        declared, initializer, initializer_managed=self.storage.is_managed_value_type(initializer)
+                    ):
+                        message = f"goto '{jump.name}' skips the declaration of '{name}' ({position}), which is not a plain C value; declare it before the goto or inside a nested block"
+                    else:
+                        start = index.reach_start(scope, direct[id(declaration)], label_index)
+                        if any(self._names_after_jump(statement, name) for statement in scope.statements[start:]):
+                            message = f"goto '{jump.name}' skips the declaration of '{name}' ({position}), which is used after the label; declare it before the goto"
+                if message is not None:
+                    self.session.error(message, jump.line, jump.col)
+                    break
+
     def _analyze_stmt(self, stmt):
         if isinstance(stmt, GotoStmt):
             self.flow.validate_goto(stmt)
         elif isinstance(stmt, LabelStmt):
             if self.declarations.validate_name(stmt.name, "Label", stmt.line, stmt.col, c_name_generated=True):
-                self.flow.validate_label_identity(stmt)
+                if self.flow.validate_label_identity(stmt):
+                    self._validate_jump_declarations(stmt)
         elif isinstance(stmt, VarDeclStmt):
             self._analyze_var_decl(stmt)
         elif isinstance(stmt, ReturnStmt):

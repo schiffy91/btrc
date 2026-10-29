@@ -247,10 +247,12 @@ class ControlFlowAnalyzer:
         self._class_roots: dict[str, SymbolInfo] = {}
         self._jump_roots: list[Block] = []
         self._jump_indexes: dict[int, JumpScopeIndex] = {}
+        self._valid_gotos: set[int] = set()
 
     def reset_jump_scopes(self) -> None:
         self._jump_roots.clear()
         self._jump_indexes.clear()
+        self._valid_gotos.clear()
 
     @contextmanager
     def callable_jump_scope(self, body):
@@ -308,8 +310,19 @@ class ControlFlowAnalyzer:
                     message = f"goto '{jump.name}' cannot jump into a nested block; jump only to a label in the same block or an enclosing one"
         if message is not None:
             self.session.error(message, jump.line, jump.col)
+        else:
+            self._valid_gotos.add(id(jump))
 
-    def validate_label_identity(self, label: LabelStmt) -> None:
+    def valid_forward_gotos(self, label: LabelStmt) -> list[JumpSite]:
+        index = self.jump_index()
+        target = index.sites[id(label)]
+        return [
+            site
+            for site in index.gotos
+            if id(site.node) in self._valid_gotos and site.node.name == label.name and site.ordinal < target.ordinal
+        ]
+
+    def validate_label_identity(self, label: LabelStmt) -> bool:
         self.mark_jump_body()
         first = self.jump_index().labels[label.name].node
         if first is not label:
@@ -318,6 +331,8 @@ class ControlFlowAnalyzer:
                 label.line,
                 label.col,
             )
+            return False
+        return True
 
     def compute_nonreturning_callables(self, program) -> None:
         """Find every function and method that cannot return to its caller.

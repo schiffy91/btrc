@@ -302,6 +302,7 @@ class ControlFlowValidator {
 	public NullableFlow flow;
 	private Vector<Node> jumpRoots = [];
 	private Map<string, JumpScopeIndex> jumpIndexes = {};
+	private Map<string, Node> jumpInitializers = {};
 
 	private JumpScopeIndex jumpIndex(Node root) {
 		string key = AstIdentity.key(root);
@@ -348,7 +349,7 @@ class ControlFlowValidator {
 		if (entered.len > 0) { TypeValidator.fail(f"goto '{jump.name}' cannot jump into a nested block; jump only to a label in the same block or an enclosing one", jump); }
 	}
 
-	private void validateLabelIdentity(Node label) {
+	private void validateLabelIdentity(Node label, Map<string, Node> vars) {
 		Node root = self.jumpRoots.get(self.jumpRoots.len - 1);
 		self.state.analyzed.recordJumpBody(root);
 		if (self.state.analyzed.sourceMacros != null && self.state.analyzed.sourceMacros.declared(label.name)) {
@@ -357,6 +358,52 @@ class ControlFlowValidator {
 		self.names.validateDeclaredNameContext(label.name, "Label", label, true);
 		Node first = self.jumpIndex(root).labels.get(label.name).node;
 		if (first != label) { TypeValidator.fail(f"Duplicate label '{label.name}' in this function (first at {first.line}:{first.col})", label); }
+		self.validateJumpDeclarations(label, self.jumpIndex(root), vars);
+	}
+
+	class bool namesAfterJump(Node node, string name) {
+		for child in AstStructure.preorder(node) {
+			if (child.kind == NK_IDENTIFIER && child.name == name) { return true; }
+		}
+		return false;
+	}
+
+	private void validateJumpDeclarations(Node label, JumpScopeIndex index, Map<string, Node> vars) {
+		JumpSite destination = index.sites.get(AstIdentity.key(label));
+		for site in index.gotos {
+			Node jump = site.node;
+			if (jump.name != label.name || site.ordinal >= destination.ordinal) { continue; }
+			JumpEnclosure? enclosing = index.enclosing(jump);
+			if (enclosing == null) { continue; }
+			Vector<Node> statements = enclosing.scope.statements();
+			for declaration in index.enteredDeclarations(jump) {
+				int direct = -1;
+				int position = 0;
+				while (position < statements.len) {
+					if (statements.get(position) == declaration) { direct = position; break; }
+					position = position + 1;
+				}
+				Node? declared = declaration.type;
+				if (direct >= 0 && vars.has(declaration.name)) { declared = vars.get(declaration.name); }
+				declared = self.types.resolveAliases(declared);
+				if (self.types.variablyModified(declared)) {
+					TypeValidator.fail(f"goto '{jump.name}' jumps into the scope of variable-length array '{declaration.name}' declared at {declaration.line}:{declaration.col}", jump);
+				}
+				if (direct < 0 || declared == null || declared.isStatic || declared.isExtern) { continue; }
+				string key = AstIdentity.key(declaration);
+				Node? initializer = self.jumpInitializers.has(key) ? self.jumpInitializers.get(key) : null;
+				if (!self.types.plainDeclaration(declared, initializer, self.ownership.managedOwnershipType(initializer))) {
+					TypeValidator.fail(f"goto '{jump.name}' skips the declaration of '{declaration.name}' ({declaration.line}:{declaration.col}), which is not a plain C value; declare it before the goto or inside a nested block", jump);
+				}
+				int start = index.reachStart(enclosing.scope, direct, enclosing.end);
+				while (start < statements.len) {
+					if (ControlFlowValidator.namesAfterJump(statements.get(start), declaration.name)) {
+						TypeValidator.fail(f"goto '{jump.name}' skips the declaration of '{declaration.name}' ({declaration.line}:{declaration.col}), which is used after the label; declare it before the goto", jump);
+					}
+					start = start + 1;
+				}
+			}
+		}
 	}
 
 	public ControlFlowValidator(SemanticValidationState state, OperatorSemantics operators, TypeValidator types, ConstantValidator constants, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, ExpressionValidator expressions, NullableFlow flow) {
@@ -1052,6 +1099,11 @@ class ControlFlowValidator {
 		}
 		self.flow.expression(declaration.initializer, vars);
 		if (declaration.type != null) { self.flow.checkStore(declaration.type, declaration.initializer, "variable '" + declaration.name + "'", vars); }
+		/* Keep the initializer's type at its declaration point. A later
+         * binding may shadow a name the initializer read. */
+		if (actual != null && self.jumpRoots.len > 0 && self.jumpIndexes.has(AstIdentity.key(self.jumpRoots.get(self.jumpRoots.len - 1)))) {
+			self.jumpInitializers.put(AstIdentity.key(declaration), actual);
+		}
 		vars.put(declaration.name, declared);
 		self.state.borrowedBindings.remove(declaration.name);
 		if (self.state.owner != "") {
@@ -1227,7 +1279,7 @@ class ControlFlowValidator {
 		if (statement.kind == NK_GOTO_STMT) {
 			self.validateGoto(statement);
 		} else if (statement.kind == NK_LABEL_STMT) {
-			self.validateLabelIdentity(statement);
+			self.validateLabelIdentity(statement, vars);
 		} else if (statement.kind == NK_VAR_DECL_STMT) {
 			self.validateVariable(statement,  vars);
 		} else if (statement.kind == NK_RETURN_STMT) {
