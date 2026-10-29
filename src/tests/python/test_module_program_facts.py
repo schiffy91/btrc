@@ -102,7 +102,7 @@ def _selfhost(driver, main, prefix, records=None):
     return json.loads(response.stdout)
 
 
-def _run_units(directory, primary, units):
+def _run_units(directory, primary, units, *, expected_exit=0):
     directory.mkdir()
     sources = []
     for index, text in enumerate([primary, *units]):
@@ -130,7 +130,7 @@ def _run_units(directory, primary, units):
     )
     assert compiled.returncode == 0, compiled.stderr
     ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
-    assert (ran.returncode, ran.stdout, ran.stderr) == (0, "", "")
+    assert (ran.returncode, ran.stdout, ran.stderr) == (expected_exit, "", "")
 
 
 @pytest.mark.parametrize("shared, group_count", SHARED_PROGRAMS)
@@ -161,6 +161,67 @@ def test_production_module_keys_and_entries_exchange(tmp_path, monkeypatch, modu
     from_selfhost, _ = _reference(main, tmp_path / "from-selfhost", selfhost["records"])
     assert len(from_selfhost.module_units_reused) == group_count and not from_selfhost.module_units_lowered
     assert from_selfhost.c_units == reference.c_units
+
+
+@pytest.mark.parametrize("producer", ["python", "btrc"])
+@pytest.mark.parametrize("consumer", ["python", "btrc"])
+@pytest.mark.parametrize("edit", ["body", "default-argument"])
+def test_module_edits_invalidate_shared_cache_dependencies(
+    tmp_path, monkeypatch, module_record_driver, producer, consumer, edit
+):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    main = tmp_path / "Main.btrc"
+    main.write_text('import "Middle.btrc";\nimport "Other.btrc";\nint main() { return answer() + stable(); }\n')
+    leaf = tmp_path / "Leaf.btrc"
+    original = "int adjusted(int value = 3) { return value + 1; }\n"
+    leaf.write_text(original)
+    (tmp_path / "Middle.btrc").write_text('import "Leaf.btrc";\nint answer() { return adjusted(); }\n')
+    (tmp_path / "Other.btrc").write_text("int stable() { return 7; }\n")
+
+    def build(frontend, name, records=None):
+        if frontend == "btrc":
+            return _selfhost(module_record_driver, main, tmp_path / name, records)
+        result, stored = _reference(main, tmp_path / name, records)
+        return {
+            "output": result.c_source,
+            "units": result.c_units,
+            "records": stored,
+            "lowered": len(result.module_units_lowered),
+            "reused": len(result.module_units_reused),
+        }
+
+    cold = build(producer, "cold")
+    assert (cold["lowered"], cold["reused"]) == (4, 0)
+    _run_units(tmp_path / "cold-run", cold["output"], cold["units"], expected_exit=11)
+    warm = build(consumer, "warm", cold["records"])
+    assert (warm["lowered"], warm["reused"]) == (0, 4)
+    assert _modules(warm["records"]) == _modules(cold["records"])
+
+    if edit == "body":
+        leaf.write_text(original.replace("value + 1", "value + 2"))
+        affected = {str(leaf)}
+    else:
+        leaf.write_text(original.replace("value = 3", "value = 4"))
+        affected = {str(leaf), str(main), str(tmp_path / "Middle.btrc")}
+    changed = build(consumer, "changed", warm["records"])
+    assert (changed["lowered"], changed["reused"]) == (len(affected), 4 - len(affected))
+    new_records = {
+        key: payload for key, payload in _modules(changed["records"]).items() if payload != cold["records"].get(key)
+    }
+    assert {payload[0].splitlines()[1].removeprefix("group\t") for payload in new_records.values()} == affected
+    _run_units(tmp_path / "changed-run", changed["output"], changed["units"], expected_exit=12)
+
+    fresh = build(consumer, "fresh")
+    assert (fresh["lowered"], fresh["reused"]) == (4, 0)
+    assert (changed["output"], changed["units"]) == (fresh["output"], fresh["units"])
+    assert _modules(changed["records"]) == {**_modules(cold["records"]), **_modules(fresh["records"])}
+    # Returning to the original source reuses its content-addressed entries,
+    # including entries written by the other frontend before the edit.
+    leaf.write_text(original)
+    reverted = build(consumer, "reverted", changed["records"])
+    assert (reverted["lowered"], reverted["reused"]) == (0, 4)
+    assert (reverted["output"], reverted["units"]) == (warm["output"], warm["units"])
+    _run_units(tmp_path / "reverted-run", reverted["output"], reverted["units"], expected_exit=11)
 
 
 GENERIC_PROGRAMS = [
