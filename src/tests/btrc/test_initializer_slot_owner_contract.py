@@ -29,9 +29,11 @@ OWNER = "the initializer-slot owner itself"
 
 BTRC_ALLOWED = {
     "analyzer/Types.btrc::planInitializerSlots": OWNER,
+    "analyzer/validation/Types.btrc::plainCObjectVisiting": "walks type array extents and record field types independently; no initializer elements",
 }
 PYTHON_ALLOWED = {
     "analyzer/types.py::TypeSystem.plan_initializer_slots": OWNER,
+    "analyzer/types.py::TypeSystem.is_plain_c_object": "walks type array extents and record field types independently; no initializer elements",
     "ir/lowering/exceptions.py::PointerFlow._expression": "walks IRInitializerList.elements and IRCompoundLiteral.fields, lowered IR",
 }
 
