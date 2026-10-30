@@ -5469,6 +5469,210 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         source_visible=True,
         realtime_effect='blocking',
     ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_types',
+        c_source=(
+            '/* Private daemon files retain verified ancestry and current-user ACLs.\n'
+            ' * The opaque owner holds native handles; no SDK type escapes this inter'
+            'face.\n * Paths/names are strict UTF-8 byte spans. Buffers are borrowed o'
+            'nly during\n * synchronous calls. A failed acquisition can retain a poiso'
+            'ned output owner\n * when native cleanup is uncertain; never discard or r'
+            'etry that owner. */\ntypedef struct __btrc_windows_daemon_file_owner __bt'
+            'rc_windows_daemon_file_owner;\ntypedef struct {\n    uint32_t present, kin'
+            'd; /* kind: regular=0, directory=1, surrogate=2, other=3 */\n    uint64_t'
+            ' volume;\n    unsigned char file_id[16];\n} __btrc_windows_daemon_director'
+            'y_entry;\nenum {\n    BTRC_WOS_CONTROL_READ = 0,\n    BTRC_WOS_CONTROL_CREA'
+            'TE = 1,\n    BTRC_WOS_CONTROL_REMOVE = 2\n};'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=('__btrc_windows_daemon_file_owner', '__btrc_windows_daemon_directory_entry'),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_directory_open',
+        c_source=(
+            'int __btrc_windows_daemon_directory_open(const unsigned char *path, size'
+            '_t size,\n    uint32_t create, __btrc_windows_daemon_file_owner **out, __'
+            'btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_directory_path',
+        c_source=(
+            'int __btrc_windows_daemon_directory_path(__btrc_windows_daemon_file_owne'
+            'r *directory,\n    unsigned char *buffer, size_t capacity, size_t *requir'
+            'ed_bytes,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_directory_next',
+        c_source=(
+            'int __btrc_windows_daemon_directory_next(__btrc_windows_daemon_file_owne'
+            'r *directory, uint32_t restart,\n    unsigned char *buffer, size_t capaci'
+            'ty, size_t *required_bytes,\n    __btrc_windows_daemon_directory_entry *e'
+            'ntry, __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_control_open',
+        c_source=(
+            'int __btrc_windows_daemon_control_open(const unsigned char *path, size_t'
+            ' size,\n    uint32_t access, __btrc_windows_daemon_file_owner **out, __bt'
+            'rc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_control_open_at',
+        c_source=(
+            'int __btrc_windows_daemon_control_open_at(__btrc_windows_daemon_file_own'
+            'er *directory,\n    const unsigned char *name, size_t size, uint32_t acce'
+            'ss,\n    const __btrc_windows_daemon_directory_entry *expected,\n    __btr'
+            'c_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error)'
+            ';'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_read',
+        c_source=(
+            'int __btrc_windows_daemon_file_read(__btrc_windows_daemon_file_owner *fi'
+            'le, uint64_t offset,\n    unsigned char *buffer, size_t capacity, size_t '
+            '*transferred,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_write',
+        c_source=(
+            'int __btrc_windows_daemon_file_write(__btrc_windows_daemon_file_owner *f'
+            'ile, uint64_t offset,\n    const unsigned char *buffer, size_t size, size'
+            '_t *transferred,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_flush',
+        c_source=(
+            'int __btrc_windows_daemon_file_flush(__btrc_windows_daemon_file_owner *f'
+            'ile,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_dispose',
+        c_source=(
+            'int __btrc_windows_daemon_file_dispose(__btrc_windows_daemon_file_owner '
+            '*file, uint32_t *state,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_log_open',
+        c_source=(
+            'int __btrc_windows_daemon_log_open(const unsigned char *path, size_t siz'
+            'e,\n    __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_err'
+            'or_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_record_open',
+        c_source=(
+            'int __btrc_windows_daemon_record_open(const unsigned char *path, size_t '
+            'size,\n    const unsigned char token[16], uint32_t supervisor_pid,\n    __'
+            'btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *err'
+            'or);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_close',
+        c_source=(
+            'int __btrc_windows_daemon_file_close(__btrc_windows_daemon_file_owner **'
+            'file,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
 )
 
 INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (

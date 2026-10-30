@@ -82,6 +82,8 @@ class GeneratedRuntimeCatalogData {
 		self.pushRows26();
 		self.pushRows27();
 		self.pushRows28();
+		self.pushRows29();
+		self.pushRows30();
 		self.intrinsicEffects = [];
 		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "compareExchangeStrong", "safe", "atomic_compare_exchange_strong_explicit", "Atomic.compareExchangeStrong"));
 		self.intrinsicEffects.push(GeneratedIntrinsicEffectRow("Atomic", "exchange", "safe", "atomic_exchange_explicit", "Atomic.exchange"));
@@ -3027,6 +3029,168 @@ class GeneratedRuntimeCatalogData {
 			"/* Strings/token are copied for this call. Daemon policy fixes stdio: command\n * input/output options do not create extra mappings. One positive finite\n * budget covers snapshot, launch, handshake, record verification and cleanup.\n * State 2 never authorizes an automatic retry; the controller reconciles the\n * token-bound record and liveness separately. Pending cleanup stays reachable\n * through image; image_close never terminates after COMMIT was attempted. */\nint __btrc_windows_supervisor_transfer(const __btrc_windows_image_owner *image,\n    const __btrc_windows_daemon_startup *startup, const unsigned char token[16],\n    uint64_t startup_timeout_ms, __btrc_windows_transfer_result *result,\n    __btrc_windows_launch_error_t *error);",
 		],
 			["__btrc_windows_supervisor_image_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_file_types",
+			[
+			"/* Private daemon files retain verified ancestry and current-user ACLs.\n * The opaque owner holds native handles; no SDK type escapes this interface.\n * Paths/names are strict UTF-8 byte spans. Buffers are borrowed only during\n * synchronous calls. A failed acquisition can retain a poisoned output owner\n * when native cleanup is uncertain; never discard or retry that owner. */\ntypedef struct __btrc_windows_daemon_file_owner __btrc_windows_daemon_file_owner;\ntypedef struct {\n    uint32_t present, kind; /* kind: regular=0, directory=1, surrogate=2, other=3 */\n    uint64_t volume;\n    unsigned char file_id[16];\n} __btrc_windows_daemon_directory_entry;\nenum {\n    BTRC_WOS_CONTROL_READ = 0,\n    BTRC_WOS_CONTROL_CREATE = 1,\n    BTRC_WOS_CONTROL_REMOVE = 2\n};",
+		],
+			["__btrc_windows_launch_types"],
+			self.emptyStrings(),
+			["__btrc_windows_daemon_file_owner", "__btrc_windows_daemon_directory_entry"],
+			self.emptyStrings(),
+			false,
+			"unknown"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_directory_open",
+			[
+			"int __btrc_windows_daemon_directory_open(const unsigned char *path, size_t size,\n    uint32_t create, __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+	}
+
+	private void pushRows29() {
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_directory_path",
+			[
+			"int __btrc_windows_daemon_directory_path(__btrc_windows_daemon_file_owner *directory,\n    unsigned char *buffer, size_t capacity, size_t *required_bytes,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_directory_next",
+			[
+			"int __btrc_windows_daemon_directory_next(__btrc_windows_daemon_file_owner *directory, uint32_t restart,\n    unsigned char *buffer, size_t capacity, size_t *required_bytes,\n    __btrc_windows_daemon_directory_entry *entry, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_control_open",
+			[
+			"int __btrc_windows_daemon_control_open(const unsigned char *path, size_t size,\n    uint32_t access, __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_control_open_at",
+			[
+			"int __btrc_windows_daemon_control_open_at(__btrc_windows_daemon_file_owner *directory,\n    const unsigned char *name, size_t size, uint32_t access,\n    const __btrc_windows_daemon_directory_entry *expected,\n    __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_file_read",
+			[
+			"int __btrc_windows_daemon_file_read(__btrc_windows_daemon_file_owner *file, uint64_t offset,\n    unsigned char *buffer, size_t capacity, size_t *transferred,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_file_write",
+			[
+			"int __btrc_windows_daemon_file_write(__btrc_windows_daemon_file_owner *file, uint64_t offset,\n    const unsigned char *buffer, size_t size, size_t *transferred,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_file_flush",
+			[
+			"int __btrc_windows_daemon_file_flush(__btrc_windows_daemon_file_owner *file,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_file_dispose",
+			[
+			"int __btrc_windows_daemon_file_dispose(__btrc_windows_daemon_file_owner *file, uint32_t *state,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+	}
+
+	private void pushRows30() {
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_log_open",
+			[
+			"int __btrc_windows_daemon_log_open(const unsigned char *path, size_t size,\n    __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_record_open",
+			[
+			"int __btrc_windows_daemon_record_open(const unsigned char *path, size_t size,\n    const unsigned char token[16], uint32_t supervisor_pid,\n    __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_file_close",
+			[
+			"int __btrc_windows_daemon_file_close(__btrc_windows_daemon_file_owner **file,\n    __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
 			self.emptyStrings(),
 			self.emptyStrings(),
 			self.emptyStrings(),
