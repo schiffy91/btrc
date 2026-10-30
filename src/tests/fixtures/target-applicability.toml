@@ -53,6 +53,7 @@ cites = "docs/design/platform-inventory.toml#corpus.gpu"
 paths = [
     "stdlib/ChildProcess*.btrc",
     "stdlib/Daemon.btrc",
+    "stdlib/DaemonPosix.btrc",
     "stdlib/HttpClientLocal.btrc",
     "stdlib/HttpFramingSafety.btrc",
     "stdlib/Process.btrc",
@@ -110,20 +111,12 @@ reason = "the program provokes a short write by lowering RLIMIT_FSIZE with setrl
 cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
 
 [[programs]]
-paths = ["stdlib/Daemon.btrc"]
-targets = ["windows-x86_64"]
-status = "missing"
+paths = ["stdlib/DaemonPosix.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
 scope = "build"
-reason = "DaemonControlFiles checks uid_t ownership and the supervisor is a /bin/sh script; the native Windows supervisor is CX-P2-08 (platform adaptations, Windows row 4)"
-cites = "corpus.stdlib@windows-x64"
-
-[[programs]]
-paths = ["stdlib/Daemon.btrc"]
-targets = ["windows-aarch64"]
-status = "missing"
-scope = "build"
-reason = "DaemonControlFiles checks uid_t ownership and the supervisor is a /bin/sh script; the native Windows supervisor is CX-P2-08 (platform adaptations, Windows row 4)"
-cites = "corpus.stdlib@windows-arm64"
+reason = "POSIX shell rendering, Unix permission bits, signal suspension and process-group termination; portable Daemon lifecycle, restart, protected records and companion image checks run in stdlib/Daemon.btrc"
+cites = "docs/design/windows-os-services.md#daemon-supervisor--row-4"
 
 # Library.HTTP's HTTPSocket has its Winsock provider (CX-P2-10 step 1), so
 # HTTPServer and the codecs build and run on both Windows rows. What stays out
