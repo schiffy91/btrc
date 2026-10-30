@@ -35,9 +35,10 @@ class RuntimeHelperCatalog {
 			}
 			self.indices.put(row.name, index);
 
+			var providedTypes = row.providedTypes;
 			int typeIndex = 0;
-			while (typeIndex < row.providedTypes.len) {
-				string providedType = row.providedTypes.get(typeIndex);
+			while (providedTypes != null && typeIndex < providedTypes.len) {
+				string providedType = providedTypes.get(typeIndex);
 				if (self.typeProviders.has(providedType)) {
 					fprintf(stderr, "internal compiler error: runtime type '%s' is provided by both '%s' and '%s'\n", providedType, self.typeProviders.get(providedType), row.name);
 					exit(1);
@@ -46,9 +47,10 @@ class RuntimeHelperCatalog {
 				typeIndex = typeIndex + 1;
 			}
 
+			var providedObjects = row.providedObjects;
 			int objectIndex = 0;
-			while (objectIndex < row.providedObjects.len) {
-				string providedObject = row.providedObjects.get(objectIndex);
+			while (providedObjects != null && objectIndex < providedObjects.len) {
+				string providedObject = providedObjects.get(objectIndex);
 				if (self.objectProviders.has(providedObject)) {
 					fprintf(stderr, "internal compiler error: runtime object '%s' is provided by both '%s' and '%s'\n", providedObject, self.objectProviders.get(providedObject), row.name);
 					exit(1);
@@ -137,8 +139,9 @@ class RuntimeHelperCatalog {
 		return self.objectProviders.get(objectName);
 	}
 
-	private Vector<string> copyStrings(Vector<string> values) {
+	private Vector<string> copyStrings(Vector<string>? values) {
 		Vector<string> copy = [];
+		if (values == null) { return copy; }
 		int index = 0;
 		while (index < values.len) {
 			copy.push(values.get(index));

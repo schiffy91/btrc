@@ -43,7 +43,7 @@ def _strict_compile(source: Path, output: Path, compiler: str) -> None:
     assert compiled.returncode == 0, compiled.stderr
 
 
-def _strict_build_and_run(source: Path, output: Path, compiler: str) -> None:
+def _strict_build_and_run(source: Path, output: Path, compiler: str) -> str:
     compiled = subprocess.run(
         [
             compiler,
@@ -72,6 +72,7 @@ def _strict_build_and_run(source: Path, output: Path, compiler: str) -> None:
         timeout=30,
     )
     assert executed.returncode == 0, executed.stderr
+    return executed.stdout
 
 
 def test_runtime_catalog_owns_generated_provider_indexes() -> None:
@@ -291,3 +292,55 @@ def test_dead_runtime_object_reference_does_not_pin_catalog_provider(
             tmp_path / f"dead-object-{Path(compiler).name}.o",
             compiler,
         )
+
+
+def test_generated_runtime_metadata_and_sources_match_manifest(semantic_btrcc, tmp_path):
+    from tools.compiler_codegen.runtime import RuntimeManifest
+
+    generated = json.dumps(str(SELFHOST / "generated/runtime/Catalog.btrc"))
+    catalog = json.dumps(str(SELFHOST / "ir/runtime/Catalog.btrc"))
+    source = f"""
+        import Library.Vector;
+        import {generated};
+        import {catalog};
+        #include <assert.h>
+        #include <stdio.h>
+
+        void writeValues(Vector<string>? values) {{
+            if (values == null) {{ printf("-1\\n"); return; }}
+            printf("%d\\n", values.len);
+            for value in values {{ printf("%s\\n", value); }}
+        }}
+        int main() {{
+            var data = GeneratedRuntimeCatalogData();
+            var providers = RuntimeHelperCatalog(data.rows, data.intrinsicEffects);
+            for row in data.rows {{
+                printf("%s\\n", row.name);
+                writeValues(row.dependencies); writeValues(row.headers);
+                writeValues(row.providedTypes); writeValues(row.providedObjects);
+                writeValues(providers.dependencies(row.name));
+                var headers = providers.headers(row.name);
+                writeValues(headers);
+                int length = headers.len;
+                headers.push("private-copy");
+                assert(providers.headers(row.name).len == length);
+                printf("%s\\n", providers.source(row.name));
+            }}
+            return 0;
+        }}
+    """
+    result, emitted = compile_source(semantic_btrcc, tmp_path, source, no_stdlib=False)
+    assert result.returncode == 0, result.stderr
+    executable = tmp_path / "runtime-metadata"
+    actual = _strict_build_and_run(emitted, executable, HOST_C_COMPILERS[0])
+    expected = []
+    for row in RuntimeManifest.load(REPO / "src/runtime/c/manifest.toml").helpers_for("btrc"):
+        expected.append(row.name)
+        for values in (row.dependencies, row.headers, row.provided_types, row.provided_objects):
+            expected.append(str(len(values) if values else -1))
+            expected.extend(values)
+        for values in (row.dependencies, row.headers):
+            expected.append(str(len(values)))
+            expected.extend(values)
+        expected.append(row.source)
+    assert actual == "\n".join(expected) + "\n"

@@ -791,10 +791,10 @@ class RuntimeCatalogGenerator:
             "    public string category;",
             "    public string name;",
             "    public Vector<string> sourceChunks;",
-            "    public Vector<string> dependencies;",
-            "    public Vector<string> headers;",
-            "    public Vector<string> providedTypes;",
-            "    public Vector<string> providedObjects;",
+            "    public Vector<string>? dependencies;",
+            "    public Vector<string>? headers;",
+            "    public Vector<string>? providedTypes;",
+            "    public Vector<string>? providedObjects;",
             "    public bool sourceVisible;",
             "    public string realtimeEffect;",
             "",
@@ -802,10 +802,10 @@ class RuntimeCatalogGenerator:
             "            string category,",
             "            string name,",
             "            Vector<string> sourceChunks,",
-            "            Vector<string> dependencies,",
-            "            Vector<string> headers,",
-            "            Vector<string> providedTypes,",
-            "            Vector<string> providedObjects,",
+            "            Vector<string>? dependencies,",
+            "            Vector<string>? headers,",
+            "            Vector<string>? providedTypes,",
+            "            Vector<string>? providedObjects,",
             "            bool sourceVisible,",
             "            string realtimeEffect) {",
             "        self.category = category;",
@@ -841,11 +841,6 @@ class RuntimeCatalogGenerator:
             "class GeneratedRuntimeCatalogData {",
             "    public Vector<GeneratedRuntimeHelperRow> rows;",
             "    public Vector<GeneratedIntrinsicEffectRow> intrinsicEffects;",
-            "",
-            "    private Vector<string> emptyStrings() {",
-            "        Vector<string> values = [];",
-            "        return values;",
-            "    }",
             "",
             "    public GeneratedRuntimeCatalogData() {",
             "        self.rows = [];",
@@ -934,5 +929,5 @@ class RuntimeCatalogGenerator:
     @classmethod
     def _btrc_vector(cls, values: tuple[str, ...]) -> str:
         if not values:
-            return "self.emptyStrings()"
+            return "null"
         return "[" + ", ".join(GeneratedSourceStyle.btrc_string(value) for value in values) + "]"
