@@ -152,6 +152,23 @@ static void census_dump(HANDLE output, const char *label, DWORD before, DWORD af
     }
 }
 
+/* Observe completed fixture phases without changing the whole-test baseline.
+ * Object types distinguish a retained file/token from native API initialization;
+ * no type or handle is excluded from the final equality check. */
+static void census_checkpoint(const char *label, DWORD *previous_count,
+        census_snapshot *previous, int *previous_valid) {
+    DWORD current_count = 0;
+    census_snapshot current;
+    int current_valid = GetProcessHandleCount(GetCurrentProcess(), &current_count)
+        && census_take(&current) == 0;
+    if (current_count != *previous_count || !current_valid || !*previous_valid)
+        census_dump(GetStdHandle(STD_ERROR_HANDLE), label, *previous_count, current_count,
+            previous, &current, current_valid && *previous_valid);
+    *previous_count = current_count;
+    if (current_valid) *previous = current;
+    *previous_valid = current_valid;
+}
+
 #define CHECK(name, condition)                                                  \
     do {                                                                        \
         checks++;                                                               \
@@ -2106,6 +2123,9 @@ static void check_daemon_directory_entries(const wchar_t *parent, void *descript
 static void check_daemon_files(void) {
     DWORD before = 0, after = 0;
     CHECK("daemon files initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
+    census_snapshot phase;
+    DWORD phase_count = before;
+    int phase_valid = census_take(&phase) == 0;
     wchar_t temporary[1024], directory[1200], moved[1220], log[1300], record[1300], alias[1300];
     DWORD length = GetTempPathW(1024, temporary);
     if (length == 0 || length >= 1024) fixture_failure(__func__, __LINE__, GetLastError());
@@ -2117,6 +2137,7 @@ static void check_daemon_files(void) {
     void *directory_descriptor = NULL, *file_descriptor = NULL;
     if (btrcWinPrivateDescriptor(1, &directory_descriptor) != 0
             || btrcWinPrivateDescriptor(0, &file_descriptor) != 0) fixture_failure(__func__, __LINE__, GetLastError());
+    census_checkpoint("daemon security descriptors", &phase_count, &phase, &phase_valid);
     SECURITY_ATTRIBUTES attributes = { sizeof(attributes), directory_descriptor, FALSE };
     char directory_utf8[5200], log_utf8[5200], record_utf8[5200];
     if (to_utf8(directory, directory_utf8, sizeof(directory_utf8)) != 0
@@ -2194,8 +2215,10 @@ static void check_daemon_files(void) {
             1, &held, &error) != 0 && held == NULL && error.ownership_state == 0);
     CHECK("refusal leaves existing directory in place", GetFileAttributesW(nested) != INVALID_FILE_ATTRIBUTES);
     CHECK("fixture removes unprotected directory", RemoveDirectoryW(nested));
+    census_checkpoint("daemon directories and ACL mutation", &phase_count, &phase, &phase_valid);
     check_directory_record_bounds(directory);
     check_daemon_directory_entries(directory, file_descriptor);
+    census_checkpoint("daemon directory enumeration", &phase_count, &phase, &phase_valid);
     CHECK("daemon log creates a private empty append file",
         __btrc_windows_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
     CHECK("held daemon directory cannot be renamed", !MoveFileW(directory, moved));
@@ -2211,6 +2234,7 @@ static void check_daemon_files(void) {
     CHECK("daemon log releases its ancestor holds", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     CHECK("directory rename works after close", MoveFileW(directory, moved));
     CHECK("fixture restores directory name", MoveFileW(moved, directory));
+    census_checkpoint("daemon logs and refusal", &phase_count, &phase, &phase_valid);
     __btrc_windows_daemon_file_owner *competing = NULL;
     size_t transferred = 99;
     uint32_t disposition = 99;
@@ -2278,6 +2302,7 @@ static void check_daemon_files(void) {
         SetNamedSecurityInfoW(record, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
             NULL, NULL, private_acl, NULL) == ERROR_SUCCESS);
     CHECK("control reader closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
+    census_checkpoint("daemon control I/O and ACL mutation", &phase_count, &phase, &phase_valid);
     CHECK("control removal opens the same protected object for inspection",
         __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
             BTRC_WOS_CONTROL_REMOVE, &held, &error) == 0 && held != NULL
@@ -2308,6 +2333,7 @@ static void check_daemon_files(void) {
     CHECK("fixture releases the old object", CloseHandle(retained_reader));
     CHECK("replacement survives old-object cleanup", read_text(record, contents, sizeof(contents)) == 0 && strcmp(contents, "replacement") == 0);
     CHECK("fixture removes replacement", DeleteFileW(record));
+    census_checkpoint("daemon held-object disposition", &phase_count, &phase, &phase_valid);
     unsigned char token[16]; memset(token, 0x12, sizeof(token));
     const char *valid = "btrc-daemon-v1\n12121212121212121212121212121212\n42\n";
     CHECK("daemon record fixture publishes protected bytes", daemon_fixture_file(record, valid, file_descriptor) == 0);
@@ -2347,6 +2373,7 @@ static void check_daemon_files(void) {
     CHECK("fixture removes record", DeleteFileW(record));
     CHECK("fixture removes private directory", RemoveDirectoryW(directory));
     free(directory_descriptor); free(file_descriptor);
+    census_checkpoint("daemon record authentication and refusals", &phase_count, &phase, &phase_valid);
     CHECK("daemon files final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
     CHECK("daemon file refusals release all handles", before == after);
 }
