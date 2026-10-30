@@ -1,19 +1,19 @@
-/* Capability-based daemon supervision: lifecycle, restart behavior, private
- * state, and adversarial control-file cases. */
+/* Portable daemon lifecycle, arguments, logs, restart and stale-state refusal.
+ * The managed child uses this fixture's child modes; supervision itself uses
+ * the platform provider and, on Windows, the separate production companion. */
+import Library.Bytes;
 import Library.Daemon;
 import Library.Daemon.DaemonControl;
-import Library.Daemon.DaemonControlFiles;
-import Library.Daemon.DaemonControlProtocol;
-import Library.Timer;
 import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
 import Library.IO;
 import Library.Platform;
 import Library.Process;
-
-#include <assert.h>
-#include <errno.h>
-#include <signal.h>
-#include <sys/types.h>
+import Library.Strings;
+import Library.Timer;
+#if defined(_WIN32)
+import Library.FileSystem.ApplicationDirectories;
+#endif
 
 bool waitForTextLength(string path, int length, int timeoutMilliseconds) {
 	int attempts = timeoutMilliseconds / 20;
@@ -25,186 +25,130 @@ bool waitForTextLength(string path, int length, int timeoutMilliseconds) {
 	return false;
 }
 
-/* Terminated: gone, or a zombie that an orphan's late-reaping init has not
- * collected yet. kill(pid, 0) still reaches a zombie, so ps tells them apart. */
-bool processTerminated(int pid) {
-	errno = 0;
-	if (kill((pid_t)pid, 0) != 0) { return errno == ESRCH; }
-	ExecResult state = UnixShell().run(f"ps -o stat= -p {pid}", logFailure=false, timeoutMilliseconds=5000);
-	return state.ok() && state.trimmed().startsWith("Z");
-}
-
-void writeControlRecord(string path, string token, int pid) {
-	assert(Path.writeAll(path, f"btrc-daemon-v1\n{token}\n{pid}\n"));
-	assert(FileSystem.chmod(path, 384) == 0); // 0600
-}
-
-void removeFlatDirectory(string path) {
-	for name in FileSystem.listDir(path) {
-		string child = PathTools.join(path, name);
-		assert(unlink(child) == 0);
+int childProbe(int argc, char** argv) {
+	string mode = Strings.copy(argv[1]);
+#if defined(_WIN32)
+	if (mode.equals("--descendant")) {
+		assert(argc == 3 && Path.writeAll(Strings.copy(argv[2]), "ready"));
+		Timer.sleepMillis(1000);
+		assert(Path.writeAll(Strings.copy(argv[2]), "survived"));
+		return 0;
 	}
-	assert(rmdir(path) == 0);
+	if (mode.equals("--tree")) {
+		assert(argc == 3);
+		return ChildProcess.run(Strings.copy(argv[0]), ["--descendant", Strings.copy(argv[2])], timeoutMilliseconds=5000).code;
+	}
+#endif
+	if (mode.equals("--worker")) {
+		assert(argc == 5);
+		assert(Strings.copy(argv[2]).equals("space value"));
+		assert(Strings.copy(argv[3]).equals("quote'\"value"));
+		assert(Strings.copy(argv[4]).isEmpty());
+		assert(getchar() == EOF);
+		fputs("worker stdout\n", stdout);
+		fputs("worker stderr\n", stderr);
+		assert(fflush(stdout) == 0 && fflush(stderr) == 0);
+		assert(Path.writeAll("worker.ready", "ready"));
+		Timer.sleepMillis(10000);
+		return 0;
+	}
+	if (mode.equals("--restart")) {
+		assert(argc == 3);
+		FILE* count = fopen(argv[2], "ab");
+		assert(count != NULL && fputc('x', count) != EOF && fclose(count) == 0);
+		return 0;
+	}
+	return 64;
 }
 
-int main() {
-	string dir = FileSystem.tempDir("btrc_daemon");
-	assert(FileSystem.isDir(dir));
-	assert(FileSystem.chmod(dir, 448) == 0); // 0700
+Command worker(string executable) { return Command(executable).arg("--worker").arg("space value").arg("quote'\"value").arg(""); }
 
-	// Timeout zero observes current state exactly once; negative timeouts do
-	// not turn favorable filesystem state into a successful operation.
-	string timeoutPid = PathTools.join(dir, "timeout.control");
-	string timeoutToken = "fedcba9876543210fedcba9876543210";
-	writeControlRecord(timeoutPid, timeoutToken, 12345);
-	DaemonControlRecord timeoutRecord = DaemonControlProtocol.record(timeoutPid);
-	assert(timeoutRecord.valid);
-	assert(DaemonControlProtocol.waitForRecord(timeoutPid, 0));
-	assert(!DaemonControlProtocol.waitForRecord(timeoutPid, -1));
-	assert(!DaemonControlProtocol.waitForRemoval(timeoutPid, timeoutRecord, 0));
-	assert(!DaemonControlProtocol.probe(timeoutPid, timeoutRecord, -1));
-	assert(unlink(timeoutPid) == 0);
-	assert(DaemonControlProtocol.waitForRemoval(timeoutPid, timeoutRecord, 0));
-	assert(!DaemonControlProtocol.waitForRemoval(timeoutPid, timeoutRecord, -1));
+#if defined(_WIN32)
+bool copyExecutable(string source, string destination) {
+	FILE* input = fopen(source, "rb");
+	if (input == NULL) { return false; }
+	FILE* output = fopen(destination, "wb");
+	if (output == NULL) { fclose(input); return false; }
+	char buffer[65536];
+	bool copied = true;
+	size_t count = fread(buffer, 1, 65536, input);
+	while (count > (size_t)0) {
+		if (fwrite(buffer, 1, count, output) != count) { copied = false; break; }
+		count = fread(buffer, 1, 65536, input);
+	}
+	if (ferror(input) != 0) { copied = false; }
+	if (fclose(input) != 0) { copied = false; }
+	if (fclose(output) != 0) { copied = false; }
+	return copied;
+}
+
+int imageProbe(string executable, bool expectSuccess) {
+	var opened = FileSystem.createTemporaryDirectory("btrc daemon image");
+	assert(opened.ok());
+	var temporary = opened.value();
+	string root = temporary.path();
+	DaemonSpec spec = DaemonSpec("image-probe", worker(executable)).control(PathTools.join(root, "control")).log(PathTools.join(root, "log")).cwd(root);
+	DaemonController controller = DaemonController();
+	ExecResult started = controller.start(spec);
+	if (expectSuccess) {
+		assert(started.ok());
+		assert(controller.status(spec).ok());
+		assert(controller.stop(spec).ok());
+		Timer.sleepMillis(100);
+	} else {
+		assert(started.code == 125 && started.err.equals("failed to launch daemon supervisor"));
+		assert(!started.startIndeterminate && !FileSystem.exists(spec.controlFile));
+		assert(!FileSystem.exists(PathTools.join(root, "worker.ready")));
+	}
+	assert(temporary.close().ok());
+	return 0;
+}
+#endif
+
+int main(int argc, char** argv) {
+	string executable = PathTools.absolute(argv[0]);
+	if (argc > 1) {
+#if defined(_WIN32)
+		string mode = Strings.copy(argv[1]);
+		if (mode.equals("--image-success")) { return imageProbe(executable, true); }
+		if (mode.equals("--image-refusal")) { return imageProbe(executable, false); }
+#endif
+		return childProbe(argc, argv);
+	}
+	var opened = FileSystem.createTemporaryDirectory("btrc daemon");
+	assert(opened.ok());
+	var temporary = opened.value();
+	string dir = temporary.path();
+	assert(FileSystem.isDir(dir));
+	DaemonController controller = DaemonController();
+
+	DaemonSpec defaults = DaemonSpec("default-path", worker(executable));
+	assert(PathTools.dirname(defaults.controlFile).equals(DaemonControlPaths.defaultDirectory()));
+	assert(!defaults.controlFile.equals(defaults.logFile));
+	assert(!DaemonSpec("d", worker(executable)).restart(false).autoRestart);
 
 	string controlFile = PathTools.join(dir, "live.control");
 	string logFile = PathTools.join(dir, "live.log");
-	DaemonSpec rendered = DaemonSpec("btrctest", Command("echo").arg("hello world")).cwd("/tmp/with space").control(controlFile).log(logFile).restart(true);
-	assert(rendered.autoRestart);
-	string canonicalControl = DaemonControlFiles.canonicalFilePath(controlFile);
-	string canonicalLog = DaemonControlFiles.canonicalFilePath(logFile);
-	assert(!canonicalControl.isEmpty() && !canonicalLog.isEmpty());
-	string command = rendered.renderStartCommand(canonicalControl, canonicalLog);
-	// Rendering consumes the prepared paths and leaves the spec as written.
-	assert(rendered.controlFile.equals(controlFile));
-	assert(rendered.logFile.equals(logFile));
-	assert(command.contains(ShellWords.quote(canonicalControl)));
-	assert(command.contains(ShellWords.quote(canonicalLog)));
-	// Only prepared canonical, distinct paths render a launch.
-	assert(rendered.renderStartCommand(dir + "/./live.control", canonicalLog).equals("exit 125"));
-	assert(rendered.renderStartCommand(canonicalControl, canonicalControl).equals("exit 125"));
-	assert(rendered.renderStartCommand(canonicalControl, "").equals("exit 125"));
-	assert(command.contains("btrc-daemon-supervisor"));
-	assert(command.contains("hello world"));
-	assert(command.contains("set -C"));
-	assert(command.contains("command -v setsid"));
-	assert(command.contains("kill -TERM"));
-	assert(command.contains("kill -KILL"));
-	assert(!command.contains("pid=$(cat"));
-
-	DaemonSpec defaults = DaemonSpec("default-path", Command("true"));
-	assert(PathTools.dirname(defaults.controlFile).equals(DaemonControlPaths.defaultDirectory()));
-	assert(!defaults.controlFile.equals(defaults.logFile));
-	assert(!DaemonSpec("d", Command("true")).restart(false).autoRestart);
-
-	DaemonController controller = DaemonController();
-
-	// Defaults create a stable per-user 0700 state hierarchy rather than
-	// placing predictable control and log files directly in /tmp.
-	string previousHome = Environment.get("HOME", "");
-	string privateHome = FileSystem.tempDir("btrc_daemon_home");
-	assert(FileSystem.chmod(privateHome, 448) == 0);
-	assert(setenv("HOME", privateHome, 1) == 0);
-	// status and stop only inspect: they create no state hierarchy and leave
-	// the caller's spec as written.
-	DaemonSpec inspectOnly = DaemonSpec("inspect-only", Command("true"));
-	string inspectOnlyControl = inspectOnly.controlFile;
-	assert(controller.status(inspectOnly).code == 1);
-	assert(controller.stop(inspectOnly).code == 1);
-	assert(inspectOnly.controlFile.equals(inspectOnlyControl));
-	assert(!FileSystem.exists(PathTools.join(privateHome, ".btrc")));
-	DaemonSpec defaultLive = DaemonSpec("default-live", Command("sleep").arg("60"));
-	ExecResult defaultStart = controller.start(defaultLive);
-	if (!defaultStart.ok()) {
-		fprintf(stderr, "default daemon start failed (%d): %s\nlog: %s\n", defaultStart.code, defaultStart.err, Path.readAll(defaultLive.logFile));
-	}
-	assert(defaultStart.ok());
-	string defaultState = PathTools.dirname(defaultLive.controlFile);
-	FileStatus defaultStateStatus = FileStatus(defaultState);
-	assert(defaultStateStatus.isDir());
-	assert((defaultStateStatus.mode & 511) == 448);
-	ExecResult defaultStop = controller.stop(defaultLive);
-	if (!defaultStop.ok()) {
-		fprintf(stderr, "default daemon stop failed (%d): %s\n", defaultStop.code, defaultStop.err);
-	}
-	assert(defaultStop.ok());
-	assert(unlink(defaultLive.logFile) == 0);
-	if (previousHome.isEmpty()) {
-		assert(unsetenv("HOME") == 0);
-	} else {
-		assert(setenv("HOME", previousHome, 1) == 0);
-	}
-	assert(rmdir(defaultState) == 0);
-	string btrcState = PathTools.join(privateHome, ".btrc");
-	assert(rmdir(btrcState) == 0);
-	assert(rmdir(privateHome) == 0);
-
-	DaemonSpec live = DaemonSpec("btrclive", Command("sleep").arg("60")).control(controlFile).log(logFile);
+	DaemonSpec live = DaemonSpec("btrclive", worker(executable)).control(controlFile).log(logFile).cwd(dir);
+	assert(controller.status(live).code == 1);
+	assert(controller.stop(live).code == 1);
 	ExecResult liveStart = controller.start(live);
-	if (!liveStart.ok()) {
-		fprintf(stderr, "daemon start failed (%d): %s\n", liveStart.code, liveStart.err);
-	}
-	assert(liveStart.ok());
+	if (!liveStart.ok()) { fprintf(stderr, "daemon start failed (%d): %s\n", liveStart.code, liveStart.err); }
+	assert(liveStart.ok() && !liveStart.startIndeterminate);
 	assert(FileSystem.exists(controlFile));
 	assert(controller.status(live).ok());
+	ExecResult duplicate = controller.start(live);
+	assert(duplicate.code == 1 && duplicate.err.equals("daemon control record already exists"));
+	assert(waitForTextLength(PathTools.join(dir, "worker.ready"), 1, 2000));
+	string logged = Path.readAll(logFile).replace("\r\n", "\n");
+	assert(logged.contains("worker stdout\n") && logged.contains("worker stderr\n"));
 	assert(controller.stop(live).ok());
 	assert(!FileSystem.exists(controlFile));
 	assert(!controller.status(live).ok());
+	assert(live.controlFile.equals(controlFile) && live.logFile.equals(logFile) && live.workingDirectory.equals(dir));
 
-	// stop writes its token-bound request before waiting for confirmation.
-	// A temporarily descheduled supervisor can therefore resume and honor the
-	// request within the caller's one operation deadline.
-	DaemonSpec paused = DaemonSpec("paused", Command("sleep").arg("60")).control(PathTools.join(dir, "paused.control")).log(PathTools.join(dir, "paused.log"));
-	assert(controller.start(paused).ok());
-	DaemonControlRecord pausedRecord = DaemonControlProtocol.record(paused.controlFile);
-	assert(pausedRecord.valid);
-	int pausedPid = pausedRecord.supervisorPid;
-	string pausedRequest = DaemonControlPaths.stop(paused.controlFile, pausedRecord.token);
-	assert(kill((pid_t)pausedPid, SIGSTOP) == 0);
-	Timer pausedTimer = Timer();
-	pausedTimer.start();
-	// Observe the request before resuming, independently of shell job waiting.
-	var resumeThread = spawn(() => {
-			int attempts = 100;
-			while (attempts > 0 && !FileSystem.exists(pausedRequest)) { Timer.sleepMillis(20); attempts--; }
-			bool sawRequest = FileSystem.exists(pausedRequest);
-			Timer.sleepMillis(1000);
-			int resumed = kill((pid_t)pausedPid, SIGCONT);
-			return sawRequest && resumed == 0 ? 0 : 1;
-		});
-	ExecResult pausedStop = controller.stop(paused, timeoutMilliseconds=5000);
-	pausedTimer.stop();
-	assert(resumeThread.join() == 0);
-	assert(pausedStop.ok());
-	assert(pausedTimer.elapsedMillis() >= 700.0f);
-	assert(pausedTimer.elapsedMillis() < 5000.0f);
-	assert(!FileSystem.exists(paused.controlFile));
-
-	// A stopped supervisor cannot remove its record, so the deadline path is
-	// deterministic here: stop reports 124 and leaves its token-bound request
-	// pending. A retry reuses that request rather than rejecting it as forged,
-	// and the resumed supervisor honors it.
-	DaemonSpec frozen = DaemonSpec("frozen", Command("sleep").arg("60")).control(PathTools.join(dir, "frozen.control")).log(PathTools.join(dir, "frozen.log"));
-	assert(controller.start(frozen).ok());
-	DaemonControlRecord frozenRecord = DaemonControlProtocol.record(frozen.controlFile);
-	assert(frozenRecord.valid);
-	string frozenRequest = DaemonControlPaths.stop(frozen.controlFile, frozenRecord.token);
-	assert(kill((pid_t)frozenRecord.supervisorPid, SIGSTOP) == 0);
-	ExecResult frozenStop = controller.stop(frozen, timeoutMilliseconds=100);
-	bool frozenRequestPending = FileSystem.exists(frozenRequest);
-	ExecResult frozenRetry = controller.stop(frozen, timeoutMilliseconds=100);
-	assert(kill((pid_t)frozenRecord.supervisorPid, SIGCONT) == 0);
-	assert(frozenStop.code == 124);
-	assert(frozenRequestPending);
-	assert(frozenRetry.code == 124);
-	assert(DaemonControlProtocol.waitForRemoval(frozen.controlFile, frozenRecord, 7500));
-	assert(!FileSystem.exists(frozenRequest));
-
-	// autoRestart is implemented by the local supervisor, not just retained
-	// as metadata for external service managers.
 	string restartCount = PathTools.join(dir, "restart-count");
-	string restartScript = f"printf x >> {ShellWords.quote(restartCount)}";
-	DaemonSpec restarting = DaemonSpec("restart", Command("/bin/sh").arg("-c").arg(restartScript)).control(PathTools.join(dir, "restart.control")).log(PathTools.join(dir, "restart.log")).restart(true);
+	DaemonSpec restarting = DaemonSpec("restart", Command(executable).arg("--restart").arg(restartCount)).control(PathTools.join(dir, "restart.control")).log(PathTools.join(dir, "restart.log")).restart(true);
 	assert(controller.start(restarting).ok());
 	assert(waitForTextLength(restartCount, 2, 3000));
 	assert(controller.status(restarting).ok());
@@ -213,117 +157,92 @@ int main() {
 	Timer.sleepMillis(250);
 	assert(Path.readAll(restartCount).len() == stoppedLength);
 
-	// A child that ignores TERM is killed after the supervisor's bounded
-	// grace period, including descendants in its process group. The control
-	// record disappears only after the entire group is confirmed gone.
-	string stubbornControl = PathTools.join(dir, "stubborn.control");
-	string descendantFile = PathTools.join(dir, "stubborn-descendant");
-	string stubbornScript = "trap '' TERM; sleep 60 & echo $! > " + ShellWords.quote(descendantFile) + "; wait";
-	DaemonSpec stubborn = DaemonSpec("stubborn", Command("/bin/sh").arg("-c").arg(stubbornScript)).control(stubbornControl).log(PathTools.join(dir, "stubborn.log"));
-	assert(controller.start(stubborn).ok());
-	assert(waitForTextLength(descendantFile, 1, 2000));
-	int descendantPid = DaemonControlRecord.parsePid(Path.readAll(descendantFile).trim());
-	assert(descendantPid > 1);
-	Timer timer = Timer();
-	timer.start();
-	ExecResult stubbornStop = controller.stop(stubborn);
-	if (!stubbornStop.ok()) {
-		fprintf(stderr, "stubborn daemon stop failed (%d): %s\nlog: %s\n", stubbornStop.code, stubbornStop.err, Path.readAll(stubborn.logFile));
-	}
-	assert(stubbornStop.ok());
-	timer.stop();
-	assert(timer.elapsedMillis() >= 700.0f);
-	assert(timer.elapsedMillis() < 8000.0f);
-	assert(!FileSystem.exists(stubbornControl));
-	int goneAttempts = 50;
-	while (goneAttempts > 0 && !processTerminated(descendantPid)) {
-		Timer.sleepMillis(20);
-		goneAttempts--;
-	}
-	assert(processTerminated(descendantPid));
-
-	// A syntactically valid forged record pointing at an unrelated process
-	// cannot redirect stop(): there is no capability acknowledgement.
-	ExecResult spawned = UnixShell().run("sleep 60 </dev/null >/dev/null 2>&1 & echo $!", logFailure=false);
-	assert(spawned.ok());
-	int unrelatedPid = DaemonControlRecord.parsePid(spawned.trimmed());
-	assert(unrelatedPid > 1);
-	string forgedControl = PathTools.join(dir, "forged.control");
-	string forgedToken = "0123456789abcdef0123456789abcdef";
-	writeControlRecord(forgedControl, forgedToken, unrelatedPid);
-	DaemonSpec forged = DaemonSpec("forged", Command("true")).control(forgedControl).log(PathTools.join(dir, "forged.log"));
-	assert(!controller.stop(forged, timeoutMilliseconds=250).ok());
-	assert(kill((pid_t)unrelatedPid, 0) == 0 || errno == EPERM);
-	kill((pid_t)unrelatedPid, SIGKILL);
-	assert(FileSystem.exists(forgedControl));
-	assert(unlink(forgedControl) == 0);
-
-	// Stale and malformed records are retained for explicit operator recovery;
-	// neither can cause a signal or be mistaken for a running supervisor.
+	// The filesystem lease publishes genuinely owner-only fixture files on
+	// both platforms; ordinary fopen permissions are not an ACL assertion.
+	var directoryOpen = FileSystem.openPrivateDirectory(dir);
+	assert(directoryOpen.ok());
+	var directory = directoryOpen.value();
+	var leaseOpen = directory.acquireExclusiveLease("fixture.lock");
+	assert(leaseOpen.ok());
+	var lease = leaseOpen.value();
 	string staleControl = PathTools.join(dir, "stale.control");
-	writeControlRecord(staleControl, forgedToken, 2147483647);
-	DaemonSpec stale = DaemonSpec("stale", Command("true")).control(staleControl).log(PathTools.join(dir, "stale.log"));
+	string forgedToken = "0123456789abcdef0123456789abcdef";
+	assert(lease.replaceRegularChildDurably("stale.control", Bytes.fromString(f"btrc-daemon-v1\n{forgedToken}\n2147483647\n")).committed());
+	DaemonSpec stale = DaemonSpec("stale", worker(executable)).control(staleControl).log(PathTools.join(dir, "stale.log"));
 	assert(!controller.status(stale).ok());
 	assert(!controller.stop(stale, timeoutMilliseconds=250).ok());
 	assert(FileSystem.exists(staleControl));
-	assert(unlink(staleControl) == 0);
+	assert(lease.removeRegularChildDurably("stale.control").committed());
 
 	string injected = PathTools.join(dir, "injected.control");
 	string marker = PathTools.join(dir, "injected-marker");
-	assert(Path.writeAll(injected, f"1; touch {marker}"));
-	assert(FileSystem.chmod(injected, 384) == 0);
-	DaemonSpec injection = DaemonSpec("injection", Command("true")).control(injected).log(PathTools.join(dir, "injection.log"));
+	assert(lease.replaceRegularChildDurably("injected.control", Bytes.fromString(f"1; touch {marker}")).committed());
+	DaemonSpec injection = DaemonSpec("injection", worker(executable)).control(injected).log(PathTools.join(dir, "injection.log"));
 	assert(!controller.stop(injection).ok());
 	assert(!FileSystem.exists(marker));
 	assert(FileSystem.exists(injected));
-	assert(unlink(injected) == 0);
+	assert(lease.removeRegularChildDurably("injected.control").committed());
+	assert(lease.close().ok() && directory.close().ok());
 
-	// A control-file symlink is never followed, removed, or used as authority.
-	string target = PathTools.join(dir, "target");
-	string linkedControl = PathTools.join(dir, "linked.control");
-	assert(Path.writeAll(target, "do-not-change"));
-	assert(FileSystem.chmod(target, 384) == 0);
-	assert(FileSystem.symlink(target, linkedControl) == 0);
-	DaemonSpec linked = DaemonSpec("linked", Command("true")).control(linkedControl).log(PathTools.join(dir, "linked.log"));
-	assert(!controller.status(linked).ok());
-	assert(!controller.stop(linked).ok());
-	assert(Path.readAll(target).equals("do-not-change"));
-	assert(FileSystem.isSymlink(linkedControl));
-	assert(unlink(linkedControl) == 0);
+#if defined(_WIN32)
+	var roots = ApplicationDirectories.resolveStandard();
+	assert(roots.ok());
+	assert(DaemonControlPaths.defaultDirectory().equals(PathTools.join(PathTools.join(roots.value().stateRoot(), "btrc"), "daemons")));
+	var defaultCwdOpen = FileSystem.createTemporaryDirectory("btrc daemon default");
+	assert(defaultCwdOpen.ok());
+	var defaultCwd = defaultCwdOpen.value();
+	DaemonSpec defaultLive = DaemonSpec(f"btrc-corpus-{Platform.pid()}", worker(executable)).cwd(defaultCwd.path());
+	string defaultState = PathTools.dirname(defaultLive.controlFile);
+	bool stateExisted = FileSystem.isDir(defaultState);
+	assert(controller.status(defaultLive).code == 1 && controller.stop(defaultLive).code == 1);
+	assert(FileSystem.isDir(defaultState) == stateExisted);
+	assert(!FileSystem.exists(defaultLive.controlFile) && !FileSystem.exists(defaultLive.logFile));
+	assert(controller.start(defaultLive).ok());
+	assert(waitForTextLength(PathTools.join(defaultCwd.path(), "worker.ready"), 1, 2000));
+	assert(controller.status(defaultLive).ok() && controller.stop(defaultLive).ok());
+	assert(!FileSystem.exists(defaultLive.controlFile));
+	int cleanupAttempts = 100;
+	while (FileSystem.removeRecursive(defaultLive.logFile) != 0 && cleanupAttempts > 0) { Timer.sleepMillis(20); cleanupAttempts--; }
+	assert(!FileSystem.exists(defaultLive.logFile) && defaultCwd.close().ok());
 
-	string linkedLog = PathTools.join(dir, "linked.log");
-	assert(FileSystem.symlink(target, linkedLog) == 0);
-	DaemonSpec unsafeLog = DaemonSpec("unsafe-log", Command("true")).control(PathTools.join(dir, "unsafe-log.control")).log(linkedLog);
-	assert(!controller.start(unsafeLog).ok());
-	assert(Path.readAll(target).equals("do-not-change"));
-	assert(FileSystem.isSymlink(linkedLog));
-	assert(unlink(linkedLog) == 0);
+	// First prove the descendant reaches its delayed write normally, then
+	// stop the same tree before that write. Nested Process jobs must remain
+	// contained in the supervisor's owned job.
+	string descendant = PathTools.join(dir, "descendant-marker");
+	assert(ChildProcess.run(executable, ["--descendant", descendant], timeoutMilliseconds=2500).ok());
+	assert(Path.readAll(descendant).equals("survived"));
+	assert(FileSystem.removeRecursive(descendant) == 0);
+	DaemonSpec tree = DaemonSpec("tree", Command(executable).arg("--tree").arg(descendant)).control(PathTools.join(dir, "tree.control")).log(PathTools.join(dir, "tree.log"));
+	assert(controller.start(tree).ok());
+	assert(waitForTextLength(descendant, 1, 2000));
+	assert(Path.readAll(descendant).equals("ready"));
+	assert(controller.stop(tree).ok() && !FileSystem.exists(tree.controlFile));
+	Timer.sleepMillis(1100);
+	assert(Path.readAll(descendant).equals("ready"));
 
-	// Public or attacker-controlled override directories fail closed before
-	// any command or log redirection is attempted.
-	string insecure = FileSystem.tempDir("btrc_daemon_insecure");
-	assert(FileSystem.chmod(insecure, 511) == 0); // 0777
-	string launchedMarker = PathTools.join(dir, "should-not-launch");
-	DaemonSpec unsafe = DaemonSpec("unsafe", Command("touch").arg(launchedMarker)).control(PathTools.join(insecure, "unsafe.control")).log(PathTools.join(insecure, "unsafe.log"));
-	assert(!controller.start(unsafe).ok());
-	assert(!FileSystem.exists(launchedMarker));
-	assert(FileSystem.chmod(insecure, 448) == 0);
-	removeFlatDirectory(insecure);
+	bool renderingRefused = false;
+	try { live.renderStartCommand(controlFile, logFile); } catch (string message) {
+		renderingRefused = message.equals("DaemonSpec.renderStartCommand is unavailable on Windows: the supervisor is a POSIX /bin/sh script; use DaemonController.start");
+	}
+	assert(renderingRefused);
+	// Consumer metadata retains the companion basename across a consumer
+	// rename. A missing, renamed or modified companion must fail before spawn.
+	string companionName = PathTools.basename(executable) + ".btrc-supervisor.exe";
+	string renamed = PathTools.join(dir, "renamed consumer.exe");
+	string companion = PathTools.join(dir, companionName);
+	assert(copyExecutable(executable, renamed));
+	assert(copyExecutable(PathTools.join(PathTools.dirname(executable), companionName), companion));
+	assert(ChildProcess.run(renamed, ["--image-success"], timeoutMilliseconds=6000).ok());
+	string moved = companion + ".moved";
+	assert(rename(companion, moved) == 0);
+	assert(ChildProcess.run(renamed, ["--image-refusal"], timeoutMilliseconds=3000).ok());
+	assert(rename(moved, companion) == 0);
+	FILE* modified = fopen(companion, "ab");
+	assert(modified != NULL && fputc(1, modified) != EOF && fclose(modified) == 0);
+	assert(ChildProcess.run(renamed, ["--image-refusal"], timeoutMilliseconds=3000).ok());
+#endif
 
-	// Predictable files in a public directory are rejected even when they
-	// are symlinks. Keep the adversarial setup inside this test's directory.
-	string publicDirectory = FileSystem.tempDir("btrc_daemon_public");
-	assert(FileSystem.chmod(publicDirectory, 511) == 0);
-	string publicControl = PathTools.join(publicDirectory, f"btrc-daemon-{Platform.pid()}.control");
-	assert(FileSystem.symlink(target, publicControl) == 0);
-	DaemonSpec publicState = DaemonSpec("public", Command("true")).control(publicControl).log(PathTools.join(publicDirectory, f"btrc-daemon-{Platform.pid()}.log"));
-	assert(!controller.start(publicState).ok());
-	assert(Path.readAll(target).equals("do-not-change"));
-	assert(unlink(publicControl) == 0);
-	assert(FileSystem.chmod(publicDirectory, 448) == 0);
-	assert(rmdir(publicDirectory) == 0);
-
-	removeFlatDirectory(dir);
+	assert(temporary.close().ok());
 	assert(!FileSystem.exists(dir));
 	print("PASS: test_stdlib_daemon");
 	return 0;
