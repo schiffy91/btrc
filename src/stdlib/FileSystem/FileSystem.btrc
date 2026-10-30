@@ -199,11 +199,12 @@ class PathTools {
 		return PathTools.isSeparatorFor(path[0], true) ? 1 : 0;
 	}
 
-	class string basename(string path) {
+	class string basename(string path) { return PathTools.basenameFor(path, Platform.isWindows()); }
+
+	class string basenameFor(string path, bool windows) {
 		if (path == null) { return ""; }
 		int len = Strings.checkedLength(path);
 		if (len == 0) { return ""; }
-		bool windows = Platform.isWindows();
 		int rootLength = PathTools.rootLengthFor(path, windows);
 		int end = len - 1;
 		while (end >= rootLength && PathTools.isSeparatorFor(path[end], windows)) { end--; }
@@ -223,11 +224,12 @@ class PathTools {
 		return __btrc_string_adopt(result);
 	}
 
-	class string dirname(string path) {
+	class string dirname(string path) { return PathTools.dirnameFor(path, Platform.isWindows()); }
+
+	class string dirnameFor(string path, bool windows) {
 		if (path == null) { return "."; }
 		int len = Strings.checkedLength(path);
 		if (len == 0) { return "."; }
-		bool windows = Platform.isWindows();
 		int rootLength = PathTools.rootLengthFor(path, windows);
 		int end = len - 1;
 		while (end >= rootLength && PathTools.isSeparatorFor(path[end], windows)) { end--; }

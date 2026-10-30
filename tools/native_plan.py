@@ -1714,7 +1714,16 @@ class NativePlanBuilder:
                     "signing": None,
                 }
                 with self._reader.generation(leaf_plan_path, leaf_c) as leaf_plan:
-                    if leaf_plan.row != plan.row or leaf_plan.sysroot_identity != plan.sysroot_identity:
+                    # Header-free programs have no observed sysroot identity.
+                    # Compare observations only when both frontends made one;
+                    # each build still verifies its recorded identity against
+                    # the selected toolchain before compiling any unit.
+                    different_sysroots = (
+                        leaf_plan.sysroot_identity
+                        and plan.sysroot_identity
+                        and leaf_plan.sysroot_identity != plan.sysroot_identity
+                    )
+                    if leaf_plan.row != plan.row or different_sysroots:
                         raise NativePlanError("supervisor frontend changed the consumer ABI or sysroot")
                     if leaf_plan.auxiliary is not None:
                         raise NativePlanError("recursive auxiliary executable declaration")

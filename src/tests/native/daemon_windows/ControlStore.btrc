@@ -16,6 +16,14 @@ int main(int argc, char** argv) {
 	assert(store.open("/state"));
 	__btrc_windows_daemon_directory_entry identity;
 	memset(&identity, 0, sizeof(identity));
+	if (scenario >= 16 && scenario <= 19) {
+		daemonPolicyFailure(scenario);
+		string path = store.path();
+		assert(scenario == 16 ? path.equals("/state") : path.isEmpty());
+		assert(scenario == 16 ? store.error.stage == (uint32_t)0 : store.error.stage != (uint32_t)0);
+		assert(store.close());
+		return 0;
+	}
 	if (scenario == 11) {
 		assert(store.read("control", NULL).isEmpty());
 		assert(store.missing());
@@ -88,6 +96,20 @@ int main(int argc, char** argv) {
 		int closes = daemonPolicyCloses();
 		assert(!store.close() && daemonPolicyCloses() == closes);
 		return 0;
+	} else if (scenario == 20 || scenario == 21 || scenario == 22) {
+		__btrc_windows_daemon_directory_entry observed;
+		if (scenario == 21) { daemonPolicyFailure(13); }
+		if (scenario == 22) { daemonPolicyFailure(12); }
+		string text = store.read("control", NULL, &observed);
+		if (scenario == 20) {
+			assert(text.equals("token\n") && observed.present == (uint32_t)1);
+			assert(observed.volume == identity.volume && memcmp(observed.file_id, identity.file_id, (size_t)16) == 0);
+			assert(store.inspect("control", &observed));
+		} else {
+			assert(text.isEmpty() && observed.present == (uint32_t)0);
+			assert(store.error.native_code == (uint32_t)(scenario == 21 ? 713 : 712));
+			if (scenario == 22) { assert(!store.close()); return 0; }
+		}
 	} else {
 		assert(scenario == 1);
 		assert(store.read("control", &identity).equals("token\n"));

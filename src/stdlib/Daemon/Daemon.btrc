@@ -10,6 +10,10 @@ import Library.Daemon.DaemonControlProtocol;
 import Library.Process;
 import Library.Vector;
 
+#if defined(_WIN32)
+import Library.Daemon.Windows.DaemonController;
+#endif
+
 class DaemonSpec {
 	public string name;
 	public Command command;
@@ -48,6 +52,7 @@ class DaemonSpec {
 		return self;
 	}
 
+#if !defined(_WIN32)
 	private string supervisorScript() {
 		/* Noninteractive Linux shells may accept `set -m` while leaving children
 		 * in the supervisor's process group. Prefer setsid where available and
@@ -66,12 +71,17 @@ class DaemonSpec {
 		return setup + cleanup + capabilities + groups + launch + supervise;
 	}
 
+#endif
+
 	/* This renders the controller's local supervisor for the canonical control
 	 * and log paths its caller prepared; it never rewrites the spec. Platform
 	 * service managers may continue to consume the declarative fields
 	 * directly. A path that is not already canonical, a control record that
 	 * exists, or an unsafe log renders a command that fails with 125. */
 	public string renderStartCommand(string controlFile, string logFile) {
+#if defined(_WIN32)
+		throw "DaemonSpec.renderStartCommand is unavailable on Windows: the supervisor is a POSIX /bin/sh script; use DaemonController.start";
+#else
 		if (!DaemonControlPaths.validDaemonName(self.name) || self.command == null || self.command.command == null || self.command.command.isEmpty()) {
 			return "exit 125";
 		}
@@ -90,15 +100,22 @@ class DaemonSpec {
 		string probePrefix = DaemonControlPaths.probePrefix(controlFile, token);
 		string restart = self.autoRestart ? "1" : "0";
 		return "umask 077; nohup /bin/sh -c " + ShellWords.quote(self.supervisorScript()) + " btrc-daemon-supervisor " + ShellWords.quote(token) + " " + ShellWords.quote(self.command.render()) + " " + ShellWords.quote(controlFile) + " " + ShellWords.quote(stop) + " " + ShellWords.quote(probePrefix) + " " + restart + " " + ShellWords.quote(self.workingDirectory) + " </dev/null >> " + ShellWords.quote(logFile) + " 2>&1 &";
+#endif
 	}
 }
 
 class DaemonController {
 	public UnixShell shell;
 
+#if defined(_WIN32)
+	private WindowsDaemonController windows = WindowsDaemonController();
+#endif
 	public DaemonController() { self.shell = UnixShell(); }
 
 	public ExecResult start(DaemonSpec spec) {
+#if defined(_WIN32)
+		return self.windows.start(spec);
+#else
 		string operation = "daemon start";
 		if (!self.wellFormed(spec) || !DaemonControlFiles.prepareParent(spec.controlFile) || !DaemonControlFiles.prepareParent(spec.logFile)) {
 			return self.result(125, "unsafe daemon specification", operation);
@@ -126,6 +143,7 @@ class DaemonController {
 			return self.result(125, "daemon supervisor failed its liveness handshake", operation);
 		}
 		return self.result(0, "", operation);
+#endif
 	}
 
 	private ExecResult result(int code, string message, string command) { return ExecResult(code, "", message, command); }
@@ -154,6 +172,9 @@ class DaemonController {
 	}
 
 	public ExecResult stop(DaemonSpec spec, int timeoutMilliseconds = 7500) {
+#if defined(_WIN32)
+		return self.windows.stop(spec, timeoutMilliseconds);
+#else
 		string operation = "daemon stop";
 		string controlFile = self.canonicalControlFile(spec);
 		if (controlFile.isEmpty()) {
@@ -181,9 +202,13 @@ class DaemonController {
 			return self.result(124, "daemon did not confirm termination before the deadline", operation);
 		}
 		return self.result(0, "", operation);
+#endif
 	}
 
 	public ExecResult status(DaemonSpec spec) {
+#if defined(_WIN32)
+		return self.windows.status(spec);
+#else
 		string operation = "daemon status";
 		string controlFile = self.canonicalControlFile(spec);
 		if (controlFile.isEmpty()) {
@@ -194,5 +219,6 @@ class DaemonController {
 			return self.result(1, "daemon supervisor is not responding", operation);
 		}
 		return self.result(0, "", operation);
+#endif
 	}
 }

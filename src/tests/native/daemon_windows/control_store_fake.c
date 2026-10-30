@@ -129,3 +129,17 @@ int __btrc_windows_daemon_directory_next(__btrc_windows_daemon_file_owner *direc
     if (!enumeration_pending || capacity < 8) abort();
     memcpy(buffer, "control", 8); enumeration_pending = 0; enumeration_done = 1; return 0;
 }
+
+int __btrc_windows_daemon_directory_path(__btrc_windows_daemon_file_owner *owner,
+        unsigned char *buffer, size_t capacity, size_t *required, __btrc_windows_launch_error_t *error) {
+    if (!owner || !owner->live || !owner->directory) abort();
+    clear(error); *required = 7;
+    if (buffer) {
+        if (capacity != 7) abort();
+        if (failure == 17) return fail(error, 717, 1);
+        memcpy(buffer, "/state", 7);
+        if (failure == 18) buffer[2] = 0;
+        if (failure == 19) *required = 6;
+    } else if (capacity != 0) abort();
+    return 0;
+}

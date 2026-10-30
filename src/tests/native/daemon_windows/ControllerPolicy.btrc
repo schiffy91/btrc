@@ -1,0 +1,48 @@
+import Library.Daemon;
+import Library.Process;
+
+import "./DaemonController.btrc";
+extern void controllerPolicySetup(int scenario);
+extern void controllerPolicyVerify();
+extern int controllerPolicyCleanupCalls();
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	int scenario = atoi(argv[1]);
+	controllerPolicySetup(scenario);
+	DaemonSpec spec = DaemonSpec("worker", Command("tool.exe").arg("a b").arg(""));
+	spec.control("C:\\state\\control").log("C:\\state\\log").cwd("C:\\work").restart(true);
+	WindowsDaemonController controller = WindowsDaemonController();
+	ExecResult result;
+	if (scenario == 13 || scenario == 21) {
+		result = controller.status(spec);
+		assert(result.code == 1 && result.err.equals("daemon supervisor is not responding"));
+	} else if (scenario == 14 || (scenario >= 18 && scenario <= 20)) {
+		result = controller.stop(spec, 20);
+		assert(result.code == (scenario == 18 || scenario == 19 ? 0 : 124));
+	} else {
+		if (scenario == 11) { spec.control("C:relative"); }
+		result = controller.start(spec);
+		bool success = scenario == 1 || scenario == 2 || scenario == 22 || scenario == 23;
+		assert(result.code == (success ? 0 : scenario == 10 ? 1 : 125));
+		assert(result.startIndeterminate == ((scenario >= 3 && scenario <= 5) || scenario == 16 || scenario == 17 || scenario == 26 || scenario == 27));
+		if (result.startIndeterminate) { assert(result.err.equals("daemon start outcome is indeterminate; reconcile control state before retry")); }
+		if (scenario == 6) { assert(result.err.equals("daemon supervisor did not publish control state")); }
+		if (scenario == 7 || scenario == 15) { assert(result.err.equals("daemon supervisor failed its liveness handshake")); }
+		if (scenario == 8 || scenario == 9) { assert(result.err.equals("failed to launch daemon supervisor")); }
+		if (scenario == 10) { assert(result.err.equals("daemon control record already exists")); }
+		if (scenario == 11 || scenario == 24 || scenario == 25) { assert(result.err.equals("unsafe daemon specification")); }
+		if (scenario == 12) { assert(result.err.equals("unsafe daemon log file")); }
+		if (success) {
+			assert(controller.status(spec).code == 0);
+			assert(controller.stop(spec, 40).code == 0);
+			assert(controller.status(spec).code == 1);
+		}
+	}
+	if (scenario == 16 || scenario == 17 || scenario == 27) {
+		int closes = controllerPolicyCleanupCalls();
+		assert(controller.status(spec).code == 125);
+		assert(controllerPolicyCleanupCalls() == closes);
+	}
+	controllerPolicyVerify();
+	return 0;
+}

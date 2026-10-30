@@ -344,3 +344,25 @@ def test_cli_builds_the_pair_with_the_selected_frontend(consumer, tmp_path):
     assert evidence["frontend"] == list(frontend)
     assert hashlib.sha256(Path(evidence["path"]).read_bytes()).hexdigest() == evidence["sha256"]
     assert bytes.fromhex(evidence["sha256"]) in output.read_bytes()
+
+
+def test_pair_rejects_conflicting_observed_sysroots(consumer, tmp_path):
+    frontend, _, _, generated, plan = consumer
+    payload = json.loads(plan.read_text())
+    payload["toolchain"]["sysroot"]["identity"] = "1" * 64
+    plan.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+
+    def conflicting_leaf(command, **kwargs):
+        result = run(command, **kwargs)
+        if "--emit-link-plan" in command and result.returncode == 0:
+            leaf_plan = Path(command[command.index("--emit-link-plan") + 1])
+            leaf = json.loads(leaf_plan.read_text())
+            leaf["toolchain"]["sysroot"]["identity"] = "2" * 64
+            leaf_plan.write_text(json.dumps(leaf, sort_keys=True, separators=(",", ":")) + "\n")
+        return result
+
+    with pytest.raises(NativePlanError, match="consumer ABI or sysroot"):
+        NativePlanBuilder(runner=conflicting_leaf).build(
+            plan_path=plan, generated_c=generated, output=tmp_path / "conflict.exe", frontend=frontend
+        )
+    assert not (tmp_path / "conflict.exe").exists()

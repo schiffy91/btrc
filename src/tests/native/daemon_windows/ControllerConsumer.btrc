@@ -1,0 +1,10 @@
+import Library.Daemon;
+import Library.Process;
+int main() {
+	DaemonSpec spec = DaemonSpec("worker", Command("tool.exe"));
+	DaemonController controller = DaemonController();
+	ExecResult started = controller.start(spec);
+	ExecResult status = controller.status(spec);
+	ExecResult stopped = controller.stop(spec, 10);
+	return started.code + status.code + stopped.code + (started.startIndeterminate ? 1 : 0);
+}

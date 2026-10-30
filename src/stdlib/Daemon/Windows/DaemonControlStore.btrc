@@ -68,6 +68,24 @@ class WindowsDaemonControlStore {
 		return true;
 	}
 
+	/* The path snapshot belongs to the held directory, so query and copy
+	 * cannot observe different ancestors. */
+	public string path() {
+		if (!self.ready()) { return ""; }
+		size_t size = (size_t)0;
+		if (__btrc_windows_daemon_directory_path(self.directory, NULL, (size_t)0, &size, &self.error) != 0) { return ""; }
+		if (size < (size_t)2 || size > (size_t)1048576) { self.invalid(); return ""; }
+		char* text = (char*)__btrc_safe_realloc(NULL, size);
+		size_t required = (size_t)0;
+		int copied = __btrc_windows_daemon_directory_path(self.directory, (unsigned char*)text, size, &required, &self.error);
+		if (copied != 0 || required != size || text[size - (size_t)1] != '\0' || memchr(text, 0, size - (size_t)1) != NULL) {
+			if (copied == 0) { self.invalid(); }
+			free(text);
+			return "";
+		}
+		return __btrc_string_adopt(text);
+	}
+
 	public string next(bool restart, __btrc_windows_daemon_directory_entry* identity) {
 		if (!self.ready()) { return ""; }
 		size_t required = (size_t)0;
@@ -104,7 +122,21 @@ class WindowsDaemonControlStore {
 		return __btrc_string_adopt(text);
 	}
 
-	public string read(string name, __btrc_windows_daemon_directory_entry* expected) {
+	/* Existence does not depend on the bounded record's contents. */
+	public bool inspect(string name, __btrc_windows_daemon_directory_entry* identity) {
+		memset(identity, 0, sizeof(*identity));
+		if (!self.ready()) { return false; }
+		if (name == null || name.isEmpty()) { return self.invalid(); }
+		if (__btrc_windows_daemon_control_open_at(self.directory, (unsigned char*)name, strlen(name), (uint32_t)0, NULL, &self.active, &self.error) != 0) { return self.finish(false); }
+		__btrc_windows_daemon_directory_entry observed;
+		bool found = __btrc_windows_daemon_file_identity(self.active, &observed, &self.error) == 0;
+		if (!self.finish(found)) { return false; }
+		*identity = observed;
+		return true;
+	}
+
+	public string read(string name, __btrc_windows_daemon_directory_entry* expected, __btrc_windows_daemon_directory_entry* observed = NULL) {
+		if (observed != NULL) { memset(observed, 0, sizeof(*observed)); }
 		if (!self.ready()) { return ""; }
 		if (name == null || name.isEmpty()) {
 			self.invalid();
@@ -114,8 +146,12 @@ class WindowsDaemonControlStore {
 			self.finish(false);
 			return "";
 		}
+		__btrc_windows_daemon_directory_entry identity;
+		if (observed != NULL && __btrc_windows_daemon_file_identity(self.active, &identity, &self.error) != 0) { self.finish(false); return ""; }
 		string content = self.readActive();
-		return self.finish(self.error.stage == (uint32_t)0) ? content : "";
+		if (!self.finish(self.error.stage == (uint32_t)0)) { return ""; }
+		if (observed != NULL) { *observed = identity; }
+		return content;
 	}
 
 	public bool create(string name, string content, __btrc_windows_daemon_directory_entry* identity) {
