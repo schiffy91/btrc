@@ -3196,5 +3196,17 @@ class GeneratedRuntimeCatalogData {
 			self.emptyStrings(),
 			true,
 			"blocking"));
+		self.rows.push(GeneratedRuntimeHelperRow(
+			"process",
+			"__btrc_windows_daemon_file_identity",
+			[
+			"/* Snapshot the checked held object's full identity. It grants no authority;\n * pass it to a later relative control open to reject replacements. Failure\n * clears the snapshot and preserves the owner. No pathname is reopened. */\nint __btrc_windows_daemon_file_identity(__btrc_windows_daemon_file_owner *file,\n    __btrc_windows_daemon_directory_entry *identity, __btrc_windows_launch_error_t *error);",
+		],
+			["__btrc_windows_daemon_file_types"],
+			self.emptyStrings(),
+			self.emptyStrings(),
+			self.emptyStrings(),
+			true,
+			"blocking"));
 	}
 }

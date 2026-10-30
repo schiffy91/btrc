@@ -5673,6 +5673,24 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         source_visible=True,
         realtime_effect='blocking',
     ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_identity',
+        c_source=(
+            "/* Snapshot the checked held object's full identity. It grants no author"
+            'ity;\n * pass it to a later relative control open to reject replacements.'
+            ' Failure\n * clears the snapshot and preserves the owner. No pathname is '
+            'reopened. */\nint __btrc_windows_daemon_file_identity(__btrc_windows_daem'
+            'on_file_owner *file,\n    __btrc_windows_daemon_directory_entry *identity'
+            ', __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
 )
 
 INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (

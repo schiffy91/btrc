@@ -707,6 +707,23 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         realtime_effect='blocking',
     ),
     GeneratedHostedFunctionRow(
+        name='__btrc_windows_daemon_file_identity',
+        origin='runtime',
+        result=GeneratedAbiTypeRow('int', 0, False, ()),
+        parameters=(GeneratedHostedParameterRow(GeneratedAbiTypeRow('__btrc_windows_daemon_file_owner', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('__btrc_windows_daemon_directory_entry', 1, False, ()), 'mutate', None), GeneratedHostedParameterRow(GeneratedAbiTypeRow('__btrc_windows_launch_error_t', 1, False, ()), 'mutate', None),),
+        variadic=False,
+        semantic_result=None,
+        return_effect='value',
+        return_alias_parameter=None,
+        return_alias_null_effect=None,
+        raw_lifetime=False,
+        return_deallocator=None,
+        return_alias_shape=None,
+        consume_deallocator=None,
+        return_alias_null_deallocator=None,
+        realtime_effect='blocking',
+    ),
+    GeneratedHostedFunctionRow(
         name='__btrc_windows_daemon_file_read',
         origin='runtime',
         result=GeneratedAbiTypeRow('int', 0, False, ()),
@@ -6817,6 +6834,7 @@ HOSTED_FUNCTION_NAMES: tuple[str, ...] = (
     '__btrc_windows_daemon_file_close',
     '__btrc_windows_daemon_file_dispose',
     '__btrc_windows_daemon_file_flush',
+    '__btrc_windows_daemon_file_identity',
     '__btrc_windows_daemon_file_read',
     '__btrc_windows_daemon_file_write',
     '__btrc_windows_daemon_log_open',
@@ -13493,6 +13511,7 @@ HOSTED_OWNED_NAMES: tuple[str, ...] = (
     '__btrc_windows_daemon_file_close',
     '__btrc_windows_daemon_file_dispose',
     '__btrc_windows_daemon_file_flush',
+    '__btrc_windows_daemon_file_identity',
     '__btrc_windows_daemon_file_owner',
     '__btrc_windows_daemon_file_read',
     '__btrc_windows_daemon_file_write',
@@ -35423,7 +35442,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
 HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT = 32
-HOSTED_ABI_FINGERPRINT = '16879423b7d04b62b456fa791883adf0678090c941ecb63a32572f6d265f3566'
+HOSTED_ABI_FINGERPRINT = '014ed763e5de8af10cc0cdfdd5635d295cb5147d1049b95502d139a371004459'
 
 TARGET_ROWS: tuple[GeneratedTargetRow, ...] = (
     GeneratedTargetRow(
