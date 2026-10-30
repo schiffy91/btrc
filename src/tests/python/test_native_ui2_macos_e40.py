@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from copy import deepcopy
 from functools import cache
 from pathlib import Path
 
@@ -285,11 +286,27 @@ def sanitized(request):
 
 
 @pytest.fixture
-def e40_program(native_project, native_compile, gui_provider_root, sanitized, request):
-    source, _, triple = native_project
+def e40_program(native_project, native_compile, gui_provider_root, sanitized, request, e40_built_programs):
+    source, sdk, triple = native_project
     package = source.parent.parent
     trial = request.node.callspec.params.get("trial", "bursts")
     stem = "Boundary" if trial == "bursts" else "Load"
+    frontend = request.node.callspec.params["native_compile"]
+    key = (
+        stem,
+        frontend,
+        sanitized,
+        os.environ.get("BTRC_UI2_E40_TRACE") == "1",
+        sdk,
+        triple,
+        str(gui_provider_root),
+        os.environ.get("BTRC_NATIVE_HEADER_READER"),
+        os.environ.get("BTRC_TEST_BTRCC") if frontend == "selfhost" else None,
+    )
+    if key in e40_built_programs:
+        executable, provenance = e40_built_programs[key]
+        assert hashlib.sha256(executable.read_bytes()).hexdigest() == provenance["executable_sha256"]
+        return executable, deepcopy(provenance)
     for suffix in ("h", "m"):
         name = f"{stem}.{suffix}"
         (package / name).write_text((FIXTURES / name).read_text())
@@ -389,7 +406,6 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         cxx="/usr/bin/clang++",
         optimization=2,
     )
-    frontend = request.node.callspec.params["native_compile"]
     provenance = {
         "frontend": frontend,
         "native_build_commands": native_build_commands,
@@ -407,7 +423,14 @@ def e40_program(native_project, native_compile, gui_provider_root, sanitized, re
         "physical_device_latency": "not measured",
         "input": "synthetic queued AppKit events; popup/resize use CGEventPost with permission preflight",
     }
+    e40_built_programs[key] = executable, deepcopy(provenance)
     return executable, provenance
+
+
+@pytest.fixture(scope="session")
+def e40_built_programs():
+    """Reuse session builds; entry and trial are runtime arguments to fresh processes."""
+    return {}
 
 
 def test_macos_ui2_e40_boundary_compile(e40_program):

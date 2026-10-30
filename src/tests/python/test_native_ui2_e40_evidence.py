@@ -792,3 +792,77 @@ def test_native_metal_controls_share_binary_and_keep_distinct_receipts(tmp_path,
             "display_sync_enabled": expected,
             "presented": 0,
         }
+
+
+def test_native_e40_build_reuse_preserves_configuration_and_provenance(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from src.tests.python import test_native_ui2_macos_e40 as driver
+
+    built, compiled = [], []
+    cache = driver.e40_built_programs.__wrapped__()
+    monkeypatch.delenv("BTRC_UI2_E40_TRACE", raising=False)
+    monkeypatch.setattr(
+        driver.subprocess, "check_output", lambda argv, **kwargs: "revision\n" if "rev-parse" in argv else ""
+    )
+
+    def compile_program(source, *, data_root, plan_path):
+        compiled.append(source)
+        plan_path.write_text("{}")
+        return SimpleNamespace(successful=True, c_source="int main(void) { return 0; }\n", failure=None, diagnostics=[])
+
+    def build(builder, **kwargs):
+        built.append(kwargs)
+        kwargs["output"].write_bytes(b"fixture executable")
+
+    monkeypatch.setattr(driver.NativePlanBuilder, "build", build)
+    invocation = 0
+
+    def program(
+        trial="load",
+        entry="desktop",
+        frontend="reference",
+        sanitized=False,
+        sdk="sdk",
+        triple="arm64-apple-macosx14.0.0",
+    ):
+        nonlocal invocation
+        invocation += 1
+        package = tmp_path / str(invocation)
+        (package / "src").mkdir(parents=True)
+        (package / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "test"\n')
+        source = package / "src/Main.btrc"
+        request = SimpleNamespace(
+            node=SimpleNamespace(
+                callspec=SimpleNamespace(params={"trial": trial, "entry": entry, "native_compile": frontend})
+            )
+        )
+        return driver.e40_program.__wrapped__(
+            (source, sdk, triple), compile_program, tmp_path / "provider", sanitized, request, cache
+        )
+
+    executable, provenance = program()
+    for entry in ("desktop", "host"):
+        for trial in ("load", "popup", "slider", "resize", "sheet"):
+            repeated, receipt = program(trial=trial, entry=entry)
+            assert repeated == executable and receipt == provenance
+    assert len(built) == len(compiled) == 1
+    provenance["diagnostic"] = {"trial": "private"}
+    provenance["native_build_commands"].append(["private command"])
+    _, repeated = program()
+    assert "diagnostic" not in repeated and repeated["native_build_commands"] == []
+    variants = [
+        program(trial="bursts")[0],
+        program(frontend="selfhost")[0],
+        program(sanitized=True)[0],
+        program(sdk="other-sdk")[0],
+        program(triple="x86_64-apple-macosx14.0.0")[0],
+    ]
+    monkeypatch.setenv("BTRC_UI2_E40_TRACE", "1")
+    variants.append(program()[0])
+    assert len(set([executable, *variants])) == 7
+    assert len(built) == len(compiled) == 7
+    variants[-1].write_bytes(b"changed after qualification")
+    with pytest.raises(AssertionError):
+        program()
+    assert len(built) == 7  # Changed evidence must fail, not silently rebuild.
