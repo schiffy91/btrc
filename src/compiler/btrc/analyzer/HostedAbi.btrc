@@ -204,17 +204,7 @@ class HostedAbiRepository {
 	}
 
 	public Map<string, bool> realtimeSafeFunctions() {
-		Map<string, bool> safe = {};
-		Vector<GeneratedHostedFunctionRow> rows = self.data.functions();
-		int index = 0;
-		while (index < rows.len) {
-			GeneratedHostedFunctionRow row = rows.get(index);
-			if (row.realtimeEffect == "safe") {
-				safe.put(row.name, true);
-			}
-			index = index + 1;
-		}
-		return safe;
+		return self.indexNames(self.data.realtimeSafeFunctionNames());
 	}
 
 	public int returnAliasParameter(string name) {

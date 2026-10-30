@@ -1741,7 +1741,6 @@ class HostedAbiCatalogGenerator:
             "    private Map<string, string>? architectureAliasesMemo = null;",
             "    private Map<string, string>? defaultEnvironmentsMemo = null;",
             "    private Vector<GeneratedPredefinedMacroRow>? predefinedMacroRowsMemo = null;",
-            "    private Vector<GeneratedHostedFunctionRow>? functionRows = null;",
             "    private Map<string, int>? functionSlots = null;",
             "    private Map<string, GeneratedHostedFunctionRow>? functionMemo = null;",
             "    private Map<string, GeneratedPlatformTargetRow>? platformTargetMemo = null;",
@@ -1784,19 +1783,6 @@ class HostedAbiCatalogGenerator:
                 "     * name set or a function row never pays for it; building all of them",
                 "     * eagerly cost twelve thousand string pushes and map inserts on every",
                 "     * start of the compiler. Rows keep their manifest order. */",
-                "    public Vector<GeneratedHostedFunctionRow> functions() {",
-                "        Vector<GeneratedHostedFunctionRow>? rows = self.functionRows;",
-                "        if (rows != null) { return rows; }",
-                "        Vector<GeneratedHostedFunctionRow> built = [];",
-                "        int index = 0;",
-                f"        while (index < {len(self._manifest.functions)}) {{",
-                "            built.push(self.functionAt(index));",
-                "            index = index + 1;",
-                "        }",
-                "        self.functionRows = built;",
-                "        return built;",
-                "    }",
-                "",
                 "    private Map<string, GeneratedHostedFunctionRow> memoTable() {",
                 "        Map<string, GeneratedHostedFunctionRow>? existing = self.functionMemo;",
                 "        if (existing != null) { return existing; }",
@@ -2082,7 +2068,7 @@ class HostedAbiCatalogGenerator:
 
         The reference tables carry every set; the self-host only ever asks
         whether a name is a hosted function, macro, type, typedef, owned name,
-        adopting helper or non-returning function, and its structure contract rejects accessors nothing
+        adopting helper, non-returning or realtime-safe function, and its structure contract rejects accessors nothing
         calls, so the other sets are not emitted for it.
         """
 
@@ -2095,6 +2081,10 @@ class HostedAbiCatalogGenerator:
             ("ownedNames", self._manifest.names.owned),
             ("runtimeAdoptingHelpers", self._manifest.names.runtime_adopting_helpers),
             ("noreturnFunctions", self._manifest.names.noreturn),
+            (
+                "realtimeSafeFunctionNames",
+                tuple(function.name for function in self._manifest.functions if function.realtime_effect == "safe"),
+            ),
         )
 
     def _btrc_type(self, shape: HostedAbiTypeSpec) -> str:

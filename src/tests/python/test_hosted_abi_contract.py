@@ -27,6 +27,7 @@ from src.compiler.python.abi.declarations import (
 from src.compiler.python.abi.hosted import HOSTED_ABI, TargetRepository, TargetSelectionError
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.analyzer.types import CIntegerWidths
+from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.frontend.packages import PackageTarget
@@ -372,6 +373,51 @@ def test_generated_registry_is_current_and_has_one_domain_owner() -> None:
     assert path.read_text() == expected
     assert "class GeneratedHostedAbiData" in expected
     assert '#include "' not in expected
+
+
+def test_selfhost_realtime_names_do_not_materialize_function_descriptors(tmp_path: Path) -> None:
+    compiler = host_c_compiler()
+    if compiler is None:
+        pytest.skip("requires the configured C compiler")
+    source = tmp_path / "RealtimeNames.btrc"
+    source.write_text(
+        f'import "{SOURCE_ROOT / "compiler/btrc/analyzer/HostedAbi.btrc"}";\n'
+        f'import "{SOURCE_ROOT / "compiler/btrc/generated/hosted_abi/Tables.btrc"}";\n'
+        "int main() {\n"
+        "    var abi = HostedAbiRepository(GeneratedHostedAbiData());\n"
+        "    var names = abi.realtimeSafeFunctions().keys();\n"
+        "    names.sort();\n"
+        "    for name in names { print(name); }\n"
+        "    return 0;\n"
+        "}\n"
+    )
+    result = Compiler().compile(source.read_text(), str(source), CompilerOptions())
+    assert result.failure is None, result.failure
+    generated = tmp_path / "names.c"
+    generated.write_text(result.c_source)
+    executable = tmp_path / "names"
+    subprocess.run(
+        [
+            *compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(generated),
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=C_COMPILE_TIMEOUT,
+    )
+    run = subprocess.run([str(executable)], capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT)
+    assert run.stdout.splitlines() == sorted(
+        name for name, spec in HOSTED_FUNCTIONS.items() if spec.realtime_effect == "safe"
+    )
+    # Querying a name set must not retain constructors for complete ABI records.
+    assert "GeneratedHostedFunctionRow_init(" not in result.c_source
 
 
 def test_source_runtime_helper_roots_are_generated_from_the_registry() -> None:
