@@ -277,6 +277,7 @@ class IRLowerer:
             calls,
             lifetime,
             control_flow,
+            collections,
         )
         classes = ClassLowerer(
             session,

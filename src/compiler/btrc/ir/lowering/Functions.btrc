@@ -246,6 +246,7 @@ class FunctionLowerer {
 		Node? savedReturnType = self.context.currentReturnType;
 		bool savedReturnOwned = self.context.currentReturnOwned;
 		bool savedBatchExplicitReleases = self.context.batchExplicitReleases;
+		bool savedBatchedCycleRelease = self.context.hasBatchedCycleRelease;
 		bool savedCollectionEdgeKeeps = self.context.collectionEdgeKeeps;
 		self.context.currentClass = selfMangled;
 		self.context.currentReturnCType = retC;
@@ -260,6 +261,7 @@ class FunctionLowerer {
 			topologyCollection = self.cycles.genericInstanceNeedsVisitor(ownerInstance);
 		}
 		self.context.batchExplicitReleases = publicCollectionMethod;
+		self.context.hasBatchedCycleRelease = false;
 		self.context.collectionEdgeKeeps = self.cycleBoundaries.publicCollectionBase(inst.classBase);
 
 		IRFunction fn = IRFunction();
@@ -307,7 +309,7 @@ class FunctionLowerer {
 			self.cycleBoundaries.installCollectionTopologyBoundary(fn);
 		}
 		if (publicCollectionMethod) {
-			self.cycleReturns.installReleaseBearingBoundary(fn);
+			self.cycleReturns.installBatchedReleaseBoundary(fn, self.context.hasBatchedCycleRelease);
 		}
 		m.functions.push(fn);
 
@@ -316,6 +318,7 @@ class FunctionLowerer {
 		self.context.currentReturnType = savedReturnType;
 		self.context.currentReturnOwned = savedReturnOwned;
 		self.context.batchExplicitReleases = savedBatchExplicitReleases;
+		self.context.hasBatchedCycleRelease = savedBatchedCycleRelease;
 		self.context.collectionEdgeKeeps = savedCollectionEdgeKeeps;
 		self.context.genericBody = false;
 		self.context.activeTypeMap = {};

@@ -87,6 +87,7 @@ from .types import CodegenError, CTypeLowerer
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalyzedProgram
 
+    from .collections import CollectionLowerer
     from .concurrency import ConcurrencyLowerer
     from .control_flow import ControlFlowLowerer
     from .exceptions import ExceptionLowerer
@@ -116,6 +117,7 @@ class FunctionLowerer:
         calls: CallLowerer,
         lifetime: ManagedLifetimeLowerer,
         control_flow: ControlFlowLowerer,
+        collections: CollectionLowerer,
     ) -> None:
         self._session = session
         self._analyzed = analyzed
@@ -131,6 +133,7 @@ class FunctionLowerer:
         self._calls = calls
         self._lifetime = lifetime
         self._control_flow = control_flow
+        self._collections = collections
         self._emitted_gpu_functions: set[str] = set()
         self._last_lambda_id = 0
         self._normalizing_void_main = False
@@ -8307,8 +8310,22 @@ class FunctionLowerer:
         return_type = self._types.resolve_active_type(method.return_type)
         return_c_type = self._types.render(return_type) if return_type is not None else "void"
         self._session.function_declarations = []
+        collection_instance_method = method.access != "class" and self._collections.owns_persistent_element_edges(
+            view.owner_name
+        )
+        collection_type = (
+            TypeExpr(
+                base=view.owner_name,
+                generic_args=list(view.type_arguments[: len(self._session.current_class.generic_params)]),
+            )
+            if collection_instance_method
+            else None
+        )
         try:
-            with self.isolated_function_context(return_c_type, return_type):
+            with (
+                self.isolated_function_context(return_c_type, return_type),
+                self._session.persistent_edge_scope("self" if collection_instance_method else None),
+            ):
                 body = self._statements.lower_block(
                     method.body,
                     provenance,
@@ -8318,18 +8335,19 @@ class FunctionLowerer:
                     ],
                     callable_bindings=method.params,
                 )
+                function = IRFunctionDef(
+                    name=declaration.name,
+                    return_type=declaration.return_type,
+                    params=list(declaration.params),
+                    body=body,
+                    is_static=True,
+                )
+                if collection_type is not None:
+                    self._collections.protect_topology_mutation(function, collection_type)
         finally:
             self._session.current_class = previous_class
             self._session.current_class_name = previous_class_name
-        self._session.module.function_defs.append(
-            IRFunctionDef(
-                name=declaration.name,
-                return_type=declaration.return_type,
-                params=list(declaration.params),
-                body=body,
-                is_static=True,
-            )
-        )
+        self._session.module.function_defs.append(function)
 
     def declare_specialization(self, view: SpecializedDeclarationView[MethodDecl]) -> None:
         declaration = self.specialization_declaration(view)

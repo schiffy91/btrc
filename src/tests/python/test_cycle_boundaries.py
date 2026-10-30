@@ -179,7 +179,7 @@ def test_self_hosted_cycle_boundary_mirrors_edge_and_return_contracts() -> None:
     # that mirrors IROptimizer._next_cycle_return_name.
     assert "self.nextReturnName()" in rewriter
     boundary = source[
-        source.index("private void forceBoundary") : source.index("public bool installReleaseBearingBoundary")
+        source.index("private void forceBoundary") : source.index("public bool installBatchedReleaseBoundary")
     ]
     assert "self.collectDeclaredNames(definition.body)" in boundary
     assert "self.isMaterializedReturn" in rewriter

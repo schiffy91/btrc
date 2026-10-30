@@ -167,8 +167,10 @@ class CycleReturnBoundaryLowerer {
 		}
 	}
 
-	public bool installReleaseBearingBoundary(IRFunction definition) {
-		if (definition.body == null || !self.containsCyclableRelease(definition.body)) {
+	/* Only explicit releases of cyclable values defer their forced flush to
+	 * this boundary. Ordinary ownership polls retain their existing policy. */
+	public bool installBatchedReleaseBoundary(IRFunction definition, bool hasBatchedRelease) {
+		if (definition.body == null || !hasBatchedRelease) {
 			return false;
 		}
 		self.forceBoundary(definition);

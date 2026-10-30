@@ -216,7 +216,7 @@ line:
 | --- | --- | --- | --- |
 | Temporary allocation order | the same lowering numbers some temporaries in a different order (e.g. call operands before storage receivers) | | 51 |
 | Generic-instance and type-declaration order | instance views in its discovery order | instance views in a different discovery order | 47 |
-| Explicit releases in public collection methods | flushes cycle roots at each release of a cyclable value | polls at each release and flushes once at the method's end (`installReleaseBearingBoundary`) | 37 |
+| Explicit releases in public collection methods | flushes cycle roots at each release of a cyclable value | polls at each release and flushes once at the method's end (`installBatchedReleaseBoundary`) | 37 |
 | Operand staging | stages every operand of an ordered expression | skips operands it proves inert (receivers, `bool` formats, some field projections), and lowers property stores through `__btrc_property_value` | 29 |
 | Runtime-helper selection | a few helpers (`__btrc_string_retain`, `__btrc_interface_try_methods`, `__btrc_arc_release_acyclic`) materialized in different programs | | 16 |
 | Other | function-pointer typedef order (7), `<stdatomic.h>` selection (3), prototypes (2), switch lowering, span and VLA hoists, a shadowing catch binding's numbering | | 21 |
@@ -226,6 +226,12 @@ bootstrap run on both compilers' output. The collection-release batching is
 deliberately left in `btrcc`: flushing per release inside a collection loop
 over cyclable values could make large self-host collections quadratic, so it
 needs a measured decision before either compiler moves.
+
+The method-end flush applies only when lowering explicitly batches a release
+of a cyclable value. Ordinary ownership polls and edge stores do not request
+that extra boundary. This keeps acyclic collection literals and linked-list
+ownership operations aligned with the reference compiler while preserving
+cyclic release batching.
 
 Until a program is listed in the manifest, a test may require identical
 **behaviour** of the two compilers' output, or identical text of a narrow

@@ -5741,11 +5741,13 @@ class DeclarationLowerer {
 		Node? savedReturnType = self.context.currentReturnType;
 		bool savedReturnOwned = self.context.currentReturnOwned;
 		bool savedBatchExplicitReleases = self.context.batchExplicitReleases;
+		bool savedBatchedCycleRelease = self.context.hasBatchedCycleRelease;
 		bool savedCollectionEdgeKeeps = self.context.collectionEdgeKeeps;
 		self.context.currentClass = mangled;
 		self.context.genericBody = true;
 		self.context.activeTypeMap = typeMap;
 		self.context.batchExplicitReleases = false;
+		self.context.hasBatchedCycleRelease = false;
 		self.context.collectionEdgeKeeps = self.cycleBoundaries.publicCollectionBase(inst.base);
 
 		/* --- _init --- */
@@ -5896,6 +5898,7 @@ class DeclarationLowerer {
 				bool publicCollectionMethod = self.cycleBoundaries.publicCollectionBase(inst.base) && mem.access == "public";
 				bool topologyCollection = self.cycleBoundaries.publicCollectionBase(inst.base) && self.cycles.genericInstanceNeedsVisitor(inst);
 				self.context.batchExplicitReleases = publicCollectionMethod;
+				self.context.hasBatchedCycleRelease = false;
 				Vector<IRNode> mbody = [];
 				if (mem.bodyNode != null) {
 					Vector<string> methodSourceBindings = self.functions.replaceSourceLexicalParameters(mem.params());
@@ -5911,7 +5914,7 @@ class DeclarationLowerer {
 					self.cycleBoundaries.installCollectionTopologyBoundary(fn);
 				}
 				if (publicCollectionMethod) {
-					self.cycleReturns.installReleaseBearingBoundary(fn);
+					self.cycleReturns.installBatchedReleaseBoundary(fn, self.context.hasBatchedCycleRelease);
 				}
 				m.functions.push(fn);
 			}
@@ -5926,6 +5929,7 @@ class DeclarationLowerer {
 		self.context.currentReturnType = savedReturnType;
 		self.context.currentReturnOwned = savedReturnOwned;
 		self.context.batchExplicitReleases = savedBatchExplicitReleases;
+		self.context.hasBatchedCycleRelease = savedBatchedCycleRelease;
 		self.context.collectionEdgeKeeps = savedCollectionEdgeKeeps;
 		self.context.genericBody = false;
 		self.context.activeTypeMap = {};

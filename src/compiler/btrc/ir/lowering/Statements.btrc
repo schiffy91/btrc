@@ -1057,6 +1057,7 @@ class StatementLowerer {
 		releaseSlot.emitAfter(out);
 		if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
 			if (self.context.batchExplicitReleases) {
+				self.context.hasBatchedCycleRelease = true;
 				out.push(IRNode.expressionStatement(self.managedLifetime.pollCycles()));
 			} else {
 				out.push(IRNode.expressionStatement(self.managedLifetime.flushCycles()));
