@@ -487,9 +487,47 @@ static int child_cwd(void) {
     return 0;
 }
 
+/* ACL tampering is an external actor. Keep native ACL initialization out of
+ * the process whose daemon capabilities are checked for leaked handles. The
+ * second identical mutation must preserve the actor's own handle count. */
+static int child_set_acl(const char *path_utf8, const char *kind) {
+    wchar_t path[2048];
+    if (to_wide(path_utf8, path, 2048) != 0) return 10;
+    void *descriptor = NULL;
+    PACL acl = NULL;
+    if (strcmp(kind, "null") != 0) {
+        int directory = strcmp(kind, "directory") == 0;
+        if (!directory && strcmp(kind, "file") != 0) return 11;
+        if (btrcWinPrivateDescriptor(directory, &descriptor) != 0) return 12;
+        BOOL present = FALSE, defaulted = FALSE;
+        if (!GetSecurityDescriptorDacl(descriptor, &present, &acl, &defaulted) || !present || acl == NULL) {
+            free(descriptor);
+            return 13;
+        }
+    }
+    census_snapshot initial;
+    DWORD count = 0;
+    int valid = GetProcessHandleCount(GetCurrentProcess(), &count) && census_take(&initial) == 0;
+    if (!valid) {
+        free(descriptor);
+        return 14;
+    }
+    DWORD result = SetNamedSecurityInfoW(path, SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, NULL, NULL, acl, NULL);
+    census_checkpoint("ACL actor first mutation", &count, &initial, &valid);
+    DWORD after_first = count;
+    if (result == ERROR_SUCCESS)
+        result = SetNamedSecurityInfoW(path, SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, NULL, NULL, acl, NULL);
+    census_checkpoint("ACL actor repeated mutation", &count, &initial, &valid);
+    free(descriptor);
+    return result == ERROR_SUCCESS && valid && count == after_first ? 0 : 14;
+}
+
 static int child(int argc, char **argv) {
     const char *mode = argv[1];
     if (strcmp(mode, "--btrc-daemon-bootstrap-v1") == 0) return child_bootstrap_admission();
+    if (strcmp(mode, "--set-acl") == 0 && argc == 4) return child_set_acl(argv[2], argv[3]);
     if (strcmp(mode, "--echo") == 0) return child_echo();
     if (strcmp(mode, "--exit") == 0 && argc > 2) ExitProcess((UINT)strtoul(argv[2], NULL, 16));
     if (strcmp(mode, "--sleep") == 0 && argc > 2) {
@@ -628,6 +666,21 @@ static void release(outcome_t *outcome) {
 static int exited_with(const outcome_t *outcome, uint32_t code) {
     return outcome->launched == 0 && outcome->result.state == 1 && outcome->result.has_exit_code
         && outcome->result.native_exit_code == code;
+}
+
+static int fixture_set_acl(const char *path_utf8, const char *kind) {
+    spec_t spec;
+    spec_init(&spec, "--set-acl");
+    spec_arg(&spec, path_utf8);
+    spec_arg(&spec, kind);
+    outcome_t outcome = run(&spec);
+    if (outcome.err_size > 0) {
+        (void)fwrite(outcome.err, 1, outcome.err_size, stderr);
+        (void)fflush(stderr);
+    }
+    int valid = exited_with(&outcome, 0);
+    release(&outcome);
+    return valid;
 }
 
 static int refused(const outcome_t *outcome, uint32_t stage, uint32_t reason) {
@@ -2178,19 +2231,12 @@ static void check_daemon_files(void) {
         && directory_io == 0 && too_small[0] == 0xA5 && too_small[1] == 0xA5);
     CHECK("directory capability refuses file flush", __btrc_windows_daemon_file_flush(held, &error) != 0);
     CHECK("fixture removes directory ACL protection",
-        SetNamedSecurityInfoW(directory, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-            NULL, NULL, NULL, NULL) == ERROR_SUCCESS);
+        fixture_set_acl(directory_utf8, "null"));
     CHECK("directory path copy rechecks its current ACL",
         __btrc_windows_daemon_directory_path(held, too_small, sizeof(too_small), &repeated_size, &error) != 0
         && repeated_size == 0 && too_small[0] == 0xA5 && too_small[1] == 0xA5 && error.ownership_state == 1);
-    PACL directory_acl = NULL;
-    BOOL directory_acl_present = FALSE, directory_acl_defaulted = FALSE;
-    CHECK("fixture reads its private directory ACL",
-        GetSecurityDescriptorDacl(directory_descriptor, &directory_acl_present, &directory_acl, &directory_acl_defaulted)
-        && directory_acl_present);
     CHECK("fixture restores directory ACL",
-        SetNamedSecurityInfoW(directory, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-            NULL, NULL, directory_acl, NULL) == ERROR_SUCCESS);
+        fixture_set_acl(directory_utf8, "directory"));
     CHECK("private directory owner closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     CHECK("create mode accepts an already private directory without replacing it",
         __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
@@ -2288,19 +2334,13 @@ static void check_daemon_files(void) {
         __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
             BTRC_WOS_CONTROL_REMOVE, &competing, &error) != 0 && competing == NULL);
     CHECK("fixture removes control ACL protection",
-        SetNamedSecurityInfoW(record, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-            NULL, NULL, NULL, NULL) == ERROR_SUCCESS);
+        fixture_set_acl(record_utf8, "null"));
     bytes[0] = 0xA5;
     CHECK("held control reader rechecks ACL before I/O",
         __btrc_windows_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) != 0
         && transferred == 0 && bytes[0] == 0xA5 && error.ownership_state == 1);
-    PACL private_acl = NULL;
-    BOOL acl_present = FALSE, acl_defaulted = FALSE;
-    CHECK("fixture reads its private ACL",
-        GetSecurityDescriptorDacl(file_descriptor, &acl_present, &private_acl, &acl_defaulted) && acl_present);
     CHECK("fixture restores control ACL",
-        SetNamedSecurityInfoW(record, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-            NULL, NULL, private_acl, NULL) == ERROR_SUCCESS);
+        fixture_set_acl(record_utf8, "file"));
     CHECK("control reader closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     census_checkpoint("daemon control I/O and ACL mutation", &phase_count, &phase, &phase_valid);
     CHECK("control removal opens the same protected object for inspection",
