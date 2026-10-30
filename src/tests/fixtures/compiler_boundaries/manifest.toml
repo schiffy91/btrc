@@ -452,6 +452,19 @@ channels = [
   "helper.__btrc_windows_supervisor_image_verify",
   "helper.__btrc_windows_supervisor_image_close",
   "helper.__btrc_windows_supervisor_transfer",
+    "helper.__btrc_windows_daemon_file_types",
+    "helper.__btrc_windows_daemon_directory_open",
+    "helper.__btrc_windows_daemon_directory_path",
+    "helper.__btrc_windows_daemon_directory_next",
+    "helper.__btrc_windows_daemon_control_open",
+    "helper.__btrc_windows_daemon_control_open_at",
+    "helper.__btrc_windows_daemon_file_read",
+    "helper.__btrc_windows_daemon_file_write",
+    "helper.__btrc_windows_daemon_file_flush",
+    "helper.__btrc_windows_daemon_file_dispose",
+    "helper.__btrc_windows_daemon_log_open",
+    "helper.__btrc_windows_daemon_record_open",
+    "helper.__btrc_windows_daemon_file_close",
 ]
 
 [[capabilities]]
@@ -4698,9 +4711,9 @@ channel = "python"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
 baseline_sha256 = "37e2442001713cb436302de380466e70ae4d1c6123368fbd0b4e30f5021b422a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
-accepted_sha256 = "f90d27555f4553a092d5c4aa3edddb694de898e6d133ddf29332cc0fd83579b1"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change. Merged root-a's __btrc_target_platform rename with root-b's removal of nine unused helpers (2026-10-01 wave-1 integration): the order is the union of both deltas. Stage 4 D051 (PLAN.md D14): the unused __btrc_join helper leaves strings.c and the manifest (Strings.join delegates to Vector.join), and the later helpers' catalog orders close up contiguously; generated C is unchanged because no lowering ever selected it. __btrc_target_architecture joins both catalogs at the end of their orders; every earlier helper keeps its position. Stage 4 C-output parity (PLAN.md D14): both catalogs share one dependency-first order -- the btrc order is the Python order restricted to its members, and the generator rejects a helper ordered before a dependency -- and both compilers materialize a selection's dependency closure in that order, whichever members were roots, so the two compilers emit shared runtime helpers in the same sequence. Helper sources are unchanged; only their order in generated C moves. CL-P2-02 (PLAN.md D14): the Windows launch seam joins the runtime as the separately compiled windows_os.c object (docs/design/windows-os-services.md, Selection unit). Its SDK-free declarations are the seven sections of the new windows_os.h asset (__btrc_windows_launch_types, __btrc_windows_launch, __btrc_windows_launch_wait, __btrc_windows_launch_copy_output, __btrc_windows_launch_terminate, __btrc_windows_launch_close and __btrc_windows_quote_argv_utf8), appended to both catalogs after every existing helper, so every earlier helper keeps its order; the manifest gains the [[external_objects]] row that binds them to windows_os.c, which links kernel32 on Windows. Only a Windows program that calls ChildProcess.run retains them: every existing helper's text and every Linux, macOS, iOS and Android unit are unchanged. Issue 113: append ten supervisor catalog sections in dependency order without changing existing helper order. Issue 113: register the consumer-only image API, its windows_os.c object dependency and BCrypt library; append four image operations without changing existing helper order. Native Windows qualification remains pending."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/python/test_application_directories_contract.py", "src/tests/btrc/test_native_packages.py", "src/tests/btrc/test_c_output_parity.py", "src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_windows_daemon_image.py"]
+accepted_sha256 = "fe692ccb53d4e06fcd715e3e43775f6db071aa76390a8e8c6d60e25263572cf8"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-order.btrc"
@@ -4712,9 +4725,9 @@ channel = "btrc"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
 baseline_sha256 = "213371cc7e12185e6643930ec91b4a3016d51ab6add711a63cd7d41b6c85dea2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
-accepted_sha256 = "1e6c329278c2f1ad57001d4fddea31ee82a77f8a6736bb062cde85db995e853d"
-reason = "Stage 4 D060 (PLAN.md D14): the runtime drops its legacy aliases. The seven never-emitted __btrc_math_* helpers and the __btrc_str_track forwarder and no-op __btrc_str_flush leave core.c, strings.c and the manifest, every adoption is spelled __btrc_string_adopt, and the remaining helpers' catalog orders close up contiguously. Generated C loses only the forwarder definition; behavior is unchanged. Per-thread runtime state moved into the __btrc_tls record declared by __btrc_tls_state (the historical variable names are field accessors, so one thread-local lookup per function replaces one per variable); the Darwin _setjmp mapping is hosted-only; the deferred ARC drain returns without the mutation lock when this thread's queue is empty. The application-directory platform helper is now the general __btrc_target_platform, which Platform.isWindows also reads; it is renamed in place with an override macro to match, so only its name and text change. Merged root-a's __btrc_target_platform rename with root-b's removal of nine unused helpers (2026-10-01 wave-1 integration): the order is the union of both deltas. Stage 4 D051 (PLAN.md D14): the unused __btrc_join helper leaves strings.c and the manifest (Strings.join delegates to Vector.join), and the later helpers' catalog orders close up contiguously; generated C is unchanged because no lowering ever selected it. __btrc_target_architecture joins both catalogs at the end of their orders; every earlier helper keeps its position. Stage 4 C-output parity (PLAN.md D14): both catalogs share one dependency-first order -- the btrc order is the Python order restricted to its members, and the generator rejects a helper ordered before a dependency -- and both compilers materialize a selection's dependency closure in that order, whichever members were roots, so the two compilers emit shared runtime helpers in the same sequence. Helper sources are unchanged; only their order in generated C moves. Stage 4 C-output parity (PLAN.md D14): __btrc_gpu_index_check joins the btrc catalog at its Python position, so btrcc's @gpu CPU fallback calls the pre-authored bounds check instead of lowering its own __btrc_gpu_checked_index; every later btrc order moves up by one. Helper sources are unchanged. CL-P2-02 (PLAN.md D14): the Windows launch seam joins the runtime as the separately compiled windows_os.c object (docs/design/windows-os-services.md, Selection unit). Its SDK-free declarations are the seven sections of the new windows_os.h asset (__btrc_windows_launch_types, __btrc_windows_launch, __btrc_windows_launch_wait, __btrc_windows_launch_copy_output, __btrc_windows_launch_terminate, __btrc_windows_launch_close and __btrc_windows_quote_argv_utf8), appended to both catalogs after every existing helper, so every earlier helper keeps its order; the manifest gains the [[external_objects]] row that binds them to windows_os.c, which links kernel32 on Windows. Only a Windows program that calls ChildProcess.run retains them: every existing helper's text and every Linux, macOS, iOS and Android unit are unchanged. Issue 113: append the same ten supervisor catalog sections in dependency order without changing existing helper order. Issue 113: register the consumer-only image API, its windows_os.c object dependency and BCrypt library; append four image operations without changing existing helper order. Native Windows qualification remains pending."
-regressions = ["src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/python/test_stdlib_archive_shared_state.py", "src/tests/python/test_application_directories_contract.py", "src/tests/btrc/test_native_packages.py", "src/tests/btrc/test_c_output_parity.py", "src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_windows_daemon_image.py"]
+accepted_sha256 = "1686209c053d876e4117a1643d0ed3b60c7b204fc2c5ad2caab8a822a8d004d3"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[equalities]]
 id = "surface.tokens.artifact"
@@ -4980,9 +4993,9 @@ channel = "asset.windows_os_h"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.windows_os_h.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.windows_os_h.bin"
-accepted_sha256 = "ad6cc0fa0f0140c2584a80b5e699a79397d3d9782717d2a748790d8cddfd424a"
-reason = "CL-P2-02 (PLAN.md D14): the Windows launch seam joins the runtime as the separately compiled windows_os.c object (docs/design/windows-os-services.md, Selection unit). Its SDK-free declarations are the seven sections of the new windows_os.h asset (__btrc_windows_launch_types, __btrc_windows_launch, __btrc_windows_launch_wait, __btrc_windows_launch_copy_output, __btrc_windows_launch_terminate, __btrc_windows_launch_close and __btrc_windows_quote_argv_utf8), appended to both catalogs after every existing helper, so every earlier helper keeps its order; the manifest gains the [[external_objects]] row that binds them to windows_os.c, which links kernel32 on Windows. Only a Windows program that calls ChildProcess.run retains them: every existing helper's text and every Linux, macOS, iOS and Android unit are unchanged. The asset is new, so its baseline is empty. Issue 113: expose the supervisor opaque owner and nine lifecycle declarations through the shared runtime catalog. Document raw NTSTATUS in the existing error domain. The header remains SDK-free; native lifecycle qualification remains pending."
-regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_boundary_manifest.py"]
+accepted_sha256 = "62fa9e60af13036f23d75a27783abc33f110383655161fcaad5225272ae09983"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0235"
@@ -5291,3 +5304,185 @@ accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0255.bin"
 accepted_sha256 = "9a0d8fa18166fbcc2494a4a4ca9a66075a5f6383afb47503701f30945cb60353"
 reason = "Issue 113: expose consumer image admission and authenticated transfer through SDK-free runtime declarations. The baseline records absence at the frozen revision; native Windows qualification remains pending."
 regressions = ["src/tests/python/test_windows_daemon_image.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0256"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_file_types"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0256.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0256.bin"
+accepted_sha256 = "ec9add3b9ea9d3494ca3bf41a408a03fa5aeaeb6a2ce5478c97a31c81db8d0fe"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0257"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_directory_open"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0257.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0257.bin"
+accepted_sha256 = "8accf66a91512735a294b52cb1ff26d70ddbc8656c7ec5e767b9699f9c0c4fec"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0258"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_directory_path"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0258.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0258.bin"
+accepted_sha256 = "82e4815d63c32efe6176301c7925a9530b7f45789b59b0ea48072c9b53473905"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0259"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_directory_next"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0259.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0259.bin"
+accepted_sha256 = "4d5e22df6b388863db054f1cab16deffed693668237fb34bc10e146430df50ab"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0260"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_control_open"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0260.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0260.bin"
+accepted_sha256 = "d4ec3e3e1de28edc4eecc4a5009285b774b71f1b5cd0e56c9930c6fb6644f4c5"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0261"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_control_open_at"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0261.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0261.bin"
+accepted_sha256 = "d2e93980bcfd00e04e748f699838eeca8f4fdc7814c091ed5f9ec25b70587429"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0262"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_file_read"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0262.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0262.bin"
+accepted_sha256 = "bf9ae6c496d7e1b43ec00cda6038ea03210701382aca375e9ebc50d5008c0205"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0263"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_file_write"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0263.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0263.bin"
+accepted_sha256 = "a16ee8baeb1401758e4616a6c54bbcac1d524f97f26fe29243248c0b513339a7"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0264"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_file_flush"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0264.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0264.bin"
+accepted_sha256 = "b32d94a1082b9baac01e96ba96c2c934e71e354848ca08fe81cdf0ce25e63069"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0265"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_file_dispose"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0265.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0265.bin"
+accepted_sha256 = "0ff2fe17f986bb352364846e4232cd1342af20a8b23ec81f6b0605095a9d19c1"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0266"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_log_open"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0266.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0266.bin"
+accepted_sha256 = "5c3c695b2e833c8f906cb13cacf608a07f9dddd825b03a2af5981724078be07f"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0267"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_record_open"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0267.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0267.bin"
+accepted_sha256 = "8e3ab61b67e197d7eefb95b0382f4b1fe04e5c31c87bb6724f80ecc98bfa9e53"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0268"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_file_close"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0268.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0268.bin"
+accepted_sha256 = "37a90010492ec12d14d751bba9840abae4a8747b44a39af315855c719f582c88"
+reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]

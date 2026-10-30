@@ -248,6 +248,10 @@ def test_supervisor_off_windows_clears_outputs_and_preserves_copy_buffer(probe):
     )
 
 
+def test_daemon_files_off_windows_preserve_buffers_and_owner_lifetimes(probe):
+    assert quote(probe, ["--daemon-files"]).strip() == "daemon files unsupported: PASS"
+
+
 def test_runtime_object_builds_strictly_for_the_host(probe):
     assert probe.is_file()
 
@@ -359,6 +363,22 @@ def test_the_windows_harness_exercises_every_seam_section():
     these sections, so no host corpus program can pin them (test_platform_inventory's target-only rows)."""
     harness = (NATIVE / "launch_harness.c").read_text(encoding="utf-8")
     uses = {
+        "__btrc_windows_daemon_file_types": (
+            "__btrc_windows_daemon_file_owner",
+            "__btrc_windows_daemon_directory_entry",
+        ),
+        "__btrc_windows_daemon_directory_open": ("__btrc_windows_daemon_directory_open(",),
+        "__btrc_windows_daemon_directory_path": ("__btrc_windows_daemon_directory_path(",),
+        "__btrc_windows_daemon_directory_next": ("__btrc_windows_daemon_directory_next(",),
+        "__btrc_windows_daemon_control_open": ("__btrc_windows_daemon_control_open(",),
+        "__btrc_windows_daemon_control_open_at": ("__btrc_windows_daemon_control_open_at(",),
+        "__btrc_windows_daemon_file_read": ("__btrc_windows_daemon_file_read(",),
+        "__btrc_windows_daemon_file_write": ("__btrc_windows_daemon_file_write(",),
+        "__btrc_windows_daemon_file_flush": ("__btrc_windows_daemon_file_flush(",),
+        "__btrc_windows_daemon_file_dispose": ("__btrc_windows_daemon_file_dispose(",),
+        "__btrc_windows_daemon_log_open": ("__btrc_windows_daemon_log_open(",),
+        "__btrc_windows_daemon_record_open": ("__btrc_windows_daemon_record_open(",),
+        "__btrc_windows_daemon_file_close": ("__btrc_windows_daemon_file_close(",),
         "__btrc_windows_launch_types": (
             "__btrc_windows_launch_owner_t",
             "__btrc_windows_launch_options_t",

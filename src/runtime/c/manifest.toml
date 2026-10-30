@@ -2656,3 +2656,134 @@ source = "windows_daemon_image.c"
 declarations = "windows_daemon_image.h"
 dependencies = ["windows_os.c"]
 libraries = [{ os = ["windows"], names = ["bcrypt"] }]
+
+# Held daemon files use the same external object and security owner.
+[[helpers]]
+name = "__btrc_windows_daemon_file_types"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+provided_types = ["__btrc_windows_daemon_file_owner", "__btrc_windows_daemon_directory_entry"]
+source_visible = false
+order = { python = 244, btrc = 230 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_directory_open"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 245, btrc = 231 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_directory_path"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 246, btrc = 232 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_directory_next"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 247, btrc = 233 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_control_open"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 248, btrc = 234 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_control_open_at"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 249, btrc = 235 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_read"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 250, btrc = 236 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_write"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 251, btrc = 237 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_flush"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 252, btrc = 238 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_dispose"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 253, btrc = 239 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_log_open"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 254, btrc = 240 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_record_open"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 255, btrc = 241 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_close"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 256, btrc = 242 }

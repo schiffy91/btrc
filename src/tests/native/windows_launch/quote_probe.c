@@ -16,6 +16,62 @@
 #include "windows_bootstrap.h"
 #include "windows_daemon_transfer.h"
 
+static int file_unsupported(const __btrc_windows_launch_error_t *error, uint32_t ownership) {
+    return error->stage == 15 && error->domain == 4 && error->native_code == 0
+        && error->ownership_state == ownership;
+}
+
+static int daemon_files_off_windows(void) {
+#define FILE_REQUIRE(condition) do { if (!(condition)) { fprintf(stderr, "daemon file contract failed at line %d\n", __LINE__); return 1; } } while (0)
+    __btrc_windows_launch_error_t error;
+    __btrc_windows_daemon_file_owner *sentinel = (__btrc_windows_daemon_file_owner *)(void *)&error;
+    __btrc_windows_daemon_file_owner *owner = sentinel;
+    FILE_REQUIRE(__btrc_windows_daemon_directory_open(NULL, 0, 1, &owner, &error) != 0
+        && owner == NULL && file_unsupported(&error, 0));
+    owner = sentinel;
+    FILE_REQUIRE(__btrc_windows_daemon_control_open(NULL, 0, 0, &owner, &error) != 0
+        && owner == NULL && file_unsupported(&error, 0));
+    owner = sentinel;
+    FILE_REQUIRE(__btrc_windows_daemon_control_open_at(sentinel, NULL, 0, 0, NULL, &owner, &error) != 0
+        && owner == NULL && file_unsupported(&error, 0));
+    owner = sentinel;
+    FILE_REQUIRE(__btrc_windows_daemon_log_open(NULL, 0, &owner, &error) != 0
+        && owner == NULL && file_unsupported(&error, 0));
+    owner = sentinel;
+    FILE_REQUIRE(__btrc_windows_daemon_record_open(NULL, 0, NULL, 0, &owner, &error) != 0
+        && owner == NULL && file_unsupported(&error, 0));
+    unsigned char buffer[4] = { 0xA5, 0xA5, 0xA5, 0xA5 };
+    const unsigned char untouched[4] = { 0xA5, 0xA5, 0xA5, 0xA5 };
+    size_t required = 99;
+    FILE_REQUIRE(__btrc_windows_daemon_directory_path(sentinel, buffer, sizeof(buffer), &required, &error) != 0
+        && required == 0 && file_unsupported(&error, 1));
+    __btrc_windows_daemon_directory_entry entry, zero;
+    memset(&entry, 0xA5, sizeof(entry)); memset(&zero, 0, sizeof(zero));
+    required = 99;
+    FILE_REQUIRE(__btrc_windows_daemon_directory_next(sentinel, 0, buffer, sizeof(buffer), &required, &entry, &error) != 0
+        && required == 0 && memcmp(&entry, &zero, sizeof(entry)) == 0 && file_unsupported(&error, 1));
+    required = 99;
+    FILE_REQUIRE(__btrc_windows_daemon_file_read(sentinel, 0, buffer, sizeof(buffer), &required, &error) != 0
+        && required == 0 && file_unsupported(&error, 1));
+    required = 99;
+    FILE_REQUIRE(__btrc_windows_daemon_file_write(sentinel, 0, buffer, sizeof(buffer), &required, &error) != 0
+        && required == 0 && file_unsupported(&error, 1));
+    FILE_REQUIRE(memcmp(buffer, untouched, sizeof(buffer)) == 0);
+    FILE_REQUIRE(__btrc_windows_daemon_file_flush(sentinel, &error) != 0 && file_unsupported(&error, 1));
+    uint32_t state = 99;
+    FILE_REQUIRE(__btrc_windows_daemon_file_dispose(sentinel, &state, &error) != 0
+        && state == 0 && file_unsupported(&error, 1));
+    owner = sentinel;
+    FILE_REQUIRE(__btrc_windows_daemon_file_close(&owner, &error) != 0
+        && owner == sentinel && file_unsupported(&error, 1));
+    owner = NULL;
+    FILE_REQUIRE(__btrc_windows_daemon_file_close(&owner, &error) == 0
+        && owner == NULL && error.stage == 0 && error.domain == 0 && error.ownership_state == 0);
+    puts("daemon files unsupported: PASS");
+    return 0;
+#undef FILE_REQUIRE
+}
+
 static int snapshot_off_windows(void) {
     __btrc_windows_launch_error_t error;
     btrc_wos_startup_snapshot *owner = (btrc_wos_startup_snapshot *)(void *)&error;
@@ -117,6 +173,7 @@ static int launch_off_windows(void) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "--daemon-files") == 0) return daemon_files_off_windows();
     if (argc == 2 && strcmp(argv[1], "--snapshot") == 0) return snapshot_off_windows();
     if (argc == 2 && strcmp(argv[1], "--transfer") == 0) return transfer_off_windows();
     if (argc == 2 && strcmp(argv[1], "--supervisor") == 0) return supervisor_off_windows();

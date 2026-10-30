@@ -29,7 +29,6 @@
 #include "windows_daemon_transfer.h"
 #include "windows_security.h"
 #include "windows_filesystem.h"
-#include "windows_daemon_files.h"
 
 static int checks = 0;
 static int failures = 0;
@@ -1952,17 +1951,17 @@ static void check_daemon_directory_entries(const wchar_t *parent, void *descript
     swprintf(additional, 1500, L"%ls\\another", path);
     char path_utf8[5600];
     if (to_utf8(path, path_utf8, sizeof(path_utf8)) != 0) ExitProcess(3);
-    btrc_wos_daemon_file *directory = NULL;
+    __btrc_windows_daemon_file_owner *directory = NULL;
     __btrc_windows_launch_error_t error;
     CHECK("enumeration fixture creates a private held directory",
-        btrc_wos_daemon_directory_open((const unsigned char *)path_utf8, strlen(path_utf8), 1, &directory, &error) == 0);
+        __btrc_windows_daemon_directory_open((const unsigned char *)path_utf8, strlen(path_utf8), 1, &directory, &error) == 0);
     if (directory == NULL) ExitProcess(3);
-    btrc_wos_daemon_directory_entry entry, zero, queried;
+    __btrc_windows_daemon_directory_entry entry, zero, queried;
     memset(&zero, 0, sizeof(zero));
     unsigned char name[128]; memset(name, 0xA5, sizeof(name));
     size_t required = 99;
     CHECK("empty directory returns an explicit end without modifying the buffer",
-        btrc_wos_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) == 0
+        __btrc_windows_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) == 0
         && required == 0 && memcmp(&entry, &zero, sizeof(entry)) == 0 && name[0] == 0xA5);
     CHECK("enumeration fixture creates a Unicode entry", daemon_fixture_file(original, "first", descriptor) == 0);
     HANDLE reader = CreateFileW(original, FILE_READ_DATA | FILE_READ_ATTRIBUTES,
@@ -1971,41 +1970,41 @@ static void check_daemon_directory_entries(const wchar_t *parent, void *descript
     CHECK("enumeration fixture reads full native identity", reader != INVALID_HANDLE_VALUE
         && GetFileInformationByHandleEx(reader, FileIdInfo, &expected, sizeof(expected)));
     CHECK("restart discovers a new entry and query retains its full identity",
-        btrc_wos_daemon_directory_next(directory, 1, NULL, 0, &required, &queried, &error) == 0
+        __btrc_windows_daemon_directory_next(directory, 1, NULL, 0, &required, &queried, &error) == 0
         && required == strlen("probe-\xc3\xa9") + 1 && queried.present == 1 && queried.kind == 0
         && queried.volume == expected.VolumeSerialNumber
         && memcmp(queried.file_id, expected.FileId.Identifier, 16) == 0);
     size_t sized = required;
-    btrc_wos_daemon_file *relative = NULL;
-    btrc_wos_daemon_directory_entry wrong = queried;
+    __btrc_windows_daemon_file_owner *relative = NULL;
+    __btrc_windows_daemon_directory_entry wrong = queried;
     wrong.file_id[15] ^= 1;
     const unsigned char *unicode_name = (const unsigned char *)"probe-\xc3\xa9";
     size_t unicode_size = strlen((const char *)unicode_name);
     CHECK("relative open compares the high half of the enumerated identity",
-        btrc_wos_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
+        __btrc_windows_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
             &wrong, &relative, &error) != 0 && relative == NULL && error.ownership_state == 0);
     CHECK("relative open accepts the exact enumerated identity",
-        btrc_wos_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
+        __btrc_windows_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
             &queried, &relative, &error) == 0 && relative != NULL);
-    CHECK("relative file owner closes independently", btrc_wos_daemon_file_close(&relative, &error) == 0);
+    CHECK("relative file owner closes independently", __btrc_windows_daemon_file_close(&relative, &error) == 0);
     const char *invalid_names[] = { "..", "../escape", "child\\escape", "data:stream", "CON", "trailing." };
     for (size_t index = 0; index < sizeof(invalid_names) / sizeof(invalid_names[0]); index++) {
         CHECK("relative open accepts only one safe component",
-            btrc_wos_daemon_control_open_at(directory, (const unsigned char *)invalid_names[index], strlen(invalid_names[index]),
+            __btrc_windows_daemon_control_open_at(directory, (const unsigned char *)invalid_names[index], strlen(invalid_names[index]),
                 BTRC_WOS_CONTROL_CREATE, NULL, &relative, &error) != 0 && relative == NULL);
     }
     CHECK("short enumeration copy retains the entry and clears metadata",
-        btrc_wos_daemon_directory_next(directory, 0, name, 1, &required, &entry, &error) != 0
+        __btrc_windows_daemon_directory_next(directory, 0, name, 1, &required, &entry, &error) != 0
         && required == sized && memcmp(&entry, &zero, sizeof(entry)) == 0 && name[0] == 0xA5);
     CHECK("complete enumeration copy returns the queried entry",
-        btrc_wos_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) == 0
+        __btrc_windows_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) == 0
         && required == sized && strcmp((const char *)name, "probe-\xc3\xa9") == 0
         && memcmp(&entry, &queried, sizeof(entry)) == 0);
     CHECK("complete copy consumes exactly one entry",
-        btrc_wos_daemon_directory_next(directory, 0, NULL, 0, &required, &entry, &error) == 0
+        __btrc_windows_daemon_directory_next(directory, 0, NULL, 0, &required, &entry, &error) == 0
         && required == 0 && entry.present == 0);
     CHECK("restart retains the old identity for a replacement race",
-        btrc_wos_daemon_directory_next(directory, 1, NULL, 0, &required, &entry, &error) == 0 && entry.present == 1);
+        __btrc_windows_daemon_directory_next(directory, 1, NULL, 0, &required, &entry, &error) == 0 && entry.present == 1);
     HANDLE remover = CreateFileW(original, DELETE | FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
     CHECK("fixture opens the enumerated name for POSIX disposition", remover != INVALID_HANDLE_VALUE);
@@ -2014,21 +2013,21 @@ static void check_daemon_directory_entries(const wchar_t *parent, void *descript
     CHECK("fixture replaces the enumerated name", daemon_fixture_file(original, "replacement", descriptor) == 0);
     memset(name, 0xA5, sizeof(name));
     CHECK("pending enumeration refuses a replaced object with the same name",
-        btrc_wos_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) != 0
+        __btrc_windows_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) != 0
         && required == 0 && memcmp(&entry, &zero, sizeof(entry)) == 0 && name[0] == 0xA5
         && error.ownership_state == 1);
     CHECK("restart observes the replacement as a new snapshot",
-        btrc_wos_daemon_directory_next(directory, 1, name, sizeof(name), &required, &entry, &error) == 0
+        __btrc_windows_daemon_directory_next(directory, 1, name, sizeof(name), &required, &entry, &error) == 0
         && entry.present == 1 && strcmp((const char *)name, "probe-\xc3\xa9") == 0
         && memcmp(entry.file_id, expected.FileId.Identifier, 16) != 0);
     CHECK("relative open refuses a stale identity after replacement",
-        btrc_wos_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
+        __btrc_windows_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
             &queried, &relative, &error) != 0 && relative == NULL);
     CHECK("fixture releases original identity", CloseHandle(reader));
     CHECK("fixture creates a second directory entry", daemon_fixture_file(additional, "second", descriptor) == 0);
     int seen = 0, count = 0;
     for (int index = 0; index < 3; index++) {
-        int status = btrc_wos_daemon_directory_next(directory, index == 0, name, sizeof(name), &required, &entry, &error);
+        int status = __btrc_windows_daemon_directory_next(directory, index == 0, name, sizeof(name), &required, &entry, &error);
         CHECK("multi-entry directory enumeration succeeds", status == 0);
         if (status != 0 || !entry.present) break;
         count++;
@@ -2037,36 +2036,36 @@ static void check_daemon_directory_entries(const wchar_t *parent, void *descript
     }
     CHECK("enumeration visits each name once without promising order", count == 2 && seen == 3 && entry.present == 0);
     CHECK("restart obtains a name for a relative read owner",
-        btrc_wos_daemon_directory_next(directory, 1, name, sizeof(name), &required, &entry, &error) == 0 && entry.present == 1);
+        __btrc_windows_daemon_directory_next(directory, 1, name, sizeof(name), &required, &entry, &error) == 0 && entry.present == 1);
     const char *expected_text = strcmp((const char *)name, "another") == 0 ? "second" : "replacement";
     CHECK("relative read owner retains its own directory claims",
-        btrc_wos_daemon_control_open_at(directory, name, strlen((const char *)name), BTRC_WOS_CONTROL_READ,
+        __btrc_windows_daemon_control_open_at(directory, name, strlen((const char *)name), BTRC_WOS_CONTROL_READ,
             &entry, &relative, &error) == 0 && relative != NULL);
     CHECK("query leaves a pending entry for close",
-        btrc_wos_daemon_directory_next(directory, 1, NULL, 0, &required, &entry, &error) == 0 && entry.present == 1);
-    btrc_wos_daemon_file *created = NULL;
+        __btrc_windows_daemon_directory_next(directory, 1, NULL, 0, &required, &entry, &error) == 0 && entry.present == 1);
+    __btrc_windows_daemon_file_owner *created = NULL;
     CHECK("relative creation does not accept an existing identity claim",
-        btrc_wos_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_CREATE,
+        __btrc_windows_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_CREATE,
             &entry, &created, &error) != 0 && created == NULL);
     CHECK("relative creation uses the protected held directory",
-        btrc_wos_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_CREATE,
+        __btrc_windows_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_CREATE,
             NULL, &created, &error) == 0 && created != NULL);
     size_t transferred = 0;
     CHECK("relative created file supports checked writes",
-        btrc_wos_daemon_file_write(created, 0, (const unsigned char *)"relative", 8, &transferred, &error) == 0
-        && transferred == 8 && btrc_wos_daemon_file_flush(created, &error) == 0);
+        __btrc_windows_daemon_file_write(created, 0, (const unsigned char *)"relative", 8, &transferred, &error) == 0
+        && transferred == 8 && __btrc_windows_daemon_file_flush(created, &error) == 0);
     uint32_t disposed = 0;
     CHECK("relative created file supports held removal",
-        btrc_wos_daemon_file_dispose(created, &disposed, &error) == 0 && disposed == 1);
-    CHECK("relative created file closes", btrc_wos_daemon_file_close(&created, &error) == 0);
-    CHECK("directory close releases its pending cursor", btrc_wos_daemon_file_close(&directory, &error) == 0 && directory == NULL);
+        __btrc_windows_daemon_file_dispose(created, &disposed, &error) == 0 && disposed == 1);
+    CHECK("relative created file closes", __btrc_windows_daemon_file_close(&created, &error) == 0);
+    CHECK("directory close releases its pending cursor", __btrc_windows_daemon_file_close(&directory, &error) == 0 && directory == NULL);
     CHECK("relative read owner survives its caller's directory close",
-        btrc_wos_daemon_file_read(relative, 0, name, sizeof(name), &transferred, &error) == 0
+        __btrc_windows_daemon_file_read(relative, 0, name, sizeof(name), &transferred, &error) == 0
         && transferred == strlen(expected_text) && memcmp(name, expected_text, transferred) == 0);
     wchar_t moved[1500];
     swprintf(moved, 1500, L"%ls-moved", path);
     CHECK("relative child retains ancestor rename exclusion", !MoveFileW(path, moved));
-    CHECK("relative child finally releases its claims", btrc_wos_daemon_file_close(&relative, &error) == 0);
+    CHECK("relative child finally releases its claims", __btrc_windows_daemon_file_close(&relative, &error) == 0);
     CHECK("directory rename succeeds after the last relative owner closes", MoveFileW(path, moved));
     CHECK("fixture restores enumeration directory", MoveFileW(moved, path));
     CHECK("fixture removes enumeration files", DeleteFileW(original) && DeleteFileW(additional));
@@ -2092,45 +2091,45 @@ static void check_daemon_files(void) {
     if (to_utf8(directory, directory_utf8, sizeof(directory_utf8)) != 0
             || to_utf8(log, log_utf8, sizeof(log_utf8)) != 0
             || to_utf8(record, record_utf8, sizeof(record_utf8)) != 0) ExitProcess(3);
-    btrc_wos_daemon_file *held = NULL;
+    __btrc_windows_daemon_file_owner *held = NULL;
     __btrc_windows_launch_error_t error;
     CHECK("directory inspection never creates a missing leaf",
-        btrc_wos_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+        __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
             0, &held, &error) != 0 && held == NULL && error.ownership_state == 0
         && GetFileAttributesW(directory) == INVALID_FILE_ATTRIBUTES);
     CHECK("directory creation rejects an invalid mode",
-        btrc_wos_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+        __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
             2, &held, &error) != 0 && held == NULL
         && GetFileAttributesW(directory) == INVALID_FILE_ATTRIBUTES);
     CHECK("private leaf creation works beneath an ordinary temporary root",
-        btrc_wos_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+        __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
             1, &held, &error) == 0 && held != NULL);
     if (held == NULL) ExitProcess(3);
     CHECK("held private directory cannot be renamed", !MoveFileW(directory, moved));
     size_t path_size = 0, repeated_size = 0, directory_io = 99;
     unsigned char canonical[5400] = { 0 }, too_small[2] = { 0xA5, 0xA5 };
     CHECK("directory path query sizes the complete NUL terminated result",
-        btrc_wos_daemon_directory_path(held, NULL, 0, &path_size, &error) == 0 && path_size > 2);
+        __btrc_windows_daemon_directory_path(held, NULL, 0, &path_size, &error) == 0 && path_size > 2);
     CHECK("short directory path copy leaves the entire buffer untouched",
-        btrc_wos_daemon_directory_path(held, too_small, sizeof(too_small), &repeated_size, &error) != 0
+        __btrc_windows_daemon_directory_path(held, too_small, sizeof(too_small), &repeated_size, &error) != 0
         && repeated_size == path_size && too_small[0] == 0xA5 && too_small[1] == 0xA5);
     CHECK("directory path copy uses the same snapshot as its query",
-        btrc_wos_daemon_directory_path(held, canonical, sizeof(canonical), &repeated_size, &error) == 0
+        __btrc_windows_daemon_directory_path(held, canonical, sizeof(canonical), &repeated_size, &error) == 0
         && repeated_size == path_size && strlen((const char *)canonical) + 1 == path_size);
-    btrc_wos_daemon_file *directory_copy = NULL;
+    __btrc_windows_daemon_file_owner *directory_copy = NULL;
     CHECK("canonical directory path reopens the protected directory",
-        btrc_wos_daemon_directory_open(canonical, strlen((const char *)canonical), 0, &directory_copy, &error) == 0
+        __btrc_windows_daemon_directory_open(canonical, strlen((const char *)canonical), 0, &directory_copy, &error) == 0
         && directory_copy != NULL);
-    CHECK("canonical directory copy closes independently", btrc_wos_daemon_file_close(&directory_copy, &error) == 0);
+    CHECK("canonical directory copy closes independently", __btrc_windows_daemon_file_close(&directory_copy, &error) == 0);
     CHECK("directory capability refuses file I/O without touching its buffer",
-        btrc_wos_daemon_file_read(held, 0, too_small, sizeof(too_small), &directory_io, &error) != 0
+        __btrc_windows_daemon_file_read(held, 0, too_small, sizeof(too_small), &directory_io, &error) != 0
         && directory_io == 0 && too_small[0] == 0xA5 && too_small[1] == 0xA5);
-    CHECK("directory capability refuses file flush", btrc_wos_daemon_file_flush(held, &error) != 0);
+    CHECK("directory capability refuses file flush", __btrc_windows_daemon_file_flush(held, &error) != 0);
     CHECK("fixture removes directory ACL protection",
         SetNamedSecurityInfoW(directory, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
             NULL, NULL, NULL, NULL) == ERROR_SUCCESS);
     CHECK("directory path copy rechecks its current ACL",
-        btrc_wos_daemon_directory_path(held, too_small, sizeof(too_small), &repeated_size, &error) != 0
+        __btrc_windows_daemon_directory_path(held, too_small, sizeof(too_small), &repeated_size, &error) != 0
         && repeated_size == 0 && too_small[0] == 0xA5 && too_small[1] == 0xA5 && error.ownership_state == 1);
     PACL directory_acl = NULL;
     BOOL directory_acl_present = FALSE, directory_acl_defaulted = FALSE;
@@ -2140,105 +2139,105 @@ static void check_daemon_files(void) {
     CHECK("fixture restores directory ACL",
         SetNamedSecurityInfoW(directory, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
             NULL, NULL, directory_acl, NULL) == ERROR_SUCCESS);
-    CHECK("private directory owner closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("private directory owner closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     CHECK("create mode accepts an already private directory without replacing it",
-        btrc_wos_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+        __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
             1, &held, &error) == 0 && held != NULL);
-    CHECK("reopened directory owner closes", btrc_wos_daemon_file_close(&held, &error) == 0);
+    CHECK("reopened directory owner closes", __btrc_windows_daemon_file_close(&held, &error) == 0);
 
     wchar_t nested[1300];
     swprintf(nested, 1300, L"%ls\\namespace-\u00e9", directory);
     char nested_utf8[5400];
     if (to_utf8(nested, nested_utf8, sizeof(nested_utf8)) != 0) ExitProcess(3);
     CHECK("private directory creation preserves Unicode names",
-        btrc_wos_daemon_directory_open((const unsigned char *)nested_utf8, strlen(nested_utf8),
+        __btrc_windows_daemon_directory_open((const unsigned char *)nested_utf8, strlen(nested_utf8),
             1, &held, &error) == 0 && held != NULL);
     CHECK("Unicode canonical path retains its name",
-        btrc_wos_daemon_directory_path(held, canonical, sizeof(canonical), &path_size, &error) == 0
+        __btrc_windows_daemon_directory_path(held, canonical, sizeof(canonical), &path_size, &error) == 0
         && strstr((const char *)canonical, "namespace-\xc3\xa9") != NULL);
-    CHECK("Unicode directory owner closes", btrc_wos_daemon_file_close(&held, &error) == 0);
+    CHECK("Unicode directory owner closes", __btrc_windows_daemon_file_close(&held, &error) == 0);
     CHECK("fixture removes Unicode directory", RemoveDirectoryW(nested));
     CHECK("fixture creates an unprotected directory", CreateDirectoryW(nested, NULL));
     CHECK("create mode refuses an existing unprotected directory",
-        btrc_wos_daemon_directory_open((const unsigned char *)nested_utf8, strlen(nested_utf8),
+        __btrc_windows_daemon_directory_open((const unsigned char *)nested_utf8, strlen(nested_utf8),
             1, &held, &error) != 0 && held == NULL && error.ownership_state == 0);
     CHECK("refusal leaves existing directory in place", GetFileAttributesW(nested) != INVALID_FILE_ATTRIBUTES);
     CHECK("fixture removes unprotected directory", RemoveDirectoryW(nested));
     check_directory_record_bounds();
     check_daemon_directory_entries(directory, file_descriptor);
     CHECK("daemon log creates a private empty append file",
-        btrc_wos_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
+        __btrc_windows_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
     CHECK("held daemon directory cannot be renamed", !MoveFileW(directory, moved));
-    CHECK("daemon log closes its capability", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("daemon log closes its capability", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     CHECK("private directory creation never replaces a regular file",
-        btrc_wos_daemon_directory_open((const unsigned char *)log_utf8, strlen(log_utf8),
+        __btrc_windows_daemon_directory_open((const unsigned char *)log_utf8, strlen(log_utf8),
             1, &held, &error) != 0 && held == NULL);
     CHECK("daemon log fixture writes existing content", daemon_fixture_file(log, "preserve\n", file_descriptor) == 0);
     CHECK("daemon log opens existing content without truncating",
-        btrc_wos_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
+        __btrc_windows_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
     char contents[128];
     CHECK("daemon log kept its existing bytes", read_text(log, contents, sizeof(contents)) == 0 && strcmp(contents, "preserve\n") == 0);
-    CHECK("daemon log releases its ancestor holds", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("daemon log releases its ancestor holds", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     CHECK("directory rename works after close", MoveFileW(directory, moved));
     CHECK("fixture restores directory name", MoveFileW(moved, directory));
-    btrc_wos_daemon_file *competing = NULL;
+    __btrc_windows_daemon_file_owner *competing = NULL;
     size_t transferred = 99;
     uint32_t disposition = 99;
     unsigned char bytes[128];
     CHECK("missing control file cannot be opened for reading",
-        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
             BTRC_WOS_CONTROL_READ, &held, &error) != 0 && held == NULL && error.ownership_state == 0);
     CHECK("control creation is private and exclusive",
-        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
             BTRC_WOS_CONTROL_CREATE, &held, &error) == 0 && held != NULL);
     CHECK("control owner retains its parent", !MoveFileW(directory, moved));
     CHECK("control write reports its byte count",
-        btrc_wos_daemon_file_write(held, 0, (const unsigned char *)"initial", 7, &transferred, &error) == 0
+        __btrc_windows_daemon_file_write(held, 0, (const unsigned char *)"initial", 7, &transferred, &error) == 0
         && transferred == 7);
     CHECK("control writes use explicit offsets",
-        btrc_wos_daemon_file_write(held, 2, (const unsigned char *)"X", 1, &transferred, &error) == 0
+        __btrc_windows_daemon_file_write(held, 2, (const unsigned char *)"X", 1, &transferred, &error) == 0
         && transferred == 1);
     CHECK("second creator cannot truncate an existing control file",
-        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
             BTRC_WOS_CONTROL_CREATE, &competing, &error) != 0 && competing == NULL);
     CHECK("control read uses its own explicit offset",
-        btrc_wos_daemon_file_read(held, 1, bytes, 4, &transferred, &error) == 0
+        __btrc_windows_daemon_file_read(held, 1, bytes, 4, &transferred, &error) == 0
         && transferred == 4 && memcmp(bytes, "nXti", 4) == 0);
-    CHECK("control flush confirms written bytes", btrc_wos_daemon_file_flush(held, &error) == 0);
+    CHECK("control flush confirms written bytes", __btrc_windows_daemon_file_flush(held, &error) == 0);
     CHECK("zero length control I/O permits null buffers",
-        btrc_wos_daemon_file_write(held, 0, NULL, 0, &transferred, &error) == 0 && transferred == 0
-        && btrc_wos_daemon_file_read(held, 0, NULL, 0, &transferred, &error) == 0 && transferred == 0);
+        __btrc_windows_daemon_file_write(held, 0, NULL, 0, &transferred, &error) == 0 && transferred == 0
+        && __btrc_windows_daemon_file_read(held, 0, NULL, 0, &transferred, &error) == 0 && transferred == 0);
     memset(bytes, 0xA5, sizeof(bytes));
     CHECK("invalid control offset clears count and preserves buffer",
-        btrc_wos_daemon_file_read(held, UINT64_MAX, bytes, 1, &transferred, &error) != 0
+        __btrc_windows_daemon_file_read(held, UINT64_MAX, bytes, 1, &transferred, &error) != 0
         && transferred == 0 && bytes[0] == 0xA5 && error.ownership_state == 1);
     CHECK("oversized control I/O is refused before touching its buffer",
-        btrc_wos_daemon_file_read(held, 0, bytes, (size_t)INT_MAX + 1, &transferred, &error) != 0
+        __btrc_windows_daemon_file_read(held, 0, bytes, (size_t)INT_MAX + 1, &transferred, &error) != 0
         && transferred == 0 && bytes[0] == 0xA5);
     CHECK("control read beyond EOF reports no bytes",
-        btrc_wos_daemon_file_read(held, 100, bytes, 1, &transferred, &error) == 0
+        __btrc_windows_daemon_file_read(held, 100, bytes, 1, &transferred, &error) == 0
         && transferred == 0 && bytes[0] == 0xA5);
-    CHECK("created control owner closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("created control owner closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     CHECK("control read reopens protected content",
-        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
             BTRC_WOS_CONTROL_READ, &held, &error) == 0 && held != NULL
-        && btrc_wos_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) == 0
+        && __btrc_windows_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) == 0
         && transferred == 7 && memcmp(bytes, "inXtial", 7) == 0);
     CHECK("read-only control owner refuses writes",
-        btrc_wos_daemon_file_write(held, 0, (const unsigned char *)"overwrite", 9, &transferred, &error) != 0
+        __btrc_windows_daemon_file_write(held, 0, (const unsigned char *)"overwrite", 9, &transferred, &error) != 0
         && transferred == 0 && error.ownership_state == 1);
-    CHECK("read-only control owner cannot claim a flush", btrc_wos_daemon_file_flush(held, &error) != 0);
+    CHECK("read-only control owner cannot claim a flush", __btrc_windows_daemon_file_flush(held, &error) != 0);
     CHECK("read-only control owner cannot delete",
-        btrc_wos_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 0);
+        __btrc_windows_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 0);
     CHECK("held control reader excludes removal",
-        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
             BTRC_WOS_CONTROL_REMOVE, &competing, &error) != 0 && competing == NULL);
     CHECK("fixture removes control ACL protection",
         SetNamedSecurityInfoW(record, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
             NULL, NULL, NULL, NULL) == ERROR_SUCCESS);
     bytes[0] = 0xA5;
     CHECK("held control reader rechecks ACL before I/O",
-        btrc_wos_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) != 0
+        __btrc_windows_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) != 0
         && transferred == 0 && bytes[0] == 0xA5 && error.ownership_state == 1);
     PACL private_acl = NULL;
     BOOL acl_present = FALSE, acl_defaulted = FALSE;
@@ -2247,15 +2246,15 @@ static void check_daemon_files(void) {
     CHECK("fixture restores control ACL",
         SetNamedSecurityInfoW(record, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
             NULL, NULL, private_acl, NULL) == ERROR_SUCCESS);
-    CHECK("control reader closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("control reader closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     CHECK("control removal opens the same protected object for inspection",
-        btrc_wos_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
             BTRC_WOS_CONTROL_REMOVE, &held, &error) == 0 && held != NULL
-        && btrc_wos_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) == 0
+        && __btrc_windows_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) == 0
         && transferred == 7 && memcmp(bytes, "inXtial", 7) == 0);
     CHECK("fixture makes held control file read-only", SetFileAttributesW(record, FILE_ATTRIBUTE_READONLY));
     CHECK("read-only control deletion is refused before mutation",
-        btrc_wos_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 0
+        __btrc_windows_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 0
         && error.native_code == ERROR_ACCESS_DENIED
         && (GetFileAttributesW(record) & FILE_ATTRIBUTE_READONLY) != 0);
     CHECK("fixture restores writable control file", SetFileAttributesW(record, FILE_ATTRIBUTE_NORMAL));
@@ -2263,11 +2262,11 @@ static void check_daemon_files(void) {
         NULL, OPEN_EXISTING, 0, NULL);
     CHECK("fixture retains a reader of the original object", retained_reader != INVALID_HANDLE_VALUE);
     CHECK("control deletion commits disposition through the held handle",
-        btrc_wos_daemon_file_dispose(held, &disposition, &error) == 0 && disposition == 1);
+        __btrc_windows_daemon_file_dispose(held, &disposition, &error) == 0 && disposition == 1);
     CHECK("disposed control owner refuses further operations",
-        btrc_wos_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 1
-        && btrc_wos_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) != 0 && transferred == 0);
-    CHECK("disposed control owner still closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+        __btrc_windows_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 1
+        && __btrc_windows_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) != 0 && transferred == 0);
+    CHECK("disposed control owner still closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     CHECK("POSIX disposition removes the name while another reader holds the object",
         GetFileAttributesW(record) == INVALID_FILE_ATTRIBUTES);
     CHECK("fixture creates a replacement at the deleted path", daemon_fixture_file(record, "replacement", file_descriptor) == 0);
@@ -2282,38 +2281,38 @@ static void check_daemon_files(void) {
     const char *valid = "btrc-daemon-v1\n12121212121212121212121212121212\n42\n";
     CHECK("daemon record fixture publishes protected bytes", daemon_fixture_file(record, valid, file_descriptor) == 0);
     CHECK("daemon record authenticates exact token and PID",
-        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) == 0 && held != NULL);
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) == 0 && held != NULL);
     CHECK("verified record cannot be deleted", !DeleteFileW(record));
     HANDLE writer = CreateFileW(record, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         NULL, OPEN_EXISTING, 0, NULL);
     CHECK("verified record refuses a concurrent writer", writer == INVALID_HANDLE_VALUE);
     if (writer != INVALID_HANDLE_VALUE) CloseHandle(writer);
-    CHECK("daemon record closes", btrc_wos_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("daemon record closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
     token[3] ^= 1;
     CHECK("wrong token cannot grant a record capability",
-        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
     token[3] ^= 1;
     CHECK("wrong PID cannot grant a record capability",
-        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 43, &held, &error) != 0 && held == NULL);
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 43, &held, &error) != 0 && held == NULL);
     snprintf(contents, sizeof(contents), "%sx", valid);
     CHECK("daemon record fixture appends an unwanted byte", daemon_fixture_file(record, contents, file_descriptor) == 0);
     CHECK("record with trailing bytes is refused",
-        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
     CHECK("daemon record fixture restores canonical bytes", daemon_fixture_file(record, valid, file_descriptor) == 0);
     CHECK("daemon record fixture creates hardlink", CreateHardLinkW(alias, record, NULL));
     CHECK("multiply linked record is refused",
-        btrc_wos_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
     CHECK("fixture deletes hardlink", DeleteFileW(alias));
     CHECK("fixture removes log", DeleteFileW(log));
     CHECK("fixture creates directory in place of log", CreateDirectoryW(log, &attributes));
     CHECK("directory cannot become daemon log",
-        btrc_wos_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) != 0 && held == NULL);
+        __btrc_windows_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) != 0 && held == NULL);
     CHECK("fixture removes false log directory", RemoveDirectoryW(log));
     char unsafe[5300];
     snprintf(unsafe, sizeof(unsafe), "%s\\..\\escape", log_utf8);
     CHECK("unsafe component is refused before file creation",
-        btrc_wos_daemon_log_open((const unsigned char *)unsafe, strlen(unsafe), &held, &error) != 0 && held == NULL);
-    CHECK("daemon file close is idempotent", btrc_wos_daemon_file_close(&held, &error) == 0);
+        __btrc_windows_daemon_log_open((const unsigned char *)unsafe, strlen(unsafe), &held, &error) != 0 && held == NULL);
+    CHECK("daemon file close is idempotent", __btrc_windows_daemon_file_close(&held, &error) == 0);
     CHECK("fixture removes record", DeleteFileW(record));
     CHECK("fixture removes private directory", RemoveDirectoryW(directory));
     free(directory_descriptor); free(file_descriptor);

@@ -187,3 +187,113 @@ int __btrc_windows_supervisor_terminate_managed(__btrc_windows_supervisor_owner 
 int __btrc_windows_supervisor_close(__btrc_windows_supervisor_owner **owner,
     uint64_t timeout_ms, __btrc_windows_launch_error_t *error);
 /* btrc-runtime-helper:end __btrc_windows_supervisor_close */
+
+/* btrc-runtime-helper:begin __btrc_windows_daemon_file_types */
+/* Private daemon files retain verified ancestry and current-user ACLs.
+ * The opaque owner holds native handles; no SDK type escapes this interface.
+ * Paths/names are strict UTF-8 byte spans. Buffers are borrowed only during
+ * synchronous calls. A failed acquisition can retain a poisoned output owner
+ * when native cleanup is uncertain; never discard or retry that owner. */
+typedef struct __btrc_windows_daemon_file_owner __btrc_windows_daemon_file_owner;
+typedef struct {
+    uint32_t present, kind; /* kind: regular=0, directory=1, surrogate=2, other=3 */
+    uint64_t volume;
+    unsigned char file_id[16];
+} __btrc_windows_daemon_directory_entry;
+enum {
+    BTRC_WOS_CONTROL_READ = 0,
+    BTRC_WOS_CONTROL_CREATE = 1,
+    BTRC_WOS_CONTROL_REMOVE = 2
+};
+/* btrc-runtime-helper:end __btrc_windows_daemon_file_types */
+
+/* Open a protected directory, optionally creating only its final component.
+ * Existing parents need not have the private-leaf ACL, but every ancestor is
+ * retained and checked. An existing leaf must already satisfy that ACL; its
+ * permissions are never rewritten. Close through daemon_file_close. */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_directory_open */
+int __btrc_windows_daemon_directory_open(const unsigned char *path, size_t size,
+    uint32_t create, __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_directory_open */
+/* Copy the canonical path obtained from this held directory. required_bytes
+ * includes the NUL. A null/zero query succeeds; a short buffer is untouched.
+ * The owner retains one immutable path snapshot for query/copy consistency. */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_directory_path */
+int __btrc_windows_daemon_directory_path(__btrc_windows_daemon_file_owner *directory,
+    unsigned char *buffer, size_t capacity, size_t *required_bytes,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_directory_path */
+
+/* Enumeration owns a bounded cursor. Query/short-copy retains the same entry;
+ * a complete copy advances. End succeeds with present=0 and required_bytes=0.
+ * Restart discards the pending entry. Each observation reopens relative to the
+ * held directory and compares the full identity before returning metadata.
+ * Names and snapshots grant no file authority; control opens still check ACLs.
+ * All metadata initializes to zero on failure, even for a short name buffer. */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_directory_next */
+int __btrc_windows_daemon_directory_next(__btrc_windows_daemon_file_owner *directory, uint32_t restart,
+    unsigned char *buffer, size_t capacity, size_t *required_bytes,
+    __btrc_windows_daemon_directory_entry *entry, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_directory_next */
+
+/* Control files use the same held ancestry and private ACL as verified
+ * records. Creation is exclusive and never truncates an existing name.
+ * REMOVE grants read plus handle-based disposition, so policy can compare
+ * the record while replacements and writers remain excluded. */
+
+/* btrc-runtime-helper:begin __btrc_windows_daemon_control_open */
+int __btrc_windows_daemon_control_open(const unsigned char *path, size_t size,
+    uint32_t access, __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_control_open */
+/* One validated component below a borrowed directory. The new owner retains
+ * independent ancestor handles. Optional expected is an enumerated regular
+ * file identity and must match all bits after open; creation requires NULL.
+ * No absolute/pathname retry is permitted. Parent ownership is unchanged. */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_control_open_at */
+int __btrc_windows_daemon_control_open_at(__btrc_windows_daemon_file_owner *directory,
+    const unsigned char *name, size_t size, uint32_t access,
+    const __btrc_windows_daemon_directory_entry *expected,
+    __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_control_open_at */
+/* Synchronous, offset-based caller-buffer I/O, at most INT_MAX bytes per
+ * call. A failed call still reports any bytes transferred. Zero capacity
+ * permits a null buffer. Only a newly created control owner permits writes.
+ * Flush is explicit; successful write alone does not establish durability. */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_file_read */
+int __btrc_windows_daemon_file_read(__btrc_windows_daemon_file_owner *file, uint64_t offset,
+    unsigned char *buffer, size_t capacity, size_t *transferred,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_file_read */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_file_write */
+int __btrc_windows_daemon_file_write(__btrc_windows_daemon_file_owner *file, uint64_t offset,
+    const unsigned char *buffer, size_t size, size_t *transferred,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_file_write */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_file_flush */
+int __btrc_windows_daemon_file_flush(__btrc_windows_daemon_file_owner *file,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_file_flush */
+/* Commit POSIX disposition through the held handle; closing this owner
+ * removes the name even while other readers hold the old file. No pathname
+ * or legacy disposition fallback. state: 0 not committed, 1 committed,
+ * 2 indeterminate. Success commits disposition, not release of ownership.
+ * A committed/indeterminate owner permits only close; never retry a mutation
+ * whose outcome is uncertain. Failure retains ownership for explicit close. */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_file_dispose */
+int __btrc_windows_daemon_file_dispose(__btrc_windows_daemon_file_owner *file, uint32_t *state,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_file_dispose */
+
+/* btrc-runtime-helper:begin __btrc_windows_daemon_log_open */
+int __btrc_windows_daemon_log_open(const unsigned char *path, size_t size,
+    __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_log_open */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_record_open */
+int __btrc_windows_daemon_record_open(const unsigned char *path, size_t size,
+    const unsigned char token[16], uint32_t supervisor_pid,
+    __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_record_open */
+/* btrc-runtime-helper:begin __btrc_windows_daemon_file_close */
+int __btrc_windows_daemon_file_close(__btrc_windows_daemon_file_owner **file,
+    __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_file_close */

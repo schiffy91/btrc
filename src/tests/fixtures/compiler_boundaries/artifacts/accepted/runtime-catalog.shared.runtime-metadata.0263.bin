@@ -1,0 +1,1 @@
+{"asset":"windows_os.h","btrc_order":237,"category":"process","dependencies":["__btrc_windows_daemon_file_types"],"headers":[],"name":"__btrc_windows_daemon_file_write","provided_objects":[],"provided_types":[],"python_order":251,"realtime_effect":"blocking","source_sha256":"54aff95d87d55dac0d32ceb201c2e2ff8f50451ed7b54ac92e146d56c0287968","source_size":203,"source_visible":true}

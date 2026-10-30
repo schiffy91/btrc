@@ -26,7 +26,6 @@ static int btrc_wdi_fail(__btrc_windows_launch_error_t *error,
 #include <bcrypt.h>
 #include "windows_filesystem.h"
 #include "windows_daemon_transfer.h"
-#include "windows_daemon_files.h"
 
 #define BTRC_WDI_PATH_UNITS 32768u
 
@@ -40,7 +39,7 @@ typedef struct {
  * away constness or making a timed-out native operation unreachable. */
 typedef struct {
     btrc_wos_transfer *launch;
-    btrc_wos_daemon_file *record;
+    __btrc_windows_daemon_file_owner *record;
     int poisoned;
 } btrc_wdi_transfer;
 
@@ -125,7 +124,7 @@ static int btrc_wdi_transfer_close(btrc_wdi_transfer *state, uint64_t deadline,
     }
     __btrc_windows_launch_error_t launch_error, record_error;
     int launched = btrc_wos_transfer_close(&state->launch, deadline, &launch_error);
-    int recorded = btrc_wos_daemon_file_close(&state->record, &record_error);
+    int recorded = __btrc_windows_daemon_file_close(&state->record, &record_error);
     if (launched == 0 && recorded == 0) return 0;
     state->poisoned = (launched != 0 && launch_error.ownership_state == 2)
         || (recorded != 0 && record_error.ownership_state == 2);
@@ -509,7 +508,7 @@ int __btrc_windows_supervisor_transfer(const __btrc_windows_image_owner *image,
     }
 #endif
     if (btrc_wdi_transfer_deadline(deadline, error) != 0
-            || btrc_wos_daemon_record_open(init.control_path.data, init.control_path.size, init.token,
+            || __btrc_windows_daemon_record_open(init.control_path.data, init.control_path.size, init.token,
                 result->supervisor_pid, &state->record, error) != 0
             || btrc_wdi_transfer_deadline(deadline, error) != 0) goto done;
     if (btrc_daemon_handshake_record_verified(&handshake) != 0

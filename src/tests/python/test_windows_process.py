@@ -88,6 +88,35 @@ int main() {
 """
 
 
+DAEMON_FILES = """#include <stddef.h>
+#include <stdint.h>
+
+int main() {
+    __btrc_windows_daemon_file_owner* directory = NULL;
+    __btrc_windows_daemon_file_owner* file = NULL;
+    __btrc_windows_daemon_directory_entry entry;
+    __btrc_windows_launch_error_t error;
+    unsigned char buffer[32];
+    size_t count = 0;
+    uint32_t state = 0;
+    int status = __btrc_windows_daemon_directory_open(NULL, 0, 0, &directory, &error);
+    status += __btrc_windows_daemon_directory_path(directory, buffer, 32, &count, &error);
+    status += __btrc_windows_daemon_directory_next(directory, 0, buffer, 32, &count, &entry, &error);
+    status += __btrc_windows_daemon_control_open(NULL, 0, 0, &file, &error);
+    status += __btrc_windows_daemon_control_open_at(directory, buffer, count, 0, &entry, &file, &error);
+    status += __btrc_windows_daemon_file_read(file, 0, buffer, 32, &count, &error);
+    status += __btrc_windows_daemon_file_write(file, 0, buffer, count, &count, &error);
+    status += __btrc_windows_daemon_file_flush(file, &error);
+    status += __btrc_windows_daemon_file_dispose(file, &state, &error);
+    status += __btrc_windows_daemon_log_open(NULL, 0, &file, &error);
+    status += __btrc_windows_daemon_record_open(NULL, 0, buffer, 0, &file, &error);
+    status += __btrc_windows_daemon_file_close(&file, &error);
+    status += __btrc_windows_daemon_file_close(&directory, &error);
+    return status + (int)entry.present + (int)entry.kind + (int)(entry.volume & 1) + (int)entry.file_id[15];
+}
+"""
+
+
 def transpile(frontend: str, source: Path, label: str, request, *, relaxed: bool = False) -> str:
     if frontend == "reference":
         result = Compiler().compile(
@@ -202,6 +231,18 @@ def test_supervisor_seam_emits_sdk_free_declarations_and_links(frontend, label, 
             assert row.source.strip() in c_source, row.name
     assert "#include <windows.h>" not in c_source
     build(c_source, label, tmp_path / "supervisor-seam.exe", tmp_path)
+
+
+@pytest.mark.parametrize("label", sorted(TARGETS.values()))
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_daemon_file_seam_emits_sdk_free_declarations_and_links(frontend, label, request, tmp_path):
+    c_source = transpile(frontend, write(tmp_path, "DaemonFileSeam.btrc", DAEMON_FILES), label, request)
+    assert [row.source for row in RuntimeObjects.selected([c_source])] == ["windows_os.c"]
+    for row in RuntimeManifest.load(RUNTIME / "manifest.toml").helpers:
+        if row.name.startswith("__btrc_windows_daemon_") and row.asset == "windows_os.h":
+            assert row.source.strip() in c_source, row.name
+    assert "#include <windows.h>" not in c_source
+    build(c_source, label, tmp_path / "daemon-file-seam.exe", tmp_path)
 
 
 def build_harness(label: str, executable: Path) -> None:
