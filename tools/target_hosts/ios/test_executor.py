@@ -664,6 +664,52 @@ def test_the_host_creates_only_a_device_type_its_runtime_supports():
     assert next(call for call in recorder.calls if call[1:2] == ["create"])[3] == "phone"
 
 
+@pytest.mark.parametrize("requested", [None, "27"])
+@pytest.mark.parametrize("device_class,version,device_type", [("ipad", "27-0", "pad"), ("iphone", "27-1", "phone")])
+def test_runtime_selection_uses_the_newest_version_supporting_the_requested_device(
+    requested, device_class, version, device_type
+):
+    listing = inventory()
+    listing["runtimes"][1].update(
+        isAvailable=True, supportedDeviceTypes=[{"identifier": "phone"}, {"identifier": "pad"}]
+    )
+    listing["runtimes"].append(
+        {
+            "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+            "version": "27.1",
+            "isAvailable": True,
+            "supportedDeviceTypes": [{"identifier": "phone"}],
+        }
+    )
+    recorder = SimctlRecorder(listing)
+    host = IOSSimulatorHost(device_class, runtime=requested, runner=recorder)
+    host.prepare()
+    create = next(call for call in recorder.calls if call[1:2] == ["create"])
+    assert create[3:] == [device_type, f"com.apple.CoreSimulator.SimRuntime.iOS-{version}"]
+    assert host.provenance()["runtime"] == create[4]
+    host.close()
+
+
+@pytest.mark.parametrize(
+    "requested,minimum",
+    [("27.1", (17, 0)), ("com.apple.CoreSimulator.SimRuntime.iOS-27-1", (17, 0)), (None, (27, 1))],
+)
+def test_incompatible_device_selection_preserves_explicit_runtime_and_minimum(requested, minimum):
+    listing = inventory()
+    listing["runtimes"].append(
+        {
+            "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+            "version": "27.1",
+            "isAvailable": True,
+            "supportedDeviceTypes": [{"identifier": "phone"}],
+        }
+    )
+    recorder = SimctlRecorder(listing)
+    with pytest.raises(SimulatorError, match="iPad"):
+        IOSSimulatorHost("ipad", runtime=requested, minimum=minimum, runner=recorder).prepare()
+    assert not any(call[1:2] in (["create"], ["boot"]) for call in recorder.calls)
+
+
 def test_a_slow_first_listing_is_retried_once_then_reported():
     recorder = SimctlRecorder(stalls=1)
     IOSSimulatorHost(runner=recorder).prepare()

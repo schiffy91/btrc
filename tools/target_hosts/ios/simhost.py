@@ -1,7 +1,8 @@
 """The CoreSimulator device the iOS simulator executor runs programs on (CX-P1-04, CX-P1-08).
 
-`IOSSimulatorHost` selects the newest available iOS runtime at or above the
-row's minimum (17.0), or the runtime an option names, finds or creates one
+`IOSSimulatorHost` selects the newest available iOS runtime supporting the
+requested device class at or above the row's minimum (17.0), subject to any
+explicit runtime option, then finds or creates one
 named device of the requested class (``btrc-host-iphone``,
 ``btrc-host-ipad``), boots it and waits for its boot status. It shuts the
 device down only when it booted it, and never erases one implicitly.
@@ -157,6 +158,15 @@ class IOSSimulatorHost:
         except (KeyError, ValueError) as error:
             raise SimulatorError(f"simctl lists an invalid runtime version: {runtime!r}") from error
 
+    def matching_device_types(self, inventory: Mapping[str, Any], runtime: Mapping[str, Any]) -> list[dict[str, Any]]:
+        family = self.FAMILIES[self.device_class]
+        supported = {row["identifier"] for row in runtime.get("supportedDeviceTypes", [])}
+        return [
+            row
+            for row in inventory.get("devicetypes", [])
+            if row["name"].startswith(family) and (not supported or row["identifier"] in supported)
+        ]
+
     def select_runtime(self, inventory: Mapping[str, Any]) -> dict[str, Any]:
         available = [
             row
@@ -164,6 +174,7 @@ class IOSSimulatorHost:
             if row.get("isAvailable")
             and str(row.get("identifier", "")).startswith(self.RUNTIME_PREFIX)
             and self.version(row) >= self.minimum
+            and self.matching_device_types(inventory, row)
         ]
         if self.requested_runtime:
             wanted = self.requested_runtime
@@ -175,7 +186,11 @@ class IOSSimulatorHost:
         if not available:
             floor = ".".join(str(part) for part in self.minimum)
             wanted = f" matching {self.requested_runtime!r}" if self.requested_runtime else ""
-            raise SimulatorError(f"no available iOS >= {floor} simulator runtime{wanted}; install one with Xcode")
+            family = self.FAMILIES[self.device_class]
+            raise SimulatorError(
+                f"no available iOS >= {floor} simulator runtime{wanted} supports an {family} device type; "
+                "install one with Xcode"
+            )
         return max(available, key=self.version)
 
     def select_device(self, inventory: Mapping[str, Any]) -> dict[str, Any]:
@@ -196,12 +211,7 @@ class IOSSimulatorHost:
                 raise SimulatorError(f"{name} is not an {family} device")
             self.device_type = device_type
             return device
-        supported = {row["identifier"] for row in self.runtime.get("supportedDeviceTypes", [])}
-        matching = [
-            row
-            for row in inventory.get("devicetypes", [])
-            if row["name"].startswith(family) and (not supported or row["identifier"] in supported)
-        ]
+        matching = self.matching_device_types(inventory, self.runtime)
         if not matching:
             raise SimulatorError(f"the {self.runtime['identifier']} runtime supports no {family} device type")
         # simctl lists device types in its SDK's order, newest models last.
