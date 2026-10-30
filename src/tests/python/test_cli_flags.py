@@ -126,6 +126,50 @@ def test_debug_emits_line_directives_to_btrc(tmp_path, monkeypatch):
     assert {1, 2} <= mapped  # both statements mapped
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_debug_maps_each_switch_body_to_its_source_line(tmp_path, monkeypatch, request, frontend, module_units):
+    source = (
+        "int select(int value) {\n"
+        "    switch (value) {\n"
+        "        case 0: return 101;\n"
+        "        case 1:\n"
+        "            return 202;\n"
+        "        default: { return 303; }\n"
+        "    }\n"
+        "}\n"
+        "int main() { return select(0) == 101 ? 0 : 1; }\n"
+    )
+    root = tmp_path.resolve()
+    path = root / "SwitchLocations.btrc"
+    output = root / "SwitchLocations.c"
+    flags = ["--debug", *(["--module-units", "--emit-units", str(output)] if module_units else [])]
+    if frontend == "python":
+        compile_btrc(root, monkeypatch, source, *flags, name="SwitchLocations")
+    else:
+        path.write_text(source)
+        compiler = request.getfixturevalue("immutable_btrcc")
+        result = subprocess.run(
+            [str(compiler), "--no-cache", *flags, str(path), "-o", str(output)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+    locations = {}
+    for unit in [output, *root.glob("SwitchLocations.c.unit-*.c")]:
+        text = unit.read_text()
+        lines = [line for line in text.splitlines() if not line.startswith("#line ")]
+        for line, location in zip(lines, _presumed_locations(text), strict=True):
+            if line.strip() in {"return 101;", "return 202;", "return 303;"}:
+                locations[line.strip()] = location
+    assert locations == {
+        "return 101;": (str(path), 3),
+        "return 202;": (str(path), 5),
+        "return 303;": (str(path), 6),
+    }
+
+
 def test_no_debug_has_no_line_directives(tmp_path, monkeypatch):
     c, _ = compile_btrc(tmp_path, monkeypatch, PURE)
     assert "#line" not in c

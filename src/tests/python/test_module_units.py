@@ -463,6 +463,13 @@ def test_module_cache_distinguishes_delimiters_in_output_paths(
     assert warm_primary == clean_primary
     assert warm_units == clean_units
     assert warm == ((2, 0) if debug else (0, 2))
+    if debug:
+        assert "<btrc-generated>" not in clean_primary
+        assert all("<btrc-generated>" not in text for text in clean_units.values())
+        leaf_name = next(name for name in clean_units if name.startswith("unit-Leaf-"))
+        leaf_path = root / f"{configurations[1][0]}.{leaf_name.removesuffix('.c')}.c"
+        resets = re.findall(r'#line (\d+) "([^"\n]+)"', clean_units[leaf_name])
+        assert any(path == str(leaf_path) for _line, path in resets)
 
 
 def test_selfhost_unchanged_groups_replay_validation_records(tmp_path, immutable_btrcc):

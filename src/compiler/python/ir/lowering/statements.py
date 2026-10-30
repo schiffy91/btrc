@@ -752,6 +752,7 @@ class StatementLowerer:
                     provenance,
                 ) as case:
                     for statement in source_case.body:
+                        self._emit_line_marker(statement, case.statements)
                         case.statements.extend(
                             self.lower_item(
                                 statement,

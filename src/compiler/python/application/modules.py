@@ -1506,6 +1506,8 @@ class ModuleUnitCompiler:
         emitted = [(self.unit_name(state.name), state.record.text) for state in states if state.record.kept]
         if program_unit.helper_decls:
             emitted.insert(0, (RUNTIME_UNIT_NAME, CEmitter().emit_runtime_unit(shared.runtime_module(program_unit))))
+        if options.debug and options.generated_c_path:
+            program_unit.debug_cfile = os.path.abspath(options.generated_c_path)
         primary = CEmitter().emit_module_unit(program_unit)
         timed(profile, "emit", start)
         return ModuleUnitBuild(
@@ -1924,7 +1926,7 @@ class ModuleUnitCompiler:
         unit_facts: ModuleLoweringFacts | None = None,
     ) -> IRModule:
         """Lower only what one group owns; shared declarations are merged later."""
-        return self._lower(
+        unit = self._lower(
             analyzed,
             filename,
             options,
@@ -1936,6 +1938,9 @@ class ModuleUnitCompiler:
             declarations_elsewhere=True,
             native_defines=self._native_defines,
         )
+        if options.debug and name != CompilationGroups.PROGRAM:
+            unit.debug_cfile = f"{NativeLinkPlan.output_prefix(options.units_prefix or '')}.{self.unit_name(name)}.c"
+        return unit
 
     @staticmethod
     def setjmp_functions(unit: IRModule) -> frozenset[str]:
