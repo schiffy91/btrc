@@ -1012,8 +1012,8 @@ class ModuleUnitCompiler {
 			ModuleUnitCompiler.appendKeyField(digest, flag ? "1" : "0");
 		}
 		ModuleUnitCompiler.appendKeyField(digest, target);
-		ModuleUnitCompiler.appendKeyField(digest, options.debug ? options.unitsPrefix : "");
-		ModuleUnitCompiler.appendKeyField(digest, options.debug ? options.outputPath : "");
+		ModuleUnitCompiler.appendKeyField(digest, options.debug ? FeNativeLinkPlan.outputPrefix(options.unitsPrefix) : "");
+		ModuleUnitCompiler.appendKeyField(digest, options.debug && !options.outputPath.isEmpty() ? FeCanonicalPath.absolute(options.outputPath) : "");
 		Vector<string> names = nativeDefines.keys();
 		names.sort();
 		ModuleUnitCompiler.appendKeyField(digest, Strings.fromInt(names.len));

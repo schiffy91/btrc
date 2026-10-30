@@ -1113,8 +1113,8 @@ class ModuleUnitCompiler:
             cls._append_key_field(digest, "1" if flag else "0")
         for value in (
             target,
-            (options.units_prefix or "") if options.debug else "",
-            (options.generated_c_path or "") if options.debug else "",
+            NativeLinkPlan.output_prefix(options.units_prefix or "") if options.debug else "",
+            os.path.abspath(options.generated_c_path) if options.debug and options.generated_c_path else "",
             str(len(native_defines)),
         ):
             cls._append_key_field(digest, value)

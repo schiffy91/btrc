@@ -396,10 +396,11 @@ def test_selfhost_private_body_edit_relowers_only_its_group(tmp_path, immutable_
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
 @pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
-def test_module_cache_distinguishes_delimiters_in_output_paths(
-    tmp_path, monkeypatch, request, frontend, reverse, debug
+@pytest.mark.parametrize("change", ["delimiters", "working-directory"])
+def test_module_cache_distinguishes_output_destinations(
+    tmp_path, monkeypatch, request, frontend, reverse, debug, change
 ):
-    """A path containing a key delimiter must not borrow another output's debug lines."""
+    """Debug lines belong to the resolved destination, including on cache hits."""
     if frontend == "selfhost" and os.name == "nt":
         pytest.skip("self-hosted artifact cache requires POSIX private directories")
     root = tmp_path.resolve()
@@ -411,13 +412,17 @@ def test_module_cache_distinguishes_delimiters_in_output_paths(
         "int answer() { var value = Value(42); return value.number; }\n"
     )
     prefix, middle, output = "units", "middle", "primary.c"
-    configurations = [(prefix + ";output=" + middle, output), (prefix, middle + ";output=" + output)]
+    configurations = [(root, prefix + ";output=" + middle, output), (root, prefix, middle + ";output=" + output)]
+    if change == "working-directory":
+        configurations = [(root / name, prefix, output) for name in ("first", "second")]
     if reverse:
         configurations.reverse()
     btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
 
     def build(configuration, cache):
-        prefix, output = configuration
+        directory, prefix, output = configuration
+        directory.mkdir(parents=True, exist_ok=True)
+        monkeypatch.chdir(directory)
         monkeypatch.setenv("BTRC_CACHE_DIR", str(cache))
         if frontend == "python":
             result = Compiler(cache=CompilerCache()).compile(
@@ -467,7 +472,8 @@ def test_module_cache_distinguishes_delimiters_in_output_paths(
         assert "<btrc-generated>" not in clean_primary
         assert all("<btrc-generated>" not in text for text in clean_units.values())
         leaf_name = next(name for name in clean_units if name.startswith("unit-Leaf-"))
-        leaf_path = root / f"{configurations[1][0]}.{leaf_name.removesuffix('.c')}.c"
+        directory, prefix, _output = configurations[1]
+        leaf_path = directory / f"{prefix}.{leaf_name.removesuffix('.c')}.c"
         resets = re.findall(r'#line (\d+) "([^"\n]+)"', clean_units[leaf_name])
         assert any(path == str(leaf_path) for _line, path in resets)
 

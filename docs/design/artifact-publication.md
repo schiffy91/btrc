@@ -181,9 +181,11 @@ that same source digest when supplying it to module lowering.
 
 The context digest starts with `btrc-module-context-v1\n`, then frames debug,
 DCE, strict imports, stdlib inclusion and strict stdlib analysis as `0`/`1`,
-followed by the canonical target, debug output prefix and primary path, and
-the number of native defines. Define name/value pairs follow in name order.
-Release contexts use empty output paths. The outer digest starts with
+followed by the canonical target, resolved debug output prefix and absolute
+primary path, and the number of native defines. The debug paths use the same
+resolution as the generated source labels, so changing the working directory
+cannot reuse labels pointing to another output. Define name/value pairs follow
+in name order. Release contexts use empty output paths. The outer digest starts with
 `btrc-module-unit-v8\n` and frames context digest, group, source digest and
 program identity.
 
