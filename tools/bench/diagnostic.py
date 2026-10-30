@@ -7,10 +7,12 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from tools.bench.suite import COMMAND_TIMEOUT, MAXRSS_REPORTER, Peak
@@ -123,7 +125,64 @@ class MemoryDiagnostic:
         temporary.write_text(json.dumps(self.receipt, indent=2) + "\n", encoding="utf-8")
         temporary.replace(self.output / "receipt.json")
 
-    def command(self, label: str, argv: list[str], cwd: Path, env: dict[str, str]) -> dict:
+    @staticmethod
+    def resident_maps(source: str) -> list[dict]:
+        """Keep Linux smaps accounting per mapping, without treating PSS as RSS."""
+        mappings = []
+        current = None
+        counters = {"Rss", "Pss", "Private_Clean", "Private_Dirty", "Shared_Clean", "Shared_Dirty", "Anonymous"}
+        for line in source.splitlines():
+            if re.match(r"^[0-9a-f]+-[0-9a-f]+\s", line):
+                fields = line.split(maxsplit=5)
+                if len(fields) < 5:
+                    raise ValueError("incomplete smaps mapping header")
+                current = {
+                    "address": fields[0],
+                    "permissions": fields[1],
+                    "path": fields[5] if len(fields) == 6 else "",
+                }
+                mappings.append(current)
+            elif current is not None and ":" in line:
+                name, value = line.split(":", 1)
+                if name in counters:
+                    parts = value.split()
+                    if len(parts) != 2 or parts[1] != "kB" or not parts[0].isdigit():
+                        raise ValueError(f"invalid smaps counter {name}")
+                    current[name] = int(parts[0]) * 1024
+        if any(not counters.issubset(row) for row in mappings):
+            raise ValueError("incomplete smaps accounting")
+        return mappings
+
+    def observe_residency(self, process: subprocess.Popen, record: dict) -> int:
+        """Sample a separate, unmeasured emission; leave wait4 budget samples alone."""
+        observed = {"scope": "sampled mapping RSS; not peak-rusage or budget evidence", "samples": 0}
+        record["residency"] = observed
+        deadline = time.monotonic() + COMMAND_TIMEOUT
+        while process.poll() is None:
+            if time.monotonic() >= deadline:
+                process.kill()
+                process.wait(timeout=10)
+                raise subprocess.TimeoutExpired(record["argv"], COMMAND_TIMEOUT)
+            try:
+                # Popen has completed exec before returning. Retain a raw snapshot
+                # so every aggregate can be checked against the kernel's rows.
+                source = Path(f"/proc/{process.pid}/smaps").read_text()
+                mappings = self.resident_maps(source)
+                if mappings:
+                    observed["samples"] += 1
+                    rss = sum(row["Rss"] for row in mappings)
+                    if rss > observed.get("maximum_sampled_rss_bytes", -1):
+                        snapshot = self.output / f"{record['label']}.smaps"
+                        snapshot.write_text(source)
+                        observed.update(maximum_sampled_rss_bytes=rss, snapshot=snapshot.name, mappings=mappings)
+            except (OSError, ValueError) as error:
+                # Exit can race a procfs read. Missing samples remain explicit;
+                # they never become zero-memory observations or hide child errors.
+                observed["last_observation_error"] = str(error)
+            time.sleep(0.02)
+        return process.returncode
+
+    def command(self, label: str, argv: list[str], cwd: Path, env: dict[str, str], *, residency: bool = False) -> dict:
         record = {
             "label": label,
             "argv": argv,
@@ -137,8 +196,12 @@ class MemoryDiagnostic:
         stderr = self.output / f"{label}.stderr"
         try:
             with stdout.open("wb") as out, stderr.open("wb") as err:
-                completed = subprocess.run(argv, cwd=cwd, env=env, stdout=out, stderr=err, timeout=COMMAND_TIMEOUT)
-            record["returncode"] = completed.returncode
+                if residency:
+                    with subprocess.Popen(argv, cwd=cwd, env=env, stdout=out, stderr=err) as process:
+                        record["returncode"] = self.observe_residency(process, record)
+                else:
+                    completed = subprocess.run(argv, cwd=cwd, env=env, stdout=out, stderr=err, timeout=COMMAND_TIMEOUT)
+                    record["returncode"] = completed.returncode
         except (OSError, subprocess.TimeoutExpired) as error:
             record["error"] = str(error)
             record["returncode"] = None
@@ -340,7 +403,7 @@ class MemoryDiagnostic:
     def emitted(self, compiler_name: str, tree_name: str, tree: Path, compiler: Path, program: str) -> None:
         label = f"emitted-{compiler_name}-{tree_name}-{program}"
         argv = [str(compiler), str(tree / "src/tests/benchmarks" / f"{program}.btrc")]
-        result = self.command(label, argv, tree, self.environment(tree))
+        result = self.command(label, argv, tree, self.environment(tree), residency=compiler_name == tree_name)
         emission = {
             "evidence": "unmeasured transpile plus compile/link only; executable not run",
             "matched": compiler_name == tree_name,

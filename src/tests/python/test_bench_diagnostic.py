@@ -304,8 +304,9 @@ def test_emitted_c_capture_is_unmeasured_and_keeps_the_same_compiler_argv(tmp_pa
     compiler = tree / "bin/btrcc"
     calls = []
 
-    def command(label, argv, cwd, env):
+    def command(label, argv, cwd, env, *, residency=False):
         assert cwd == tree and env["BTRC_HOME"] == str(tree / "src")
+        assert residency == (label == "emitted-main-main-BenchArc")
         calls.append(argv)
         owner.output.mkdir(exist_ok=True)
         output = owner.output / f"{label}.stdout"
@@ -333,3 +334,97 @@ def test_existing_evidence_is_not_overwritten(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="evidence already exists"):
         owner.execute()
     assert (owner.output / "receipt.json").read_bytes() == original
+
+
+SMAPS = """00400000-00404000 r-xp 00000000 08:01 42 /tree with spaces/bin/btrcc
+Size:                 16 kB
+Rss:                   8 kB
+Pss:                   4 kB
+Shared_Clean:          4 kB
+Shared_Dirty:          0 kB
+Private_Clean:         4 kB
+Private_Dirty:         0 kB
+Anonymous:             0 kB
+00600000-00601000 rw-p 00000000 00:00 0 [heap]
+Size:                  4 kB
+Rss:                   4 kB
+Pss:                   4 kB
+Shared_Clean:          0 kB
+Shared_Dirty:          0 kB
+Private_Clean:         0 kB
+Private_Dirty:         4 kB
+Anonymous:             4 kB
+VmFlags: rd wr mr mw me ac sd
+"""
+
+
+def test_resident_maps_preserve_accounting_and_file_paths():
+    rows = MemoryDiagnostic.resident_maps(SMAPS)
+    assert [row["path"] for row in rows] == ["/tree with spaces/bin/btrcc", "[heap]"]
+    assert sum(row["Rss"] for row in rows) == 12 * 1024
+    assert sum(row["Pss"] for row in rows) == 8 * 1024
+    assert sum(row["Anonymous"] for row in rows) == 4 * 1024
+    assert rows[0]["permissions"] == "r-xp" and rows[1]["Private_Dirty"] == 4096
+    assert MemoryDiagnostic.resident_maps("") == []  # A process that has exited.
+    with pytest.raises(ValueError, match="incomplete smaps accounting"):
+        MemoryDiagnostic.resident_maps(SMAPS.replace("Rss:                   8 kB\n", ""))
+    with pytest.raises(ValueError, match="invalid smaps counter"):
+        MemoryDiagnostic.resident_maps(SMAPS.replace("8 kB", "8 MB"))
+
+
+@pytest.mark.parametrize("status,available", [(0, True), (7, True), (7, False)])
+def test_residency_observation_keeps_child_output_and_failure(tmp_path, monkeypatch, status, available):
+    owner = diagnostic(tmp_path)
+    release = tmp_path / "release"
+    original = Path.read_text
+
+    def read(path, *args, **kwargs):
+        if str(path).startswith("/proc/") and path.name == "smaps":
+            release.touch()
+            if not available:
+                raise PermissionError("procfs unavailable")
+            return SMAPS
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    # The observer releases this actual process. Its exit status and output
+    # must remain authoritative even when procfs access is unavailable.
+    command = [
+        sys.executable,
+        "-c",
+        "import pathlib,sys,time; print('emitted C'); "
+        "p=pathlib.Path(sys.argv[1]); deadline=time.monotonic()+5\n"
+        "while not p.exists() and time.monotonic()<deadline: time.sleep(.01)\n"
+        "sys.exit(int(sys.argv[2]) if p.exists() else 99)",
+        str(release),
+        str(status),
+    ]
+    result = owner.command("mapped", command, tmp_path, dict(os.environ), residency=True)
+    assert result["returncode"] == status
+    assert (owner.output / result["stdout"]).read_text() == "emitted C\n"
+    observed = result["residency"]
+    if available:
+        assert observed["samples"] >= 1 and observed["maximum_sampled_rss_bytes"] == 12 * 1024
+        assert (owner.output / observed["snapshot"]).read_text() == SMAPS
+    else:
+        assert observed["samples"] == 0 and "maximum_sampled_rss_bytes" not in observed
+        assert "procfs unavailable" in observed["last_observation_error"]
+
+
+def test_residency_timeout_reaps_the_observed_process(tmp_path, monkeypatch):
+    owner = diagnostic(tmp_path)
+    processes = []
+    original = subprocess.Popen
+
+    def launch(*args, **kwargs):
+        process = original(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", launch)
+    monkeypatch.setattr("tools.bench.diagnostic.COMMAND_TIMEOUT", 0.05)
+    result = owner.command(
+        "timeout", [sys.executable, "-c", "import time; time.sleep(10)"], tmp_path, dict(os.environ), residency=True
+    )
+    assert result["returncode"] is None and "timed out" in result["error"]
+    assert len(processes) == 1 and processes[0].poll() is not None
