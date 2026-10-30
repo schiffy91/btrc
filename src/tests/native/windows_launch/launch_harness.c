@@ -1905,8 +1905,14 @@ static int daemon_fixture_file(const wchar_t *path, const char *contents, void *
     return ok && written == size && closed ? 0 : -1;
 }
 
-static void check_directory_record_bounds(void) {
-    BtrcWinDirectoryCursor *cursor = (BtrcWinDirectoryCursor *)btrcWinDirectoryOpen(GetCurrentProcess());
+static void check_directory_record_bounds(const wchar_t *path) {
+    CHECK("directory cursor rejects missing handles",
+        btrcWinDirectoryOpen(NULL) == NULL && btrcWinDirectoryOpen(INVALID_HANDLE_VALUE) == NULL);
+    HANDLE directory = CreateFileW(path, FILE_LIST_DIRECTORY,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (directory == INVALID_HANDLE_VALUE) fixture_failure(__func__, __LINE__, GetLastError());
+    BtrcWinDirectoryCursor *cursor = (BtrcWinDirectoryCursor *)btrcWinDirectoryOpen(directory);
     if (cursor == NULL) fixture_failure(__func__, __LINE__, GetLastError());
     for (int scenario = 0; scenario < 7; scenario++) {
         memset(cursor->buffer, 0, cursor->capacity);
@@ -1952,6 +1958,7 @@ static void check_directory_record_bounds(void) {
         && strcmp(name, "\xc3\xa9") == 0 && identity[15] == 0x5A && !cursor->loaded);
     free(name);
     btrcWinDirectoryClose(cursor);
+    CHECK("directory cursor leaves its borrowed handle with the caller", CloseHandle(directory));
 }
 
 static void check_daemon_directory_entries(const wchar_t *parent, void *descriptor) {
@@ -2187,7 +2194,7 @@ static void check_daemon_files(void) {
             1, &held, &error) != 0 && held == NULL && error.ownership_state == 0);
     CHECK("refusal leaves existing directory in place", GetFileAttributesW(nested) != INVALID_FILE_ATTRIBUTES);
     CHECK("fixture removes unprotected directory", RemoveDirectoryW(nested));
-    check_directory_record_bounds();
+    check_directory_record_bounds(directory);
     check_daemon_directory_entries(directory, file_descriptor);
     CHECK("daemon log creates a private empty append file",
         __btrc_windows_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
