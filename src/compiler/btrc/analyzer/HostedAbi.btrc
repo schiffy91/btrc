@@ -203,9 +203,7 @@ class HostedAbiRepository {
 		return row == null ? "unknown" : row.realtimeEffect;
 	}
 
-	public Map<string, bool> realtimeSafeFunctions() {
-		return self.indexNames(self.data.realtimeSafeFunctionNames());
-	}
+	public Map<string, bool> realtimeSafeFunctions() { return self.indexNames(self.data.realtimeSafeFunctionNames()); }
 
 	public int returnAliasParameter(string name) {
 		GeneratedHostedFunctionRow? row = self.exactSpec(name);
