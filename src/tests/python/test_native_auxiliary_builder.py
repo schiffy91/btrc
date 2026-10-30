@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.process_limits import TOOL_TIMEOUT
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.daemon_supervisor import SupervisorImage
 from tools.native_plan import NativePlanBuilder, NativePlanError, NativePlanReader
 
@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 def run(command, **kwargs):
-    kwargs.setdefault("timeout", TOOL_TIMEOUT)
+    kwargs.setdefault("timeout", C_COMPILE_TIMEOUT)
     kwargs["env"] = {**os.environ, "BTRC_HOME": str(REPO / "src")}
     return subprocess.run(command, **kwargs)
 
@@ -69,6 +69,7 @@ def consumer(frontend, request, tmp_path):
         ],
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
     return frontend, request.param, leaf, generated, plan
@@ -93,7 +94,7 @@ def test_builds_final_bytes_and_required_metadata_as_a_pair(consumer, tmp_path):
     assert not list(tmp_path.glob(".btrc-supervisor-*"))
     native_arch = "aarch64" if platform.machine().lower() in {"arm64", "aarch64"} else "x86_64"
     if sys.platform == "win32" and label == f"windows-{native_arch}":
-        result = run([str(output)], capture_output=True, text=True)
+        result = run([str(output)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
         assert result.returncode == 0 and result.stdout.strip() == "companion metadata PASS", result.stderr
 
 
@@ -217,7 +218,7 @@ def test_pair_reuses_objects_and_rebuilds_changed_leaf(consumer, tmp_path):
         "--emit-link-plan",
         str(plan),
     ]
-    completed = run(command, capture_output=True, text=True)
+    completed = run(command, capture_output=True, text=True, timeout=TRANSPILE_TIMEOUT)
     assert completed.returncode == 0, completed.stderr
     third = builder.build(**options)
     assert third.auxiliary["sha256"] != first.auxiliary["sha256"]
@@ -336,6 +337,7 @@ def test_cli_builds_the_pair_with_the_selected_frontend(consumer, tmp_path):
         ],
         capture_output=True,
         text=True,
+        timeout=TRANSPILE_TIMEOUT,
     )
     assert completed.returncode == 0, completed.stderr
     evidence = json.loads(report.read_text())["auxiliary"]
