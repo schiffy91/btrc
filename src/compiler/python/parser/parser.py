@@ -8,6 +8,7 @@ import re
 from types import MappingProxyType
 
 from src.compiler.python.syntax.ast.generated import (
+    AnonymousMember,
     AssignExpr,
     BinaryExpr,
     Block,
@@ -23,6 +24,7 @@ from src.compiler.python.syntax.ast.generated import (
     CommaExpr,
     ContinueStmt,
     DeleteStmt,
+    Designation,
     DoWhileStmt,
     ElseBlock,
     ElseIf,
@@ -32,6 +34,7 @@ from src.compiler.python.syntax.ast.generated import (
     FieldAccessExpr,
     FieldDecl,
     FieldDef,
+    FieldDesignator,
     FloatLiteral,
     ForInitExpr,
     ForInitVar,
@@ -40,13 +43,16 @@ from src.compiler.python.syntax.ast.generated import (
     FStringLiteral,
     FStringText,
     FunctionDecl,
+    GotoStmt,
     Identifier,
     IfStmt,
     ImportDecl,
+    IndexDesignator,
     IndexExpr,
     InterfaceDecl,
     IntLiteral,
     KeepStmt,
+    LabelStmt,
     LambdaBlock,
     LambdaExpr,
     LambdaExprBody,
@@ -123,7 +129,6 @@ VAR_DECLARATORS = "'var' declares one variable: write one 'var' declaration per 
 FUNCTION_BESIDE_DECLARATORS = "Function '{}' must be declared on its own, not beside other declarators"
 # Union member spellings (C row 9, docs/design/c-compatibility.md "r09 unions").
 UNION_ARRAY_SPELLING = "Union field '{}' cannot use the 'T[] name' spelling; declare a pointer as 'T* {}'"
-UNION_FLEXIBLE_ARRAY = "Union member '{}.{}' cannot be a flexible array member"
 UNTAGGED_TYPEDEF_RECORD = (
     "An untagged {0} in a typedef needs a plain declarator to name it; add a tag (typedef {0} Name {{ ... }} *Alias;)"
 )
@@ -150,6 +155,14 @@ class DirectivePlacementError(ParseError):
         match = cls._NAME.match(token.value)
         name = (match.group(1) or "") if match is not None else ""
         return cls(f"Preprocessor directive '#{name}' must be at file scope", token.line, token.col)
+
+
+@dataclasses.dataclass
+class RecordParseContext:
+    """A typedef's record name may follow its body; retain the first refusal until then."""
+
+    keyword: str
+    diagnostic: tuple[str, int, int] | None = None
 
 
 class Parser:
@@ -224,6 +237,16 @@ class Parser:
         return self._token_kind_at(position + 1) in self._DECLARATOR_NAME_FOLLOWERS
 
     def _refuse_deferred_c_specifier(self, token: Token) -> None:
+        if (
+            token.type == TokenKind.AUTO
+            and self._peek(1).type == TokenKind.IDENT
+            and self._peek(2).type == TokenKind.EQ
+        ):
+            raise ParseError(
+                "'auto' is C11's storage class, not type inference; write 'var x = ...' or give a type",
+                token.line,
+                token.col,
+            )
         if token.type == TokenKind.IDENT and token.value in self._DEFERRED_C_SPECIFIERS:
             raise ParseError(self._DEFERRED_C_SPECIFIERS[token.value], token.line, token.col)
 
@@ -285,6 +308,8 @@ class Parser:
             TokenKind.CONST,
             TokenKind.STATIC,
             TokenKind.EXTERN,
+            TokenKind.AUTO,
+            TokenKind.REGISTER,
             TokenKind.VOLATILE,
         }
     )
@@ -473,14 +498,17 @@ class Parser:
 
     def _parse_type_expr(self) -> TypeExpr:
         tok = self._peek()
+        self._refuse_deferred_c_specifier(tok)
         line, col = tok.line, tok.col
 
-        # Handle const/static/extern/volatile qualifiers
+        # Read declaration specifiers before the base type.
         has_const = False
         has_static = False
         has_extern = False
         has_volatile = False
-        while self._check(TokenKind.CONST, TokenKind.STATIC, TokenKind.EXTERN, TokenKind.VOLATILE):
+        has_auto = False
+        has_register = False
+        while self._peek().type in self._QUALIFIERS:
             qt = self._peek().type
             if qt == TokenKind.CONST:
                 has_const = True
@@ -490,6 +518,14 @@ class Parser:
                 has_extern = True
             elif qt == TokenKind.VOLATILE:
                 has_volatile = True
+            elif qt == TokenKind.AUTO:
+                if has_auto:
+                    raise self._error("Duplicate storage class 'auto'")
+                has_auto = True
+            elif qt == TokenKind.REGISTER:
+                if has_register:
+                    raise self._error("Duplicate storage class 'register'")
+                has_register = True
             self._advance()
 
         generic_args = []
@@ -559,6 +595,8 @@ class Parser:
             is_static=has_static,
             is_extern=has_extern,
             is_volatile=has_volatile,
+            is_auto=has_auto,
+            is_register=has_register,
             line=line,
             col=col,
         )
@@ -728,11 +766,15 @@ class Parser:
             generic_args=[result],
             is_static=result.is_static,
             is_extern=result.is_extern,
+            is_register=result.is_register,
+            is_auto=result.is_auto,
             line=result.line,
             col=result.col,
         )
         result.is_static = False
         result.is_extern = False
+        result.is_register = False
+        result.is_auto = False
         if self._check(TokenKind.LPAREN):
             raise self._error(FUNCTION_POINTER_RETURN)
         if name_tok is None and self._check(TokenKind.LBRACKET):
@@ -1056,13 +1098,17 @@ class Parser:
             next_tok = self._peek(1)
             if next_tok.type == TokenKind.IDENT:
                 if self._peek(2).type in (TokenKind.LBRACE, TokenKind.SEMICOLON):
-                    return [self._parse_struct_decl()]
+                    return self._parse_struct_decls()
             elif next_tok.type == TokenKind.LBRACE:
-                return [self._parse_struct_decl()]
+                return self._parse_struct_decls()
         if tok.type == TokenKind.ENUM and not is_gpu and not is_realtime and not keep_return:
             if self._peek(1).type == TokenKind.CLASS:
                 return [self._parse_rich_enum_decl()]
-            return [self._parse_enum_decl()]
+            if self._peek(1).type != TokenKind.IDENT or self._peek(2).type in (
+                TokenKind.LBRACE,
+                TokenKind.SEMICOLON,
+            ):
+                return [self._parse_enum_decl()]
         if tok.type == TokenKind.TYPEDEF and not is_gpu and not is_realtime and not keep_return:
             return self._parse_typedef_decls()
         if self._is_type_start(tok):
@@ -1134,7 +1180,7 @@ class Parser:
             segments.append(self._expect(TokenKind.IDENT, "module segment").value)
         return ".".join(segments)
 
-    def _parse_struct_decl(self) -> StructDecl:
+    def _parse_struct_decls(self) -> list:
         """``struct S { ... };``, ``union U { ... };`` or a tag forward."""
         tok = self._advance()
         is_union = tok.type == TokenKind.UNION
@@ -1146,19 +1192,20 @@ class Parser:
             name_line, name_col = name_tok.line, name_tok.col
         if not self._check(TokenKind.LBRACE):
             self._expect(TokenKind.SEMICOLON)
-            return StructDecl(
-                name=name,
-                fields=[],
-                is_forward=True,
-                is_union=is_union,
-                line=tok.line,
-                col=tok.col,
-                name_line=name_line,
-                name_col=name_col,
-            )
+            return [
+                StructDecl(
+                    name=name,
+                    fields=[],
+                    is_forward=True,
+                    is_union=is_union,
+                    line=tok.line,
+                    col=tok.col,
+                    name_line=name_line,
+                    name_col=name_col,
+                )
+            ]
         fields = self._parse_record_body(name, is_union)
-        self._expect(TokenKind.SEMICOLON)
-        return StructDecl(
+        record = StructDecl(
             name=name,
             fields=fields,
             is_forward=False,
@@ -1168,23 +1215,63 @@ class Parser:
             name_line=name_line,
             name_col=name_col,
         )
+        declarations = [record]
+        if not self._check(TokenKind.SEMICOLON):
+            specifier = TypeExpr(base=f"{tok.value} {name}", line=tok.line, col=tok.col)
+            first_type = copy.deepcopy(specifier)
+            while self._match(TokenKind.STAR):
+                first_type.pointer_depth += 1
+            object_tok, first_type = self._parse_declarator_name(first_type, "variable name")
+            if not name:
+                raise ParseError(
+                    f"An untagged {tok.value} definition needs a tag to declare '{object_tok.value}'; "
+                    f"write '{tok.value} Name {{ ... }} {object_tok.value};'",
+                    tok.line,
+                    tok.col,
+                )
+            declarations.extend(self._parse_declarators(first_type, object_tok, tok, specifier=specifier))
+        self._expect(TokenKind.SEMICOLON)
+        return declarations
 
-    def _parse_record_body(self, name: str, is_union: bool) -> list[FieldDef]:
-        fields, flexible = self._parse_record_members(is_union)
-        if flexible is not None:
-            raise ParseError(UNION_FLEXIBLE_ARRAY.format(name, flexible.name), flexible.line, flexible.col)
+    def _parse_record_body(self, name: str, is_union: bool) -> list[FieldDef | AnonymousMember]:
+        context = RecordParseContext("union" if is_union else "struct")
+        fields = self._parse_record_members(is_union, context)
+        self._finish_record_members(context, name)
         return fields
 
+    def _defer_record_error(self, context: RecordParseContext, message: str, token) -> None:
+        if context.diagnostic is None:
+            context.diagnostic = (message, token.line, token.col)
+
+    def _finish_record_members(self, context: RecordParseContext, name: str) -> None:
+        if context.diagnostic is not None:
+            message, line, col = context.diagnostic
+            message = message.replace("{record}", name).replace("{keyword}", context.keyword)
+            message = message.replace("{title}", context.keyword.capitalize())
+            raise ParseError(message, line, col)
+
+    def _starts_record_body(self) -> bool:
+        return self._check(TokenKind.STRUCT, TokenKind.UNION) and (
+            self._peek(1).type == TokenKind.LBRACE
+            or (self._peek(1).type == TokenKind.IDENT and self._peek(2).type == TokenKind.LBRACE)
+        )
+
     def _parse_typedef_record(self, typedef_tok: Token) -> list:
-        """``typedef union [Tag] { ... } D1, *D2;`` splices into one record and
-        one ``TypedefDecl`` per declarator (C row 9; r08 extends this to
-        ``struct`` and ``enum``). An untagged record takes its first plain
+        """A typedef definition splices into one record or enum and one
+        ``TypedefDecl`` per declarator. An untagged record takes its first plain
         declarator's name as its tag, and a plain declarator equal to the tag
         is dropped: it would only repeat the record's own name."""
         keyword_tok = self._advance()
         keyword = keyword_tok.value
         tag_tok = self._advance() if self._check(TokenKind.IDENT) else None
-        fields, flexible = self._parse_record_members(is_union=True)
+        is_union = keyword_tok.type == TokenKind.UNION
+        is_enum = keyword_tok.type == TokenKind.ENUM
+        context = RecordParseContext(keyword)
+        if is_enum:
+            values = self._parse_enum_values()
+            fields = []
+        else:
+            fields = self._parse_record_members(is_union, context)
         specifier = TypeExpr(base="", line=keyword_tok.line, col=keyword_tok.col)
         first_type = copy.deepcopy(specifier)
         while self._match(TokenKind.STAR):
@@ -1208,19 +1295,14 @@ class Parser:
             if naming is None:
                 raise ParseError(UNTAGGED_TYPEDEF_RECORD.format(keyword), keyword_tok.line, keyword_tok.col)
             name, name_line, name_col = naming.name, naming.name_line, naming.name_col
-        if flexible is not None:
-            raise ParseError(UNION_FLEXIBLE_ARRAY.format(name, flexible.name), flexible.line, flexible.col)
+        self._finish_record_members(context, name)
         for declarator in declarators:
             declarator.type.base = f"{keyword} {name}"
-        record = StructDecl(
-            name=name,
-            fields=fields,
-            is_forward=False,
-            is_union=True,
-            line=keyword_tok.line,
-            col=keyword_tok.col,
-            name_line=name_line,
-            name_col=name_col,
+        location = dict(name=name, line=keyword_tok.line, col=keyword_tok.col, name_line=name_line, name_col=name_col)
+        record = (
+            EnumDecl(values=values, **location)
+            if is_enum
+            else StructDecl(fields=fields, is_forward=False, is_union=is_union, **location)
         )
         return [record] + [
             TypedefDecl(
@@ -1235,19 +1317,23 @@ class Parser:
             if declarator.type.pointer_depth > 0 or declarator.name != name
         ]
 
-    def _parse_record_members(self, is_union: bool) -> tuple[list[FieldDef], FieldDef | None]:
-        """A record's ``{ member; ... }`` and, in a union, its first member of
-        unknown size. A union member is a plain C value, so neither unsized
-        spelling has a meaning there: ``T[] name`` is btrc's pointer-valued
-        array, refused here, and ``T name[]`` a flexible array member (C11
-        6.7.2.1p18 allows one only in a struct), refused by the caller once
-        the union's name is known."""
+    def _parse_record_members(self, is_union: bool, context: RecordParseContext) -> list[FieldDef | AnonymousMember]:
+        """Parse direct fields and inline anonymous records without inventing a tag."""
         self._expect(TokenKind.LBRACE)
         fields = []
-        flexible = None
         while not self._check(TokenKind.RBRACE) and not self._at_end():
             field_start = self._peek()
+            if self._starts_record_body():
+                fields.append(self._parse_anonymous_member(context))
+                continue
             field_type = self._parse_type_expr()
+            if self._match(TokenKind.SEMICOLON):
+                self._defer_record_error(
+                    context,
+                    "{title} '{record}' declares an unnamed member that is neither a bit-field nor an anonymous struct or union",
+                    field_start,
+                )
+                continue
             specifier = self._declarator_specifier(field_type)
             name_tok, field_type = self._parse_declarator_name(field_type, "field name")
             if not is_union and specifier.is_array:
@@ -1264,12 +1350,43 @@ class Parser:
                 )
                 if is_union and specifier.is_array:
                     raise ParseError(UNION_ARRAY_SPELLING.format(field.name, field.name), field.line, field.col)
-                if is_union and flexible is None and field.type.is_array and field.type.array_size is None:
-                    flexible = field
+                if is_union and field.type.is_array and field.type.array_size is None:
+                    self._defer_record_error(
+                        context, "Union member '{record}." + field.name + "' cannot be a flexible array member", field
+                    )
                 fields.append(field)
             self._expect(TokenKind.SEMICOLON)
         self._expect(TokenKind.RBRACE)
-        return fields, flexible
+        return fields
+
+    def _parse_anonymous_member(self, context: RecordParseContext) -> AnonymousMember:
+        keyword = self._advance()
+        tagged = self._check(TokenKind.IDENT)
+        if tagged:
+            self._advance()
+            self._defer_record_error(
+                context,
+                f"A {keyword.value} defined inside {{keyword}} '{{record}}' must be declared at file scope",
+                keyword,
+            )
+        fields = self._parse_record_members(keyword.type == TokenKind.UNION, context)
+        if not self._check(TokenKind.SEMICOLON):
+            specifier = TypeExpr(base="", line=keyword.line, col=keyword.col)
+            first_type = copy.deepcopy(specifier)
+            while self._match(TokenKind.STAR):
+                first_type.pointer_depth += 1
+            name = self._expect(TokenKind.IDENT, "field name")
+            self._defer_record_error(
+                context,
+                f"Member '{name.value}' of {{keyword}} '{{record}}' has an untagged {keyword.value} type; "
+                f"declare '{keyword.value} Name' at file scope or make the member anonymous",
+                name,
+            )
+            self._parse_declarators(first_type, name, keyword, initializers=False, specifier=specifier)
+        self._expect(TokenKind.SEMICOLON)
+        return AnonymousMember(
+            is_union=keyword.type == TokenKind.UNION, fields=fields, line=keyword.line, col=keyword.col
+        )
 
     def _parse_interface_decl(self) -> InterfaceDecl:
         tok = self._expect(TokenKind.INTERFACE)
@@ -1364,6 +1481,8 @@ class Parser:
     def _parse_class_members(self, allow_abstract: bool = False) -> list:
         """Parse one class member declaration; a field declaration yields one per declarator."""
         tok = self._peek()
+        if self._starts_record_body():
+            raise self._error("Anonymous struct and union members are only allowed in struct and union declarations")
         if tok.type == TokenKind.PUBLIC:
             access = "public"
             self._advance()
@@ -1376,11 +1495,14 @@ class Parser:
         else:
             raise self._error(f"Expected access specifier (public/private/static), got '{tok.value}'")
 
+        if self._starts_record_body():
+            raise self._error("Anonymous struct and union members are only allowed in struct and union declarations")
         is_abstract_method = False
         if allow_abstract and self._check(TokenKind.ABSTRACT):
             is_abstract_method = True
             self._advance()
 
+        is_override = bool(self._match(TokenKind.OVERRIDE))
         is_gpu = bool(self._match(TokenKind.AT_GPU))
         is_realtime = bool(self._match(TokenKind.AT_REALTIME))
         if is_gpu and is_realtime:
@@ -1389,6 +1511,8 @@ class Parser:
         type_expr = self._parse_type_expr()
 
         if self._is_function_pointer_declarator(self.pos):
+            if is_override:
+                raise self._error("override can only be applied to non-constructor methods")
             if is_realtime:
                 raise self._error("@realtime cannot be applied to fields or properties")
             specifier = self._declarator_specifier(type_expr)
@@ -1396,6 +1520,8 @@ class Parser:
             assert name_tok is not None
             return self._parse_field_decls(access, type_expr, name_tok, tok, specifier)
         if self._check(TokenKind.LPAREN):
+            if is_override:
+                raise self._error("override can only be applied to non-constructor methods")
             return [
                 self._parse_method_rest(
                     access,
@@ -1428,9 +1554,12 @@ class Parser:
                     name_tok.line,
                     name_tok.col,
                     is_abstract=is_abstract_method,
+                    is_override=is_override,
                     keep_return=keep_return,
                 )
             ]
+        if is_override:
+            raise self._error("override can only be applied to non-constructor methods")
         if is_realtime:
             raise self._error("@realtime cannot be applied to fields or properties")
         specifier = self._declarator_specifier(type_expr)
@@ -1483,6 +1612,7 @@ class Parser:
         is_abstract: bool = False,
         keep_return: bool = False,
         is_constructor: bool = False,
+        is_override: bool = False,
     ) -> MethodDecl:
         generic_params = []
         if self._match(TokenKind.LT):
@@ -1509,6 +1639,7 @@ class Parser:
             is_gpu=is_gpu,
             is_realtime=is_realtime,
             is_abstract=is_abstract,
+            is_override=is_override,
             keep_return=keep_return,
             line=line,
             col=col,
@@ -1585,6 +1716,11 @@ class Parser:
             name_tok = self._advance()
             name = name_tok.value
             name_line, name_col = name_tok.line, name_tok.col
+        values = self._parse_enum_values()
+        self._expect(TokenKind.SEMICOLON)
+        return EnumDecl(name=name, values=values, line=tok.line, col=tok.col, name_line=name_line, name_col=name_col)
+
+    def _parse_enum_values(self) -> list[EnumValue]:
         self._expect(TokenKind.LBRACE)
         values = []
         while not self._check(TokenKind.RBRACE) and not self._at_end():
@@ -1597,8 +1733,7 @@ class Parser:
             if not self._match(TokenKind.COMMA):
                 break
         self._expect(TokenKind.RBRACE)
-        self._expect(TokenKind.SEMICOLON)
-        return EnumDecl(name=name, values=values, line=tok.line, col=tok.col, name_line=name_line, name_col=name_col)
+        return values
 
     # ---- Rich enum declaration ----
 
@@ -1631,7 +1766,7 @@ class Parser:
     def _parse_typedef_decls(self) -> list:
         """``typedef int A, *B;`` declares one alias per declarator, ``*`` bound to each."""
         tok = self._expect(TokenKind.TYPEDEF)
-        if self._check(TokenKind.UNION) and (
+        if self._peek().type in (TokenKind.STRUCT, TokenKind.UNION, TokenKind.ENUM) and (
             self._peek(1).type == TokenKind.LBRACE
             or (self._peek(1).type == TokenKind.IDENT and self._peek(2).type == TokenKind.LBRACE)
         ):
@@ -1763,7 +1898,7 @@ class Parser:
 
     def _parse_block_item(self, statements: list) -> None:
         """Append one block item; a declaration splices one statement per declarator."""
-        if self._is_var_decl_start():
+        if self._peek(1).type != TokenKind.COLON and self._is_var_decl_start():
             statements.extend(self._parse_var_decl_stmts())
         else:
             statements.append(self._parse_statement())
@@ -1775,6 +1910,7 @@ class Parser:
         synthesized ``Block`` positioned at the statement's first token, so
         the body keeps exactly the scope a braced body has; an empty
         statement ``;`` becomes an empty ``Block`` positioned at the ``;``.
+        Leading labels share that synthesized block with the substatement.
         A declaration is not a statement in C (C11 6.8), so it is refused as
         a body. ``for``-in, parallel ``for``, ``try``/``catch``/``finally``
         and ``switch`` keep requiring braces through ``_parse_block``.
@@ -1782,14 +1918,34 @@ class Parser:
         tok = self._peek()
         if tok.type == TokenKind.LBRACE:
             return self._parse_block()
+        statements = []
+        while self._peek().type == TokenKind.IDENT and self._peek(1).type == TokenKind.COLON:
+            statements.append(self._parse_statement())
         if self._match(TokenKind.SEMICOLON):
-            return Block(statements=[], line=tok.line, col=tok.col)
-        if self._is_var_decl_start():
+            return Block(statements=statements, line=tok.line, col=tok.col)
+        if statements and self._check(TokenKind.RBRACE, TokenKind.EOF):
+            raise self._error(f"Expected a statement after label '{statements[-1].name}'")
+        if self._peek(1).type != TokenKind.COLON and self._is_var_decl_start():
             raise self._error("A declaration cannot be the body of a control statement; enclose it in braces")
-        return Block(statements=[self._parse_statement()], line=tok.line, col=tok.col)
+        statements.append(self._parse_statement())
+        return Block(statements=statements, line=tok.line, col=tok.col)
 
     def _parse_statement(self):
         tok = self._peek()
+        if self._peek(1).type == TokenKind.COLON:
+            if tok.type not in (TokenKind.CASE, TokenKind.DEFAULT) and (
+                TokenVocabulary.canonical().keywords.get(tok.value) == tok.type
+            ):
+                raise ParseError(f"'{tok.value}' is a reserved word and cannot be used as a name", tok.line, tok.col)
+            if tok.type == TokenKind.IDENT:
+                name = self._expect(TokenKind.IDENT)
+                self._expect(TokenKind.COLON)
+                return LabelStmt(name=name.value, line=name.line, col=name.col)
+        if tok.type == TokenKind.GOTO:
+            self._advance()
+            name = self._expect(TokenKind.IDENT)
+            self._expect(TokenKind.SEMICOLON)
+            return GotoStmt(name=name.value, name_line=name.line, name_col=name.col, line=tok.line, col=tok.col)
 
         if tok.type == TokenKind.LBRACE:
             return self._parse_block()
@@ -2407,6 +2563,7 @@ class Parser:
 
     def _parse_primary(self):
         tok = self._peek()
+        self._refuse_deferred_c_specifier(tok)
 
         if tok.type == TokenKind.INT_LIT:
             self._advance()
@@ -2585,14 +2742,58 @@ class Parser:
         self._expect(TokenKind.RBRACKET)
         return ListLiteral(elements=elements, line=tok.line, col=tok.col)
 
+    def _starts_designation(self) -> bool:
+        if self._check(TokenKind.DOT):
+            return True
+        if not self._check(TokenKind.LBRACKET):
+            return False
+        offset = 0
+        while True:
+            if self._peek(offset).type == TokenKind.LBRACKET:
+                depth = 1
+                offset += 1
+                while depth and self._peek(offset).type != TokenKind.EOF:
+                    kind = self._peek(offset).type
+                    depth += int(kind == TokenKind.LBRACKET) - int(kind == TokenKind.RBRACKET)
+                    offset += 1
+                if depth:
+                    return False
+            elif self._peek(offset).type == TokenKind.DOT and self._peek(offset + 1).type == TokenKind.IDENT:
+                offset += 2
+            else:
+                return self._peek(offset).type == TokenKind.EQ
+
+    def _parse_designation(self):
+        parts = []
+        while self._check(TokenKind.DOT, TokenKind.LBRACKET):
+            tok = self._advance()
+            if tok.type == TokenKind.DOT:
+                field = self._expect(TokenKind.IDENT)
+                parts.append(FieldDesignator(field=field.value, line=tok.line, col=tok.col))
+            else:
+                offset, depth = 0, 1
+                while depth and self._peek(offset).type != TokenKind.EOF:
+                    kind = self._peek(offset).type
+                    depth += int(kind == TokenKind.LBRACKET) - int(kind == TokenKind.RBRACKET)
+                    if depth == 1 and all(self._peek(offset + part).type == TokenKind.DOT for part in range(3)):
+                        raise self._error(
+                            "Range designators ('[a ... b]') are a GNU extension, not C11; designate each index"
+                        )
+                    offset += 1
+                index = self._parse_expr()
+                self._expect(TokenKind.RBRACKET)
+                parts.append(IndexDesignator(index=index, line=tok.line, col=tok.col))
+        self._expect(TokenKind.EQ)
+        return Designation(parts=parts)
+
     def _parse_map_or_brace_initializer(self):
-        """Parse the first expression before deciding map versus initializer."""
+        """Keep map expressions distinct from contextual C initializer paths."""
         tok = self._expect(TokenKind.LBRACE)
         if self._match(TokenKind.RBRACE):
             return BraceInitializer(elements=[], line=tok.line, col=tok.col)
-
+        designation = self._parse_designation() if self._starts_designation() else Designation(parts=[])
         first = self._parse_expr()
-        if self._match(TokenKind.COLON):
+        if not designation.parts and self._match(TokenKind.COLON):
             entries = [MapEntry(key=first, value=self._parse_expr())]
             while self._match(TokenKind.COMMA):
                 if self._check(TokenKind.RBRACE):
@@ -2602,14 +2803,19 @@ class Parser:
                 entries.append(MapEntry(key=key, value=self._parse_expr()))
             self._expect(TokenKind.RBRACE)
             return MapLiteral(entries=entries, line=tok.line, col=tok.col)
-
-        elements = [first]
+        elements, entries = [first], [designation]
         while self._match(TokenKind.COMMA):
             if self._check(TokenKind.RBRACE):
                 break
+            entries.append(self._parse_designation() if self._starts_designation() else Designation(parts=[]))
             elements.append(self._parse_expr())
         self._expect(TokenKind.RBRACE)
-        return BraceInitializer(elements=elements, line=tok.line, col=tok.col)
+        return BraceInitializer(
+            elements=elements,
+            entries=entries if any(entry.parts for entry in entries) else [],
+            line=tok.line,
+            col=tok.col,
+        )
 
     def _is_verbose_lambda(self) -> bool:
         """Check if current position starts a verbose lambda: type function(...)"""

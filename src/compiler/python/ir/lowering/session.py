@@ -13,10 +13,11 @@ from src.compiler.python.syntax.ast.generated import ClassDecl, MethodDecl, Type
 from ..nodes import IRFunctionDecl, IRModule, IRVarDecl
 
 if TYPE_CHECKING:
+    from src.compiler.python.analyzer.flow import JumpScopeIndex
+    from src.compiler.python.analyzer.reachability import StdlibReachabilityPlan
     from src.compiler.python.frontend.sources import SourceMap
 
     from .generics import SpecializationView, SpecializedDeclarationView
-    from .reachability import StdlibReachabilityPlan
 
 
 _MISSING = object()
@@ -50,6 +51,13 @@ class ProgramLoweringFacts:
     # plan order; a session filters them to what its group owns.
     class_views: tuple[SpecializedDeclarationView[ClassDecl], ...] | None = None
     method_views: tuple[SpecializedDeclarationView[MethodDecl], ...] | None = None
+
+
+@dataclass(slots=True)
+class ModuleLoweringFacts:
+    """Facts a module-unit owner consumes after its lowering session finishes."""
+
+    instance_functions: set[str] = field(default_factory=set)
 
 
 @dataclass(slots=True)
@@ -89,11 +97,13 @@ class LoweringSession:
     temporaries: TemporaryNames = field(default_factory=TemporaryNames)
     lambda_counter: int = 0
     active_specialization: SpecializationView | None = None
-    # Stdlib callables this program reaches (see lowering.reachability); None lowers everything.
+    # Stdlib callables this program reaches (see analyzer.reachability); None lowers everything.
     stdlib_reachability: StdlibReachabilityPlan | None = None
     persistent_edge_owner_c_name: str | None = None
     c_array_scopes: list[dict[str, bool]] = field(default_factory=list)
     control_context: list[object] = field(default_factory=list)
+    jump_index: JumpScopeIndex | None = None
+    variable_length_declarations: set[int] = field(default_factory=set)
     # Module-unit lowering: the one compilation group whose bodies this session
     # lowers. A declaration owned by another group keeps its declaration-level
     # IR but no body; `definition_owners` names the group behind every function
@@ -104,6 +114,7 @@ class LoweringSession:
     # so this session skips them entirely instead of lowering them bodiless.
     declarations_elsewhere: bool = False
     definition_owners: dict[str, str] = field(default_factory=dict)
+    unit_facts: ModuleLoweringFacts | None = None
     # Name index over the append-only `module.function_decls` prefix it covers.
     _declaration_index: dict[str, list[IRFunctionDecl]] = field(default_factory=dict)
     _declaration_indexed: int = 0

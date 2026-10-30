@@ -259,8 +259,9 @@ class StringLowerer {
 
 		Node concreteSource = self.operandPlanner.requireType(source, expression);
 		OwnershipBoundary boundary = self.callOwnership.boundary();
-		bool pinBorrowedReceiver = !sourceOwned && self.managedValues.isManaged(self.cTypes.resolveBodyType(concreteSource, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && expression.kind != NK_SELF_EXPR && expression.kind != NK_SUPER_EXPR;
-		boundary.addLoweredOperand(expression, concreteSource, lowered, sourceOwned, pinBorrowedReceiver);
+		/* This conversion has one receiver and no later operand that can
+		 * invalidate a borrow. Owned receivers still receive boundary cleanup. */
+		boundary.addLoweredOperand(expression, concreteSource, lowered, sourceOwned, false);
 		IRNode receiver = self.context.expressionOverride(expression);
 		IRNode converted = IRNode.ternary(IRNode.binary(receiver, "!=", IRNode.literal("NULL")), self.toStringCall(concreteSource, receiver), IRNode.literal("\"\""));
 		boundary.resultOwned = true;

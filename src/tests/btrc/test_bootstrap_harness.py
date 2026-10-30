@@ -7,10 +7,12 @@ import subprocess
 import sys
 import time
 import weakref
+from pathlib import Path
 
 import pytest
 
 from src.tests.btrc import bootstrap_harness as bootstrap
+from src.tests.process_limits import TOOL_TIMEOUT
 
 
 @pytest.mark.parametrize(
@@ -26,6 +28,34 @@ def test_snapshot_preserves_host_entrypoint(tmp_path, monkeypatch, entrypoint) -
         text = source.read()
     assert ("FeNativeHeaderProcess.read" in text) == (entrypoint != os.path.join("cli", "WindowsMain.btrc"))
     assert ("NativeSHA256()" in text) == (entrypoint == os.path.join("cli", "MacOSMain.btrc"))
+
+
+@pytest.mark.parametrize("target", ["x86_64-windows-gnu", "aarch64-windows-gnu"])
+def test_snapshot_windows_filesystem_has_its_native_dependency_closure(tmp_path, target) -> None:
+    project, source_root, _ = bootstrap.snapshot_compiler_inputs(str(tmp_path))
+    result = subprocess.run(
+        [
+            shutil.which("zig"),
+            "cc",
+            "-target",
+            target,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-c",
+            str(Path(source_root) / "stdlib/FileSystem/Windows/Win32FileSystem.c"),
+            "-o",
+            str(tmp_path / "filesystem.o"),
+        ],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=TOOL_TIMEOUT,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")

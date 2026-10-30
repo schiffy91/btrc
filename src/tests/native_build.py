@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ class NativeCorpusBuild:
 
     primary: Path
     plan: Path
+    frontend: tuple[str, ...] | None = None
 
     @classmethod
     def from_result(cls, result, directory: Path):
@@ -33,6 +35,7 @@ class NativeCorpusBuild:
                 "frameworks",
                 "libraries",
                 "pkg-config",
+                "auxiliary-executables",
             )
         ):
             return cls.publish(result, directory)
@@ -62,7 +65,9 @@ class NativeCorpusBuild:
     @classmethod
     def publish(cls, result, directory: Path) -> NativeCorpusBuild:
         directory.mkdir(parents=True, exist_ok=True)
-        artifact = cls(directory / "program.c", directory / "program.json")
+        artifact = cls(
+            directory / "program.c", directory / "program.json", (sys.executable, "-m", "src.compiler.python.main")
+        )
         outputs = [(str(artifact.primary), result.c_source)]
         outputs.extend(zip(result.native_plan.emitted_units, result.c_units, strict=True))
         outputs.append((str(artifact.plan), result.native_plan.canonical_json()))
@@ -85,6 +90,7 @@ class NativeCorpusBuild:
                 plan.frameworks,
                 plan.libraries,
                 plan.pkg_config,
+                plan.auxiliary,
             )
         )
 
@@ -111,8 +117,10 @@ class NativeCorpusBuild:
             compile_flags=compile_flags,
             link_flags=link_flags,
             report_path=report,
+            frontend=self.frontend,
         )
 
     @staticmethod
     def run_tool(command, **kwargs):
-        return subprocess.run(command, timeout=C_COMPILE_TIMEOUT, **kwargs)
+        kwargs.setdefault("timeout", C_COMPILE_TIMEOUT)
+        return subprocess.run(command, **kwargs)

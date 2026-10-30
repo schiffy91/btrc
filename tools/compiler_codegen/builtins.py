@@ -7,7 +7,7 @@ from pathlib import Path, PurePath, PurePosixPath
 from types import MappingProxyType
 
 from src.compiler.python.analyzer.types import STRING_METHODS
-from src.compiler.python.frontend.packages import PackageManifestReader, PackageManifestValidator
+from src.compiler.python.frontend.packages import PackageImportPolicy, PackageManifestReader, PackageManifestValidator
 from src.compiler.python.frontend.sources import (
     ConditionalEnvironment,
     PreprocessorConditionalError,
@@ -305,8 +305,13 @@ class BuiltinStdlibScanner:
         graph, not the directory listing, decides visibility.
         """
         root_manifest = self._stdlib_directory / "btrc.toml"
+        policy = PackageImportPolicy()
         if not root_manifest.is_file():
-            return sorted(self._stdlib_directory.rglob("*.btrc"))
+            return [
+                path
+                for path in sorted(self._stdlib_directory.rglob("*.btrc"))
+                if not policy.executable_entry(str(path))
+            ]
         reader = PackageManifestReader()
         validator = PackageManifestValidator()
         exported: list[Path] = []
@@ -330,7 +335,7 @@ class BuiltinStdlibScanner:
             for specification in dependencies.values():
                 if "path" in specification:
                     pending.append((manifest_path.parent / specification["path"] / "btrc.toml").resolve())
-        return exported
+        return [path for path in exported if not policy.executable_entry(str(path))]
 
     @staticmethod
     def _source_order_key(source_path: PurePath) -> str:

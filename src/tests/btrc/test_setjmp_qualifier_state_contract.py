@@ -60,3 +60,16 @@ def test_retained_flow_roots_preserve_all_summaries_across_incremental_rounds(se
     result = subprocess.run([str(selfhost_driver(driver))], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert result.stdout == "ok\n"
+
+
+def test_setjmp_flow_fixture_analyzes_without_building():
+    from src.compiler.python.application.pipeline import CompilationPipeline
+    from src.compiler.python.application.results import CompilerOptions
+
+    source = REPO / "src/tests/btrc/fixtures/SetjmpFlowRootsDriver.btrc"
+    pipeline = CompilationPipeline()
+    options = CompilerOptions(use_cache=False, use_ast_cache=False)
+    resolved = pipeline.resolve(source.read_text(), str(source), options)
+    parsed = pipeline.parse(resolved, str(source), options)
+    analyzed = pipeline.analyze(parsed.program, prune_stdlib=True)
+    assert analyzed.errors == []

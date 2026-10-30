@@ -56,6 +56,8 @@ enum NodeKind {
 	NK_THROW_STMT,
 	NK_KEEP_STMT,
 	NK_RELEASE_STMT,
+	NK_GOTO_STMT,
+	NK_LABEL_STMT,
 	NK_ELSE_BLOCK,
 	NK_ELSE_IF,
 	NK_FOR_INIT_VAR,
@@ -177,6 +179,8 @@ class Node {
 	public Vector<Node>? genericArgsStorage;
 	public int pointerDepth;
 	public bool isArray;
+	public bool isRegister;
+	public bool isAuto;
 	public Node arraySize;
 	/* Null until written: a node pays neither a list allocation nor a
      * managed edge for a `elements` it never fills. Read it
@@ -195,6 +199,7 @@ class Node {
 	public string access;
 	public Node initializer;
 	public bool isConstructor;
+	public bool isOverride;
 	public bool hasGetter;
 	public bool hasSetter;
 	public Node getterBody;
@@ -309,6 +314,8 @@ class Node {
 		self.base = "";
 		self.pointerDepth = 0;
 		self.isArray = false;
+		self.isRegister = false;
+		self.isAuto = false;
 		self.isConst = false;
 		self.isNullable = false;
 		self.nullableOuterDepth = 0;
@@ -319,6 +326,7 @@ class Node {
 		self.keep_ = false;
 		self.access = "";
 		self.isConstructor = false;
+		self.isOverride = false;
 		self.hasGetter = false;
 		self.hasSetter = false;
 		self.varName = "";

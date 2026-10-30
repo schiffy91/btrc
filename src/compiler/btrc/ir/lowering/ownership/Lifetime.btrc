@@ -16,6 +16,20 @@ import ../Types.btrc;
  * exact retain/release/cleanup atoms.  It receives the shared data-only
  * LoweringContext, never the IR lowering composition root. */
 
+class CleanupRegistration {
+	public IRNode declaration;
+	public string destroy;
+	public string visitor;
+	public bool direct;
+
+	public CleanupRegistration(IRNode declaration, string destroy, string visitor, bool direct) {
+		self.declaration = declaration;
+		self.destroy = destroy;
+		self.visitor = visitor;
+		self.direct = direct;
+	}
+}
+
 class Managed {
 	public string name;
 	public string cName;
@@ -23,6 +37,7 @@ class Managed {
 	public Node? valueType;
 	public string storageCType;
 	public string cleanupKind;
+	public CleanupRegistration? cleanupRegistration = null;
 
 	public Managed(string name, string cName, string cls, Node? valueType, string storageCType) {
 		self.name = name;
@@ -372,8 +387,12 @@ class ManagedLifetimeLowerer {
 			arguments.push(value);
 			return IRNode.call("__btrc_string_release", arguments);
 		}
+		return self.releaseArc(value, runtimeType, self.cycles.runtimeTypeMayCycle(runtimeType));
+	}
+
+	private IRNode releaseArc(IRNode value, string runtimeType, bool mayCycle) {
 		string helper = "__btrc_arc_release_acyclic";
-		if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
+		if (mayCycle) {
 			helper = "__btrc_arc_release";
 		}
 		self.context.referenceHelper(helper);
@@ -383,7 +402,11 @@ class ManagedLifetimeLowerer {
 		return IRNode.call(helper, arguments);
 	}
 
-	public IRNode releaseValue(IRNode value, Node resolvedType) { return self.releaseRuntime(value, self.managedValues.runtimeType(resolvedType)); }
+	public IRNode releaseValue(IRNode value, Node resolvedType) {
+		string runtimeType = self.managedValues.runtimeType(resolvedType);
+		if (self.managedValues.isMutex(resolvedType)) { return self.releaseArc(value, runtimeType, self.cycles.typeMayCycle(resolvedType)); }
+		return self.releaseRuntime(value, runtimeType);
+	}
 
 	public IRNode releaseEdge(IRNode value, Node resolvedType, IRNode replacement) {
 		if (self.managedValues.isString(resolvedType) || self.managedValues.isNative(resolvedType)) {
@@ -446,19 +469,26 @@ class ManagedLifetimeLowerer {
 		return IRNode.call("__btrc_poll_cycles", arguments);
 	}
 
-	/* The collector poll Python's poll_release_batch appends after releasing
-	 * a handed-off value whose type may join a cycle. */
-	public bool releaseMayEnqueue(string runtimeType) {
-		if (runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType)) { return false; }
-		return self.cycles.runtimeTypeMayCycle(runtimeType);
+	public Vector<IRNode> releaseAndClear(IRNode value, Node resolvedType, string storageCType, Vector<IRNode> declarations) {
+		string savedName = self.context.freshTemporary("__btrc_released_operand");
+		IRNode savedDeclaration = IRNode.variableDeclaration(storageCType, savedName, null);
+		declarations.push(savedDeclaration);
+		self.context.recordLocal(savedDeclaration);
+		IRNode saved = IRNode.variable(savedName);
+		Vector<IRNode> sequence = [
+			IRNode.binary(saved, "=", value),
+			IRNode.binary(value, "=", IRNode.literal("NULL")),
+			self.releaseValue(saved, resolvedType)
+		];
+		if (self.releaseMayEnqueue(resolvedType)) { sequence.push(self.pollCycles()); }
+		return sequence;
 	}
 
-	/* Release a value a call boundary handed off. String and ARC releases
-	 * accept NULL, so they run unconditionally, as Python's release_and_clear
-	 * spells them; a native release keeps its NULL guard. */
-	public IRNode releaseAfterHandoff(IRNode target, string runtimeType) {
-		if (!self.managedValues.isNativeName(runtimeType)) { return self.releaseRuntime(target, runtimeType); }
-		return self.optionalRelease(target, runtimeType);
+	/* The collector poll Python's poll_release_batch appends after releasing
+	 * a handed-off value whose type may join a cycle. */
+	public bool releaseMayEnqueue(Node resolvedType) {
+		if (!self.managedValues.isArc(resolvedType)) { return false; }
+		return self.cycles.typeMayCycle(resolvedType);
 	}
 
 	public IRNode optionalRelease(IRNode target, string runtimeType) {
@@ -506,11 +536,15 @@ class ManagedLifetimeLowerer {
 	}
 
 	public void maybeRegisterCleanup(string variableName, string runtimeType, Vector<IRNode> statements) {
+		if (!self.context.exceptionsAreEnabled()) { return; }
 		IRNode declaration = self.cleanupSlots.requireDeclaration(statements, variableName);
-		IRNode? registration = self.cleanupRegistration(declaration, runtimeType);
-		if (registration != null) {
-			statements.push(IRNode.expressionStatement(registration));
-		}
+		string destroy = self.analyzed.isInterface(runtimeType) ? "" : self.cleanupSymbol(runtimeType);
+		bool direct = runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType);
+		string visitor = direct || self.analyzed.isInterface(runtimeType) ? "" : self.cycles.visitorSymbol(runtimeType);
+		CleanupRegistration recipe = CleanupRegistration(declaration, destroy, visitor, direct);
+		self.attachCleanupRegistration(recipe);
+		self.markCleanupRegistration();
+		self.reissueCleanup(recipe, statements);
 	}
 
 	public void maybeRegisterDirectCleanup(string variableName, string cleanupFunction, Vector<IRNode> statements) {
@@ -518,7 +552,48 @@ class ManagedLifetimeLowerer {
 		self.markCleanupRegistration();
 		IRNode declaration = self.cleanupSlots.requireDeclaration(statements, variableName);
 		self.context.referenceHelper(cleanupFunction);
-		statements.push(IRNode.expressionStatement(self.cleanupSlots.registerSlot(self.context, declaration, IRNode.functionReference(cleanupFunction), null, true)));
+		CleanupRegistration recipe = CleanupRegistration(declaration, cleanupFunction, "", true);
+		self.attachCleanupRegistration(recipe);
+		self.reissueCleanup(recipe, statements);
+	}
+
+	private void attachCleanupRegistration(CleanupRegistration recipe) {
+		int start = self.scopeStarts.get(self.scopeStarts.len - 1);
+		int index = self.managedStack.len - 1;
+		while (index >= start) {
+			Managed owner = self.managedStack.get(index);
+			if (owner.cName == recipe.declaration.name) { owner.cleanupRegistration = recipe; return; }
+			index--;
+		}
+		print("internal compiler error: named cleanup registration has no local owner");
+		exit(1);
+	}
+
+	public void reissueCleanup(CleanupRegistration recipe, Vector<IRNode> statements) {
+		IRNode destroy = recipe.destroy == "" ? IRNode.literal("NULL") : IRNode.functionReference(recipe.destroy);
+		IRNode visitor = recipe.visitor == "" ? IRNode.literal("NULL") : IRNode.functionReference(recipe.visitor);
+		statements.push(IRNode.expressionStatement(self.cleanupSlots.registerSlot(self.context, recipe.declaration, destroy, visitor, recipe.direct)));
+	}
+
+	public int managedCount() { return self.managedStack.len; }
+
+	public int managedScopeStart() { return self.scopeStarts.get(self.scopeStarts.len - 1); }
+
+	public int cleanupDepth() { return self.cleanupMarkers.len; }
+
+	public Vector<Managed> managedRange(int start, int end) {
+		Vector<Managed> result = [];
+		while (start < end) { result.push(self.managedStack.get(start)); start++; }
+		return result;
+	}
+
+	public string cleanupMarkerFrom(int start) {
+		while (start < self.cleanupMarkers.len) {
+			string marker = self.cleanupMarkers.get(start);
+			if (self.cleanupScopeIsActive(marker)) { return marker; }
+			start++;
+		}
+		return "";
 	}
 
 	public void pushManagedScope() { self.scopeStarts.push(self.managedStack.len); }
@@ -818,6 +893,7 @@ class ManagedLifetimeLowerer {
 			Managed value = source.get(index);
 			Managed copy = Managed(value.name, value.cName, value.cls, value.valueType, value.storageCType);
 			copy.cleanupKind = value.cleanupKind;
+			copy.cleanupRegistration = value.cleanupRegistration;
 			destination.push(copy);
 			index = index + 1;
 		}

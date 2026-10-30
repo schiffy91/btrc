@@ -8,6 +8,9 @@
  */
 
 import Library.FileSystem;
+#if defined(_WIN32)
+import Library.FileSystem.ApplicationDirectories;
+#endif
 import Library.Platform;
 import Library.Strings;
 import Library.Vector;
@@ -82,9 +85,14 @@ class DaemonControlPaths {
 		return true;
 	}
 
-	class bool absolute(string path) { return path != null && !path.isEmpty() && path[0] == '/'; }
+	class bool absolute(string path) { return PathTools.isAbsolute(path); }
 
 	class string defaultDirectory() {
+#if defined(_WIN32)
+		var roots = ApplicationDirectories.resolveStandard();
+		if (!roots.ok()) { return ""; }
+		return PathTools.join(PathTools.join(roots.value().stateRoot(), "btrc"), "daemons");
+#else
 		string home = Environment.get("HOME", "");
 		if (DaemonControlPaths.absolute(home)) {
 			return PathTools.join(PathTools.join(home, ".btrc"), "daemons");
@@ -92,6 +100,7 @@ class DaemonControlPaths {
 		string temporary = Environment.get("TMPDIR", "/tmp");
 		if (!DaemonControlPaths.absolute(temporary)) { temporary = "/tmp"; }
 		return PathTools.join(temporary, f"btrc-daemons-{Platform.euid()}");
+#endif
 	}
 
 	class string stop(string controlFile, string token) { return f"{controlFile}.{token}.stop"; }

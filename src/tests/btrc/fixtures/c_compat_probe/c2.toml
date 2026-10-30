@@ -7,69 +7,33 @@ id = "r08-typedef-anonymous-struct"
 row = "8"
 construct = "typedef struct { } T;"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected struct name, got LBRACE '{' at 2:16" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:16" }
-source = '''
-#include <assert.h>
-typedef struct { int x; int y; } Point;
-int main() {
-	Point point = {1, 2};
-	assert(point.x + point.y == 3);
-	print("PASS: typedef anonymous struct");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5d817dd0"
+python = { exit = 0, stdout = "PASS: typedef records\n" }
+btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
+corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
 id = "r08-typedef-tagged-struct"
 row = "8"
 construct = "typedef struct P { } P;"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected typedef alias, got LBRACE '{' at 2:21" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:21" }
-source = '''
-#include <assert.h>
-typedef struct Pair { int left; int right; } Pair;
-int main() {
-	Pair pair = {3, 4};
-	struct Pair other = pair;
-	assert(other.left * other.right == 12);
-	print("PASS: typedef tagged struct");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5d817dd0"
+python = { exit = 0, stdout = "PASS: typedef records\n" }
+btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
+corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
 id = "r08-anonymous-members"
 row = "8"
 construct = "anonymous struct/union members"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected union name, got LBRACE '{' at 4:8" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 4:8" }
-source = '''
-#include <assert.h>
-struct Value {
-	int kind;
-	union { int integer; float real; };
-};
-int main() {
-	struct Value value;
-	value.kind = 1;
-	value.integer = 7;
-	assert(value.integer == 7);
-	print("PASS: anonymous members");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5d817dd0"
+python = { exit = 0, stdout = "PASS: anonymous members\n" }
+btrcc = { exit = 0, stdout = "PASS: anonymous members\n" }
+corpus = "c_compat/AnonymousMembers.btrc"
 
 [[probe]]
 id = "r08-anonymous-member-collision"
@@ -77,10 +41,9 @@ row = "8"
 construct = "an anonymous member repeating a field name"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected union name, got LBRACE '{' at 3:8" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 3:8" }
+revision = "5d817dd0"
+python = { diagnostic = "Duplicate field 'integer' in struct 'Value' at 3:14" }
+btrcc = { diagnostic = "Duplicate field 'integer' in struct 'Value' at 3:14" }
 source = '''
 struct Value {
 	int integer;
@@ -119,40 +82,22 @@ id = "r10-designated-field-initializer"
 row = "10"
 construct = "struct P p = {.y = 2, .x = 1};"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token '.' in expression at 4:24" }
-btrcc = { diagnostic = "Expected expression, got DOT '.' at 4:24" }
-source = '''
-#include <assert.h>
-struct Point { int x; int y; };
-int main() {
-	struct Point point = {.y = 2, .x = 1};
-	assert(point.x == 1 && point.y == 2);
-	print("PASS: designated field initializer");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "a21b0c1"
+python = { exit = 0, stdout = "PASS: designated field initializer\n" }
+btrcc = { exit = 0, stdout = "PASS: designated field initializer\n" }
+corpus = "c_compat/DesignatedFieldInitializer.btrc"
 
 [[probe]]
 id = "r10-designated-index-initializer"
 row = "10"
 construct = "int a[4] = {[2] = 7};"
 intent = "positive"
-status = "known-divergence"
-revision = "cf28fe7"
-python = { diagnostic = "Assignment target is not assignable at 3:19" }
-btrcc = { diagnostic = "Assignment target is not assignable at 3:19" }
-source = '''
-#include <assert.h>
-int main() {
-	int values[4] = {[2] = 7};
-	assert(values[0] == 0 && values[2] == 7);
-	print("PASS: designated index initializer");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "a21b0c1"
+python = { exit = 0, stdout = "PASS: designated index initializer\n" }
+btrcc = { exit = 0, stdout = "PASS: designated index initializer\n" }
+corpus = "c_compat/DesignatedIndexInitializer.btrc"
 
 [[probe]]
 id = "r10-compound-literal"
@@ -160,7 +105,7 @@ row = "10"
 construct = "(struct S){5, 6}"
 intent = "positive"
 status = "rejected"
-revision = "cf28fe7"
+revision = "a21b0c1"
 divergence = "diagnostic wording"
 python = { diagnostic = "Unexpected token 'struct' in expression at 4:24" }
 btrcc = { diagnostic = "Expected expression, got STRUCT 'struct' at 4:24" }
@@ -181,10 +126,9 @@ row = "10"
 construct = "{.x = 1, .x = 2} overrides an initializer"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token '.' in expression at 3:24" }
-btrcc = { diagnostic = "Expected expression, got DOT '.' at 3:24" }
+revision = "a21b0c1"
+python = { diagnostic = "Field 'x' of struct 'Point' is initialized more than once (first at 3:24); each member may be initialized once at 3:32" }
+btrcc = { diagnostic = "Field 'x' of struct 'Point' is initialized more than once (first at 3:24); each member may be initialized once at 3:32" }
 source = '''
 struct Point { int x; int y; };
 int main() {
@@ -199,10 +143,9 @@ row = "10"
 construct = "{.z = 1} names no field"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Unexpected token '.' in expression at 3:24" }
-btrcc = { diagnostic = "Expected expression, got DOT '.' at 3:24" }
+revision = "a21b0c1"
+python = { diagnostic = "Struct 'Point' has no field 'z' at 3:24" }
+btrcc = { diagnostic = "Struct 'Point' has no field 'z' at 3:24" }
 source = '''
 struct Point { int x; int y; };
 int main() {
@@ -324,21 +267,11 @@ id = "x-typedef-enum"
 row = "x-typedef-enum"
 construct = "typedef enum { } T;"
 intent = "positive"
-status = "rejected"
-revision = "cf28fe7"
-divergence = "diagnostic wording"
-python = { diagnostic = "Expected enum name, got LBRACE '{' at 2:14" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 2:14" }
-source = '''
-#include <assert.h>
-typedef enum { RED, GREEN, BLUE } Color;
-int main() {
-	Color color = GREEN;
-	assert((int)color == 1);
-	print("PASS: typedef enum");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5885bf40"
+python = { exit = 0, stdout = "PASS: typedef records\n" }
+btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
+corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
 id = "x-typedef-enum-duplicate-enumerator"
@@ -346,10 +279,10 @@ row = "x-typedef-enum"
 construct = "a repeated enumerator"
 intent = "negative"
 status = "rejected"
-revision = "cf28fe7"
+revision = "5885bf40"
 divergence = "diagnostic wording"
-python = { diagnostic = "Expected enum name, got LBRACE '{' at 1:14" }
-btrcc = { diagnostic = "Expected IDENT, got LBRACE '{' at 1:14" }
+python = { diagnostic = "Duplicate enum value 'RED' in enum 'Color' at 1:21" }
+btrcc = { diagnostic = "Duplicate enum value name 'RED' in enum 'Color' at 1:21" }
 source = '''
 typedef enum { RED, RED } Color;
 int main() { return 0; }
@@ -385,21 +318,11 @@ id = "x-enum-tag-btrc-enum"
 row = "x-enum-tag"
 construct = "enum Color c for a btrc enum"
 intent = "positive"
-status = "known-divergence"
-revision = "cf28fe7"
-divergence = "outcome"
-python = { diagnostic = "Cannot assign 'Color' to variable 'color' of type 'enum Color' at 4:2" }
-btrcc = { c = "rejected" }
-source = '''
-#include <assert.h>
-enum Color { RED, GREEN, BLUE };
-int main() {
-	enum Color color = BLUE;
-	assert((int)color == 2);
-	print("PASS: enum tag spelling");
-	return 0;
-}
-'''
+status = "accepted"
+revision = "5885bf40"
+python = { exit = 0, stdout = "PASS: typedef records\n" }
+btrcc = { exit = 0, stdout = "PASS: typedef records\n" }
+corpus = "c_compat/TypedefRecords.btrc"
 
 [[probe]]
 id = "x-enum-tag-unknown"
@@ -407,7 +330,7 @@ row = "x-enum-tag"
 construct = "enum Missing names no enum"
 intent = "negative"
 status = "known-divergence"
-revision = "cf28fe7"
+revision = "5885bf40"
 python = { c = "rejected" }
 btrcc = { c = "rejected" }
 source = '''

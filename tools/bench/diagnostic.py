@@ -21,6 +21,13 @@ PROGRAMS = ("BenchArc", "RunStrings")
 ENVIRONMENT_KEYS = (
     "PATH",
     "BTRC_HOME",
+    "BASH_ENV",
+    "DEVCONTAINER",
+    "BTRC_NATIVE_HEADER_READER",
+    "BTRC_NATIVE_SYSROOT",
+    "BTRC_NATIVE_TARGET",
+    "BTRC_JAVA_CLASS_READER",
+    "PKG_CONFIG_PATH",
     "BTRC_CFLAGS",
     "CC",
     "HOST_CC",
@@ -35,6 +42,31 @@ ENVIRONMENT_KEYS = (
 
 class MemoryDiagnostic:
     """Own two fresh builds and the explicitly labelled attribution receipts."""
+
+    @staticmethod
+    def container_command(arguments: list[str]) -> list[str] | None:
+        """Enter the image's BASH_ENV once, before selecting or recording tools.
+
+        A direct podman Python command bypasses BASH_ENV. Make recipes happen
+        to load it, but Python-run guards do not, leaving typed native imports
+        without their reader/sysroot and pkg-config environment.
+        """
+        if (
+            os.environ.get("DEVCONTAINER") != "true"
+            or not os.environ.get("BASH_ENV")
+            or os.environ.get("BTRC_BENCH_DIAGNOSTIC_SHELL") == "1"
+        ):
+            return None
+        return [
+            "bash",
+            "-c",
+            'export BTRC_BENCH_DIAGNOSTIC_SHELL=1; exec "$@"',
+            "bench-diagnostic",
+            sys.executable,
+            "-m",
+            "tools.bench.diagnostic",
+            *arguments,
+        ]
 
     def __init__(self, repository: Path, output: Path, scratch: Path, candidate: str, cc: list[str]) -> None:
         self.repository = repository.resolve()
@@ -273,11 +305,37 @@ class MemoryDiagnostic:
             "--json",
             str(destination),
             "--out-dir",
-            str(self.output / f"guard-{name}"),
+            # Compiler caches contain private 0700 directories. They are
+            # scratch state, not evidence, and the host uploader may have a
+            # different uid from the container that owns them.
+            str(self.scratch / f"guard-{name}"),
         ]
         result = self.command(f"guard-{name}", argv, tree, self.environment(tree))
         self.receipt["guards"][name] = result["returncode"]
         self.save()
+
+    def print_summary(self) -> None:
+        """Keep useful results in job logs even if artifact delivery fails."""
+        summary = {key: self.receipt.get(key) for key in ("status", "error", "guards", "sample_groups")}
+        summary["builds"] = {
+            name: {key: build.get(key) for key in ("revision", "returncode")}
+            for name, build in self.receipt["builds"].items()
+        }
+        print(json.dumps(summary, indent=2), flush=True)
+        for command in self.receipt["commands"]:
+            if command.get("returncode") == 0:
+                continue
+            for stream in ("stdout", "stderr"):
+                if stream not in command:
+                    continue
+                path = self.output / command[stream]
+                if not path.is_file():
+                    continue
+                with path.open("rb") as source:
+                    source.seek(max(0, path.stat().st_size - 12000))
+                    tail = source.read().decode("utf-8", errors="replace")
+                if tail:
+                    print(f"{command['label']} {stream} (last 12000 bytes):\n{tail}", flush=True)
 
     def emitted(self, compiler_name: str, tree_name: str, tree: Path, compiler: Path, program: str) -> None:
         label = f"emitted-{compiler_name}-{tree_name}-{program}"
@@ -376,14 +434,22 @@ class MemoryDiagnostic:
             return 1
         finally:
             self.save()
+            self.print_summary()
 
     @classmethod
     def main(cls, argv: list[str] | None = None) -> int:
+        arguments = list(sys.argv[1:] if argv is None else argv)
+        command = cls.container_command(arguments)
+        if command is not None:
+            os.execvp(command[0], command)
         parser = argparse.ArgumentParser(description=__doc__)
         parser.add_argument("--candidate", required=True)
         parser.add_argument("--output", type=Path, default=Path("build/bench-diagnostic"))
         parser.add_argument("--scratch", type=Path, default=Path("build/bench-diagnostic-trees"))
-        args = parser.parse_args(argv)
+        args = parser.parse_args(arguments)
+        reader = os.environ.get("BTRC_NATIVE_HEADER_READER")
+        if not reader or not os.access(reader, os.X_OK):
+            parser.error("native header reader is unavailable; run from the configured devcontainer shell")
         return cls(
             Path.cwd(), args.output, args.scratch, args.candidate, HostCCompiler.configured(empty_is_unset=True)
         ).execute()

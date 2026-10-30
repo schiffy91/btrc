@@ -82,9 +82,10 @@ def test_cleanup_registry_is_per_generation_and_uses_parse_safe_api() -> None:
         assert f"public {obsolete_field}" not in lowerer
 
     assert "class CleanupSlotValidator {" in validator
-    duplicate_check = validator.index("if (used.has(metadata.site))")
-    record_use = validator.index("used.put(metadata.site, true)")
-    assert duplicate_check < record_use
+    # A backward goto may register a slot again; its declaration stays unique.
+    duplicate_check = validator.index("if (self.attached.has(metadata.site))")
+    record_declaration = validator.index("self.attached.put(metadata.site, state.functionName)")
+    assert duplicate_check < record_declaration
     assert "metadata.cType != declared.cType" in validator
     assert "metadata.takeFunction" in validator
     assert "!= declared.takeFunction" in validator

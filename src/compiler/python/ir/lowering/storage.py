@@ -305,6 +305,7 @@ class StorageLowerer:
         lowered_target: IRExpr | None = None,
         lowered_receiver: IRExpr | None = None,
         lowered_index: IRExpr | None = None,
+        ownership_operation: bool = False,
     ) -> MaterializedStorageTarget:
         """Evaluate a target's receiver/key once and retain its assignable shape."""
         declarations: list[IRVarDecl] = []
@@ -318,7 +319,17 @@ class StorageLowerer:
                 raise ValueError("static field storage requires its lowered symbol")
             target = IRVar(name=plan.storage_field)
 
-        if self._opaque_index_target(plan):
+        if ownership_operation and plan.kind is StorageKind.INSTANCE_FIELD:
+            if lowered_receiver is None or plan.receiver_type is None:
+                raise ValueError("owned field storage requires a typed lowered receiver")
+            if isinstance(plan.target.obj, SelfExpr):
+                receiver = lowered_receiver
+            else:
+                receiver_decl = self._temporary(plan.receiver_type, "__btrc_release_owner")
+                receiver_decl.init = lowered_receiver
+                declarations.append(receiver_decl)
+                receiver = IRVar(name=receiver_decl.name)
+        elif self._opaque_index_target(plan):
             # An opaque C receiver, such as an array member of a record a C
             # header declares, has no type to hold in a temporary: its
             # element is stored through as written, as a read of it lowers
@@ -869,7 +880,16 @@ class StorageLowerer:
         )
         self._session.record_declaration(declaration)
         self.declare_c_binding(source.name, is_array=is_array, logical_length=logical_length)
+        if (
+            self._session.jump_index is not None
+            and is_array
+            and plan.array_size is not None
+            and id(plan.array_size) not in self._analyzed.constant_array_bound_ids
+        ):
+            self._session.variable_length_declarations.add(id(declaration))
         self._ownership.declare_local_ownership(source.name, provenance, c_name=plan.c_name)
+        if source.type is not None and source.type.is_register:
+            self._ownership.mark_register_local(source.name)
         provenance.bind_local(source.name, source.type, source.initializer)
         result: list[IRStmt] = [declaration]
         if external:
@@ -905,7 +925,9 @@ class StorageLowerer:
                 cycle_seed=bool(owns_initializer and not self._values.is_string(managed_type)),
             )
             self._ownership.declare_local_ownership(source.name, provenance, runtime_type, c_name=plan.c_name)
-            self._lifetime.register_named_cleanup(plan.c_name, runtime_type, result)
+            self._ownership.record_cleanup_registration(
+                self._lifetime.register_named_cleanup(plan.c_name, runtime_type, result)
+            )
         canonical = self._types.canonical_type(source.type)
         if (
             source.initializer is not None
@@ -915,7 +937,9 @@ class StorageLowerer:
         ):
             self._ownership.register_thread_var(source.name, provenance)
             self._session.require_helper("__btrc_thread_free")
-            self._lifetime.register_direct_cleanup(plan.c_name, "__btrc_thread_free", result)
+            self._ownership.record_cleanup_registration(
+                self._lifetime.register_direct_cleanup(plan.c_name, "__btrc_thread_free", result)
+            )
         return result
 
     def _empty_managed_slot(
@@ -1136,6 +1160,7 @@ class StorageLowerer:
         return {
             "is_static": bool(getattr(type_expr, "is_static", False)),
             "is_extern": bool(getattr(type_expr, "is_extern", False)),
+            "is_register": bool(getattr(type_expr, "is_register", False)),
             "is_volatile": bool(getattr(type_expr, "is_volatile", False)),
             "effective_is_volatile": StorageModel.effective_outer_volatile(type_expr, self._analyzed.typedef_table),
         }

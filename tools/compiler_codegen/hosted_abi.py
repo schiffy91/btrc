@@ -106,6 +106,7 @@ class HostedAbiNameSets:
     objects: tuple[str, ...]
     types: tuple[str, ...]
     typedefs: tuple[str, ...]
+    arithmetic_types: tuple[str, ...]
     owned: tuple[str, ...]
     native: tuple[str, ...]
     native_internal: tuple[str, ...]
@@ -119,6 +120,7 @@ class HostedAbiNameSets:
             "objects": list(self.objects),
             "types": list(self.types),
             "typedefs": list(self.typedefs),
+            "arithmetic_types": list(self.arithmetic_types),
             "owned": list(self.owned),
             "native": list(self.native),
             "native_internal": list(self.native_internal),
@@ -212,7 +214,7 @@ class HostedAbiManifest:
     functions: tuple[HostedAbiFunctionSpec, ...]
     platform_targets: tuple[HostedAbiPlatformTargetSpec, ...]
 
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
     # btrc's own namespace: the runtime is ported to every row, never filtered.
     RUNTIME_PREFIXES = ("btrc_", "Btrc", "BTRC_", "__btrc_")
     _ROOT_KEYS = frozenset(
@@ -230,6 +232,7 @@ class HostedAbiManifest:
             "objects",
             "types",
             "typedefs",
+            "arithmetic_types",
             "owned",
             "native",
             "native_internal",
@@ -327,6 +330,7 @@ class HostedAbiManifest:
             objects=cls._name_tuple(names_table, "objects", "names"),
             types=cls._name_tuple(names_table, "types", "names"),
             typedefs=cls._name_tuple(names_table, "typedefs", "names"),
+            arithmetic_types=cls._name_tuple(names_table, "arithmetic_types", "names"),
             owned=cls._name_tuple(names_table, "owned", "names"),
             native=cls._name_tuple(names_table, "native", "names"),
             native_internal=cls._name_tuple(names_table, "native_internal", "names"),
@@ -503,6 +507,8 @@ class HostedAbiManifest:
             raise HostedAbiManifestError("names.owned differs from the hosted namespace union")
         if not set(self.names.typedefs) <= set(self.names.types):
             raise HostedAbiManifestError("hosted typedef names must be included in type names")
+        if not set(self.names.arithmetic_types) <= set(self.names.typedefs):
+            raise HostedAbiManifestError("hosted arithmetic types must be hosted typedef names")
         if not set(self.names.native) <= exact:
             raise HostedAbiManifestError("hosted native names must have exact function specs")
         if not set(self.names.noreturn) <= declared_functions:
@@ -1456,6 +1462,9 @@ class HostedAbiCatalogGenerator:
         GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_OBJECT_NAMES", self._manifest.names.objects)
         GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_TYPE_NAMES", self._manifest.names.types)
         GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_TYPEDEF_NAMES", self._manifest.names.typedefs)
+        GeneratedSourceStyle.append_python_tuple(
+            lines, "HOSTED_ARITHMETIC_TYPE_NAMES", self._manifest.names.arithmetic_types
+        )
         GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_OWNED_NAMES", self._manifest.names.owned)
         GeneratedSourceStyle.append_python_tuple(lines, "HOSTED_NATIVE_NAMES", self._manifest.names.native)
         GeneratedSourceStyle.append_python_tuple(
@@ -2072,7 +2081,7 @@ class HostedAbiCatalogGenerator:
         """The name sets the self-hosted analyzer consults (HostedAbiRepository).
 
         The reference tables carry every set; the self-host only ever asks
-        whether a name is a hosted function, macro, typedef, owned name,
+        whether a name is a hosted function, macro, type, typedef, owned name,
         adopting helper or non-returning function, and its structure contract rejects accessors nothing
         calls, so the other sets are not emitted for it.
         """
@@ -2080,7 +2089,9 @@ class HostedAbiCatalogGenerator:
         return (
             ("functionNames", self._manifest.names.functions),
             ("macroNames", self._manifest.names.macros),
+            ("typeNames", self._manifest.names.types),
             ("typedefNames", self._manifest.names.typedefs),
+            ("arithmeticTypeNames", self._manifest.names.arithmetic_types),
             ("ownedNames", self._manifest.names.owned),
             ("runtimeAdoptingHelpers", self._manifest.names.runtime_adopting_helpers),
             ("noreturnFunctions", self._manifest.names.noreturn),

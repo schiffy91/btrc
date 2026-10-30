@@ -115,6 +115,9 @@ def bundle_fixture(root: Path, target: str = "linux-x64") -> tuple[Path, Path]:
     (root / "src/stdlib/GUI/README.md").write_text("gui\n", encoding="utf-8")
     (root / "src/stdlib/build").mkdir()
     (root / "src/stdlib/build/runtime.o").write_bytes(b"not-runtime-source")
+    (root / "src/runtime/c").mkdir(parents=True)
+    (root / "src/runtime/c/btrc_rt.h").write_text("#pragma once\n", encoding="utf-8")
+    (root / "src/runtime/c/manifest.toml").write_text("# runtime\n", encoding="utf-8")
     (root / "pyproject.toml").write_text('[project]\nversion = "9.8.7"\n', encoding="utf-8")
     (root / "LICENSE").write_text("fixture license\n", encoding="utf-8")
     binary = root / "built-btrcc"

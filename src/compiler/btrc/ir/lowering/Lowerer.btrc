@@ -31,7 +31,7 @@ import ./Generics.btrc;
 import ./ownership/Calls.btrc;
 import ./ownership/CycleBoundaries.btrc;
 import ./ownership/Lifetime.btrc;
-import ./Reachability.btrc;
+import ../../analyzer/Reachability.btrc;
 import ./ownership/ManagedTypes.btrc;
 import ./ownership/Operands.btrc;
 import ./ownership/Semantics.btrc;
@@ -100,7 +100,7 @@ class IRLowerer {
 		self.expressions = ExpressionLowerer(analyzed, hostedAbi, semanticDeclarations, operators, expressionTypes, managedValues, cycles, callableValues, callableBoundaries, callableLowering, assignments, self.context, operandPlanner, ownershipSemantics, callOwnership, managedLifetime, managedTypes, aggregateValues, self.gpuPipeline, self.cTypes, callTargets, calls, strings, concurrency);
 		self.controlFlow = ControlFlowLowerer();
 		self.statements = StatementLowerer(analyzed, hostedAbi, managedValues, cycles, callableValues, callableBoundaries, callableLowering, self.context, operandPlanner, ownershipSemantics, managedLifetime, managedTypes, aggregateValues, self.gpuPipeline, self.cTypes, self.expressions, concurrency, self.controlFlow);
-		self.functions = FunctionLowerer(analyzed, hostedAbi, semanticDeclarations, expressionTypes, managedValues, cycles, callableLowering, calls, self.context, managedLifetime, managedTypes, cycleBoundaries, cycleReturns, self.gpuPipeline, self.cTypes, self.statements);
+		self.functions = FunctionLowerer(analyzed, hostedAbi, semanticDeclarations, expressionTypes, managedValues, cycles, callableLowering, calls, self.context, managedLifetime, managedTypes, cycleBoundaries, cycleReturns, self.gpuPipeline, self.cTypes, self.statements, self.controlFlow);
 		self.genericPlans = GenericLowerer(analyzed);
 		self.declarations = DeclarationLowerer(analyzed, hostedAbi, semanticDeclarations, managedValues, cycles, self.cleanupSlots, callableValues, callableBoundaries, self.context, managedLifetime, managedTypes, cycleBoundaries, cycleReturns, self.cTypes, self.functions, self.expressions);
 	}
@@ -154,6 +154,14 @@ class IRLowerer {
 			}
 			self.context.reachability = StdlibReachability(program.declarations(), stdlibKeys, instantiated, instantiatedTypes);
 		}
+		if (self.analyzed.unreachedStdlibBodies.len > 0) {
+			StdlibReachability? reachability = self.context.reachability;
+			if (reachability == null) { throw "Stdlib lowering requires semantic body coverage"; }
+			Map<Node, bool> excluded = reachability.unreachedBodies(program.declarations());
+			for body in self.analyzed.unreachedStdlibBodies.keys() {
+				if (!excluded.has(body)) { throw "Stdlib lowering selected a body that semantic analysis did not check"; }
+			}
+		}
 		if (facts != null && !facts.reachabilityComputed) {
 			facts.reachability = self.context.reachability;
 			facts.reachabilityComputed = true;
@@ -186,6 +194,10 @@ class IRLowerer {
 		 * group's directives. */
 		bool shared = self.context.declarationsElsewhere;
 		if (!shared) { self.declarations.emitForwardDecls(program, module); }
+		/* Span shapes are registered throughout lowering. Preserve their
+		 * declaration phase after tuples and before ordinary class layouts. */
+		int spanForwardPosition = module.structForwards.len;
+		int spanLayoutPosition = module.structDefs.len;
 		self.gpuPipeline.registerKernels(program, module);
 		if (!shared) {
 			self.cTypes.appendTypedefs(program, module, self.context.reachability);
@@ -234,9 +246,10 @@ class IRLowerer {
 		self.declarations.emitDeclarations(program, module);
 		BtrccPhaseTimer.mark("l-declarations");
 		self.functions.materializeDeferredClosure();
-		if (self.context.declarationsElsewhere) { self.declarations.emitReferencedInterfaces(module); }
+		if (self.context.declarationsElsewhere) { self.declarations.emitReferencedInterfaces(program, module); }
 		self.cTypes.appendFunctionPointerTypedefs(module);
-		self.cTypes.appendRealtimeTypeDeclarations(module);
+		if (!shared) { self.cTypes.emitSpanTypeDeclarations(module, spanForwardPosition, spanLayoutPosition); }
+		self.cTypes.emitAtomicLockFreeProofs(module);
 		self.cleanupSlots.finalize(module);
 		self.expressionTypes.disableMemo();
 		if (self.context.moduleUnits) { self.partitionModuleUnit(module); }
@@ -267,7 +280,7 @@ class IRLowerer {
 				definitions.push(definition);
 			} else if (!declared.has(definition.name)) {
 				IRFunctionDecl prototype = IRFunctionDecl(definition.name, definition.returnType, false);
-				prototype.params = definition.params;
+				prototype.params = self.cTypes.copyParameters(definition.params);
 				prototype.cLinkage = definition.cLinkage;
 				module.functionDecls.push(prototype);
 				declared.put(definition.name, true);

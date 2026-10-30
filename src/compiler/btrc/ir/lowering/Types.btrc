@@ -8,7 +8,7 @@ import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
 import ../../syntax/Types.btrc;
 import ../Model.btrc;
-import ./Reachability.btrc;
+import ../../analyzer/Reachability.btrc;
 
 /* Semantic TypeExpr -> C type lowering for one analyzed module.
  *
@@ -150,6 +150,7 @@ class CTypeLowerer {
 	public IRParam lowerResolvedParameter(Node parameter, Node? resolvedType, string rendered) {
 		IRParam result = IRParam(rendered, self.lexicalBindingCName(parameter.name));
 		result.isVolatile = resolvedType != null && resolvedType.isVolatile;
+		result.isRegister = parameter.type != null && parameter.type.isRegister;
 		result.effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(resolvedType, self.analyzed.typedefTable);
 		return result;
 	}
@@ -161,8 +162,16 @@ class CTypeLowerer {
 	public IRParam copyParameter(IRParam parameter) {
 		IRParam result = IRParam(parameter.cType, parameter.name);
 		result.isVolatile = parameter.isVolatile;
+		result.isRegister = parameter.isRegister;
 		result.effectiveIsVolatile = parameter.effectiveIsVolatile;
 		result.setjmpInferredVolatile = parameter.setjmpInferredVolatile;
+		return result;
+	}
+
+	/* A separate declaration must not share the definition's mutable setjmp qualifiers. */
+	public Vector<IRParam> copyParameters(Vector<IRParam> parameters) {
+		Vector<IRParam> result = [];
+		for parameter in parameters { result.push(self.copyParameter(parameter)); }
 		return result;
 	}
 
@@ -207,7 +216,7 @@ class CTypeLowerer {
 		int index = 0;
 		while (index < program.declarations().len) {
 			Node declaration = program.declarations().get(index);
-			if (declaration.kind == NK_TYPEDEF_DECL && !self.analyzed.isNativeDeclaration(declaration) && (reachability == null || reachability.reaches(declaration))) {
+			if (declaration.kind == NK_TYPEDEF_DECL && !self.analyzed.isNativeDeclaration(declaration) && !SemanticTypeSystem.isIdentityTypedef(declaration, self.analyzed) && (reachability == null || reachability.reaches(declaration))) {
 				declarations.put(declaration.alias, declaration);
 				sourceOrder.push(declaration.alias);
 			}
@@ -258,21 +267,25 @@ class CTypeLowerer {
 		return "ATOMIC_INT_LOCK_FREE";
 	}
 
-	public void appendRealtimeTypeDeclarations(IRModule module) {
+	public void emitSpanTypeDeclarations(IRModule module, int spanForwardPosition, int spanLayoutPosition) {
+		self.spanTypeOrder.sort();
 		int spanIndex = 0;
 		while (spanIndex < self.spanTypeOrder.len) {
 			string name = self.spanTypeOrder.get(spanIndex);
 			Node element = self.spanTypes.get(name);
-			module.structForwards.push(IRStructForward(name));
+			module.structForwards.insert(spanForwardPosition + spanIndex, IRStructForward(name));
 			IRStructDef definition = IRStructDef();
 			definition.name = name;
 			definition.fields.push(IRStructField(self.lower(element) + "*", "data"));
 			definition.fields.push(IRStructField("size_t", "length"));
-			module.structDefs.push(definition);
+			module.structDefs.insert(spanLayoutPosition + spanIndex, definition);
 			spanIndex = spanIndex + 1;
 		}
+	}
+
+	public void emitAtomicLockFreeProofs(IRModule module) {
 		/* Lock-free proofs precede every declared enum, where Python's
-		 * TranslationUnitLowerer._emit_realtime_types places them. */
+		 * CTypeLowerer.atomic_lock_free_proofs places them. */
 		Vector<IREnumDef> enums = [];
 		int atomicIndex = 0;
 		while (atomicIndex < self.atomicTypeOrder.len) {

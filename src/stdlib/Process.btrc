@@ -162,6 +162,8 @@ class ExecResult {
 	public string err;
 	public string command;
 	public bool timedOut;
+	/* A committed daemon may exist; callers must reconcile before retrying start. */
+	public bool startIndeterminate;
 	/* Bytes retained from each capture pipe, before NUL-terminated text access
 	 * or appended process diagnostics. Combined output counts under stdout;
 	 * streamed/suppressed output and synthetic results have no captured bytes. */
@@ -181,6 +183,7 @@ class ExecResult {
 		self.err = err;
 		self.command = command;
 		self.timedOut = false;
+		self.startIndeterminate = false;
 		self.terminatingSignal = 0;
 		self.capturedStdoutBytes = capturedStdoutBytes;
 		self.capturedStderrBytes = capturedStderrBytes;

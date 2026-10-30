@@ -74,6 +74,7 @@ module Btrc {
     -- outside them (int (*p)[3]). btrc's prefix T[] never has elements.
     type_expr = TypeExpr(identifier base, type_expr* generic_args,
                          int pointer_depth, bool is_array,
+                         bool is_register, bool is_auto,
                          expr? array_size, expr* elements, bool is_const,
                          bool is_nullable, int nullable_outer_depth,
                          bool is_static,
@@ -101,7 +102,7 @@ module Btrc {
                               identifier* generic_params,
                               param* params,
                               block? body, bool is_gpu, bool is_realtime,
-                              bool is_abstract,
+                              bool is_abstract, bool is_override,
                               bool keep_return, int name_line, int name_col)
                  | PropertyDecl(string access, type_expr type,
                                 identifier name, bool has_getter,
@@ -161,6 +162,8 @@ module Btrc {
          | ThrowStmt(expr expr)
          | KeepStmt(expr expr)
          | ReleaseStmt(expr expr)
+         | GotoStmt(identifier name, int name_line, int name_col)
+         | LabelStmt(identifier name)
          attributes(int line, int col)
 
     -- Statement sub-types

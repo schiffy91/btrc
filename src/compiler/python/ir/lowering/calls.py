@@ -943,11 +943,18 @@ class CallableSignatureLowerer:
             c_type=c_type if isinstance(c_type, CType) else CType(text=c_type),
             name=self.source_binding_c_name(name),
             is_volatile=bool(represented_type and represented_type.is_volatile),
+            is_register=bool(type_expr and type_expr.is_register),
             effective_is_volatile=StorageModel.effective_outer_volatile(
                 represented_type,
                 self._analyzed.typedef_table,
             ),
         )
+
+
+class LoweredExpressionTypes(Protocol):
+    """Exact expression types supplied by the expression lowering owner."""
+
+    def resolved_expression_type(self, expression: object) -> TypeExpr | None: ...
 
 
 class CallableProvenance:
@@ -959,11 +966,13 @@ class CallableProvenance:
         session: LoweringSession,
         types: CTypeLowerer,
         signatures: CallableSignatureLowerer,
+        expression_types: LoweredExpressionTypes,
     ) -> None:
         self._analyzed = analyzed
         self._session = session
         self._types = types
         self._signatures = signatures
+        self._expression_types = expression_types
         self._bindings: dict[str, CallableBinding] = {}
         self._scopes: list[CallableLexicalScope] = []
         self._exception_captures: list[ExceptionalCallableCapture] = []
@@ -975,6 +984,9 @@ class CallableProvenance:
 
     def type_of(self, expression: object) -> TypeExpr | None:
         return self._session.type_of(expression)
+
+    def resolved_type(self, expression: object) -> TypeExpr | None:
+        return self._expression_types.resolved_expression_type(expression)
 
     def is_local(self, name: str) -> bool:
         if self._declaration_scope_bases:
@@ -1046,6 +1058,45 @@ class CallableProvenance:
         scope = CallableLexicalScope(declared=set(), shadowed={})
         self._scopes.append(scope)
         return scope
+
+    @property
+    def scope_depth(self) -> int:
+        return len(self._scopes)
+
+    def declared_names(self, depth: int) -> frozenset[str]:
+        return frozenset(self._scopes[depth - 1].declared)
+
+    def project_goto(
+        self, depth: int, *, declared: frozenset[str] | None = None, entered: set[str] = frozenset()
+    ) -> CallableFlowSnapshot:
+        bindings = self._bindings.copy()
+        for scope in reversed(self._scopes[depth:]):
+            for name in scope.declared:
+                displaced = scope.shadowed[name]
+                if displaced is None:
+                    bindings.pop(name, None)
+                else:
+                    bindings[name] = displaced
+        if declared is not None:
+            scope = self._scopes[depth - 1]
+            for name in scope.declared - declared:
+                displaced = scope.shadowed[name]
+                if displaced is None:
+                    bindings.pop(name, None)
+                else:
+                    bindings[name] = displaced
+        for name in entered:
+            bindings.pop(name, None)
+        return CallableFlowSnapshot(bindings)
+
+    def enter_label(self, pending: list[CallableFlowSnapshot], *, falls_in: bool) -> CallableFlowSnapshot:
+        states = [*([self.snapshot()] if falls_in else []), *pending]
+        if states:
+            self.join_flows(*states)
+        return self.snapshot()
+
+    def require_goto_back_edge(self, name: str, entry: CallableFlowSnapshot, incoming: CallableFlowSnapshot) -> None:
+        self.require_loop_edge_invariant(entry, incoming, edge=f"back-edge from goto '{name}'")
 
     def finish_scope(self, scope: CallableLexicalScope) -> None:
         if not self._scopes or self._scopes[-1] is not scope:
@@ -1167,6 +1218,11 @@ class CallableProvenance:
         if expected is None:
             return None
         if isinstance(value, (BraceInitializer, ListLiteral)):
+            if expected.is_array and TypeSystem.has_designators(value):
+                plan = TypeSystem.initializer_slots(
+                    self._analyzed.initializer_slot_plans, self._analyzed, expected, value
+                )
+                return tuple((slot.type, slot.element) for slot in plan.slots)
             if expected.is_array:
                 element_type = TypeSystem.strip_outer_storage(expected, array=True)
                 return tuple((element_type, element) for element in value.elements)
@@ -1176,10 +1232,10 @@ class CallableProvenance:
                 return tuple(zip(expected.generic_args, value.elements))
             declaration = self.struct_declaration(expected)
             if declaration is not None:
-                plan = TypeSystem.initializer_slots(
+                slots = TypeSystem.initializer_leaf_slots(
                     self._analyzed.initializer_slot_plans, self._analyzed, declaration, value
                 )
-                return tuple((slot.type, slot.element) for slot in plan.slots)
+                return tuple((slot.type, slot.element) for slot in slots)
         if isinstance(value, TupleLiteral) and expected.base == "Tuple":
             return tuple(zip(expected.generic_args, value.elements))
         if isinstance(value, MapLiteral) and expected.base == "Map" and len(expected.generic_args) == 2:

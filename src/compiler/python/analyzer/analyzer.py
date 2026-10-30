@@ -18,6 +18,7 @@ from .gpu import GpuAnalyzer
 from .macros import SourceMacroAnalyzer
 from .ownership import CallableValueSemantics, OwnershipAnalyzer
 from .program import AnalysisSession, AnalyzedProgram, DeclarationIndex
+from .reachability import StdlibReachability
 from .realtime import RealtimeAnalyzer
 from .statements import StatementAnalyzer
 from .storage import StorageModel
@@ -127,11 +128,12 @@ class SemanticAnalyzer:
         self.signature_types = signature_types
         self.hierarchy = hierarchy
 
-    def analyze(self, program: Program) -> AnalyzedProgram:
+    def analyze(self, program: Program, *, prune_stdlib: bool = False) -> AnalyzedProgram:
         """Register declarations, analyze bodies, and freeze the result."""
         state = self.session
         state.begin(program)
         self.ownership.begin()
+        self.statements.begin()
         self.declarations.register(program)
         self.generated_symbols.configure_unmodeled_includes(program)
         self.types.normalize_declarations(program)
@@ -144,12 +146,19 @@ class SemanticAnalyzer:
         for declaration in state.declarations(program):
             if isinstance(declaration, RichEnumDecl):
                 self.statements.analyze_rich_enum_defaults(declaration)
+        if prune_stdlib:
+            state.unreached_stdlib_bodies = self._unreached_stdlib_bodies(program)
         for declaration in state.declarations(program):
             self.statements.analyze_declaration(declaration)
-        # Borrow-only proofs read callee bodies, so they wait for every body.
-        self.ownership.settle_raw_borrow_obligations()
+        # Borrow-only proofs need the type facts of every selected callee body.
+        if not prune_stdlib:
+            self.ownership.settle_raw_borrow_obligations()
         self.generics.collect_native_callback_instances(program)
-        self.generics.close_generic_instance_graph()
+        if prune_stdlib:
+            self._close_reached_bodies(program)
+            self.ownership.settle_raw_borrow_obligations()
+        else:
+            self.generics.close_generic_instance_graph()
         self.ownership.validate_native_invocations(program)
         realtime_safe_callables = self.realtime.analyze(program)
         self.ownership.validate_generic_type_facts()
@@ -157,6 +166,7 @@ class SemanticAnalyzer:
         self.ownership.settle_raw_borrow_obligations()
         return AnalyzedProgram(
             program=program,
+            unreached_stdlib_bodies=state.unreached_stdlib_bodies,
             generic_instances=state.generic_instances,
             class_table=self.index.class_table,
             generic_class_callable_instances=state.generic_class_callable_instances,
@@ -210,13 +220,47 @@ class SemanticAnalyzer:
             rich_enum_unsafe_default_ids=set(state.rich_enum_unsafe_default_ids),
             array_iteration_capacity_ids=set(state.array_iteration_capacity_ids),
             constant_array_bound_ids=set(state.constant_array_bound_ids),
+            jump_body_ids=set(state.jump_body_ids),
+            array_bound_values=dict(state.array_bound_values),
             initializer_slot_plans=dict(state.initializer_slot_plans),
+            designator_index_values=dict(state.designator_index_values),
             source_macros=self.index.source_macros,
             errors=state.errors,
             warnings=state.warnings,
             diags=state.diagnostics,
             occurrences=state.occurrences,
         )
+
+    def _unreached_stdlib_bodies(self, program: Program) -> frozenset[int]:
+        state = self.session
+        owners = set(state.generic_instances) | state.callable_owner_demands
+        arguments = [
+            argument for instances in state.generic_instances.values() for args in instances for argument in args
+        ]
+        for (owner, method), instances in state.generic_method_instances.items():
+            owners.update((owner, method))
+            arguments.extend(
+                argument for class_args, method_args in instances for argument in (*class_args, *method_args)
+            )
+        return StdlibReachability(
+            program.declarations, instantiated_owners=owners, instantiated_types=arguments
+        ).plan.unreached_bodies(program.declarations)
+
+    def _close_reached_bodies(self, program: Program) -> None:
+        """Alternate body checking and specialization until neither discovers another body."""
+        state = self.session
+        while not state.errors:
+            selected = state.unreached_stdlib_bodies & self._unreached_stdlib_bodies(program)
+            if selected != state.unreached_stdlib_bodies:
+                state.unreached_stdlib_bodies = selected
+                self.statements.analyze_pending_bodies(program)
+                continue
+            self.generics.close_generic_instance_graph()
+            selected = state.unreached_stdlib_bodies & self._unreached_stdlib_bodies(program)
+            if selected == state.unreached_stdlib_bodies:
+                return
+            state.unreached_stdlib_bodies = selected
+            self.statements.analyze_pending_bodies(program)
 
 
 __all__ = ["SemanticAnalyzer"]

@@ -29,8 +29,9 @@ class GUIProviderRoot:
     @classmethod
     def create(cls, root: Path) -> Path:
         root.mkdir(parents=True, exist_ok=True)
-        (root / "language").symlink_to(REPO / "src/language", target_is_directory=True)
+        shutil.copytree(REPO / "src/language", root / "language")
         shutil.copytree(REPO / "src/stdlib", root / "stdlib")
+        shutil.copytree(REPO / "src/runtime", root / "runtime")
         manifest = root / "stdlib/GUI/btrc.toml"
         text = manifest.read_text(encoding="utf-8")
         exported = set(tomllib.loads(text)["package"]["exports"])

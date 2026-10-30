@@ -140,7 +140,10 @@ golden files' SHA-256, ``PASS`` in stdout, universal-newline comparison); or
 ``failed``, ``restricted`` or ``missing`` with ``phase``, ``reason`` and
 ``cites``. ``--execute-bundle`` admits a bundle only when its revision is this
 checkout's and every pin, recomputed from this checkout's goldens, is equal;
-executors then receive only requests built from those pins.
+executors then receive only requests built from those pins. A Windows program
+may also record `companion`, with exactly `artifact` and `sha256`; its file is
+`<artifact>.btrc-supervisor.exe`. The Windows executor stages, verifies and holds
+both images before accepting the program. Other targets reject this field.
 """
 
 from __future__ import annotations
@@ -557,6 +560,8 @@ class LocalExecutor:
         programs: dict[str, Path] = {}
         try:
             for program_id, entry in bundle.built():
+                if bundle.companion(program_id) is not None:
+                    raise ValueError("Windows companion bundles require the windows-native executor")
                 source = bundle.artifact_path(program_id)
                 staged = staging / source.name
                 shutil.copyfile(source, staged)
@@ -1110,6 +1115,7 @@ class BuildResult:
     artifact: str | None = None
     sha256: str | None = None
     duration_s: float = 0.0
+    companion: dict[str, str] | None = None
 
     def entry(
         self, request: ExecutionRequest | None, expected: Mapping[str, Any] | None, requires: Sequence[str]
@@ -1125,6 +1131,8 @@ class BuildResult:
                 request=request.pins() if request else None,
                 expected=dict(expected or {}),
             )
+            if self.companion is not None:
+                entry["companion"] = dict(self.companion)
         else:
             entry.update(phase=self.phase, reason=self.reason, cites=self.cites)
         return entry
@@ -1141,6 +1149,7 @@ class BuildResult:
             cites=entry.get("cites"),
             artifact=entry.get("artifact"),
             sha256=entry.get("sha256"),
+            companion=entry.get("companion"),
         )
 
 
@@ -1208,7 +1217,7 @@ class ProgramBuilder:
         artifact = self.configuration.bundle / f"{program_id}{TargetRows.suffix(self.row)}"
         if native is not None:
             try:
-                native.build(
+                report = native.build(
                     artifact,
                     cc=self.toolchain.drivers["cc"],
                     compile_flags=[*self.configuration.cflags, *compile_flags],
@@ -1225,6 +1234,9 @@ class ProgramBuilder:
                 "built",
                 artifact=artifact.name,
                 sha256=TargetBundle.digest(artifact),
+                companion={"artifact": Path(report.auxiliary["path"]).name, "sha256": report.auxiliary["sha256"]}
+                if report.auxiliary is not None
+                else None,
             )
         self.run_tool(
             self.toolchain.compile_command(
@@ -1292,7 +1304,7 @@ class ProgramBuilder:
             raise BuildFailure("transpile", "no self-hosted compiler: pass --btrcc or set BTRC_TEST_BTRCC")
         directory = self.configuration.work / "selfhost" / program.program_id("selfhost")
         directory.mkdir(parents=True, exist_ok=True)
-        artifact = NativeCorpusBuild(directory / "program.c", directory / "program.json")
+        artifact = NativeCorpusBuild(directory / "program.c", directory / "program.json", (str(btrcc),))
         try:
             completed = subprocess.run(
                 [
@@ -1385,6 +1397,11 @@ class TargetBundle:
             raise ValueError(f"{program_id}: {name} is not a regular file in the bundle")
         return path
 
+    def companion(self, program_id: str):
+        from tools.target_hosts.windows.bundle import CompanionArtifact
+
+        return CompanionArtifact.read(self.directory, program_id, self.programs[program_id], self.label)
+
     @classmethod
     def load(cls, directory: Path) -> TargetBundle:
         directory = directory.resolve(strict=True)
@@ -1406,6 +1423,7 @@ class TargetBundle:
                 raise ValueError(f"invalid bundle program {program_id!r}")
             if entry["status"] == "built":
                 bundle.artifact_path(program_id)
+                bundle.companion(program_id)
                 if not SHA256.fullmatch(entry.get("sha256") or ""):
                     raise ValueError(f"{program_id}: no SHA-256")
         return bundle
@@ -1725,6 +1743,9 @@ class TargetCorpusRunner:
                         raise ExecutorProtocolError(f"{program_id}: the bundle pins different requirements")
                     if TargetBundle.digest(bundle.artifact_path(program_id)) != entry["sha256"]:
                         raise ExecutorProtocolError(f"{program_id}: the artifact does not match its digest")
+                    companion = bundle.companion(program_id)
+                    if companion is not None and TargetBundle.digest(companion.path) != companion.sha256:
+                        raise ExecutorProtocolError(f"{program_id}: the companion does not match its digest")
                 results.append(BuildResult.from_entry(program_id, entry))
         return results
 

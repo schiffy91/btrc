@@ -87,7 +87,9 @@ from .types import CodegenError, CTypeLowerer
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalyzedProgram
 
+    from .collections import CollectionLowerer
     from .concurrency import ConcurrencyLowerer
+    from .control_flow import ControlFlowLowerer
     from .exceptions import ExceptionLowerer
     from .expressions import ExpressionLowerer
     from .generics import SpecializedDeclarationView
@@ -114,6 +116,8 @@ class FunctionLowerer:
         gpu: GpuLowerer,
         calls: CallLowerer,
         lifetime: ManagedLifetimeLowerer,
+        control_flow: ControlFlowLowerer,
+        collections: CollectionLowerer,
     ) -> None:
         self._session = session
         self._analyzed = analyzed
@@ -128,6 +132,8 @@ class FunctionLowerer:
         self._gpu = gpu
         self._calls = calls
         self._lifetime = lifetime
+        self._control_flow = control_flow
+        self._collections = collections
         self._emitted_gpu_functions: set[str] = set()
         self._last_lambda_id = 0
         self._normalizing_void_main = False
@@ -273,7 +279,11 @@ class FunctionLowerer:
                 if contract.copied_input and index == contract.copied_input.owner_index:
                     continue
                 arguments[index] = (
-                    IRTernary(arguments[index], IRFieldAccess(arguments[index], "value", arrow=True), IRLiteral("NULL"))
+                    IRTernary(
+                        IRBinOp(arguments[index], "==", IRLiteral("NULL")),
+                        IRLiteral("NULL"),
+                        IRFieldAccess(arguments[index], "value", arrow=True),
+                    )
                     if self._unique_resource(resource)
                     else IRCast(target_type=CType(text=self._native_spellings[resource]), expr=arguments[index])
                 )
@@ -1550,7 +1560,9 @@ class FunctionLowerer:
             statements.append(IRExprStmt(IRCall(prefix + "_begin_" + operation, [value])))
             registration.args[2] = IRFunctionRef(prefix + "_end_" + operation)
             statements.append(IRExprStmt(registration))
-            released = name + "_released"
+            released = f"__btrc_native_released_{index}"
+            while any(parameter.name == released for parameter in parameters):
+                released += "_"
             releases[:0] = [
                 IRVarDecl(slot.c_type, released, init=value),
                 IRAssign(value, IRLiteral("NULL")),
@@ -2730,7 +2742,7 @@ class FunctionLowerer:
             self._session.module.struct_forwards.append(forward)
         pointer_type = f"struct {native_prefix}*"
         pointer = CType(pointer_type)
-        owner = IRVar("owner")
+        owner = IRVar("self")
         value = IRFieldAccess(owner, "value", arrow=True)
         borrows = IRFieldAccess(owner, "borrows", arrow=True)
         closing = IRFieldAccess(owner, "closing", arrow=True)
@@ -2738,7 +2750,7 @@ class FunctionLowerer:
         closing_thread = IRFieldAccess(owner, "closingThread", arrow=True)
         mutex = IRAddressOf(IRFieldAccess(owner, "lock", arrow=True))
         completed = IRAddressOf(IRFieldAccess(owner, "completed", arrow=True))
-        parameters = [IRParam(pointer, "owner")]
+        parameters = [IRParam(pointer, "self")]
         self._session.module.struct_defs.append(
             IRStructDef(
                 native_prefix,
@@ -2860,7 +2872,7 @@ class FunctionLowerer:
             "void",
             [IRParam(CType("void*"), "raw")],
             [
-                IRVarDecl(pointer, "owner", init=IRCast(pointer, IRVar("raw"))),
+                IRVarDecl(pointer, "self", init=IRCast(pointer, IRVar("raw"))),
                 destroy_check if resource.cleanup_status == "abort" else IRExprStmt(destroy_close),
                 *(
                     [
@@ -2883,7 +2895,7 @@ class FunctionLowerer:
             [
                 IRVarDecl(
                     pointer,
-                    "owner",
+                    "self",
                     init=IRCast(
                         pointer,
                         IRCall(
@@ -2893,7 +2905,7 @@ class FunctionLowerer:
                 ),
                 self._native_unique_checked("pthread_mutex_init", [mutex, IRLiteral("NULL")]),
                 self._native_unique_checked("pthread_cond_init", [completed, IRLiteral("NULL")]),
-                *self._ownership.arc_header_initialization(prefix, "owner"),
+                *self._ownership.arc_header_initialization(prefix, "self"),
                 IRReturn(owner),
             ],
         )
@@ -2957,7 +2969,7 @@ class FunctionLowerer:
             [IRParam(CType("void*"), "raw")],
             [
                 IRIf(IRBinOp(IRVar("raw"), "==", IRLiteral("NULL")), IRBlock([IRReturn()])),
-                IRVarDecl(pointer, "owner", init=IRCast(pointer, IRVar("raw"))),
+                IRVarDecl(pointer, "self", init=IRCast(pointer, IRVar("raw"))),
                 lock,
                 IRAssign(borrows, IRBinOp(borrows, "-", IRLiteral("1"))),
                 unlock,
@@ -2995,7 +3007,7 @@ class FunctionLowerer:
                 [IRParam(CType("void*"), "raw")],
                 [
                     IRIf(IRBinOp(IRVar("raw"), "==", IRLiteral("NULL")), IRBlock([IRReturn()])),
-                    IRVarDecl(pointer, "owner", init=IRCast(pointer, IRVar("raw"))),
+                    IRVarDecl(pointer, "self", init=IRCast(pointer, IRVar("raw"))),
                     lock,
                     IRAssign(closing, IRLiteral("false")),
                     self._native_unique_checked("pthread_cond_broadcast", [completed]),
@@ -7209,7 +7221,9 @@ class FunctionLowerer:
             )
         for unit in (module, native):
             unit.function_pointer_typedefs.extend(definitions)
-        native.preprocessor_decls.append(IRInclude("pthread.h"))
+        include = IRInclude("pthread.h")
+        if include not in native.preprocessor_decls:
+            native.preprocessor_decls.append(include)
         holder_name = prefix + "Holder"
         holder_c = CType(holder_name + "*")
         native_context = IRVar("_context")
@@ -8288,7 +8302,7 @@ class FunctionLowerer:
         if method.body is None:
             return
         declaration = self.specialization_declaration(view)
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         previous_class = self._session.current_class
         previous_class_name = self._session.current_class_name
         self._session.current_class = self._analyzed.class_table.get(view.owner_name)
@@ -8296,8 +8310,22 @@ class FunctionLowerer:
         return_type = self._types.resolve_active_type(method.return_type)
         return_c_type = self._types.render(return_type) if return_type is not None else "void"
         self._session.function_declarations = []
+        collection_instance_method = method.access != "class" and self._collections.owns_persistent_element_edges(
+            view.owner_name
+        )
+        collection_type = (
+            TypeExpr(
+                base=view.owner_name,
+                generic_args=list(view.type_arguments[: len(self._session.current_class.generic_params)]),
+            )
+            if collection_instance_method
+            else None
+        )
         try:
-            with self.isolated_function_context(return_c_type, return_type):
+            with (
+                self.isolated_function_context(return_c_type, return_type),
+                self._session.persistent_edge_scope("self" if collection_instance_method else None),
+            ):
                 body = self._statements.lower_block(
                     method.body,
                     provenance,
@@ -8307,18 +8335,19 @@ class FunctionLowerer:
                     ],
                     callable_bindings=method.params,
                 )
+                function = IRFunctionDef(
+                    name=declaration.name,
+                    return_type=declaration.return_type,
+                    params=list(declaration.params),
+                    body=body,
+                    is_static=True,
+                )
+                if collection_type is not None:
+                    self._collections.protect_topology_mutation(function, collection_type)
         finally:
             self._session.current_class = previous_class
             self._session.current_class_name = previous_class_name
-        self._session.module.function_defs.append(
-            IRFunctionDef(
-                name=declaration.name,
-                return_type=declaration.return_type,
-                params=list(declaration.params),
-                body=body,
-                is_static=True,
-            )
-        )
+        self._session.module.function_defs.append(function)
 
     def declare_specialization(self, view: SpecializedDeclarationView[MethodDecl]) -> None:
         declaration = self.specialization_declaration(view)
@@ -8354,7 +8383,9 @@ class FunctionLowerer:
             target = plan.target
             parameters = list(plan.parameters)
             parameter = parameters[plan.parameter_index]
-            provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+            provenance = CallableProvenance(
+                self._analyzed, self._session, self._types, self._signatures, self._expressions
+            )
             previous_class = self._session.current_class
             previous_class_name = self._session.current_class_name
             self._session.current_class = self._analyzed.class_table.get(target.owner_name)
@@ -8416,7 +8447,9 @@ class FunctionLowerer:
             )
         while self._session.pending_thread_spawns:
             plan = self._session.pending_thread_spawns.pop(0)
-            provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+            provenance = CallableProvenance(
+                self._analyzed, self._session, self._types, self._signatures, self._expressions
+            )
             body_plan = self._concurrency.plan_spawn_wrapper_body(
                 plan,
                 provenance,
@@ -8444,7 +8477,7 @@ class FunctionLowerer:
 
     def emit_function_decl(self, decl: FunctionDecl):
         """Lower a top-level FunctionDecl to an IRFunctionDef or forward decl."""
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         if decl.is_gpu:
             if decl.name in self._emitted_gpu_functions:
                 return
@@ -8519,7 +8552,10 @@ class FunctionLowerer:
         self._last_lambda_id = 0
         self._normalizing_void_main = False
         try:
-            with self._ownership.isolated_function_state(return_c_type, return_type):
+            with (
+                self._ownership.isolated_function_state(return_c_type, return_type),
+                self._control_flow.isolated_jump_frames(),
+            ):
                 yield
         finally:
             self._last_lambda_id = previous_lambda_id
@@ -8536,7 +8572,7 @@ class FunctionLowerer:
 
         Returns a structured function-name reference for function-pointer use.
         """
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         if function_name is None:
             lambda_id = self._session.fresh_lambda_id()
             fn_name = f"__btrc_lambda_{lambda_id}"
@@ -8614,6 +8650,8 @@ class FunctionLowerer:
                         provenance.shadow(name)
                     for parameter in node.params:
                         provenance.bind_borrowed(parameter.name, parameter.type)
+                        if parameter.type is not None and parameter.type.is_register:
+                            self._ownership.mark_register_local(parameter.name)
                     for capture, return_abi in capture_abis:
                         provenance.bind_with_abi(capture.name, capture.type, return_abi)
                     body_stmts.extend(

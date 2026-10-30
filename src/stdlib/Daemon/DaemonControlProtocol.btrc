@@ -5,10 +5,6 @@ import Library.Timer;
 import Library.Daemon.DaemonControl;
 import Library.Daemon.DaemonControlFiles;
 
-#include <errno.h>
-#include <fcntl.h>
-#include <unistd.h>
-
 class DaemonControlProtocol {
 	class bool pauseBeforeRetry(long long deadline) {
 		if (deadline >= 0LL && !MonotonicClock.before(deadline)) {
@@ -19,22 +15,8 @@ class DaemonControlProtocol {
 	}
 
 	class string randomToken() {
-		int descriptor = open("/dev/urandom", (int)O_RDONLY | (int)O_CLOEXEC);
-		if (descriptor < 0) { return ""; }
 		unsigned char bytes[16];
-		int offset = 0;
-		while (offset < 16) {
-			ssize_t count = read(descriptor, bytes + offset, (size_t)(16 - offset));
-			if (count > (ssize_t)0) {
-				offset = offset + (int)count;
-			} else if (count < (ssize_t)0 && errno == EINTR) {
-				continue;
-			} else {
-				break;
-			}
-		}
-		close(descriptor);
-		if (offset != 16) { return ""; }
+		if (!DaemonRandomProvider.fill(bytes)) { return ""; }
 		const char* digits = "0123456789abcdef";
 		char* token = (char*)__btrc_safe_realloc(NULL, (size_t)33);
 		for (int i = 0; i < 16; i++) {

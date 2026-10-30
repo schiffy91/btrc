@@ -31,7 +31,9 @@ import pytest
 
 from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.results import CompilerOptions
+from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
+from src.tests.python.btrcc_binary_fixtures import bundle_fixture
 
 REPO = Path(__file__).resolve().parents[3]
 CASES = REPO / "src/tests/native/filesystem_windows/WindowsFileSystemCases.btrc"
@@ -132,6 +134,64 @@ def zig() -> str:
     return found
 
 
+@pytest.mark.parametrize("architecture", TARGETS.values())
+def test_relocated_bundle_shares_windows_object_security(architecture, zig, tmp_path):
+    source_root, binary = bundle_fixture(tmp_path / "source")
+    for relative in (
+        PROVIDER_C,
+        "src/stdlib/Windows/Win32FileIdentity.c",
+        "src/runtime/c/windows_security.h",
+        "src/runtime/c/windows_file_identity.h",
+        "src/runtime/c/windows_filesystem.h",
+    ):
+        destination = source_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO / relative, destination)
+    result = SelfhostBundleBuilder().build(
+        binary=binary, target="linux-x64", output_dir=tmp_path / "dist", source_root=source_root
+    )
+    relocated = tmp_path / "relocated"
+    result.bundle.rename(relocated)
+    shutil.rmtree(source_root)
+    probe = tmp_path / "security.c"
+    probe.write_text(
+        '#include "runtime/c/windows_security.h"\n'
+        '#include "stdlib/FileSystem/Windows/Win32FileSystem.c"\n'
+        "int main(void) {\n"
+        "    void *descriptor = NULL;\n"
+        "    int status = btrcWinPrivateDescriptor(0, &descriptor);\n"
+        "    free(descriptor);\n"
+        "    if (status != 0) return status;\n"
+        "    return btrcWinCheckPrivate(GetCurrentProcess(), 1);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    built = subprocess.run(
+        [
+            zig,
+            "cc",
+            "-target",
+            f"{architecture}-windows-gnu",
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            "-I",
+            str(relocated / "share/btrc"),
+            str(probe),
+            "-ladvapi32",
+            "-o",
+            str(tmp_path / "security.exe"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=C_COMPILE_TIMEOUT,
+    )
+    assert built.returncode == 0, built.stderr
+
+
 @pytest.mark.parametrize("target", sorted(TARGETS))
 def test_both_frontends_build_the_windows_cases(target, zig, request, tmp_path):
     reference = transpile_reference(CASES, target)
@@ -230,7 +290,7 @@ def test_the_nt_values_the_provider_names_are_the_sdk_declarations(target, zig, 
     NtSetInformationFile, must have FILE_RENAME_INFORMATION's layout, on each
     architecture."""
 
-    provider = (REPO / PROVIDER_C).read_text(encoding="utf-8")
+    provider = (REPO / "src/runtime/c/windows_filesystem.h").read_text(encoding="utf-8")
     offsets = dict(re.findall(r"^#define (BTRC_WIN_REPARSE_\w+) (\d+)$", provider, re.MULTILINE))
     fields = {
         "BTRC_WIN_REPARSE_NAME_FIELDS": "SymbolicLinkReparseBuffer.SubstituteNameOffset",

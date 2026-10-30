@@ -46,14 +46,14 @@ class SemanticValidator {
 		SourceMacroNamespace sourceMacros = SourceMacroNamespace(program, hostedAbi, macroRules);
 		analyzed.sourceMacros = sourceMacros;
 
-		self.types = TypeValidator(self.state, operators, gpu, semanticTypes, declarationRegistry, expressionTypes);
+		self.types = TypeValidator(self.state, operators, gpu, semanticTypes, declarationRegistry, expressionTypes, hostedAbi);
 		self.constants = ConstantValidator(self.state, self.types, sourceMacros);
 		self.storage = StorageValidator(self.state, operators, self.types, self.constants);
 		self.ownership = OwnershipValidator(self.state, hostedAbi, operators, self.types, self.storage);
 		self.borrows = BorrowValidator(self.state, hostedAbi, self.types, self.storage, self.ownership);
 		self.calls = CallValidator(self.state, hostedAbi, operators, gpu, sourceMacros, sourceRuntimeSymbols, self.types, self.storage, self.ownership, self.borrows);
 		self.names = NameValidator(self.state, hostedAbi, cycles, sourceRuntimeSymbols, self.types, self.storage, self.calls);
-		self.expressions = ExpressionValidator(self.state, operators, sourceMacros, sourceRuntimeSymbols, expressionTypes, self.types, self.names, self.storage, self.ownership, self.borrows, self.calls);
+		self.expressions = ExpressionValidator(self.state, operators, sourceMacros, sourceRuntimeSymbols, expressionTypes, self.types, self.constants, self.names, self.storage, self.ownership, self.borrows, self.calls);
 		self.controlFlow = ControlFlowValidator(self.state, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.borrows, self.expressions, NullableFlow(self.state, self.types, hostedAbi));
 		self.declarations = DeclarationValidator(self.state, hostedAbi, operators, self.types, self.constants, self.names, self.storage, self.ownership, self.expressions, self.controlFlow, GpuKernelValidator(analyzed, gpu));
 	}
@@ -160,6 +160,16 @@ class SemanticValidator {
 		BtrccPhaseTimer.mark("v-bodies");
 	}
 
+	public void validateExpanded(Node program) {
+		self.borrows.validateNativeInvocations(program);
+		for declaration in program.declarations() {
+			self.controlFlow.flow.enterBody();
+			int literals = self.expressions.inferredLiteralMark();
+			self.validateBodies(declaration);
+			self.expressions.checkInferredLiterals(literals);
+		}
+	}
+
 	public void useRecords(IValidationRecords? records) {
 		self.records = records;
 		self.state.records = records;
@@ -218,8 +228,15 @@ class SemanticValidator {
 			}
 			if (fact.kind == VALIDATION_HOSTED_CALL) {
 				self.state.analyzed.recordHostedCall(node);
+			} else if (fact.kind == VALIDATION_JUMP_BODY) {
+				if (node.kind != NK_BLOCK) { return false; }
+				self.state.analyzed.recordJumpBody(node);
 			} else if (fact.kind == VALIDATION_CONSTANT_BOUND) {
 				self.state.analyzed.recordConstantArrayBound(node);
+			} else if (fact.kind == VALIDATION_ARRAY_BOUND_VALUE) {
+				self.state.analyzed.recordArrayBoundValue(node, fact.integerValue);
+			} else if (fact.kind == VALIDATION_DESIGNATOR_INDEX) {
+				self.state.analyzed.recordDesignatorIndex(node, fact.integerValue);
 			} else if (fact.kind == VALIDATION_ITERATION_CAPACITY) {
 				self.state.analyzed.recordArrayIterationCapacity(node);
 			} else if (fact.kind == VALIDATION_GENERIC_CONSTRUCTOR) {

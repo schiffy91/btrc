@@ -30,7 +30,7 @@ class OwnershipBoundary {
 	public bool resultOwned;
 	private Vector<string> overrideKeys;
 	private Vector<int> overrideHadValues;
-	private Vector<IRNode> overridePreviousValues;
+	private Vector<ExpressionOverride> overridePreviousValues;
 	private LoweringContext context;
 	private ManagedValueSemantics managedValues;
 	private ManagedLifetimeLowerer lifetime;
@@ -57,17 +57,17 @@ class OwnershipBoundary {
 		self.cTypes = cTypes;
 	}
 
-	public void rememberOverride(Node expression, IRNode value) {
+	public void rememberOverride(Node expression, IRNode value, Node? effectiveType = null) {
 		string key = AstIdentity.key(expression);
 		self.overrideKeys.push(key);
 		if (self.context.hasExpressionOverrideKey(key)) {
 			self.overrideHadValues.push(1);
-			self.overridePreviousValues.push(self.context.expressionOverrideForKey(key));
+			self.overridePreviousValues.push(self.context.expressionOverrideStateForKey(key));
 		} else {
 			self.overrideHadValues.push(0);
-			self.overridePreviousValues.push(IRNode.literal("0"));
+			self.overridePreviousValues.push(ExpressionOverride(IRNode.literal("0")));
 		}
-		self.context.setExpressionOverrideKey(key, value);
+		self.context.setExpressionOverrideKey(key, value, effectiveType);
 	}
 
 	public void registerCleanup(IRNode declaration, string name, string runtimeType) {
@@ -83,7 +83,7 @@ class OwnershipBoundary {
 
 	public void addLoweredCallOperand(Node expression, Node resolvedType, IRNode lowered, bool owned, bool keepValue, bool transferred) {
 		IRNode value = self.stageValue(resolvedType, self.operandPlanner.operandCType(expression, resolvedType), lowered, owned, keepValue, transferred);
-		self.rememberOverride(expression, value);
+		self.rememberOverride(expression, value, resolvedType);
 	}
 
 	public IRNode stageValue(Node resolvedType, string storageCType, IRNode lowered, bool owned, bool keepValue, bool transferred) {
@@ -101,17 +101,6 @@ class OwnershipBoundary {
 
 		if (owned && runtimeType != "") {
 			self.lifetime.protectTemporary(declaration, runtimeType, "__btrc_call_operand_cleanup", self.declarations, self.prefix);
-			if (!transferred) {
-				self.appendReleaseAndClear(value, resolvedType, runtimeType);
-			} else {
-				string handoffName = self.context.freshTemporary("__btrc_transferred_operand");
-				IRNode handoffDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), handoffName, null);
-				self.declarations.push(handoffDeclaration);
-				self.context.recordLocal(handoffDeclaration);
-				callValue = IRNode.variable(handoffName);
-				self.handoffs.push(IRNode.binary(callValue, "=", value));
-				self.handoffs.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
-			}
 		}
 		if (keepValue && runtimeType != "") {
 			string keptName = self.context.freshTemporary("__btrc_kept_operand");
@@ -122,29 +111,32 @@ class OwnershipBoundary {
 			self.prefix.push(self.lifetime.retainValue(value, resolvedType));
 			self.prefix.push(IRNode.binary(kept, "=", value));
 			self.lifetime.protectTemporary(keptDeclaration, runtimeType, "__btrc_kept_operand_cleanup", self.declarations, self.prefix);
-			self.appendReleaseAndClear(kept, resolvedType, runtimeType);
+			self.appendReleaseAndClear(kept, resolvedType);
+		}
+		if (owned && runtimeType != "") {
+			if (!transferred) {
+				self.appendReleaseAndClear(value, resolvedType);
+			} else {
+				string handoffName = self.context.freshTemporary("__btrc_transferred_operand");
+				IRNode handoffDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), handoffName, null);
+				self.declarations.push(handoffDeclaration);
+				self.context.recordLocal(handoffDeclaration);
+				callValue = IRNode.variable(handoffName);
+				self.handoffs.push(IRNode.binary(callValue, "=", value));
+				self.handoffs.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
+			}
 		}
 		return callValue;
 	}
 
-	public void appendReleaseAndClear(IRNode value, Node resolvedType, string runtimeType) {
-		string savedName = self.context.freshTemporary("__btrc_released_operand");
-		IRNode savedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(resolvedType), savedName, null);
-		self.declarations.push(savedDeclaration);
-		self.context.recordLocal(savedDeclaration);
-		IRNode saved = IRNode.variable(savedName);
-		self.suffix.push(IRNode.binary(saved, "=", value));
-		self.suffix.push(IRNode.binary(value, "=", IRNode.literal("NULL")));
-		self.suffix.push(self.lifetime.releaseAfterHandoff(saved, runtimeType));
-		if (self.lifetime.releaseMayEnqueue(runtimeType)) { self.suffix.push(self.lifetime.pollCycles()); }
-	}
+	public void appendReleaseAndClear(IRNode value, Node resolvedType) { self.suffix.extend(self.lifetime.releaseAndClear(value, resolvedType, self.cTypes.lower(resolvedType), self.declarations)); }
 
 	public void restore() {
 		int index = self.overrideKeys.len - 1;
 		while (index >= 0) {
 			string key = self.overrideKeys.get(index);
 			if (self.overrideHadValues.get(index) != 0) {
-				self.context.setExpressionOverrideKey(key, self.overridePreviousValues.get(index));
+				self.context.restoreExpressionOverrideKey(key, self.overridePreviousValues.get(index));
 			} else {
 				self.context.removeExpressionOverrideKey(key);
 			}
@@ -400,13 +392,15 @@ class CallOwnershipLowerer {
 				}
 				laterIndex = laterIndex + 1;
 			}
-			if (laterEffect && !operand.owned && self.semantics.isManaged(operand.typeExpr, environment)) {
+			if (laterEffect && self.canPinBorrowedOperand(operand, environment)) {
 				operand.keepValue = true;
 			}
 			pinIndex = pinIndex + 1;
 		}
 		return result;
 	}
+
+	public bool canPinBorrowedOperand(OwnershipCallOperand operand, OwnershipOperandEnvironment environment) { return !operand.owned && operand.expression.kind != NK_SELF_EXPR && operand.expression.kind != NK_SUPER_EXPR && self.semantics.isManaged(operand.typeExpr, environment); }
 
 	public bool operandsHaveConcreteTypes(Vector<OwnershipCallOperand> operands) {
 		int index = 0;

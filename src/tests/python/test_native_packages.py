@@ -81,6 +81,21 @@ def test_stdlib_manifest_rejects_foreign_package_identity(tmp_path):
         plan.with_stdlib(str(library), [str(library / "Audio/MacOS/MacOSAudioDevice.btrc")])
 
 
+def test_stdlib_manifest_composes_siblings_of_an_existing_stdlib_package(tmp_path):
+    library = REPO / "src/stdlib"
+    audio = str(library / "Audio/MacOS/MacOSAudioDevice.btrc")
+    image = str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc")
+    plan = NativeLinkPlan.empty(PackageTarget.parse("macos-aarch64"))
+    existing = plan.with_stdlib(str(library), [audio])
+    merged = existing.with_stdlib(str(library), [audio, image])
+    assert merged == plan.with_stdlib(str(library), [audio, image])
+    assert len(merged.bindings) == 2
+    foreign = PackageNode("btrc_stdlib_runtime", str(tmp_path), {}, {"path": str(tmp_path)}, "")
+    spoofed = NativeLinkPlan(existing.target, (*existing.packages, foreign), existing.declarations)
+    with pytest.raises(IncludeResolutionError, match="reserved for compiler-owned"):
+        spoofed.with_stdlib(str(library), [audio, image])
+
+
 def _manifest(path: Path, name: str, dependencies: str = "", native: str = "") -> None:
     path.mkdir(parents=True, exist_ok=True)
     (path / "btrc.toml").write_text(

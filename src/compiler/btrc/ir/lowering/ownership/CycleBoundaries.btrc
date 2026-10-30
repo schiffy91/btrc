@@ -167,8 +167,10 @@ class CycleReturnBoundaryLowerer {
 		}
 	}
 
-	public bool installReleaseBearingBoundary(IRFunction definition) {
-		if (definition.body == null || !self.containsCyclableRelease(definition.body)) {
+	/* Only explicit releases of cyclable values defer their forced flush to
+	 * this boundary. Ordinary ownership polls retain their existing policy. */
+	public bool installBatchedReleaseBoundary(IRFunction definition, bool hasBatchedRelease) {
+		if (definition.body == null || !hasBatchedRelease) {
 			return false;
 		}
 		self.forceBoundary(definition);
@@ -228,7 +230,8 @@ class CycleBoundaryLowerer {
 		Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, self.analyzed.typedefTable);
 		if (canonical == null) { return; }
 		Node resolved = canonical;
-		string access = self.cleanupSlots.ensureArcSlotAdapter(self.cTypes.lower(resolved));
+		/* The adapter accesses the field's declared storage; the descriptor uses its canonical type. */
+		string access = self.cleanupSlots.ensureArcSlotAdapter(self.cTypes.lower(typeExpr));
 		Vector<IRNode> arguments = [];
 		arguments.push(IRNode.cast("volatile void*", IRNode.addressOf(slot)));
 		arguments.push(IRNode.functionReference(access));

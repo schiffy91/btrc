@@ -11,6 +11,7 @@ from typing import Protocol
 from src.compiler.python.analyzer.types import NumericLiteralSemantics, TypeIdentity
 from src.compiler.python.backend.runtime_state import RuntimeUnitState
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.lowering.session import ModuleLoweringFacts
 from src.compiler.python.ir.lowering.types import CodegenError
 
 from ..abi.freestanding import FreestandingRuntime
@@ -36,7 +37,7 @@ from ..lexer.lexer import Lexer, LexerError
 from ..parser.parser import ParseError, Parser
 from ..runtime.catalog import RuntimeHelperCatalog
 from ..syntax.ast.generated import Program
-from .modules import ModuleUnitCompiler, ModuleUnitStore
+from .modules import ModuleUnitCompiler, ModuleUnitStore, ProgramInterface
 from .results import (
     CompilerActionResult,
     CompilerDiagnostic,
@@ -600,10 +601,17 @@ class CompilationPipeline:
             profile=profile,
         )
 
-    def analyze(self, program: Program, profile: dict[str, float] | None = None, target: PackageTarget | None = None):
+    def analyze(
+        self,
+        program: Program,
+        profile: dict[str, float] | None = None,
+        target: PackageTarget | None = None,
+        *,
+        prune_stdlib: bool = False,
+    ):
         """Analyze for ``target``'s data model, the host's when unset."""
         start = time.perf_counter()
-        analyzed = self._new_analyzer(target).analyze(program)
+        analyzed = self._new_analyzer(target).analyze(program, prune_stdlib=prune_stdlib)
         self._timed(profile, "analyze", start)
         return analyzed
 
@@ -642,6 +650,7 @@ class CompilationPipeline:
         groups=None,
         owned_group=None,
         program_facts=None,
+        unit_facts: ModuleLoweringFacts | None = None,
         declarations_elsewhere=False,
         native_defines=(),
     ) -> IRLowerer:
@@ -662,6 +671,7 @@ class CompilationPipeline:
             groups=groups,
             owned_group=owned_group,
             program_facts=program_facts,
+            unit_facts=unit_facts,
             declarations_elsewhere=declarations_elsewhere,
             native_defines=native_defines,
         )
@@ -722,6 +732,10 @@ class CompilationPipeline:
     ) -> CompilerResult:
         native_plan = source.native_plan
         module = values.get("ir_module")
+        if module is not None and any(item.auxiliary is not None for item in native_plan.declarations):
+            native_plan = replace(
+                native_plan, retained_runtime_helpers=tuple(helper.name for helper in module.helper_decls)
+            )
         if values.get("c_units"):
             native_plan = native_plan.with_emitted_units(
                 options.units_prefix, values.get("c_unit_names") or len(values["c_units"]), values["c_units"]
@@ -793,8 +807,30 @@ class CompilationPipeline:
         if options.output is CompilerOutput.AST:
             return self._result(source, options, profile, tokens=parsed.tokens, program=program)
 
+        interface_digest = None
+        interfaces = ProgramInterface()
         try:
-            analyzed = self.analyze(program, profile, source.native_plan.target)
+            if (
+                options.module_units
+                and options.units_prefix is not None
+                and options.output is CompilerOutput.C
+                and options.stdlib_archive is None
+                and source.strict_imports
+            ):
+                interface_digest = interfaces.capture(
+                    program.declarations,
+                    source,
+                    options,
+                    inline_stdlib_declarations=parsed.inline_stdlib_declarations,
+                    store=module_store,
+                    input_path=input_path,
+                )
+            analyzed = self.analyze(
+                program,
+                profile,
+                source.native_plan.target,
+                prune_stdlib=options.dce and not options.stdlib_strict and options.stdlib_archive is None,
+            )
         except RecursionError as error:
             return self._result(
                 source,
@@ -836,6 +872,8 @@ class CompilationPipeline:
                     split_source_spaces=split_source_spaces,
                     store=module_store,
                     input_path=input_path,
+                    interface_digest=interface_digest,
+                    interfaces=interfaces,
                     profile=profile,
                     timed=self._timed,
                 )

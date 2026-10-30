@@ -14,6 +14,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <aclapi.h>
 #include <shellapi.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -21,13 +22,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <winternl.h>
 
 #include "windows_os.h"
+#include "windows_bootstrap.h"
+#include "windows_daemon_transfer.h"
+#include "windows_security.h"
+#include "windows_filesystem.h"
 
 static int checks = 0;
 static int failures = 0;
 static char self_utf8[4096];
 static wchar_t temp_root[1024];
+static int child_bootstrap_admission(void);
+static int daemon_fixture_file(const wchar_t *path, const char *contents, void *descriptor);
 
 static void emit(const char *text, size_t length) {
     HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -47,6 +55,91 @@ static void report(const char *format, ...) {
     if (length < 0) return;
     if ((size_t)length >= sizeof(line)) length = (int)sizeof(line) - 1;
     emit(line, (size_t)length);
+    /* The CI shell captures stdout under errexit/pipefail. A failing process
+     * exits that assignment before echoing its captured output. Preserve every
+     * diagnostic after a failed check on the uncaptured error stream too. */
+    if (failures != 0) {
+        (void)fwrite(line, 1, (size_t)length, stderr);
+        (void)fflush(stderr);
+    }
+}
+
+/* Test-only handle-table diagnostics. ProcessHandleInformation (51) and its
+ * layout follow https://github.com/winsiderss/phnt/blob/master/ntpsapi.h.
+ * Query only this process and object types; object-name queries can block on
+ * pipes. A fixed buffer bounds the diagnostic and never changes a census gate. */
+typedef struct {
+    HANDLE value;
+    SIZE_T handle_count, pointer_count;
+    ACCESS_MASK access;
+    ULONG type, attributes, reserved;
+} census_entry;
+typedef struct {
+    ULONG_PTR count, reserved;
+    census_entry entries[512];
+} census_snapshot;
+
+static int census_take(census_snapshot *snapshot) {
+    typedef NTSTATUS (NTAPI *query_fn)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
+    HMODULE module = GetModuleHandleW(L"ntdll.dll");
+    query_fn query = module == NULL ? NULL
+        : (query_fn)(void (*)(void))GetProcAddress(module, "NtQueryInformationProcess");
+    memset(snapshot, 0, sizeof(*snapshot));
+    if (query == NULL || query(GetCurrentProcess(), (PROCESSINFOCLASS)51,
+            snapshot, sizeof(*snapshot), NULL) != 0 || snapshot->count > 512) {
+        snapshot->count = 0;
+        return -1;
+    }
+    return 0;
+}
+
+static int census_contains(const census_snapshot *snapshot, const census_entry *entry) {
+    for (ULONG_PTR index = 0; index < snapshot->count; index++) {
+        const census_entry *candidate = &snapshot->entries[index];
+        if (candidate->value == entry->value && candidate->type == entry->type
+                && candidate->access == entry->access
+                && candidate->attributes == entry->attributes) return 1;
+    }
+    return 0;
+}
+
+static void census_type(HANDLE handle, char *text, int capacity) {
+    typedef NTSTATUS (NTAPI *query_fn)(HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+    HMODULE module = GetModuleHandleW(L"ntdll.dll");
+    query_fn query = module == NULL ? NULL
+        : (query_fn)(void (*)(void))GetProcAddress(module, "NtQueryObject");
+    union { max_align_t alignment; unsigned char bytes[1024]; } buffer;
+    text[0] = 0;
+    if (query == NULL || query(handle, ObjectTypeInformation, &buffer, sizeof(buffer), NULL) != 0) return;
+    const PUBLIC_OBJECT_TYPE_INFORMATION *type = (const PUBLIC_OBJECT_TYPE_INFORMATION *)buffer.bytes;
+    uintptr_t first = (uintptr_t)buffer.bytes, name = (uintptr_t)type->TypeName.Buffer;
+    if (name < first || name > first + sizeof(buffer) || type->TypeName.Length > first + sizeof(buffer) - name
+            || type->TypeName.Length % sizeof(wchar_t) != 0) return;
+    int length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, type->TypeName.Buffer,
+        type->TypeName.Length / sizeof(wchar_t), text, capacity - 1, NULL, NULL);
+    if (length > 0) text[length] = 0;
+}
+
+static void census_dump(HANDLE output, const char *label, DWORD before, DWORD after,
+        const census_snapshot *initial, const census_snapshot *final, int valid) {
+    char line[512]; DWORD written = 0;
+    int size = snprintf(line, sizeof(line), "%s handles %lu -> %lu; snapshots=%s\n", label,
+        (unsigned long)before, (unsigned long)after, valid ? "complete" : "unavailable");
+    if (size > 0) (void)WriteFile(output, line, (DWORD)size, &written, NULL);
+    if (!valid) return;
+    for (int added = 0; added < 2; added++) {
+        const census_snapshot *source = added ? final : initial, *other = added ? initial : final;
+        for (ULONG_PTR index = 0; index < source->count; index++) {
+            const census_entry *entry = &source->entries[index];
+            if (census_contains(other, entry)) continue;
+            char type[128] = { 0 };
+            if (added) census_type(entry->value, type, sizeof(type));
+            size = snprintf(line, sizeof(line), "%s handle=%llu type=%lu(%s) access=0x%lx attributes=0x%lx\n",
+                added ? "added" : "removed", (unsigned long long)(uintptr_t)entry->value,
+                (unsigned long)entry->type, type, (unsigned long)entry->access, (unsigned long)entry->attributes);
+            if (size > 0 && (size_t)size < sizeof(line)) (void)WriteFile(output, line, (DWORD)size, &written, NULL);
+        }
+    }
 }
 
 #define CHECK(name, condition)                                                  \
@@ -65,6 +158,55 @@ static int to_utf8(const wchar_t *wide, char *buffer, int capacity) {
 
 static int to_wide(const char *text, wchar_t *buffer, int capacity) {
     return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, buffer, capacity) > 0 ? 0 : -1;
+}
+
+/* First CreateProcessW use initializes process-wide registry/ETW handles on
+ * Windows. Establish that baseline using only Win32, never the launch owner
+ * whose cleanup we test. A second spawn must preserve the exact handle table;
+ * no handle type or count allowance is excluded from the later leak checks. */
+static int census_spawn_once(void) {
+    wchar_t self[1024], command[1100];
+    if (to_wide(self_utf8, self, 1024) != 0) return -1;
+    int length = swprintf(command, 1100, L"\"%ls\" --exit 0", self);
+    if (length < 0 || length >= 1100) return -1;
+    STARTUPINFOW startup;
+    PROCESS_INFORMATION process;
+    memset(&startup, 0, sizeof(startup));
+    memset(&process, 0, sizeof(process));
+    startup.cb = sizeof(startup);
+    if (!CreateProcessW(self, command, NULL, NULL, FALSE, CREATE_NO_WINDOW,
+            NULL, NULL, &startup, &process)) return -1;
+    int valid = CloseHandle(process.hThread) != 0;
+    DWORD waited = WaitForSingleObject(process.hProcess, 5000), code = 1;
+    if (waited != WAIT_OBJECT_0) {
+        (void)TerminateProcess(process.hProcess, 99);
+        (void)WaitForSingleObject(process.hProcess, 5000);
+        valid = 0;
+    } else if (!GetExitCodeProcess(process.hProcess, &code) || code != 0) {
+        valid = 0;
+    }
+    if (!CloseHandle(process.hProcess)) valid = 0;
+    return valid ? 0 : -1;
+}
+
+static int census_process_baseline(void) {
+    census_snapshot initial, final;
+    for (int attempt = 0; attempt < 2; attempt++) {
+        DWORD before = 0, after = 0;
+        if (census_take(&initial) != 0 || !GetProcessHandleCount(GetCurrentProcess(), &before)
+                || census_spawn_once() != 0 || census_take(&final) != 0
+                || !GetProcessHandleCount(GetCurrentProcess(), &after)) return -1;
+        int equal = before == after && initial.count == final.count;
+        for (ULONG_PTR index = 0; index < initial.count; index++)
+            if (!census_contains(&final, &initial.entries[index])) equal = 0;
+        if (!equal) {
+            census_dump(GetStdHandle(STD_ERROR_HANDLE),
+                attempt == 0 ? "Win32 process initialization" : "Win32 repeated spawn",
+                before, after, &initial, &final, 1);
+            if (attempt != 0) return -1;
+        }
+    }
+    return 0;
 }
 
 /* ---- Child modes -------------------------------------------------------- */
@@ -156,6 +298,52 @@ static int child_orphan(const char *milliseconds) {
     if (!CreateProcessW(self_wide, command, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process)) return 71;
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
+    return 0;
+}
+
+/* The root exits while its leaf waits for a file-controlled release. This
+ * makes descendant lifetime independent of root scheduling and sleep length. */
+static int child_supervised_tree(const char *marker, int leaf) {
+    wchar_t wide[4096], path[4096];
+    if (to_wide(marker, wide, 4096) != 0) return 60;
+    swprintf(path, 4096, L"%ls.%ls", wide, leaf ? L"started" : L"root");
+    char pid[32];
+    snprintf(pid, sizeof(pid), "%lu", (unsigned long)GetCurrentProcessId());
+    if (write_file(path, pid) != 0) return 61;
+    if (leaf) {
+        swprintf(path, 4096, L"%ls.release", wide);
+        ULONGLONG deadline = GetTickCount64() + 10000;
+        while (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) {
+            if (GetTickCount64() >= deadline) return 62;
+            Sleep(10);
+        }
+        return 0;
+    }
+    wchar_t self[4096], command[8192];
+    if (to_wide(self_utf8, self, 4096) != 0) return 63;
+    swprintf(command, 8192, L"\"%ls\" --supervised-leaf \"%ls\"", self, wide);
+    STARTUPINFOW startup;
+    memset(&startup, 0, sizeof(startup));
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    PROCESS_INFORMATION process;
+    if (!CreateProcessW(self, command, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process)) return 64;
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return 47;
+}
+
+static int child_supervised_snapshot(const char *argument, const char *cwd) {
+    if (strcmp(argument, "space \" quote\\") != 0) return 65;
+    wchar_t directory[4096], expected[4096], value[128];
+    if (!GetCurrentDirectoryW(4096, directory) || to_wide(cwd, expected, 4096) != 0
+            || CompareStringOrdinal(directory, -1, expected, -1, TRUE) != CSTR_EQUAL) return 66;
+    if (!GetEnvironmentVariableW(L"BTRC_SNAPSHOT", value, 128) || wcscmp(value, L"authorized") != 0) return 67;
+    if (GetEnvironmentVariableW(L"BTRC_PARENT_ONLY", value, 128) != 0 || GetLastError() != ERROR_ENVVAR_NOT_FOUND) return 68;
+    emit("snapshot-ok\n", 12);
     return 0;
 }
 
@@ -274,6 +462,7 @@ static int child_cwd(void) {
 
 static int child(int argc, char **argv) {
     const char *mode = argv[1];
+    if (strcmp(mode, "--btrc-daemon-bootstrap-v1") == 0) return child_bootstrap_admission();
     if (strcmp(mode, "--echo") == 0) return child_echo();
     if (strcmp(mode, "--exit") == 0 && argc > 2) ExitProcess((UINT)strtoul(argv[2], NULL, 16));
     if (strcmp(mode, "--sleep") == 0 && argc > 2) {
@@ -290,6 +479,9 @@ static int child(int argc, char **argv) {
     }
     if (strcmp(mode, "--tree") == 0 && argc > 3) return child_tree(atoi(argv[2]), argv[3]);
     if (strcmp(mode, "--orphan") == 0 && argc > 2) return child_orphan(argv[2]);
+    if (strcmp(mode, "--supervised-tree") == 0 && argc > 2) return child_supervised_tree(argv[2], 0);
+    if (strcmp(mode, "--supervised-leaf") == 0 && argc > 2) return child_supervised_tree(argv[2], 1);
+    if (strcmp(mode, "--supervised-snapshot") == 0 && argc > 3) return child_supervised_snapshot(argv[2], argv[3]);
     if (strcmp(mode, "--handle") == 0 && argc > 3) return child_handle(argv[2], argv[3]);
     if (strcmp(mode, "--flood") == 0 && argc > 2) return child_flood(argv[2]);
     if (strcmp(mode, "--cat") == 0) return child_cat();
@@ -875,13 +1067,1544 @@ static void check_terminate(void) {
     DeleteFileW(started);
 }
 
+/* The bootstrap path uses real overlapped pipes. No fake completion event can
+ * stand in for the kernel releasing its buffer after cancellation. */
+static unsigned int bootstrap_serial = 0;
+
+static int bootstrap_pair(btrc_wos_bootstrap_pipe **reader, btrc_wos_bootstrap_pipe **writer) {
+    /* Deterministic names are fixture-only; production callers must use fresh
+     * cryptographic nonces from the image owner's random source. */
+    unsigned char nonce[16] = { 0 };
+    unsigned int serial = ++bootstrap_serial;
+    memcpy(nonce, &serial, sizeof(serial));
+    __btrc_windows_launch_error_t error;
+    int status = btrc_wos_bootstrap_pair(nonce, reader, writer, &error);
+    CHECK("bootstrap creates private overlapped endpoints", status == 0 && *reader != NULL && *writer != NULL);
+    if (status != 0) {
+        report("bootstrap create stage=%u code=%u ownership=%u\n", error.stage, error.native_code, error.ownership_state);
+        return -1;
+    }
+    btrc_wos_bootstrap_pipe *other_reader = NULL;
+    btrc_wos_bootstrap_pipe *other_writer = NULL;
+    CHECK("bootstrap refuses an existing pipe name",
+        btrc_wos_bootstrap_pair(nonce, &other_reader, &other_writer, &error) != 0
+        && other_reader == NULL && other_writer == NULL);
+    return 0;
+}
+
+static void bootstrap_close(btrc_wos_bootstrap_pipe **pipe) {
+    __btrc_windows_launch_error_t error;
+    CHECK("bootstrap cancellation drains and releases storage",
+        btrc_wos_bootstrap_close(pipe, GetTickCount64() + 1000, &error) == 0 && *pipe == NULL);
+    CHECK("bootstrap close is idempotent", btrc_wos_bootstrap_close(pipe, 0, &error) == 0);
+}
+
+typedef struct {
+    btrc_wos_bootstrap_pipe *writer;
+    uint64_t deadline;
+    int status;
+} bootstrap_fragments;
+
+static DWORD WINAPI bootstrap_write_fragments(LPVOID context) {
+    bootstrap_fragments *fragments = (bootstrap_fragments *)context;
+    __btrc_windows_launch_error_t error;
+    fragments->status = btrc_wos_bootstrap_write(fragments->writer,
+        (const unsigned char *)"one", 3, fragments->deadline, &error);
+    if (fragments->status == 0)
+        fragments->status = btrc_wos_bootstrap_write(fragments->writer,
+            (const unsigned char *)"two", 3, fragments->deadline, &error);
+    return 0;
+}
+
+static void check_bootstrap_pipes(void) {
+    DWORD handles_before = 0, handles_after = 0;
+    CHECK("bootstrap initial handle census", GetProcessHandleCount(GetCurrentProcess(), &handles_before));
+    for (int iteration = 0; iteration < 12; iteration++) {
+        btrc_wos_bootstrap_pipe *reader = NULL, *writer = NULL;
+        __btrc_windows_launch_error_t error;
+        if (bootstrap_pair(&reader, &writer) != 0) return;
+        bootstrap_fragments fragments = { writer, GetTickCount64() + 2000, -1 };
+        HANDLE thread = CreateThread(NULL, 0, bootstrap_write_fragments, &fragments, 0, NULL);
+        CHECK("bootstrap fragment writer starts", thread != NULL);
+        if (thread == NULL) { bootstrap_close(&writer); bootstrap_close(&reader); return; }
+        unsigned char bytes[6] = { 0 };
+        CHECK("bootstrap read assembles partial writes",
+            btrc_wos_bootstrap_read(reader, bytes, sizeof(bytes), fragments.deadline, &error) == 0
+            && memcmp(bytes, "onetwo", sizeof(bytes)) == 0);
+        DWORD joined = WaitForSingleObject(thread, 3000);
+        CHECK("bootstrap writer completes", joined == WAIT_OBJECT_0 && fragments.status == 0);
+        /* Never release thread-borrowed owner/stack storage while it is live. */
+        if (joined != WAIT_OBJECT_0) ExitProcess(3);
+        CloseHandle(thread);
+        bootstrap_close(&reader);
+        bootstrap_close(&writer);
+
+        if (bootstrap_pair(&reader, &writer) != 0) return;
+        CHECK("bootstrap truncated message begins",
+            btrc_wos_bootstrap_write(writer, (const unsigned char *)"x", 1, GetTickCount64() + 1000, &error) == 0);
+        memset(bytes, 0xA5, sizeof(bytes));
+        uint64_t started = GetTickCount64();
+        CHECK("bootstrap idle pipe expires without exposing partial input",
+            btrc_wos_bootstrap_read(reader, bytes, sizeof(bytes), started + 20, &error) != 0
+            && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1
+            && GetTickCount64() - started < 1000);
+        for (size_t index = 0; index < sizeof(bytes); index++)
+            CHECK("bootstrap timed-out read copies nothing", bytes[index] == 0xA5);
+        CHECK("bootstrap failed endpoint refuses further operations",
+            btrc_wos_bootstrap_read(reader, bytes, 1, GetTickCount64() + 1000, &error) != 0);
+        started = GetTickCount64();
+        int closed = btrc_wos_bootstrap_close(&reader, started, &error);
+        CHECK("bootstrap expired close drains or preserves a retryable owner",
+            GetTickCount64() - started < 1000
+            && ((closed == 0 && reader == NULL)
+                || (closed != 0 && reader != NULL && error.ownership_state == 1)));
+        bootstrap_close(&reader);
+        bootstrap_close(&writer);
+
+        if (bootstrap_pair(&reader, &writer) != 0) return;
+        bootstrap_close(&writer);
+        CHECK("bootstrap EOF is distinct from timeout",
+            btrc_wos_bootstrap_read(reader, bytes, 1, GetTickCount64() + 1000, &error) != 0
+            && error.native_code == ERROR_BROKEN_PIPE && error.ownership_state == 1);
+        bootstrap_close(&reader);
+
+        if (bootstrap_pair(&reader, &writer) != 0) return;
+        unsigned char *large = (unsigned char *)malloc(1048576);
+        CHECK("bootstrap backpressure allocation", large != NULL);
+        if (large == NULL) { bootstrap_close(&writer); bootstrap_close(&reader); return; }
+        memset(large, 0xBD, 1048576);
+        started = GetTickCount64();
+        CHECK("bootstrap backpressured write keeps a bounded wait",
+            btrc_wos_bootstrap_write(writer, large, 1048576, started + 20, &error) != 0
+            && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1
+            && GetTickCount64() - started < 1000);
+        /* Pending native I/O uses a runtime copy, not this caller allocation. */
+        free(large);
+        bootstrap_close(&writer);
+        bootstrap_close(&reader);
+    }
+    CHECK("bootstrap final handle census", GetProcessHandleCount(GetCurrentProcess(), &handles_after));
+    CHECK("bootstrap cycles release every native handle", handles_after == handles_before);
+}
+
+/* These tests exercise the framing layer over real kernel pipes. Preparation
+ * and record verification are fixture grants, not filesystem evidence. */
+typedef struct {
+    btrc_wos_bootstrap_pipe *request_read, *request_write, *reply_read, *reply_write;
+    btrc_daemon_handshake launcher, supervisor;
+    uint64_t deadline;
+} bootstrap_exchange;
+
+static btrc_daemon_frame bootstrap_signal(const bootstrap_exchange *exchange, uint16_t type) {
+    btrc_daemon_frame frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.type = type;
+    frame.supervisor_pid = exchange->supervisor.supervisor_pid;
+    frame.lifetime = exchange->supervisor.lifetime;
+    memcpy(frame.token, exchange->supervisor.token, sizeof(frame.token));
+    return frame;
+}
+
+static void bootstrap_exchange_close(bootstrap_exchange *exchange) {
+    bootstrap_close(&exchange->request_read);
+    bootstrap_close(&exchange->request_write);
+    bootstrap_close(&exchange->reply_read);
+    bootstrap_close(&exchange->reply_write);
+    if (exchange->supervisor.commit_accepted && exchange->supervisor.record_verified
+            && exchange->request_read == NULL && exchange->request_write == NULL
+            && exchange->reply_read == NULL && exchange->reply_write == NULL) {
+        CHECK("closed bootstrap grants execution after verified publication",
+            btrc_daemon_handshake_bootstrap_closed(&exchange->supervisor) == 0
+            && btrc_daemon_handshake_can_run(&exchange->supervisor));
+    }
+    btrc_daemon_handshake_clear(&exchange->launcher);
+    btrc_daemon_handshake_clear(&exchange->supervisor);
+}
+
+static int bootstrap_exchange_ready(bootstrap_exchange *exchange) {
+    memset(exchange, 0, sizeof(*exchange));
+    if (bootstrap_pair(&exchange->request_read, &exchange->request_write) != 0
+            || bootstrap_pair(&exchange->reply_read, &exchange->reply_write) != 0) return -1;
+    exchange->deadline = GetTickCount64() + 2000;
+    unsigned char token[16];
+    memset(token, 0xA3, sizeof(token));
+    btrc_daemon_handshake_start(&exchange->launcher, BTRC_DAEMON_LAUNCHER, 42, 1, token);
+    btrc_daemon_handshake_start(&exchange->supervisor, BTRC_DAEMON_SUPERVISOR, 42, 0, NULL);
+    btrc_daemon_init startup;
+    memset(&startup, 0, sizeof(startup));
+    memcpy(startup.token, token, sizeof(token));
+    startup.lifetime = 1;
+    startup.remaining_startup_ms = 60000;
+    btrc_daemon_text executable = { (const unsigned char *)"fixture.exe", 11 };
+    startup.executable = executable;
+    startup.arguments = &executable;
+    startup.argument_count = 1;
+    __btrc_windows_launch_error_t error;
+    btrc_wos_bootstrap_message message = { 0 };
+    int status = btrc_wos_bootstrap_send_init(exchange->request_write, &exchange->launcher,
+        &startup, exchange->deadline, &error);
+    CHECK("framed INIT send", status == 0);
+    if (status != 0) return -1;
+    status = btrc_wos_bootstrap_receive(exchange->request_read, &exchange->supervisor,
+        &message, exchange->deadline, &error);
+    CHECK("framed INIT retains data and clamps its startup budget", status == 0
+        && message.frame.remaining_startup_ms > 0 && message.frame.remaining_startup_ms <= 2000
+        && message.frame.executable.size == 11
+        && memcmp(message.frame.executable.data, "fixture.exe", 11) == 0);
+    btrc_wos_bootstrap_message_release(&message);
+    CHECK("released message retains no token or borrowed views",
+        message.bytes == NULL && message.size == 0 && message.frame.type == 0);
+    if (status != 0) return -1;
+    CHECK("fixture grants preparation", btrc_daemon_handshake_prepared(&exchange->supervisor) == 0);
+    btrc_daemon_frame ready = bootstrap_signal(exchange, BTRC_DAEMON_READY);
+    status = btrc_wos_bootstrap_send_signal(exchange->reply_write, &exchange->supervisor,
+        &ready, exchange->deadline, &error);
+    CHECK("framed READY send", status == 0);
+    if (status != 0) return -1;
+    status = btrc_wos_bootstrap_receive(exchange->reply_read, &exchange->launcher,
+        &message, exchange->deadline, &error);
+    CHECK("framed READY receive", status == 0);
+    btrc_wos_bootstrap_message_release(&message);
+    return status;
+}
+
+static void check_bootstrap_exchange(void) {
+    DWORD before = 0, after = 0;
+    CHECK("framed initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
+    /* Happy path, wrong token, truncated COMMIT, lost ACK, expired COMMIT,
+     * oversized header, pre-COMMIT peer ERROR. All writes fit the pipe buffer. */
+    for (int scenario = 0; scenario < 7; scenario++) {
+        bootstrap_exchange exchange;
+        if (bootstrap_exchange_ready(&exchange) != 0) { bootstrap_exchange_close(&exchange); return; }
+        btrc_wos_bootstrap_message message = { 0 };
+        __btrc_windows_launch_error_t error;
+        btrc_daemon_frame commit = bootstrap_signal(&exchange, BTRC_DAEMON_COMMIT);
+        if (scenario == 1 || scenario == 2 || scenario == 5) {
+            unsigned char bytes[40];
+            size_t size = 0;
+            if (scenario == 1) commit.token[7] ^= 1;
+            CHECK("fixture encodes adversarial COMMIT", btrc_daemon_encode_signal(&commit, bytes, sizeof(bytes), &size) == 0);
+            if (scenario == 2) size--;
+            if (scenario == 5) { bytes[14] = 0x10; bytes[12] = 1; size = BTRC_DAEMON_HEADER_BYTES; }
+            CHECK("fixture sends adversarial frame", btrc_wos_bootstrap_write(exchange.request_write,
+                bytes, size, exchange.deadline, &error) == 0);
+            bootstrap_close(&exchange.request_write);
+            CHECK("bad COMMIT cannot authorize execution", btrc_wos_bootstrap_receive(exchange.request_read,
+                &exchange.supervisor, &message, exchange.deadline, &error) != 0
+                && !exchange.supervisor.commit_accepted && !btrc_daemon_handshake_can_run(&exchange.supervisor)
+                && message.bytes == NULL && message.size == 0 && message.frame.type == 0);
+        } else if (scenario == 6) {
+            btrc_daemon_frame failure = bootstrap_signal(&exchange, BTRC_DAEMON_ERROR);
+            failure.stage = 3; failure.domain = 1; failure.native_code = ERROR_ACCESS_DENIED;
+            failure.ownership_state = 2;
+            CHECK("pre-COMMIT peer ERROR send", btrc_wos_bootstrap_send_signal(exchange.reply_write,
+                &exchange.supervisor, &failure, exchange.deadline, &error) == 0);
+            CHECK("peer ERROR preserves diagnostic but not remote ownership", btrc_wos_bootstrap_receive(
+                exchange.reply_read, &exchange.launcher, &message, exchange.deadline, &error) != 0
+                && error.stage == 3 && error.domain == 1 && error.native_code == ERROR_ACCESS_DENIED
+                && error.ownership_state == 1 && btrc_daemon_handshake_result(&exchange.launcher) == 1);
+        } else {
+            uint64_t deadline = scenario == 4 ? GetTickCount64() : exchange.deadline;
+            int sent = btrc_wos_bootstrap_send_signal(exchange.request_write, &exchange.launcher,
+                &commit, deadline, &error);
+            CHECK("COMMIT attempt is indeterminate until confirmed", btrc_daemon_handshake_result(&exchange.launcher) == 2);
+            if (scenario == 4) {
+                CHECK("expired COMMIT fails without authorizing supervisor", sent != 0
+                    && error.native_code == ERROR_TIMEOUT && !exchange.supervisor.commit_accepted);
+            } else {
+                CHECK("framed COMMIT send", sent == 0);
+                CHECK("complete COMMIT still needs verified record", btrc_wos_bootstrap_receive(exchange.request_read,
+                    &exchange.supervisor, &message, exchange.deadline, &error) == 0
+                    && exchange.supervisor.commit_accepted && !btrc_daemon_handshake_can_run(&exchange.supervisor));
+                btrc_wos_bootstrap_message_release(&message);
+                CHECK("fixture grants record verification", btrc_daemon_handshake_record_verified(&exchange.supervisor) == 0);
+                btrc_daemon_frame ack = bootstrap_signal(&exchange, BTRC_DAEMON_ACK);
+                if (scenario == 3) bootstrap_close(&exchange.reply_read);
+                sent = btrc_wos_bootstrap_send_signal(exchange.reply_write, &exchange.supervisor,
+                    &ack, exchange.deadline, &error);
+                if (scenario == 3) {
+                    CHECK("lost ACK retains publication but still requires cleanup", sent != 0
+                        && exchange.supervisor.commit_accepted && exchange.supervisor.record_verified
+                        && !btrc_daemon_handshake_can_run(&exchange.supervisor)
+                        && btrc_daemon_handshake_result(&exchange.launcher) == 2);
+                } else {
+                    CHECK("framed ACK send", sent == 0);
+                    CHECK("ACK alone leaves launcher indeterminate", btrc_wos_bootstrap_receive(exchange.reply_read,
+                        &exchange.launcher, &message, exchange.deadline, &error) == 0
+                        && btrc_daemon_handshake_result(&exchange.launcher) == 2);
+                    CHECK("ACK plus verified record confirms transfer",
+                        btrc_daemon_handshake_record_verified(&exchange.launcher) == 0
+                        && btrc_daemon_handshake_result(&exchange.launcher) == 0);
+                }
+            }
+        }
+        btrc_wos_bootstrap_message_release(&message);
+        bootstrap_exchange_close(&exchange);
+    }
+    CHECK("framed final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
+    CHECK("framed failures release all native handles", before == after);
+}
+
+static int child_supervisor_preparation(__btrc_windows_supervisor_owner *owner) {
+    __btrc_windows_launch_error_t error;
+    if (__btrc_windows_supervisor_prepare(owner, &error) != 0) return error.ownership_state == 1 ? 72 : 73;
+    if (__btrc_windows_supervisor_prepare(owner, &error) == 0 || error.ownership_state != 1) return 74;
+    const DWORD streams[] = { STD_OUTPUT_HANDLE, STD_ERROR_HANDLE };
+    const char *native[] = { "native-out\n", "native-error\n" };
+    if (fputs("crt-out\n", stdout) < 0 || fflush(stdout) != 0
+            || fputs("crt-error\n", stderr) < 0 || fflush(stderr) != 0) return 75;
+    for (size_t index = 0; index < 2; index++) {
+        DWORD flags = HANDLE_FLAG_INHERIT, written = 0;
+        HANDLE stream = GetStdHandle(streams[index]);
+        if (!GetHandleInformation(stream, &flags) || (flags & HANDLE_FLAG_INHERIT)
+                || GetFileType(stream) != FILE_TYPE_DISK) return 76;
+        DWORD length = (DWORD)strlen(native[index]);
+        if (!WriteFile(stream, native[index], length, &written, NULL) || written != length) return 77;
+    }
+    return 0;
+}
+
+static int supervisor_refuses_execution(__btrc_windows_supervisor_owner *owner) {
+    __btrc_windows_launch_error_t error;
+    uint32_t running = 99, code = 99;
+    return __btrc_windows_supervisor_spawn_managed(owner, &error) != 0
+        && error.ownership_state == 1
+        && __btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) != 0
+        && running == 0 && code == 0
+        && __btrc_windows_supervisor_terminate_managed(owner, 1, &error) != 0;
+}
+
+static int child_supervisor_managed(__btrc_windows_supervisor_owner *owner, int scenario,
+        const btrc_daemon_frame *frame) {
+    __btrc_windows_launch_error_t error;
+    uint32_t running = 99, code = 99;
+    if (__btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) == 0
+            || running != 0 || code != 0) return 100;
+    if (!SetEnvironmentVariableW(L"BTRC_SNAPSHOT", L"changed-after-prepare")) return 101;
+    int repetitions = scenario == 28 || scenario == 33 ? 2 : 1;
+    for (int iteration = 0; iteration < repetitions; iteration++) {
+        if (__btrc_windows_supervisor_spawn_managed(owner, &error) != 0) return 102;
+        uint32_t expected = scenario <= 28 ? 0xF0123456u : scenario == 32 ? 0xE0123456u : scenario == 33 ? 0 : 47;
+        if (scenario >= 29 && scenario <= 32) {
+            char cwd[4096]; wchar_t wide[4096], path[4096];
+            if (frame->cwd.size >= sizeof(cwd)) return 103;
+            memcpy(cwd, frame->cwd.data, frame->cwd.size); cwd[frame->cwd.size] = 0;
+            if (to_wide(cwd, wide, 4096) != 0) return 103;
+            swprintf(path, 4096, L"%ls\\managed%ls", wide, scenario == 32 ? L"" : L".started");
+            char pid[32] = { 0 };
+            ULONGLONG deadline = GetTickCount64() + 3000;
+            while (read_text(path, pid, sizeof(pid)) != 0 || pid[0] == 0) {
+                if (GetTickCount64() >= deadline) return 104;
+                Sleep(10);
+            }
+            if (scenario != 32) {
+                swprintf(path, 4096, L"%ls\\managed.root", wide);
+                char root_pid[32] = { 0 };
+                if (read_text(path, root_pid, sizeof(root_pid)) != 0) return 105;
+                while (!process_gone(root_pid)) {
+                    if (GetTickCount64() >= deadline) return 106;
+                    Sleep(10);
+                }
+            }
+            if (__btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) != 0
+                    || running != 1 || code != 0) return 107;
+            if (__btrc_windows_supervisor_spawn_managed(owner, &error) == 0 || error.ownership_state != 1) return 108;
+            if (scenario == 31) return 0; /* the owner close must kill the live leaf */
+            if (scenario == 29) {
+                swprintf(path, 4096, L"%ls\\managed.release", wide);
+                if (write_file(path, "release") != 0) return 109;
+            } else if (__btrc_windows_supervisor_terminate_managed(owner, 0xE0123456u, &error) != 0
+                    || __btrc_windows_supervisor_terminate_managed(owner, 1, &error) != 0) return 110;
+        }
+        ULONGLONG deadline = GetTickCount64() + 3000;
+        do {
+            if (__btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) != 0) return 111;
+            if (GetTickCount64() >= deadline) return 112;
+            if (running) Sleep(10);
+        } while (running);
+        if (code != expected || __btrc_windows_supervisor_poll_managed(owner, &running, &code, &error) != 0
+                || running != 0 || code != expected) return 113;
+        if (__btrc_windows_supervisor_terminate_managed(owner, 1, &error) != 0) return 114;
+    }
+    return 0;
+}
+
+static int child_supervisor_commit(__btrc_windows_supervisor_owner *owner, const btrc_daemon_frame *frame) {
+    __btrc_windows_launch_error_t error;
+    uint32_t delivered = 99;
+    /* Preparation and publication are native prerequisites, not caller flags. */
+    if (!SetEnvironmentVariableW(L"BTRC_PARENT_ONLY", L"not-in-snapshot")
+            || !supervisor_refuses_execution(owner)
+            || __btrc_windows_supervisor_ready_wait_commit(owner, &error) == 0
+            || __btrc_windows_supervisor_ack(owner, &delivered, &error) == 0
+            || delivered != 0) return 82;
+    int prepared = child_supervisor_preparation(owner);
+    if (prepared != 0) return prepared;
+    if (!supervisor_refuses_execution(owner)
+            || __btrc_windows_supervisor_ack(owner, &delivered, &error) == 0 || delivered != 0) return 83;
+    if (__btrc_windows_supervisor_ready_wait_commit(owner, &error) != 0)
+        return error.ownership_state == 1 ? 80 : 84;
+    if (!supervisor_refuses_execution(owner)) return 93;
+    if (frame->name.size != 9) return 85;
+    int scenario = (frame->name.data[7] - '0') * 10 + frame->name.data[8] - '0';
+    if (scenario != 25) {
+        char path[4096]; wchar_t wide[4096];
+        if (frame->control_path.size >= sizeof(path)) return 86;
+        memcpy(path, frame->control_path.data, frame->control_path.size);
+        path[frame->control_path.size] = 0;
+        if (to_wide(path, wide, 4096) != 0) return 86;
+        char record[80] = "btrc-daemon-v1\n";
+        size_t length = strlen(record);
+        static const char hex[] = "0123456789abcdef";
+        for (size_t index = 0; index < 16; index++) {
+            record[length++] = hex[frame->token[index] >> 4];
+            record[length++] = hex[frame->token[index] & 15];
+        }
+        snprintf(record + length, sizeof(record) - length, "\n%lu\n", (unsigned long)GetCurrentProcessId());
+        void *descriptor = NULL;
+        if (btrcWinPrivateDescriptor(0, &descriptor) != 0) return 87;
+        int published = daemon_fixture_file(wide, record, descriptor);
+        /* Replace the published record before the runtime reopens it. */
+        if (published == 0 && scenario == 26) {
+            record[strlen("btrc-daemon-v1\n")] = 'f';
+            if (!DeleteFileW(wide)) published = -1;
+            else published = daemon_fixture_file(wide, record, descriptor);
+        }
+        free(descriptor);
+        SecureZeroMemory(record, sizeof(record));
+        if (published != 0) return 88;
+    }
+    int acknowledged = __btrc_windows_supervisor_ack(owner, &delivered, &error);
+    if (scenario == 25 || scenario == 26)
+        return acknowledged != 0 && delivered == 0 && error.ownership_state == 1
+            && supervisor_refuses_execution(owner) ? 81 : 89;
+    if (acknowledged != 0 || (scenario == 35 ? delivered > 1 : delivered != (scenario == 27 ? 0u : 1u))) return 90;
+    size_t size = 99;
+    if (__btrc_windows_supervisor_copy_startup(owner, NULL, 0, &size, &error) == 0 || size != 0) return 91;
+    if (__btrc_windows_supervisor_ack(owner, &delivered, &error) == 0 || delivered != 0) return 92;
+    if (scenario == 34 || scenario == 35) { Sleep(30000); return 0; }
+    return scenario >= 27 ? child_supervisor_managed(owner, scenario, frame) : 0;
+}
+
+static int child_bootstrap_admission(void) {
+    __btrc_windows_supervisor_owner *owner = NULL;
+    __btrc_windows_launch_error_t error;
+    DWORD before = 0, after = 0;
+    census_snapshot initial, final;
+    int snapshots_valid = census_take(&initial) == 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &before)) return 47;
+    /* Invalid budgets must fail before adopting or consuming either pipe. */
+    if (__btrc_windows_supervisor_accept(0, &owner, &error) == 0 || owner != NULL
+            || error.stage != 1 || error.ownership_state != 0) return 37;
+    if (__btrc_windows_supervisor_accept(UINT64_MAX, &owner, &error) == 0 || owner != NULL
+            || error.stage != 1 || error.ownership_state != 0) return 38;
+    if (__btrc_windows_supervisor_accept(1000, &owner, &error) != 0) {
+        if (__btrc_windows_supervisor_close(&owner, 1000, &error) != 0 || owner != NULL) return 39;
+        return 31;
+    }
+    size_t image = 0;
+    uintptr_t input = 0, output = 0;
+    const wchar_t *command = GetCommandLineW();
+    if (btrc_wos_bootstrap_invocation((const uint16_t *)command, wcslen(command), &image, &input, &output) != 0)
+        return 32;
+    HANDLE handles[5] = { (HANDLE)input, (HANDLE)output,
+        GetStdHandle(STD_INPUT_HANDLE), GetStdHandle(STD_OUTPUT_HANDLE), GetStdHandle(STD_ERROR_HANDLE) };
+    for (size_t index = 0; index < 5; index++) {
+        DWORD flags = HANDLE_FLAG_INHERIT;
+        if (!GetHandleInformation(handles[index], &flags) || (flags & HANDLE_FLAG_INHERIT)) return 33;
+    }
+    size_t size = 0;
+    if (__btrc_windows_supervisor_copy_startup(owner, NULL, 0, &size, &error) != 0 || size < 32) return 34;
+    unsigned char *copy = malloc(size + BTRC_DAEMON_HEADER_BYTES);
+    if (copy == NULL) return 35;
+    memset(copy, 0xA5, size + BTRC_DAEMON_HEADER_BYTES);
+    size_t required = 0;
+    if (__btrc_windows_supervisor_copy_startup(owner, copy, size - 1, &required, &error) == 0
+            || required != size || error.stage != 18 || error.ownership_state != 1) return 40;
+    for (size_t index = 0; index < size + BTRC_DAEMON_HEADER_BYTES; index++)
+        if (copy[index] != 0xA5) return 41;
+    if (__btrc_windows_supervisor_copy_startup(owner, NULL, 1, &required, &error) == 0 || required != 0) return 42;
+    /* Add only a wire header; the returned payload must decode unmodified. */
+    memcpy(copy, "BTRCDM1\0\1\0\1\0", 12);
+    for (size_t index = 0; index < 4; index++) copy[12 + index] = (unsigned char)(size >> (8 * index));
+    if (__btrc_windows_supervisor_copy_startup(owner, copy + BTRC_DAEMON_HEADER_BYTES,
+            size, &required, &error) != 0 || required != size) return 43;
+    btrc_daemon_frame frame;
+    if (btrc_daemon_decode(copy, size + BTRC_DAEMON_HEADER_BYTES, &frame) != 0) return 44;
+    int outcome = 0;
+    if (frame.name.size >= 7 && memcmp(frame.name.data, "commit-", 7) == 0) {
+        outcome = child_supervisor_commit(owner, &frame);
+    } else if (frame.name.size >= 7 && memcmp(frame.name.data, "prepare", 7) == 0) {
+        outcome = child_supervisor_preparation(owner);
+    } else if (frame.name.size == 18 && memcmp(frame.name.data, "transfer-admission", 18) == 0) {
+        if (frame.type != BTRC_DAEMON_INIT || GetConsoleWindow() != NULL
+                || frame.lifetime > 1 || frame.token[0] != 1) return 118;
+    } else {
+        if (frame.type != BTRC_DAEMON_INIT || frame.name.size != 11
+                || memcmp(frame.name.data, "owner-probe", 11) != 0 || frame.arguments.count != 2
+                || frame.environment.count != 2 || frame.lifetime != 1 || frame.auto_restart != 1) return 44;
+        for (size_t index = 0; index < sizeof(frame.token); index++)
+            if (frame.token[index] != (unsigned char)(index + 1)) return 45;
+        if (frame.control_path.size != 22 || memcmp(frame.control_path.data, "C:\\state\\owner.control", 22) != 0
+                || frame.log_path.size != 18 || memcmp(frame.log_path.data, "C:\\state\\owner.log", 18) != 0
+                || frame.cwd.size != 8 || memcmp(frame.cwd.data, "C:\\state", 8) != 0
+                || frame.executable.size != 8 || memcmp(frame.executable.data, "tool.exe", 8) != 0
+                || frame.remaining_startup_ms != 500) return 48;
+        btrc_daemon_reader arguments = { frame.arguments.encoded.data, frame.arguments.encoded.size, 1 };
+        btrc_daemon_text program = btrc_daemon_read_text(&arguments), argument = btrc_daemon_read_text(&arguments);
+        btrc_daemon_reader environment = { frame.environment.encoded.data, frame.environment.encoded.size, 1 };
+        btrc_daemon_text drive = btrc_daemon_read_text(&environment), path = btrc_daemon_read_text(&environment);
+        if (!arguments.valid || arguments.remaining != 0 || !environment.valid || environment.remaining != 0
+                || program.size != 8 || memcmp(program.data, "tool.exe", 8) != 0
+                || argument.size != 9 || memcmp(argument.data, "two words", 9) != 0
+                || drive.size != 12 || memcmp(drive.data, "=C:=C:\\state", 12) != 0
+                || path.size != 13 || memcmp(path.data, "PATH=C:\\tools", 13) != 0) return 49;
+        memset(copy + BTRC_DAEMON_HEADER_BYTES, 0, size);
+        if (__btrc_windows_supervisor_copy_startup(owner, copy + BTRC_DAEMON_HEADER_BYTES,
+                size, &required, &error) != 0
+                || btrc_daemon_decode(copy, size + BTRC_DAEMON_HEADER_BYTES, &frame) != 0
+                || frame.token[0] != 1 || frame.name.size != 11) return 50;
+    }
+    wchar_t census_path[4096] = { 0 };
+    if (frame.control_path.size < 4000) {
+        char path[4096];
+        memcpy(path, frame.control_path.data, frame.control_path.size);
+        memcpy(path + frame.control_path.size, ".handles", sizeof(".handles"));
+        (void)to_wide(path, census_path, 4096);
+    }
+    SecureZeroMemory(copy, size + BTRC_DAEMON_HEADER_BYTES);
+    free(copy);
+    SecureZeroMemory(&frame, sizeof(frame));
+    if (__btrc_windows_supervisor_close(&owner, 0, &error) == 0 || owner == NULL
+            || error.stage != 1 || error.ownership_state != 1) return 46;
+    if (__btrc_windows_supervisor_close(&owner, 1000, &error) != 0 || owner != NULL
+            || __btrc_windows_supervisor_close(&owner, 0, &error) != 0) return 36;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &after) || after + 2 != before) {
+        snapshots_valid = census_take(&final) == 0 && snapshots_valid;
+        HANDLE diagnostic = CreateFileW(census_path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (diagnostic != INVALID_HANDLE_VALUE) {
+            census_dump(diagnostic, "supervisor close", before, after, &initial, &final, snapshots_valid);
+            char detail[64]; DWORD written = 0;
+            int length = snprintf(detail, sizeof(detail), "lifecycle outcome=%d\n", outcome);
+            if (length > 0) (void)WriteFile(diagnostic, detail, (DWORD)length, &written, NULL);
+            CloseHandle(diagnostic);
+        }
+        return 51;
+    }
+    if (GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) != FILE_TYPE_CHAR
+            || GetFileType(GetStdHandle(STD_ERROR_HANDLE)) != FILE_TYPE_CHAR) return 78;
+    if (fputs("restored-to-nul\n", stdout) < 0 || fflush(stdout) != 0) return 79;
+    return outcome;
+}
+
+/* Fixture reads use their own OVERLAPPED. On a stuck kernel operation exit
+ * without unwinding its stack storage; production cancellation is tested above. */
+static int admission_read(HANDLE pipe, unsigned char *bytes, DWORD size) {
+    OVERLAPPED operation;
+    memset(&operation, 0, sizeof(operation));
+    operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (operation.hEvent == NULL) ExitProcess(3);
+    DWORD received = 0;
+    BOOL read = ReadFile(pipe, bytes, size, &received, &operation);
+    if (!read && GetLastError() == ERROR_IO_PENDING) {
+        if (WaitForSingleObject(operation.hEvent, 3000) != WAIT_OBJECT_0) ExitProcess(3);
+        read = GetOverlappedResult(pipe, &operation, &received, FALSE);
+    }
+    CloseHandle(operation.hEvent);
+    return read && received == size ? 0 : -1;
+}
+
+/* This fixture creates the launcher's five real handles directly, so admission
+ * cannot validate its own synthetic handle descriptions. Only the valid case
+ * exercises I/O; bad inheritance, direction and mode fail before a read. */
+static void check_bootstrap_admission(void) {
+    DWORD before = 0, after = 0;
+    census_snapshot initial, final;
+    int snapshots_valid = census_take(&initial) == 0;
+    CHECK("admission initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
+    for (int scenario = 0; scenario < 34; scenario++) {
+        void *descriptor = NULL;
+        int private_status = btrcWinPrivateDescriptor(0, &descriptor);
+        CHECK("admission fixture private descriptor", private_status == 0);
+        if (private_status != 0) return;
+        SECURITY_ATTRIBUTES security = { sizeof(security), descriptor, FALSE };
+        wchar_t prepared_directory[1200] = { 0 }, prepared_log[1300] = { 0 }, prepared_control[1300] = { 0 };
+        char directory_text[4096] = { 0 }, log_text[4096] = { 0 }, control_text[4096] = { 0 }, marker_text[4096] = { 0 };
+        if (scenario >= 13) {
+            wchar_t temporary[1024];
+            if (!GetTempPathW(1024, temporary)) ExitProcess(3);
+            swprintf(prepared_directory, 1200, L"%lsbtrc-prepare-%lu-%d", temporary, (unsigned long)GetCurrentProcessId(), scenario);
+            swprintf(prepared_log, 1300, L"%ls\\worker.log", prepared_directory);
+            swprintf(prepared_control, 1300, L"%ls\\worker.control", prepared_directory);
+            if (!CreateDirectoryW(prepared_directory, &security)
+                    || daemon_fixture_file(prepared_log, "preserved\n", descriptor) != 0
+                    || to_utf8(prepared_directory, directory_text, 4096) != 0
+                    || to_utf8(prepared_log, log_text, 4096) != 0
+                    || to_utf8(prepared_control, control_text, 4096) != 0) ExitProcess(3);
+            snprintf(marker_text, sizeof(marker_text), "%s\\managed", directory_text);
+        }
+        HANDLE handles[7] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+        /* request server/client, reply server/client, then three NUL handles */
+        for (int pair = 0; pair < 2; pair++) {
+            wchar_t name[128];
+            swprintf(name, 128, L"\\\\.\\pipe\\btrc-admission-%lu-%u", (unsigned long)GetCurrentProcessId(), ++bootstrap_serial);
+            DWORD access = scenario == 5 && pair == 0 ? PIPE_ACCESS_DUPLEX : PIPE_ACCESS_INBOUND;
+            DWORD mode = scenario == 4 && pair == 0 ? 0 : FILE_FLAG_OVERLAPPED;
+            handles[pair * 2] = CreateNamedPipeW(name,
+                access | FILE_FLAG_FIRST_PIPE_INSTANCE | mode,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                1, 4096, 4096, 0, &security);
+            handles[pair * 2 + 1] = CreateFileW(name, GENERIC_WRITE | FILE_READ_ATTRIBUTES | READ_CONTROL,
+                0, NULL, OPEN_EXISTING, pair == 1 ? FILE_FLAG_OVERLAPPED : 0, NULL);
+        }
+        security.bInheritHandle = TRUE;
+        for (int index = 4; index < 7; index++)
+            handles[index] = CreateFileW(L"NUL", index == 4 ? GENERIC_READ : GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING, 0, NULL);
+        free(descriptor);
+        int valid = 1;
+        for (size_t index = 0; index < 7; index++)
+            if (handles[index] == NULL || handles[index] == INVALID_HANDLE_VALUE) valid = 0;
+        CHECK("admission fixture opens all handles", valid);
+        if (!valid) ExitProcess(3);
+        CHECK("admission fixture marks request inheritable", SetHandleInformation(handles[0], HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT));
+        CHECK("admission fixture marks reply inheritable", SetHandleInformation(handles[3], HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT));
+        HANDLE inherited[5] = { handles[0], handles[3], handles[4], handles[5], handles[6] };
+        uintptr_t request = (uintptr_t)handles[0], reply = (uintptr_t)handles[3];
+        if (scenario == 1) { request = (uintptr_t)handles[3]; reply = (uintptr_t)handles[0]; }
+        if (scenario == 2) reply = request;
+        if (scenario == 3) request = (uintptr_t)handles[4];
+        wchar_t self[1024], command[2048];
+        if (to_wide(self_utf8, self, 1024) != 0) ExitProcess(3);
+        swprintf(command, 2048, L"\"%ls\" --btrc-daemon-bootstrap-v1 %ls%llu %llu%ls",
+            scenario == 8 ? L"C:\\wrong-image.exe" : self, scenario == 6 ? L"0" : L"",
+            (unsigned long long)request, (unsigned long long)reply, scenario == 7 ? L" extra" : L"");
+        SIZE_T size = 0;
+        InitializeProcThreadAttributeList(NULL, 1, 0, &size);
+        LPPROC_THREAD_ATTRIBUTE_LIST attributes = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(size);
+        if (attributes == NULL || !InitializeProcThreadAttributeList(attributes, 1, 0, &size)) ExitProcess(3);
+        if (!UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                inherited, sizeof(inherited), NULL, NULL)) ExitProcess(3);
+        STARTUPINFOEXW startup;
+        memset(&startup, 0, sizeof(startup));
+        startup.StartupInfo.cb = sizeof(startup);
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = handles[4];
+        startup.StartupInfo.hStdOutput = handles[5];
+        startup.StartupInfo.hStdError = handles[6];
+        startup.lpAttributeList = attributes;
+        PROCESS_INFORMATION process;
+        memset(&process, 0, sizeof(process));
+        BOOL launched = CreateProcessW(self, command, NULL, NULL, TRUE,
+            EXTENDED_STARTUPINFO_PRESENT, NULL, NULL, &startup.StartupInfo, &process);
+        CHECK("admission fixture starts isolated supervisor", launched);
+        DeleteProcThreadAttributeList(attributes);
+        free(attributes);
+        if (!launched) ExitProcess(3);
+        CloseHandle(process.hThread);
+        /* Parent keeps only its own request writer and reply reader. */
+        for (size_t index = 0; index < 7; index++) {
+            if (index != 1 && index != 2) { CloseHandle(handles[index]); handles[index] = NULL; }
+        }
+        if (scenario == 0 || scenario >= 9) {
+            btrc_daemon_init init;
+            memset(&init, 0, sizeof(init));
+            for (size_t index = 0; index < sizeof(init.token); index++) init.token[index] = (unsigned char)(index + 1);
+            init.remaining_startup_ms = 500;
+            init.lifetime = 1; init.auto_restart = 1;
+            init.name = (btrc_daemon_text){ (const unsigned char *)"owner-probe", 11 };
+            init.control_path = (btrc_daemon_text){ (const unsigned char *)"C:\\state\\owner.control", 22 };
+            init.log_path = (btrc_daemon_text){ (const unsigned char *)"C:\\state\\owner.log", 18 };
+            init.cwd = (btrc_daemon_text){ (const unsigned char *)"C:\\state", 8 };
+            init.executable = (btrc_daemon_text){ (const unsigned char *)"tool.exe", 8 };
+            btrc_daemon_text arguments[4] = {
+                { (const unsigned char *)"tool.exe", 8 }, { (const unsigned char *)"two words", 9 }
+            };
+            btrc_daemon_text environment[] = {
+                { (const unsigned char *)"=C:=C:\\state", 12 }, { (const unsigned char *)"PATH=C:\\tools", 13 }
+            };
+            init.arguments = arguments; init.argument_count = 2;
+            init.environment = environment; init.environment_count = 2;
+            if (scenario >= 13) {
+                init.remaining_startup_ms = 3000;
+                init.name = (btrc_daemon_text){ (const unsigned char *)(scenario == 18 ? "prepare/bad" : "prepare-probe"), scenario == 18 ? 11 : 13 };
+                init.control_path = (btrc_daemon_text){ (const unsigned char *)control_text, strlen(control_text) };
+                init.log_path = (btrc_daemon_text){ (const unsigned char *)log_text, strlen(log_text) };
+                init.cwd = (btrc_daemon_text){ (const unsigned char *)directory_text, strlen(directory_text) };
+                init.executable = (btrc_daemon_text){ (const unsigned char *)self_utf8, strlen(self_utf8) };
+                arguments[0] = init.executable;
+                if (scenario == 14) environment[0] = (btrc_daemon_text){ (const unsigned char *)"Path=C:\\elsewhere", 17 };
+                if (scenario == 15) { btrc_daemon_text swap = environment[0]; environment[0] = environment[1]; environment[1] = swap; }
+                if (scenario == 16) init.cwd = (btrc_daemon_text){ (const unsigned char *)"relative", 8 };
+                if (scenario == 17) init.control_path = init.log_path;
+                if (scenario == 19) init.executable = (btrc_daemon_text){ (const unsigned char *)"btrc-no-such-tool.exe", 21 };
+            }
+            char commit_name[16];
+            if (scenario >= 20) {
+                snprintf(commit_name, sizeof(commit_name), "commit-%d", scenario);
+                init.name = (btrc_daemon_text){ (const unsigned char *)commit_name, strlen(commit_name) };
+            }
+            btrc_daemon_text snapshot[] = {
+                { (const unsigned char *)"BTRC_SNAPSHOT=authorized", 24 }
+            };
+            if (scenario >= 27) {
+                const char *mode = scenario <= 28 ? "--exit" : scenario <= 31 ? "--supervised-tree"
+                    : scenario == 32 ? "--sleep-pid" : "--supervised-snapshot";
+                const char *argument = scenario <= 28 ? "f0123456" : scenario <= 32 ? marker_text : "space \" quote\\";
+                arguments[1] = (btrc_daemon_text){ (const unsigned char *)mode, strlen(mode) };
+                arguments[2] = (btrc_daemon_text){ (const unsigned char *)argument, strlen(argument) };
+                init.argument_count = 3;
+                if (scenario >= 32) {
+                    const char *last = scenario == 32 ? "30000" : directory_text;
+                    arguments[3] = (btrc_daemon_text){ (const unsigned char *)last, strlen(last) };
+                    init.argument_count = 4;
+                }
+                if (scenario == 33) { init.environment = snapshot; init.environment_count = 1; }
+            }
+            unsigned char bytes[16384];
+            size_t encoded = 0;
+            CHECK("admission fixture encodes full startup", btrc_daemon_encode_init(&init, bytes, sizeof(bytes), &encoded) == 0);
+            if (scenario == 9) encoded--; /* EOF inside the last field */
+            if (scenario == 10) bytes[8] = 2; /* unsupported protocol */
+            if (scenario == 11) encoded = BTRC_DAEMON_HEADER_BYTES; /* writer remains idle */
+            if (scenario == 12) { bytes[14] = 0x20; encoded = BTRC_DAEMON_HEADER_BYTES; }
+            DWORD written = 0;
+            CHECK("supervisor receives canonical INIT from sole writer",
+                WriteFile(handles[1], bytes, (DWORD)encoded, &written, NULL) && written == encoded);
+            SecureZeroMemory(bytes, sizeof(bytes));
+            SecureZeroMemory(&init, sizeof(init));
+            if (scenario == 9) { CloseHandle(handles[1]); handles[1] = NULL; }
+        }
+        if (scenario >= 20) {
+            unsigned char bytes[BTRC_DAEMON_HEADER_BYTES + 24] = { 0 };
+            btrc_daemon_frame frame;
+            CHECK("prepared supervisor sends READY", admission_read(handles[2], bytes, BTRC_DAEMON_HEADER_BYTES + 8) == 0
+                && btrc_daemon_decode(bytes, BTRC_DAEMON_HEADER_BYTES + 8, &frame) == 0
+                && frame.type == BTRC_DAEMON_READY && frame.supervisor_pid == process.dwProcessId && frame.lifetime == 1);
+            if (scenario == 27) { CloseHandle(handles[2]); handles[2] = NULL; }
+            if (scenario != 23 && scenario != 24) {
+                memset(&frame, 0, sizeof(frame));
+                frame.type = BTRC_DAEMON_COMMIT;
+                for (size_t index = 0; index < 16; index++) frame.token[index] = (unsigned char)(index + 1);
+                if (scenario == 21) frame.token[0] ^= 1;
+                size_t encoded = 0;
+                CHECK("fixture encodes COMMIT", btrc_daemon_encode_signal(&frame, bytes, sizeof(bytes), &encoded) == 0);
+                if (scenario == 22) encoded--;
+                DWORD written = 0;
+                CHECK("fixture writes COMMIT", WriteFile(handles[1], bytes, (DWORD)encoded, &written, NULL) && written == encoded);
+            }
+            if (scenario == 22 || scenario == 23) { CloseHandle(handles[1]); handles[1] = NULL; }
+            if (scenario == 20 || scenario >= 28) {
+                CHECK("verified publication delivers authenticated ACK", admission_read(handles[2], bytes, sizeof(bytes)) == 0
+                    && btrc_daemon_decode(bytes, sizeof(bytes), &frame) == 0
+                    && frame.type == BTRC_DAEMON_ACK && frame.supervisor_pid == process.dwProcessId && frame.lifetime == 1);
+                for (size_t index = 0; index < 16; index++) CHECK("ACK preserves exact token", frame.token[index] == index + 1);
+            }
+            SecureZeroMemory(bytes, sizeof(bytes));
+            SecureZeroMemory(&frame, sizeof(frame));
+        }
+        DWORD waited = WaitForSingleObject(process.hProcess, scenario >= 27 ? 8000 : 3000);
+        CHECK("admission or refusal completes within deadline", waited == WAIT_OBJECT_0);
+        if (waited != WAIT_OBJECT_0) {
+            TerminateProcess(process.hProcess, 90);
+            if (WaitForSingleObject(process.hProcess, 1000) != WAIT_OBJECT_0) ExitProcess(3);
+        }
+        DWORD exit_code = 0;
+        GetExitCodeProcess(process.hProcess, &exit_code);
+        DWORD expected = scenario == 0 || scenario == 13 ? 0 : scenario >= 14 ? 72 : 31;
+        if (scenario >= 20) expected = scenario == 20 || scenario >= 27 ? 0 : scenario <= 24 ? 80 : 81;
+        CHECK("admission and preparation check native capabilities", exit_code == expected);
+        if (exit_code != expected) report("admission scenario=%d exit=%lu\n", scenario, (unsigned long)exit_code);
+        if (scenario == 0 && exit_code == 0) {
+            OVERLAPPED operation;
+            memset(&operation, 0, sizeof(operation));
+            operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+            DWORD got = 0;
+            unsigned char byte = 0;
+            BOOL read = ReadFile(handles[2], &byte, 1, &got, &operation);
+            if (!read && GetLastError() == ERROR_IO_PENDING) {
+                if (WaitForSingleObject(operation.hEvent, 1000) != WAIT_OBJECT_0) ExitProcess(3);
+                read = GetOverlappedResult(handles[2], &operation, &got, FALSE);
+            }
+            CHECK("supervisor close releases the sole reply writer", !read && got == 0 && GetLastError() == ERROR_BROKEN_PIPE);
+            CloseHandle(operation.hEvent);
+        }
+        CloseHandle(process.hProcess);
+        if (handles[1] != NULL) CloseHandle(handles[1]);
+        if (scenario == 25 || scenario == 26) {
+            unsigned char byte = 0;
+            CHECK("unverified publication sends no ACK", admission_read(handles[2], &byte, 1) != 0);
+        }
+        if (handles[2] != NULL) CloseHandle(handles[2]);
+        if (scenario >= 13) {
+            wchar_t diagnostic[1400];
+            swprintf(diagnostic, 1400, L"%ls.handles", prepared_control);
+            if (GetFileAttributesW(diagnostic) != INVALID_FILE_ATTRIBUTES) {
+                char detail[16384];
+                if (read_text(diagnostic, detail, sizeof(detail)) == 0) {
+                    emit(detail, strlen(detail));
+                    (void)fwrite(detail, 1, strlen(detail), stderr);
+                    (void)fflush(stderr);
+                }
+                CHECK("fixture releases handle diagnostics", DeleteFileW(diagnostic));
+            }
+            HANDLE log = CreateFileW(prepared_log, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+            char bytes[128] = { 0 };
+            DWORD received = 0;
+            CHECK("preparation log can be read after owner close", log != INVALID_HANDLE_VALUE
+                && ReadFile(log, bytes, sizeof(bytes) - 1, &received, NULL));
+            if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
+            const char *expected_log = scenario == 13 || scenario >= 20
+                ? "preserved\ncrt-out\ncrt-error\nnative-out\nnative-error\n" : "preserved\n";
+            if (scenario == 33) expected_log = "preserved\ncrt-out\ncrt-error\nnative-out\nnative-error\nsnapshot-ok\nsnapshot-ok\n";
+            CHECK("preparation preserves append contents and restores diagnostics", strcmp(bytes, expected_log) == 0);
+            if (scenario == 20 || scenario == 26 || scenario >= 27)
+                CHECK("ACK releases verified record holds", DeleteFileW(prepared_control));
+            else CHECK("preparation never publishes a control record", GetFileAttributesW(prepared_control) == INVALID_FILE_ATTRIBUTES
+                    && GetLastError() == ERROR_FILE_NOT_FOUND);
+            if (scenario >= 29 && scenario <= 32) {
+                wchar_t path[4096]; char pid[32] = { 0 };
+                swprintf(path, 4096, L"%ls\\managed%ls", prepared_directory, scenario == 32 ? L"" : L".started");
+                CHECK("managed tree is reaped before owner release", read_text(path, pid, sizeof(pid)) == 0
+                    && pid[0] != 0 && process_gone(pid));
+                const wchar_t *suffixes[] = { L"", L".started", L".root", L".release" };
+                for (size_t index = 0; index < 4; index++) {
+                    swprintf(path, 4096, L"%ls\\managed%ls", prepared_directory, suffixes[index]);
+                    if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES)
+                        CHECK("managed fixture releases marker files", DeleteFileW(path));
+                }
+            }
+            CHECK("preparation releases held log and ancestry", DeleteFileW(prepared_log) && RemoveDirectoryW(prepared_directory));
+        }
+    }
+    CHECK("admission final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
+    if (before != after) {
+        snapshots_valid = census_take(&final) == 0 && snapshots_valid;
+        census_dump(GetStdHandle(STD_ERROR_HANDLE), "admission parent", before, after, &initial, &final, snapshots_valid);
+    }
+    CHECK("admission releases parent fixture handles", before == after);
+}
+
+static int daemon_fixture_file(const wchar_t *path, const char *contents, void *descriptor) {
+    SECURITY_ATTRIBUTES attributes = { sizeof(attributes), descriptor, FALSE };
+    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, &attributes, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return -1;
+    DWORD size = (DWORD)strlen(contents), written = 0;
+    BOOL ok = WriteFile(file, contents, size, &written, NULL);
+    BOOL closed = CloseHandle(file);
+    return ok && written == size && closed ? 0 : -1;
+}
+
+static void check_directory_record_bounds(void) {
+    BtrcWinDirectoryCursor *cursor = (BtrcWinDirectoryCursor *)btrcWinDirectoryOpen(GetCurrentProcess());
+    if (cursor == NULL) ExitProcess(3);
+    for (int scenario = 0; scenario < 7; scenario++) {
+        memset(cursor->buffer, 0, cursor->capacity);
+        btrcWinDirectoryRestart(cursor);
+        cursor->loaded = 1;
+        FILE_ID_EXTD_DIR_INFO *record = (FILE_ID_EXTD_DIR_INFO *)(void *)cursor->buffer;
+        record->FileNameLength = 2;
+        record->FileName[0] = L'a';
+        if (scenario == 0) cursor->offset = cursor->capacity - 1;
+        if (scenario == 1) record->FileNameLength = cursor->capacity;
+        if (scenario == 2) record->FileNameLength = 3;
+        if (scenario == 3) record->NextEntryOffset = 1;
+        if (scenario == 4) record->NextEntryOffset = cursor->capacity;
+        if (scenario == 5) record->FileName[0] = 0xD800;
+        if (scenario == 6) { record->FileNameLength = 6; record->FileName[2] = L'b'; }
+        char *name = NULL;
+        unsigned char identity[16], empty[16] = { 0 };
+        memset(identity, 0xA5, sizeof(identity));
+        CHECK("malformed directory record returns no name or identity",
+            btrcWinDirectoryNextIdentified(cursor, &name, identity) != 0 && name == NULL
+            && memcmp(identity, empty, sizeof(identity)) == 0);
+        free(name);
+    }
+    btrcWinDirectoryRestart(cursor);
+    memset(cursor->buffer, 0, cursor->capacity);
+    cursor->loaded = 1;
+    size_t alignment = _Alignof(FILE_ID_EXTD_DIR_INFO);
+    size_t second = (offsetof(FILE_ID_EXTD_DIR_INFO, FileName) + sizeof(WCHAR) + alignment - 1) / alignment * alignment;
+    FILE_ID_EXTD_DIR_INFO *first = (FILE_ID_EXTD_DIR_INFO *)(void *)cursor->buffer;
+    FILE_ID_EXTD_DIR_INFO *last = (FILE_ID_EXTD_DIR_INFO *)(void *)(cursor->buffer + second);
+    first->FileNameLength = last->FileNameLength = sizeof(WCHAR);
+    first->NextEntryOffset = (DWORD)second;
+    first->FileName[0] = L'a'; last->FileName[0] = L'\u00e9';
+    first->FileId.Identifier[15] = 0xA5; last->FileId.Identifier[15] = 0x5A;
+    char *name = NULL;
+    unsigned char identity[16];
+    CHECK("directory parser retains the high file ID byte",
+        btrcWinDirectoryNextIdentified(cursor, &name, identity) == 0 && name != NULL
+        && strcmp(name, "a") == 0 && identity[15] == 0xA5);
+    free(name); name = NULL;
+    CHECK("directory parser follows a bounded next record and converts Unicode",
+        btrcWinDirectoryNextIdentified(cursor, &name, identity) == 0 && name != NULL
+        && strcmp(name, "\xc3\xa9") == 0 && identity[15] == 0x5A && !cursor->loaded);
+    free(name);
+    btrcWinDirectoryClose(cursor);
+}
+
+static void check_daemon_directory_entries(const wchar_t *parent, void *descriptor) {
+    wchar_t path[1400], original[1500], additional[1500];
+    swprintf(path, 1400, L"%ls\\enumeration", parent);
+    swprintf(original, 1500, L"%ls\\probe-\u00e9", path);
+    swprintf(additional, 1500, L"%ls\\another", path);
+    char path_utf8[5600];
+    if (to_utf8(path, path_utf8, sizeof(path_utf8)) != 0) ExitProcess(3);
+    __btrc_windows_daemon_file_owner *directory = NULL;
+    __btrc_windows_launch_error_t error;
+    CHECK("enumeration fixture creates a private held directory",
+        __btrc_windows_daemon_directory_open((const unsigned char *)path_utf8, strlen(path_utf8), 1, &directory, &error) == 0);
+    if (directory == NULL) ExitProcess(3);
+    __btrc_windows_daemon_directory_entry entry, zero, queried;
+    memset(&zero, 0, sizeof(zero));
+    unsigned char name[128]; memset(name, 0xA5, sizeof(name));
+    size_t required = 99;
+    CHECK("empty directory returns an explicit end without modifying the buffer",
+        __btrc_windows_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) == 0
+        && required == 0 && memcmp(&entry, &zero, sizeof(entry)) == 0 && name[0] == 0xA5);
+    CHECK("enumeration fixture creates a Unicode entry", daemon_fixture_file(original, "first", descriptor) == 0);
+    HANDLE reader = CreateFileW(original, FILE_READ_DATA | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+    FILE_ID_INFO expected = { 0 };
+    CHECK("enumeration fixture reads full native identity", reader != INVALID_HANDLE_VALUE
+        && GetFileInformationByHandleEx(reader, FileIdInfo, &expected, sizeof(expected)));
+    CHECK("restart discovers a new entry and query retains its full identity",
+        __btrc_windows_daemon_directory_next(directory, 1, NULL, 0, &required, &queried, &error) == 0
+        && required == strlen("probe-\xc3\xa9") + 1 && queried.present == 1 && queried.kind == 0
+        && queried.volume == expected.VolumeSerialNumber
+        && memcmp(queried.file_id, expected.FileId.Identifier, 16) == 0);
+    size_t sized = required;
+    __btrc_windows_daemon_file_owner *relative = NULL;
+    __btrc_windows_daemon_directory_entry wrong = queried;
+    wrong.file_id[15] ^= 1;
+    const unsigned char *unicode_name = (const unsigned char *)"probe-\xc3\xa9";
+    size_t unicode_size = strlen((const char *)unicode_name);
+    CHECK("relative open compares the high half of the enumerated identity",
+        __btrc_windows_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
+            &wrong, &relative, &error) != 0 && relative == NULL && error.ownership_state == 0);
+    CHECK("relative open accepts the exact enumerated identity",
+        __btrc_windows_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
+            &queried, &relative, &error) == 0 && relative != NULL);
+    CHECK("relative file owner closes independently", __btrc_windows_daemon_file_close(&relative, &error) == 0);
+    const char *invalid_names[] = { "..", "../escape", "child\\escape", "data:stream", "CON", "trailing." };
+    for (size_t index = 0; index < sizeof(invalid_names) / sizeof(invalid_names[0]); index++) {
+        CHECK("relative open accepts only one safe component",
+            __btrc_windows_daemon_control_open_at(directory, (const unsigned char *)invalid_names[index], strlen(invalid_names[index]),
+                BTRC_WOS_CONTROL_CREATE, NULL, &relative, &error) != 0 && relative == NULL);
+    }
+    CHECK("short enumeration copy retains the entry and clears metadata",
+        __btrc_windows_daemon_directory_next(directory, 0, name, 1, &required, &entry, &error) != 0
+        && required == sized && memcmp(&entry, &zero, sizeof(entry)) == 0 && name[0] == 0xA5);
+    CHECK("complete enumeration copy returns the queried entry",
+        __btrc_windows_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) == 0
+        && required == sized && strcmp((const char *)name, "probe-\xc3\xa9") == 0
+        && memcmp(&entry, &queried, sizeof(entry)) == 0);
+    CHECK("complete copy consumes exactly one entry",
+        __btrc_windows_daemon_directory_next(directory, 0, NULL, 0, &required, &entry, &error) == 0
+        && required == 0 && entry.present == 0);
+    CHECK("restart retains the old identity for a replacement race",
+        __btrc_windows_daemon_directory_next(directory, 1, NULL, 0, &required, &entry, &error) == 0 && entry.present == 1);
+    HANDLE remover = CreateFileW(original, DELETE | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+    CHECK("fixture opens the enumerated name for POSIX disposition", remover != INVALID_HANDLE_VALUE);
+    CHECK("fixture marks only the original object for removal", btrcWinDeletePosix(remover, 0) == 0);
+    CHECK("fixture unlinks the name while another reader retains the old object", CloseHandle(remover));
+    CHECK("fixture replaces the enumerated name", daemon_fixture_file(original, "replacement", descriptor) == 0);
+    memset(name, 0xA5, sizeof(name));
+    CHECK("pending enumeration refuses a replaced object with the same name",
+        __btrc_windows_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) != 0
+        && required == 0 && memcmp(&entry, &zero, sizeof(entry)) == 0 && name[0] == 0xA5
+        && error.ownership_state == 1);
+    CHECK("restart observes the replacement as a new snapshot",
+        __btrc_windows_daemon_directory_next(directory, 1, name, sizeof(name), &required, &entry, &error) == 0
+        && entry.present == 1 && strcmp((const char *)name, "probe-\xc3\xa9") == 0
+        && memcmp(entry.file_id, expected.FileId.Identifier, 16) != 0);
+    CHECK("relative open refuses a stale identity after replacement",
+        __btrc_windows_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
+            &queried, &relative, &error) != 0 && relative == NULL);
+    CHECK("fixture releases original identity", CloseHandle(reader));
+    CHECK("fixture creates a second directory entry", daemon_fixture_file(additional, "second", descriptor) == 0);
+    int seen = 0, count = 0;
+    for (int index = 0; index < 3; index++) {
+        int status = __btrc_windows_daemon_directory_next(directory, index == 0, name, sizeof(name), &required, &entry, &error);
+        CHECK("multi-entry directory enumeration succeeds", status == 0);
+        if (status != 0 || !entry.present) break;
+        count++;
+        if (strcmp((const char *)name, "probe-\xc3\xa9") == 0) seen |= 1;
+        if (strcmp((const char *)name, "another") == 0) seen |= 2;
+    }
+    CHECK("enumeration visits each name once without promising order", count == 2 && seen == 3 && entry.present == 0);
+    CHECK("restart obtains a name for a relative read owner",
+        __btrc_windows_daemon_directory_next(directory, 1, name, sizeof(name), &required, &entry, &error) == 0 && entry.present == 1);
+    const char *expected_text = strcmp((const char *)name, "another") == 0 ? "second" : "replacement";
+    CHECK("relative read owner retains its own directory claims",
+        __btrc_windows_daemon_control_open_at(directory, name, strlen((const char *)name), BTRC_WOS_CONTROL_READ,
+            &entry, &relative, &error) == 0 && relative != NULL);
+    CHECK("query leaves a pending entry for close",
+        __btrc_windows_daemon_directory_next(directory, 1, NULL, 0, &required, &entry, &error) == 0 && entry.present == 1);
+    __btrc_windows_daemon_file_owner *created = NULL;
+    CHECK("relative creation does not accept an existing identity claim",
+        __btrc_windows_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_CREATE,
+            &entry, &created, &error) != 0 && created == NULL);
+    CHECK("relative creation uses the protected held directory",
+        __btrc_windows_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_CREATE,
+            NULL, &created, &error) == 0 && created != NULL);
+    __btrc_windows_daemon_directory_entry created_identity, cleared_identity = { 0 };
+    CHECK("new file identity is captured while its exclusive writer is held",
+        __btrc_windows_daemon_file_identity(created, &created_identity, &error) == 0
+        && created_identity.present == 1 && created_identity.kind == 0);
+    CHECK("identity requires an output and retains its owner on failure",
+        __btrc_windows_daemon_file_identity(created, NULL, &error) != 0 && error.ownership_state == 1);
+    size_t transferred = 0;
+    CHECK("relative created file supports checked writes",
+        __btrc_windows_daemon_file_write(created, 0, (const unsigned char *)"relative", 8, &transferred, &error) == 0
+        && transferred == 8 && __btrc_windows_daemon_file_flush(created, &error) == 0);
+    CHECK("publication releases its writer", __btrc_windows_daemon_file_close(&created, &error) == 0);
+    CHECK("published identity admits only the same relative file",
+        __btrc_windows_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_REMOVE,
+            &created_identity, &created, &error) == 0 && created != NULL);
+    uint32_t disposed = 0;
+    CHECK("relative created file supports held removal",
+        __btrc_windows_daemon_file_dispose(created, &disposed, &error) == 0 && disposed == 1);
+    CHECK("disposed owners refuse identity queries and clear the snapshot",
+        __btrc_windows_daemon_file_identity(created, &created_identity, &error) != 0
+        && memcmp(&created_identity, &cleared_identity, sizeof(created_identity)) == 0
+        && error.ownership_state == 1);
+    CHECK("relative created file closes", __btrc_windows_daemon_file_close(&created, &error) == 0);
+    CHECK("directory close releases its pending cursor", __btrc_windows_daemon_file_close(&directory, &error) == 0 && directory == NULL);
+    CHECK("relative read owner survives its caller's directory close",
+        __btrc_windows_daemon_file_read(relative, 0, name, sizeof(name), &transferred, &error) == 0
+        && transferred == strlen(expected_text) && memcmp(name, expected_text, transferred) == 0);
+    wchar_t moved[1500];
+    swprintf(moved, 1500, L"%ls-moved", path);
+    CHECK("relative child retains ancestor rename exclusion", !MoveFileW(path, moved));
+    CHECK("relative child finally releases its claims", __btrc_windows_daemon_file_close(&relative, &error) == 0);
+    CHECK("directory rename succeeds after the last relative owner closes", MoveFileW(path, moved));
+    CHECK("fixture restores enumeration directory", MoveFileW(moved, path));
+    CHECK("fixture removes enumeration files", DeleteFileW(original) && DeleteFileW(additional));
+    CHECK("fixture removes enumeration directory", RemoveDirectoryW(path));
+}
+
+static void check_daemon_files(void) {
+    DWORD before = 0, after = 0;
+    CHECK("daemon files initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
+    wchar_t temporary[1024], directory[1200], moved[1220], log[1300], record[1300], alias[1300];
+    DWORD length = GetTempPathW(1024, temporary);
+    if (length == 0 || length >= 1024) ExitProcess(3);
+    swprintf(directory, 1200, L"%lsbtrc-daemon-files-%lu", temporary, (unsigned long)GetCurrentProcessId());
+    swprintf(moved, 1220, L"%ls-moved", directory);
+    swprintf(log, 1300, L"%ls\\test.log", directory);
+    swprintf(record, 1300, L"%ls\\test.control", directory);
+    swprintf(alias, 1300, L"%ls\\alias", directory);
+    void *directory_descriptor = NULL, *file_descriptor = NULL;
+    if (btrcWinPrivateDescriptor(1, &directory_descriptor) != 0
+            || btrcWinPrivateDescriptor(0, &file_descriptor) != 0) ExitProcess(3);
+    SECURITY_ATTRIBUTES attributes = { sizeof(attributes), directory_descriptor, FALSE };
+    char directory_utf8[5200], log_utf8[5200], record_utf8[5200];
+    if (to_utf8(directory, directory_utf8, sizeof(directory_utf8)) != 0
+            || to_utf8(log, log_utf8, sizeof(log_utf8)) != 0
+            || to_utf8(record, record_utf8, sizeof(record_utf8)) != 0) ExitProcess(3);
+    __btrc_windows_daemon_file_owner *held = NULL;
+    __btrc_windows_launch_error_t error;
+    CHECK("directory inspection never creates a missing leaf",
+        __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+            0, &held, &error) != 0 && held == NULL && error.ownership_state == 0
+        && GetFileAttributesW(directory) == INVALID_FILE_ATTRIBUTES);
+    CHECK("directory creation rejects an invalid mode",
+        __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+            2, &held, &error) != 0 && held == NULL
+        && GetFileAttributesW(directory) == INVALID_FILE_ATTRIBUTES);
+    CHECK("private leaf creation works beneath an ordinary temporary root",
+        __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+            1, &held, &error) == 0 && held != NULL);
+    if (held == NULL) ExitProcess(3);
+    CHECK("held private directory cannot be renamed", !MoveFileW(directory, moved));
+    size_t path_size = 0, repeated_size = 0, directory_io = 99;
+    unsigned char canonical[5400] = { 0 }, too_small[2] = { 0xA5, 0xA5 };
+    CHECK("directory path query sizes the complete NUL terminated result",
+        __btrc_windows_daemon_directory_path(held, NULL, 0, &path_size, &error) == 0 && path_size > 2);
+    CHECK("short directory path copy leaves the entire buffer untouched",
+        __btrc_windows_daemon_directory_path(held, too_small, sizeof(too_small), &repeated_size, &error) != 0
+        && repeated_size == path_size && too_small[0] == 0xA5 && too_small[1] == 0xA5);
+    CHECK("directory path copy uses the same snapshot as its query",
+        __btrc_windows_daemon_directory_path(held, canonical, sizeof(canonical), &repeated_size, &error) == 0
+        && repeated_size == path_size && strlen((const char *)canonical) + 1 == path_size);
+    __btrc_windows_daemon_file_owner *directory_copy = NULL;
+    CHECK("canonical directory path reopens the protected directory",
+        __btrc_windows_daemon_directory_open(canonical, strlen((const char *)canonical), 0, &directory_copy, &error) == 0
+        && directory_copy != NULL);
+    CHECK("canonical directory copy closes independently", __btrc_windows_daemon_file_close(&directory_copy, &error) == 0);
+    CHECK("directory capability refuses file I/O without touching its buffer",
+        __btrc_windows_daemon_file_read(held, 0, too_small, sizeof(too_small), &directory_io, &error) != 0
+        && directory_io == 0 && too_small[0] == 0xA5 && too_small[1] == 0xA5);
+    CHECK("directory capability refuses file flush", __btrc_windows_daemon_file_flush(held, &error) != 0);
+    CHECK("fixture removes directory ACL protection",
+        SetNamedSecurityInfoW(directory, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            NULL, NULL, NULL, NULL) == ERROR_SUCCESS);
+    CHECK("directory path copy rechecks its current ACL",
+        __btrc_windows_daemon_directory_path(held, too_small, sizeof(too_small), &repeated_size, &error) != 0
+        && repeated_size == 0 && too_small[0] == 0xA5 && too_small[1] == 0xA5 && error.ownership_state == 1);
+    PACL directory_acl = NULL;
+    BOOL directory_acl_present = FALSE, directory_acl_defaulted = FALSE;
+    CHECK("fixture reads its private directory ACL",
+        GetSecurityDescriptorDacl(directory_descriptor, &directory_acl_present, &directory_acl, &directory_acl_defaulted)
+        && directory_acl_present);
+    CHECK("fixture restores directory ACL",
+        SetNamedSecurityInfoW(directory, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            NULL, NULL, directory_acl, NULL) == ERROR_SUCCESS);
+    CHECK("private directory owner closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("create mode accepts an already private directory without replacing it",
+        __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
+            1, &held, &error) == 0 && held != NULL);
+    CHECK("reopened directory owner closes", __btrc_windows_daemon_file_close(&held, &error) == 0);
+
+    wchar_t nested[1300];
+    swprintf(nested, 1300, L"%ls\\namespace-\u00e9", directory);
+    char nested_utf8[5400];
+    if (to_utf8(nested, nested_utf8, sizeof(nested_utf8)) != 0) ExitProcess(3);
+    CHECK("private directory creation preserves Unicode names",
+        __btrc_windows_daemon_directory_open((const unsigned char *)nested_utf8, strlen(nested_utf8),
+            1, &held, &error) == 0 && held != NULL);
+    CHECK("Unicode canonical path retains its name",
+        __btrc_windows_daemon_directory_path(held, canonical, sizeof(canonical), &path_size, &error) == 0
+        && strstr((const char *)canonical, "namespace-\xc3\xa9") != NULL);
+    CHECK("Unicode directory owner closes", __btrc_windows_daemon_file_close(&held, &error) == 0);
+    CHECK("fixture removes Unicode directory", RemoveDirectoryW(nested));
+    CHECK("fixture creates an unprotected directory", CreateDirectoryW(nested, NULL));
+    CHECK("create mode refuses an existing unprotected directory",
+        __btrc_windows_daemon_directory_open((const unsigned char *)nested_utf8, strlen(nested_utf8),
+            1, &held, &error) != 0 && held == NULL && error.ownership_state == 0);
+    CHECK("refusal leaves existing directory in place", GetFileAttributesW(nested) != INVALID_FILE_ATTRIBUTES);
+    CHECK("fixture removes unprotected directory", RemoveDirectoryW(nested));
+    check_directory_record_bounds();
+    check_daemon_directory_entries(directory, file_descriptor);
+    CHECK("daemon log creates a private empty append file",
+        __btrc_windows_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
+    CHECK("held daemon directory cannot be renamed", !MoveFileW(directory, moved));
+    CHECK("daemon log closes its capability", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("private directory creation never replaces a regular file",
+        __btrc_windows_daemon_directory_open((const unsigned char *)log_utf8, strlen(log_utf8),
+            1, &held, &error) != 0 && held == NULL);
+    CHECK("daemon log fixture writes existing content", daemon_fixture_file(log, "preserve\n", file_descriptor) == 0);
+    CHECK("daemon log opens existing content without truncating",
+        __btrc_windows_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
+    char contents[128];
+    CHECK("daemon log kept its existing bytes", read_text(log, contents, sizeof(contents)) == 0 && strcmp(contents, "preserve\n") == 0);
+    CHECK("daemon log releases its ancestor holds", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("directory rename works after close", MoveFileW(directory, moved));
+    CHECK("fixture restores directory name", MoveFileW(moved, directory));
+    __btrc_windows_daemon_file_owner *competing = NULL;
+    size_t transferred = 99;
+    uint32_t disposition = 99;
+    unsigned char bytes[128];
+    CHECK("missing control file cannot be opened for reading",
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_READ, &held, &error) != 0 && held == NULL && error.ownership_state == 0);
+    CHECK("control creation is private and exclusive",
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_CREATE, &held, &error) == 0 && held != NULL);
+    CHECK("control owner retains its parent", !MoveFileW(directory, moved));
+    CHECK("control write reports its byte count",
+        __btrc_windows_daemon_file_write(held, 0, (const unsigned char *)"initial", 7, &transferred, &error) == 0
+        && transferred == 7);
+    CHECK("control writes use explicit offsets",
+        __btrc_windows_daemon_file_write(held, 2, (const unsigned char *)"X", 1, &transferred, &error) == 0
+        && transferred == 1);
+    CHECK("second creator cannot truncate an existing control file",
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_CREATE, &competing, &error) != 0 && competing == NULL);
+    CHECK("control read uses its own explicit offset",
+        __btrc_windows_daemon_file_read(held, 1, bytes, 4, &transferred, &error) == 0
+        && transferred == 4 && memcmp(bytes, "nXti", 4) == 0);
+    CHECK("control flush confirms written bytes", __btrc_windows_daemon_file_flush(held, &error) == 0);
+    CHECK("zero length control I/O permits null buffers",
+        __btrc_windows_daemon_file_write(held, 0, NULL, 0, &transferred, &error) == 0 && transferred == 0
+        && __btrc_windows_daemon_file_read(held, 0, NULL, 0, &transferred, &error) == 0 && transferred == 0);
+    memset(bytes, 0xA5, sizeof(bytes));
+    CHECK("invalid control offset clears count and preserves buffer",
+        __btrc_windows_daemon_file_read(held, UINT64_MAX, bytes, 1, &transferred, &error) != 0
+        && transferred == 0 && bytes[0] == 0xA5 && error.ownership_state == 1);
+    CHECK("oversized control I/O is refused before touching its buffer",
+        __btrc_windows_daemon_file_read(held, 0, bytes, (size_t)INT_MAX + 1, &transferred, &error) != 0
+        && transferred == 0 && bytes[0] == 0xA5);
+    CHECK("control read beyond EOF reports no bytes",
+        __btrc_windows_daemon_file_read(held, 100, bytes, 1, &transferred, &error) == 0
+        && transferred == 0 && bytes[0] == 0xA5);
+    CHECK("created control owner closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("control read reopens protected content",
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_READ, &held, &error) == 0 && held != NULL
+        && __btrc_windows_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) == 0
+        && transferred == 7 && memcmp(bytes, "inXtial", 7) == 0);
+    CHECK("read-only control owner refuses writes",
+        __btrc_windows_daemon_file_write(held, 0, (const unsigned char *)"overwrite", 9, &transferred, &error) != 0
+        && transferred == 0 && error.ownership_state == 1);
+    CHECK("read-only control owner cannot claim a flush", __btrc_windows_daemon_file_flush(held, &error) != 0);
+    CHECK("read-only control owner cannot delete",
+        __btrc_windows_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 0);
+    CHECK("held control reader excludes removal",
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_REMOVE, &competing, &error) != 0 && competing == NULL);
+    CHECK("fixture removes control ACL protection",
+        SetNamedSecurityInfoW(record, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            NULL, NULL, NULL, NULL) == ERROR_SUCCESS);
+    bytes[0] = 0xA5;
+    CHECK("held control reader rechecks ACL before I/O",
+        __btrc_windows_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) != 0
+        && transferred == 0 && bytes[0] == 0xA5 && error.ownership_state == 1);
+    PACL private_acl = NULL;
+    BOOL acl_present = FALSE, acl_defaulted = FALSE;
+    CHECK("fixture reads its private ACL",
+        GetSecurityDescriptorDacl(file_descriptor, &acl_present, &private_acl, &acl_defaulted) && acl_present);
+    CHECK("fixture restores control ACL",
+        SetNamedSecurityInfoW(record, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            NULL, NULL, private_acl, NULL) == ERROR_SUCCESS);
+    CHECK("control reader closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("control removal opens the same protected object for inspection",
+        __btrc_windows_daemon_control_open((const unsigned char *)record_utf8, strlen(record_utf8),
+            BTRC_WOS_CONTROL_REMOVE, &held, &error) == 0 && held != NULL
+        && __btrc_windows_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) == 0
+        && transferred == 7 && memcmp(bytes, "inXtial", 7) == 0);
+    CHECK("fixture makes held control file read-only", SetFileAttributesW(record, FILE_ATTRIBUTE_READONLY));
+    CHECK("read-only control deletion is refused before mutation",
+        __btrc_windows_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 0
+        && error.native_code == ERROR_ACCESS_DENIED
+        && (GetFileAttributesW(record) & FILE_ATTRIBUTE_READONLY) != 0);
+    CHECK("fixture restores writable control file", SetFileAttributesW(record, FILE_ATTRIBUTE_NORMAL));
+    HANDLE retained_reader = CreateFileW(record, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL, OPEN_EXISTING, 0, NULL);
+    CHECK("fixture retains a reader of the original object", retained_reader != INVALID_HANDLE_VALUE);
+    CHECK("control deletion commits disposition through the held handle",
+        __btrc_windows_daemon_file_dispose(held, &disposition, &error) == 0 && disposition == 1);
+    CHECK("disposed control owner refuses further operations",
+        __btrc_windows_daemon_file_dispose(held, &disposition, &error) != 0 && disposition == 1
+        && __btrc_windows_daemon_file_read(held, 0, bytes, sizeof(bytes), &transferred, &error) != 0 && transferred == 0);
+    CHECK("disposed control owner still closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
+    CHECK("POSIX disposition removes the name while another reader holds the object",
+        GetFileAttributesW(record) == INVALID_FILE_ATTRIBUTES);
+    CHECK("fixture creates a replacement at the deleted path", daemon_fixture_file(record, "replacement", file_descriptor) == 0);
+    DWORD retained_count = 0;
+    CHECK("retained reader still names the deleted object",
+        ReadFile(retained_reader, bytes, sizeof(bytes), &retained_count, NULL)
+        && retained_count == 7 && memcmp(bytes, "inXtial", 7) == 0);
+    CHECK("fixture releases the old object", CloseHandle(retained_reader));
+    CHECK("replacement survives old-object cleanup", read_text(record, contents, sizeof(contents)) == 0 && strcmp(contents, "replacement") == 0);
+    CHECK("fixture removes replacement", DeleteFileW(record));
+    unsigned char token[16]; memset(token, 0x12, sizeof(token));
+    const char *valid = "btrc-daemon-v1\n12121212121212121212121212121212\n42\n";
+    CHECK("daemon record fixture publishes protected bytes", daemon_fixture_file(record, valid, file_descriptor) == 0);
+    CHECK("daemon record authenticates exact token and PID",
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) == 0 && held != NULL);
+    CHECK("verified record cannot be deleted", !DeleteFileW(record));
+    HANDLE writer = CreateFileW(record, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL, OPEN_EXISTING, 0, NULL);
+    CHECK("verified record refuses a concurrent writer", writer == INVALID_HANDLE_VALUE);
+    if (writer != INVALID_HANDLE_VALUE) CloseHandle(writer);
+    CHECK("daemon record closes", __btrc_windows_daemon_file_close(&held, &error) == 0 && held == NULL);
+    token[3] ^= 1;
+    CHECK("wrong token cannot grant a record capability",
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
+    token[3] ^= 1;
+    CHECK("wrong PID cannot grant a record capability",
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 43, &held, &error) != 0 && held == NULL);
+    snprintf(contents, sizeof(contents), "%sx", valid);
+    CHECK("daemon record fixture appends an unwanted byte", daemon_fixture_file(record, contents, file_descriptor) == 0);
+    CHECK("record with trailing bytes is refused",
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
+    CHECK("daemon record fixture restores canonical bytes", daemon_fixture_file(record, valid, file_descriptor) == 0);
+    CHECK("daemon record fixture creates hardlink", CreateHardLinkW(alias, record, NULL));
+    CHECK("multiply linked record is refused",
+        __btrc_windows_daemon_record_open((const unsigned char *)record_utf8, strlen(record_utf8), token, 42, &held, &error) != 0 && held == NULL);
+    CHECK("fixture deletes hardlink", DeleteFileW(alias));
+    CHECK("fixture removes log", DeleteFileW(log));
+    CHECK("fixture creates directory in place of log", CreateDirectoryW(log, &attributes));
+    CHECK("directory cannot become daemon log",
+        __btrc_windows_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) != 0 && held == NULL);
+    CHECK("fixture removes false log directory", RemoveDirectoryW(log));
+    char unsafe[5300];
+    snprintf(unsafe, sizeof(unsafe), "%s\\..\\escape", log_utf8);
+    CHECK("unsafe component is refused before file creation",
+        __btrc_windows_daemon_log_open((const unsigned char *)unsafe, strlen(unsafe), &held, &error) != 0 && held == NULL);
+    CHECK("daemon file close is idempotent", __btrc_windows_daemon_file_close(&held, &error) == 0);
+    CHECK("fixture removes record", DeleteFileW(record));
+    CHECK("fixture removes private directory", RemoveDirectoryW(directory));
+    free(directory_descriptor); free(file_descriptor);
+    CHECK("daemon files final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
+    CHECK("daemon file refusals release all handles", before == after);
+}
+
+/* Exercise the production launch owner with a real suspended image and the
+ * supervisor admission/handshake above. The observer handle belongs only to
+ * this fixture and proves whether release terminated the child. */
+static void check_transfer_launch(int parent_contained) {
+    DWORD before = 0, after = 0;
+    CHECK("transfer initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
+    wchar_t self[1024], temporary[1024], other_path[MAX_PATH];
+    if (to_wide(self_utf8, self, 1024) != 0 || !GetTempPathW(1024, temporary)
+            || !GetTempFileNameW(temporary, L"btr", 0, other_path)) ExitProcess(3);
+    HANDLE image = CreateFileW(self, FILE_READ_DATA | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+        NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    HANDLE other = CreateFileW(other_path, FILE_READ_DATA | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+        NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (image == INVALID_HANDLE_VALUE || other == INVALID_HANDLE_VALUE) ExitProcess(3);
+    for (int scenario = 0; scenario < 8; scenario++) {
+        unsigned char nonces[32] = { 0 };
+        DWORD caller = GetCurrentProcessId();
+        for (size_t pair = 0; pair < 2; pair++) {
+            unsigned int serial = ++bootstrap_serial;
+            memcpy(nonces + pair * 16, &caller, sizeof(caller));
+            memcpy(nonces + pair * 16 + 8, &serial, sizeof(serial));
+        }
+        btrc_wos_transfer *owner = NULL;
+        uint32_t pid = 99, lifetime = 99;
+        __btrc_windows_launch_error_t error;
+        uint64_t deadline = GetTickCount64() + (scenario == 6 ? 1000 : 10000);
+        if (scenario == 3) deadline = GetTickCount64();
+        int opened = btrc_wos_transfer_open((const uint16_t *)self, scenario == 2 ? other : image,
+            nonces, deadline, &owner, &pid, &lifetime, scenario == 1 ? NULL : &error);
+        if (scenario == 2 || scenario == 3) {
+            CHECK("refused transfer clears outputs and reaps its child", opened != 0
+                && owner == NULL && pid == 0 && lifetime == 0
+                && error.native_code == (scenario == 2 ? ERROR_FILE_INVALID : ERROR_TIMEOUT));
+            continue;
+        }
+        CHECK("transfer creates a suspended, verified supervisor", opened == 0 && owner != NULL
+            && pid > 1 && lifetime <= 1 && btrc_wos_transfer_request(owner) != NULL
+            && btrc_wos_transfer_reply(owner) != NULL);
+        if (opened != 0) ExitProcess(3);
+        if (parent_contained) CHECK("restrictive parent job forces contained lifetime", lifetime == 1);
+        HANDLE observer = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, FALSE, pid);
+        if (observer == NULL) ExitProcess(3);
+        CHECK("suspended supervisor is alive", WaitForSingleObject(observer, 0) == WAIT_TIMEOUT);
+        CHECK("COMMIT cannot precede resume", btrc_wos_transfer_begin_commit(owner, deadline, &error) != 0
+            && error.ownership_state == 1);
+        if (scenario == 6) {
+            uint64_t now = GetTickCount64();
+            if (now < deadline) Sleep((DWORD)(deadline - now));
+            CHECK("expired launch cannot resume", btrc_wos_transfer_resume(owner, &error) != 0
+                && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1);
+        } else if (scenario != 0) {
+            CHECK("verified supervisor resumes once", btrc_wos_transfer_resume(owner, &error) == 0
+                && btrc_wos_transfer_resume(owner, &error) != 0 && error.ownership_state == 1);
+        }
+        wchar_t directory[1200] = { 0 }, log[1300] = { 0 }, control[1300] = { 0 };
+        char directory_text[4096], log_text[4096], control_text[4096];
+        if (scenario == 4 || scenario == 5 || scenario == 7) {
+            void *descriptor = NULL;
+            if (btrcWinPrivateDescriptor(0, &descriptor) != 0) ExitProcess(3);
+            SECURITY_ATTRIBUTES security = { sizeof(security), descriptor, FALSE };
+            swprintf(directory, 1200, L"%lsbtrc-transfer-%lu-%d", temporary, (unsigned long)caller, scenario);
+            swprintf(log, 1300, L"%ls\\worker.log", directory);
+            swprintf(control, 1300, L"%ls\\worker.control", directory);
+            if (!CreateDirectoryW(directory, &security) || daemon_fixture_file(log, "", descriptor) != 0
+                    || to_utf8(directory, directory_text, 4096) != 0
+                    || to_utf8(log, log_text, 4096) != 0 || to_utf8(control, control_text, 4096) != 0) ExitProcess(3);
+            free(descriptor);
+            btrc_daemon_init init;
+            memset(&init, 0, sizeof(init));
+            for (size_t index = 0; index < 16; index++) init.token[index] = (unsigned char)(index + 1);
+            init.remaining_startup_ms = 5000;
+            init.lifetime = lifetime;
+            const char *name = scenario == 4 ? "transfer-admission" : "commit-34";
+            init.name = (btrc_daemon_text){ (const unsigned char *)name, strlen(name) };
+            init.control_path = (btrc_daemon_text){ (const unsigned char *)control_text, strlen(control_text) };
+            init.log_path = (btrc_daemon_text){ (const unsigned char *)log_text, strlen(log_text) };
+            init.cwd = (btrc_daemon_text){ (const unsigned char *)directory_text, strlen(directory_text) };
+            init.executable = (btrc_daemon_text){ (const unsigned char *)self_utf8, strlen(self_utf8) };
+            init.arguments = &init.executable; init.argument_count = 1;
+            btrc_daemon_handshake state;
+            btrc_daemon_handshake_start(&state, BTRC_DAEMON_LAUNCHER, pid, lifetime, init.token);
+            __btrc_windows_launch_options_t command;
+            memset(&command, 0, sizeof(command));
+            char *arguments[] = { self_utf8 };
+            command.executable_utf8 = self_utf8; command.argv_utf8 = arguments; command.argc = 1;
+            command.cwd_utf8 = directory_text;
+            btrc_wos_startup_snapshot *snapshot = NULL;
+            int copied = btrc_wos_startup_snapshot_open(&command, &init, &snapshot, &error);
+            CHECK("real transfer copies complete command snapshot", copied == 0);
+            if (copied != 0) ExitProcess(3);
+            CHECK("production transfer delivers INIT", btrc_wos_bootstrap_send_init(btrc_wos_transfer_request(owner),
+                &state, btrc_wos_startup_snapshot_get(snapshot), deadline, &error) == 0);
+            btrc_wos_startup_snapshot_close(&snapshot);
+            if (scenario == 4) {
+                DWORD code = 99;
+                CHECK("real launch passes five-handle admission", WaitForSingleObject(observer, 5000) == WAIT_OBJECT_0
+                    && GetExitCodeProcess(observer, &code) && code == 0);
+            } else {
+                btrc_wos_bootstrap_message message = { 0 };
+                int ready = btrc_wos_bootstrap_receive(btrc_wos_transfer_reply(owner), &state, &message, deadline, &error);
+                CHECK("real transfer authenticates READY", ready == 0 && message.frame.type == BTRC_DAEMON_READY
+                    && message.frame.supervisor_pid == pid && message.frame.lifetime == lifetime);
+                btrc_wos_bootstrap_message_release(&message);
+                if (ready != 0) ExitProcess(3);
+                if (scenario == 7) {
+                    CHECK("expired COMMIT leaves rollback enabled", btrc_wos_transfer_begin_commit(owner,
+                        GetTickCount64(), &error) != 0 && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1);
+                } else {
+                    CHECK("COMMIT changes native cleanup policy once", btrc_wos_transfer_begin_commit(owner, deadline, &error) == 0
+                        && btrc_wos_transfer_begin_commit(owner, deadline, &error) != 0);
+                    btrc_daemon_frame commit;
+                    memset(&commit, 0, sizeof(commit));
+                    commit.type = BTRC_DAEMON_COMMIT;
+                    memcpy(commit.token, init.token, sizeof(commit.token));
+                    CHECK("real transfer sends COMMIT", btrc_wos_bootstrap_send_signal(btrc_wos_transfer_request(owner),
+                        &state, &commit, deadline, &error) == 0);
+                    CHECK("published supervisor sends matching ACK", btrc_wos_bootstrap_receive(btrc_wos_transfer_reply(owner),
+                        &state, &message, deadline, &error) == 0 && message.frame.type == BTRC_DAEMON_ACK);
+                    btrc_wos_bootstrap_message_release(&message);
+                    SecureZeroMemory(&commit, sizeof(commit));
+                }
+            }
+            btrc_daemon_handshake_clear(&state);
+            SecureZeroMemory(&init, sizeof(init));
+        }
+        if (scenario == 5) {
+            CHECK("post-COMMIT close releases ownership", btrc_wos_transfer_close(&owner, deadline, &error) == 0 && owner == NULL);
+            CHECK("post-COMMIT close leaves supervisor alive", WaitForSingleObject(observer, 100) == WAIT_TIMEOUT);
+            CHECK("fixture terminates its committed supervisor", TerminateProcess(observer, 0));
+        } else {
+            /* The observer can retain the terminated process in job accounting.
+             * First request termination without waiting, then release that
+             * reference before asking the runtime to finish its own cleanup. */
+            int closed = btrc_wos_transfer_close(&owner, GetTickCount64(), &error);
+            CHECK("bounded rollback either completes or retains ownership", closed == 0
+                || (owner != NULL && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1));
+        }
+        CHECK("aborted supervisor is reaped", WaitForSingleObject(observer, 5000) == WAIT_OBJECT_0);
+        CHECK("fixture releases observer", CloseHandle(observer));
+        CHECK("transfer closes within cleanup budget", btrc_wos_transfer_close(&owner, GetTickCount64() + 5000, &error) == 0
+            && owner == NULL && btrc_wos_transfer_close(&owner, 0, &error) == 0);
+        if (directory[0] != 0) {
+            if (scenario == 5) CHECK("fixture removes published record", DeleteFileW(control));
+            CHECK("fixture removes transfer log", DeleteFileW(log));
+            CHECK("fixture removes transfer directory", RemoveDirectoryW(directory));
+        }
+    }
+    CHECK("fixture releases held images", CloseHandle(image) && CloseHandle(other));
+    CHECK("fixture removes mismatched image", DeleteFileW(other_path));
+    CHECK("transfer final handle census", GetProcessHandleCount(GetCurrentProcess(), &after));
+    CHECK("transfer releases every handle", before == after);
+}
+
+static int snapshot_entry(const btrc_daemon_init *snapshot, const char *expected) {
+    size_t size = strlen(expected);
+    for (size_t index = 0; index < snapshot->environment_count; index++)
+        if (snapshot->environment[index].size == size
+                && memcmp(snapshot->environment[index].data, expected, size) == 0) return 1;
+    return 0;
+}
+
+static void check_transfer_snapshot(void) {
+    wchar_t key[100], removed[100];
+    char key_text[100], removed_text[100], original[160], replacement[160];
+    swprintf(key, 100, L"BTRC_SNAPSHOT_%lu", (unsigned long)GetCurrentProcessId());
+    swprintf(removed, 100, L"BTRC_REMOVED_%lu", (unsigned long)GetCurrentProcessId());
+    if (GetEnvironmentVariableW(key, NULL, 0) != 0 || GetEnvironmentVariableW(removed, NULL, 0) != 0
+            || to_utf8(key, key_text, 100) != 0 || to_utf8(removed, removed_text, 100) != 0
+            || !SetEnvironmentVariableW(key, L"inherited") || !SetEnvironmentVariableW(removed, L"remove-me")) ExitProcess(3);
+    snprintf(original, sizeof(original), "%s=inherited", key_text);
+    snprintf(replacement, sizeof(replacement), "%s=override", key_text);
+    char name[] = "snapshot", argument[] = "two words", cwd[] = ".";
+    char *arguments[] = { self_utf8, argument }, *overrides[] = { replacement }, *unsets[] = { removed_text };
+    __btrc_windows_launch_options_t command;
+    memset(&command, 0, sizeof(command));
+    command.executable_utf8 = self_utf8; command.argv_utf8 = arguments; command.argc = 2;
+    command.cwd_utf8 = cwd;
+    command.environment_overrides_utf8 = overrides; command.override_count = 1;
+    command.environment_unsets_utf8 = unsets; command.unset_count = 1;
+    btrc_daemon_init startup;
+    memset(&startup, 0, sizeof(startup));
+    startup.token[0] = 0xA3; startup.remaining_startup_ms = 1000;
+    startup.name = (btrc_daemon_text){ (const unsigned char *)name, strlen(name) };
+    btrc_wos_startup_snapshot *owner = NULL;
+    __btrc_windows_launch_error_t error;
+    CHECK("snapshot merges overrides and unsets", btrc_wos_startup_snapshot_open(&command, &startup, &owner, &error) == 0);
+    const btrc_daemon_init *snapshot = btrc_wos_startup_snapshot_get(owner);
+    if (snapshot == NULL) ExitProcess(3);
+    CHECK("snapshot retains effective override", snapshot_entry(snapshot, replacement) && !snapshot_entry(snapshot, original));
+    snprintf(original, sizeof(original), "%s=remove-me", removed_text);
+    CHECK("snapshot removes requested environment entry", !snapshot_entry(snapshot, original));
+    wchar_t retained[32];
+    CHECK("snapshot leaves caller environment unchanged", GetEnvironmentVariableW(key, retained, 32) != 0
+        && wcscmp(retained, L"inherited") == 0 && GetEnvironmentVariableW(removed, retained, 32) != 0
+        && wcscmp(retained, L"remove-me") == 0);
+    wchar_t current[4096]; char current_text[16384];
+    if (!GetCurrentDirectoryW(4096, current) || to_utf8(current, current_text, 16384) != 0) ExitProcess(3);
+    CHECK("snapshot resolves relative cwd before launch", snapshot->cwd.size == strlen(current_text)
+        && memcmp(snapshot->cwd.data, current_text, snapshot->cwd.size) == 0);
+    name[0] = 'X'; argument[0] = 'X'; replacement[0] = 'X'; startup.token[0] = 0;
+    if (!SetEnvironmentVariableW(key, L"changed-after-snapshot")) ExitProcess(3);
+    snprintf(original, sizeof(original), "%s=override", key_text);
+    CHECK("snapshot owns strings, token and environment", snapshot->token[0] == 0xA3
+        && snapshot->name.size == 8 && memcmp(snapshot->name.data, "snapshot", 8) == 0
+        && snapshot->arguments[1].size == 9 && memcmp(snapshot->arguments[1].data, "two words", 9) == 0
+        && snapshot_entry(snapshot, original));
+    btrc_wos_startup_snapshot_close(&owner);
+    CHECK("snapshot close clears ownership", owner == NULL && btrc_wos_startup_snapshot_get(owner) == NULL);
+    btrc_wos_startup_snapshot_close(&owner);
+    /* Invalid UTF-8 fails while copying, before a supervisor can be launched. */
+    argument[0] = (char)0xFF;
+    CHECK("snapshot rejects invalid argv bytes", btrc_wos_startup_snapshot_open(&command, &startup, &owner, &error) != 0
+        && owner == NULL && error.ownership_state == 0);
+    if (!SetEnvironmentVariableW(key, NULL) || !SetEnvironmentVariableW(removed, NULL)) ExitProcess(3);
+    SecureZeroMemory(&startup, sizeof(startup));
+}
+
+static void check_transfer_containment(void) {
+    spec_t spec;
+    spec_init(&spec, "--transfer-contained");
+    outcome_t outcome = run(&spec);
+    CHECK("ordinary Process job contains supervisor despite breakaway attempt", exited_with(&outcome, 0));
+    if (!exited_with(&outcome, 0)) {
+        if (outcome.out != NULL) report("%s", (const char *)outcome.out);
+        if (outcome.err != NULL) report("%s", (const char *)outcome.err);
+    }
+    release(&outcome);
+}
+
 int main(int argc, char **argv) {
     wchar_t self_wide[1024];
     DWORD length = GetModuleFileNameW(NULL, self_wide, 1024);
     if (length == 0 || length >= 1024 || to_utf8(self_wide, self_utf8, (int)sizeof(self_utf8)) != 0) return 2;
+    if (argc == 1 || (argc >= 2 && (strcmp(argv[1], "--bootstrap-io") == 0
+            || strcmp(argv[1], "--transfer-contained") == 0
+            || strcmp(argv[1], "--btrc-daemon-bootstrap-v1") == 0))) {
+        if (census_process_baseline() != 0) {
+            report("FAIL Win32 process census baseline\n");
+            return 52;
+        }
+    }
+    if (argc == 2 && strcmp(argv[1], "--daemon-files") == 0) {
+        check_daemon_files();
+        report("windows-daemon-files %s checks=%d\n", failures == 0 ? "PASS" : "FAIL", checks);
+        return failures == 0 ? 0 : 1;
+    }
+    if (argc == 2 && strcmp(argv[1], "--transfer-contained") == 0) {
+        check_transfer_launch(1);
+        return failures == 0 ? 0 : 1;
+    }
+    if (argc == 2 && strcmp(argv[1], "--bootstrap-io") == 0) {
+        check_bootstrap_pipes();
+        check_bootstrap_exchange();
+        check_bootstrap_admission();
+        check_transfer_snapshot();
+        check_transfer_launch(0);
+        check_transfer_containment();
+        check_daemon_files();
+        report("windows-bootstrap-io %s checks=%d\n", failures == 0 ? "PASS" : "FAIL", checks);
+        return failures == 0 ? 0 : 1;
+    }
     if (argc >= 2) return child(argc, argv);
     DWORD temp_length = GetTempPathW(1024, temp_root);
     if (temp_length == 0 || temp_length >= 1000) return 3;
+    check_bootstrap_pipes();
+    check_bootstrap_exchange();
+    check_bootstrap_admission();
+    check_transfer_snapshot();
+    check_transfer_launch(0);
+    check_transfer_containment();
+    check_daemon_files();
     check_quoting();
     check_exit_codes();
     check_tree_timeout();

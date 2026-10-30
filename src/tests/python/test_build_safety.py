@@ -29,6 +29,8 @@ def _make_dry_run(*args: str) -> str:
         "PYTEST_WORKERS",
         "PYTEST_ARGS",
         "PYTEST_SERIAL_ARGS",
+        "UNIT_GUI_DELEGATED",
+        "GUI_PYTEST_WORKERS",
         "MAKEFLAGS",
         "MFLAGS",
         "MAKEOVERRIDES",
@@ -77,6 +79,45 @@ def test_default_pytest_parallelism_is_bounded_and_configurable():
     assert " -n 8" in default
     assert " -n auto" not in default
     assert " -n 2" in constrained
+
+
+def test_unit_shard_builds_and_shares_the_selfhost_compiler():
+    output = _make_dry_run("test-shard-unit", "NIX=", "--always-make")
+    commands = output.splitlines()
+    compiler = next(index for index, line in enumerate(commands) if "Built bin/btrcc" in line)
+    tests = next(index for index, line in enumerate(commands) if "-m pytest src/tests/" in line)
+
+    assert compiler < tests
+    assert f'BTRC_TEST_BTRCC="{REPO_ROOT / "bin/btrcc"}"' in commands[tests]
+    assert "--ignore=src/tests/btrc --ignore=src/tests/runner.py" in output
+
+
+@pytest.mark.parametrize("inherited_delegation", ["0", "1"])
+def test_separate_gui_shard_owns_exactly_the_unit_exclusions(monkeypatch, inherited_delegation):
+    monkeypatch.setenv("UNIT_GUI_DELEGATED", inherited_delegation)
+
+    def pytest_arguments(target, *options):
+        output = _make_dry_run(target, "NIX=", *options).replace("\\\n", "")
+        command = next(line for line in output.splitlines() if "-m pytest " in line)
+        return shlex.split(command)
+
+    standalone = pytest_arguments("test-shard-unit")
+    separated = pytest_arguments("test-shard-unit", "UNIT_GUI_DELEGATED=1")
+    gui = pytest_arguments("test-native-gui")
+    original_ignores = {arg for arg in standalone if arg.startswith("--ignore=")}
+    separated_ignores = {arg for arg in separated if arg.startswith("--ignore=")}
+    selectors = {arg for arg in gui if arg.startswith("src/tests/")}
+
+    assert original_ignores == {"--ignore=src/tests/btrc", "--ignore=src/tests/runner.py"}
+    assert separated_ignores - original_ignores == {f"--ignore={path}" for path in selectors}
+    assert selectors and all((REPO_ROOT / path).is_file() for path in selectors)
+
+
+def test_linux_gui_shard_bounds_compile_concurrency():
+    output = _make_dry_run("test-shard-gui", "NIX=", "PYTEST_WORKERS=4")
+    assert ' -n 4 -n 1 -m "not e40_qualification"' in output
+    custom = _make_dry_run("test-shard-gui", "NIX=", "GUI_PYTEST_WORKERS=2")
+    assert ' -n 8 -n 2 -m "not e40_qualification"' in custom
 
 
 def test_python_runtime_executes_native_callbacks() -> None:
@@ -181,6 +222,7 @@ def test_devcontainer_policy_and_generated_output_are_unambiguously_filtered():
         "host.nix",
         # The .#platforms shell's additions, which the CI image never imports.
         "platforms.nix",
+        "stdlib-windows-sdk.nix",
         "wgpu-native-prebuilt.nix",
     }
     assert "files = import ./nix" in (REPO_ROOT / "flake.nix").read_text()
@@ -367,7 +409,7 @@ def test_btrcc_c_rebuilds_for_every_input_category():
 
     for source in representative_inputs:
         output = _make_dry_run("--what-if", source, "dist/btrcc.c")
-        assert "python3 -m src.compiler.python.main" in output, source
+        assert "python3 -m tools.compiler_build transpile" in output, source
 
 
 def test_native_btrcc_rebuilds_from_changed_selfhost_source():
@@ -378,23 +420,23 @@ def test_native_btrcc_rebuilds_from_changed_selfhost_source():
         "NIX=",
     )
 
-    assert "python3 -m src.compiler.python.main" in output
+    assert "python3 -m tools.compiler_build transpile" in output
     generated = "dist/btrcc-macos-native.c" if platform.system() == "Darwin" else "dist/btrcc.c"
-    assert f"{generated} -o bin/btrcc" in output
+    assert f"compile --input {generated} --output bin/btrcc --" in output
 
 
 def test_windows_btrcc_builds_the_host_entrypoint_without_unix_reader():
     output = _make_dry_run("--what-if", "src/compiler/btrc/frontend/Models.btrc", "btrcc-windows-x64", "NIX=")
     assert "src/compiler/btrc/cli/WindowsMain.btrc" in output
     assert "src/compiler/btrc/BtrccMain.btrc" not in output
-    assert "dist/btrcc-windows.c -o build/btrcc/windows-x64/btrcc.exe" in output
+    assert "compile --input dist/btrcc-windows.c --output build/btrcc/windows-x64/btrcc.exe --" in output
 
 
 def test_btrcc_checks_ast_dependencies_before_transpiling():
     output = _make_dry_run("--what-if", "src/language/ast.asdl", "dist/btrcc.c")
 
     generated_check = "python3 -m tools.compiler_codegen.main check"
-    transpile = "python3 -m src.compiler.python.main"
+    transpile = "python3 -m tools.compiler_build transpile"
     assert generated_check in output
     assert output.index(generated_check) < output.index(transpile)
 
@@ -403,9 +445,9 @@ def test_btrcc_release_targets_publish_bundles_not_raw_dist_binaries():
     linux = _make_dry_run("btrcc-linux-x64", "NIX=")
     windows = _make_dry_run("btrcc-windows-x64", "NIX=")
 
-    assert "-o build/btrcc/linux-x64/btrcc" in linux
+    assert "--output build/btrcc/linux-x64/btrcc --" in linux
     assert "--binary build/btrcc/linux-x64/btrcc --target linux-x64" in linux
-    assert "-o build/btrcc/windows-x64/btrcc.exe" in windows
+    assert "--output build/btrcc/windows-x64/btrcc.exe --" in windows
     assert "--target windows-x64 --output-dir dist" in windows
     assert "tools.compiler_codegen.main check" in linux + windows
 
@@ -430,18 +472,18 @@ def test_release_c_files_are_generated_for_their_rows_and_checked_per_row(bundle
     output = _make_dry_run("--always-make", bundle, "NIX=")
     stamp = f"build/btrcc/release-c/{checked_row}"
 
-    assert f"BtrccMain.btrc --strict-imports --no-cache --target {row} -o {c_file}" in output
-    assert f"--target {checked_row} -o {stamp}.c" in output
+    assert f"BtrccMain.btrc --target {row} --output {c_file}" in output
+    assert f"--target {checked_row} --output {stamp}.c" in output
     assert f"cmp -s {c_file} {stamp}.c" in output
     assert f"touch {stamp}.ok" in output
-    assert f"{c_file} -o build/btrcc/{build}/btrcc" in output
+    assert f"compile --input {c_file} --output build/btrcc/{build}/btrcc --" in output
     assert other_file not in output
 
 
 def test_windows_release_c_and_samples_are_generated_for_windows_x86_64():
     windows = _make_dry_run("--always-make", "test-windows", "NIX=")
 
-    assert "WindowsMain.btrc --strict-imports --no-cache --target windows-x86_64 -o dist/btrcc-windows.c" in windows
+    assert "WindowsMain.btrc --target windows-x86_64 --output dist/btrcc-windows.c" in windows
     assert "--no-cache --target windows-x86_64 -o dist/win_sample.c" in windows
     assert "--no-cache --target windows-x86_64 -o dist/win_paths.c" in windows
 

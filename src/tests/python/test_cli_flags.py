@@ -13,6 +13,7 @@ import subprocess
 import pytest
 
 from src.compiler.python import Compiler
+from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.backend.c_emitter import CEmitter
 from src.compiler.python.cli.compiler import CompilerCommand
 from src.tests.c_toolchains import HOST_GCC, host_c_compiler
@@ -360,3 +361,15 @@ def test_debug_build_compiles_and_runs(tmp_path, monkeypatch):
     run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
     assert run.returncode == 0
     assert run.stdout.strip() == "10"
+
+
+def test_stdlib_strict_cli_separates_cached_validation(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("BTRC_STATE_DIR", str(tmp_path / "state"))
+    source = tmp_path / "Main.btrc"
+    source.write_text(PURE)
+    output = tmp_path / "main.c"
+    for flags, cached in [((), False), ((), True), (("--stdlib-strict",), False), (("--stdlib-strict",), True)]:
+        CompilerCommand(Compiler(cache=CompilerCache())).run([str(source), "-o", str(output), *flags])
+        captured = capsys.readouterr()
+        assert ("(cached)" in captured.out) == cached

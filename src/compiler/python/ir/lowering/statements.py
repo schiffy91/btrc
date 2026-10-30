@@ -35,10 +35,12 @@ from src.compiler.python.syntax.ast.generated import (
     FieldAccessExpr,
     ForInitExpr,
     ForInStmt,
+    GotoStmt,
     Identifier,
     IfStmt,
     IndexExpr,
     KeepStmt,
+    LabelStmt,
     NullLiteral,
     ParallelForStmt,
     ReleaseStmt,
@@ -186,18 +188,21 @@ class StatementLowerer:
                 else:
                     name, type_expr = (binding.name, binding.type)
                 provenance.bind_borrowed(name, type_expr)
+                if type_expr is not None and type_expr.is_register:
+                    self._ownership.mark_register_local(name)
             for binding, return_abi in callable_abis:
                 provenance.bind_with_abi(binding.name, binding.type, return_abi)
             if iteration_bindings:
                 stmts.extend(self._iteration.emit_iteration_bindings(iteration_bindings, provenance))
-            for statement in block.statements:
-                self._emit_line_marker(statement, stmts)
-                stmts.extend(
-                    self.lower_stmt(
-                        statement,
-                        provenance,
+            with self._control_flow.jump_frame(block, stmts, provenance, marker):
+                for statement in block.statements:
+                    self._emit_line_marker(statement, stmts)
+                    stmts.extend(
+                        self.lower_item(
+                            statement,
+                            provenance,
+                        )
                     )
-                )
             sequence = IRStatementSequence(stmts)
             falls_through = sequence.may_fall_through()
             managed = self._ownership.pop_managed_scope()
@@ -455,6 +460,10 @@ class StatementLowerer:
             )
         return False
 
+    def lower_item(self, node, provenance: CallableProvenance) -> list[IRStmt]:
+        with self._control_flow.jump_statement(node):
+            return self.lower_stmt(node, provenance)
+
     def lower_stmt(self, node, provenance: CallableProvenance) -> list[IRStmt]:
         """Lower a single AST statement to one or more IRStmts."""
         if isinstance(node, VarDeclStmt):
@@ -462,6 +471,10 @@ class StatementLowerer:
                 node,
                 provenance,
             )
+        if isinstance(node, GotoStmt):
+            return self._control_flow.lower_goto(node, provenance)
+        if isinstance(node, LabelStmt):
+            return self._control_flow.lower_label(node, provenance)
         if isinstance(node, ReturnStmt):
             if self._gpu.gpu_cpu_item_return_active():
                 value = (
@@ -740,7 +753,7 @@ class StatementLowerer:
                 ) as case:
                     for statement in source_case.body:
                         case.statements.extend(
-                            self.lower_stmt(
+                            self.lower_item(
                                 statement,
                                 provenance,
                             )

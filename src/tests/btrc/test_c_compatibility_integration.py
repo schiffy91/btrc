@@ -218,3 +218,65 @@ def test_line_splice_inside_a_literal_is_deleted(semantic_btrcc: Path, tmp_path:
     for name, compiler in _compilers(semantic_btrcc).items():
         stdout = _build_and_run(compiler, program, tmp_path / name, None, flags)
         assert stdout == "xyzw\nabcde\n", name
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        pytest.param(None, id="single-unit"),
+        pytest.param([], id="split"),
+        pytest.param(["--module-units"], id="module-units"),
+    ],
+)
+def test_record_typedefs_keep_their_identity_across_units(
+    semantic_btrcc: Path, tmp_path: Path, layout: list[str] | None
+) -> None:
+    (tmp_path / "Records.btrc").write_text(
+        "typedef struct Point Point;\n"
+        "struct Point { int x; int y; } origin = {2, 3};\n"
+        "typedef struct Point Pair, *PairPtr;\n"
+        "typedef union { int integer; float real; } Value;\n"
+        "typedef enum { RED, GREEN } Color;\n"
+        "Pair makePair(enum Color color) { Pair pair = {4, (int)color}; return pair; }\n"
+    )
+    program = tmp_path / "Main.btrc"
+    program.write_text(
+        "#include <assert.h>\n"
+        "import ./Records.btrc;\n"
+        "int main() {\n"
+        "    Pair pair = makePair(GREEN); PairPtr pointer = &pair; Value value = {7};\n"
+        "    assert(pointer->x + pointer->y == 5);\n"
+        "    assert(origin.x + origin.y == 5 && value.integer == 7);\n"
+        "    return 0;\n"
+        "}\n"
+    )
+    for name, compiler in _compilers(semantic_btrcc).items():
+        assert _build_and_run(compiler, program, tmp_path / name, layout, ("--no-stdlib",)) == "", name
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        pytest.param(None, id="single-unit"),
+        pytest.param([], id="split"),
+        pytest.param(["--module-units"], id="module-units"),
+    ],
+)
+def test_anonymous_members_keep_nested_type_dependencies_across_units(
+    semantic_btrcc: Path, tmp_path: Path, layout: list[str] | None
+) -> None:
+    (tmp_path / "Records.btrc").write_text(
+        "struct Pair { int x; int y; };\n"
+        "enum Color { RED, GREEN };\n"
+        "typedef struct { union { struct { Pair pair; Color color; }; double real; }; } Envelope;\n"
+        "Envelope makeEnvelope() { Envelope result = {{{{2, 3}, GREEN}}}; return result; }\n"
+    )
+    program = tmp_path / "Main.btrc"
+    program.write_text(
+        "#include <assert.h>\n"
+        "import ./Records.btrc;\n"
+        "int main() { Envelope value = makeEnvelope(); "
+        "assert(value.pair.x + value.pair.y == 5 && value.color == GREEN); return 0; }\n"
+    )
+    for name, compiler in _compilers(semantic_btrcc).items():
+        assert _build_and_run(compiler, program, tmp_path / name, layout, ("--no-stdlib",)) == "", name

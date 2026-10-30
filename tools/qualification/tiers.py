@@ -318,8 +318,9 @@ class TierManifest:
             rows[shard.job].add(value)
             if not shard.names():
                 raise TierManifestError(f"tiers.toml: {shard.job} {value} runs in no tier")
-            if "pytest_addopts" in shard.row:
-                raise TierManifestError(f"tiers.toml: {shard.job} {value}: pytest_addopts is computed, not written")
+            for computed in ("pytest_addopts", "unit_gui_delegated"):
+                if computed in shard.row:
+                    raise TierManifestError(f"tiers.toml: {shard.job} {value}: {computed} is computed, not written")
         for reference, values in rows.items():
             if not values:
                 raise TierManifestError(f"tiers.toml: matrix job {reference} has no shards")
@@ -396,7 +397,45 @@ class TierManifest:
                 reports = [name for shard, row in rows for name in self.report_names(job, row, shard.reports)]
             plan["jobs"].append(job.job)
             plan["reports"][job.job] = reports
+        if workflow in ("ci.yml", "macos.yml"):
+            delegated = self._required_gui_coverage(workflow, plan)
+            for row in plan["matrix"].get("tests", {}).get("include", []):
+                if row.get("shard") == "unit":
+                    row["unit_gui_delegated"] = "1" if delegated else "0"
         return plan
+
+    @classmethod
+    def _required_gui_coverage(cls, workflow: str, plan: Mapping[str, Any]) -> bool:
+        """Only complete required partitions and their union may replace unit's GUI files."""
+
+        matrix = plan["matrix"]
+        if workflow == "macos.yml":
+            return "native-gui-coverage" in plan["jobs"] and cls._complete_gui_partitions(
+                matrix.get("native-gui", {}).get("include", []), "macos"
+            )
+        partitions = [row for row in matrix.get("linux-gui", {}).get("include", []) if row.get("session") == "x11"]
+        coverage = [
+            row for row in matrix.get("linux-gui-coverage", {}).get("include", []) if row.get("session") == "x11"
+        ]
+        return (
+            len(coverage) == 1
+            and coverage[0].get("report_only") == "false"
+            and cls._complete_gui_partitions(partitions, "x11")
+        )
+
+    @staticmethod
+    def _complete_gui_partitions(partitions: list[Mapping[str, str]], session: str) -> bool:
+        count = len(partitions)
+        return (
+            bool(partitions)
+            and {row.get("index") for row in partitions} == {str(index) for index in range(count)}
+            and all(
+                row.get("count") == str(count)
+                and row.get("report_only", "false") == "false"
+                and row.get("cell") == f"{session}-{row['index']}"
+                for row in partitions
+            )
+        )
 
     @staticmethod
     def report_names(job: TierJob, row: Mapping[str, str] | None, shard_reports: tuple[str, ...]) -> list[str]:

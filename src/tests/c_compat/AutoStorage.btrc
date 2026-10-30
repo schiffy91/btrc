@@ -1,0 +1,7 @@
+#include <assert.h>
+int main() {
+	auto int value = 3;
+	assert(value == 3);
+	print("PASS: auto storage class");
+	return 0;
+}

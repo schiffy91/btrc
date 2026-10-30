@@ -740,6 +740,7 @@ class IRParam(IRNode):
     name: str
     is_volatile: bool = False
     effective_is_volatile: bool = False
+    is_register: bool = False
 
 
 @dataclass
@@ -820,6 +821,7 @@ class IRVarDecl(IRStmt):
     cleanup_slot: IRCleanupSlot | None = None
     is_cycle_return_temp: bool = False
     effective_is_volatile: bool = False
+    is_register: bool = False
 
 
 @dataclass
@@ -896,6 +898,17 @@ class IRExprStmt(IRStmt):
     """Expression as statement."""
 
     expr: IRExpr = None
+
+
+@dataclass
+class IRGoto(IRStmt):
+    name: str = ""
+
+
+@dataclass
+class IRLabel(IRStmt):
+    name: str = ""
+    falls_through: bool = False
 
 
 @dataclass
@@ -1074,14 +1087,20 @@ class IRStatementSequence:
         return block
 
     def may_fall_through(self) -> bool:
-        return all(self._statement_may_fall_through(statement) for statement in self.statements)
+        falls_through = True
+        for statement in self.statements:
+            if isinstance(statement, IRLabel):
+                falls_through = True
+            elif falls_through:
+                falls_through = self._statement_may_fall_through(statement)
+        return falls_through
 
     def references_variable(self, name: str) -> bool:
         return any(isinstance(node, IRVar) and node.name == name for node in IRNode.walk_value(self.statements))
 
     @classmethod
     def _statement_may_fall_through(cls, statement) -> bool:
-        if isinstance(statement, (IRReturn, IRBreak, IRContinue)):
+        if isinstance(statement, (IRReturn, IRBreak, IRContinue, IRGoto)):
             return False
         if isinstance(statement, IRExprStmt) and isinstance(statement.expr, IRCall) and statement.expr.never_returns:
             return False

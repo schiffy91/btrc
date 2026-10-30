@@ -17,6 +17,7 @@ let
   archive = name: hash: fetchurl {
     url = "https://github.com/gfx-rs/wgpu-native/releases/download/v${version}/${name}";
     inherit hash;
+    passthru = { inherit version; };
   };
 in {
   macos-arm64 = archive "wgpu-macos-aarch64-release.zip" "sha256-FTZ8Jv2+aJLbNQB9OfOINZM4TndzYLcOa9cEy13t3lM=";

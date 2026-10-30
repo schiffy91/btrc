@@ -124,7 +124,8 @@ class IndexMaterialization:
 @dataclass(frozen=True, slots=True)
 class AggregateMaterialization:
     plan: object
-    elements: tuple[object, ...]
+    elements: tuple[StaticInitializerMaterialization, ...]
+    leaf_targets: tuple[TypeExpr | None, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,7 +481,10 @@ class ExpressionLowerer:
         """Materialize an expression's eager operands through one boundary."""
         if isinstance(materialization, SyncMethodMaterialization):
             operand_targets = (None, *materialization.argument_targets)
-        elif isinstance(materialization, CollectionLiteralMaterialization) and materialization.leaf_targets:
+        elif (
+            isinstance(materialization, (AggregateMaterialization, CollectionLiteralMaterialization))
+            and materialization.leaf_targets
+        ):
             operand_targets = materialization.leaf_targets
         elif isinstance(materialization, AssignmentMaterialization) and materialization.operand_targets:
             operand_targets = materialization.operand_targets
@@ -631,7 +635,10 @@ class ExpressionLowerer:
         if isinstance(materialization, AggregateMaterialization):
             return self._collections.materialize_aggregate(
                 materialization.plan,
-                [self.lower_expr(element, provenance) for element in materialization.elements],
+                [
+                    self._materialize_static_initializer(element, provenance, constant_expression=False)
+                    for element in materialization.elements
+                ],
             )
         if isinstance(materialization, CollectionLiteralMaterialization):
             # A leaf of a subclass or an implementation is stored as the
@@ -726,6 +733,8 @@ class ExpressionLowerer:
 
     def _rewrite_stores(self, expression: IRExpr, shared: set[str], node: TernaryExpr) -> IRExpr:
         if isinstance(expression, IRBinOp) and expression.op == "=" and isinstance(expression.left, IRVar):
+            if self._ownership.is_register_c_name(expression.left.name):
+                return expression
             declared = self._session.type_of(node.condition)
             for target in self._assignment_targets(node.condition):
                 if target.name in shared:
@@ -1064,6 +1073,7 @@ class ExpressionLowerer:
                 ),
             )
             row_values[key] = evaluation.values[id(source)]
+            fact_types[id(source)] = type_expr
 
         lowered_callee = row_values.get("callee", callee)
         lowered_receiver = row_values.get("receiver", receiver)
@@ -1475,9 +1485,10 @@ class ExpressionLowerer:
         target_type: TypeExpr | None = None,
     ) -> tuple[StaticInitializerMaterialization, tuple[tuple[object, TypeExpr | None], ...]]:
         """Resolve one recursive initializer tree and its ordered scalar leaves."""
-        plan = self._collections.plan_static(node, provenance)
+        plan = self._collections.plan_static(node, provenance, target_type)
         if plan is None:
             return StaticInitializerMaterialization(source=node, plan=None), ((node, target_type),)
+        source_elements = plan.elements if plan.elements is not None else node.elements
         child_targets: tuple[TypeExpr | None, ...]
         if plan.element_types is not None:
             child_targets = plan.element_types
@@ -1488,10 +1499,10 @@ class ExpressionLowerer:
                 if canonical_target is not None and canonical_target.is_array
                 else None
             )
-            child_targets = (element_target,) * len(node.elements)
-        child_flow = provenance.plan_evaluation(node.elements)
+            child_targets = (element_target,) * len(source_elements)
+        child_flow = provenance.plan_evaluation(source_elements)
         children = []
-        for index, element in enumerate(node.elements):
+        for index, element in enumerate(source_elements):
             entry = child_flow.entries.get(id(element), child_flow.incoming)
             with provenance.at_flow(entry):
                 children.append(
@@ -1785,6 +1796,15 @@ class ExpressionLowerer:
         type_expr = self._session.type_of(node)
         if isinstance(node, NewExpr):
             type_expr = type_expr or node.type
+        if isinstance(node, TernaryExpr) and (type_expr is None or type_expr.base == "null"):
+            type_expr = self._types.conditional_result_type(
+                self.resolved_expression_type(node.true_expr),
+                self.resolved_expression_type(node.false_expr),
+            )
+        if isinstance(node, BinaryExpr) and node.op == "??" and (type_expr is None or type_expr.base == "null"):
+            left_type = self.resolved_expression_type(node.left)
+            right_type = self.resolved_expression_type(node.right)
+            type_expr = right_type if left_type is not None and left_type.base == "null" else left_type or right_type
         return self._types.resolve_active_type(self._default_arguments.resolve_type(type_expr))
 
     def prepare_lowered_value(
@@ -2215,6 +2235,9 @@ class ExpressionLowerer:
                 return None
         return Identifier(name=name, line=node.operand.type.line, col=node.operand.type.col)
 
+    def array_initializer_extent(self, target, initializer) -> IRLiteral:
+        return self._collections.array_initializer_extent(target, initializer)
+
     def _sizeof_global(self, name: str, provenance: CallableProvenance) -> IRExpr | None:
         """Measure a global through its type, an array as element size times extent.
 
@@ -2231,7 +2254,7 @@ class ExpressionLowerer:
         else:
             initializer = self._analyzed.global_initializers.get(name)
             if isinstance(initializer, (BraceInitializer, ListLiteral)):
-                extent = IRLiteral(text=str(len(initializer.elements)))
+                extent = self.array_initializer_extent(binding, initializer)
             else:
                 extent = self.string_array_extent(initializer)
             if extent is None:
@@ -2361,6 +2384,7 @@ class ExpressionLowerer:
                 ),
                 result_type=result_type,
                 keep_nodes=self._ownership.kept_target_operands(node.target, target_nodes, provenance),
+                result_owned=rhs_supplies_result,
                 promote_result=bool(
                     self._values.is_managed(result_type) and result_is_owned and not rhs_supplies_result
                 ),
@@ -2480,7 +2504,7 @@ class ExpressionLowerer:
             computed_owned=computed_owned,
         )
 
-    def _materialize_storage_target(self, plan, provenance: CallableProvenance):
+    def _materialize_storage_target(self, plan, provenance: CallableProvenance, *, ownership_operation: bool = False):
         """Lower target operands while leaving stabilization and storage shape to StorageLowerer."""
         target = plan.target
         if plan.kind is StorageKind.STATIC_FIELD:
@@ -2497,6 +2521,7 @@ class ExpressionLowerer:
             return self._storage.materialize_target(
                 plan,
                 lowered_receiver=self.lower_expr(target.obj, provenance),
+                ownership_operation=ownership_operation,
             )
         return self._storage.materialize_target(
             plan,
@@ -2510,7 +2535,7 @@ class ExpressionLowerer:
     ) -> ManagedSlotTarget:
         """Stabilize one physical slot for an ownership-consuming statement."""
         plan = self._storage.plan_store(source, provenance=provenance)
-        materialized = self._materialize_storage_target(plan, provenance)
+        materialized = self._materialize_storage_target(plan, provenance, ownership_operation=True)
         if plan.kind in {StorageKind.PROPERTY, StorageKind.INDEXED} or materialized.target is None:
             raise CodegenError("ownership operation requires a physical storage target")
         return ManagedSlotTarget(
@@ -2707,13 +2732,28 @@ class ExpressionLowerer:
     ) -> IRExpr:
         """Lower aggregate leaves, then materialize their resolved shape."""
 
-        materialization = AggregateMaterialization(plan, tuple(elements))
+        if plan.elements is not None:
+            elements = plan.elements
+        children = []
+        leaf_plans = []
+        for index, element in enumerate(elements):
+            target = plan.path_slots[index].type if plan.path_slots is not None else None
+            element_type = self._types.canonical_type(target or self._session.type_of(element))
+            if isinstance(element, BraceInitializer) and element_type is not None and element_type.is_array:
+                child, leaves = self._plan_static_initializer(element, provenance, target_type=element_type)
+                children.append(child)
+                leaf_plans.extend(leaves)
+            else:
+                children.append(StaticInitializerMaterialization(source=element, plan=None))
+                leaf_plans.append((element, target))
+        leaves = tuple(leaf for leaf, _target in leaf_plans)
+        materialization = AggregateMaterialization(plan, tuple(children), tuple(target for _leaf, target in leaf_plans))
         sequenced = self._sequence_operands(
-            list(elements),
+            leaves,
             provenance,
             materialization=materialization,
             result_type=self._session.type_of(plan.source),
-            force=self._operand_order.operands_require_order(elements),
+            force=self._operand_order.operands_require_order(leaves),
         )
         return sequenced if sequenced is not None else self._materialize_sequenced(materialization, provenance)
 
@@ -2812,7 +2852,7 @@ class ExpressionLowerer:
             if source_type is None:
                 spec = ExpressionLowerer._untracked_format(expression, spec)
             c_type = (
-                self._types.render(prepared.effective_type)
+                self._operand_order.operand_c_type(expression, prepared.effective_type)
                 if prepared.effective_type is not None
                 else "char*"
                 if spec == "%s"
@@ -2966,6 +3006,7 @@ class ExpressionLowerer:
                 provenance,
                 materialization=BinaryMaterialization(node),
                 result_type=self._session.type_of(node),
+                result_owned=self._ownership.owns_result(node, provenance=provenance),
                 keep_nodes=keep_nodes,
                 pin_nodes=pin_nodes,
                 force=self._operand_order.operands_require_order([node.left, node.right]),
@@ -3028,8 +3069,8 @@ class ExpressionLowerer:
                 provenance,
                 source_owned=branch_ownership[1],
             )
-        left_type = self._session.type_of(node.left)
-        right_type = self._session.type_of(node.right)
+        left_type = self.resolved_expression_type(node.left) if node.op == "??" else self._session.type_of(node.left)
+        right_type = self.resolved_expression_type(node.right) if node.op == "??" else self._session.type_of(node.right)
         op = node.op
         overloaded = self.lower_overloaded_values(
             left_type,

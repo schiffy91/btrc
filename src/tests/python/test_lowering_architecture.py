@@ -29,7 +29,6 @@ OWNER_MODULES = {
     "iteration.py": "IterationLowerer",
     "lowerer.py": "IRLowerer",
     "ownership.py": "OwnershipLowerer",
-    "reachability.py": "StdlibReachability",
     "session.py": "LoweringSession",
     "statements.py": "StatementLowerer",
     "storage.py": "StorageLowerer",
@@ -43,7 +42,6 @@ EXPECTED_FILES = frozenset({"__init__.py", *OWNER_MODULES})
 # exports.
 EXPECTED_INTERNAL_IMPORTS = {
     "__init__.py": set(),
-    "reachability.py": set(),
     "calls.py": {"ownership.py", "session.py", "types.py"},
     "classes.py": {
         "calls.py",
@@ -91,6 +89,7 @@ EXPECTED_INTERNAL_IMPORTS = {
     "functions.py": {
         "calls.py",
         "concurrency.py",
+        "control_flow.py",
         "exceptions.py",
         "expressions.py",
         "generics.py",
@@ -124,7 +123,7 @@ EXPECTED_INTERNAL_IMPORTS = {
         "types.py",
     },
     "ownership.py": {"session.py", "types.py"},
-    "session.py": {"reachability.py", "generics.py"},
+    "session.py": {"generics.py"},
     "statements.py": {
         "calls.py",
         "control_flow.py",
@@ -139,7 +138,6 @@ EXPECTED_INTERNAL_IMPORTS = {
     },
     "storage.py": {"calls.py", "ownership.py", "session.py", "types.py"},
     "translation_unit.py": {
-        "reachability.py",
         "calls.py",
         "classes.py",
         "collections.py",
@@ -241,6 +239,7 @@ EXPECTED_PRIMARY_RETAINED = {
     },
     "FunctionLowerer": {
         "LoweringSession",
+        "ControlFlowLowerer",
         "CTypeLowerer",
         "DefaultArgumentLoweringContext",
         "ExpressionLowerer",
@@ -322,7 +321,6 @@ EXPECTED_PRIMARY_RETAINED = {
         "CleanupSlotRegistry",
     },
     "CTypeLowerer": {"LoweringSession"},
-    "StdlibReachability": set(),
 }
 
 BEHAVIOR_ARGUMENTS = frozenset(
@@ -612,10 +610,10 @@ def _is_callable_annotation(annotation: ast.expr, aliases: set[str]) -> bool:
     return bool(_annotation_names(annotation) & aliases)
 
 
-def test_lowering_package_has_the_exact_twenty_one_file_tree() -> None:
+def test_lowering_package_has_the_exact_twenty_file_tree() -> None:
     relative_files = {path.relative_to(LOWERING_ROOT).as_posix() for path in LOWERING_ROOT.rglob("*.py")}
     assert relative_files == EXPECTED_FILES
-    assert len(relative_files) == 21
+    assert len(relative_files) == 20
     assert not (LOWERING_ROOT.parent / "gen").exists()
     for filename, owner in OWNER_MODULES.items():
         _owner_class(LOWERING_ROOT / filename, owner)
@@ -758,6 +756,13 @@ def test_callable_provenance_is_fresh_per_body_and_never_a_retained_service() ->
         "TranslationUnitLowerer",
     }
 
+    assert {owner for owner, dependencies in retained.items() if "LoweredExpressionTypes" in dependencies} == {
+        "CallableProvenance"
+    }
+    port = _class_registry()["LoweredExpressionTypes"][1]
+    assert len(port.bases) == 1 and _annotation_names(port.bases[0]) == {"Protocol"}
+    assert {node.name for node in port.body if isinstance(node, ast.FunctionDef)} == {"resolved_expression_type"}
+
     construction_sites: Counter[tuple[str, str]] = Counter()
     for path in _paths():
         tree = _tree(path)
@@ -767,11 +772,12 @@ def test_callable_provenance_is_fresh_per_body_and_never_a_retained_service() ->
             for node in ast.walk(tree)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "CallableProvenance"
         ):
-            assert len(call.args) == 4
-            assert isinstance(call.args[3], ast.Attribute)
-            assert isinstance(call.args[3].value, ast.Name)
-            assert call.args[3].value.id == "self"
-            assert call.args[3].attr == "_signatures"
+            assert len(call.args) == 5
+            for argument, field in zip(call.args[3:], ("_signatures", "_expressions")):
+                assert isinstance(argument, ast.Attribute)
+                assert isinstance(argument.value, ast.Name)
+                assert argument.value.id == "self"
+                assert argument.attr == field
             parent = parents[call]
             assert isinstance(parent, ast.Assign)
             function = parents[parent]

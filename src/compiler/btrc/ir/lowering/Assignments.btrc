@@ -27,18 +27,21 @@ class AssignmentPlan {
 	}
 }
 
-/* A physical storage target whose receiver and key were evaluated once:
- * the temporaries it declared, the assignments that fill them, and the
- * assignable C target built from them. */
-class PhysicalStorageTarget {
+/* Stabilized storage: a physical lvalue or a getter/setter pair, with its
+ * receiver and key evaluated once before the value operation. */
+class MaterializedStorageTarget {
 	public Vector<IRNode> declarations;
 	public Vector<IRNode> setup;
 	public IRNode target;
+	public string setter;
+	public Vector<IRNode> arguments;
 
-	public PhysicalStorageTarget() {
+	public MaterializedStorageTarget() {
 		self.declarations = [];
 		self.setup = [];
 		self.target = IRNode.literal("0");
+		self.setter = "";
+		self.arguments = [];
 	}
 }
 
@@ -68,15 +71,23 @@ class AssignmentLowerer {
 
 	public IRNode materializePlain(AssignmentPlan plan, IRNode target, IRNode value) { return IRNode.binary(target, plan.assignment.op, value); }
 
-	public IRNode wrapPhysical(PhysicalStorageTarget storage, IRNode operation) {
+	public IRNode store(MaterializedStorageTarget storage, IRNode value) {
+		if (storage.setter == "") { return IRNode.binary(storage.target, "=", value); }
+		Vector<IRNode> arguments = [];
+		arguments.extend(storage.arguments);
+		arguments.push(value);
+		return IRNode.call(storage.setter, arguments);
+	}
+
+	public IRNode wrapStorage(MaterializedStorageTarget storage, IRNode operation) {
 		Vector<IRNode> operations = [];
 		operations.push(operation);
-		return self.wrapPhysicalSequence(storage, operations);
+		return self.wrapStorageSequence(storage, operations);
 	}
 
 	/* The target's setup, then the operations, as one expression; Python's
 	 * StorageLowerer._wrap_target. */
-	public IRNode wrapPhysicalSequence(PhysicalStorageTarget storage, Vector<IRNode> operations) {
+	public IRNode wrapStorageSequence(MaterializedStorageTarget storage, Vector<IRNode> operations) {
 		Vector<IRNode> expressions = [];
 		for setup in storage.setup { expressions.push(setup); }
 		for operation in operations { expressions.push(operation); }

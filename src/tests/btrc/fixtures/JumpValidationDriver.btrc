@@ -1,0 +1,151 @@
+import Library.Map;
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/analyzer/Analyzer.btrc;
+import ../../../compiler/btrc/analyzer/HostedAbi.btrc;
+import ../../../compiler/btrc/analyzer/Models.btrc;
+import ../../../compiler/btrc/generated/ast/Node.btrc;
+import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
+import ../../../compiler/btrc/generated/runtime/Catalog.btrc;
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/ir/Emitter.btrc;
+import ../../../compiler/btrc/ir/Model.btrc;
+import ../../../compiler/btrc/ir/lowering/Lowerer.btrc;
+import ../../../compiler/btrc/ir/optimization/Optimizer.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Safety.btrc;
+import ../../../compiler/btrc/ir/runtime/Catalog.btrc;
+import ../../../compiler/btrc/lexer/Lexer.btrc;
+import ../../../compiler/btrc/parser/Parser.btrc;
+import ../../../compiler/btrc/parser/SourceMacros.btrc;
+import ../../../compiler/btrc/pipeline/ModuleUnits.btrc;
+import ../../../compiler/btrc/syntax/Grammar.btrc;
+import ../../../compiler/btrc/syntax/Identity.btrc;
+import ../../../compiler/btrc/syntax/Tokens.btrc;
+#include <assert.h>
+#include <limits.h>
+
+/* Replay must relocate jump-body identities to the new AST. */
+class JumpRecords implements IValidationRecords {
+	private ValidationRecordCodec codec;
+	public string encoded;
+	public int replayed = 0;
+
+	public JumpRecords(Node program, string encoded) {
+		Map<string, string> files = {};
+		for declaration in program.declarations() { files.put(AstIdentity.key(declaration), "Jump.btrc"); }
+		self.codec = ValidationRecordCodec(program.declarations(), files);
+		self.encoded = encoded;
+	}
+
+	public void selectBodies(Map<Node, bool> unreached) {}
+
+	public Vector<ValidationFact>? recorded(int phase, Node declaration) {
+		if (phase != RECORD_PHASE_VALIDATE || self.encoded.isEmpty()) { return null; }
+		Vector<ValidationFact>? facts = self.codec.decode(self.encoded);
+		assert(facts != null);
+		self.replayed++;
+		return facts;
+	}
+
+	public bool journals(int phase, Node declaration) { return phase == RECORD_PHASE_VALIDATE && self.encoded.isEmpty(); }
+
+	public bool finish(int phase, Node declaration, ValidationJournal journal) {
+		if (phase != RECORD_PHASE_VALIDATE) { return true; }
+		Map<string, bool> foreign = {};
+		string? encoded = self.codec.encode(declaration, journal, foreign);
+		if (encoded == null) { assert(false); return false; }
+		assert(!encoded.isEmpty());
+		self.encoded = encoded;
+		var invalid = ValidationJournal();
+		invalid.facts.push(ValidationFact(VALIDATION_JUMP_BODY, declaration));
+		assert(self.codec.encode(declaration, invalid, foreign) == null);
+		/* A hosted-call row may point at any node. Re-tagging its declaration
+         * location as a jump body must be rejected by the decoder too. */
+		var transport = ValidationJournal();
+		transport.facts.push(ValidationFact(VALIDATION_HOSTED_CALL, declaration));
+		string? transported = self.codec.encode(declaration, transport, foreign);
+		assert(transported != null);
+		Vector<string> fields = Strings.split(transported.trim(), "\t");
+		fields.set(0, f"{VALIDATION_JUMP_BODY}");
+		assert(self.codec.decode(Strings.join(fields, "\t") + "\n") == null);
+		return true;
+	}
+
+	public void abandon(Node declaration) { assert(false); }
+
+	public bool reusable(Node declaration) { return !self.encoded.isEmpty(); }
+
+	public Vector<ValidationFact>? recordedInstance(Node template, string section) { return null; }
+
+	public bool journalsInstance(Node template) { return false; }
+
+	public bool finishInstance(Node template, string section, ValidationJournal journal) { return true; }
+}
+
+class JumpValidationFixture {
+	class Node program(GrammarInfo grammar, string source = "int main() { jump(\"done\"); label(\"done\"); return 0; }") {
+		var parser = Parser(Lexer(source, grammar).tokenize(), grammar);
+		Node program = parser.parseProgram();
+		assert(!parser.failed);
+		for node in AstStructure.preorder(program) {
+			if (node.kind != NK_EXPR_STMT || node.expr.kind != NK_CALL_EXPR || node.expr.callee.kind != NK_IDENTIFIER) { continue; }
+			Node call = node.expr;
+			if (call.callee.name != "jump" && call.callee.name != "label") { continue; }
+			Node spelling = call.args().get(0);
+			assert(spelling.kind == NK_STRING_LITERAL);
+			node.kind = call.callee.name == "jump" ? NK_GOTO_STMT : NK_LABEL_STMT;
+			node.name = spelling.valueString.substring(1, spelling.valueString.length() - 2);
+			node.nameLine = spelling.line;
+			node.nameCol = spelling.col;
+			node.expr = null;
+		}
+		return program;
+	}
+
+	class Analyzed analyze(Node program, JumpRecords? records = null, bool lower = false) {
+		var tables = GeneratedHostedAbiData();
+		var abi = HostedAbiRepository(tables);
+		var runtime = GeneratedRuntimeCatalogData();
+		Map<string, bool> noNames = {};
+		var rules = SourceMacroRules(TokenVocabulary(), noNames, noNames, noNames);
+		var analyzer = SemanticAnalyzer(SourceRuntimeSymbols(runtime.rows, runtime.intrinsicEffects), rules, tables.targetRows().get(0));
+		if (records != null) { analyzer.configureValidationRecords(records); }
+		Analyzed analyzed = analyzer.analyze(program, abi);
+		if (lower) {
+			var helpers = RuntimeHelperCatalog(runtime.rows, runtime.intrinsicEffects);
+			Vector<FeLine> lines = [];
+			var lowerer = IRLowerer(analyzed, abi, analyzer.declarationRegistry(), analyzer.operatorSemantics(), analyzer.expressionTypes(), analyzer.gpuSemantics(), analyzer.managedValueSemantics(), analyzer.cycleSemantics(), helpers, "Jump.btrc", 0, lines);
+			IRModule module = lowerer.lower(program);
+			var safety = SetjmpSafetyPlanner(SetjmpEffectAnalysis(abi), abi);
+			IROptimizer(safety, helpers).optimize(module, true);
+			print(CEmitter().emit(module));
+		}
+		return analyzed;
+	}
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 2 || argc == 3 || argc == 4);
+	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
+	if (argc >= 3) {
+		Analyzed result = JumpValidationFixture.analyze(JumpValidationFixture.program(grammar, Strings.copy(argv[2])), null, argc == 4);
+		if (argc == 3) { for warning in result.warnings { print(warning.message); } }
+		return 0;
+	}
+	Node first = JumpValidationFixture.program(grammar);
+	Node second = JumpValidationFixture.program(grammar);
+	var written = JumpRecords(first, "");
+	Analyzed live = JumpValidationFixture.analyze(first, written);
+	var replayed = JumpRecords(second, written.encoded);
+	Analyzed cached = JumpValidationFixture.analyze(second, replayed);
+	string oldKey = AstIdentity.key(first.declarations().get(0).bodyNode);
+	string newKey = AstIdentity.key(second.declarations().get(0).bodyNode);
+	assert(oldKey != newKey && replayed.replayed == 1);
+	assert(live.jumpBodyKeys.len == 1 && live.jumpBodyKeys.has(oldKey));
+	assert(cached.jumpBodyKeys.len == 1 && cached.jumpBodyKeys.has(newKey));
+	assert(!cached.jumpBodyKeys.has(oldKey));
+	return 0;
+}

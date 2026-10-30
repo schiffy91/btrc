@@ -32,9 +32,11 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRFunctionRef,
     IRGlobalDecl,
+    IRGoto,
     IRIf,
     IRIndex,
     IRInitializerList,
+    IRLabel,
     IRLiteral,
     IRModule,
     IRParam,
@@ -355,6 +357,8 @@ class _MutationCollector:
         self._expression(declaration.init, bound)
 
     def _statement(self, statement, bound) -> None:
+        if isinstance(statement, (IRGoto, IRLabel)):
+            return
         self._record(statement, bound)
         if isinstance(statement, IRVarDecl):
             self._declaration(statement, bound)
@@ -387,6 +391,49 @@ class _MutationCollector:
             self._expression(statement, bound)
 
 
+class JumpContinuation:
+    """Jump edges within one C statement list, excluding nested callables."""
+
+    def __init__(self, statements: Sequence[IRStmt]) -> None:
+        self.statements = statements
+
+    @classmethod
+    def _targets(cls, statement) -> set[str]:
+        if isinstance(statement, IRGoto):
+            return {statement.name}
+        children = ()
+        if isinstance(statement, IRBlock):
+            children = statement.stmts
+        elif isinstance(statement, IRIf):
+            children = (statement.then_block, statement.else_block)
+        elif isinstance(statement, (IRFor, IRWhile, IRDoWhile)):
+            children = (statement.body,)
+        elif isinstance(statement, IRSwitch):
+            children = tuple(child for case in statement.cases for child in case.body)
+        return set().union(*(cls._targets(child) for child in children))
+
+    def backward(self, position: int) -> bool:
+        name = self.statements[position].name
+        return any(name in self._targets(statement) for statement in self.statements[position + 1 :])
+
+    def start(self, position: int) -> int:
+        labels = {
+            statement.name: index
+            for index, statement in enumerate(self.statements[: position + 1])
+            if isinstance(statement, IRLabel)
+        }
+        if not labels:
+            return position + 1
+        start = position
+        while start > 0:
+            targets = set().union(*(self._targets(statement) for statement in self.statements[start:]))
+            earlier = min((index for name, index in labels.items() if name in targets), default=start)
+            if earlier >= start:
+                break
+            start = earlier
+        return start if start < position else position + 1
+
+
 class PointerFlow:
     """Interpret pointer values while retaining structured storage identity."""
 
@@ -404,6 +451,8 @@ class PointerFlow:
         self.bindings = dict(globals_by_name)
         self.parameters: list[Storage] = []
         self.state: AliasState = {}
+        self._pending_jumps: dict[str, AliasState] = {}
+        self._binding_scopes: list[Mapping[str, Storage]] = []
         for parameter in function.params:
             storage = Storage(
                 name=parameter.name,
@@ -444,16 +493,53 @@ class PointerFlow:
             return state
         saved_bindings = dict(self.bindings)
         current = ExceptionLowerer._copy_state(state)
-        for statement in block.stmts:
-            current = self._statement(statement, current)
+        self._binding_scopes.append(saved_bindings)
+        try:
+            current = self._sequence(block.stmts, current)
+        finally:
+            self._binding_scopes.pop()
         if not scoped:
             return current
         self.bindings = saved_bindings
         visible = set(saved_bindings.values())
         return {storage: origins for storage, origins in current.items() if storage in visible}
 
+    def _pending_at(self, name: str, bindings: Mapping[str, Storage]) -> AliasState:
+        bound = set(bindings.values()).union(*(scope.values() for scope in self._binding_scopes))
+        return {
+            storage: set(origins) for storage, origins in self._pending_jumps.get(name, {}).items() if storage in bound
+        }
+
+    def _sequence(self, statements: Sequence[IRStmt], state: AliasState, start: int = 0) -> AliasState:
+        current = state
+        for position in range(start, len(statements)):
+            statement = statements[position]
+            entry = ExceptionLowerer._copy_state(current) if isinstance(statement, IRLabel) else None
+            current = self._statement(statement, current)
+            if not isinstance(statement, IRLabel) or not JumpContinuation(statements).backward(position):
+                continue
+            bindings = dict(self.bindings)
+            header = ExceptionLowerer._copy_state(current)
+            for _ in range(16):
+                self.bindings = dict(bindings)
+                current = self._sequence(statements, ExceptionLowerer._copy_state(header), position + 1)
+                updated = ExceptionLowerer._join_states(entry, self._pending_at(statement.name, bindings))
+                if updated == header:
+                    return current
+                header = updated
+            self.bindings = dict(bindings)
+            return self._sequence(statements, self._widen(header), position + 1)
+        return current
+
     def _statement(self, statement, state: AliasState) -> AliasState:
         self.state = state
+        if isinstance(statement, IRGoto):
+            self._pending_jumps[statement.name] = ExceptionLowerer._join_states(
+                self._pending_jumps.get(statement.name, {}), state
+            )
+            return {}
+        if isinstance(statement, IRLabel):
+            return ExceptionLowerer._join_states(state, self._pending_at(statement.name, self.bindings))
         if isinstance(statement, IRVarDecl):
             current = self._expression(statement.array_size, state)[1]
             storage = self._declare(statement)
@@ -502,6 +588,7 @@ class PointerFlow:
 
     def _for(self, statement: IRFor, state: AliasState) -> AliasState:
         saved_bindings = dict(self.bindings)
+        self._binding_scopes.append(saved_bindings)
         current = (
             self._statement(statement.init, state)
             if statement.init is not None
@@ -520,6 +607,7 @@ class PointerFlow:
         else:
             header = self._widen(header)
         self.bindings = saved_bindings
+        self._binding_scopes.pop()
         visible = set(saved_bindings.values())
         return {storage: origins for storage, origins in header.items() if storage in visible}
 
@@ -918,6 +1006,8 @@ class _QualifierSafety:
         self._expression(declaration.init, visible)
 
     def _statement(self, statement, visible) -> None:
+        if isinstance(statement, (IRGoto, IRLabel)):
+            return
         if isinstance(statement, IRVarDecl):
             self._declaration(statement, visible)
         elif isinstance(statement, IRIf):
@@ -1065,7 +1155,7 @@ class _LexicalVisibilityPass:
         visible = list(inherited)
         for index, statement in enumerate(block.stmts):
             if ExceptionLowerer.contains_setjmp(statement):
-                continuation = IRBlock(stmts=block.stmts[index + 1 :])
+                continuation = IRBlock(stmts=block.stmts[JumpContinuation(block.stmts).start(index) :])
                 self._mark_visible(visible, ExceptionLowerer.mutated_names(continuation, effects=self._effects))
             self._statement(statement, visible)
 
@@ -1152,6 +1242,8 @@ class _LexicalVisibilityPass:
     def _statement(self, statement, visible) -> None:
         if isinstance(statement, IRVarDecl):
             self._prepare_declaration(statement, visible)
+        elif isinstance(statement, (IRGoto, IRLabel)):
+            return
         elif isinstance(statement, IRAssign):
             self._simple(visible, statement.target, statement.value)
         elif isinstance(statement, IRReturn):
@@ -1490,9 +1582,10 @@ class ExceptionLowerer:
 
     @staticmethod
     def scalar_type_aliases(module) -> frozenset[str]:
-        """Resolve the module's enumeration names and arithmetic typedef chains."""
-        aliases = {definition.name for definition in module.enum_defs if definition.name}
+        """Resolve hosted arithmetic types, module enums and local typedef chains."""
         targets = {definition.name: definition.target_type for definition in module.typedef_defs}
+        aliases = set(HOSTED_ABI.arithmetic_types) - targets.keys()
+        aliases.update(definition.name for definition in module.enum_defs if definition.name)
         changed = True
         while changed:
             changed = False
@@ -1728,6 +1821,36 @@ class ExceptionLowerer:
             if with_setjmp[id(function)]:
                 visibility.qualify_generated_locals(function.body)
             ExceptionLowerer.reject_inferred_volatile_aliases(function, visibility.inferred_volatile, globals_by_name)
+            if with_setjmp[id(function)]:
+                ExceptionLowerer.materialize_setjmp_parameters(function, call_effects[function.name])
+
+    @staticmethod
+    def materialize_setjmp_parameters(function: IRFunctionDef, effects: SetjmpCallEffects) -> None:
+        """Give mutable volatile parameters local storage before entering setjmp.
+
+        GCC 15 IPA constant propagation can replace a volatile parameter's
+        post-longjmp value with its incoming constant. A volatile local keeps
+        the writes, including in static generic specializations. Use the
+        resolved mutation identities so writes to a shadowing local do not
+        change a parameter. Qualifier safety has already checked source aliases.
+        """
+        modified = {storage.identity for storage in ExceptionLowerer.mutated_names(function.body, effects=effects)}
+        declarations = []
+        for parameter in function.params:
+            if not parameter.is_volatile or id(parameter) not in modified:
+                continue
+            name = parameter.name
+            parameter.name = f"__btrc_setjmp_parameter_{name}"
+            declarations.append(
+                IRVarDecl(
+                    c_type=parameter.c_type,
+                    name=name,
+                    init=IRVar(parameter.name),
+                    is_volatile=True,
+                    effective_is_volatile=True,
+                )
+            )
+        function.body.stmts[:0] = declarations
 
     def _require_setjmp(self):
         """Register the header even for try/throw nested inside lifted bodies."""
@@ -1748,7 +1871,8 @@ class ExceptionLowerer:
         self._session.require_helper("__btrc_push_try")
         self._session.require_helper("__btrc_throw")
         finally_only = node.catch_block is None and node.finally_block is not None
-        try_terminates = finally_only and ControlFlowAnalyzer.block_must_terminate(node.try_block)
+        targeted = self._session.jump_index.targeted_names if self._session.jump_index is not None else frozenset()
+        try_terminates = finally_only and ControlFlowAnalyzer.block_must_terminate(node.try_block, targeted)
         pending_name = (
             self._session.fresh_temp("__btrc_finally_pending") if finally_only and (not try_terminates) else None
         )

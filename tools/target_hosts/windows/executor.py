@@ -56,9 +56,9 @@ from pathlib import Path
 from typing import ClassVar
 
 if __package__:
-    from .bundle import TARGETS, digest, pe_machine
+    from .bundle import TARGETS, CompanionArtifact, digest, pe_machine
 else:
-    from bundle import TARGETS, digest, pe_machine
+    from bundle import TARGETS, CompanionArtifact, digest, pe_machine
 
 BUNDLE_SCHEMA = "btrc.target-bundle/1"
 BUNDLE_MANIFEST = "bundle.json"
@@ -440,6 +440,7 @@ class WindowsNativeExecutor:
         self.machine = machine if machine is not None else self.native_machine
         self.loopback = loopback if loopback is not None else self.loopback_listener
         self.label, self.staging, self.programs, self.provenance = None, None, {}, {}
+        self.companions = {}
 
     def granted_capabilities(self):
         """The host capabilities programs get here: ``loopback-listener`` when
@@ -519,7 +520,7 @@ class WindowsNativeExecutor:
                 "emulated target runs are not evidence"
             )
         staging = Path(tempfile.mkdtemp(prefix="btrc-windows-executor-"))
-        programs = {}
+        programs, companions = {}, {}
         try:
             (staging / "programs").mkdir()
             for program_id, entry in sorted(document["programs"].items()):
@@ -536,8 +537,19 @@ class WindowsNativeExecutor:
                     raise ValueError(f"{program_id}: the staged copy does not match the bundle's SHA-256")
                 if pe_machine(data) != machine:
                     raise ValueError(f"{program_id}: the executable is not PE machine 0x{machine:04x} ({label})")
+                companion = CompanionArtifact.read(bundle, program_id, entry, label)
+                if companion is not None:
+                    sibling = staged.with_name(companion.path.name)
+                    shutil.copyfile(companion.path, sibling)
+                    os.chmod(sibling, stat.S_IRUSR | stat.S_IXUSR)
+                    companions[program_id] = held = self.hold(sibling)
+                    data = held.read()
+                    if digest(data) != companion.sha256:
+                        raise ValueError(f"{program_id}: the staged companion does not match its SHA-256")
+                    if pe_machine(data) != machine:
+                        raise ValueError(f"{program_id}: the companion does not match the target PE machine")
         except BaseException:
-            for held in programs.values():
+            for held in (*programs.values(), *companions.values()):
                 with suppress(Exception):
                     held.close()
             with suppress(OSError):
@@ -545,6 +557,7 @@ class WindowsNativeExecutor:
             raise
         self.close()
         self.label, self.staging, self.programs = label, staging, programs
+        self.companions = companions
         self.provenance = {
             "executor": self.NAME,
             "device": self.device(native),
@@ -701,13 +714,14 @@ class WindowsNativeExecutor:
                         original_error.add_note(f"Windows cleanup also failed: {error}")
 
     def close(self):
-        for held in self.programs.values():
+        for held in (*self.programs.values(), *self.companions.values()):
             with suppress(Exception):
                 held.close()
         if self.staging is not None:
             with suppress(OSError):
                 remove_tree(self.staging)
         self.label, self.staging, self.programs = None, None, {}
+        self.companions = {}
 
 
 TARGET_EXECUTORS = {WindowsNativeExecutor.NAME: "WindowsNativeExecutor"}

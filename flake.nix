@@ -277,6 +277,7 @@
           "src/compiler/python/"
           "src/devex/lsp/"
           "src/language/"
+          "src/runtime/c/"
           "src/stdlib/"
         ];
         sourceSubset = { prefixes, files ? [ ], excludedPrefixes ? [ ] }:
@@ -319,6 +320,7 @@
         selfhostBundleSource = sourceSubset {
           prefixes = [
             "src/language/"
+            "src/runtime/c/"
             "src/stdlib/"
           ];
           files = [ "LICENSE" ];
@@ -343,6 +345,7 @@
           prefixes = [ "src/runtime/c/" "src/runtime/windows/" ];
           files = [
             "tools/native_plan.py"
+            "tools/daemon_supervisor.py"
             "src/compiler/python/__init__.py"
             "src/compiler/python/abi/__init__.py"
             "src/compiler/python/abi/declarations.py"
@@ -433,6 +436,8 @@
             install -m 0644 src/language/grammar.ebnf \
               "$out/share/btrc/language/grammar.ebnf"
             cp -R src/stdlib "$out/share/btrc/stdlib"
+            mkdir -p "$out/share/btrc/runtime"
+            cp -R src/runtime/c "$out/share/btrc/runtime/c"
             wrapProgram "$out/bin/btrcc" \
               --set-default BTRC_HOME "$out/share/btrc" \
               ${lib.concatStringsSep " " (lib.mapAttrsToList (name: value:
@@ -653,6 +658,7 @@
         };
       in {
         inherit btrcpy btrcc btrc-format btrc-lsp;
+        stdlib-windows-sdk = import ./nix/stdlib-windows-sdk.nix { inherit pkgs nixpkgs; };
         btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;
         btrc-native-header = nativeHeaderReader;

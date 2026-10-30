@@ -174,7 +174,9 @@ class GeneratedHostedAbiData {
 	private Map<string, GeneratedPlatformTargetRow>? platformTargetMemo = null;
 	private Vector<string>? functionNamesMemo = null;
 	private Vector<string>? macroNamesMemo = null;
+	private Vector<string>? typeNamesMemo = null;
 	private Vector<string>? typedefNamesMemo = null;
+	private Vector<string>? arithmeticTypeNamesMemo = null;
 	private Vector<string>? ownedNamesMemo = null;
 	private Vector<string>? runtimeAdoptingHelpersMemo = null;
 	private Vector<string>? noreturnFunctionsMemo = null;
@@ -201,7 +203,7 @@ class GeneratedHostedAbiData {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
 		self.genericArgumentNestingLimit = 32;
-		self.fingerprint = "fa958b8c81e7a8d34373a86ce892ee359b976868cb7d6bf200bdcece4512e649";
+		self.fingerprint = "014ed763e5de8af10cc0cdfdd5635d295cb5147d1049b95502d139a371004459";
 		self.targetSpecFingerprint = "e904db76e8ac1560728455a2796235537f2f71cb88d74f8be7a1bb47f3ee67b8";
 	}
 
@@ -214,7 +216,7 @@ class GeneratedHostedAbiData {
 		if (rows != null) { return rows; }
 		Vector<GeneratedHostedFunctionRow> built = [];
 		int index = 0;
-		while (index < 370) {
+		while (index < 395) {
 			built.push(self.functionAt(index));
 			index = index + 1;
 		}
@@ -810,6 +812,344 @@ class GeneratedHostedAbiData {
 		}
 		if (index == 29) {
 			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_control_open",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 30) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_control_open_at",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_directory_entry", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 31) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_directory_next",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_directory_entry", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 32) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_directory_open",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 33) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_directory_path",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 34) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_file_close",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 35) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_file_dispose",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 36) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_file_flush",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 37) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_file_identity",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_directory_entry", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 38) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_file_read",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint64_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 39) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_file_write",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint64_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow1(int index) {
+		if (index == 40) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_log_open",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 41) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_daemon_record_open",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_file_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 42) {
+			return GeneratedHostedFunctionRow(
 				"__btrc_windows_launch",
 				"runtime",
 				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
@@ -832,7 +1172,7 @@ class GeneratedHostedAbiData {
 				"",
 				"blocking");
 		}
-		if (index == 30) {
+		if (index == 43) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_windows_launch_close",
 				"runtime",
@@ -856,7 +1196,7 @@ class GeneratedHostedAbiData {
 				"",
 				"blocking");
 		}
-		if (index == 31) {
+		if (index == 44) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_windows_launch_copy_output",
 				"runtime",
@@ -882,7 +1222,7 @@ class GeneratedHostedAbiData {
 				"",
 				"safe");
 		}
-		if (index == 32) {
+		if (index == 45) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_windows_launch_terminate",
 				"runtime",
@@ -906,7 +1246,7 @@ class GeneratedHostedAbiData {
 				"",
 				"blocking");
 		}
-		if (index == 33) {
+		if (index == 46) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_windows_launch_wait",
 				"runtime",
@@ -932,7 +1272,7 @@ class GeneratedHostedAbiData {
 				"",
 				"blocking");
 		}
-		if (index == 34) {
+		if (index == 47) {
 			return GeneratedHostedFunctionRow(
 				"__btrc_windows_quote_argv_utf8",
 				"runtime",
@@ -959,10 +1299,299 @@ class GeneratedHostedAbiData {
 				"",
 				"safe");
 		}
-		if (index == 35) {
+		if (index == 48) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_accept",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint64_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_supervisor_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 49) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_ack",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_supervisor_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 50) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_close",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_supervisor_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint64_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 51) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_copy_startup",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_supervisor_owner", 1, false, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("size_t", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 52) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_image_close",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_image_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 53) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_image_verify",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_image_owner", 2, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 54) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_poll_managed",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_supervisor_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 55) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_prepare",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_supervisor_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 56) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_ready_wait_commit",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_supervisor_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 57) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_spawn_managed",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_supervisor_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 58) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_terminate_managed",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_supervisor_owner", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint32_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 59) {
+			return GeneratedHostedFunctionRow(
+				"__btrc_windows_supervisor_transfer",
+				"runtime",
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				true,
+				[
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_image_owner", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_daemon_startup", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, true, self.emptyTypes()), "read", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("uint64_t", 0, false, self.emptyTypes()), "value", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_transfer_result", 1, false, self.emptyTypes()), "mutate", ""),
+				GeneratedHostedParameterRow(GeneratedAbiTypeRow("__btrc_windows_launch_error_t", 1, false, self.emptyTypes()), "mutate", ""),
+			],
+				false,
+				false,
+				GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+				"value",
+				-1,
+				"",
+				false,
+				"",
+				"",
+				"",
+				"",
+				"blocking");
+		}
+		if (index == 60) {
 			return GeneratedHostedFunctionRow("abort", "stdlib", GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 36) {
+		if (index == 61) {
 			return GeneratedHostedFunctionRow(
 				"abs",
 				"stdlib",
@@ -984,7 +1613,7 @@ class GeneratedHostedAbiData {
 				"",
 				"safe");
 		}
-		if (index == 37) {
+		if (index == 62) {
 			return GeneratedHostedFunctionRow(
 				"accept",
 				"posix",
@@ -1008,7 +1637,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 38) {
+		if (index == 63) {
 			return GeneratedHostedFunctionRow(
 				"access",
 				"posix",
@@ -1031,7 +1660,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 39) {
+		if (index == 64) {
 			return GeneratedHostedFunctionRow(
 				"acos",
 				"math",
@@ -1053,11 +1682,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow1(int index) {
-		if (index == 40) {
+		if (index == 65) {
 			return GeneratedHostedFunctionRow(
 				"acosf",
 				"math",
@@ -1079,7 +1704,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 41) {
+		if (index == 66) {
 			return GeneratedHostedFunctionRow(
 				"acosh",
 				"math",
@@ -1101,7 +1726,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 42) {
+		if (index == 67) {
 			return GeneratedHostedFunctionRow(
 				"acoshf",
 				"math",
@@ -1123,7 +1748,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 43) {
+		if (index == 68) {
 			return GeneratedHostedFunctionRow(
 				"acoshl",
 				"math",
@@ -1145,7 +1770,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 44) {
+		if (index == 69) {
 			return GeneratedHostedFunctionRow(
 				"acosl",
 				"math",
@@ -1167,7 +1792,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 45) {
+		if (index == 70) {
 			return GeneratedHostedFunctionRow(
 				"aligned_alloc",
 				"stdlib",
@@ -1190,7 +1815,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 46) {
+		if (index == 71) {
 			return GeneratedHostedFunctionRow(
 				"asin",
 				"math",
@@ -1212,7 +1837,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 47) {
+		if (index == 72) {
 			return GeneratedHostedFunctionRow(
 				"asinf",
 				"math",
@@ -1234,7 +1859,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 48) {
+		if (index == 73) {
 			return GeneratedHostedFunctionRow(
 				"asinh",
 				"math",
@@ -1256,7 +1881,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 49) {
+		if (index == 74) {
 			return GeneratedHostedFunctionRow(
 				"asinhf",
 				"math",
@@ -1278,7 +1903,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 50) {
+		if (index == 75) {
 			return GeneratedHostedFunctionRow(
 				"asinhl",
 				"math",
@@ -1300,7 +1925,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 51) {
+		if (index == 76) {
 			return GeneratedHostedFunctionRow(
 				"asinl",
 				"math",
@@ -1322,7 +1947,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 52) {
+		if (index == 77) {
 			return GeneratedHostedFunctionRow(
 				"atan",
 				"math",
@@ -1344,7 +1969,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 53) {
+		if (index == 78) {
 			return GeneratedHostedFunctionRow(
 				"atan2",
 				"math",
@@ -1367,7 +1992,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 54) {
+		if (index == 79) {
 			return GeneratedHostedFunctionRow(
 				"atan2f",
 				"math",
@@ -1390,7 +2015,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 55) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow2(int index) {
+		if (index == 80) {
 			return GeneratedHostedFunctionRow(
 				"atan2l",
 				"math",
@@ -1413,7 +2042,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 56) {
+		if (index == 81) {
 			return GeneratedHostedFunctionRow(
 				"atanf",
 				"math",
@@ -1435,7 +2064,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 57) {
+		if (index == 82) {
 			return GeneratedHostedFunctionRow(
 				"atanh",
 				"math",
@@ -1457,7 +2086,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 58) {
+		if (index == 83) {
 			return GeneratedHostedFunctionRow(
 				"atanhf",
 				"math",
@@ -1479,7 +2108,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 59) {
+		if (index == 84) {
 			return GeneratedHostedFunctionRow(
 				"atanhl",
 				"math",
@@ -1501,7 +2130,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 60) {
+		if (index == 85) {
 			return GeneratedHostedFunctionRow(
 				"atanl",
 				"math",
@@ -1523,7 +2152,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 61) {
+		if (index == 86) {
 			return GeneratedHostedFunctionRow(
 				"atof",
 				"stdlib",
@@ -1545,7 +2174,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 62) {
+		if (index == 87) {
 			return GeneratedHostedFunctionRow(
 				"atoi",
 				"stdlib",
@@ -1567,7 +2196,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 63) {
+		if (index == 88) {
 			return GeneratedHostedFunctionRow(
 				"atol",
 				"stdlib",
@@ -1589,7 +2218,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 64) {
+		if (index == 89) {
 			return GeneratedHostedFunctionRow(
 				"atoll",
 				"stdlib",
@@ -1611,7 +2240,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 65) {
+		if (index == 90) {
 			return GeneratedHostedFunctionRow(
 				"bind",
 				"posix",
@@ -1635,7 +2264,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 66) {
+		if (index == 91) {
 			return GeneratedHostedFunctionRow(
 				"bsearch",
 				"stdlib",
@@ -1661,13 +2290,13 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 67) {
+		if (index == 92) {
 			return GeneratedHostedFunctionRow("btrc_gpu_acquire_compute", "native_gpu", GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "independent", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 68) {
+		if (index == 93) {
 			return GeneratedHostedFunctionRow("btrc_gpu_available", "native_gpu", GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 69) {
+		if (index == 94) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_bind_group_destroy",
 				"native_gpu",
@@ -1689,7 +2318,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 70) {
+		if (index == 95) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_buffer_destroy",
 				"native_gpu",
@@ -1711,7 +2340,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 71) {
+		if (index == 96) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_compute_pipeline_destroy",
 				"native_gpu",
@@ -1733,7 +2362,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 72) {
+		if (index == 97) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_create_bind_group",
 				"native_gpu",
@@ -1758,7 +2387,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 73) {
+		if (index == 98) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_create_buffer",
 				"native_gpu",
@@ -1782,7 +2411,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 74) {
+		if (index == 99) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_create_compute_pipeline",
 				"native_gpu",
@@ -1806,7 +2435,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 75) {
+		if (index == 100) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_create_shader",
 				"native_gpu",
@@ -1829,7 +2458,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 76) {
+		if (index == 101) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_destroy",
 				"native_gpu",
@@ -1851,7 +2480,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 77) {
+		if (index == 102) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_dispatch",
 				"native_gpu",
@@ -1876,10 +2505,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 78) {
+		if (index == 103) {
 			return GeneratedHostedFunctionRow("btrc_gpu_init_compute", "native_gpu", GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "independent", -1, "", false, "btrc_gpu_destroy", "", "", "", "unknown");
 		}
-		if (index == 79) {
+		if (index == 104) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_read_buffer_checked",
 				"native_gpu",
@@ -1904,11 +2533,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow2(int index) {
-		if (index == 80) {
+		if (index == 105) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_shader_destroy",
 				"native_gpu",
@@ -1930,7 +2555,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 81) {
+		if (index == 106) {
 			return GeneratedHostedFunctionRow(
 				"btrc_gpu_write_buffer",
 				"native_gpu",
@@ -1955,7 +2580,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 82) {
+		if (index == 107) {
 			return GeneratedHostedFunctionRow(
 				"calloc",
 				"stdlib",
@@ -1978,7 +2603,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 83) {
+		if (index == 108) {
 			return GeneratedHostedFunctionRow(
 				"cbrt",
 				"math",
@@ -2000,7 +2625,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 84) {
+		if (index == 109) {
 			return GeneratedHostedFunctionRow(
 				"cbrtf",
 				"math",
@@ -2022,7 +2647,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 85) {
+		if (index == 110) {
 			return GeneratedHostedFunctionRow(
 				"cbrtl",
 				"math",
@@ -2044,7 +2669,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 86) {
+		if (index == 111) {
 			return GeneratedHostedFunctionRow(
 				"ceil",
 				"math",
@@ -2066,7 +2691,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 87) {
+		if (index == 112) {
 			return GeneratedHostedFunctionRow(
 				"ceilf",
 				"math",
@@ -2088,7 +2713,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 88) {
+		if (index == 113) {
 			return GeneratedHostedFunctionRow(
 				"ceill",
 				"math",
@@ -2110,7 +2735,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 89) {
+		if (index == 114) {
 			return GeneratedHostedFunctionRow(
 				"chdir",
 				"posix",
@@ -2132,7 +2757,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 90) {
+		if (index == 115) {
 			return GeneratedHostedFunctionRow(
 				"chmod",
 				"posix",
@@ -2155,7 +2780,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 91) {
+		if (index == 116) {
 			return GeneratedHostedFunctionRow(
 				"clearerr",
 				"stdio",
@@ -2177,10 +2802,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 92) {
+		if (index == 117) {
 			return GeneratedHostedFunctionRow("clock", "posix_process", GeneratedAbiTypeRow("clock_t", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("clock_t", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 93) {
+		if (index == 118) {
 			return GeneratedHostedFunctionRow(
 				"clock_gettime",
 				"posix_process",
@@ -2203,7 +2828,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 94) {
+		if (index == 119) {
 			return GeneratedHostedFunctionRow(
 				"close",
 				"posix",
@@ -2225,7 +2850,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 95) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow3(int index) {
+		if (index == 120) {
 			return GeneratedHostedFunctionRow(
 				"closedir",
 				"posix",
@@ -2247,7 +2876,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 96) {
+		if (index == 121) {
 			return GeneratedHostedFunctionRow(
 				"copysign",
 				"math",
@@ -2270,7 +2899,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 97) {
+		if (index == 122) {
 			return GeneratedHostedFunctionRow(
 				"copysignf",
 				"math",
@@ -2293,7 +2922,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 98) {
+		if (index == 123) {
 			return GeneratedHostedFunctionRow(
 				"copysignl",
 				"math",
@@ -2316,7 +2945,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 99) {
+		if (index == 124) {
 			return GeneratedHostedFunctionRow(
 				"cos",
 				"math",
@@ -2338,7 +2967,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 100) {
+		if (index == 125) {
 			return GeneratedHostedFunctionRow(
 				"cosf",
 				"math",
@@ -2360,7 +2989,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 101) {
+		if (index == 126) {
 			return GeneratedHostedFunctionRow(
 				"cosh",
 				"math",
@@ -2382,7 +3011,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 102) {
+		if (index == 127) {
 			return GeneratedHostedFunctionRow(
 				"coshf",
 				"math",
@@ -2404,7 +3033,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 103) {
+		if (index == 128) {
 			return GeneratedHostedFunctionRow(
 				"coshl",
 				"math",
@@ -2426,7 +3055,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 104) {
+		if (index == 129) {
 			return GeneratedHostedFunctionRow(
 				"cosl",
 				"math",
@@ -2448,7 +3077,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 105) {
+		if (index == 130) {
 			return GeneratedHostedFunctionRow(
 				"dirfd",
 				"posix",
@@ -2470,7 +3099,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 106) {
+		if (index == 131) {
 			return GeneratedHostedFunctionRow(
 				"dup2",
 				"posix",
@@ -2493,7 +3122,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 107) {
+		if (index == 132) {
 			return GeneratedHostedFunctionRow(
 				"erf",
 				"math",
@@ -2515,7 +3144,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 108) {
+		if (index == 133) {
 			return GeneratedHostedFunctionRow(
 				"erfc",
 				"math",
@@ -2537,7 +3166,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 109) {
+		if (index == 134) {
 			return GeneratedHostedFunctionRow(
 				"erfcf",
 				"math",
@@ -2559,7 +3188,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 110) {
+		if (index == 135) {
 			return GeneratedHostedFunctionRow(
 				"erfcl",
 				"math",
@@ -2581,7 +3210,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 111) {
+		if (index == 136) {
 			return GeneratedHostedFunctionRow(
 				"erff",
 				"math",
@@ -2603,7 +3232,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 112) {
+		if (index == 137) {
 			return GeneratedHostedFunctionRow(
 				"erfl",
 				"math",
@@ -2625,7 +3254,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 113) {
+		if (index == 138) {
 			return GeneratedHostedFunctionRow(
 				"execve",
 				"posix_process",
@@ -2649,7 +3278,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 114) {
+		if (index == 139) {
 			return GeneratedHostedFunctionRow(
 				"exit",
 				"stdlib",
@@ -2671,7 +3300,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 115) {
+		if (index == 140) {
 			return GeneratedHostedFunctionRow(
 				"exp",
 				"math",
@@ -2693,7 +3322,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 116) {
+		if (index == 141) {
 			return GeneratedHostedFunctionRow(
 				"exp2",
 				"math",
@@ -2715,7 +3344,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 117) {
+		if (index == 142) {
 			return GeneratedHostedFunctionRow(
 				"exp2f",
 				"math",
@@ -2737,7 +3366,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 118) {
+		if (index == 143) {
 			return GeneratedHostedFunctionRow(
 				"exp2l",
 				"math",
@@ -2759,7 +3388,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 119) {
+		if (index == 144) {
 			return GeneratedHostedFunctionRow(
 				"expf",
 				"math",
@@ -2781,11 +3410,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow3(int index) {
-		if (index == 120) {
+		if (index == 145) {
 			return GeneratedHostedFunctionRow(
 				"expl",
 				"math",
@@ -2807,7 +3432,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 121) {
+		if (index == 146) {
 			return GeneratedHostedFunctionRow(
 				"expm1",
 				"math",
@@ -2829,7 +3454,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 122) {
+		if (index == 147) {
 			return GeneratedHostedFunctionRow(
 				"expm1f",
 				"math",
@@ -2851,7 +3476,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 123) {
+		if (index == 148) {
 			return GeneratedHostedFunctionRow(
 				"expm1l",
 				"math",
@@ -2873,7 +3498,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 124) {
+		if (index == 149) {
 			return GeneratedHostedFunctionRow(
 				"fabs",
 				"math",
@@ -2895,7 +3520,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 125) {
+		if (index == 150) {
 			return GeneratedHostedFunctionRow(
 				"fabsf",
 				"math",
@@ -2917,7 +3542,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 126) {
+		if (index == 151) {
 			return GeneratedHostedFunctionRow(
 				"fabsl",
 				"math",
@@ -2939,7 +3564,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 127) {
+		if (index == 152) {
 			return GeneratedHostedFunctionRow(
 				"fchmod",
 				"posix",
@@ -2962,7 +3587,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 128) {
+		if (index == 153) {
 			return GeneratedHostedFunctionRow(
 				"fclose",
 				"stdio",
@@ -2984,7 +3609,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 129) {
+		if (index == 154) {
 			return GeneratedHostedFunctionRow(
 				"fcntl",
 				"posix",
@@ -3007,7 +3632,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 130) {
+		if (index == 155) {
 			return GeneratedHostedFunctionRow(
 				"fdim",
 				"math",
@@ -3030,7 +3655,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 131) {
+		if (index == 156) {
 			return GeneratedHostedFunctionRow(
 				"fdimf",
 				"math",
@@ -3053,7 +3678,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 132) {
+		if (index == 157) {
 			return GeneratedHostedFunctionRow(
 				"fdiml",
 				"math",
@@ -3076,7 +3701,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 133) {
+		if (index == 158) {
 			return GeneratedHostedFunctionRow(
 				"fdopendir",
 				"posix",
@@ -3098,7 +3723,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 134) {
+		if (index == 159) {
 			return GeneratedHostedFunctionRow(
 				"feof",
 				"stdio",
@@ -3120,7 +3745,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 135) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow4(int index) {
+		if (index == 160) {
 			return GeneratedHostedFunctionRow(
 				"ferror",
 				"stdio",
@@ -3142,7 +3771,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 136) {
+		if (index == 161) {
 			return GeneratedHostedFunctionRow(
 				"fflush",
 				"stdio",
@@ -3164,7 +3793,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 137) {
+		if (index == 162) {
 			return GeneratedHostedFunctionRow(
 				"fgetc",
 				"stdio",
@@ -3186,7 +3815,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 138) {
+		if (index == 163) {
 			return GeneratedHostedFunctionRow(
 				"fgets",
 				"stdio",
@@ -3210,7 +3839,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 139) {
+		if (index == 164) {
 			return GeneratedHostedFunctionRow(
 				"fileno",
 				"stdio",
@@ -3232,7 +3861,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 140) {
+		if (index == 165) {
 			return GeneratedHostedFunctionRow(
 				"flock",
 				"posix",
@@ -3255,7 +3884,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 141) {
+		if (index == 166) {
 			return GeneratedHostedFunctionRow(
 				"flockfile",
 				"stdio",
@@ -3277,7 +3906,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 142) {
+		if (index == 167) {
 			return GeneratedHostedFunctionRow(
 				"floor",
 				"math",
@@ -3299,7 +3928,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 143) {
+		if (index == 168) {
 			return GeneratedHostedFunctionRow(
 				"floorf",
 				"math",
@@ -3321,7 +3950,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 144) {
+		if (index == 169) {
 			return GeneratedHostedFunctionRow(
 				"floorl",
 				"math",
@@ -3343,7 +3972,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 145) {
+		if (index == 170) {
 			return GeneratedHostedFunctionRow(
 				"fma",
 				"math",
@@ -3367,7 +3996,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 146) {
+		if (index == 171) {
 			return GeneratedHostedFunctionRow(
 				"fmaf",
 				"math",
@@ -3391,7 +4020,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 147) {
+		if (index == 172) {
 			return GeneratedHostedFunctionRow(
 				"fmal",
 				"math",
@@ -3415,7 +4044,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 148) {
+		if (index == 173) {
 			return GeneratedHostedFunctionRow(
 				"fmax",
 				"math",
@@ -3438,7 +4067,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 149) {
+		if (index == 174) {
 			return GeneratedHostedFunctionRow(
 				"fmaxf",
 				"math",
@@ -3461,7 +4090,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 150) {
+		if (index == 175) {
 			return GeneratedHostedFunctionRow(
 				"fmaxl",
 				"math",
@@ -3484,7 +4113,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 151) {
+		if (index == 176) {
 			return GeneratedHostedFunctionRow(
 				"fmin",
 				"math",
@@ -3507,7 +4136,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 152) {
+		if (index == 177) {
 			return GeneratedHostedFunctionRow(
 				"fminf",
 				"math",
@@ -3530,7 +4159,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 153) {
+		if (index == 178) {
 			return GeneratedHostedFunctionRow(
 				"fminl",
 				"math",
@@ -3553,7 +4182,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 154) {
+		if (index == 179) {
 			return GeneratedHostedFunctionRow(
 				"fmod",
 				"math",
@@ -3576,7 +4205,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 155) {
+		if (index == 180) {
 			return GeneratedHostedFunctionRow(
 				"fmodf",
 				"math",
@@ -3599,7 +4228,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 156) {
+		if (index == 181) {
 			return GeneratedHostedFunctionRow(
 				"fmodl",
 				"math",
@@ -3622,7 +4251,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 157) {
+		if (index == 182) {
 			return GeneratedHostedFunctionRow(
 				"fnmatch",
 				"posix",
@@ -3646,7 +4275,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 158) {
+		if (index == 183) {
 			return GeneratedHostedFunctionRow(
 				"fopen",
 				"stdio",
@@ -3669,14 +4298,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 159) {
+		if (index == 184) {
 			return GeneratedHostedFunctionRow("fork", "posix_process", GeneratedAbiTypeRow("pid_t", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("pid_t", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow4(int index) {
-		if (index == 160) {
+		if (index == 185) {
 			return GeneratedHostedFunctionRow(
 				"forkpty",
 				"posix_process",
@@ -3701,7 +4326,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 161) {
+		if (index == 186) {
 			return GeneratedHostedFunctionRow(
 				"fprintf",
 				"stdio",
@@ -3724,7 +4349,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 162) {
+		if (index == 187) {
 			return GeneratedHostedFunctionRow(
 				"fputc",
 				"stdio",
@@ -3747,7 +4372,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 163) {
+		if (index == 188) {
 			return GeneratedHostedFunctionRow(
 				"fputs",
 				"stdio",
@@ -3770,7 +4395,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 164) {
+		if (index == 189) {
 			return GeneratedHostedFunctionRow(
 				"fread",
 				"stdio",
@@ -3795,7 +4420,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 165) {
+		if (index == 190) {
 			return GeneratedHostedFunctionRow(
 				"free",
 				"stdlib",
@@ -3817,7 +4442,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 166) {
+		if (index == 191) {
 			return GeneratedHostedFunctionRow(
 				"freopen",
 				"stdio",
@@ -3841,7 +4466,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 167) {
+		if (index == 192) {
 			return GeneratedHostedFunctionRow(
 				"fseek",
 				"stdio",
@@ -3865,7 +4490,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 168) {
+		if (index == 193) {
 			return GeneratedHostedFunctionRow(
 				"fstat",
 				"posix",
@@ -3888,7 +4513,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 169) {
+		if (index == 194) {
 			return GeneratedHostedFunctionRow(
 				"fstatat",
 				"posix",
@@ -3913,7 +4538,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 170) {
+		if (index == 195) {
 			return GeneratedHostedFunctionRow(
 				"fsync",
 				"posix",
@@ -3935,7 +4560,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 171) {
+		if (index == 196) {
 			return GeneratedHostedFunctionRow(
 				"ftell",
 				"stdio",
@@ -3957,7 +4582,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 172) {
+		if (index == 197) {
 			return GeneratedHostedFunctionRow(
 				"funlockfile",
 				"stdio",
@@ -3979,7 +4604,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 173) {
+		if (index == 198) {
 			return GeneratedHostedFunctionRow(
 				"fwrite",
 				"stdio",
@@ -4004,7 +4629,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 174) {
+		if (index == 199) {
 			return GeneratedHostedFunctionRow(
 				"getc",
 				"stdio",
@@ -4026,10 +4651,14 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 175) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow5(int index) {
+		if (index == 200) {
 			return GeneratedHostedFunctionRow("getchar", "stdio", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 176) {
+		if (index == 201) {
 			return GeneratedHostedFunctionRow(
 				"getcwd",
 				"posix",
@@ -4052,7 +4681,7 @@ class GeneratedHostedAbiData {
 				"free",
 				"unknown");
 		}
-		if (index == 177) {
+		if (index == 202) {
 			return GeneratedHostedFunctionRow(
 				"getenv",
 				"stdlib",
@@ -4074,13 +4703,13 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 178) {
+		if (index == 203) {
 			return GeneratedHostedFunctionRow("geteuid", "posix_process", GeneratedAbiTypeRow("uid_t", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("uid_t", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 179) {
+		if (index == 204) {
 			return GeneratedHostedFunctionRow("getpid", "posix_process", GeneratedAbiTypeRow("pid_t", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("pid_t", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 180) {
+		if (index == 205) {
 			return GeneratedHostedFunctionRow(
 				"getpwnam_r",
 				"posix_process",
@@ -4106,7 +4735,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 181) {
+		if (index == 206) {
 			return GeneratedHostedFunctionRow(
 				"getrlimit",
 				"posix_process",
@@ -4129,7 +4758,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 182) {
+		if (index == 207) {
 			return GeneratedHostedFunctionRow(
 				"glob",
 				"posix",
@@ -4154,7 +4783,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 183) {
+		if (index == 208) {
 			return GeneratedHostedFunctionRow(
 				"globfree",
 				"posix",
@@ -4176,7 +4805,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 184) {
+		if (index == 209) {
 			return GeneratedHostedFunctionRow(
 				"hypot",
 				"math",
@@ -4199,7 +4828,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 185) {
+		if (index == 210) {
 			return GeneratedHostedFunctionRow(
 				"hypotf",
 				"math",
@@ -4222,7 +4851,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 186) {
+		if (index == 211) {
 			return GeneratedHostedFunctionRow(
 				"hypotl",
 				"math",
@@ -4245,7 +4874,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 187) {
+		if (index == 212) {
 			return GeneratedHostedFunctionRow(
 				"initgroups",
 				"posix_process",
@@ -4268,7 +4897,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 188) {
+		if (index == 213) {
 			return GeneratedHostedFunctionRow(
 				"isalnum",
 				"ctype",
@@ -4290,7 +4919,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 189) {
+		if (index == 214) {
 			return GeneratedHostedFunctionRow(
 				"isalpha",
 				"ctype",
@@ -4312,7 +4941,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 190) {
+		if (index == 215) {
 			return GeneratedHostedFunctionRow(
 				"isatty",
 				"posix_process",
@@ -4334,7 +4963,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 191) {
+		if (index == 216) {
 			return GeneratedHostedFunctionRow(
 				"isblank",
 				"ctype",
@@ -4356,7 +4985,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 192) {
+		if (index == 217) {
 			return GeneratedHostedFunctionRow(
 				"iscntrl",
 				"ctype",
@@ -4378,7 +5007,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 193) {
+		if (index == 218) {
 			return GeneratedHostedFunctionRow(
 				"isdigit",
 				"ctype",
@@ -4400,7 +5029,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 194) {
+		if (index == 219) {
 			return GeneratedHostedFunctionRow(
 				"isgraph",
 				"ctype",
@@ -4422,7 +5051,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 195) {
+		if (index == 220) {
 			return GeneratedHostedFunctionRow(
 				"islower",
 				"ctype",
@@ -4444,7 +5073,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 196) {
+		if (index == 221) {
 			return GeneratedHostedFunctionRow(
 				"isprint",
 				"ctype",
@@ -4466,7 +5095,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 197) {
+		if (index == 222) {
 			return GeneratedHostedFunctionRow(
 				"ispunct",
 				"ctype",
@@ -4488,7 +5117,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 198) {
+		if (index == 223) {
 			return GeneratedHostedFunctionRow(
 				"isspace",
 				"ctype",
@@ -4510,7 +5139,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 199) {
+		if (index == 224) {
 			return GeneratedHostedFunctionRow(
 				"isupper",
 				"ctype",
@@ -4532,11 +5161,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow5(int index) {
-		if (index == 200) {
+		if (index == 225) {
 			return GeneratedHostedFunctionRow(
 				"isxdigit",
 				"ctype",
@@ -4558,7 +5183,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 201) {
+		if (index == 226) {
 			return GeneratedHostedFunctionRow(
 				"kill",
 				"posix_process",
@@ -4581,7 +5206,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 202) {
+		if (index == 227) {
 			return GeneratedHostedFunctionRow(
 				"labs",
 				"stdlib",
@@ -4603,7 +5228,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 203) {
+		if (index == 228) {
 			return GeneratedHostedFunctionRow(
 				"lgamma",
 				"math",
@@ -4625,7 +5250,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 204) {
+		if (index == 229) {
 			return GeneratedHostedFunctionRow(
 				"lgammaf",
 				"math",
@@ -4647,7 +5272,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 205) {
+		if (index == 230) {
 			return GeneratedHostedFunctionRow(
 				"lgammal",
 				"math",
@@ -4669,7 +5294,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 206) {
+		if (index == 231) {
 			return GeneratedHostedFunctionRow(
 				"listen",
 				"posix",
@@ -4692,7 +5317,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 207) {
+		if (index == 232) {
 			return GeneratedHostedFunctionRow(
 				"llabs",
 				"stdlib",
@@ -4714,7 +5339,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 208) {
+		if (index == 233) {
 			return GeneratedHostedFunctionRow(
 				"localtime_r",
 				"posix",
@@ -4737,7 +5362,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 209) {
+		if (index == 234) {
 			return GeneratedHostedFunctionRow(
 				"log",
 				"math",
@@ -4759,7 +5384,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 210) {
+		if (index == 235) {
 			return GeneratedHostedFunctionRow(
 				"log10",
 				"math",
@@ -4781,7 +5406,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 211) {
+		if (index == 236) {
 			return GeneratedHostedFunctionRow(
 				"log10f",
 				"math",
@@ -4803,7 +5428,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 212) {
+		if (index == 237) {
 			return GeneratedHostedFunctionRow(
 				"log10l",
 				"math",
@@ -4825,7 +5450,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 213) {
+		if (index == 238) {
 			return GeneratedHostedFunctionRow(
 				"log1p",
 				"math",
@@ -4847,7 +5472,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 214) {
+		if (index == 239) {
 			return GeneratedHostedFunctionRow(
 				"log1pf",
 				"math",
@@ -4869,7 +5494,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 215) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow6(int index) {
+		if (index == 240) {
 			return GeneratedHostedFunctionRow(
 				"log1pl",
 				"math",
@@ -4891,7 +5520,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 216) {
+		if (index == 241) {
 			return GeneratedHostedFunctionRow(
 				"log2",
 				"math",
@@ -4913,7 +5542,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 217) {
+		if (index == 242) {
 			return GeneratedHostedFunctionRow(
 				"log2f",
 				"math",
@@ -4935,7 +5564,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 218) {
+		if (index == 243) {
 			return GeneratedHostedFunctionRow(
 				"log2l",
 				"math",
@@ -4957,7 +5586,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 219) {
+		if (index == 244) {
 			return GeneratedHostedFunctionRow(
 				"logb",
 				"math",
@@ -4979,7 +5608,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 220) {
+		if (index == 245) {
 			return GeneratedHostedFunctionRow(
 				"logbf",
 				"math",
@@ -5001,7 +5630,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 221) {
+		if (index == 246) {
 			return GeneratedHostedFunctionRow(
 				"logbl",
 				"math",
@@ -5023,7 +5652,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 222) {
+		if (index == 247) {
 			return GeneratedHostedFunctionRow(
 				"logf",
 				"math",
@@ -5045,7 +5674,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 223) {
+		if (index == 248) {
 			return GeneratedHostedFunctionRow(
 				"logl",
 				"math",
@@ -5067,7 +5696,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 224) {
+		if (index == 249) {
 			return GeneratedHostedFunctionRow(
 				"lseek",
 				"posix",
@@ -5091,7 +5720,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 225) {
+		if (index == 250) {
 			return GeneratedHostedFunctionRow(
 				"lstat",
 				"posix",
@@ -5114,7 +5743,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 226) {
+		if (index == 251) {
 			return GeneratedHostedFunctionRow(
 				"malloc",
 				"stdlib",
@@ -5136,7 +5765,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 227) {
+		if (index == 252) {
 			return GeneratedHostedFunctionRow(
 				"mblen",
 				"stdlib",
@@ -5159,7 +5788,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 228) {
+		if (index == 253) {
 			return GeneratedHostedFunctionRow(
 				"memchr",
 				"string",
@@ -5183,7 +5812,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 229) {
+		if (index == 254) {
 			return GeneratedHostedFunctionRow(
 				"memcmp",
 				"string",
@@ -5207,7 +5836,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 230) {
+		if (index == 255) {
 			return GeneratedHostedFunctionRow(
 				"memcpy",
 				"string",
@@ -5231,7 +5860,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 231) {
+		if (index == 256) {
 			return GeneratedHostedFunctionRow(
 				"memmove",
 				"string",
@@ -5255,7 +5884,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 232) {
+		if (index == 257) {
 			return GeneratedHostedFunctionRow(
 				"memset",
 				"string",
@@ -5279,7 +5908,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 233) {
+		if (index == 258) {
 			return GeneratedHostedFunctionRow(
 				"mkdir",
 				"posix",
@@ -5302,7 +5931,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 234) {
+		if (index == 259) {
 			return GeneratedHostedFunctionRow(
 				"mkdirat",
 				"posix",
@@ -5326,7 +5955,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 235) {
+		if (index == 260) {
 			return GeneratedHostedFunctionRow(
 				"mkdtemp",
 				"stdlib",
@@ -5348,7 +5977,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 236) {
+		if (index == 261) {
 			return GeneratedHostedFunctionRow(
 				"nanosleep",
 				"posix_process",
@@ -5371,7 +6000,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 237) {
+		if (index == 262) {
 			return GeneratedHostedFunctionRow(
 				"nearbyint",
 				"math",
@@ -5393,7 +6022,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 238) {
+		if (index == 263) {
 			return GeneratedHostedFunctionRow(
 				"nearbyintf",
 				"math",
@@ -5415,7 +6044,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 239) {
+		if (index == 264) {
 			return GeneratedHostedFunctionRow(
 				"nearbyintl",
 				"math",
@@ -5437,11 +6066,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow6(int index) {
-		if (index == 240) {
+		if (index == 265) {
 			return GeneratedHostedFunctionRow(
 				"nextafter",
 				"math",
@@ -5464,7 +6089,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 241) {
+		if (index == 266) {
 			return GeneratedHostedFunctionRow(
 				"nextafterf",
 				"math",
@@ -5487,7 +6112,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 242) {
+		if (index == 267) {
 			return GeneratedHostedFunctionRow(
 				"nextafterl",
 				"math",
@@ -5510,7 +6135,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 243) {
+		if (index == 268) {
 			return GeneratedHostedFunctionRow(
 				"open",
 				"posix",
@@ -5533,7 +6158,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 244) {
+		if (index == 269) {
 			return GeneratedHostedFunctionRow(
 				"openat",
 				"posix",
@@ -5557,7 +6182,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 245) {
+		if (index == 270) {
 			return GeneratedHostedFunctionRow(
 				"opendir",
 				"posix",
@@ -5579,7 +6204,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 246) {
+		if (index == 271) {
 			return GeneratedHostedFunctionRow(
 				"pclose",
 				"stdio",
@@ -5601,7 +6226,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 247) {
+		if (index == 272) {
 			return GeneratedHostedFunctionRow(
 				"perror",
 				"stdio",
@@ -5623,7 +6248,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 248) {
+		if (index == 273) {
 			return GeneratedHostedFunctionRow(
 				"pipe",
 				"posix_process",
@@ -5645,7 +6270,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 249) {
+		if (index == 274) {
 			return GeneratedHostedFunctionRow(
 				"poll",
 				"posix_process",
@@ -5669,7 +6294,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 250) {
+		if (index == 275) {
 			return GeneratedHostedFunctionRow(
 				"popen",
 				"stdio",
@@ -5692,7 +6317,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 251) {
+		if (index == 276) {
 			return GeneratedHostedFunctionRow(
 				"pow",
 				"math",
@@ -5715,7 +6340,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 252) {
+		if (index == 277) {
 			return GeneratedHostedFunctionRow(
 				"powf",
 				"math",
@@ -5738,7 +6363,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 253) {
+		if (index == 278) {
 			return GeneratedHostedFunctionRow(
 				"powl",
 				"math",
@@ -5761,7 +6386,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 254) {
+		if (index == 279) {
 			return GeneratedHostedFunctionRow(
 				"printf",
 				"stdio",
@@ -5783,7 +6408,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 255) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow7(int index) {
+		if (index == 280) {
 			return GeneratedHostedFunctionRow(
 				"pthread_join",
 				"concurrency",
@@ -5806,7 +6435,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 256) {
+		if (index == 281) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_destroy",
 				"concurrency",
@@ -5828,7 +6457,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 257) {
+		if (index == 282) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_init",
 				"concurrency",
@@ -5851,7 +6480,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 258) {
+		if (index == 283) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_lock",
 				"concurrency",
@@ -5873,7 +6502,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 259) {
+		if (index == 284) {
 			return GeneratedHostedFunctionRow(
 				"pthread_mutex_unlock",
 				"concurrency",
@@ -5895,7 +6524,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 260) {
+		if (index == 285) {
 			return GeneratedHostedFunctionRow(
 				"putc",
 				"stdio",
@@ -5918,7 +6547,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 261) {
+		if (index == 286) {
 			return GeneratedHostedFunctionRow(
 				"putchar",
 				"stdio",
@@ -5940,7 +6569,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 262) {
+		if (index == 287) {
 			return GeneratedHostedFunctionRow(
 				"puts",
 				"stdio",
@@ -5962,7 +6591,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 263) {
+		if (index == 288) {
 			return GeneratedHostedFunctionRow(
 				"qsort",
 				"stdlib",
@@ -5987,7 +6616,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 264) {
+		if (index == 289) {
 			return GeneratedHostedFunctionRow(
 				"quick_exit",
 				"stdlib",
@@ -6009,7 +6638,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 265) {
+		if (index == 290) {
 			return GeneratedHostedFunctionRow(
 				"raise",
 				"posix_process",
@@ -6031,10 +6660,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 266) {
+		if (index == 291) {
 			return GeneratedHostedFunctionRow("rand", "stdlib", GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", -1, "", false, "", "", "", "", "unknown");
 		}
-		if (index == 267) {
+		if (index == 292) {
 			return GeneratedHostedFunctionRow(
 				"read",
 				"posix",
@@ -6058,7 +6687,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 268) {
+		if (index == 293) {
 			return GeneratedHostedFunctionRow(
 				"readdir",
 				"posix",
@@ -6080,7 +6709,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 269) {
+		if (index == 294) {
 			return GeneratedHostedFunctionRow(
 				"readlink",
 				"posix",
@@ -6104,7 +6733,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 270) {
+		if (index == 295) {
 			return GeneratedHostedFunctionRow(
 				"realloc",
 				"stdlib",
@@ -6127,7 +6756,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 271) {
+		if (index == 296) {
 			return GeneratedHostedFunctionRow(
 				"reallocarray",
 				"stdlib",
@@ -6151,7 +6780,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 272) {
+		if (index == 297) {
 			return GeneratedHostedFunctionRow(
 				"realpath",
 				"posix",
@@ -6174,7 +6803,7 @@ class GeneratedHostedAbiData {
 				"free",
 				"unknown");
 		}
-		if (index == 273) {
+		if (index == 298) {
 			return GeneratedHostedFunctionRow(
 				"recv",
 				"posix",
@@ -6199,7 +6828,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 274) {
+		if (index == 299) {
 			return GeneratedHostedFunctionRow(
 				"regcomp",
 				"posix",
@@ -6223,7 +6852,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 275) {
+		if (index == 300) {
 			return GeneratedHostedFunctionRow(
 				"regexec",
 				"posix",
@@ -6249,7 +6878,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 276) {
+		if (index == 301) {
 			return GeneratedHostedFunctionRow(
 				"regfree",
 				"posix",
@@ -6271,7 +6900,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 277) {
+		if (index == 302) {
 			return GeneratedHostedFunctionRow(
 				"remainder",
 				"math",
@@ -6294,7 +6923,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 278) {
+		if (index == 303) {
 			return GeneratedHostedFunctionRow(
 				"remainderf",
 				"math",
@@ -6317,7 +6946,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 279) {
+		if (index == 304) {
 			return GeneratedHostedFunctionRow(
 				"remainderl",
 				"math",
@@ -6340,11 +6969,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow7(int index) {
-		if (index == 280) {
+		if (index == 305) {
 			return GeneratedHostedFunctionRow(
 				"remove",
 				"stdio",
@@ -6366,7 +6991,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 281) {
+		if (index == 306) {
 			return GeneratedHostedFunctionRow(
 				"rename",
 				"stdio",
@@ -6389,7 +7014,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 282) {
+		if (index == 307) {
 			return GeneratedHostedFunctionRow(
 				"renameat",
 				"posix",
@@ -6414,7 +7039,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 283) {
+		if (index == 308) {
 			return GeneratedHostedFunctionRow(
 				"rewind",
 				"stdio",
@@ -6436,7 +7061,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 284) {
+		if (index == 309) {
 			return GeneratedHostedFunctionRow(
 				"rint",
 				"math",
@@ -6458,7 +7083,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 285) {
+		if (index == 310) {
 			return GeneratedHostedFunctionRow(
 				"rintf",
 				"math",
@@ -6480,7 +7105,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 286) {
+		if (index == 311) {
 			return GeneratedHostedFunctionRow(
 				"rintl",
 				"math",
@@ -6502,7 +7127,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 287) {
+		if (index == 312) {
 			return GeneratedHostedFunctionRow(
 				"rmdir",
 				"posix",
@@ -6524,7 +7149,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 288) {
+		if (index == 313) {
 			return GeneratedHostedFunctionRow(
 				"round",
 				"math",
@@ -6546,7 +7171,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 289) {
+		if (index == 314) {
 			return GeneratedHostedFunctionRow(
 				"roundf",
 				"math",
@@ -6568,7 +7193,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 290) {
+		if (index == 315) {
 			return GeneratedHostedFunctionRow(
 				"roundl",
 				"math",
@@ -6590,7 +7215,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 291) {
+		if (index == 316) {
 			return GeneratedHostedFunctionRow(
 				"send",
 				"posix",
@@ -6615,7 +7240,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 292) {
+		if (index == 317) {
 			return GeneratedHostedFunctionRow(
 				"setenv",
 				"posix_process",
@@ -6639,7 +7264,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 293) {
+		if (index == 318) {
 			return GeneratedHostedFunctionRow(
 				"setgid",
 				"posix_process",
@@ -6661,7 +7286,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 294) {
+		if (index == 319) {
 			return GeneratedHostedFunctionRow(
 				"setpgid",
 				"posix_process",
@@ -6684,7 +7309,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 295) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow8(int index) {
+		if (index == 320) {
 			return GeneratedHostedFunctionRow(
 				"setrlimit",
 				"posix_process",
@@ -6707,7 +7336,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 296) {
+		if (index == 321) {
 			return GeneratedHostedFunctionRow(
 				"setsockopt",
 				"posix",
@@ -6733,7 +7362,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 297) {
+		if (index == 322) {
 			return GeneratedHostedFunctionRow(
 				"setuid",
 				"posix_process",
@@ -6755,7 +7384,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 298) {
+		if (index == 323) {
 			return GeneratedHostedFunctionRow(
 				"shutdown",
 				"posix",
@@ -6778,7 +7407,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 299) {
+		if (index == 324) {
 			return GeneratedHostedFunctionRow(
 				"sigaction",
 				"posix_process",
@@ -6802,7 +7431,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 300) {
+		if (index == 325) {
 			return GeneratedHostedFunctionRow(
 				"sigaddset",
 				"posix_process",
@@ -6825,7 +7454,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 301) {
+		if (index == 326) {
 			return GeneratedHostedFunctionRow(
 				"sigemptyset",
 				"posix_process",
@@ -6847,7 +7476,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 302) {
+		if (index == 327) {
 			return GeneratedHostedFunctionRow(
 				"sin",
 				"math",
@@ -6869,7 +7498,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 303) {
+		if (index == 328) {
 			return GeneratedHostedFunctionRow(
 				"sinf",
 				"math",
@@ -6891,7 +7520,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 304) {
+		if (index == 329) {
 			return GeneratedHostedFunctionRow(
 				"sinh",
 				"math",
@@ -6913,7 +7542,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 305) {
+		if (index == 330) {
 			return GeneratedHostedFunctionRow(
 				"sinhf",
 				"math",
@@ -6935,7 +7564,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 306) {
+		if (index == 331) {
 			return GeneratedHostedFunctionRow(
 				"sinhl",
 				"math",
@@ -6957,7 +7586,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 307) {
+		if (index == 332) {
 			return GeneratedHostedFunctionRow(
 				"sinl",
 				"math",
@@ -6979,7 +7608,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 308) {
+		if (index == 333) {
 			return GeneratedHostedFunctionRow(
 				"snprintf",
 				"stdio",
@@ -7003,7 +7632,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 309) {
+		if (index == 334) {
 			return GeneratedHostedFunctionRow(
 				"socket",
 				"posix",
@@ -7027,7 +7656,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 310) {
+		if (index == 335) {
 			return GeneratedHostedFunctionRow(
 				"socketpair",
 				"posix",
@@ -7052,7 +7681,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 311) {
+		if (index == 336) {
 			return GeneratedHostedFunctionRow(
 				"sprintf",
 				"stdio",
@@ -7075,7 +7704,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 312) {
+		if (index == 337) {
 			return GeneratedHostedFunctionRow(
 				"sqrt",
 				"math",
@@ -7097,7 +7726,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 313) {
+		if (index == 338) {
 			return GeneratedHostedFunctionRow(
 				"sqrtf",
 				"math",
@@ -7119,7 +7748,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 314) {
+		if (index == 339) {
 			return GeneratedHostedFunctionRow(
 				"sqrtl",
 				"math",
@@ -7141,7 +7770,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 315) {
+		if (index == 340) {
 			return GeneratedHostedFunctionRow(
 				"srand",
 				"stdlib",
@@ -7163,7 +7792,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 316) {
+		if (index == 341) {
 			return GeneratedHostedFunctionRow(
 				"stat",
 				"posix",
@@ -7186,7 +7815,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 317) {
+		if (index == 342) {
 			return GeneratedHostedFunctionRow(
 				"strcat",
 				"string",
@@ -7209,7 +7838,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 318) {
+		if (index == 343) {
 			return GeneratedHostedFunctionRow(
 				"strchr",
 				"string",
@@ -7232,7 +7861,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 319) {
+		if (index == 344) {
 			return GeneratedHostedFunctionRow(
 				"strcmp",
 				"string",
@@ -7255,11 +7884,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow8(int index) {
-		if (index == 320) {
+		if (index == 345) {
 			return GeneratedHostedFunctionRow(
 				"strcoll",
 				"string",
@@ -7282,7 +7907,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 321) {
+		if (index == 346) {
 			return GeneratedHostedFunctionRow(
 				"strcpy",
 				"string",
@@ -7305,7 +7930,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 322) {
+		if (index == 347) {
 			return GeneratedHostedFunctionRow(
 				"strcspn",
 				"string",
@@ -7328,7 +7953,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 323) {
+		if (index == 348) {
 			return GeneratedHostedFunctionRow(
 				"strdup",
 				"string",
@@ -7350,7 +7975,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 324) {
+		if (index == 349) {
 			return GeneratedHostedFunctionRow(
 				"strerror",
 				"string",
@@ -7372,7 +7997,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 325) {
+		if (index == 350) {
 			return GeneratedHostedFunctionRow(
 				"strlen",
 				"string",
@@ -7394,7 +8019,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 326) {
+		if (index == 351) {
 			return GeneratedHostedFunctionRow(
 				"strncat",
 				"string",
@@ -7418,7 +8043,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 327) {
+		if (index == 352) {
 			return GeneratedHostedFunctionRow(
 				"strncmp",
 				"string",
@@ -7442,7 +8067,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 328) {
+		if (index == 353) {
 			return GeneratedHostedFunctionRow(
 				"strncpy",
 				"string",
@@ -7466,7 +8091,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 329) {
+		if (index == 354) {
 			return GeneratedHostedFunctionRow(
 				"strnlen",
 				"string",
@@ -7489,7 +8114,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 330) {
+		if (index == 355) {
 			return GeneratedHostedFunctionRow(
 				"strpbrk",
 				"string",
@@ -7512,7 +8137,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 331) {
+		if (index == 356) {
 			return GeneratedHostedFunctionRow(
 				"strrchr",
 				"string",
@@ -7535,7 +8160,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 332) {
+		if (index == 357) {
 			return GeneratedHostedFunctionRow(
 				"strspn",
 				"string",
@@ -7558,7 +8183,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 333) {
+		if (index == 358) {
 			return GeneratedHostedFunctionRow(
 				"strstr",
 				"string",
@@ -7581,7 +8206,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 334) {
+		if (index == 359) {
 			return GeneratedHostedFunctionRow(
 				"strtod",
 				"stdlib",
@@ -7604,7 +8229,11 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 335) {
+		throw "hosted ABI function row index out of range";
+	}
+
+	private GeneratedHostedFunctionRow functionRow9(int index) {
+		if (index == 360) {
 			return GeneratedHostedFunctionRow(
 				"strtof",
 				"stdlib",
@@ -7627,7 +8256,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 336) {
+		if (index == 361) {
 			return GeneratedHostedFunctionRow(
 				"strtok",
 				"string",
@@ -7650,7 +8279,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 337) {
+		if (index == 362) {
 			return GeneratedHostedFunctionRow(
 				"strtol",
 				"stdlib",
@@ -7674,7 +8303,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 338) {
+		if (index == 363) {
 			return GeneratedHostedFunctionRow(
 				"strtold",
 				"stdlib",
@@ -7697,7 +8326,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 339) {
+		if (index == 364) {
 			return GeneratedHostedFunctionRow(
 				"strtoll",
 				"stdlib",
@@ -7721,7 +8350,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 340) {
+		if (index == 365) {
 			return GeneratedHostedFunctionRow(
 				"strtoul",
 				"stdlib",
@@ -7745,7 +8374,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 341) {
+		if (index == 366) {
 			return GeneratedHostedFunctionRow(
 				"strtoull",
 				"stdlib",
@@ -7769,7 +8398,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 342) {
+		if (index == 367) {
 			return GeneratedHostedFunctionRow(
 				"strxfrm",
 				"string",
@@ -7793,7 +8422,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 343) {
+		if (index == 368) {
 			return GeneratedHostedFunctionRow(
 				"symlink",
 				"posix",
@@ -7816,7 +8445,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 344) {
+		if (index == 369) {
 			return GeneratedHostedFunctionRow(
 				"sysconf",
 				"posix_process",
@@ -7838,7 +8467,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 345) {
+		if (index == 370) {
 			return GeneratedHostedFunctionRow(
 				"system",
 				"stdlib",
@@ -7860,7 +8489,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 346) {
+		if (index == 371) {
 			return GeneratedHostedFunctionRow(
 				"tan",
 				"math",
@@ -7882,7 +8511,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 347) {
+		if (index == 372) {
 			return GeneratedHostedFunctionRow(
 				"tanf",
 				"math",
@@ -7904,7 +8533,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 348) {
+		if (index == 373) {
 			return GeneratedHostedFunctionRow(
 				"tanh",
 				"math",
@@ -7926,7 +8555,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 349) {
+		if (index == 374) {
 			return GeneratedHostedFunctionRow(
 				"tanhf",
 				"math",
@@ -7948,7 +8577,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 350) {
+		if (index == 375) {
 			return GeneratedHostedFunctionRow(
 				"tanhl",
 				"math",
@@ -7970,7 +8599,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 351) {
+		if (index == 376) {
 			return GeneratedHostedFunctionRow(
 				"tanl",
 				"math",
@@ -7992,7 +8621,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 352) {
+		if (index == 377) {
 			return GeneratedHostedFunctionRow(
 				"tcgetattr",
 				"posix_process",
@@ -8015,7 +8644,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 353) {
+		if (index == 378) {
 			return GeneratedHostedFunctionRow(
 				"tcsetattr",
 				"posix_process",
@@ -8039,7 +8668,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 354) {
+		if (index == 379) {
 			return GeneratedHostedFunctionRow(
 				"tgamma",
 				"math",
@@ -8061,7 +8690,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 355) {
+		if (index == 380) {
 			return GeneratedHostedFunctionRow(
 				"tgammaf",
 				"math",
@@ -8083,7 +8712,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 356) {
+		if (index == 381) {
 			return GeneratedHostedFunctionRow(
 				"tgammal",
 				"math",
@@ -8105,7 +8734,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 357) {
+		if (index == 382) {
 			return GeneratedHostedFunctionRow(
 				"time",
 				"posix_process",
@@ -8127,10 +8756,10 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 358) {
+		if (index == 383) {
 			return GeneratedHostedFunctionRow("tmpfile", "stdio", GeneratedAbiTypeRow("FILE", 1, false, self.emptyTypes()), true, self.emptyParameters(), false, false, GeneratedAbiTypeRow("FILE", 1, false, self.emptyTypes()), "independent", -1, "", false, "fclose", "", "", "", "unknown");
 		}
-		if (index == 359) {
+		if (index == 384) {
 			return GeneratedHostedFunctionRow(
 				"tolower",
 				"ctype",
@@ -8152,11 +8781,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		throw "hosted ABI function row index out of range";
-	}
-
-	private GeneratedHostedFunctionRow functionRow9(int index) {
-		if (index == 360) {
+		if (index == 385) {
 			return GeneratedHostedFunctionRow(
 				"toupper",
 				"ctype",
@@ -8178,7 +8803,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 361) {
+		if (index == 386) {
 			return GeneratedHostedFunctionRow(
 				"trunc",
 				"math",
@@ -8200,7 +8825,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 362) {
+		if (index == 387) {
 			return GeneratedHostedFunctionRow(
 				"truncf",
 				"math",
@@ -8222,7 +8847,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 363) {
+		if (index == 388) {
 			return GeneratedHostedFunctionRow(
 				"truncl",
 				"math",
@@ -8244,7 +8869,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 364) {
+		if (index == 389) {
 			return GeneratedHostedFunctionRow(
 				"ungetc",
 				"stdio",
@@ -8267,7 +8892,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 365) {
+		if (index == 390) {
 			return GeneratedHostedFunctionRow(
 				"unlink",
 				"posix",
@@ -8289,7 +8914,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 366) {
+		if (index == 391) {
 			return GeneratedHostedFunctionRow(
 				"unlinkat",
 				"posix",
@@ -8313,7 +8938,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 367) {
+		if (index == 392) {
 			return GeneratedHostedFunctionRow(
 				"unsetenv",
 				"posix_process",
@@ -8335,7 +8960,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 368) {
+		if (index == 393) {
 			return GeneratedHostedFunctionRow(
 				"waitpid",
 				"posix_process",
@@ -8359,7 +8984,7 @@ class GeneratedHostedAbiData {
 				"",
 				"unknown");
 		}
-		if (index == 369) {
+		if (index == 394) {
 			return GeneratedHostedFunctionRow(
 				"write",
 				"posix",
@@ -8421,350 +9046,375 @@ class GeneratedHostedAbiData {
 		slots.put("__btrc_terminal_foreground_group", 26);
 		slots.put("__btrc_validate_executable_descriptor", 27);
 		slots.put("__btrc_validate_working_directory_descriptor", 28);
-		slots.put("__btrc_windows_launch", 29);
-		slots.put("__btrc_windows_launch_close", 30);
-		slots.put("__btrc_windows_launch_copy_output", 31);
-		slots.put("__btrc_windows_launch_terminate", 32);
-		slots.put("__btrc_windows_launch_wait", 33);
-		slots.put("__btrc_windows_quote_argv_utf8", 34);
-		slots.put("abort", 35);
-		slots.put("abs", 36);
-		slots.put("accept", 37);
-		slots.put("access", 38);
-		slots.put("acos", 39);
-		slots.put("acosf", 40);
-		slots.put("acosh", 41);
-		slots.put("acoshf", 42);
-		slots.put("acoshl", 43);
-		slots.put("acosl", 44);
-		slots.put("aligned_alloc", 45);
-		slots.put("asin", 46);
-		slots.put("asinf", 47);
-		slots.put("asinh", 48);
-		slots.put("asinhf", 49);
-		slots.put("asinhl", 50);
-		slots.put("asinl", 51);
-		slots.put("atan", 52);
-		slots.put("atan2", 53);
-		slots.put("atan2f", 54);
-		slots.put("atan2l", 55);
-		slots.put("atanf", 56);
-		slots.put("atanh", 57);
-		slots.put("atanhf", 58);
-		slots.put("atanhl", 59);
-		slots.put("atanl", 60);
-		slots.put("atof", 61);
-		slots.put("atoi", 62);
-		slots.put("atol", 63);
-		slots.put("atoll", 64);
-		slots.put("bind", 65);
-		slots.put("bsearch", 66);
-		slots.put("btrc_gpu_acquire_compute", 67);
-		slots.put("btrc_gpu_available", 68);
-		slots.put("btrc_gpu_bind_group_destroy", 69);
-		slots.put("btrc_gpu_buffer_destroy", 70);
-		slots.put("btrc_gpu_compute_pipeline_destroy", 71);
-		slots.put("btrc_gpu_create_bind_group", 72);
-		slots.put("btrc_gpu_create_buffer", 73);
-		slots.put("btrc_gpu_create_compute_pipeline", 74);
-		slots.put("btrc_gpu_create_shader", 75);
-		slots.put("btrc_gpu_destroy", 76);
-		slots.put("btrc_gpu_dispatch", 77);
-		slots.put("btrc_gpu_init_compute", 78);
-		slots.put("btrc_gpu_read_buffer_checked", 79);
-		slots.put("btrc_gpu_shader_destroy", 80);
-		slots.put("btrc_gpu_write_buffer", 81);
-		slots.put("calloc", 82);
-		slots.put("cbrt", 83);
-		slots.put("cbrtf", 84);
-		slots.put("cbrtl", 85);
-		slots.put("ceil", 86);
-		slots.put("ceilf", 87);
-		slots.put("ceill", 88);
-		slots.put("chdir", 89);
-		slots.put("chmod", 90);
-		slots.put("clearerr", 91);
-		slots.put("clock", 92);
-		slots.put("clock_gettime", 93);
-		slots.put("close", 94);
-		slots.put("closedir", 95);
-		slots.put("copysign", 96);
-		slots.put("copysignf", 97);
-		slots.put("copysignl", 98);
-		slots.put("cos", 99);
-		slots.put("cosf", 100);
-		slots.put("cosh", 101);
-		slots.put("coshf", 102);
-		slots.put("coshl", 103);
-		slots.put("cosl", 104);
-		slots.put("dirfd", 105);
-		slots.put("dup2", 106);
-		slots.put("erf", 107);
-		slots.put("erfc", 108);
-		slots.put("erfcf", 109);
-		slots.put("erfcl", 110);
-		slots.put("erff", 111);
-		slots.put("erfl", 112);
-		slots.put("execve", 113);
-		slots.put("exit", 114);
-		slots.put("exp", 115);
-		slots.put("exp2", 116);
-		slots.put("exp2f", 117);
-		slots.put("exp2l", 118);
-		slots.put("expf", 119);
-		slots.put("expl", 120);
-		slots.put("expm1", 121);
-		slots.put("expm1f", 122);
-		slots.put("expm1l", 123);
-		slots.put("fabs", 124);
-		slots.put("fabsf", 125);
-		slots.put("fabsl", 126);
-		slots.put("fchmod", 127);
-		slots.put("fclose", 128);
-		slots.put("fcntl", 129);
-		slots.put("fdim", 130);
-		slots.put("fdimf", 131);
-		slots.put("fdiml", 132);
-		slots.put("fdopendir", 133);
-		slots.put("feof", 134);
-		slots.put("ferror", 135);
-		slots.put("fflush", 136);
-		slots.put("fgetc", 137);
-		slots.put("fgets", 138);
-		slots.put("fileno", 139);
-		slots.put("flock", 140);
-		slots.put("flockfile", 141);
-		slots.put("floor", 142);
-		slots.put("floorf", 143);
-		slots.put("floorl", 144);
-		slots.put("fma", 145);
-		slots.put("fmaf", 146);
-		slots.put("fmal", 147);
-		slots.put("fmax", 148);
-		slots.put("fmaxf", 149);
-		slots.put("fmaxl", 150);
-		slots.put("fmin", 151);
-		slots.put("fminf", 152);
-		slots.put("fminl", 153);
-		slots.put("fmod", 154);
-		slots.put("fmodf", 155);
-		slots.put("fmodl", 156);
-		slots.put("fnmatch", 157);
-		slots.put("fopen", 158);
-		slots.put("fork", 159);
-		slots.put("forkpty", 160);
-		slots.put("fprintf", 161);
-		slots.put("fputc", 162);
-		slots.put("fputs", 163);
-		slots.put("fread", 164);
-		slots.put("free", 165);
-		slots.put("freopen", 166);
-		slots.put("fseek", 167);
-		slots.put("fstat", 168);
-		slots.put("fstatat", 169);
-		slots.put("fsync", 170);
-		slots.put("ftell", 171);
-		slots.put("funlockfile", 172);
-		slots.put("fwrite", 173);
-		slots.put("getc", 174);
-		slots.put("getchar", 175);
-		slots.put("getcwd", 176);
-		slots.put("getenv", 177);
-		slots.put("geteuid", 178);
-		slots.put("getpid", 179);
-		slots.put("getpwnam_r", 180);
-		slots.put("getrlimit", 181);
-		slots.put("glob", 182);
-		slots.put("globfree", 183);
-		slots.put("hypot", 184);
-		slots.put("hypotf", 185);
-		slots.put("hypotl", 186);
-		slots.put("initgroups", 187);
-		slots.put("isalnum", 188);
-		slots.put("isalpha", 189);
-		slots.put("isatty", 190);
-		slots.put("isblank", 191);
-		slots.put("iscntrl", 192);
-		slots.put("isdigit", 193);
-		slots.put("isgraph", 194);
-		slots.put("islower", 195);
-		slots.put("isprint", 196);
-		slots.put("ispunct", 197);
-		slots.put("isspace", 198);
-		slots.put("isupper", 199);
-		slots.put("isxdigit", 200);
-		slots.put("kill", 201);
-		slots.put("labs", 202);
-		slots.put("lgamma", 203);
-		slots.put("lgammaf", 204);
-		slots.put("lgammal", 205);
-		slots.put("listen", 206);
-		slots.put("llabs", 207);
-		slots.put("localtime_r", 208);
-		slots.put("log", 209);
-		slots.put("log10", 210);
-		slots.put("log10f", 211);
-		slots.put("log10l", 212);
-		slots.put("log1p", 213);
-		slots.put("log1pf", 214);
-		slots.put("log1pl", 215);
-		slots.put("log2", 216);
-		slots.put("log2f", 217);
-		slots.put("log2l", 218);
-		slots.put("logb", 219);
-		slots.put("logbf", 220);
-		slots.put("logbl", 221);
-		slots.put("logf", 222);
-		slots.put("logl", 223);
-		slots.put("lseek", 224);
-		slots.put("lstat", 225);
-		slots.put("malloc", 226);
-		slots.put("mblen", 227);
-		slots.put("memchr", 228);
-		slots.put("memcmp", 229);
-		slots.put("memcpy", 230);
-		slots.put("memmove", 231);
-		slots.put("memset", 232);
-		slots.put("mkdir", 233);
-		slots.put("mkdirat", 234);
-		slots.put("mkdtemp", 235);
-		slots.put("nanosleep", 236);
-		slots.put("nearbyint", 237);
-		slots.put("nearbyintf", 238);
-		slots.put("nearbyintl", 239);
-		slots.put("nextafter", 240);
-		slots.put("nextafterf", 241);
-		slots.put("nextafterl", 242);
-		slots.put("open", 243);
-		slots.put("openat", 244);
-		slots.put("opendir", 245);
-		slots.put("pclose", 246);
-		slots.put("perror", 247);
-		slots.put("pipe", 248);
-		slots.put("poll", 249);
+		slots.put("__btrc_windows_daemon_control_open", 29);
+		slots.put("__btrc_windows_daemon_control_open_at", 30);
+		slots.put("__btrc_windows_daemon_directory_next", 31);
+		slots.put("__btrc_windows_daemon_directory_open", 32);
+		slots.put("__btrc_windows_daemon_directory_path", 33);
+		slots.put("__btrc_windows_daemon_file_close", 34);
+		slots.put("__btrc_windows_daemon_file_dispose", 35);
+		slots.put("__btrc_windows_daemon_file_flush", 36);
+		slots.put("__btrc_windows_daemon_file_identity", 37);
+		slots.put("__btrc_windows_daemon_file_read", 38);
+		slots.put("__btrc_windows_daemon_file_write", 39);
+		slots.put("__btrc_windows_daemon_log_open", 40);
+		slots.put("__btrc_windows_daemon_record_open", 41);
+		slots.put("__btrc_windows_launch", 42);
+		slots.put("__btrc_windows_launch_close", 43);
+		slots.put("__btrc_windows_launch_copy_output", 44);
+		slots.put("__btrc_windows_launch_terminate", 45);
+		slots.put("__btrc_windows_launch_wait", 46);
+		slots.put("__btrc_windows_quote_argv_utf8", 47);
+		slots.put("__btrc_windows_supervisor_accept", 48);
+		slots.put("__btrc_windows_supervisor_ack", 49);
+		slots.put("__btrc_windows_supervisor_close", 50);
+		slots.put("__btrc_windows_supervisor_copy_startup", 51);
+		slots.put("__btrc_windows_supervisor_image_close", 52);
+		slots.put("__btrc_windows_supervisor_image_verify", 53);
+		slots.put("__btrc_windows_supervisor_poll_managed", 54);
+		slots.put("__btrc_windows_supervisor_prepare", 55);
+		slots.put("__btrc_windows_supervisor_ready_wait_commit", 56);
+		slots.put("__btrc_windows_supervisor_spawn_managed", 57);
+		slots.put("__btrc_windows_supervisor_terminate_managed", 58);
+		slots.put("__btrc_windows_supervisor_transfer", 59);
+		slots.put("abort", 60);
+		slots.put("abs", 61);
+		slots.put("accept", 62);
+		slots.put("access", 63);
+		slots.put("acos", 64);
+		slots.put("acosf", 65);
+		slots.put("acosh", 66);
+		slots.put("acoshf", 67);
+		slots.put("acoshl", 68);
+		slots.put("acosl", 69);
+		slots.put("aligned_alloc", 70);
+		slots.put("asin", 71);
+		slots.put("asinf", 72);
+		slots.put("asinh", 73);
+		slots.put("asinhf", 74);
+		slots.put("asinhl", 75);
+		slots.put("asinl", 76);
+		slots.put("atan", 77);
+		slots.put("atan2", 78);
+		slots.put("atan2f", 79);
+		slots.put("atan2l", 80);
+		slots.put("atanf", 81);
+		slots.put("atanh", 82);
+		slots.put("atanhf", 83);
+		slots.put("atanhl", 84);
+		slots.put("atanl", 85);
+		slots.put("atof", 86);
+		slots.put("atoi", 87);
+		slots.put("atol", 88);
+		slots.put("atoll", 89);
+		slots.put("bind", 90);
+		slots.put("bsearch", 91);
+		slots.put("btrc_gpu_acquire_compute", 92);
+		slots.put("btrc_gpu_available", 93);
+		slots.put("btrc_gpu_bind_group_destroy", 94);
+		slots.put("btrc_gpu_buffer_destroy", 95);
+		slots.put("btrc_gpu_compute_pipeline_destroy", 96);
+		slots.put("btrc_gpu_create_bind_group", 97);
+		slots.put("btrc_gpu_create_buffer", 98);
+		slots.put("btrc_gpu_create_compute_pipeline", 99);
+		slots.put("btrc_gpu_create_shader", 100);
+		slots.put("btrc_gpu_destroy", 101);
+		slots.put("btrc_gpu_dispatch", 102);
+		slots.put("btrc_gpu_init_compute", 103);
+		slots.put("btrc_gpu_read_buffer_checked", 104);
+		slots.put("btrc_gpu_shader_destroy", 105);
+		slots.put("btrc_gpu_write_buffer", 106);
+		slots.put("calloc", 107);
+		slots.put("cbrt", 108);
+		slots.put("cbrtf", 109);
+		slots.put("cbrtl", 110);
+		slots.put("ceil", 111);
+		slots.put("ceilf", 112);
+		slots.put("ceill", 113);
+		slots.put("chdir", 114);
+		slots.put("chmod", 115);
+		slots.put("clearerr", 116);
+		slots.put("clock", 117);
+		slots.put("clock_gettime", 118);
+		slots.put("close", 119);
+		slots.put("closedir", 120);
+		slots.put("copysign", 121);
+		slots.put("copysignf", 122);
+		slots.put("copysignl", 123);
+		slots.put("cos", 124);
+		slots.put("cosf", 125);
+		slots.put("cosh", 126);
+		slots.put("coshf", 127);
+		slots.put("coshl", 128);
+		slots.put("cosl", 129);
+		slots.put("dirfd", 130);
+		slots.put("dup2", 131);
+		slots.put("erf", 132);
+		slots.put("erfc", 133);
+		slots.put("erfcf", 134);
+		slots.put("erfcl", 135);
+		slots.put("erff", 136);
+		slots.put("erfl", 137);
+		slots.put("execve", 138);
+		slots.put("exit", 139);
+		slots.put("exp", 140);
+		slots.put("exp2", 141);
+		slots.put("exp2f", 142);
+		slots.put("exp2l", 143);
+		slots.put("expf", 144);
+		slots.put("expl", 145);
+		slots.put("expm1", 146);
+		slots.put("expm1f", 147);
+		slots.put("expm1l", 148);
+		slots.put("fabs", 149);
+		slots.put("fabsf", 150);
+		slots.put("fabsl", 151);
+		slots.put("fchmod", 152);
+		slots.put("fclose", 153);
+		slots.put("fcntl", 154);
+		slots.put("fdim", 155);
+		slots.put("fdimf", 156);
+		slots.put("fdiml", 157);
+		slots.put("fdopendir", 158);
+		slots.put("feof", 159);
+		slots.put("ferror", 160);
+		slots.put("fflush", 161);
+		slots.put("fgetc", 162);
+		slots.put("fgets", 163);
+		slots.put("fileno", 164);
+		slots.put("flock", 165);
+		slots.put("flockfile", 166);
+		slots.put("floor", 167);
+		slots.put("floorf", 168);
+		slots.put("floorl", 169);
+		slots.put("fma", 170);
+		slots.put("fmaf", 171);
+		slots.put("fmal", 172);
+		slots.put("fmax", 173);
+		slots.put("fmaxf", 174);
+		slots.put("fmaxl", 175);
+		slots.put("fmin", 176);
+		slots.put("fminf", 177);
+		slots.put("fminl", 178);
+		slots.put("fmod", 179);
+		slots.put("fmodf", 180);
+		slots.put("fmodl", 181);
+		slots.put("fnmatch", 182);
+		slots.put("fopen", 183);
+		slots.put("fork", 184);
+		slots.put("forkpty", 185);
+		slots.put("fprintf", 186);
+		slots.put("fputc", 187);
+		slots.put("fputs", 188);
+		slots.put("fread", 189);
+		slots.put("free", 190);
+		slots.put("freopen", 191);
+		slots.put("fseek", 192);
+		slots.put("fstat", 193);
+		slots.put("fstatat", 194);
+		slots.put("fsync", 195);
+		slots.put("ftell", 196);
+		slots.put("funlockfile", 197);
+		slots.put("fwrite", 198);
+		slots.put("getc", 199);
+		slots.put("getchar", 200);
+		slots.put("getcwd", 201);
+		slots.put("getenv", 202);
+		slots.put("geteuid", 203);
+		slots.put("getpid", 204);
+		slots.put("getpwnam_r", 205);
+		slots.put("getrlimit", 206);
+		slots.put("glob", 207);
+		slots.put("globfree", 208);
+		slots.put("hypot", 209);
+		slots.put("hypotf", 210);
+		slots.put("hypotl", 211);
+		slots.put("initgroups", 212);
+		slots.put("isalnum", 213);
+		slots.put("isalpha", 214);
+		slots.put("isatty", 215);
+		slots.put("isblank", 216);
+		slots.put("iscntrl", 217);
+		slots.put("isdigit", 218);
+		slots.put("isgraph", 219);
+		slots.put("islower", 220);
+		slots.put("isprint", 221);
+		slots.put("ispunct", 222);
+		slots.put("isspace", 223);
+		slots.put("isupper", 224);
+		slots.put("isxdigit", 225);
+		slots.put("kill", 226);
+		slots.put("labs", 227);
+		slots.put("lgamma", 228);
+		slots.put("lgammaf", 229);
+		slots.put("lgammal", 230);
+		slots.put("listen", 231);
+		slots.put("llabs", 232);
+		slots.put("localtime_r", 233);
+		slots.put("log", 234);
+		slots.put("log10", 235);
+		slots.put("log10f", 236);
+		slots.put("log10l", 237);
+		slots.put("log1p", 238);
+		slots.put("log1pf", 239);
+		slots.put("log1pl", 240);
+		slots.put("log2", 241);
+		slots.put("log2f", 242);
+		slots.put("log2l", 243);
+		slots.put("logb", 244);
+		slots.put("logbf", 245);
+		slots.put("logbl", 246);
+		slots.put("logf", 247);
+		slots.put("logl", 248);
+		slots.put("lseek", 249);
 	}
 
 	private void indexFunctions1(Map<string, int> slots) {
-		slots.put("popen", 250);
-		slots.put("pow", 251);
-		slots.put("powf", 252);
-		slots.put("powl", 253);
-		slots.put("printf", 254);
-		slots.put("pthread_join", 255);
-		slots.put("pthread_mutex_destroy", 256);
-		slots.put("pthread_mutex_init", 257);
-		slots.put("pthread_mutex_lock", 258);
-		slots.put("pthread_mutex_unlock", 259);
-		slots.put("putc", 260);
-		slots.put("putchar", 261);
-		slots.put("puts", 262);
-		slots.put("qsort", 263);
-		slots.put("quick_exit", 264);
-		slots.put("raise", 265);
-		slots.put("rand", 266);
-		slots.put("read", 267);
-		slots.put("readdir", 268);
-		slots.put("readlink", 269);
-		slots.put("realloc", 270);
-		slots.put("reallocarray", 271);
-		slots.put("realpath", 272);
-		slots.put("recv", 273);
-		slots.put("regcomp", 274);
-		slots.put("regexec", 275);
-		slots.put("regfree", 276);
-		slots.put("remainder", 277);
-		slots.put("remainderf", 278);
-		slots.put("remainderl", 279);
-		slots.put("remove", 280);
-		slots.put("rename", 281);
-		slots.put("renameat", 282);
-		slots.put("rewind", 283);
-		slots.put("rint", 284);
-		slots.put("rintf", 285);
-		slots.put("rintl", 286);
-		slots.put("rmdir", 287);
-		slots.put("round", 288);
-		slots.put("roundf", 289);
-		slots.put("roundl", 290);
-		slots.put("send", 291);
-		slots.put("setenv", 292);
-		slots.put("setgid", 293);
-		slots.put("setpgid", 294);
-		slots.put("setrlimit", 295);
-		slots.put("setsockopt", 296);
-		slots.put("setuid", 297);
-		slots.put("shutdown", 298);
-		slots.put("sigaction", 299);
-		slots.put("sigaddset", 300);
-		slots.put("sigemptyset", 301);
-		slots.put("sin", 302);
-		slots.put("sinf", 303);
-		slots.put("sinh", 304);
-		slots.put("sinhf", 305);
-		slots.put("sinhl", 306);
-		slots.put("sinl", 307);
-		slots.put("snprintf", 308);
-		slots.put("socket", 309);
-		slots.put("socketpair", 310);
-		slots.put("sprintf", 311);
-		slots.put("sqrt", 312);
-		slots.put("sqrtf", 313);
-		slots.put("sqrtl", 314);
-		slots.put("srand", 315);
-		slots.put("stat", 316);
-		slots.put("strcat", 317);
-		slots.put("strchr", 318);
-		slots.put("strcmp", 319);
-		slots.put("strcoll", 320);
-		slots.put("strcpy", 321);
-		slots.put("strcspn", 322);
-		slots.put("strdup", 323);
-		slots.put("strerror", 324);
-		slots.put("strlen", 325);
-		slots.put("strncat", 326);
-		slots.put("strncmp", 327);
-		slots.put("strncpy", 328);
-		slots.put("strnlen", 329);
-		slots.put("strpbrk", 330);
-		slots.put("strrchr", 331);
-		slots.put("strspn", 332);
-		slots.put("strstr", 333);
-		slots.put("strtod", 334);
-		slots.put("strtof", 335);
-		slots.put("strtok", 336);
-		slots.put("strtol", 337);
-		slots.put("strtold", 338);
-		slots.put("strtoll", 339);
-		slots.put("strtoul", 340);
-		slots.put("strtoull", 341);
-		slots.put("strxfrm", 342);
-		slots.put("symlink", 343);
-		slots.put("sysconf", 344);
-		slots.put("system", 345);
-		slots.put("tan", 346);
-		slots.put("tanf", 347);
-		slots.put("tanh", 348);
-		slots.put("tanhf", 349);
-		slots.put("tanhl", 350);
-		slots.put("tanl", 351);
-		slots.put("tcgetattr", 352);
-		slots.put("tcsetattr", 353);
-		slots.put("tgamma", 354);
-		slots.put("tgammaf", 355);
-		slots.put("tgammal", 356);
-		slots.put("time", 357);
-		slots.put("tmpfile", 358);
-		slots.put("tolower", 359);
-		slots.put("toupper", 360);
-		slots.put("trunc", 361);
-		slots.put("truncf", 362);
-		slots.put("truncl", 363);
-		slots.put("ungetc", 364);
-		slots.put("unlink", 365);
-		slots.put("unlinkat", 366);
-		slots.put("unsetenv", 367);
-		slots.put("waitpid", 368);
-		slots.put("write", 369);
+		slots.put("lstat", 250);
+		slots.put("malloc", 251);
+		slots.put("mblen", 252);
+		slots.put("memchr", 253);
+		slots.put("memcmp", 254);
+		slots.put("memcpy", 255);
+		slots.put("memmove", 256);
+		slots.put("memset", 257);
+		slots.put("mkdir", 258);
+		slots.put("mkdirat", 259);
+		slots.put("mkdtemp", 260);
+		slots.put("nanosleep", 261);
+		slots.put("nearbyint", 262);
+		slots.put("nearbyintf", 263);
+		slots.put("nearbyintl", 264);
+		slots.put("nextafter", 265);
+		slots.put("nextafterf", 266);
+		slots.put("nextafterl", 267);
+		slots.put("open", 268);
+		slots.put("openat", 269);
+		slots.put("opendir", 270);
+		slots.put("pclose", 271);
+		slots.put("perror", 272);
+		slots.put("pipe", 273);
+		slots.put("poll", 274);
+		slots.put("popen", 275);
+		slots.put("pow", 276);
+		slots.put("powf", 277);
+		slots.put("powl", 278);
+		slots.put("printf", 279);
+		slots.put("pthread_join", 280);
+		slots.put("pthread_mutex_destroy", 281);
+		slots.put("pthread_mutex_init", 282);
+		slots.put("pthread_mutex_lock", 283);
+		slots.put("pthread_mutex_unlock", 284);
+		slots.put("putc", 285);
+		slots.put("putchar", 286);
+		slots.put("puts", 287);
+		slots.put("qsort", 288);
+		slots.put("quick_exit", 289);
+		slots.put("raise", 290);
+		slots.put("rand", 291);
+		slots.put("read", 292);
+		slots.put("readdir", 293);
+		slots.put("readlink", 294);
+		slots.put("realloc", 295);
+		slots.put("reallocarray", 296);
+		slots.put("realpath", 297);
+		slots.put("recv", 298);
+		slots.put("regcomp", 299);
+		slots.put("regexec", 300);
+		slots.put("regfree", 301);
+		slots.put("remainder", 302);
+		slots.put("remainderf", 303);
+		slots.put("remainderl", 304);
+		slots.put("remove", 305);
+		slots.put("rename", 306);
+		slots.put("renameat", 307);
+		slots.put("rewind", 308);
+		slots.put("rint", 309);
+		slots.put("rintf", 310);
+		slots.put("rintl", 311);
+		slots.put("rmdir", 312);
+		slots.put("round", 313);
+		slots.put("roundf", 314);
+		slots.put("roundl", 315);
+		slots.put("send", 316);
+		slots.put("setenv", 317);
+		slots.put("setgid", 318);
+		slots.put("setpgid", 319);
+		slots.put("setrlimit", 320);
+		slots.put("setsockopt", 321);
+		slots.put("setuid", 322);
+		slots.put("shutdown", 323);
+		slots.put("sigaction", 324);
+		slots.put("sigaddset", 325);
+		slots.put("sigemptyset", 326);
+		slots.put("sin", 327);
+		slots.put("sinf", 328);
+		slots.put("sinh", 329);
+		slots.put("sinhf", 330);
+		slots.put("sinhl", 331);
+		slots.put("sinl", 332);
+		slots.put("snprintf", 333);
+		slots.put("socket", 334);
+		slots.put("socketpair", 335);
+		slots.put("sprintf", 336);
+		slots.put("sqrt", 337);
+		slots.put("sqrtf", 338);
+		slots.put("sqrtl", 339);
+		slots.put("srand", 340);
+		slots.put("stat", 341);
+		slots.put("strcat", 342);
+		slots.put("strchr", 343);
+		slots.put("strcmp", 344);
+		slots.put("strcoll", 345);
+		slots.put("strcpy", 346);
+		slots.put("strcspn", 347);
+		slots.put("strdup", 348);
+		slots.put("strerror", 349);
+		slots.put("strlen", 350);
+		slots.put("strncat", 351);
+		slots.put("strncmp", 352);
+		slots.put("strncpy", 353);
+		slots.put("strnlen", 354);
+		slots.put("strpbrk", 355);
+		slots.put("strrchr", 356);
+		slots.put("strspn", 357);
+		slots.put("strstr", 358);
+		slots.put("strtod", 359);
+		slots.put("strtof", 360);
+		slots.put("strtok", 361);
+		slots.put("strtol", 362);
+		slots.put("strtold", 363);
+		slots.put("strtoll", 364);
+		slots.put("strtoul", 365);
+		slots.put("strtoull", 366);
+		slots.put("strxfrm", 367);
+		slots.put("symlink", 368);
+		slots.put("sysconf", 369);
+		slots.put("system", 370);
+		slots.put("tan", 371);
+		slots.put("tanf", 372);
+		slots.put("tanh", 373);
+		slots.put("tanhf", 374);
+		slots.put("tanhl", 375);
+		slots.put("tanl", 376);
+		slots.put("tcgetattr", 377);
+		slots.put("tcsetattr", 378);
+		slots.put("tgamma", 379);
+		slots.put("tgammaf", 380);
+		slots.put("tgammal", 381);
+		slots.put("time", 382);
+		slots.put("tmpfile", 383);
+		slots.put("tolower", 384);
+		slots.put("toupper", 385);
+		slots.put("trunc", 386);
+		slots.put("truncf", 387);
+		slots.put("truncl", 388);
+		slots.put("ungetc", 389);
+		slots.put("unlink", 390);
+		slots.put("unlinkat", 391);
+		slots.put("unsetenv", 392);
+		slots.put("waitpid", 393);
+		slots.put("write", 394);
 	}
 
 	public Vector<string> functionNames() {
@@ -8812,12 +9462,37 @@ class GeneratedHostedAbiData {
 		values.push("__btrc_terminal_foreground_group");
 		values.push("__btrc_validate_executable_descriptor");
 		values.push("__btrc_validate_working_directory_descriptor");
+		values.push("__btrc_windows_daemon_control_open");
+		values.push("__btrc_windows_daemon_control_open_at");
+		values.push("__btrc_windows_daemon_directory_next");
+		values.push("__btrc_windows_daemon_directory_open");
+		values.push("__btrc_windows_daemon_directory_path");
+		values.push("__btrc_windows_daemon_file_close");
+		values.push("__btrc_windows_daemon_file_dispose");
+		values.push("__btrc_windows_daemon_file_flush");
+		values.push("__btrc_windows_daemon_file_identity");
+		values.push("__btrc_windows_daemon_file_read");
+		values.push("__btrc_windows_daemon_file_write");
+		values.push("__btrc_windows_daemon_log_open");
+		values.push("__btrc_windows_daemon_record_open");
 		values.push("__btrc_windows_launch");
 		values.push("__btrc_windows_launch_close");
 		values.push("__btrc_windows_launch_copy_output");
 		values.push("__btrc_windows_launch_terminate");
 		values.push("__btrc_windows_launch_wait");
 		values.push("__btrc_windows_quote_argv_utf8");
+		values.push("__btrc_windows_supervisor_accept");
+		values.push("__btrc_windows_supervisor_ack");
+		values.push("__btrc_windows_supervisor_close");
+		values.push("__btrc_windows_supervisor_copy_startup");
+		values.push("__btrc_windows_supervisor_image_close");
+		values.push("__btrc_windows_supervisor_image_verify");
+		values.push("__btrc_windows_supervisor_poll_managed");
+		values.push("__btrc_windows_supervisor_prepare");
+		values.push("__btrc_windows_supervisor_ready_wait_commit");
+		values.push("__btrc_windows_supervisor_spawn_managed");
+		values.push("__btrc_windows_supervisor_terminate_managed");
+		values.push("__btrc_windows_supervisor_transfer");
 		values.push("_setjmp");
 		values.push("a64l");
 		values.push("abort");
@@ -9006,6 +9681,9 @@ class GeneratedHostedAbiData {
 		values.push("fabsf");
 		values.push("fabsl");
 		values.push("faccessat");
+	}
+
+	private void pushFunctionNames1(Vector<string> values) {
 		values.push("fchdir");
 		values.push("fchflags");
 		values.push("fchmod");
@@ -9031,9 +9709,6 @@ class GeneratedHostedAbiData {
 		values.push("fflagstostr");
 		values.push("fflush");
 		values.push("ffs");
-	}
-
-	private void pushFunctionNames1(Vector<string> values) {
 		values.push("ffsctl");
 		values.push("ffsl");
 		values.push("ffsll");
@@ -9259,6 +9934,9 @@ class GeneratedHostedAbiData {
 		values.push("jnf");
 		values.push("jnl");
 		values.push("jrand48");
+	}
+
+	private void pushFunctionNames2(Vector<string> values) {
 		values.push("jrand48_r");
 		values.push("kill");
 		values.push("killpg");
@@ -9284,9 +9962,6 @@ class GeneratedHostedAbiData {
 		values.push("listen");
 		values.push("llabs");
 		values.push("lldiv");
-	}
-
-	private void pushFunctionNames2(Vector<string> values) {
 		values.push("llrint");
 		values.push("llrintf");
 		values.push("llrintl");
@@ -9512,6 +10187,9 @@ class GeneratedHostedAbiData {
 		values.push("pthread_rwlock_init");
 		values.push("pthread_rwlock_rdlock");
 		values.push("pthread_rwlock_timedrdlock");
+	}
+
+	private void pushFunctionNames3(Vector<string> values) {
 		values.push("pthread_rwlock_timedwrlock");
 		values.push("pthread_rwlock_tryrdlock");
 		values.push("pthread_rwlock_trywrlock");
@@ -9537,9 +10215,6 @@ class GeneratedHostedAbiData {
 		values.push("pthread_spin_unlock");
 		values.push("pthread_testcancel");
 		values.push("ptsname");
-	}
-
-	private void pushFunctionNames3(Vector<string> values) {
 		values.push("ptsname_r");
 		values.push("putc");
 		values.push("putchar");
@@ -9765,6 +10440,9 @@ class GeneratedHostedAbiData {
 		values.push("strsep");
 		values.push("strsignal");
 		values.push("strsignal_r");
+	}
+
+	private void pushFunctionNames4(Vector<string> values) {
 		values.push("strspn");
 		values.push("strstr");
 		values.push("strtod");
@@ -9790,9 +10468,6 @@ class GeneratedHostedAbiData {
 		values.push("sync_volume_np");
 		values.push("syscall");
 		values.push("sysconf");
-	}
-
-	private void pushFunctionNames4(Vector<string> values) {
 		values.push("system");
 		values.push("tan");
 		values.push("tanf");
@@ -12463,6 +13138,323 @@ class GeneratedHostedAbiData {
 		values.push("w_termsig");
 	}
 
+	public Vector<string> typeNames() {
+		Vector<string>? memo = self.typeNamesMemo;
+		if (memo != null) { return memo; }
+		Vector<string> built = [];
+		self.pushTypeNames0(built);
+		self.pushTypeNames1(built);
+		self.typeNamesMemo = built;
+		return built;
+	}
+
+	private void pushTypeNames0(Vector<string> values) {
+		values.push("BtrcGPUAsync");
+		values.push("BtrcGPUAsyncResultRelease");
+		values.push("BtrcGPUAsyncWaitOutcome");
+		values.push("DIR");
+		values.push("FILE");
+		values.push("__btrc_windows_daemon_directory_entry");
+		values.push("__btrc_windows_daemon_file_owner");
+		values.push("__btrc_windows_daemon_startup");
+		values.push("__btrc_windows_image_owner");
+		values.push("__btrc_windows_launch_error_t");
+		values.push("__btrc_windows_launch_options_t");
+		values.push("__btrc_windows_launch_owner_t");
+		values.push("__btrc_windows_launch_result_t");
+		values.push("__btrc_windows_supervisor_owner");
+		values.push("__btrc_windows_transfer_result");
+		values.push("accessx_descriptor");
+		values.push("active_reg_t");
+		values.push("atomic_bool");
+		values.push("atomic_char");
+		values.push("atomic_char16_t");
+		values.push("atomic_char32_t");
+		values.push("atomic_flag");
+		values.push("atomic_int");
+		values.push("atomic_int_fast16_t");
+		values.push("atomic_int_fast32_t");
+		values.push("atomic_int_fast64_t");
+		values.push("atomic_int_fast8_t");
+		values.push("atomic_int_least16_t");
+		values.push("atomic_int_least32_t");
+		values.push("atomic_int_least64_t");
+		values.push("atomic_int_least8_t");
+		values.push("atomic_intmax_t");
+		values.push("atomic_intptr_t");
+		values.push("atomic_llong");
+		values.push("atomic_long");
+		values.push("atomic_ptrdiff_t");
+		values.push("atomic_schar");
+		values.push("atomic_short");
+		values.push("atomic_size_t");
+		values.push("atomic_uchar");
+		values.push("atomic_uint");
+		values.push("atomic_uint_fast16_t");
+		values.push("atomic_uint_fast32_t");
+		values.push("atomic_uint_fast64_t");
+		values.push("atomic_uint_fast8_t");
+		values.push("atomic_uint_least16_t");
+		values.push("atomic_uint_least32_t");
+		values.push("atomic_uint_least64_t");
+		values.push("atomic_uint_least8_t");
+		values.push("atomic_uintmax_t");
+		values.push("atomic_uintptr_t");
+		values.push("atomic_ullong");
+		values.push("atomic_ulong");
+		values.push("atomic_ushort");
+		values.push("atomic_wchar_t");
+		values.push("blkcnt_t");
+		values.push("blksize_t");
+		values.push("btrc_gpu_destroy_compute_candidate_fn");
+		values.push("caddr_t");
+		values.push("cc_t");
+		values.push("clock_t");
+		values.push("clockid_t");
+		values.push("clockinfo");
+		values.push("cmsghdr");
+		values.push("ct_rune_t");
+		values.push("daddr_t");
+		values.push("dev_t");
+		values.push("dirent");
+		values.push("div_t");
+		values.push("double_t");
+		values.push("drand48_data");
+		values.push("errno_t");
+		values.push("exception");
+		values.push("fattributiontag");
+		values.push("fattributiontag_t");
+		values.push("fchecklv");
+		values.push("fchecklv_t");
+		values.push("fd_mask");
+		values.push("fd_set");
+		values.push("fgetsigsinfo");
+		values.push("fgetsigsinfo_t");
+		values.push("filesec_property_t");
+		values.push("filesec_t");
+		values.push("fixpt_t");
+		values.push("float_t");
+		values.push("flock");
+		values.push("flocktimeout");
+		values.push("fpos_t");
+		values.push("fpregset_t");
+		values.push("fpunchhole");
+		values.push("fpunchhole_t");
+		values.push("fsblkcnt_t");
+		values.push("fsfilcnt_t");
+		values.push("fsid_t");
+		values.push("fsignatures");
+		values.push("fsignatures_t");
+		values.push("fspecread");
+		values.push("fspecread_t");
+		values.push("fssearchblock");
+		values.push("fstore");
+		values.push("fstore_t");
+		values.push("fsupplement");
+		values.push("fsupplement_t");
+		values.push("ftrimactivefile");
+		values.push("ftrimactivefile_t");
+		values.push("gid_t");
+		values.push("glob_t");
+		values.push("greg_t");
+		values.push("gregset_t");
+		values.push("group_filter");
+		values.push("group_req");
+		values.push("group_source_req");
+		values.push("id_t");
+		values.push("idtype_t");
+		values.push("in6_addr");
+		values.push("in6_addr_t");
+		values.push("in6_pktinfo");
+		values.push("in_addr");
+		values.push("in_addr_t");
+		values.push("in_pktinfo");
+		values.push("in_port_t");
+		values.push("ino64_t");
+		values.push("ino_t");
+		values.push("int16_t");
+		values.push("int32_t");
+		values.push("int64_t");
+		values.push("int8_t");
+		values.push("int_fast16_t");
+		values.push("int_fast32_t");
+		values.push("int_fast64_t");
+		values.push("int_fast8_t");
+		values.push("int_least16_t");
+		values.push("int_least32_t");
+		values.push("int_least64_t");
+		values.push("int_least8_t");
+		values.push("intmax_t");
+		values.push("intptr_t");
+		values.push("iovec");
+		values.push("ip6_mtuinfo");
+		values.push("ip_mreq");
+		values.push("ip_mreq_source");
+		values.push("ip_mreqn");
+		values.push("ip_msfilter");
+		values.push("ip_opts");
+		values.push("ipv6_mreq");
+		values.push("itimerspec");
+		values.push("itimerval");
+		values.push("jmp_buf");
+		values.push("key_t");
+		values.push("ldiv_t");
+		values.push("linger");
+		values.push("lldiv_t");
+		values.push("locale_t");
+		values.push("loff_t");
+		values.push("log2phys");
+		values.push("malloc_type_id_t");
+		values.push("malloc_zone_t");
+		values.push("max_align_t");
+		values.push("mcontext_t");
+		values.push("memory_order");
+		values.push("mode_t");
+		values.push("msghdr");
+		values.push("nfds_t");
+		values.push("nlink_t");
+		values.push("off_t");
+		values.push("osockaddr");
+		values.push("ostat");
+		values.push("passwd");
+		values.push("pid_t");
+		values.push("pollfd");
+		values.push("proc_rlimit_control_wakeupmon");
+		values.push("proc_taskinfo");
+		values.push("pthread_attr_t");
+		values.push("pthread_barrier_t");
+		values.push("pthread_barrierattr_t");
+		values.push("pthread_cond_t");
+		values.push("pthread_condattr_t");
+		values.push("pthread_key_t");
+		values.push("pthread_mutex_t");
+		values.push("pthread_mutexattr_t");
+		values.push("pthread_once_t");
+		values.push("pthread_rwlock_t");
+		values.push("pthread_rwlockattr_t");
+		values.push("pthread_spinlock_t");
+		values.push("pthread_t");
+		values.push("ptrdiff_t");
+		values.push("qaddr_t");
+		values.push("quad_t");
+		values.push("radvisory");
+		values.push("random_data");
+		values.push("re_dfa_t");
+		values.push("re_guts");
+		values.push("re_pattern_buffer");
+		values.push("reg_errcode_t");
+		values.push("reg_syntax_t");
+		values.push("regex_t");
+		values.push("register_t");
+		values.push("regmatch_t");
+		values.push("regoff_t");
+		values.push("rlim_t");
+		values.push("rlimit");
+		values.push("rsize_t");
+		values.push("rune_t");
+		values.push("rusage");
+		values.push("rusage_info_current");
+		values.push("rusage_info_t");
+		values.push("rusage_info_v0");
+		values.push("rusage_info_v1");
+		values.push("rusage_info_v2");
+		values.push("rusage_info_v3");
+		values.push("rusage_info_v4");
+		values.push("rusage_info_v5");
+		values.push("rusage_info_v6");
+		values.push("s_reg_t");
+		values.push("sa_endpoints");
+		values.push("sa_endpoints_t");
+		values.push("sa_family_t");
+		values.push("sae_associd_t");
+		values.push("sae_connid_t");
+		values.push("searchstate");
+		values.push("segsz_t");
+		values.push("sf_hdtr");
+		values.push("sig_atomic_t");
+		values.push("sig_t");
+		values.push("sigaction");
+		values.push("sigcontext");
+		values.push("sigevent");
+		values.push("sigevent_t");
+		values.push("siginfo_t");
+		values.push("sigjmp_buf");
+		values.push("sigset_t");
+		values.push("sigstack");
+		values.push("sigval");
+		values.push("sigval_t");
+		values.push("sigvec");
+		values.push("size_t");
+		values.push("so_np_extensions");
+		values.push("sockaddr");
+		values.push("sockaddr_in");
+		values.push("sockaddr_in6");
+		values.push("sockaddr_storage");
+		values.push("socklen_t");
+		values.push("sockproto");
+		values.push("speed_t");
+		values.push("ssize_t");
+		values.push("stack_t");
+		values.push("stat");
+		values.push("suseconds_t");
+		values.push("swblk_t");
+		values.push("syscall_arg_t");
+	}
+
+	private void pushTypeNames1(Vector<string> values) {
+		values.push("tcflag_t");
+		values.push("termios");
+		values.push("time_t");
+		values.push("timer_t");
+		values.push("timespec");
+		values.push("timeval");
+		values.push("timeval64");
+		values.push("timezone");
+		values.push("tm");
+		values.push("u_char");
+		values.push("u_int");
+		values.push("u_int16_t");
+		values.push("u_int32_t");
+		values.push("u_int64_t");
+		values.push("u_int8_t");
+		values.push("u_long");
+		values.push("u_quad_t");
+		values.push("u_short");
+		values.push("ucontext_t");
+		values.push("uid_t");
+		values.push("uint");
+		values.push("uint16_t");
+		values.push("uint32_t");
+		values.push("uint64_t");
+		values.push("uint8_t");
+		values.push("uint_fast16_t");
+		values.push("uint_fast32_t");
+		values.push("uint_fast64_t");
+		values.push("uint_fast8_t");
+		values.push("uint_least16_t");
+		values.push("uint_least32_t");
+		values.push("uint_least64_t");
+		values.push("uint_least8_t");
+		values.push("uintmax_t");
+		values.push("uintptr_t");
+		values.push("ulong");
+		values.push("useconds_t");
+		values.push("user_addr_t");
+		values.push("user_long_t");
+		values.push("user_off_t");
+		values.push("user_size_t");
+		values.push("user_ssize_t");
+		values.push("user_time_t");
+		values.push("user_ulong_t");
+		values.push("ushort");
+		values.push("uuid_string_t");
+		values.push("uuid_t");
+		values.push("wait");
+		values.push("wchar_t");
+		values.push("winsize");
+		values.push("wint_t");
+	}
+
 	public Vector<string> typedefNames() {
 		Vector<string>? memo = self.typedefNamesMemo;
 		if (memo != null) { return memo; }
@@ -12478,10 +13470,16 @@ class GeneratedHostedAbiData {
 		values.push("BtrcGPUAsyncWaitOutcome");
 		values.push("DIR");
 		values.push("FILE");
+		values.push("__btrc_windows_daemon_directory_entry");
+		values.push("__btrc_windows_daemon_file_owner");
+		values.push("__btrc_windows_daemon_startup");
+		values.push("__btrc_windows_image_owner");
 		values.push("__btrc_windows_launch_error_t");
 		values.push("__btrc_windows_launch_options_t");
 		values.push("__btrc_windows_launch_owner_t");
 		values.push("__btrc_windows_launch_result_t");
+		values.push("__btrc_windows_supervisor_owner");
+		values.push("__btrc_windows_transfer_result");
 		values.push("active_reg_t");
 		values.push("atomic_bool");
 		values.push("atomic_char");
@@ -12682,6 +13680,66 @@ class GeneratedHostedAbiData {
 		values.push("ushort");
 		values.push("uuid_string_t");
 		values.push("uuid_t");
+		values.push("wchar_t");
+		values.push("wint_t");
+	}
+
+	public Vector<string> arithmeticTypeNames() {
+		Vector<string>? memo = self.arithmeticTypeNamesMemo;
+		if (memo != null) { return memo; }
+		Vector<string> built = [];
+		self.pushArithmeticTypeNames0(built);
+		self.arithmeticTypeNamesMemo = built;
+		return built;
+	}
+
+	private void pushArithmeticTypeNames0(Vector<string> values) {
+		values.push("clock_t");
+		values.push("double_t");
+		values.push("float_t");
+		values.push("gid_t");
+		values.push("id_t");
+		values.push("int16_t");
+		values.push("int32_t");
+		values.push("int64_t");
+		values.push("int8_t");
+		values.push("int_fast16_t");
+		values.push("int_fast32_t");
+		values.push("int_fast64_t");
+		values.push("int_fast8_t");
+		values.push("int_least16_t");
+		values.push("int_least32_t");
+		values.push("int_least64_t");
+		values.push("int_least8_t");
+		values.push("intmax_t");
+		values.push("intptr_t");
+		values.push("mode_t");
+		values.push("nfds_t");
+		values.push("off_t");
+		values.push("pid_t");
+		values.push("ptrdiff_t");
+		values.push("sig_atomic_t");
+		values.push("size_t");
+		values.push("socklen_t");
+		values.push("ssize_t");
+		values.push("suseconds_t");
+		values.push("time_t");
+		values.push("uid_t");
+		values.push("uint16_t");
+		values.push("uint32_t");
+		values.push("uint64_t");
+		values.push("uint8_t");
+		values.push("uint_fast16_t");
+		values.push("uint_fast32_t");
+		values.push("uint_fast64_t");
+		values.push("uint_fast8_t");
+		values.push("uint_least16_t");
+		values.push("uint_least32_t");
+		values.push("uint_least64_t");
+		values.push("uint_least8_t");
+		values.push("uintmax_t");
+		values.push("uintptr_t");
+		values.push("useconds_t");
 		values.push("wchar_t");
 		values.push("wint_t");
 	}
@@ -15159,6 +16217,23 @@ class GeneratedHostedAbiData {
 		values.push("__btrc_terminal_foreground_group");
 		values.push("__btrc_validate_executable_descriptor");
 		values.push("__btrc_validate_working_directory_descriptor");
+		values.push("__btrc_windows_daemon_control_open");
+		values.push("__btrc_windows_daemon_control_open_at");
+		values.push("__btrc_windows_daemon_directory_entry");
+		values.push("__btrc_windows_daemon_directory_next");
+		values.push("__btrc_windows_daemon_directory_open");
+		values.push("__btrc_windows_daemon_directory_path");
+		values.push("__btrc_windows_daemon_file_close");
+		values.push("__btrc_windows_daemon_file_dispose");
+		values.push("__btrc_windows_daemon_file_flush");
+		values.push("__btrc_windows_daemon_file_identity");
+		values.push("__btrc_windows_daemon_file_owner");
+		values.push("__btrc_windows_daemon_file_read");
+		values.push("__btrc_windows_daemon_file_write");
+		values.push("__btrc_windows_daemon_log_open");
+		values.push("__btrc_windows_daemon_record_open");
+		values.push("__btrc_windows_daemon_startup");
+		values.push("__btrc_windows_image_owner");
 		values.push("__btrc_windows_launch");
 		values.push("__btrc_windows_launch_close");
 		values.push("__btrc_windows_launch_copy_output");
@@ -15169,6 +16244,20 @@ class GeneratedHostedAbiData {
 		values.push("__btrc_windows_launch_terminate");
 		values.push("__btrc_windows_launch_wait");
 		values.push("__btrc_windows_quote_argv_utf8");
+		values.push("__btrc_windows_supervisor_accept");
+		values.push("__btrc_windows_supervisor_ack");
+		values.push("__btrc_windows_supervisor_close");
+		values.push("__btrc_windows_supervisor_copy_startup");
+		values.push("__btrc_windows_supervisor_image_close");
+		values.push("__btrc_windows_supervisor_image_verify");
+		values.push("__btrc_windows_supervisor_owner");
+		values.push("__btrc_windows_supervisor_poll_managed");
+		values.push("__btrc_windows_supervisor_prepare");
+		values.push("__btrc_windows_supervisor_ready_wait_commit");
+		values.push("__btrc_windows_supervisor_spawn_managed");
+		values.push("__btrc_windows_supervisor_terminate_managed");
+		values.push("__btrc_windows_supervisor_transfer");
+		values.push("__btrc_windows_transfer_result");
 		values.push("_setjmp");
 		values.push("a64l");
 		values.push("abort");
@@ -15207,6 +16296,9 @@ class GeneratedHostedAbiData {
 		values.push("asinhl");
 		values.push("asinl");
 		values.push("assert");
+	}
+
+	private void pushOwnedNames10(Vector<string> values) {
 		values.push("at_quick_exit");
 		values.push("atan");
 		values.push("atan2");
@@ -15238,9 +16330,6 @@ class GeneratedHostedAbiData {
 		values.push("atomic_fetch_and");
 		values.push("atomic_fetch_and_explicit");
 		values.push("atomic_fetch_or");
-	}
-
-	private void pushOwnedNames10(Vector<string> values) {
 		values.push("atomic_fetch_or_explicit");
 		values.push("atomic_fetch_sub");
 		values.push("atomic_fetch_sub_explicit");
@@ -15460,6 +16549,9 @@ class GeneratedHostedAbiData {
 		values.push("false");
 		values.push("fattributiontag");
 		values.push("fattributiontag_t");
+	}
+
+	private void pushOwnedNames11(Vector<string> values) {
 		values.push("fchdir");
 		values.push("fchecklv");
 		values.push("fchecklv_t");
@@ -15491,9 +16583,6 @@ class GeneratedHostedAbiData {
 		values.push("ffs");
 		values.push("ffsctl");
 		values.push("ffsl");
-	}
-
-	private void pushOwnedNames11(Vector<string> values) {
 		values.push("ffsll");
 		values.push("fgetattrlist");
 		values.push("fgetc");
@@ -15713,6 +16802,9 @@ class GeneratedHostedAbiData {
 		values.push("inet6_option_append");
 		values.push("inet6_option_find");
 		values.push("inet6_option_init");
+	}
+
+	private void pushOwnedNames12(Vector<string> values) {
 		values.push("inet6_option_next");
 		values.push("inet6_option_space");
 		values.push("inet6_rth_add");
@@ -15744,9 +16836,6 @@ class GeneratedHostedAbiData {
 		values.push("inet_pton");
 		values.push("initgroups");
 		values.push("initstate");
-	}
-
-	private void pushOwnedNames12(Vector<string> values) {
 		values.push("initstate_r");
 		values.push("ino64_t");
 		values.push("ino_t");
@@ -15966,6 +17055,9 @@ class GeneratedHostedAbiData {
 		values.push("nanf");
 		values.push("nanl");
 		values.push("nanosleep");
+	}
+
+	private void pushOwnedNames13(Vector<string> values) {
 		values.push("nearbyint");
 		values.push("nearbyintf");
 		values.push("nearbyintl");
@@ -15997,9 +17089,6 @@ class GeneratedHostedAbiData {
 		values.push("optarg");
 		values.push("opterr");
 		values.push("optind");
-	}
-
-	private void pushOwnedNames13(Vector<string> values) {
 		values.push("optopt");
 		values.push("optreset");
 		values.push("osockaddr");
@@ -16219,6 +17308,9 @@ class GeneratedHostedAbiData {
 		values.push("regnexec");
 		values.push("regoff_t");
 		values.push("regwcomp");
+	}
+
+	private void pushOwnedNames14(Vector<string> values) {
 		values.push("regwexec");
 		values.push("regwncomp");
 		values.push("regwnexec");
@@ -16250,9 +17342,6 @@ class GeneratedHostedAbiData {
 		values.push("rsize_t");
 		values.push("ru_first");
 		values.push("ru_last");
-	}
-
-	private void pushOwnedNames14(Vector<string> values) {
 		values.push("rune_t");
 		values.push("rusage");
 		values.push("rusage_info_current");
@@ -16472,6 +17561,9 @@ class GeneratedHostedAbiData {
 		values.push("strcspn");
 		values.push("strdup");
 		values.push("strerror");
+	}
+
+	private void pushOwnedNames15(Vector<string> values) {
 		values.push("strerror_l");
 		values.push("strerror_r");
 		values.push("strftime");
@@ -16503,9 +17595,6 @@ class GeneratedHostedAbiData {
 		values.push("strtok_r");
 		values.push("strtol");
 		values.push("strtold");
-	}
-
-	private void pushOwnedNames15(Vector<string> values) {
 		values.push("strtoll");
 		values.push("strtonum");
 		values.push("strtoq");

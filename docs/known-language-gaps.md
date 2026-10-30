@@ -53,6 +53,36 @@ Grammar keywords are reserved and cannot be used as source identifiers. Code
 generators escape schema field names that collide with those keywords, but that
 internal escaping does not create quoted identifiers in the language.
 
+`override` is an optional checked method modifier: write
+`public override int value() { ... }`. It requires a compatible method in a
+parent class, including an ancestor reached through intermediate classes.
+The existing signature and static/instance checks apply, and class dispatch
+remains static. It can follow `abstract` and precedes execution and ownership
+modifiers. Constructors, fields, properties and methods that only implement
+an interface cannot use it. Existing overrides without the modifier remain
+valid.
+
+`auto` is a declaration storage class, as in `auto int count = 0;`. It is
+allowed on block-scope objects and C-for initializers, uses the existing
+prefix qualifier syntax, and does not change the generated C. It cannot
+declare a parameter, field, function, typedef or file-scope object, or appear
+in a type name. Type inference still uses `var`.
+
+`register` is allowed on block-scope objects and parameters. It requires a
+scalar plain C value or raw pointer; arrays, records and managed references
+are refused. Taking the object's address or capturing it in a lambda or
+`spawn` is also refused. It is emitted as C `register` and does not affect
+function signature compatibility.
+
+`goto name;` and `name:` labels are supported within a callable. Labels have
+a separate namespace from variables, and each lambda has its own labels.
+Labels may precede declarations, occur consecutively or end a block. A jump
+may target its own block or an enclosing block; entering a nested block,
+crossing a try/catch/finally boundary, or leaving a parallel loop is refused.
+A forward jump cannot skip a variable-length or managed declaration, or a
+plain automatic declaration used on a path reachable from its target.
+See [the goto rules](design/c-goto-labels.md) for the diagnostic contracts.
+
 Tuple element names such as `_0` and `_1` are ordinary postfix members, and
 `value.1.0` selects twice: digits after a `.` lex as a field index alone, so
 the next `.` is a selector, not a fraction. A `.` after an operand never starts
@@ -270,7 +300,14 @@ be a struct or class field, an array or `Vector` element, a generic argument,
 a parameter or a return value, and `sizeof` and `offsetof` are the C
 compiler's (`c_compat/UnionLayout.btrc` checks them against a C mirror). `{}`
 zero-initializes and one positional element sets the first member (C11
-6.7.9p17); designators arrive with C row 10.
+6.7.9p17). A designator such as `{.real = 3.5}` selects another member.
+
+Designated initializers also support nested struct fields and array indexes,
+such as `{.point.x = 1, .values[2] = 7}`. Indexes must be known integer
+constants within the array's bounds. Unsized arrays infer their extent from
+the largest initialized index; omitted elements are zero. Values evaluate in
+source order. Overlapping paths and GNU index ranges are refused. Compound
+literals remain unsupported.
 
 A union cannot tell which member is live, so every member is a plain C value,
 transitively: integers, floats, `bool`, `char`, plain enums, raw pointers
@@ -303,8 +340,7 @@ record, so `union T*` and `T*` are one type.
 
 A program that spells a btrc record or enum with its tag (`struct Point`,
 `union Number`, `enum Color`) under strict imports must import the module
-that declares it, as for the bare name (`enum Color` for a btrc enum is
-otherwise the enum-tag row's work). As in C, a tag names only a type: a
+that declares it, as for the bare name. As in C, a tag names only a type: a
 module that declares a function `timeval` does not make `struct timeval`
 need its import, and a tag needs an import only for a non-generic type the
 program declares: a header's own `struct Timer`, or its `struct ListNode`
@@ -316,6 +352,43 @@ generic parameter anywhere in the program (`T`, `K`, `V`, …): its tag and its
 name stay two spellings, as before C row 9, so `Vector<struct T>` and
 `Vector<T>` are two instances, and an instance's substitution never captures
 the record.
+
+## Typedef record declarations (C row 8)
+
+`typedef struct [Tag] { ... } Name, *Pointer;` and the corresponding union
+and enum forms declare the type and its aliases. An untagged definition
+takes its first plain declarator as its tag. Thus `typedef struct { int x; }
+Point;` also permits `struct Point`, an extension to C's tag rules.
+
+A plain identity typedef such as `typedef struct Point Point;` is a
+redeclaration when the program declares that struct, including later in the
+source. The same rule applies to unions and plain enums. Qualifiers, pointers
+and arrays do not make an identity typedef. Without a source declaration,
+`typedef struct Foreign Foreign;` remains a foreign C typedef.
+
+A tagged record definition can also declare file-scope objects:
+`struct Point { int x; } origin = {0}, *pointer = &origin;`.
+An untagged definition cannot declare such objects without a typedef.
+`enum Color` resolves to the plain enum `Color` in local and global variables,
+parameters and return types. These forms are covered by
+`c_compat/TypedefRecords.btrc` and the paired declaration tests.
+
+Anonymous struct and union members may nest inside a struct or union.
+Their fields are accessible through the enclosing record, and field names
+must be unique across that record. Each anonymous member takes one positional
+initializer slot with its own braces. Omitted fields are zero-initialized.
+The emitted C retains the anonymous bodies, including their array members,
+so the C compiler determines layout.
+
+Members must hold plain C values, transitively. Managed values and
+`RealtimeFunction` storage are refused; plain `CFunction` pointers retain
+the usual refusal of captured environments. Named members of untagged types,
+nested tagged definitions and anonymous members in classes are refused.
+`c_compat/AnonymousMembers.btrc` exercises initialization and member access;
+`c_compat/AnonymousMemberLayout.btrc` compares layout with a C mirror.
+
+Typedef array declarators still wait for Stage 18. Unknown enum tags still
+need the enum-tag lane's source evidence validation.
 
 ## Variable-length arrays (C row 23)
 
@@ -350,9 +423,7 @@ compilers (`btrc/test_c_compatibility_refusals.py`):
 Like a fixed-size local array, a VLA of a managed element type (a class,
 `string` or collection) is shallow storage of borrowed references: storing a
 freshly owned value in it is refused (`caller-owned temporary cannot be stored
-in a shallow aggregate`). `goto` is not part of the grammar yet (PLAN.md Stage
-20), so a jump into a VLA's scope cannot be written; Stage 20's negative
-fixtures must cover it.
+in a shallow aggregate`). A forward `goto` into a VLA's scope is refused.
 
 ## Flexible array members (C row 13)
 
@@ -423,9 +494,6 @@ Known gaps around FAMs, recorded rather than fixed here:
 
 - `char16_t` and `pthread_t` elements are refused in both compilers with the
   misleading wording `cannot hold managed type`; neither is managed.
-- `enum Color d[]` spelled with the tag of a btrc enum is accepted and both
-  compilers emit invalid C: the x-enum-tag divergence, fixed by the enum-tag
-  lane. Write `Color d[]`.
 - `p->data.len` on an array member (fixed or flexible) emits invalid C in
   both compilers; `sizeof(r.get(p))` drops the variable use and trips
   `-Werror=unused-variable`.

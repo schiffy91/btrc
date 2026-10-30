@@ -12,6 +12,7 @@ import ./Expressions.btrc;
 import ./HostedAbi.btrc;
 import ./Models.btrc;
 import ./Operators.btrc;
+import ./validation/ControlFlow.btrc;
 
 class RealtimeEvent {
 	public bool isEffect;
@@ -227,6 +228,8 @@ class RealtimeAnalyzer {
 	private Map<string, string> declarationKeys;
 	private Map<string, string> propertyKeys;
 	private Vector<RealtimeLoopGuard> loopGuards;
+	private Node? jumpRoot = null;
+	private Map<string, JumpScopeIndex> jumpIndexes = {};
 	private IValidationRecords? records = null;
 	private Node? indexOwner = null;
 	/* Stage B: the top-level declaration each callable belongs to, and the
@@ -250,6 +253,7 @@ class RealtimeAnalyzer {
 	public void useRecords(IValidationRecords? records) { self.records = records; }
 
 	public void validate() {
+		self.analyzed.hasRealtimeSafeCallable = false;
 		bool hasRealtimeRoot = false;
 		int index = 0;
 		while (index < self.program.declarations().len) {
@@ -296,6 +300,7 @@ class RealtimeAnalyzer {
 		self.endJournal(current, journal);
 		BtrccPhaseTimer.mark("r-scan");
 		Map<string, bool> unsafe = self.unsafeFixedPoint();
+		self.analyzed.hasRealtimeSafeCallable = self.callables.len > unsafe.len;
 		BtrccPhaseTimer.mark("r-fixed-point");
 		index = 0;
 		while (index < self.order.len) {
@@ -356,6 +361,7 @@ class RealtimeAnalyzer {
 	}
 
 	private void addCallable(string key, string label, Node declaration, Node? body, string owner) {
+		if (!self.analyzed.bodyReached(body)) { return; }
 		RealtimeCallable callable = RealtimeCallable(key, label, declaration);
 		callable.body = body;
 		Node? indexed = self.indexOwner;
@@ -427,11 +433,22 @@ class RealtimeAnalyzer {
 		if (declaration.kind != NK_PROPERTY_DECL && declaration.returnType != null && self.managedType(declaration.returnType, {})) {
 			self.effect(callable, "ARC", "managed return type", declaration.returnType);
 		}
+		self.jumpRoot = callable.body;
 		self.visit(callable.body, callable);
+		self.jumpRoot = null;
 	}
 
 	private void visit(Node? node, RealtimeCallable callable) {
 		if (node == null || node.kind == NK_TYPE_EXPR) { return; }
+		if (node.kind == NK_GOTO_STMT) {
+			Node? root = self.jumpRoot;
+			if (root != null) {
+				string key = AstIdentity.key(root);
+				if (!self.jumpIndexes.has(key)) { self.jumpIndexes.put(key, JumpScopeIndex.build(root)); }
+				if (self.jumpIndexes.get(key).isBackward(node)) { self.effect(callable, "blocking", "backward goto '" + node.name + "'", node); }
+			}
+			return;
+		}
 		/* Each block, case and lambda scopes the locals it declares, so a
 		 * local types only the uses it encloses and never a global's. */
 		if (node.kind == NK_BLOCK || node.kind == NK_CASE_CLAUSE) {
@@ -441,11 +458,14 @@ class RealtimeAnalyzer {
 			return;
 		}
 		if (node.kind == NK_LAMBDA_EXPR) {
+			Node? previousRoot = self.jumpRoot;
+			self.jumpRoot = node.bodyNode != null && node.bodyNode.kind == NK_LAMBDA_BLOCK ? node.bodyNode.bodyNode : null;
 			self.effect(callable, "allocation", "closure construction", node);
 			callable.openScope();
 			for parameter in node.params() { callable.bindLocal(parameter.name, parameter.type); }
 			self.collectChildren(node, callable, false);
 			callable.closeScope();
+			self.jumpRoot = previousRoot;
 			return;
 		}
 		if (node.kind == NK_PARALLEL_FOR_STMT) {

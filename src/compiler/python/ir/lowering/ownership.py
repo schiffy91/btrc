@@ -598,7 +598,15 @@ class CycleMetadata:
     def _runtime_type_candidates(self, static_type: TypeExpr) -> list[TypeExpr]:
         static_type = self._graph_values.canonical(static_type) or static_type
         if static_type.base in self._analyzed.interface_table:
-            return [TypeExpr(base=name) for name in self._subclasses_of(static_type.base)]
+            candidates = []
+            for name in self._subclasses_of(static_type.base):
+                candidates.append(TypeExpr(base=name))
+                if self._analyzed.class_table[name].generic_params:
+                    candidates.extend(
+                        TypeExpr(base=name, generic_args=list(arguments))
+                        for arguments in self._analyzed.generic_instances.get(name, ())
+                    )
+            return candidates
         candidates = [static_type]
         if static_type.generic_args or static_type.base not in self._analyzed.class_table:
             return candidates
@@ -663,6 +671,16 @@ class CycleMetadata:
         return type_expr.base
 
 
+@dataclass(frozen=True, slots=True)
+class CleanupRegistration:
+    """Inputs for rebuilding a registration against the same typed slot."""
+
+    declaration: IRVarDecl
+    destroy: str | None
+    visitor: str | None = None
+    direct: bool = False
+
+
 @dataclass
 class ManagedLocal:
     """A local owner and whether releasing it may expose an unreachable cycle."""
@@ -673,6 +691,7 @@ class ManagedLocal:
     value_type: TypeExpr | None = None
     c_name: str | None = None
     cleanup_kind: str = "arc"
+    cleanup_registration: CleanupRegistration | None = None
 
     def mark_cycle_seed(self) -> None:
         """Conservatively dirty this live ARC alias after graph mutation."""
@@ -810,6 +829,8 @@ class CallableBodyFacts(Protocol):
 
     def call_returns_owned(self, expression, effect=None) -> bool: ...
 
+    def resolved_type(self, expression: object) -> TypeExpr | None: ...
+
     def conditional_branch_entries(self, expression): ...
 
     def at_flow(self, state): ...
@@ -892,6 +913,13 @@ class CleanupScopeState:
             (marker for marker in self._markers if self.is_active(marker)),
             None,
         )
+
+    @property
+    def depth(self) -> int:
+        return len(self._markers)
+
+    def marker_from(self, position: int) -> str | None:
+        return next((marker for marker in self._markers[position:] if self.is_active(marker)), None)
 
     def entry(self, marker: str | None) -> list[IRStmt]:
         if marker is None:
@@ -1279,7 +1307,9 @@ class ManagedLifetimeLowerer:
         )
         return self._cleanup_slots.register(declaration, destroy_callback, visitor=visitor, direct=direct_cleanup)
 
-    def register_named_cleanup(self, var_name: str, emitted_name: str, statements: list[IRStmt]) -> None:
+    def register_named_cleanup(
+        self, var_name: str, emitted_name: str, statements: list[IRStmt]
+    ) -> CleanupRegistration | None:
         """Register one named managed local with the active cleanup scope."""
         if not self._cleanup_scope.exception_cleanup_active():
             return
@@ -1289,28 +1319,38 @@ class ManagedLifetimeLowerer:
         if emitted_name == STRING_RUNTIME_NAME or self._values.is_native_name(emitted_name):
             if emitted_name == STRING_RUNTIME_NAME:
                 self._session.require_helper(destroy)
-            statements.append(
-                IRExprStmt(expr=self._cleanup_slots.register(declaration, IRFunctionRef(name=destroy), direct=True))
-            )
-            return
+            recipe = CleanupRegistration(declaration, destroy, direct=True)
+            statements.extend(self.reissue_cleanup(recipe))
+            return recipe
         visitor_name = self._cycles.emitted_visitor_symbol(emitted_name)
         if emitted_name == MUTEX_RUNTIME_NAME:
             self._session.require_helper("__btrc_mutex_arc_type")
-        visitor = IRFunctionRef(name=visitor_name) if visitor_name else IRLiteral(text="NULL")
-        destroy_callback = (
-            IRLiteral(text="NULL") if emitted_name in self._analyzed.interface_table else IRFunctionRef(name=destroy)
+        recipe = CleanupRegistration(
+            declaration, None if emitted_name in self._analyzed.interface_table else destroy, visitor_name
         )
-        statements.append(IRExprStmt(expr=self._cleanup_slots.register(declaration, destroy_callback, visitor=visitor)))
+        statements.extend(self.reissue_cleanup(recipe))
+        return recipe
 
-    def register_direct_cleanup(self, var_name: str, cleanup_fn: str, statements: list[IRStmt]) -> None:
+    def register_direct_cleanup(
+        self, var_name: str, cleanup_fn: str, statements: list[IRStmt]
+    ) -> CleanupRegistration | None:
         if not self._cleanup_scope.exception_cleanup_active():
             return
         self._cleanup_scope.mark_cleanup_registration()
         declaration = self._cleanup_slots.require_declaration(statements, var_name)
         self._session.require_helper(cleanup_fn)
-        statements.append(
-            IRExprStmt(expr=self._cleanup_slots.register(declaration, IRFunctionRef(name=cleanup_fn), direct=True))
-        )
+        recipe = CleanupRegistration(declaration, cleanup_fn, direct=True)
+        statements.extend(self.reissue_cleanup(recipe))
+        return recipe
+
+    def reissue_cleanup(self, recipe: CleanupRegistration) -> list[IRStmt]:
+        destroy = IRFunctionRef(name=recipe.destroy) if recipe.destroy else IRLiteral(text="NULL")
+        visitor = IRFunctionRef(name=recipe.visitor) if recipe.visitor else IRLiteral(text="NULL")
+        return [
+            IRExprStmt(
+                expr=self._cleanup_slots.register(recipe.declaration, destroy, visitor=visitor, direct=recipe.direct)
+            )
+        ]
 
     def protect_temporary(
         self, declaration, type_expr, declarations, prefix, flag_prefix, *, active: bool | None = None
@@ -1425,9 +1465,11 @@ class OwnershipOperandOrder:
             effective_canonical is not None
             and effective_canonical.pointer_depth == 0
             and not effective_canonical.is_array
+            and not self._types.render(effective_canonical).rstrip().endswith("*")
         ):
             # Sequenced operands are assigned after declaration. A scalar's
-            # source-slot constness does not qualify its copied value.
+            # source-slot constness does not qualify its copied value. Implicit
+            # pointers such as string retain their pointee's qualification.
             return self._types.value_storage_c_type(effective_canonical)
         if (
             source_type is not None
@@ -1670,11 +1712,20 @@ class OwnershipLowerer:
         resolved_result_type = result_type or self._session.type_of(expression)
         if self._values.is_managed(resolved_result_type) and isinstance(expression, CallExpr):
             return True
-        return self.owns_result(
+        source_owned = self.owns_result(
             expression,
             provenance=provenance,
             result_type=resolved_result_type,
         )
+        if source_owned:
+            return True
+        if isinstance(expression, CastExpr) and self._values.is_managed(resolved_result_type):
+            return self.lowered_result_is_owned(
+                expression.expr,
+                provenance=provenance,
+                result_type=provenance.resolved_type(expression.expr),
+            )
+        return False
 
     def source_call_owns_result(
         self,
@@ -1794,25 +1845,30 @@ class OwnershipLowerer:
         )
 
     def _conditional_result_is_owned(self, expression, branches, provenance: CallableBodyFacts) -> bool:
-        result_type = self._session.type_of(expression)
+        result_type = provenance.resolved_type(expression)
         branch_ownership = self.conditional_branch_ownership(expression, provenance)
         return bool(
             self._values.is_managed(result_type)
             and any(branch_ownership)
             and all(
                 (
-                    owned or isinstance(branch, NullLiteral) or self._values.is_managed(self._session.type_of(branch))
+                    owned
+                    or isinstance(branch, NullLiteral)
+                    or self._values.is_managed(provenance.resolved_type(branch))
                     for branch, owned in zip(branches, branch_ownership)
                 )
             )
         )
 
     def conditional_branch_ownership(self, expression, provenance: CallableBodyFacts) -> tuple[bool, ...]:
-        """Classify each selected value at that branch's semantic entry."""
+        """Classify the lowered selected value at its branch's semantic entry."""
         branch_ownership = []
         for branch, entry in provenance.conditional_branch_entries(expression):
             with provenance.at_flow(entry):
-                branch_ownership.append(self.owns_result(branch, provenance=provenance))
+                branch_type = provenance.resolved_type(branch)
+                branch_ownership.append(
+                    self.lowered_result_is_owned(branch, provenance=provenance, result_type=branch_type)
+                )
         return tuple(branch_ownership)
 
     def _is_string_concat(self, expression: BinaryExpr, result_type) -> bool:
@@ -1878,6 +1934,7 @@ class OwnershipLowerer:
         self._managed_vars_stack: list[list[ManagedLocal]] = []
         self._session.local_ownership_scopes: list[dict[str, str | None]] = []
         self._local_c_name_scopes: list[dict[str, str]] = []
+        self._local_register_scopes: list[set[str]] = []
         self._loop_scope_depths: list[int] = []
         self._session.control_context = []
         self._control_managed_depths: list[int] = []
@@ -1891,6 +1948,7 @@ class OwnershipLowerer:
         owner_state = (
             self._managed_vars_stack,
             self._local_c_name_scopes,
+            self._local_register_scopes,
             self._loop_scope_depths,
             self._control_managed_depths,
         )
@@ -1907,9 +1965,12 @@ class OwnershipLowerer:
             self._session.ownership_overrides,
             self._session.type_overrides,
             self._session.c_array_scopes,
+            self._session.jump_index,
+            self._session.variable_length_declarations,
         )
         self._managed_vars_stack = []
         self._local_c_name_scopes = []
+        self._local_register_scopes = []
         self._loop_scope_depths = []
         self._control_managed_depths = []
         self._session.local_ownership_scopes = []
@@ -1924,6 +1985,8 @@ class OwnershipLowerer:
         self._session.ownership_overrides = {}
         self._session.type_overrides = {}
         self._session.c_array_scopes = []
+        self._session.jump_index = None
+        self._session.variable_length_declarations = set()
         try:
             with self._cleanup_scope.isolated():
                 yield
@@ -1931,6 +1994,7 @@ class OwnershipLowerer:
             (
                 self._managed_vars_stack,
                 self._local_c_name_scopes,
+                self._local_register_scopes,
                 self._loop_scope_depths,
                 self._control_managed_depths,
             ) = owner_state
@@ -1947,6 +2011,8 @@ class OwnershipLowerer:
                 self._session.ownership_overrides,
                 self._session.type_overrides,
                 self._session.c_array_scopes,
+                self._session.jump_index,
+                self._session.variable_length_declarations,
             ) = session_state
 
     def push_control_context(self, kind: str) -> None:
@@ -1984,6 +2050,28 @@ class OwnershipLowerer:
 
     def push_managed_scope(self) -> None:
         self._managed_vars_stack.append([])
+
+    @property
+    def managed_scope_depth(self) -> int:
+        return len(self._managed_vars_stack)
+
+    def managed_scope(self, position: int) -> list[ManagedLocal]:
+        return self._managed_vars_stack[position]
+
+    def jump_owners(self, position: int, prefix: int) -> list[ManagedLocal]:
+        return [
+            *self._managed_vars_stack[position][prefix:],
+            *(owner for scope in self._managed_vars_stack[position + 1 :] for owner in scope),
+        ]
+
+    def record_cleanup_registration(self, recipe: CleanupRegistration | None) -> None:
+        if recipe is None:
+            return
+        for owner in reversed(self._managed_vars_stack[-1]):
+            if (owner.c_name or owner.name) == recipe.declaration.name:
+                owner.cleanup_registration = recipe
+                return
+        raise CodegenError("named cleanup registration has no local owner")
 
     def pop_managed_scope(self) -> list[ManagedLocal]:
         if self._managed_vars_stack:
@@ -2037,11 +2125,24 @@ class OwnershipLowerer:
     def push_local_ownership_scope(self) -> None:
         self._session.local_ownership_scopes.append({})
         self._local_c_name_scopes.append({})
+        self._local_register_scopes.append(set())
 
     def pop_local_ownership_scope(self) -> None:
         if self._session.local_ownership_scopes:
             self._session.local_ownership_scopes.pop()
             self._local_c_name_scopes.pop()
+            self._local_register_scopes.pop()
+
+    def mark_register_local(self, name: str) -> None:
+        self._local_register_scopes[-1].add(name)
+
+    def is_register_c_name(self, name: str) -> bool:
+        for bindings, registers in zip(
+            reversed(self._local_c_name_scopes), reversed(self._local_register_scopes), strict=True
+        ):
+            if name in bindings.values():
+                return any(bindings[source] == name for source in registers)
+        return False
 
     def next_source_binding_c_name(self, var_name: str, provenance: CallableBodyFacts) -> str:
         """Allocate a C identity without making the source binding visible."""

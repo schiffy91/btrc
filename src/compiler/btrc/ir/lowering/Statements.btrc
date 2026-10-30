@@ -146,12 +146,15 @@ class StatementLowerer {
 			binding = binding + 1;
 		}
 		if (block != null) {
+			bool jumpRoot = self.analyzed.jumpBodyKeys.len > 0 && self.analyzed.jumpBodyKeys.has(AstIdentity.key(block));
+			JumpLoweringFrame? frame = self.controlFlow.beginJumpFrame(block, jumpRoot, stmts, cleanupMarker, self.context.tryCatchDepth, self.managedLifetime, callableFlow);
 			int i = 0;
 			while (i < block.statements().len) {
 				Node s = block.statements().get(i);
-				self.lowerStmtInto(s, scopedVarTypes, stmts, callableFlow);
+				self.lowerItemInto(s, scopedVarTypes, stmts, callableFlow);
 				i = i + 1;
 			}
+			self.controlFlow.finishJumpFrame(frame, self.managedLifetime);
 		}
 		/* ARC: a control-transfer statement already emitted the exact cleanup
          * it exits.  Do not append unreachable normal-exit cleanup after it;
@@ -346,6 +349,12 @@ class StatementLowerer {
 	/* Lower a managed instance-field store as one transactional expression.
      * The outer assignment boundary exclusively owns receiver stabilization
      * and release; this atom manages only the old and replacement field values. */
+	public void lowerItemInto(Node node, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
+		JumpLoweringFrame? frame = self.controlFlow.beginJumpStatement(self.managedLifetime);
+		self.lowerStmtInto(node, varTypes, out, callableFlow);
+		self.controlFlow.finishJumpStatement(frame, node, self.managedLifetime);
+	}
+
 	public void lowerStmtInto(Node node, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
 		if (self.context.debug && node.line > 0) {
 			string sourceFile = self.context.sourceFileForLine(node.line);
@@ -353,6 +362,18 @@ class StatementLowerer {
 				self.context.consultSource(sourceFile);
 				out.push(IRNode.lineMarker(sourceFile, self.context.sourceLineFor(node.line)));
 			}
+		}
+		if (node.kind == NK_GOTO_STMT) {
+			LoweredJump jump = self.controlFlow.planGoto(node, self.lexicalBindingCName(node.name), self.context.tryCatchDepth, self.managedLifetime, callableFlow);
+			self.emitScopeRelease(jump.released, out);
+			self.emitCleanupScopeExit(jump.marker, out);
+			for registration in jump.registrations { self.managedLifetime.reissueCleanup(registration, out); }
+			out.push(jump.statement);
+			return;
+		}
+		if (node.kind == NK_LABEL_STMT) {
+			self.controlFlow.lowerLabel(node, self.lexicalBindingCName(node.name), self.managedLifetime, callableFlow, out);
+			return;
 		}
 		GpuStatementPlan gpuPlan = self.gpuPipeline.planStatement(node, varTypes);
 		if (gpuPlan.handled) {
@@ -457,6 +478,7 @@ class StatementLowerer {
 					concretePlan.emitBefore(out);
 				}
 				out.push(arrayDecl);
+				if (logicalArrayLength != null) { self.controlFlow.recordVariableLengthDeclaration(arrayDecl); }
 				if (aggregatePlan != null) {
 					AggregateDeclarationPlan concretePlan = aggregatePlan;
 					concretePlan.emitAfter(out);
@@ -502,11 +524,11 @@ class StatementLowerer {
 					ct = self.cTypes.lowerGeneric(node.type, self.context.activeTypeMap);
 				}
 			}
-			/* Preserve the SDK's storage spelling without changing the canonical
+			/* Preserve inferred typedef storage spelling without changing the canonical
 			 * type used for operators, null comparisons or ownership decisions. */
-			if (self.analyzed.nativeDeclarations.len > 0 && node.type == null && node.initializer != null) {
+			if (node.type == null && node.initializer != null) {
 				Node? storageType = self.operandPlanner.expressionStorageType(node.initializer, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
-				if (storageType != null && self.analyzed.isNativeTypedef(storageType.base)) { ct = self.cTypes.lower(storageType); }
+				if (storageType != null && (self.analyzed.typedefTable.has(storageType.base) || self.analyzed.isNativeTypedef(storageType.base))) { ct = self.cTypes.lower(storageType); }
 			}
 			IRNode? init = null;
 			CallableLambdaPlan? lambdaPlan = null;
@@ -551,6 +573,7 @@ class StatementLowerer {
 			if (node.type != null) {
 				((IRDeclarationPayload)vdecl.payload).isStatic = node.type.isStatic;
 				((IRDeclarationPayload)vdecl.payload).isExtern = node.type.isExtern;
+				((IRDeclarationPayload)vdecl.payload).isRegister = node.type.isRegister;
 				((IRDeclarationPayload)vdecl.payload).isVolatile = node.type.isVolatile;
 				((IRDeclarationPayload)vdecl.payload).effectiveIsVolatile = SemanticTypeSystem.typeEffectiveOuterVolatile(declType, self.analyzed.typedefTable);
 			}
@@ -664,7 +687,8 @@ class StatementLowerer {
 				out.push(IRNode.expressionStatement(IRNode.call("__btrc_thread_free", freeArgs)));
 			} else if (self.managedValues.isManaged(self.cTypes.resolveBodyType(discardedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)) && self.ownershipSemantics.expressionOwnsResult(e, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()), callableFlow)) {
 				string discardedName = self.context.freshTemporary("__btrc_discarded");
-				IRNode discardedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(discardedType), discardedName, loweredExpression);
+				Node? storageType = self.operandPlanner.expressionStorageType(e, self.context.ownershipEnvironment(varTypes, self.gpuPipeline.cpuActive()));
+				IRNode discardedDeclaration = IRNode.variableDeclaration(self.cTypes.lower(storageType == null ? discardedType : storageType), discardedName, loweredExpression);
 				self.context.recordLocal(discardedDeclaration);
 				out.push(discardedDeclaration);
 				Node concreteDiscarded = self.cTypes.resolveBodyType(discardedType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
@@ -966,7 +990,8 @@ class StatementLowerer {
 		 * release, whose destructor may throw, runs before the return. */
 		if (managedReturn && returnedLocal == "" && releases.len > 0) {
 			string runtimeType = self.managedValues.runtimeType(self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
-			self.managedLifetime.maybeRegisterCleanup(temporaryName, runtimeType, output);
+			IRNode? registration = self.managedLifetime.cleanupRegistration(declaration, runtimeType);
+			if (registration != null) { output.push(IRNode.expressionStatement(registration)); }
 		}
 		int releaseIndex = 0;
 		while (releaseIndex < releases.len) {
@@ -1024,22 +1049,15 @@ class StatementLowerer {
 		} else {
 			string valueName = self.context.freshTemporary("__btrc_release_value");
 			out.push(IRNode.variableDeclaration(self.cTypes.lower(et), valueName, slot));
-			/* A string slot holds no ARC edge, so it is taken, cleared and
-			 * released, as Python's _take_clear_release spells it. */
-			bool edgeSlot = persistentSlot && runtimeType != self.managedValues.stringRuntimeType();
-			if (edgeSlot) {
-				out.push(IRNode.expressionStatement(self.managedLifetime.unlinkEdge(IRNode.variable(valueName), et, releaseSlot.owner)));
-			}
+			/* Native resources and strings have no ARC edge. Persistent ARC
+			 * slots use replaceEdge above; other slots are taken and cleared. */
 			out.push(IRNode.assignment(slot, IRNode.literal("NULL")));
-			if (edgeSlot) {
-				out.push(IRNode.expressionStatement(self.managedLifetime.releaseEdge(IRNode.variable(valueName), et, IRNode.literal("NULL"))));
-			} else {
-				out.push(IRNode.expressionStatement(self.managedLifetime.releaseRuntime(IRNode.variable(valueName), runtimeType)));
-			}
+			out.push(IRNode.expressionStatement(self.managedLifetime.releaseRuntime(IRNode.variable(valueName), runtimeType)));
 		}
 		releaseSlot.emitAfter(out);
 		if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
 			if (self.context.batchExplicitReleases) {
+				self.context.hasBatchedCycleRelease = true;
 				out.push(IRNode.expressionStatement(self.managedLifetime.pollCycles()));
 			} else {
 				out.push(IRNode.expressionStatement(self.managedLifetime.flushCycles()));
@@ -1070,7 +1088,7 @@ class StatementLowerer {
          * RE-THROW any pending exception to the enclosing handler (mirrors
          * control_flow._lower_try_catch finally_only). */
 		bool finallyOnly = node.catchBlock == null && node.finallyBlock != null;
-		bool tryTerminates = finallyOnly && ControlFlowValidator.blockTerminates(node.tryBlock);
+		bool tryTerminates = finallyOnly && ControlFlowValidator.blockTerminates(node.tryBlock, self.controlFlow.targetedNames());
 		string pendingName = "";
 		string errorName = "";
 		if (finallyOnly) {
@@ -1289,11 +1307,13 @@ class StatementLowerer {
 			}
 			Vector<IRNode> body = [];
 			self.managedLifetime.pushManagedScope();
+			JumpLoweringFrame? frame = self.controlFlow.beginJumpFrame(c, false, body, cleanupMarker, self.context.tryCatchDepth, self.managedLifetime, callableFlow);
 			int j = 0;
 			while (j < c.bodyNodeList().len) {
-				self.lowerStmtInto(c.bodyNodeList().get(j), caseTypes, body, callableFlow);
+				self.lowerItemInto(c.bodyNodeList().get(j), caseTypes, body, callableFlow);
 				j = j + 1;
 			}
+			self.controlFlow.finishJumpFrame(frame, self.managedLifetime);
 			IRStatementSequence sequence = IRStatementSequence(body);
 			bool fallsThrough = sequence.mayFallThrough();
 			Vector<Managed> managed = self.managedLifetime.popManagedScope();
@@ -1306,6 +1326,7 @@ class StatementLowerer {
 			if (fallsThrough) {
 				self.emitScopeRelease(managed, body);
 				self.emitCleanupScopeExit(cleanupMarker, body);
+				self.controlFlow.markTailLabels(body);
 			}
 			self.managedLifetime.popCleanupScope();
 			self.context.restoreBorrowedBindings(caseBorrowedBindings);
@@ -1736,7 +1757,7 @@ class StatementLowerer {
 		Vector<string> runtimeTypes = [];
 		Vector<string> overrideKeys = [];
 		Vector<int> overrideHadValues = [];
-		Vector<IRNode> overridePreviousValues = [];
+		Vector<ExpressionOverride> overridePreviousValues = [];
 		int rootIndex = 0;
 		while (rootIndex < roots.len) {
 			Node root = roots.get(rootIndex);
@@ -1753,12 +1774,12 @@ class StatementLowerer {
 			overrideKeys.push(key);
 			if (self.context.hasExpressionOverrideKey(key)) {
 				overrideHadValues.push(1);
-				overridePreviousValues.push(self.context.expressionOverrideForKey(key));
+				overridePreviousValues.push(self.context.expressionOverrideStateForKey(key));
 			} else {
 				overrideHadValues.push(0);
-				overridePreviousValues.push(IRNode.literal("0"));
+				overridePreviousValues.push(ExpressionOverride(IRNode.literal("0")));
 			}
-			self.context.setExpressionOverrideKey(key, IRNode.variable(rootName));
+			self.context.setExpressionOverrideKey(key, IRNode.variable(rootName), concreteRootType);
 			rootIndex = rootIndex + 1;
 		}
 
@@ -1767,7 +1788,7 @@ class StatementLowerer {
 		while (overrideIndex >= 0) {
 			string key = overrideKeys.get(overrideIndex);
 			if (overrideHadValues.get(overrideIndex) != 0) {
-				self.context.setExpressionOverrideKey(key, overridePreviousValues.get(overrideIndex));
+				self.context.restoreExpressionOverrideKey(key, overridePreviousValues.get(overrideIndex));
 			} else {
 				self.context.removeExpressionOverrideKey(key);
 			}

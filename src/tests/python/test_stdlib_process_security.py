@@ -477,8 +477,10 @@ def test_windows_recursive_delete_is_handle_relative_and_never_follows_reparse_p
     assert "btrcWinOpenRoot(" in parent and "btrcWinOpenAt(parent.value(), component" in parent
     assert 'component.equals("..")' in parent and "FileSystemError.symlink(" in parent
 
-    provider = (ROOT / "src/stdlib/FileSystem/Windows/Win32FileSystem.c").read_text()
-    open_at = provider.split("static inline int btrcWinOpenAt(", 1)[1].split("\n}\n", 1)[0]
+    provider = (ROOT / "src/runtime/c/windows_filesystem.h").read_text()
+    adapter = provider.split("static inline int btrcWinOpenAt(", 1)[1].split("\n}\n", 1)[0]
+    assert "btrcWinOpenAtOptions(parent, name, &policy, handle, NULL)" in adapter
+    open_at = provider.split("static inline int btrcWinOpenAtOptions(", 1)[1].split("\n}\n", 1)[0]
     assert "FILE_OPEN_REPARSE_POINT" in open_at
     # The name is resolved relative to the held parent handle (RootDirectory).
     assert "InitializeObjectAttributes(&attributes, &objectName, OBJ_CASE_INSENSITIVE, parent," in open_at

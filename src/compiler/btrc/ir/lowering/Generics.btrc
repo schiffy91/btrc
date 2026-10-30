@@ -66,6 +66,12 @@ class GenericLowerer {
 		return ordered;
 	}
 
+	class bool selects(Analyzed analyzed, GenInstance instance, string kind, string name) {
+		Node receiver = SemanticTypeSystem.primitive(instance.base);
+		receiver.genericArgsStorage = instance.args;
+		return analyzed.classCallableSeen.has(TypeIdentity.classCallableKey(receiver, kind, name));
+	}
+
 	public Vector<GenericClassLoweringPlan> classPlans() {
 		Vector<GenericClassLoweringPlan> plans = [];
 		for instance in self.classInstances() {

@@ -32,6 +32,7 @@ from src.compiler.python.syntax.ast.generated import (
     FStringExpr,
     FStringLiteral,
     Identifier,
+    IndexDesignator,
     IndexExpr,
     IntLiteral,
     LambdaExpr,
@@ -343,6 +344,12 @@ class ExpressionAnalyzer:
 
     def _validate_address_operand(self, expression) -> None:
         operand = expression.operand
+        symbol = self.session.scope.lookup(operand.name) if isinstance(operand, Identifier) else None
+        if symbol is not None and symbol.type is not None and symbol.type.is_register:
+            self.session.error(
+                f"Cannot take the address of register object '{operand.name}'", expression.line, expression.col
+            )
+            return
         flexible_member = self.aggregates.flexible_array_target(operand)
         if flexible_member is not None:
             self.session.error(
@@ -1496,15 +1503,22 @@ class ExpressionAnalyzer:
             sym = self.session.scope.lookup(expr.name)
             if sym:
                 value_type = self.types.canonical_type(sym.type) or sym.type
-                # Managed/builtin dispatch uses canonical types. Raw pointer
-                # aliases retain their declarator only when flattening would
-                # move const from a handle slot to the opaque pointee.
-                if self.storage.is_raw_pointer_value(value_type) and self.storage.const_qualifier_depths(
-                    sym.type, self.index.typedef_table
-                ) != self.storage.const_qualifier_depths(value_type, self.index.typedef_table):
+                # Typedefs carry qualifier layers that a flattened type cannot
+                # represent. Keep volatile scalar aliases too: taking their
+                # address must move that qualifier below the new pointer.
+                if value_type is not sym.type and (
+                    self.storage.volatile_qualifier_depths(sym.type, self.index.typedef_table)
+                    or (
+                        self.storage.is_raw_pointer_value(value_type)
+                        and self.storage.const_qualifier_depths(sym.type, self.index.typedef_table)
+                        != self.storage.const_qualifier_depths(value_type, self.index.typedef_table)
+                    )
+                ):
                     value_type = sym.type
-                if value_type is not None and (value_type.is_extern or value_type.is_static):
-                    value_type = replace(value_type, is_extern=False, is_static=False)
+                if value_type is not None and (
+                    value_type.is_extern or value_type.is_static or value_type.is_auto or value_type.is_register
+                ):
+                    value_type = self.types.value_type(value_type)
                 return value_type
             function = self.index.function_table.get(expr.name)
             if function:
@@ -2159,6 +2173,7 @@ class ExpressionAnalyzer:
             self._reject_flexible_array_operand(expr, "Conditional expression")
         elif isinstance(expr, CastExpr):
             expr.target_type = self.types.upgrade_class_type(expr.target_type)
+            self.types.validate_type_name_storage(expr.target_type)
             self.generics.collect_type_instances(expr.target_type)
             self._analyze_expr(expr.expr)
             self._validate_cast_expr(expr)
@@ -2169,6 +2184,7 @@ class ExpressionAnalyzer:
                 self._analyze_expr(value)
             else:
                 if isinstance(expr.operand, SizeofType):
+                    self.types.validate_type_name_storage(expr.operand.type)
                     self.generics.collect_type_instances(expr.operand.type)
                 elif isinstance(expr.operand, SizeofExprOp):
                     self._analyze_expr(expr.operand.expr)
@@ -2224,6 +2240,7 @@ class ExpressionAnalyzer:
             self._reject_flexible_array_lambda(expr)
         elif isinstance(expr, NewExpr):
             self.types.validate_tag_keyword(expr.type, expr.line, expr.col)
+            self.types.validate_type_name_storage(expr.type)
             # A re-analysed tree already carries the implicit class pointer.
             written_depth = expr.type.pointer_depth - int(getattr(expr.type, "auto_upgraded", False))
             if written_depth or expr.type.is_array or expr.type.is_nullable:
@@ -2293,6 +2310,7 @@ class ExpressionAnalyzer:
             thread_type = TypeExpr(base="Thread", generic_args=[ret_type])
             self.generics.collect_type_instances(thread_type)
         elif isinstance(expr, BraceInitializer):
+            self._analyze_designator_indexes(expr)
             for el in expr.elements:
                 self._analyze_expr(el)
                 self.aggregates.reject_thread_value_escape(el, "embedded in aggregate values")
@@ -2300,6 +2318,26 @@ class ExpressionAnalyzer:
         if inferred:
             self.session.record_node_type(expr, inferred)
         self._reject_nonescaping_construction(expr, inferred)
+
+    def _analyze_designator_indexes(self, initializer: BraceInitializer) -> None:
+        for designation in initializer.entries:
+            for part in designation.parts:
+                if not isinstance(part, IndexDesignator):
+                    continue
+                self._analyze_expr(part.index)
+                constant, value = self.integer_constant_expression(part.index)
+                if not constant:
+                    self.session.error(
+                        "Array designator index must be an integer constant expression", part.line, part.col
+                    )
+                elif value is None:
+                    self.session.error(
+                        "Array designator index is a constant expression btrc cannot evaluate; write its integer value",
+                        part.line,
+                        part.col,
+                    )
+                else:
+                    self.session.designator_index_values[id(part)] = value
 
     def _reject_nonescaping_construction(self, expr, inferred) -> None:
         """A constructed class instance may not hold a nonescaping rich enum."""
@@ -2427,6 +2465,11 @@ class ExpressionAnalyzer:
             return
         for outer_symbols, captures in self.session.lambda_capture_contexts:
             if outer_symbols.get(expression.name) is symbol:
+                if symbol.type is not None and symbol.type.is_register:
+                    self.session.error(
+                        f"Cannot capture register object '{expression.name}'", expression.line, expression.col
+                    )
+                    return
                 captures[expression.name] = symbol.type
         current_outer, _current_captures = self.session.lambda_capture_contexts[-1]
         if current_outer.get(expression.name) is symbol:

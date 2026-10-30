@@ -1122,26 +1122,10 @@ RECORD_REFUSALS = [
         ("'union P' does not name a union: 'P' is a struct", 2, 29),
         id="r09-wrong-keyword-cfunction-local",
     ),
-    # An identity typedef keeps the name-claim diagnostic until r08 accepts it.
-    pytest.param(
-        "struct P { int x; };\ntypedef struct P P;" + MAIN_LINE,
-        ("Top-level name 'P' is declared as both struct and typedef", 2, 18),
-        id="r09-identity-typedef-after",
-    ),
-    pytest.param(
-        "typedef struct P P;\nstruct P { int x; };" + MAIN_LINE,
-        ("Top-level name 'P' is declared as both typedef and struct", 2, 8),
-        id="r09-identity-typedef-before",
-    ),
     pytest.param(
         "struct P { int x; };\ntypedef struct P* P;" + MAIN_LINE,
         ("Top-level name 'P' is declared as both struct and typedef", 2, 19),
         id="r09-pointer-typedef-own-tag",
-    ),
-    pytest.param(
-        "union U { int x; };\ntypedef union U U;" + MAIN_LINE,
-        ("Top-level name 'U' is declared as both union and typedef", 2, 17),
-        id="r09-identity-typedef-union",
     ),
     # A managed member is named as written.
     pytest.param(
@@ -1266,8 +1250,7 @@ RECORD_REFUSALS = [
         (NOT_UNION, 3, 15),
         id="r09-generic-interface-argument-tag",
     ),
-    # A typedef named for its own tag claims the record's name; that claim is
-    # the diagnostic whichever keyword it spells.
+    # A typedef for a different tag kind still conflicts with the record name.
     pytest.param(
         "struct P { int v; };\ntypedef union P P;" + MAIN_LINE,
         ("Top-level name 'P' is declared as both struct and typedef", 2, 17),
@@ -1332,6 +1315,18 @@ def test_refusal_is_identical_in_both_compilers(
 
 
 ACCEPTED = [
+    pytest.param(
+        "struct P { int x; };\ntypedef struct P P;\nint main() { P value = {7}; return value.x == 7 ? 0 : 1; }",
+        id="r09-identity-typedef-after",
+    ),
+    pytest.param(
+        "typedef struct P P;\nstruct P { int x; };\nint main() { P value = {7}; return value.x == 7 ? 0 : 1; }",
+        id="r09-identity-typedef-before",
+    ),
+    pytest.param(
+        "union U { int x; };\ntypedef union U U;\nint main() { U value = {7}; return value.x == 7 ? 0 : 1; }",
+        id="r09-identity-typedef-union",
+    ),
     pytest.param(
         """
         #include <assert.h>
@@ -1696,3 +1691,31 @@ def test_program_check_refusals_are_pinned_in_both_compilers() -> None:
 
     pinned = {case.name for case in DIAGNOSTIC_CASES}
     assert set(PROGRAM_CHECK_IDS) <= pinned
+
+
+@pytest.mark.parametrize(
+    "written,display",
+    [
+        ("CFunction<int, Box**>", "CFunction<int, Box**>"),
+        ("CFunction<Box**, int>", "CFunction<Box**, int>"),
+        ("(int, Box**)", "Tuple<int, Box**>"),
+        ("CFunction<int, Box?>", "CFunction<int, Box?>"),
+        ("(int, Box?)", "Tuple<int, Box?>"),
+        ("CFunction<int, CFunction<Box, int>>", "CFunction<int, CFunction<Box, int>>"),
+        ("CFunction<int, (int, Box)>", "CFunction<int, Tuple<int, Box>>"),
+        ("CFunction<int, Box>?", "CFunction<int, Box>?"),
+    ],
+)
+def test_union_diagnostic_preserves_written_managed_types(semantic_btrcc, tmp_path, written, display):
+    declaration = f"union U {{ {written} f; int i; }};"
+    source = "class Box { public int value; }\n" + declaration + MAIN_LINE
+    expected = (
+        f"Union 'U' member 'f' cannot hold managed type '{display}'; "
+        "a union cannot tell which member is live, so its members must be plain C values",
+        2,
+        declaration.index(" f;") + 2,
+    )
+    selfhost, reference = compile_diagnostic_pair(semantic_btrcc, tmp_path, source)
+    assert selfhost.returncode != 0 and reference.returncode != 0
+    assert diagnostic_identity(selfhost.stderr) == expected, selfhost.stderr
+    assert diagnostic_identity(reference.stderr) == expected, reference.stderr

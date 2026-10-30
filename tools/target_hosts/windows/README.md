@@ -50,6 +50,12 @@ failed, restricted or missing are not staged. Admission is atomic: any
 refusal removes the new staging directory and keeps the previously admitted
 bundle, if any.
 
+An optional `companion` record contains exactly `artifact` and `sha256`.
+Its name must be the primary name plus `.btrc-supervisor.exe`. The executor
+copies it beside the staged primary and applies the same read-only hold,
+digest and PE-machine checks. Any companion failure rejects the new bundle;
+`close` releases both images. This stages an unpackaged pair, not an MSIX package.
+
 After admission the runner asks `granted_capabilities()` which
 `BTRC_TEST_REQUIRES` host capabilities the programs get here. The executor
 answers `loopback-listener` when this host opens an IPv4 loopback listener,

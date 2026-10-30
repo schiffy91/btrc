@@ -9,10 +9,13 @@ from dataclasses import dataclass
 
 from lsprotocol import types as lsp
 
+from src.compiler.python.analyzer.flow import JumpScopeIndex
 from src.compiler.python.analyzer.program import ClassInfo, Occurrence
+from src.compiler.python.analyzer.types import TypeSystem
 from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.packages import ResolvedPackages
 from src.compiler.python.syntax.ast.generated import (
+    Block,
     ClassDecl,
     EnumDecl,
     FieldDecl,
@@ -20,6 +23,7 @@ from src.compiler.python.syntax.ast.generated import (
     Identifier,
     ImportDecl,
     InterfaceDecl,
+    LabelStmt,
     MethodDecl,
     PropertyDecl,
     RichEnumDecl,
@@ -74,6 +78,8 @@ class DefinitionMap:
         return (file, getattr(node, "line", 0), getattr(node, "col", 0))
 
     def _build(self, result: DocumentAnalysis):
+        records = {decl.name: decl for decl in result.ast.declarations if isinstance(decl, StructDecl)}
+        enums = {decl.name for decl in result.ast.declarations if isinstance(decl, EnumDecl)}
         for decl in result.ast.declarations:
             file = getattr(decl, "source_file", None)
             if isinstance(decl, ClassDecl):
@@ -96,8 +102,11 @@ class DefinitionMap:
             elif isinstance(decl, StructDecl):
                 if not decl.is_forward or decl.name not in self.struct_defs:
                     self.struct_defs[decl.name] = self._name_pos(decl, file)
+                for field in TypeSystem.record_fields(decl):
+                    self.field_defs[decl.name, field.name] = self._name_pos(field, file)
             elif isinstance(decl, TypedefDecl):
-                self.typedef_defs[decl.alias] = self._name_pos(decl, file)
+                if not TypeSystem.is_identity_typedef(decl, records, enums):
+                    self.typedef_defs[decl.alias] = self._name_pos(decl, file)
         self.var_defs.extend(LexicalScopeIndex.from_analysis(result, self._resolver).definitions)
 
     def _collect_class_members(self, cls: ClassDecl, file: str | None):
@@ -199,6 +208,8 @@ class NavigationProvider:
                 return self.resolver.result_location(
                     result, occ.def_line, occ.def_col, len(token.value), file=occ.def_file
                 )
+        if occ is not None and occ.kind == "label":
+            return None
         loc = self._try_member_definition(result, tokens, token, class_table, dmap)
         if loc:
             return loc
@@ -343,6 +354,16 @@ class NavigationProvider:
             inferred = lexical_type or node_types.get(id(node))
             if inferred is not None and file in (None, result.path):
                 type_by_position[pos] = inferred
+        if result.analyzed is not None and result.analyzed.jump_body_ids:
+            for decl in active:
+                for node, label in self._label_occurrences(decl, result.analyzed.jump_body_ids):
+                    pos = (node.line, node.col) if isinstance(node, LabelStmt) else (node.name_line, node.name_col)
+                    site = (result.path or None, label.line, label.col)
+                    by_position[pos] = Occurrence(
+                        kind="label", name=node.name, def_file=site[0], def_line=site[1], def_col=site[2]
+                    )
+                    by_def_site.setdefault(site, []).append(pos)
+                    resolved_by_def_site.setdefault(site, []).append((result.path or None, *pos))
         index = OccurrenceIndex(
             by_position=by_position,
             by_def_site=by_def_site,
@@ -352,6 +373,25 @@ class NavigationProvider:
         )
         result._caches["occ_index"] = index
         return index
+
+    def _label_occurrences(self, node, body_ids: set[int]):
+        """Resolve labels in each analyzed callable's separate namespace."""
+        if isinstance(node, Block) and id(node) in body_ids:
+            scope = JumpScopeIndex.build(node)
+            for label in scope.labels.values():
+                yield label.node, label.node
+            for jump in scope.gotos:
+                target = scope.target(jump.node)
+                if target is not None:
+                    yield jump.node, target.node
+        if dataclasses.is_dataclass(node):
+            for field in dataclasses.fields(node):
+                value = getattr(node, field.name)
+                if isinstance(value, list):
+                    for child in value:
+                        yield from self._label_occurrences(child, body_ids)
+                elif dataclasses.is_dataclass(value):
+                    yield from self._label_occurrences(value, body_ids)
 
     def occurrence_at(self, result: DocumentAnalysis, position: lsp.Position) -> Occurrence | None:
         """The analyzer-resolved occurrence for the identifier at *position*, or None."""
@@ -569,12 +609,17 @@ class NavigationProvider:
         'variable'.
         """
         name = token.value
+        occurrence = self.occurrence_for_token(result, token)
+        if occurrence is not None and occurrence.kind == "label":
+            return ("label", None, name)
         token_idx = self.resolver.find_token_index(tokens, token)
         if token_idx is not None and token_idx >= 2:
             prev = tokens[token_idx - 1]
             if prev.value in (".", "->", "?."):
                 target_class = self.resolver.resolve_chain_type(result, tokens, token_idx - 2, class_table)
                 if target_class:
+                    if (target_class, name) in dmap.field_defs:
+                        return ("field", target_class, name)
                     cinfo = class_table.get(target_class)
                     if cinfo:
                         if name in cinfo.methods:
@@ -659,7 +704,11 @@ class NavigationProvider:
             return []
         token, tokens, class_table, dmap, kind, class_name, member_name = sym
         name = token.value
-        if kind in ("class", "enum", "struct", "typedef"):
+        if kind == "label":
+            occurrence = self.occurrence_for_token(result, token)
+            site = (occurrence.def_file, occurrence.def_line, occurrence.def_col)
+            refs = self._with_declaration(self.resolved_references_to(result, site), site, include_declaration)
+        elif kind in ("class", "enum", "struct", "typedef"):
             refs = self.find_name_references(
                 name, result, self._definition_entry(kind, class_name, name, dmap), include_declaration
             )
@@ -759,7 +808,11 @@ class NavigationProvider:
             return []
         token, tokens, class_table, dmap, kind, class_name, member_name = sym
         name = token.value
-        if kind in ("class", "enum", "struct", "typedef"):
+        if kind == "label":
+            occurrence = self.occurrence_for_token(result, token)
+            site = (occurrence.def_file, occurrence.def_line, occurrence.def_col)
+            refs = self._with_declaration(self.resolved_references_to(result, site), site, True)
+        elif kind in ("class", "enum", "struct", "typedef"):
             refs = self.find_name_references(name, result, self._definition_entry(kind, class_name, name, dmap), True)
         elif kind == "function":
             refs = self.find_function_references(name, result, dmap, True)

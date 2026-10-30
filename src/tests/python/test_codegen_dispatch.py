@@ -34,10 +34,11 @@ def test_default_helper_upcasts_prior_derived_arguments():
         "int read(Base value, int fallback = 1) { return value.value + fallback; }\n"
         "int main() { Derived value = new Derived(); return read(value); }"
     )
-    assert re.search(
-        r"__btrc_default_\w+_2\(\(\(Base\*\)__btrc_call_operand_\d+\)\)",
-        c,
-    )
+    operand = re.search(r"Base\* (__btrc_call_operand_\d+);", c)
+    assert operand is not None
+    name = operand.group(1)
+    assert f"({name} = ((Base*)value))" in c
+    assert re.search(rf"__btrc_default_\w+_2\({name}\)", c)
 
 
 def test_generic_default_helpers_resolve_concrete_body_types():

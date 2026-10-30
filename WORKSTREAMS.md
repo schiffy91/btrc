@@ -339,6 +339,7 @@ Between updates, the source of truth is the set of open `[CX-…]` and `[CL-…]
 
 | Packet | Agent | Branch | Holds | State |
 |---|---|---|---|---|
+| Reserved: `CX-C2-RECORDS` | Codex under D29 | `codex/c2-records-20261023` | Record declarations, initializer validation/lowering, callable slot consumers, LSP record navigation and paired evidence; full path scope in the 2026-10-23 claim below | Implementation `5d817dd0`, regenerated probes `d6403573`; 263 paired/structural checks, four corpus cases, eight editor cases and four row-8 probes pass. Generated-source, lint and format pass. PR creation awaits CI capacity under §3.2; full hosted qualification remains open. |
 | Canonical tuple declaration order | Codex integrator under D29 | `codex/compiler-tuple-canonical-order` | `src/compiler/python/ir/lowering/translation_unit.py`; `src/compiler/python/ir/lowering/generics.py`; `src/compiler/btrc/ir/lowering/Declarations.btrc`; `src/tests/python/test_native_link_reuse.py`; `src/tests/python/test_generic_tuple_declarations.py`; `src/tests/btrc/test_tuple_typedef_parity.py`; `docs/workstreams/compiler-tuple-canonical-order.md` | Active 2026-10-08: hosted root71 exposes one tuple-order parity failure after canonical generic ordering. Preserve complete discovery and nested by-value dependencies; implement paired canonical tuple ordering under G12, with source-frozen fixtures and full boundary recapture before integration. |
 | Interface-parent reachability | Codex integrator under D29 | `codex/compiler-interface-parent-reachability` | `src/compiler/python/ir/lowering/reachability.py`; `src/compiler/btrc/ir/lowering/Reachability.btrc`; `src/tests/python/test_stdlib_reachability.py`; `src/tests/btrc/test_interface_inheritance_reachability.py`; `docs/workstreams/interface-parent-reachability.md` | Active 2026-10-08: fixture-only `72be5947` proves three failures/eight passes; reviewed paired fix `808592c9` passes ten reference checks. Fresh Linux self-host and all 11 compiler regressions pass; Grid04 four native rows pass and four genuine negative controls reach the intended identity assertion; other96 rerun remains active after an isolated fixture typing correction. Initial four strict-C failures and original archives retained; no emitter fallback or gate waiver. |
 
@@ -1998,3 +1999,2705 @@ activation refusal and exactly one queued SDL click through both frontends
 and sanitizer modes. Preserve the existing 180-second native bound, actual
 Linux SDK/session, skip policy, and final draft-PR CI. A local diagnostic
 is not the final hosted gate or complete BTRSmith/Linux acceptance.
+
+
+### 2026-10-23: CX-STDLIB-ANALYSIS-18
+
+Under the current D29 harmonization session, `codex/stdlib-analysis-20261023`
+implements issues #4 and #18: skip unreached stdlib bodies during application
+analysis, and provide full-body stdlib validation through both compilers in CI.
+The reference and self-hosted analyzers own the shared reachability policy;
+lowering consumes it without creating an analyzer-to-IR dependency.
+
+Owned paths: `src/compiler/python/analyzer/`,
+`src/compiler/python/application/`, `src/compiler/python/cli/compiler.py`,
+`src/compiler/python/ir/lowering/`; `src/compiler/btrc/analyzer/`,
+`src/compiler/btrc/pipeline/`, `src/compiler/btrc/cli/Driver.btrc`,
+`src/compiler/btrc/ir/lowering/`; the corresponding stdlib-analysis,
+reachability, CLI and compiler-structure tests;
+`docs/design/compiler-structure.md`; `tools/qualification/stdlib.py`;
+`.github/workflows/stdlib.yml`; this append-only claim.
+Makefile targets, CI tier rows, skip rules and inventory totals are fragments,
+not held paths. PR114 retains its existing workflow and GUI-test claims.
+
+Acceptance requires reached-body and dormant-body diagnostic tests, generic
+and implicit-call coverage, strict-import parity, full stdlib CI coverage,
+and the final compiler/corpus/bootstrap/C11 gates. No language or runtime
+semantics are relaxed, and no platform qualification is claimed by this claim.
+
+CX-STDLIB-ANALYSIS-18 claim extension: `src/compiler/btrc/Compiler.btrc`
+owns the whole-output cache identity, which must distinguish strict stdlib
+validation. Corresponding artifact-cache and module-unit tests are held too.
+
+CX-STDLIB-ANALYSIS-18 checkpoint: local commits `a4b7e05c` and `8a079afb`
+implement selective body analysis in both compilers. Signatures, defaults and
+field initializers remain checked; inferred generic and native demands expand
+the body selection. Validation and instance records identify the body coverage
+they prove, including when an edited caller reaches another library method.
+The 40 paired pruning cases and 100 module-unit/staleness cases passed locally.
+Full-library strict CI inventory, broader regression gates and performance
+evidence remain outstanding. These commits have not yet been pushed to PR115.
+
+CX-STDLIB-ANALYSIS-18 claim extension: the full-library check exposed an
+early return in native-plan composition when compiling within a stdlib package.
+This packet also owns `src/compiler/python/frontend/packages.py`,
+`src/compiler/btrc/frontend/Packages.btrc` and corresponding package tests for
+that repair. Strict qualification imports each module from a temporary probe
+in its package so compiler-owned declarations retain stdlib provenance.
+The packet also owns `src/stdlib/Audio/MacOS/MacOSAudioDevice.btrc` and
+`src/stdlib/GPU/WebGPU.btrc` for diagnostics exposed by that check: nullable
+aggregate-description resources and the native callback type import.
+`src/tests/python/test_ci_workflow_contracts.py` adds only the new stdlib
+workflow to the lane registry; PR114 retains its other changes in that file.
+
+CX-STDLIB-ANALYSIS-18 qualification checkpoint: the inventory contains 243
+modules, including private providers. Linux, macOS and Windows targets cover
+every module; the aggregate requires complete reports from both compilers.
+Local generated-source, lint and format checks pass, as do 56 paired pruning
+and harness tests, 264 package/workflow tests, and four CoreAudio aggregate
+allocation-failure tests across both compilers and sanitizer modes. The native
+composition repair is `4c2857c2`; stdlib diagnostic repairs are `6afd11fd`.
+Full strict module runs and hosted CI remain outstanding. These changes are
+local and have not yet been pushed to PR115.
+
+CX-STDLIB-ANALYSIS-18 Windows qualification follow-up: hosted strict run
+39995949811 at ca0194fe completed 127 modules and failed 23 per compiler.
+Twenty failures lack the pinned target WebGPU package, two expose Win32's
+missing Callback import, and one lacks Windows JNI headers. This packet also
+owns `src/stdlib/GUI/Windows/Win32.btrc`, `nix/stdlib-windows-sdk.nix`, the
+WebGPU archive version passthrough, and the flake's SDK package export.
+The SDK reuses the existing WebGPU pin and nixpkgs' OpenJDK source pin for
+Windows JNI headers. The checker composes target include and package paths
+without allowing container startup scripts to replace them. No target is
+excluded to bypass a missing dependency. The flake export and shared archive
+metadata will be carried in a final fragment commit.
+
+The Windows SDK derivation built locally. The SDK and package-composition
+regressions pass through both compilers, including a container startup file
+that would otherwise replace the package/include paths. All 133 harness and
+workflow checks passed. Complete Windows strict runs now pass all 150
+applicable modules per compiler with zero diagnostics and the same 93 platform
+exclusions. These are cross-target semantic checks; no Windows executable ran.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: module-owned enum declarations
+
+This packet's existing translation-unit and module-unit-test ownership also
+covers enum declaration parity. Python emits foreign enums into each lowered
+module before merging shared declarations; the self-hosted compiler emits
+that module's enums and obtains foreign declarations from the shared unit.
+The full application has 43 files whose only difference is enum ordering.
+Reduced plain and rich enum programs execute correctly through both frontends
+under strict C11 and sanitizers, then expose the declaration-order mismatch.
+
+Keep source order within each owning group and preserve shared declarations,
+variant constructors, toString linkage and enum-member initializer semantics.
+Cross-enum initializers are rejected by both analyzers and are not a supported
+dependency to reorder. The repair must pass module ownership, cache staleness
+and native execution checks before broader composition and final CI gates.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: module atomic proofs
+
+This packet's existing IR-lowering and module-unit ownership also covers
+`src/compiler/python/ir/lowering/types.py`,
+`src/compiler/python/ir/lowering/translation_unit.py`, and
+`src/tests/python/test_module_units.py` for atomic lock-free proof emission.
+The reduced imported-counter program emits one proof in both whole-program
+builds. In module mode Python emits none, while the self-hosted compiler emits
+one in each of the two units that uses the atomic type. Both frontends pass
+strict C11 and sanitizer execution on the current lock-free host.
+
+Register concrete atomic types when their C types are lowered and retain the
+structured compile-time proof in every module that registers one. Preserve
+payload validation, target macro selection, declaration order and unused-type
+pruning. Do not remove a proof to obtain byte parity. Add the module regression
+before changing production behavior, then run module, realtime, parity and
+structure checks. Full application comparison and final integration remain
+required.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: callback declaration normalization
+
+This packet's analyzer ownership also covers
+`src/compiler/btrc/analyzer/Generics.btrc` and
+`src/tests/btrc/test_cfunction_callback_contract.py` for concrete class types
+in typedef and record callback declarations. Reduced programs execute through
+both frontends under strict C11 and ASan/UBSan. A local callback has identical
+C output, while a typedef or record field uses a different callback identity.
+The reference normalizes those declaration signatures; the self-hosted
+generic discovery pass currently omits them.
+
+Use the existing semantic type normalization and recursive record-field walk.
+Preserve alias spelling, const layers, native callback ABI and lexical generic
+parameters. Add executable regressions before changing production code,
+including local and alias controls and nested named records. Anonymous-member
+syntax is not available on this packet base; the existing record-field owner
+still preserves its recursive traversal for future composition. Qualify the
+callback, generic, realtime and module paths, then refresh the application
+comparison. This extension does not establish full application parity.
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: shared span declaration order
+
+The application comparison retains 186 raw C differences. A reduced imported
+class with a RealtimeFunction field taking mutable and const spans reproduces
+one ordering difference: Python emits shared span layouts before the imported
+class; the self-hosted compiler emits them afterward. Plain and generic local
+classes both reproduce it. All eight strict/sanitized native executions pass,
+and each local-unit raw diff contains only those moved layouts. Imported
+function bodies alone do not retain span types in the local unit.
+
+This packet owns `src/compiler/btrc/ir/lowering/Lowerer.btrc`,
+`src/compiler/btrc/ir/lowering/Types.btrc`, and the executable regression in
+`src/tests/python/test_module_units.py` for declaration placement. Establish
+the failing regression on this packet's own base before changing production
+code. Preserve tuple dependencies, span discovery and qualifiers, module
+ownership, atomic lock-free proofs and raw-C comparison. Emission must stay a
+walk of structured IR. Qualify module, realtime, tuple, parity and structural
+paths before refreshing the full application comparison. This repair alone
+cannot establish complete application parity or performance acceptance.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS-18: native resource declaration order
+
+The application comparison still contains opaque native resource forwards in
+different orders. The Python manifest reader sorts resource names before
+creating their declarations. The self-hosted manifest reader also sorts them,
+but the C importer later enumerates the resource map without sorting its keys.
+The C++ importer already sorts those keys explicitly. A reduced executable
+regression must establish the C import defect before production changes.
+
+This packet also owns `src/compiler/btrc/frontend/NativeImports.btrc` and
+the corresponding regression in `src/tests/python/test_module_units.py`.
+Vary header, symbol and resource-table order independently, using resource
+names whose map-slot order differs from name order. Require strict C11 and
+ASan/UBSan execution through both frontends and unchanged whole-module C
+comparison. Preserve native resource ownership, release behavior, declaration
+identity and module boundaries. Refresh the full application comparison and
+qualify native-import, module, parity and structure paths before publication.
+This repair does not establish complete application parity or performance.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: unique resource helper parity
+
+PR115 also owns `src/compiler/python/ir/lowering/functions.py` and its
+unique-resource regression in `src/tests/python/test_module_units.py`.
+A reduced native package preserves explicit close, alias state, borrowed
+access, automatic cleanup and exception cleanup through both compilers.
+Void and status-returning release variants pass all sixteen strict C11 and
+sanitized executions across whole-program and module builds, while their
+raw helper declarations and definitions differ in owner parameter names.
+
+Keep the repair in structured lifetime lowering. Align local and parameter
+names consistently, including ARC header initialization; retain message
+text, synchronization, borrow handling and release outcomes. Compare whole
+generated files without normalization after native execution. Reuse a
+cohesive native-plan test harness for the existing resource-order test and
+this regression. Establish its failing baseline before changing production
+code, then qualify native ownership kinds, module behavior and C parity.
+The full application comparison and final integrated gates remain required.
+
+The reduction also exposed a separate module-build defect: a C source
+imported from a native binding module is omitted, causing unresolved native
+symbols in both frontends. Its failing inputs and plans are preserved under
+`build/native-plan-parity/imported-c-module-link-reproduction.json` in the
+application diagnostic clone. Using an explicit native source declaration
+isolates helper parity; it does not resolve or remove that issue7 defect.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: retain C-only imported modules
+
+PR115 also owns the module retention decision in
+`src/compiler/python/application/modules.py` and
+`src/compiler/btrc/pipeline/ModuleUnits.btrc`, with its regression in
+`src/tests/python/test_module_units.py`. Both frontends omit an imported C
+implementation when its importing module has no btrc function or global
+definition. A referenced btrc-function control retains exactly one C include
+and links and executes through both frontends; the unanchored control fails
+to link through both.
+
+Retain a module that owns a C implementation include. Preserve existing
+foreign-body filtering and structured include IR, and leave header-only
+empty modules eligible for omission. Exercise whole and module builds with
+explicit extern declarations and native header bindings. Calls from two
+groups must share one C counter, with exactly one implementation include.
+Require strict C11 and sanitizer execution through both frontends, module
+cache and ownership checks, and the final composed integration gates.
+The new regression and candidate remain unqualified until those checks run.
+
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: inferred callback class signatures
+
+PR115 also owns `src/compiler/btrc/analyzer/Expressions.btrc` and the
+ordered callback regression in `src/tests/python/test_module_units.py`.
+A direct function argument with a class parameter passes strict and sanitized
+execution through both compilers, but the self-hosted inferred callback keeps
+the class at source pointer depth zero and creates a second callback identity.
+The declared callback type already normalizes that class to pointer depth one.
+
+Normalize the inferred signature through the existing semantic type owner.
+Preserve declaration storage flags, typedef qualifiers, explicit pointers and
+lexically shadowing generic parameters. Establish failing regressions on this
+packet base for direct and addressed function values, with regular and
+generic class arguments, in whole and module builds. Require native execution before
+raw C comparison, then callback, generic, module, parity and structure checks.
+The remaining pointer aliases and full application comparison stay separate.
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: ordered pointer qualifier inference
+
+PR115 also owns identifier and conditional inference in both analyzer
+expression owners, with regression coverage in `test_module_units.py`.
+On `26e3711c`, strict C rejects reference output for volatile pointer
+identifiers, addresses and dereferences; both frontends lose the qualifier
+when selecting between two volatile pointers. Unqualified pointer and array
+aliases also produce different temporary declarations across the frontends.
+
+Resolve ordinary identifier aliases consistently while retaining typedef
+spelling that carries qualifier layers. Keep volatile scalar aliases intact
+so taking their address preserves pointee qualification. Conditional inference
+must retain the selected branch's qualifier provenance while using canonical
+types for numeric promotion. Prove whole and module output with ordered
+side effects, strict C11 and sanitizer execution before exact C comparison.
+The baseline ran 76 native executions; ten frontend/case combinations failed
+strict C. Full application composition and final gates remain required.
+
+### 2026-10-24 CX-STDLIB-ANALYSIS: collection construction cleanup parity
+
+PR115 also owns `src/compiler/python/ir/lowering/collections.py` and its
+collection regressions in `src/tests/python/test_module_units.py`.
+Eight reduced Vector/Map factory cases pass 32 strict and sanitized native
+executions on `12dfb907`, but their construction cleanup differs between
+frontends. Keep the change in structured collection lowering and reuse the
+existing typed cleanup-slot owner. Initialize the protected slot before
+registration, register before allocation, and clear it when transferring
+the constructed value to its consumer.
+
+Require a failing tracked baseline before the repair. Compare whole generated
+C for whole-program cases and unchanged factory function bytes in module
+cases, after building and executing every unit. Separate module declaration
+ordering and unused Vector-body differences remain recorded in the baseline;
+this regression does not qualify full application C parity. Check repeated
+try scopes with successful, throwing, and successful constructions, including
+managed-element destruction. Preserve empty literals and paths without
+exception cleanup. Ownership, setjmp, parity, structure, generated-source,
+full application and final integrated gates remain required.
+
+### 2026-10-24: interface declaration order parity (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/compiler/btrc/ir/lowering/Lowerer.btrc`, and
+`src/tests/python/test_module_units.py`. Base: `27ba10ae`.
+
+The reference compiler emits interface tables and dispatchers in registration
+order. The self-hosted compiler used map iteration for whole-program lowering
+and sorted names for module dispatchers. The typed program already preserves
+registration order, so both self-hosted emission sites now walk its interface
+declarations. Runtime lookup directories retain their required sorted order.
+
+Eight regression cases cover two declaration orders, independent and inherited
+interfaces, and whole-program and module-unit compilation. Both interface
+aliases observe the same mutable object; a destructor counter checks final
+release. Every generated unit runs under strict C11 and ASan/UBSan before exact
+raw C comparison. Baseline: four source-order failures and four reverse-order
+passes. A separate unused header difference remains covered by PR119; these
+fixtures exercise try/catch and use that header.
+
+Selected validation, composition/application qualification and final integrated
+gates remain required. No performance or issue-completion claim is made here.
+
+### 2026-10-24: Span argument evaluation (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Calls.btrc`,
+`src/compiler/btrc/ir/lowering/Expressions.btrc`, and
+`src/tests/python/test_module_units.py`. Base: `d3ad1d67`.
+
+Self-hosted `Span.trySet(index(), value())` skipped the value argument when
+bounds or backing-storage checks failed, including an exception thrown by
+that argument. Span signatures now feed the existing typed call-argument
+planner so operands are evaluated before the method guard. Construction uses
+those prepared operands and retains fixed-array extent analysis. Boolean
+results use the reference compiler's literal spelling.
+
+Sixteen regression cases exercise mutable and const elements, plain and
+effectful operands, fixed-array bounds, valid and rejected accesses, and
+throwing constructor/method arguments in whole-program and module-unit modes.
+The corrected baseline has fourteen failures and two passes: six raw C
+comparison failures and eight self-hosted argument-evaluation failures. The
+exception fixture uses static backing storage to satisfy the existing
+setjmp escape restriction. Strict C11 and ASan/UBSan executions precede raw C
+comparison. Validation, composition/application qualification and final
+integrated gates remain required.
+
+### 2026-10-24: owned field alias storage (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc` and
+`src/tests/python/test_module_units.py`. Base: `8f8415ab`.
+
+Reading a field from an owned temporary preserved its typedef in the reference
+compiler but expanded it in the self-hosted result temporary. The field-access
+boundary now uses the existing expression storage type query. Managed-value
+classification still resolves the type through its existing owner.
+
+Eight whole-program and module-unit cases cover scalar aliases, alias chains,
+readonly pointer aliases and managed field aliases. Each factory is called
+once per iteration, including a throw after allocating the owner. Destructor
+counts check owner release and payload survival. The baseline passes 32 strict
+C11 and ASan/UBSan executions but fails all eight C comparisons.
+
+Scalar and pointer cases compare every generated C unit. Managed cases compare
+the complete consumer function because class ARC visitor helpers have a
+separate alias/concrete deduplication difference; the preserved baseline records
+that difference. Native runs execute all generated units. Main uses try/catch
+to require the headers whose unused emission is covered by PR119.
+
+Focused, broader, composition/application and final integrated qualification
+remain required. This change does not complete application C parity.
+
+
+### 2026-10-24: aliases in ARC field visitors (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/ownership/CycleBoundaries.btrc`
+and `src/tests/python/test_module_units.py`. Base: `3f4c3540`.
+
+Field stores request an ARC slot adapter using the field's declared typedef,
+but self-hosted visitors requested another adapter using its expanded class
+type. Visitor lowering now uses the declared field type for the exact-typed
+slot adapter, retaining the canonical type for the runtime descriptor.
+
+Four regressions cover whole-program and module-unit emission for acyclic
+replacement and a collected two-object cycle. Destructor counts verify both
+paths. The managed cases in the owned-field regression now compare every C
+unit, removing their narrower consumer-function comparison. The combined
+baseline passes all 48 strict C11 and ASan/UBSan executions, with six C parity
+failures and six passes. Focused, broader, full application and final integrated
+qualification remain required.
+
+The earlier direct-field-assignment reduction also exposed canonicalized
+assignment-result and discarded-value temporaries. Those raw differences are
+preserved separately; method-based mutations isolate the visitor repair here.
+
+
+### 2026-10-24: owned module typedef order (Codex, PR115 follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc` and
+`src/tests/python/test_module_units.py`. Base: `b992e385`.
+
+The reference compiler emits a module's own aliases before merging imported
+aliases. Self-hosted module lowering skips that declaration step and receives
+all aliases in the shared program order. The saved four-case reduction passes
+sixteen native executions and differs only in the independent module's typedef
+order. Dependent aliases already agree because the typed declaration planner
+orders their prerequisites.
+
+Emit owned aliases through the existing declaration ownership filter, using
+structured typedef IR. Keep the whole-program alias pass and the shared merge
+owners. Ten regression cases cover independent, dependent and forward aliases,
+callbacks and qualified pointers in whole-program and module-unit modes. Recheck
+the baseline before production edits, then verify strict/sanitized execution,
+raw C parity, module reuse and the full application composition.
+
+
+### 2026-10-24: native callback receiver generic identity (Codex follow-up)
+
+Owned paths: `src/compiler/btrc/analyzer/Generics.btrc`,
+`src/tests/python/test_native_objective_c_super_admission.py` and
+`src/tests/python/test_native_objective_c_subclasses.py`. Base: `698f5d0f`.
+
+The full application and a headless Foundation reduction give generated
+CallbackContext and CallbackRoot instances different interface receiver
+identities across the two compilers. The reference uses the managed reference
+shape; the self-hosted native dependency collector can register a newly built
+generic type with an unnormalized receiver argument. The reduction passes all
+eight native executions and fails both whole-program and module C comparisons.
+
+Use the existing semantic generic-argument normalization before registering
+these generated instances. Cover scoped superclass admission and instance
+factory roots, with strict and sanitized native execution. Keep the already
+normalized per-instance receiver as a control. Preserve all lifecycle assertions
+and verify module output in the combined application tree.
+
+
+### 2026-10-24: native record input declaration order (Codex follow-up)
+
+Owned paths: `src/compiler/python/frontend/native_imports.py`,
+`src/compiler/btrc/frontend/NativeImports.btrc` and
+`src/tests/python/test_module_units.py`. Base: `c77e6cf0`.
+
+Generated native input classes follow different map iteration orders in the
+two frontends. A local C-header reduction passes all 32 strict and sanitized
+native executions but fails six of eight complete C comparisons. Independent
+records differ in their forwards, layouts and generated lifecycle definitions;
+module consumers also expose the existing external-prototype ordering issue.
+
+Sort each binding's completed record projections by name before creating its
+ordinary input classes in both frontends. Recursive projection discovery and
+field order remain with their existing owners. The eight regression cases
+cover independent and nested records, two manifest orders, and whole-program
+and module output. Require the combined prototype repair to pass complete C
+comparisons, then recheck the full application and final integration gates.
+
+
+### 2026-10-27 PR115 generic interface cycle owner return
+
+Branch: `codex/generic-cycle-owner-return-20261027`, based on the existing
+PR115 source owner `c0668650`. Preserve its collection, interface, Span, alias,
+callback identity and native input repairs. Owned paths for this return are
+`src/compiler/python/ir/lowering/ownership.py`,
+`src/tests/python/test_polymorphic_arc_metadata.py`,
+`src/tests/python/test_module_units.py`, and this record.
+
+Return the concrete generic interface cycle repair `183f006d` without its
+diagnostic composition history. Establish the leak and metadata baseline on
+this owner, then preserve actual generic arguments when traversing interface
+implementers. Retained-owner, scalar and unused-type-parameter controls must
+keep their native lifetime assertions and complete C comparisons. Existing
+test functions remain unchanged. Record any isolated header or prototype
+dependencies as failures; do not weaken tests to obtain a green checkpoint.
+
+Selected local checks, hosted source CI, application acceptance and final
+integration remain required. This return does not authorize local GUI, audio
+installation, application execution, bootstrap or performance measurements.
+
+
+### 2026-10-27 PR115: return module instance-demand graph
+
+Branch `codex/instance-demand-owner-return-20261027` starts from PR115's
+saved generic-cycle checkpoint `61ec1443`. Return original PR115 follow-up
+`d0c7e3f8` without its diagnostic compositions. Its six Python production
+owners are application modules/pipeline, lowering lowerer/session/translation
+unit, and the IR optimizer. Tests remain in `test_module_units.py`.
+Preserve current strict-mode semantic selection, native-resource repairs,
+atomic type registration and generic-interface cycle handling.
+
+Capture generic function membership during specialization lowering, carry
+pre-optimization reference graphs through explicit module facts and cache
+schema 7, and recompute demand across fresh and reused units. Rebuild affected
+units when kept instances change. Preserve ordinary exports, callback/global/
+macro/native-method roots, cycles, DCE opt-out and effects for pruned exports.
+
+Stage the two native/cache regressions before production changes. Add the
+new graph-type imports and API contracts after that baseline, when the API
+exists. Preserve every old test body. Strengthen the donor class-demand test
+with a complete generated-C dictionary comparison after its existing body
+checks; body-only equality does not establish issue 3 acceptance.
+
+PR119 separately owns runtime-header scoping, canonical helper filtering and
+ARC descriptor roots. PR122 owns prototype/callback ordering. Compose these
+shared-file changes by ownership; never overwrite an owner's repair or
+normalize raw C differences. Qualify cache edits with one and two workers,
+strict/sanitized native runs, corrupt-record controls, parity, structure and
+generated-source checks. Hosted source CI and final application/platform
+acceptance remain required. No local GUI, application, audio installation,
+bootstrap, guest or performance execution is authorized by this claim.
+
+## 2026-10-24 CX-MODULE-HEADER-PARITY: issue 3 C dependencies
+
+Reserved: Codex owns `codex/module-header-parity-20261024` from `b800bb0`
+under D29. The full BTRSmith comparison found unnecessary native headers in
+self-hosted module units. A reduced program confirms that a native type name
+inside a runtime comment or string keeps its header in the self-hosted output;
+the reference compiler already excludes comments and literals from this scan.
+
+Owned paths are `src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+`src/compiler/btrc/ir/runtime/References.btrc`, and
+`src/tests/python/test_module_units.py`, plus this claim. Reuse the runtime
+reference collector's C token scan and prove that actual native references
+still retain their headers. Full emitted-C parity, shared-cache acceptance and
+real-application performance remain required by issues 3 and 8. Publication
+waits for the existing heavy CI runs to release capacity.
+
+### 2026-10-24 CX-MODULE-HEADER-PARITY: runtime-header composition
+
+This packet also owns `src/compiler/python/application/modules.py` and the
+runtime-header regressions in its existing `test_module_units.py` owner,
+transferred from PR #121 by `e0055cfe`. The native-header scanner and generated
+runtime-header repairs will be validated together. The isolated runtime repair
+`06f62254` remains evidence only and is not a separate integration packet.
+
+Keep actual native references, required runtime headers and explicit source
+includes. Both frontends must compile and execute the regression programs and
+pass the module, staleness, runtime and architecture checks on the combined
+source. Full application comparison and final hosted gates remain required.
+
+
+### 2026-10-26 CX-MODULE-HEADER-PARITY: return module cache repairs
+
+Local branch `codex/module-header-return-20261026` starts from the existing
+PR119 source candidate `1898a1d2`, ahead of published claim `877a8dd5`.
+PR119 owns `src/compiler/btrc/pipeline/ModuleUnits.btrc` and these regressions
+in `src/tests/python/test_module_units.py`. Return the generic effect-summary
+repair from `5926c6f0` and literal-dependency repair from `935a7cbd` to this
+packet. The shared native frontend test helper is copied unchanged from the
+validated diagnostic; no other diagnostic compiler changes are included.
+
+First prove both failures on this packet's source. Then retain solved effects
+for every lowered export, including generics whose emitted definitions were
+pruned, and collect dependency names only from structured symbol references.
+Keep genuine cross-module references, warm-cache output and edit invalidation
+covered through both whole/module output and strict/sanitized execution.
+Fresh compiler, module, parity, structure and generated-source checks precede
+publication. PR118 currently holds the hosted CI slot. Existing PR115 analysis
+and lowering changes remain with that owner; this does not merge the diagnostic
+composition or qualify shared cross-frontend cache storage.
+
+
+### 2026-10-27 PR119: module ARC descriptor reachability
+
+Branch `codex/module-arc-owner-return-20261027` starts from PR119's saved
+module header/cache checkpoint `0dd0f9bf`. Return donor `7a81076b` to the
+module-dependency owner while preserving existing header selection and solved
+generic-effect cache behavior. This packet extends its claim to
+`src/compiler/python/ir/optimizer.py` and
+`src/tests/python/test_optimizer_declarations.py`; module code and its tests
+are already owned here. PR115 retains its analysis and lowering repairs.
+
+Exported ARC descriptors follow live constructors and structured references.
+Linkage alone must not keep an unused descriptor and its destructor reachable.
+Keep side-effecting initializer rules and all other global-root behavior.
+Canonical runtime-helper local identifiers must not create application roots;
+require both catalog identity and exact source equality before excluding those
+text references. Opaque or overridden helpers retain conservative scanning.
+
+Establish the old compiler's baseline with exact donor regressions before
+production changes. Preserve existing test bodies and all raw C comparisons.
+Qualify live/dead generic descriptors with strict/sanitized native execution,
+then run optimizer, module/cache, parity, structure and generated-source checks.
+No local GUI, application, bootstrap, guest or performance acceptance is
+claimed. Publish the reviewed source after hosted CI capacity is available;
+this extends the previous local candidate rather than integrating diagnostic
+composition history.
+
+## 2026-10-24 CX-FSTRING-VALUE-STAGING: copied qualifiers
+
+Reserved: Codex owns `codex/fstring-value-staging-20261024` from `b800bb0`
+under D29. Both frontends stage a native enum interpolation as `const int`
+and then assign to it, producing invalid strict C11. F-string lowering bypasses
+the operand planners that already distinguish copied values from source slots.
+
+Owned paths are `src/compiler/python/ir/lowering/expressions.py`,
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/python/ir/lowering/ownership.py`,
+`src/compiler/btrc/ir/lowering/ownership/Operands.btrc`,
+`src/tests/btrc/test_fstring_allocation_c11.py`,
+`src/tests/btrc/fixtures/FstringQualifiedValues.btrc`, and
+`src/tests/python/test_native_c_values.py`, plus this claim. Preserve native
+read-only validation, pointer qualifiers, evaluation order, conversions and
+managed lifetimes. Prove both frontends against real strict-C compilation and
+execution. Full integration gates remain required; publication waits for CI
+capacity. This packet is independent of the module-header repair.
+
+The qualified-string regression also exposes a planner gap: a language string
+has zero explicit pointer depth but lowers to a C pointer. Its pointee's const
+qualifier must survive copying. Both planners distinguish that physical pointer
+representation before dropping a copied scalar's storage qualifiers.
+
+### 2026-10-24 CX-FSTRING-VALUE-STAGING: prepared assignment values
+
+This packet also owns `src/tests/btrc/test_assignment_lifetime_contract.py`
+for the prepared field-conversion repair transferred from PR #124. Its existing
+`Expressions.btrc` ownership covers the source change. Isolated field validation
+passed 28 assignment/interface, 816 parity/ownership, and 184 architecture
+checks. Both compilers execute the borrowed struct/array reproduction correctly
+under strict C11 and ASan/UBSan, but self-hosted assignment repeats an already
+prepared pointer conversion. Cover that shared assignment path as well.
+
+Preserve prepared type and ownership, borrowed storage semantics, assignment
+results, single evaluation and exception cleanup. The f-string changes and
+assignment repair must pass together before source publication. The isolated
+field implementation branch is evidence only, not a second source packet.
+
+
+### 2026-10-24 CX-FSTRING-VALUE-STAGING: owned binary results
+
+This packet also owns `src/tests/btrc/test_operand_sequencing_contract.py`
+for the owned binary-result boundary. Its existing Python expression-lowering
+claim covers the repair. Full-application composition and a reduced three-string
+concatenation agree on native behavior but differ in result protection when
+exception cleanup is enabled. Python does not pass the existing ownership
+classification to its operand boundary; self-hosted lowering does.
+
+Preserve operand order, result handoff, cleanup and the path without exception
+handling. Both frontends must execute strict C11 and sanitizer regressions
+before their generated C is compared unchanged. This extends PR #120 rather
+than creating another owner of the expression lowerers.
+
+
+### 2026-10-24 CX-FSTRING-VALUE-STAGING: managed field targets
+
+This packet also owns
+`src/compiler/btrc/ir/lowering/ownership/ManagedTypes.btrc` for preparing a
+managed instance-field target before its replacement value is lowered.
+`Expressions.btrc` and the assignment-lifetime tests are already held here.
+The full application and a reduced conditional string assignment expose
+receiver-temporary allocation after right-hand temporaries in the self-hosted
+compiler. Both frontends execute the reduced program correctly, including
+single receiver evaluation and a throwing replacement that preserves the old
+field value, but their generated C differs.
+
+Keep target declarations, setup, receiver and slot together under the managed
+storage owner. Preserve assignment results, prepared-value ownership, source
+order, ARC publication and exception cleanup. Do not reserve temporary numbers
+to imitate output. Validate the field-target change together with this packet's
+formatting, conversion and owned binary-result repairs before publication.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: assignment-result alias storage
+
+The existing PR #120 expression-lowering packet also covers declared aliases
+in staged assignment-result storage, with regressions in
+`src/tests/btrc/test_operand_sequencing_contract.py`. Its owned production path
+remains `src/compiler/btrc/ir/lowering/Expressions.btrc`.
+
+A reduced native handle field assignment produces identical behavior in twelve
+strict C11 and sanitizer executions, but all three variants differ in raw C:
+the reference retains the field's typedef in the outer assignment temporary,
+while the self-hosted compiler uses its canonical pointer type. The nested
+native call's result type already agrees. Callback field assignment in the
+application shows the same outer-result symptom.
+
+Use the existing declared-storage type owner at the assignment boundary.
+Preserve target conversions, ownership and evaluation order. Add executable
+pointer, callback and class-conversion regressions before the source change,
+then qualify sequencing, ownership, callback, module and raw C parity paths.
+The prior combined application candidate remains on its separate diagnostic
+branch with all evidence preserved; refresh that composition after qualification.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: declared cycle-visitor storage
+
+The assignment-alias follow-up also owns
+`src/compiler/btrc/ir/lowering/ownership/CycleBoundaries.btrc`. Its managed-value
+regression still differs after assignment-result typing is repaired: the class
+visitor creates a canonical `Base*` accessor beside the declared `Value`
+accessor already used by the field's store. Both frontends pass strict C11 and
+sanitizer execution. The reference visitor uses the field's declared C type.
+
+Use that declared storage type for the visitor's existing slot-adapter request;
+retain canonical type classification and runtime descriptors. Keep the
+regression's whole-C comparison, extend it to generic holders, and run cycle,
+polymorphic ARC, assignment, callback, module and parity checks. The separate
+class-alias upcast defect is preserved in reproduction `8d7433bf`; it remains
+open and is not covered by this storage repair.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: typedef-aware reference upcasts
+
+This packet also owns `CTypeLowerer.upcast_class_pointer` in
+`src/compiler/python/ir/lowering/types.py` and the alias variants of the
+existing managed-field conversion cascade in
+`src/tests/btrc/test_assignment_lifetime_contract.py`.
+
+The 16-case diagnostic passes direct and source-only alias cases. All eight
+cases with a destination alias fail strict C compilation of the reference
+output; self-hosted strict and sanitizer executions pass before those failures.
+The matrix covers class/interface targets, instance/static storage, borrowed
+and owned replacements, throwing replacements, null assignment and destruction.
+Resolve aliases in the existing conversion owner before classifying an upcast;
+preserve qualifiers, storage shape, source order and ownership.
+
+PR #115 retains its separate atomic-type registration and lock-free proof
+changes in the same Python file. This extension changes only the upcast method.
+Compose those disjoint changes by patch and verify both methods survive;
+never replace the file wholesale from either branch. Full application parity
+and the separate staged-call effective-type investigation remain open.
+
+### 2026-10-24 CX-FSTRING-STAGING: aliased call results in value storage
+
+The reference upcast candidate passes 144 reference checks and all 64 strict
+C11 and sanitizer executions in the 16-case field conversion matrix. Eight
+destination-alias cases still differ in raw C: the self-hosted compiler drops
+the declared alias in discarded call results and binary operands, creating
+different cleanup slot adapters. Preserve that failure and its emitted files.
+
+This packet extends its claim to the discarded-expression storage declaration
+in `src/compiler/btrc/ir/lowering/Statements.btrc`. Its existing
+`Expressions.btrc` claim covers binary operand storage. Reuse the declared
+storage selection already used by call arguments, retaining the prepared
+effective type whenever a conversion changes the value's type. Keep canonical
+classification for ownership and runtime descriptors. Do not change the test's
+whole-C comparison or normalize its output. Validate the combined reference
+conversion and self-hosted storage repair through the alias matrix, ownership,
+interface, module and emitted-C parity suites before committing production code.
+
+
+### 2026-10-24 CX-FSTRING-STAGING: prepared call argument types
+
+The four class/interface and borrowed/owned call diagnostics pass all sixteen
+strict O2 and sanitizer executions but differ in raw C. Argument preparation
+performs an upcast, then the expression override retains only its IR value.
+Final argument lowering infers the original expression type and casts again.
+
+This packet adds `src/compiler/btrc/ir/lowering/Context.btrc` and
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc` to its owned paths.
+Existing claims cover Expressions, Statements and operand-sequencing tests.
+Store the optional effective type with the overridden IR value in one record.
+Preserve that complete record through call boundaries, optional receivers and
+array projection save/restore paths. Use the prepared type only where present;
+never infer it from the destination parameter. Preserve source order, cleanup,
+variadic promotion, default arguments and the exact emitted-C comparison.
+Prove the reduced regression before production edits and then run the broader
+ownership, call, module, structure and parity suites on a fresh compiler.
+
+
+The prepared-call claim also covers the existing boundary-owner assertion in
+`src/tests/btrc/test_immediate_lambda_call_contract.py`. The added cascade
+suites passed 118 executable/contract cases; one structural assertion still
+expects the old untyped rememberOverride call. Update that assertion to require
+the actual staged type. Production candidate behavior, reference and emitted-C
+checks already passed; rerun the immediate-lambda contract after this test edit.
+
+
+### 2026-10-27 PR120: return the native release-slot repair
+
+Branch `codex/native-slot-owner-return-20261027` starts directly from this
+packet's qualified implementation `39af6ea1`. It returns the release-slot
+repair from diagnostic donor `6d8829cf`. Owned paths are
+`src/compiler/btrc/ir/lowering/Statements.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Native resources have no BTRC ARC edge. Their explicit slot release must
+save the value, clear the slot, and call the existing native lifetime
+operation. Persistent ARC slots keep their separate replacement path.
+The donor's field/Vector regression checks destruction counts, repeated
+null-field release, strict and sanitized execution through both compilers,
+and complete emitted-C equality in whole and module builds.
+
+Establish the regression baseline on this owning branch before applying the
+production change, preserve all existing tests, and qualify the combined
+packet again. The synthetic C fixture needs no GUI or application execution.
+Evidence is in `build/issue-gates/native-slot-owner-return/`. Hosted source
+CI, application acceptance and final integration gates remain required.
+
+The owning-branch baseline also exposes the earlier managed-field storage
+repair `4fabcdd0`. Return it in this packet, extending ownership to
+`src/compiler/python/ir/lowering/storage.py` and
+`src/tests/python/test_delete_take_clear.py`; Python expression lowering is
+already owned here. Preserve the sixteen field-release regressions covering
+cyclic and acyclic values, self and variable owners, exception cleanup, and
+whole/module builds. The native-call cleanup difference belongs to PR123;
+module header and declaration dependencies remain with their existing owners.
+Do not remove full-C comparisons to hide those dependencies.
+
+
+### 2026-10-27 PR120: return default helper argument types
+
+Branch `codex/default-argument-owner-return-20261027` starts from this
+packet's saved native-slot and field-storage source `b7c48d52`. It returns
+`274f9818` in the existing owned paths
+`src/compiler/python/ir/lowering/expressions.py` and
+`src/tests/python/test_module_units.py`, plus this claim.
+
+A default helper must receive the actual type of an argument that has already
+been converted and stabilized. Keeping the source type can insert a second
+interface or base-class cast. Preserve evaluation order, ownership and typed
+upcasts. The returned regression covers free functions and class methods with
+interface and base-class arguments, through strict and sanitized native builds
+and a complete emitted-C comparison from both frontends.
+
+Establish the owning baseline before changing production code. Retain all
+existing tests and the packet's earlier native-slot and storage fixes. The
+known module dependencies on PR119, PR122 and PR123 remain failed comparisons
+until their repairs are integrated. Local headless checks do not establish
+GUI, application, physical-device, bootstrap or performance qualification.
+
+
+### 2026-10-27 PR120: return typed mutex ownership
+
+Branch `codex/mutex-owner-return-20261027` starts from the saved PR120
+source `0dc189c4`, preserving its native-slot, field-storage and default-helper
+repairs. Return donor `f584fc6d` to the prepared-value and typed-release packet.
+Extend this packet's existing claims to
+`src/compiler/btrc/analyzer/ownership/Cycles.btrc`,
+`src/compiler/btrc/ir/lowering/{Calls,Concurrency}.btrc`, and
+`src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`.
+The remaining changed lowerers, module regression and this claim are already
+owned by PR120.
+
+Mutex get/set must stage their receiver and payload in source order. Typed
+release and field-store polling must retain the concrete payload topology,
+while erased runtime handles stay conservative. Keep declared payload aliases
+in result storage and inferred locals, and canonical types for ownership.
+Establish the ten-case baseline before applying production changes. Preserve
+all existing tests and require strict/sanitized native execution, destructor
+checks, raw C comparisons, ownership regressions and structural checks.
+
+PR123's isolated native-lease return uses the earlier string-based
+`releaseMayEnqueue` API. Integration must keep this donor's typed Node API and
+pass the resolved type from native lease cleanup. The existing PR119/122/123
+module dependencies remain failed comparisons until their owners are combined.
+No local GUI, application, bootstrap, guest or performance qualification is
+claimed by these headless checks.
+
+The owner still has a native NULL guard in `releaseAfterHandoff`, absent
+from the donor base. Retain that guard and change its input to Node; non-native
+values use typed `releaseValue`, while native values keep guarded release.
+Six production files match the donor patch exactly. The two ownership files
+retain only this documented API adaptation around the same typed release
+and poll decisions. Reconcile the guard with PR123 during integration.
+
+
+### 2026-10-27 PR120: return conditional-result ownership
+
+Branch `codex/conditional-owner-return-20261027` starts from PR120's saved
+mutex checkpoint `5b6dddbe`. Return donor `34db659d` while preserving the
+existing staged-value, native-slot, default-helper and typed-mutex repairs.
+Extend Python lowering ownership to `{calls,classes,declarations,functions,
+translation_unit}.py` alongside this packet's existing expressions, ownership
+and types modules. Own the new conditional-result regression, the typed-operator
+regressions and the callable-provenance/architecture test contracts changed by
+this repair.
+
+Conditional branches consume the ownership of their normalized lowered value.
+Supply exact resolved expression types through a narrow per-body provenance
+interface, keeping the callee ABI ownership contract unchanged. Preserve
+managed cast ownership, deferred generic result types and the typed rejection
+of unresolved coalescing operands. Reuse existing numeric and compatibility
+owners; do not lower source text or bypass the structured IR pipeline.
+
+Establish the allocation-tracked native and complete-C baseline before
+production changes. Keep the old callable test setup during that baseline;
+then update its two constructor stubs and strengthen the architecture check
+for the required expression-type interface. Preserve all other test behavior.
+Native execution is headless; no GUI, application, bootstrap, guest or
+performance qualification is claimed. Existing PR119/122/123 dependencies
+remain failed comparisons until integration.
+
+## 2026-10-24 CX-EXTERNAL-PROTOTYPE-PARITY: stable external declarations
+
+Reserved: Codex owns `codex/external-prototype-parity-20261024` from
+`b800bb0` under D29. Twenty BTRSmith C files have differences confined to
+prototype-like lines; `SystemImageDecoderProvider` differs only in the position
+of a cycle visitor declaration. Both optimizers already order local prototypes
+by definitions, but preserve the lowering-dependent order of external ones.
+
+Owned paths are `src/compiler/python/ir/optimizer.py`,
+`src/compiler/btrc/ir/optimization/Optimizer.btrc`,
+`src/tests/python/test_module_units.py`, and this claim. Reproduce the difference
+before changing the structured prototype normalization owner. Preserve all
+declarations and the existing local-definition order; validate strict C11,
+execution, module reuse and the existing byte-parity set. This packet is
+independent of the header and f-string repairs. Full integrated gates remain
+required, and publication waits for CI capacity.
+
+
+
+### 2026-10-27 PR122 cleanup adapter owner return
+
+Branch: `codex/adapter-owner-return-20261027`, based on the existing PR122
+implementation `84d91bd1`. Owned paths remain both optimizer implementations,
+`src/tests/python/test_module_units.py`, and this record. Return the reviewed
+cleanup adapter repair `593e698d` without merging its diagnostic history.
+
+The regression preserves all existing tests and compares complete C after
+strict and sanitized native execution, for ordinary and generic classes in
+whole-program and module modes. Establish the baseline on this owner before
+returning production changes. Rank adapters by their first structured
+reference, preserving typed cleanup metadata and renamed references.
+
+Selected local gates, hosted source CI and final integration remain required.
+Dependencies found on this isolated owner must remain visible as failing
+assertions; do not normalize generated C or weaken the regression. No local
+GUI, application execution, audio installation, bootstrap or performance
+measurements are authorized by this return.
+
+
+### 2026-10-27 PR122 callback declaration owner return
+
+Branch: `codex/callback-order-owner-return-20261027`, based on the saved
+PR122 owner `b2ae4491`. Owned paths extend the existing optimizer packet to
+`src/tests/python/test_declaration_order_planner.py`; both optimizers,
+`src/tests/python/test_module_units.py` and this record remain owned.
+
+Return callback declaration repair `3887a8be` without its diagnostic history.
+The declaration plan must be independent of callback discovery order while
+retaining dependencies, original IR lists and duplicate-provider rejection.
+Preserve all existing test functions and the already returned prototype and
+cleanup adapter repairs. Establish the baseline on this owner before changing
+production code. The nested-callback and named-alias programs must retain
+strict and sanitized native execution and complete emitted-C comparisons.
+
+Selected local checks, hosted source CI, application acceptance and final
+integration remain required. Record isolated dependencies as failures; do not
+normalize generated C or weaken assertions. This return does not authorize
+local GUI, audio installation, application execution, bootstrap or measurements.
+
+
+### 2026-10-27: integrate reviewed module and ownership source branches
+
+`codex/module-owner-integration-20261027` combines PR115 `9c9c2e5b`,
+PR119 `1269214e`, PR120 `c10a3f83` and PR122 `b264a7bc` under D29.
+Each source branch remains an ancestor. Diagnostic application compositions
+are comparison evidence only and are not merged into this branch.
+
+The baseline is PR115's exact committed tree: 787 broader checks passed,
+fourteen complete-C comparisons failed, and all 56 native executions inside
+those comparisons passed. Raw differences identify runtime headers, prepared
+casts and prototype order. All existing test assertions remain in force.
+Shared helpers combine strict-mode, worker-count and no-stdlib options;
+regression functions from every owner remain unchanged.
+
+Keep the instance-demand graph and cache schema 7 alongside canonical-helper
+filtering, live ARC descriptor roots and runtime-header scoping. Preserve
+resolved ownership types, declared field storage, stabilized conversions,
+callback dependencies and deterministic prototype/adapter ordering. Qualify
+these contracts together through the existing native, cache, parity,
+structure and generated-source checks before broader final-tree gates.
+
+This branch is a source integration candidate, not completion evidence.
+No main push, hosted publication or issue closure follows from a local pass.
+The current restrictions on local GUI, application, audio installation,
+bootstrap, guests and performance execution remain in force.
+
+## 2026-10-24 CX-NATIVE-HANDOFF-PARITY: native call-boundary cleanup
+
+Reserved: Codex owns `codex/native-handoff-parity-20261024` from
+`b800bb0` under D29. BTRSmith's AppKitText unit exposes different release
+expressions after a call: the self-hosted compiler adds a null guard around
+its generated native lifetime helper, while the reference compiler calls the
+helper directly. Establish a paired baseline before changing that path.
+
+Owned paths are `src/compiler/btrc/ir/lowering/ownership/Calls.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Lifetime.btrc`,
+`src/tests/python/test_native_managed_resources.py`, and this claim.
+Preserve nullable-resource safety, retained argument lifetime, clearing before
+release, and exception cleanup. Verify the generated adapters' null contracts,
+including Objective-C and COM, before removing any guard. This is an
+independent parity packet; it does not change collection cycle batching.
+Full integrated gates remain required. Publication waits for CI capacity.
+
+
+### 2026-10-27 PR123: return shared native lease cleanup
+
+Branch `codex/native-lease-owner-return-20261027` starts directly from this
+packet's implementation `f2a55043`. It returns repair `773e1129`, extending
+PR123's ownership to the native lease cleanup in
+`src/compiler/btrc/ir/lowering/Declarations.btrc`. Existing claims cover
+`ownership/Calls.btrc`, `ownership/Lifetime.btrc`, and
+`src/tests/python/test_native_managed_resources.py`.
+
+Non-unique native leases and ordinary calls should use the same structured
+save, clear and release operation. Unique-resource borrow and attachment
+cleanup retain their separate operation. Preserve the donor regression for
+single, distinct and aliased native owners, normal and throwing paths,
+strict and sanitized native execution, and complete generated-C comparison.
+Establish the baseline on this owning branch, then qualify the source and
+existing ownership tests again. Evidence is in
+`build/issue-gates/native-lease-owner-return/`. Hosted source CI and final
+integration gates remain required; no application or GUI execution is claimed.
+
+This branch still exposes `releaseMayEnqueue(string runtimeType)`. The shared
+helper calls that existing interface through `managedValues.runtimeType`,
+preserving this branch's cycle-polling policy. When integrating typed-mutex
+repair `f584fc6d`, retain its typed `releaseMayEnqueue(Node)` interface and
+pass `resolvedType` directly, as the qualified diagnostic composition does.
+This backport does not claim the typed-mutex repair or replace its tests.
+
+
+The source integration also includes PR123 `4fce0f39`. PR120's saved raw
+output audit identifies native lease cleanup as a remaining dependency.
+Use PR123's shared save-clear-release sequence for leases and ordinary call
+operands, and retain PR120's `Node resolvedType` interface for cycle polling.
+PR123 deliberately removes the old handoff-only native NULL guard to match
+the reference release operation. Unique resource borrow-end cleanup stays
+separate. Native ownership and lease regressions must qualify this boundary.
+
+### 2026-10-24: unary-update receiver lifetime (Codex, PR120 follow-up)
+
+Branch `codex/unary-update-ownership-20261024` starts at `39af6ea` in
+`~/.cache/btrc/unary-update-20261024`, the sixth writer clone. Owned paths are
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Semantics.btrc`, and
+`src/tests/btrc/test_operand_sequencing_contract.py`, plus this claim.
+D29 authorizes this harmonization work. The discarded-assignment packet owns
+separate test additions and analyzer changes; preserve both on composition.
+
+Nested managed-field increments retain their receiver in the self-hosted
+compiler even when no later operand can invalidate it. The reference compiler
+omits that boundary. Baseline reductions pass native execution but differ in
+emitted C. The repair must preserve temporary-receiver lifetime, index side
+effects, exception cleanup and virtual storage updates. Assignment target
+retention remains a separate contract. Focused, broader and application
+qualification are required before publication, which waits for the active
+hosted CI train.
+
+
+The 2026-10-27 source integration retains this unary owner as an ancestor.
+On integration335f7e2f, its exact twelve regressions passed native execution
+and four failed complete-C comparison. Preserve these assertions and the
+eight lifetime controls when qualifying the combined source.
+
+### 2026-10-24: shared Span declaration ownership (Codex, PR115 follow-up)
+
+Branch `codex/span-declaration-ownership-20261024` starts at `b992e385` in
+the reused checked-override clone. The completed assignment packet remains
+at `21b57e1a` in the hub; composition reads that pinned commit. This packet
+owns `src/compiler/btrc/ir/lowering/Lowerer.btrc`,
+`src/compiler/btrc/ir/lowering/Types.btrc`, a separate regression in
+`src/tests/python/test_module_units.py`, and this appended claim. D29
+allows the work; the existing typedef and Python demand test additions
+remain separate and must be preserved when composing them.
+
+Self-hosted module units emit Span forwards before merging shared class
+forwards. The reference compiler obtains Span declarations from the shared
+catalog, preserving its declaration order. Whole-program output agrees.
+Separate Span declaration emission from atomic lock-free proofs so module
+units use the shared Span catalog while retaining their atomic proofs.
+The baseline covers explicit, inferred and inline borrows. Test local-only
+Span discovery too, and retain the existing shared callback-layout checks.
+Focused, broader, application and final integrated gates remain required.
+Publication waits for the current hosted CI train.
+
+The declaration-only pass also needs Span shapes found by the existing body
+and specialization type walk. Register those concrete shapes during collection
+so the shared catalog covers local-only views. The first candidate omitted this
+step and failed module native compilation; its patch and results are retained.
+This extends the owned paths to `src/compiler/btrc/ir/lowering/Declarations.btrc`.
+
+The shared Span inventory also needs stable symbol order. Broader validation
+found that a local reorder moves shared declarations and forces three groups
+to lower. Canonicalize Span declaration order in both frontends, preserving
+per-unit reuse for unchanged shapes. Extend ownership to
+`src/compiler/python/ir/lowering/translation_unit.py` and
+`src/tests/python/test_module_unit_staleness.py`. The strengthened regression
+checks release/debug output, exact changed units, one lowered group and a
+zero-lowering warm rebuild. The failed second candidate remains in evidence.
+
+
+The 2026-10-27 source integration preserves this Span owner as an ancestor.
+Its baseline has six passing cases and six failed raw-C or incremental-reuse
+checks. Require all twelve to pass with the existing module and ownership
+regressions; retain the prior prototype-order and runtime-header repairs.
+
+
+### CX borrowed hosted string arguments (2026-10-24)
+
+Owner: Codex, branch `codex/borrowed-hosted-string-arguments-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Borrowed string parameters accept raw character pointers without creating an
+owned managed string. The self-hosted compiler still copies recognized hosted
+alias and independent results at those boundaries. Keep parameters must retain
+their owned conversion. Owned values with a keep also allocate and release their
+temporary guards in a different order from the reference compiler.
+
+Regressions cover both hosted effects, borrowed and keep parameters, plain and
+throwing calls, and whole-program and module output. They check live managed
+string counts and cleanup before comparing complete C. Evidence is under
+`build/issue-gates/borrowed-hosted-string-arguments/`. No application parity,
+performance qualification, or issue completion is claimed.
+
+
+On 2026-10-27, return this exact production patch and its regression to the
+module source integration. Its original parent includes diagnostic history,
+so preserve the leaf change without merging that history. Baseline checks
+use the previously qualified compiler and retain all failing raw comparisons.
+
+The integrated PR123 helper accepts `(value, resolvedType)` and derives its
+runtime release internally. Keep that typed interface while moving the owned
+release after the keep release; no runtime string argument is reintroduced.
+
+
+### Generic conditional return ownership (Codex, 2026-10-24)
+
+The six-owner application comparison exposed extra self-host retains in
+`SwappablePreviewPort`. The portable regression passes ordinary receivers but
+leaks generic-receiver call results in whole-program and module builds. The
+reference compiler passes both. Owned paths for this repair are
+`src/compiler/btrc/ir/lowering/ownership/Semantics.btrc`,
+`src/tests/python/test_module_units.py`, and this claim. When expression
+inference cannot resolve a call result, use its specialized call signature
+before classifying ownership. Validate native lifetime, full C equality,
+conditional ownership coverage, and the application comparison before saving
+the combined candidate. The first application candidate remains unqualified.
+
+The same packet also owns conditional branch classification in
+`src/compiler/btrc/ir/lowering/Expressions.btrc` and extends
+`src/tests/btrc/test_conditional_result_ownership.py`. Allocation-tracked
+ordinary and generic baselines reproduce a self-host leak for a conditional
+with an empty Vector branch; reference executions pass. Propagate the
+conditional result type into branch ownership so contextual literals retain
+their allocation ownership. Both repairs require fresh combined validation.
+
+
+
+### 2026-10-27: return self-hosted conditional ownership
+
+Branch `codex/conditional-selfhost-owner-return-20261027` starts from the
+qualified local selection at `9981f52f`, now published in draft PR125. Return
+only the conditional repair and its four regression definitions from
+`37ff6036`; its diagnostic composition history is not merged. The owned paths
+are the two self-hosted expression/ownership owners and the two test files
+listed in the original claim above, plus this record.
+
+The exact-source baseline has four passing cases and six failures: four
+native lifetime/allocation assertions and two complete-C comparisons. Use the
+specialized call signature when expression inference has no result type, and
+propagate the conditional result type when classifying contextual literals.
+Preserve lazy branch evaluation, callable-flow snapshots and existing native
+ABI ownership rules. All old tests remain unchanged. Require fresh compiler,
+native lifetime, complete-C, broader ownership, parity and structural checks.
+Full application and final integrated gates remain; PR125 retains its source
+head while its hosted CI runs. No local GUI, device, audio installation,
+application execution, bootstrap or performance run is authorized here.
+
+### 2026-10-24: discarded assignment aliases (Codex, PR120 follow-up)
+
+Owned paths: `src/compiler/btrc/analyzer/Expressions.btrc` and
+`src/tests/btrc/test_operand_sequencing_contract.py`. Base: `39af6ea1`.
+
+PR120 preserves declared storage for staged assignment results and ARC field
+visitors. A source-matched application composition still expands aliases in
+discarded assignment-result declarations. Its four whole-program and module
+cases pass sixteen strict C11 and sanitizer executions; their only C differences
+are six declarations spelling `Payload*` or `Link*` instead of the field alias.
+
+Raw assignment inference currently asks for the target's specialization type,
+which resolves the outer typedef. Keep the target's raw type here; callers
+that need canonical classification already use the explicit resolved queries.
+Four new regressions cover plain, generic and chained aliases, nested assignment
+and cycle collection, with repeated lifetime checks and full emitted-C comparison.
+Establish the PR120 baseline before production edits. Focused, broader, module,
+application and final integrated qualification remain required.
+
+### 2026-10-27: source return, Preserve declared assignment aliases in raw type inference
+
+Returned the production patch and exact regression definitions from `21b57e1abf5d9057ffef4e71eafa4e1d5d53bce9` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/btrc/analyzer/Expressions.btrc`, `src/tests/btrc/test_operand_sequencing_contract.py`.
+
+The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
+
+### CX stable self argument pins (2026-10-24)
+
+Owner: Codex, branch `codex/stable-self-argument-pins-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/ownership/Calls.btrc` and
+`src/tests/python/test_module_units.py`.
+
+The self-hosted argument planner adds a stabilization retain for `self` before
+later effects or default arguments. Python excludes `self` and `super` from
+those pins, as the self-hosted receiver planner already does. Six reductions
+pass 24 strict and sanitized native runs; the two `self` cases differ in C,
+while ordinary bindings and explicit `keep` parameters match.
+Establish whole-program and module regressions with exceptional later arguments
+before changing the argument plan. Preserve explicit parameter ownership and
+pins for ordinary borrowed values. Full application and integration gates remain.
+
+The initial candidate changed only operand planning; fresh validation still
+reported eight self-argument C mismatches because completeCallPlan repeated
+the pin decision. Both passes now call CallOwnershipLowerer.canPinBorrowedOperand.
+This extends the owned paths to `src/compiler/btrc/ir/lowering/Expressions.btrc`.
+The failed first candidate remains under `first-candidate/` in the evidence
+folder. Explicit parameter keep decisions remain separate from automatic pins.
+
+### 2026-10-27: source return, Preserve stable self arguments across later call effects
+
+Returned the production patch and exact regression definitions from `51d788d3b0ef47fce50fced09e58c9ce92143113` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`, `src/compiler/btrc/ir/lowering/ownership/Calls.btrc`, `src/tests/python/test_module_units.py`.
+
+The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
+
+### Function prototype parameter isolation (Codex, 2026-10-24)
+
+Branch: `codex/function-parameter-isolation-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Types.btrc`,
+`src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/compiler/btrc/ir/lowering/Lowerer.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Stored callback definitions and their separate prototypes share mutable IR
+parameters. Setjmp analysis adds body-local qualifiers to the prototypes.
+Copy parameter records when creating a separate declaration, preserving source
+qualifiers. A Foundation-only fixture exercises registration, cancellation,
+inline delivery, and failure cleanup in whole-program and module builds under
+strict C11 and sanitizers before checking prototype and definition qualifiers.
+Its complete C still differs for other recorded reasons; this regression does
+not claim complete callback parity. Portable ordinary, generic-method, and
+lambda diagnostics are preserved as passing controls. Evidence lives under
+`build/issue-gates/function-parameter-isolation/`.
+
+### 2026-10-27: source return, Isolate function prototype parameters from setjmp analysis
+
+Returned the production patch and exact regression definitions from `16fb6649bb8c4d3f215539be1f5b177f36b026b0` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`, `src/compiler/btrc/ir/lowering/Lowerer.btrc`, `src/compiler/btrc/ir/lowering/Types.btrc`, `src/tests/python/test_module_units.py`.
+
+The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
+
+### CX nested aggregate operands (2026-10-24)
+
+Owner: Codex, branch `codex/nested-aggregate-operands-20261024`.
+Owned paths: `src/compiler/btrc/ir/lowering/Aggregates.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Operands.btrc`,
+`src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/tests/python/test_module_units.py`.
+
+The full application retains three C differences involving nested C struct
+initializers. Python stages each typed child aggregate; the self-hosted
+planner flattens their leaves. Establish portable whole-program and module
+baselines for constants, side effects and fixed arrays before changing the
+planner. Preserve source evaluation order, contextual types, array storage
+and existing ownership boundaries. Require paired strict and sanitized
+native execution, complete C equality, broader checks and application evidence.
+
+### 2026-10-27: source return, Preserve typed child operands and nested tuple effects in aggregates
+
+Returned the production patch and exact regression definitions from `cfef77accce3e750cf759cac83cae3813c60536c` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Aggregates.btrc`, `src/compiler/btrc/ir/lowering/Expressions.btrc`, `src/compiler/btrc/ir/lowering/ownership/Operands.btrc`, `src/tests/python/test_module_units.py`.
+
+The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
+
+### 2026-10-27: source return, fix: deduplicate scoped superclass adapter headers
+
+Returned the production patch and exact regression definitions from `736eebd99958b9a37976a27a81c7959eead4aeb3` onto the qualified conditional source. The donor parent is not merged. Owned paths: `src/compiler/python/ir/lowering/functions.py`, `src/tests/python/test_native_objective_c_super_admission.py`.
+
+The baseline and raw outputs are retained in `build/issue-gates/remaining-leaf-integration/`. Fresh compiler, focused behavior, parity, structure and application comparison remain required. No platform or final integration qualification is claimed.
+
+### Stored callback cleanup (2026-10-26, Codex)
+
+Branch `codex/native-callback-cleanup-20261026` starts at `45a9a437`.
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Stored callback adapters still assemble local release sequences separately from
+`ManagedLifetimeLowerer.releaseAndClear`. Module diagnostics pass eight strict
+and sanitized native runs but differ in receiver cleanup and returned request
+cleanup. Establish regressions for both callback context positions, immediate
+and deferred delivery, cancellation, and owned completion results. Compare the
+entire primary native unit; imported Vector release-boundary differences remain
+separately unresolved. Evidence is in `build/issue-gates/native-callback-cleanup/`.
+Fresh compiler and broader native callback checks are required before saving a
+checkpoint. Application composition and final gates remain incomplete.
+
+The four-case baseline passes all sixteen native executions and fails every
+primary-unit C comparison. The first candidate passes all thirty-six focused
+native executions, with three callback units equal and one remaining naming
+difference: owned payloads after an ABI context slot used the ABI index for
+local names. Stored invokers now use the visible payload index for leases,
+string views, and null-argument diagnostics. Fresh validation remains required.
+
+### 2026-10-27: source return, Share stored callback cleanup and payload numbering
+
+Returned the production patch and regression definitions from `9c0399b8c655a58b6566cbcce216c9aa947f9e0b`; the donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`, `src/tests/python/test_module_units.py`.
+
+Baseline logs and outputs remain in `build/issue-gates/native-adapter-owner-return/`. These regressions compare the complete native adapter unit; collection output differences remain separately tracked. Fresh compiler, expanded native behavior, parity, structure and application checks remain required. No final qualification is claimed.
+
+### Native adapter declaration parity (2026-10-26, Codex)
+
+Branch `codex/native-adapter-structure-20261026` starts at `9c0399b8`.
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+The application primary unit still differs in imported header order, realtime
+forward declarations and prototypes, stored callback status guards, and scoped
+super-cancellation blocks. Imported headers now precede adapter-required headers.
+Realtime operation and registration definitions retain external linkage without
+unconditional prototypes; module dependency analysis supplies declarations where
+referenced. Callback guards and cancellation blocks use the reference compiler's
+structured IR shape.
+
+The synthetic realtime baseline passes sixteen strict and sanitized native runs
+but fails four complete primary-unit comparisons. A Foundation-only scoped-super
+baseline passes eight native runs and fails two primary-unit comparisons. The
+latter also exposes the separate literal dependency defect; compose its repair
+before qualifying these tests. The stored callback qualifier test now also
+compares its complete module primary unit. Evidence is under
+`build/issue-gates/native-adapter-structure/`. Fresh compiler, native behavior,
+parity, structure, generated-source, and application checks remain required.
+No application execution, performance result, or final qualification is claimed.
+
+### 2026-10-27: source return, Align native adapter declarations across compilers
+
+Returned the production patch and regression definitions from `2e5a0b88d8167a72a9d5a788c79ad0027b1669d1`; the donor parent is not merged. Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`, `src/tests/python/test_module_units.py`.
+
+Baseline logs and outputs remain in `build/issue-gates/native-adapter-owner-return/`. These regressions compare the complete native adapter unit; collection output differences remain separately tracked. Fresh compiler, expanded native behavior, parity, structure and application checks remain required. No final qualification is claimed.
+
+### 2026-10-24: collection literal evaluation order (Codex follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc` if its typed API needs
+extending, and `src/tests/python/test_module_units.py`. Base: `3887a8be`.
+
+A portable reduction exposes different constructor, element and insertion
+orders for Vector and Map literals. All twelve whole-program/module cases
+compile and run through both frontends in strict and sanitizer modes, but their
+traces differ. Throwing elements and constructors also expose different work
+before the exception. Python stages the literal's leaves before construction;
+the self-hosted compiler constructs first and evaluates each insertion's
+operands separately.
+
+Use the existing typed operand and ownership boundary owners to preserve
+source-order leaf evaluation before collection construction. Keep prepared
+storage types, borrowed-value protection, owned-result cleanup and exception
+unwinding. Add tracked baseline cases before production edits, then check
+managed elements, throwing leaves, constructor failures, whole/module C parity,
+and the remaining application differences. Final integration gates still apply.
+
+
+### CX runtime helper extern references (2026-10-24)
+
+Owner: Codex, branch `codex/runtime-helper-extern-references-20261024`.
+Owned paths: `src/compiler/python/ir/optimizer.py`,
+`src/tests/python/test_optimizer_declarations.py`,
+`src/tests/python/test_module_units.py`.
+
+Trace the unused `mark` prototype retained in module output when the canonical
+exception runtime contains a local parameter with that name. Preserve real
+structured references and opaque helper dependencies. Establish failing
+regressions before changing production, then prove paired C output and native
+behavior. No final qualification is claimed.
+
+### 2026-10-27: collection operand and runtime-reference source return
+
+Returned production changes and five regression definitions from `d520fd87f19b074f85868a3f7f8aad6139453a3a` without its diagnostic parent history. The existing native frontend test helper already matches the donor and is unchanged. Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`, `src/compiler/python/ir/optimizer.py`, `src/tests/python/test_module_units.py`, `src/tests/python/test_optimizer_declarations.py`.
+
+Baseline evidence is in `build/issue-gates/collection-operand-owner-return/`. Native ordering, ownership and runtime-reference outcomes must be checked separately from complete-C parity. The donor retained ten complete-C failures involving collection release batching; this return does not waive them or change that policy. Fresh compiler and application evidence remain required.
+
+### 2026-10-27: preserve source types in union diagnostics
+
+Owner: Codex, branch `codex/union-source-diagnostics-20261027`. Owned paths:
+`src/compiler/btrc/analyzer/Models.btrc`,
+`src/compiler/btrc/analyzer/Types.btrc`,
+`src/compiler/btrc/analyzer/validation/Types.btrc`, and
+`src/tests/btrc/test_c_compatibility_refusals.py`.
+
+PR #125's Mac compiler suite found three union refusal messages that expose an
+implicit class pointer inside a callback or tuple type. All three reproduce on
+`fde20da6`. Three additional nested/nullable callback cases fail, while five
+nullable and explicit double-pointer controls pass. Record the written pointer
+depth before semantic upgrades and use that metadata when formatting the
+source type. Lowered types retain their existing representation.
+
+Baseline evidence is under `build/issue-gates/native-adapter-owner-return/`.
+The intervening collection return does not change either analyzer. Its known
+release-batching parity failures remain open. Fresh compiler, diagnostic,
+behavior, parity and structural checks are still required.
+
+
+### 2026-10-27: E40 strict-C and keyboard identity source return
+
+Owner: Codex, branch `codex/e40-keyboard-source-return-20261027`. Owned paths:
+`src/tests/native/gui/ui2/probes/macos/e40/{Boundary.btrc,Boundary.h,Boundary.m,KeyTimestamp.h,Load.m}`,
+`src/tests/python/test_native_ui2_macos_e40.py`, and this claim.
+
+Return the strict-C conditional repair, failure diagnostics and native integer
+keyboard timestamp matching from `be474d14`, `972a6fba` and `279d21ae`. Existing
+test assertions, event delivery and acceptance limits are unchanged. The
+current compiler reproduces four load build failures at the omitted-middle
+conditional; four boundary builds pass. No fixture executable was launched.
+
+Evidence is under `build/issue-gates/union-source-diagnostics/e40-next-integration/`.
+The candidate must pass all eight compile-only variants and the headless
+evidence checks. Hosted runtime qualification remains required; the later
+tracking and rendering failures are separate unresolved work.
+
+
+### 2026-10-27: generic constructor parameter source return
+
+Owner: Codex, branch `codex/constructor-parameter-owner-return-20261027`.
+Owned paths: `src/compiler/btrc/ir/lowering/Declarations.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+The current application still has 21 signature differences in ControlEventQueue:
+setjmp qualifiers inferred for generic initializers also appear on their new
+wrappers and prototypes. These functions share mutable IRParam objects. The
+four-copy repair and eight regression cases from `c8ea413f` were omitted from
+the earlier source returns. Bring over that patch without its diagnostic
+ancestry, preserving every existing test definition.
+
+Reproduce the donor cases on the current compiler before applying production
+changes. Then build a fresh compiler and check strict and sanitized behavior,
+complete C equality, broader compiler tests and application output. Evidence
+is under `build/issue-gates/constructor-parameter-owner-return/`. Collection
+release batching and final integration qualification remain open.
+
+Fresh composed baseline: all 32 strict and sanitized native executions pass,
+while four generic complete-C comparisons fail; four ordinary controls match.
+Returned the exact four-copy production patch from `c8ea413f`. Fresh compiler
+and integration validation remain required.
+
+
+### 2026-10-27: collection release policy diagnostic
+
+Owner: Codex, branch `codex/collection-release-diagnostic-20261027`.
+Owned paths: `tools/bench/collection_release.py`,
+`src/tests/benchmarks/fixtures/ManagedCollections.btrc`,
+`src/tests/python/test_bench_collection_release.py`,
+`src/tests/python/test_ci_workflow_contracts.py`, `.github/workflows/macos.yml`,
+and this claim.
+
+The constructor repair at `92829cde` passes eight complete-C regressions and
+32 native executions. The application now matches 433 of 435 C files, with
+ControlEventQueue newly identical and no lost matches. Map and Vector still
+differ in collection release batching. Selected validation has 5,570 passes
+and ten unresolved complete-C failures. The unchanged product link-plan
+validator passes; it does not establish raw plan identity.
+
+Preserve both release policies while comparing their managed collection work
+on one hosted Mac with the same C compiler. A fixed-size probe already passes
+64 strict and sanitized executions across both frontends and output modes,
+including acyclic and cyclic payload destruction at public clearing boundaries.
+The dedicated diagnostic must repeat those controls before measuring instruction
+counts and peak memory, retain raw C differences and failures, and leave ordinary
+benchmark budgets unchanged. Measurements remain hosted only. The existing
+workflow and benchmark diagnostic baseline passes 126 tests.
+
+Local diagnostic validation passes 150 tests and all 64 native controls.
+Lint, Python/BTRC formatting and diff checks pass. The fixture is excluded from
+both automatic corpus and benchmark discovery. Its C differences contain only
+cycle flush/poll calls, their declaration and closing-brace diff alignment.
+Evidence is under `build/issue-gates/collection-release-policy/`, including
+`integrated-proof.json`. No measurements have run and neither release policy
+has changed. The two active PR #125 unit jobs retain their published revision.
+
+### 2026-10-27: GUI partition parameter balance
+
+Owner: Codex, branch `codex/gui-partition-balance-20261027`.
+Owned paths: `tools/ui/gui_shards.py`, `src/tests/python/test_gui_shards.py`,
+and this claim.
+
+PR #125's Wayland cell 1 continued completing GUI tests near its 90-minute
+job deadline. Complete X11 receipts show that the serial `linux_gui` group
+sets each partition's execution time. Sorted stride assignment repeatedly
+puts the same frontend/sanitizer variants together. A hash shuffle barely
+changes the worst observed group in a scheduling replay. Rotating assignments
+between blocks reduces that replay's maximum from 3,831 to 3,094 seconds,
+with all 876 X11 nodes still split into four 219-node cells. These are replayed
+case durations, including fixture costs, not a new runtime measurement.
+
+First reproduce parameter concentration with a small matrix. Then rotate
+assignment without changing selectors, worker isolation, deadlines or skip
+policy. Version the partition receipts and preserve validation of complete
+historical receipts. Hosted X11 and Wayland runs remain required before this
+change qualifies either session. Evidence is under
+`build/issue-gates/ci125-gui-balance/`; the existing 26 shard tests pass.
+
+The parameter-concentration regression failed on the original stride. The
+rotation now passes 38 shard tests; the unchanged workflow contracts passed
+116 tests. Lint, formatting and diff checks pass. All four downloaded X11
+receipts retain their exact archive hashes and validate under the historical
+schema, including JUnit/skip membership. The new schema covers the same 876
+nodes with four 219-node partitions. Historical and current schemas cannot be
+mixed in one aggregate. `rotation-proof.json` retains the timing replay and
+its limits. No new hosted session has run.
+
+### 2026-10-27: module cache output-path framing
+
+Owner: Codex, branch `codex/module-cache-framing-20261027`.
+Owned paths: `src/compiler/btrc/pipeline/ModuleUnits.btrc`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+Issue #8's cache identity audit found an ambiguous debug context: an output
+prefix containing `;output=` can serialize identically to a different prefix
+and primary output pair. The self-hosted compiler reuses two module records
+and emits the first prefix in generated `#line` directives. A fresh build
+uses the requested prefix. The regression fails in both build orders; six
+reference/release controls pass. Evidence is under
+`build/issue-gates/module-cache-framing/`.
+
+Frame variable-length key fields and change the module key version. Preserve
+release-mode reuse across output paths. Shared frontend cache storage and
+the application warm-build budget remain separate, unmet issue #8 work.
+
+The key now frames the output paths and outer identity fields by length,
+under `module-unit-v7`. A fresh self-host compiler passes all eight regression
+cases and the existing module-reuse checks. The final relative-path baseline
+still fails both self-host debug cases with the old compiler. Selected cache
+validation has 235 passes, no failures or errors, and one explicit platform
+skip: XDG cache-directory selection is only tested off macOS. The validation
+driver rejected that skip; its exit and the missing coverage remain recorded
+in `proof.json`. Lint, formatting, generated-source and diff checks pass.
+The module-worker tests emitted six Python `fork()` deprecation warnings.
+Full integration remains unqualified, and no GitHub revision changed.
+
+### 2026-10-27: default-helper upcast verification
+
+Owner: Codex, branch `codex/default-helper-upcast-check-20261027`.
+Owned paths: `src/tests/python/test_codegen_dispatch.py`,
+`src/tests/python/test_module_units.py`, and this claim.
+
+PR #125's Linux unit report contains a default-helper assertion failure.
+The local baseline reproduces it, with nine other dispatch tests passing.
+Generated C already converts the derived pointer to the formal `Base*` type
+when evaluating the argument, before retaining it and passing it to the
+default helper. The assertion still requires that cast at the helper call.
+Check the typed temporary, its conversion and the helper's use of that value.
+Add whole-program and module tests whose default dereferences the prior
+argument and whose producing function must run exactly once. Both frontends
+must emit identical C and pass strict and sanitized native execution.
+No production compiler change is proposed. Evidence is under
+`build/issue-gates/default-helper-upcast/`.
+
+Validation passes all ten dispatch tests and six native cases, including the
+four existing interface/base and free/class-method cases. The six cases
+produce identical complete C through both frontends and pass 24 strict or
+ASan/UBSan executions. The two new cases cover whole-program and module
+output. Lint, formatting and diff checks pass. This repairs the stale
+assertion; the four Linux sanitized compilation timeouts and the unfinished
+unit job remain open.
+
+### 2026-10-27: partial unit progress evidence
+
+Owner: Codex, branch `codex/unit-progress-snapshot-20261027`.
+Owned paths: `src/tests/skip_ledger.py`,
+`src/tests/python/test_skip_ledger.py`,
+`src/tests/python/test_ci_workflow_contracts.py`,
+`.github/workflows/ci.yml`, `.github/workflows/macos.yml`, and this claim.
+
+PR #125's Linux unit job exceeded its three-hour deadline after its last
+99% progress line. The failure journal preserved five failures but cannot
+identify the tests still active at cancellation. The existing ledger and
+workflow baseline passes 191 tests. A new assertion reproduces the missing
+progress snapshot.
+
+With partial failure diagnostics enabled, atomically replace an adjacent
+snapshot at test-protocol boundaries. Retain the invocation identity,
+completed protocol count, active scheduled IDs, canonical IDs when reported,
+and last received phase and outcome. A saved snapshot is evidence of the
+last observation, not evidence that a process remains alive. Preserve both
+files in the existing Linux and macOS unit artifacts. Verify serial and
+xdist cancellation with and without an earlier failure. Keep final skip
+classification, selectors, deadlines and skip policy unchanged.
+
+The timeout audit also found one unbounded Git query in the earlier
+`tools/bench/collection_release.py` diagnostic. This packet additionally owns
+that call and bounds it at 60 seconds; measurement policy is unchanged.
+The first broad run passed 240 tests and failed that timeout check. The
+progress snapshot correctly recorded all 241 completed test protocols and
+the terminal failing exit status.
+
+Final validation passes 249 tests under four xdist workers with progress
+reporting enabled. The outer snapshot records 249 completed protocols,
+no active cases and exit status zero. Twelve interrupted inner sessions cover
+setup, call and teardown, serial or two active xdist workers, with or without
+an earlier failure. Their atomic snapshots survive process-group termination;
+none produces a final skip report. Consecutive sessions retain distinct
+identities, and completed sessions retain their original skip/failure results.
+Lint, formatting and diff checks pass. Evidence, including earlier failed
+attempts, is under `build/issue-gates/unit-progress-snapshot/`. This diagnostic
+does not resolve or qualify the hosted unit timeout itself.
+
+
+### 2026-10-27 unit compiler reuse and Linux GUI ownership (issue #108)
+
+Packet: CX-UNIT-GUI-OWNERSHIP. Owns `Makefile`,
+`tools/qualification/tiers.py`, `.github/workflows/ci.yml`,
+`src/tests/python/test_qualification_bundle.py`,
+`src/tests/python/test_ci_workflow_contracts.py`, and this claim.
+Baseline: 203 workflow and qualification tests pass on `9aa0d7b4`.
+
+Build the shard compiler before unit pytest and pass `SHARD_BTRCC`.
+Delegate native GUI files from the Linux unit invocation only when its
+computed plan contains a complete required X11 partition set and the
+required X11 coverage job. Derive exclusions from `NATIVE_GUI_TESTS`, which
+also supplies the dedicated X11 selector. Keep the full unit selector for
+partial plans, standalone diagnostics and macOS. Preserve report uploads,
+E40 ownership, compiler options and deadlines. Validate actual Makefile
+argument expansion without running local GUI fixtures, plus selection and
+coverage-plan failure cases. Hosted qualification remains pending.
+
+The new regression set fails 21 cases before implementation; its two macOS
+controls pass. Final focused validation passes 266 cases, with
+`UNIT_GUI_DELEGATED=1` inherited to match the hosted unit environment.
+All 46 build-safety checks also pass. Actual Makefile recipe invocations
+verify the shard compiler environment, default full selection and exact
+file exclusions. Collection-only evidence on the Mac records 13,212 full
+unit cases, 12,337 remaining unit cases and 876 GUI cases. Their union
+is exact; only the existing null-ALSA configuration assertion overlaps.
+No GUI fixture ran. This proves selection, not Linux runtime completion.
+Evidence is in `build/issue-gates/unit-gui-ownership/`. The published PR125
+head remains unchanged while its macOS unit job is active.
+
+`make NIX= lint format-check` passes, including generated-source validation
+and both language formatters. `git diff --check` is clean. This packet
+changes CI ownership and compiler reuse; it does not establish that the
+previous four sanitized compile timeouts or the unit deadline are resolved.
+
+
+## 2026-10-23 CX-C2-RECORDS: issue 17 prerequisites
+
+Codex owns `codex/c2-records-20261023` from `b800bb0` under D29 for
+Stage 17 r08, a prerequisite of the remaining issue 17 keyword work.
+The approved contract is `docs/design/c-compatibility.md`: typedef record
+and enum definitions, identity typedefs, file-scope record object declarators,
+and plain-value anonymous struct/union members with flattened lookup and
+structured initialization. The existing shared schema and record-member
+owners remain authoritative.
+
+Owned paths are the two parsers, declaration registration and validation,
+record type and initializer owners, structured record lowering and emission,
+typed-declaration dependency planning, module-unit record collection, affected LSP symbols/navigation and record-chain resolution, focused
+paired tests, C2 probe records, corpus/layout mirrors and documentation.
+No raw C lowering or new generated AST fields are planned. Any necessary
+generated output will be regenerated in a separate derived commit.
+
+This packet does not claim C2 integration, memory acceptance or keyword
+completion from focused tests. The full reviewed matrix and the approved
+quiet-host memory comparison remain required; no local GUI, bootstrap or
+performance measurement runs under the current host restrictions.
+
+
+### 2026-10-27 C2 record composition for issue #17
+
+Packet: CX-C2-RECORD-COMPOSITION. Compose the reviewed local C2 r08
+implementation at `92d5391d` with the current repair tree at `d68eba16`.
+This packet owns the union of the original CX-C2-RECORDS paths and the
+existing aggregate/operand ownership paths where the branches overlap,
+plus focused regression tests and this integration record. Preserve both
+branches' behavior and regenerate probe evidence only through its owner.
+The designated-initializer reproduction branch is excluded.
+
+Validate record declarations, anonymous members, layout, callable paths,
+operand order, compiler structure and editor behavior on the composed
+sources. Build a fresh self-host compiler after resolving production
+changes. Keep published PR125 fixed while its macOS unit job runs. No
+local GUI, application execution, bootstrap or measurements are authorized.
+Full C2, keyword completion, hosted gates and memory acceptance remain open.
+
+The composed reference baseline passes 793 checks after the existing tree's
+671-test baseline. The first fresh self-host compiler passes 12 nested
+record/tuple boundary cases. Two added whole/module cases pass all strict
+and sanitizer executions but expose different C for an array of anonymous
+records: the reference emits flattened designators, while self-host emits
+positional braces. Route runtime array initializer shapes through the same
+typed declaration-initializer owner as static storage, while keeping normal
+runtime scalar lowering. Extend the regression to static, global and
+constant automatic arrays. This repair requires a fresh compiler rebuild.
+
+The rebuilt array fix passes all 14 complete-C boundary cases. The broader
+run passes 882 cases and exposes four failures: module-unit declaration
+lowering bypasses the identity-typedef guard, and three old refusal cases
+now describe accepted r08 syntax. Reuse the semantic identity predicate in
+module declaration lowering and move those three cases into the strict-C
+acceptance matrix. Added before/after typedef cases for structs, unions and
+enums across imported modules reproduce the defect: both whole-program
+controls pass, and both module cases fail before the guard is applied.
+
+Final selected validation passes on fresh compiler fingerprint
+`8ff0dc3441ebad7fe829ba95c3bccde4`: 18 complete-C boundary cases,
+893 paired C-compatibility/ownership/layout/structure/naming checks,
+496 LSP cases and six corpus cases. All 1,413 pass without skips. The
+LSP run reports 104 upstream deprecation warnings. The boundary cases
+also pass strict-C and ASan/UBSan execution through both frontends.
+Generated-source validation, lint, both formatters and diff checks pass.
+Source hashes and compiler identity are retained under
+`build/issue-gates/c2-record-composition/`. This local composition remains
+unqualified for the full hosted matrix and C2 memory acceptance.
+
+
+### 2026-10-27 C2 review: pointer-array operand storage
+
+Review of `4cb94485` found that the self-hosted aggregate operand planner
+checked scalar pointer depth before recognizing array storage. Four added
+whole/module cases with ordinary and anonymous record members reproduce
+an ordered-initializer error; the reference compiler passes their strict-C
+and sanitizer executions. The shared AST contract places `pointer_depth`
+inside the array, so recognize the array before testing scalar pointer depth.
+The regression covers record variables, arrays of records and call arguments,
+with observable evaluation order and complete emitted-C comparison.
+
+Fresh compiler fingerprint `bb19298c69cdecf6d417a82a21a06393` passes all
+22 selected module boundary cases and 130 aggregate regression cases.
+No cases fail or skip. Generated-source validation, lint and both formatters
+pass. Evidence and before/after reports are in
+`build/issue-gates/c2-pointer-arrays/`. The application proof on `4cb94485`
+predates this follow-up; full final-tree and hosted qualification remain open.
+
+The separate hosted collection diagnostic on `d68eba16`, run `40489214420`,
+passes all 64 strict/sanitized lifetime controls and all 480 execution checks.
+Every sample lacks an instructions-retired counter, so measurement remains
+unqualified. The downloaded artifact digest, exact sample matrix, 558 command
+log pairs and eight native binary digests were verified. Final source/compiler
+stability checks were not reached after the missing-counter exception.
+Collection release policy remains unchanged. Evidence is in
+`build/issue-gates/collection-release-hosted-d68/`.
+
+
+## 2026-10-23 CX-CHECKED-OVERRIDE: issue 17
+
+Codex owns `codex/checked-override-20261023` from
+`b800bb07798b95e5d3c02692db998652437698d2` under the D29 harmonization
+exception. Owned paths: `src/language/{ast.asdl,grammar.ebnf}`, both parser
+owners, Python `analyzer/declarations.py`, btrc `analyzer/validation/Names.btrc`
+and `syntax/Identity.btrc`, their generated AST catalogs, focused parser and
+paired compiler tests, LSP keyword completion and its tests, class corpus fixtures and goldens, and
+`docs/known-language-gaps.md`. This is an append-only WORKSTREAMS claim.
+
+The optional method modifier checks that a parent class supplies a compatible
+method. It keeps existing signature checks and static dispatch. Constructors,
+fields, properties and interface-only implementations cannot claim an override.
+The approved storage-class and goto designs remain separate issue 17 work.
+
+Baseline: 709 reference parser/analyzer tests pass on the unchanged base.
+Generated output is regenerated in a derived commit. Full draft-PR CI and
+review remain required; local focused tests do not establish final acceptance.
+
+
+### 2026-10-27 Checked override composition for issue #17
+
+Packet: CX-CHECKED-OVERRIDE-COMPOSITION. Compose PR116 at `7118ec76`
+with the published compiler and C2 repair tree at `1ca47cb9`, under D29.
+Own the original checked-override packet's parser, hierarchy validation,
+ASDL/grammar, canonical AST, generated AST, LSP completion and test paths,
+plus overlapping record/parser integration tests and this workstream record.
+Preserve the donor's separate derived commit and regenerate only through the
+catalog owner if the composed schema needs it. The designated-initializer
+reproduction branch remains excluded.
+
+The published base passes 152 latest focused checks and static gates. Its
+full application transpilation retains 433/435 raw C matches, equal native
+adapters, the same 17 warnings and the unchanged product plan validator.
+All 26 checked-override regressions fail on that base, confirming that the
+separate PR116 implementation has not reached the combined source. A merge
+preview reports only an append-only WORKSTREAMS conflict; parser and
+validation source hunks were reviewed. Validate the composed annotation,
+signatures, generic substitutions, cached parent changes, C2 syntax and
+canonical AST with a fresh compiler before committing the implementation.
+Keep PR125 at `1ca47cb9` while its hosted jobs run. No additional heavy CI
+train or local GUI/application execution/audio/bootstrap/performance/guest
+work is part of this packet. Full issue17 and integrated gates remain open.
+
+The composed source passes 1,982 compiler/editor tests, with one expected
+macOS skip for the `/dev/full` parser-driver case. The fresh compiler
+fingerprint is `d92eadf6760cb6193ea8e12d08906c39`. Generated-source checks,
+lint, Python/BTRC formatting and extension packaging pass; extension tests
+report 83 passed and two skipped. Source hashes stayed unchanged through
+validation. Evidence is in
+`build/issue-gates/checked-override-composition/validation.json`.
+The application transpilation proof above remains specific to `1ca47cb9`;
+this merge has not passed the full integrated or hosted qualification gates.
+PR125 remains fixed while its jobs run.
+
+
+### 2026-10-27 GUI qualification composition for issues #108–#110
+
+Packet: CX-GUI-COMPOSITION. Compose PR114 at `7f16c5be` with the
+checked-override/module/C2 tree at `8b788caa`, under D29. Own the donor's
+GUI probes and tests, skip classification, workflows, Makefile, tier manifest,
+partition runner and qualification documentation, plus the tier planner and
+its integration tests. Preserve active-test snapshots, schema-2 parameter
+rotation, compiler reuse, E40 conditional/key timestamp repairs and the
+collection diagnostic workflow. Use one computed GUI delegation flag for
+complete required Linux or macOS partition plans; partial or optional plans
+retain the full unit selection.
+
+Baseline: all 395 workflow, qualification, partition, build-safety and skip
+ledger checks pass on `8b788caa`. A merge preview identifies seven conflicts
+in overlapping coordination code and workstream history. Validate routing,
+exact coverage, skip policy and headless controls before saving the merge.
+No local GUI/application/audio execution, bootstrap, performance measurement
+or guest work is authorized here. PR125 stays at `1ca47cb9` while CI runs;
+this packet's local checks cannot establish full integrated qualification.
+
+
+### 2026-10-24 CX-GUI-GATES-108: direct native resize diagnostic
+
+PR114 also owns `src/tests/native/gui/ui2/probes/macos/e40/NativeResize.m`
+and the bounded-control support in `src/tests/python/test_native_ui2_macos_e40.py`
+and `src/tests/python/test_native_ui2_e40_evidence.py` for issue110.
+The hosted resize fixture posts its initial mouse-down, then sends no drag
+until native entry and dequeue are observed. Retained reports show no entry,
+no dequeue and watchdog cleanup. Whether that dependency prevents the native
+resize gesture from starting remains unproven.
+
+Add a direct AppKit control with a bounded native mouse drag independent of
+those acknowledgments. Record submitted events, post return, observed AppKit
+events, live-resize notifications, geometry and posting permissions. Retain
+source/binary hashes and timeout outcomes beside the existing Metal control.
+No programmatic resize may satisfy the observation, and no diagnostic result
+changes E40 acceptance. Build locally without launching a window; native
+runtime evidence comes from hosted CI. Preserve the existing E40 thresholds.
+
+### 2026-10-24 CX-GUI-GATES-108: retain unfinished test phases
+
+PR114 also owns `src/tests/skip_ledger.py`,
+`src/tests/python/test_skip_ledger.py`, `.github/workflows/macos.yml`, and
+`src/tests/python/test_ci_workflow_contracts.py` for an optional progress
+journal on the macOS native-GUI job. Job `120768445071` on `c3bdcd75`
+reached its 90-minute limit after reporting 82% progress. Its reader remained
+usable, but no final JUnit or skip report identified the unfinished tests.
+
+Record test starts, completed phases and finishes immediately in the pytest
+controller. Preserve canonical and scheduled identities without stripping
+group suffixes from source IDs. Retain the journal and existing failure
+records in hosted artifacts. Prove normal outcomes and forced controller
+termination during setup and call, both sequentially and with grouped xdist.
+Keep the current selection, workers, job limit, skip policy and acceptance
+checks. These records diagnose incomplete execution; they do not qualify it.
+
+### 2026-10-24 CX-GUI-GATES-108: Linux E40 startup phases
+
+PR114 also owns diagnostic phase records in
+`src/tests/native/gui/ui2/probes/linux/{UI2LinuxFairness.btrc,Fairness.c,Fairness.h}`
+and their native symbol declaration in
+`src/tests/python/test_native_ui2_fairness_linux.py` for issues109 and110.
+The c3 self-hosted sanitized diagnostic and the 606 reference sanitized
+600-second qualification both timed out with empty stdout, no native result
+rows and no presentation CSV. The latter passed all 16 burst cases first.
+
+Record and flush entry/return phases for startup operations and warmup pumps.
+Retain them through the existing stderr artifact when the parent kills a
+timed-out child. Keep the measurement interval free of per-turn diagnostics,
+and preserve all durations, thresholds and qualification requirements. These
+records locate an unfinished call; they cannot establish a cause by themselves.
+Local checks may compile and inspect the fixture without opening windows;
+actual Linux provider execution remains a hosted gate.
+
+
+### 2026-10-24 CX-GUI-GATES-108: native resize dequeue observation
+
+The plain reference and self-hosted controls on `60685688` each submit 23
+mouse events, return from all posts, enter live resize after the second drag,
+observe 18 geometry changes and exit. Their local event monitors see only
+move and down. This does not establish that the NSApplication dequeue hook
+used by E40 can observe the remaining native input.
+
+The existing `NativeResize.m` claim now includes bounded observation of that
+same nextEventMatchingMask:untilDate:inMode:dequeue: boundary. Retain each
+returned event's identity, mode, mask and dequeue flag alongside the separate
+local monitor and notification records. Preserve the independent drag and all
+E40 acceptance rules. Compile locally without launching the control; runtime
+observations require hosted CI. Tracking stimulus changes remain a separate
+step requiring a headless execution proof before native publication.
+
+
+### 2026-10-24 CX-GUI-GATES-108: independent native resize stimulus
+
+The headless driver includes the actual `Tracking.m` implementation and
+intercepts every CGEventPost call. It records one initial post before native
+entry, still one after entry without acknowledgment, and a second only after
+acknowledgment. No native application, window or event loop is started, and
+no system input-posting symbol is linked. Hosted controls independently prove
+that this native route needs drag input before its entry notification.
+
+This packet owns `src/tests/native/gui/ui2/probes/macos/e40/Tracking.m`,
+`TrackingStimulus.m` in the same directory, and the existing compile fixture
+in `src/tests/python/test_native_ui2_macos_e40.py` for the regression. Compile
+and execute the intercepted scheduler once per session through that fixture;
+retain strict plain and sanitizer checks. It must schedule cursor positioning,
+down, twenty drags and up without entry or acknowledgment, preserve event
+identities and actual post-return timestamps, and stop after completion or
+forced cleanup. Delayed entry must not reset the stimulus clock.
+
+Retain all E40 runtime requirements: exactly 22 native input receipts with
+actual dequeue observations, live-resize entry/exit and geometry changes.
+Keep other interaction routes' acknowledgment rules. Neither post return nor
+a geometry notification may stand in for input dequeue. Hosted runtime and
+the full platform matrix remain necessary; the headless test proves only the
+fixture's stimulus scheduling and accounting.
+
+### 2026-10-24 CX-GUI-GATES-108: complete hosted macOS GUI coverage
+
+The retained hosted journal on `60685688` records 759 finished tests and one
+interrupted test at the 90-minute limit. Collection against the same selection
+and identity owners contains 881 tests, leaving 121 unstarted. No failed phase
+was recorded, and setup completed just before cancellation.
+
+PR114 now owns `tools/ui/gui_shards.py`, `src/tests/python/test_gui_shards.py`,
+`src/tests/python/test_ci_workflow_contracts.py`,
+`src/tests/python/test_qualification_bundle.py`, and
+`docs/qualification/ui-agent-runbook.md` for two hosted macOS partitions.
+Workflow, Makefile and `ci/tiers.toml` changes remain isolated fragments.
+Reuse the existing partition owner, preserve the full native-GUI selection,
+three workers per cell and all timeouts and skip rules. Require Darwin and the
+macos-hosted runner. Every cell retains its complete collection and exact test
+outcomes; a scheduled coverage job must prove the disjoint complete union.
+Unit delegation requires both execution and coverage jobs. Standalone native
+GUI runs retain the full selection. Linux partitions also retain controller
+journals to identify unfinished work after cancellation.
+
+The baseline partition, workflow and qualification suites pass 228 tests.
+Prove admission, missing/overlapping/wrong-revision evidence rejection and
+real subprocess partition execution with synthetic fixtures before publication.
+These local checks cannot establish hosted AppKit runtime acceptance.
+
+### 2026-10-24: bounded Linux GUI partition work (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/python/test_ci_workflow_contracts.py`,
+`src/tests/python/test_qualification_bundle.py`, and
+`docs/qualification/ui-agent-runbook.md`; final fragments:
+`.github/workflows/ci.yml` and `ci/tiers.toml`.
+
+PR114 job `120887752312` reached its 90-minute limit after 185 of 220 selected
+tests finished. Its retained journal records 113 passes, 72 classified skips,
+one unfinished test and 34 unstarted tests; no final JUnit was produced.
+The same 882-node X11 collection passed in the preceding run. Among completed
+cases that previously took over ten seconds, the median duration ratio is
+1.625. This comparison does not identify the cause of the slower execution.
+
+Split each Linux session into eight canonical, disjoint partitions. Each new
+cell is a subset of one former cell; collection, per-test limits, skip policy,
+worker count and the 90-minute job limit stay unchanged. The coverage job must
+receive all eight complete receipts and prove their exact union. Wayland
+retains its existing report-only status. Replay of retained identities and
+headless workflow/partition tests checks scheduling only; hosted execution and
+final main qualification remain required.
+
+
+### 2026-10-24: cancelled native quit geometry evidence (Codex, PR114 follow-up)
+
+Owned path: `src/tests/native/gui/ui2/probes/macos/UI2MacOSCancelState.m`.
+The c0de macos-1 run completed two failing ApplicationQuit cases before the
+90-minute job timeout. Both sanitized frontends preserved the public logical
+scroll offset but failed the native clip-origin check: `(50, 255)` versus
+`(50, 240)`. A viewport change could explain that difference; the existing
+snapshot did not record its dimensions.
+
+The fixture now snapshots clip bounds, document and scroll frames, scroller
+style and scroller presence when it records the expected origin. Its existing
+failure branch reports those values with the current geometry and flipped
+coordinates. Assertions and input sequencing remain unchanged. Local validation
+is limited to syntax and fixture-contract checks; hosted execution is required
+to establish the cause. No extra CI train is started while c0de remains active.
+
+
+### 2026-10-24: four macOS GUI partitions (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/python/test_gui_shards.py`,
+`src/tests/python/test_ci_workflow_contracts.py`,
+`src/tests/python/test_qualification_bundle.py`, and
+`docs/qualification/ui-agent-runbook.md`. Final fragment:
+`.github/workflows/macos.yml` and `ci/tiers.toml`.
+
+The c0de macos-1 cell hit its 90-minute job limit after finishing 423 of 440
+selected tests. Its two completed ApplicationQuit failures remain failures;
+the pending geometry diagnostic addresses their missing evidence separately.
+Four cells divide the same complete sorted selection into smaller disjoint
+parts. The coverage job requires four complete receipts and their exact union.
+Worker count, per-test limits, job deadline and skip policy stay unchanged.
+
+Replay the retained 881-node collection to prove that each new cell refines
+one previous cell and their union preserves every identity. Run the existing
+partition, workflow and qualification contracts, including grouped synthetic
+pytest execution with two and four cells. This is headless configuration
+qualification. Hosted execution and the final integrated platform matrix
+remain required; publish after the current CI train finishes.
+
+### 2026-10-24: paired Metal presentation control (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/native/gui/ui2/probes/macos/e40/MetalPresentation.m`,
+`src/tests/python/test_native_ui2_macos_e40.py`, and
+`src/tests/python/test_native_ui2_e40_evidence.py`.
+
+The hosted direct control completed 20 GPU commands but reported no presented
+frames with display synchronization disabled. Run the same binary once more
+with synchronization enabled, retaining separate commands, reports and native
+outcomes. This isolates one presentation setting. Keep the existing control,
+frame count, deadlines and positive-timestamp requirement. The paired control
+is diagnostic only; it cannot substitute for E40 acceptance. Verify the runner
+with synthetic subprocesses and compile the native control without launching
+it locally. Publish after the current hosted train finishes.
+
+
+### 2026-10-24: cancellation scroll observation coordinates (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/native/gui/ui2/probes/macos/UI2MacOSCancelState.m`
+and `src/tests/python/test_native_ui_core_macos.py`. Base: `d6136bf9`.
+
+Hosted job `120943540546` fails native quit cancellation on both compilers.
+Its recorded scroller-style change reduces the clip height from 100 to 85
+and moves the unflipped origin from 240 to 255. The document remains 400
+points high, so both positions put document y=60 at the viewport top. The
+public offset assertion passes; the native observer's raw-origin comparison
+fails. This probe source is identical on the failed CI head and this base.
+
+Observe the document point at the viewport top, accounting for document
+origin and flipped coordinates. Continue native input from the current clip
+position so a changed viewport cannot restore a stale origin. Preserve the
+identity, focus, draft, selection and subsequent event assertions, including
+all 100 close/quit cycles. Headless native geometry checks cover the recorded
+transition, translated frames, flipped documents and actual scroll movement.
+They create no application or views. Hosted lifecycle execution and the final
+matrix remain required; publication waits for the current CI train.
+
+
+### 2026-10-24: Linux UI2 skips on Mac runners (Codex, PR114 follow-up)
+
+Owned paths: `src/tests/python/test_skip_ledger.py` and final data fragments
+in `src/tests/fixtures/expected-skips/macos.json` and `macos-hosted.json`.
+Base: `45988274`. Hosted macos-2 job `120943540547` passed 159 tests and
+skipped 61, then its ledger rejected 16 Linux-only skips. The downloaded
+partition artifact reproduces that exact gate failure.
+
+Name the ten Linux UI2 test functions across their five concrete files and
+match only their explicit Linux-reader requirement. Each enters the existing
+platform guard directly or through the observed-provider builder. Linux
+execution remains assigned to its required runner; a missing reader on Linux,
+missing display, Mac fixture or unreviewed test must still fail classification.
+Commit the reviewed manifest data in a final `fragment:` commit. Keep the
+source-matched hosted replay and strict negative controls with the evidence.
+
+### CX Linux E40 window-show observer (2026-10-24)
+
+Owner: Codex, branch `codex/issue-gui-gates-20261023`.
+Owned paths: `src/tests/native/gui/ui2/probes/linux/Fairness.c`,
+`src/tests/python/test_native_ui2_fairness_linux.py`.
+
+PR114 job120996941228 passed all sixteen burst cases but timed out before the
+sustained load started. The last phase was the second window's show entry,
+after the first window completed warmup. Add native SDL_ShowWindow entry/exit
+phases to separate that call from the remaining interaction and layout work.
+Keep native arguments, return values, workload and qualification limits intact.
+This records a diagnostic boundary; the blocking call and repair still need
+hosted evidence. Do not publish while the current CI train is active.
+
+
+GUI composition validation: all 565 selected workflow, coverage, skip-ledger,
+release-artifact, synthetic evidence and headless geometry tests pass without
+skips. Six plain/sanitized resize scheduler controls also pass for complete,
+cancelled and late input. Those controls intercept every input post, verify
+that no CGEventPost import is linked, and leave NSApp nil. Generated-source,
+lint and both formatting gates pass. Evidence and source hashes are in
+`build/issue-gates/gui-composition/`.
+
+The composition keeps parameter rotation schema 2 and historical receipt
+validation, and combines active-test snapshots with event journals using one
+invocation identity. Hosted GUI artifacts retain both. Both platform unit
+plans now use the computed `UNIT_GUI_DELEGATED` flag; nine new macOS
+selection cases failed before this repair. Missing, optional or inconsistent
+partitions retain the full unit selection. The published PR125 source remains
+unchanged. Native GUI, E40, Linux/provider and full integrated qualification
+still require hosted evidence; these local checks do not close the issues.
+
+
+### 2026-10-27 Application-scale benchmark composition for issue #5
+
+Packet: CX-APP-SCALE-COMPOSITION. Compose the corrected PR117 candidate
+`06d99370` with the GUI/override/module/C2 tree at `cd9c6dd6`, under D29.
+Own `tools/bench/{app_scale,baseline,suite}.py`, the generated
+`CompileAppScale.btrc` fixture, its focused tests, README benchmark guidance
+and this record. Preserve the original generated commits, corrected facade
+imports, incremental edit-to-run contract and individual timing marks.
+
+Baseline: 36 benchmark policy, diagnostic and collection-control tests pass;
+two tests that take real memory measurements are excluded under the current
+execution restriction. The merge preview conflicts only in this append-only
+record. Validate the generator, policy, synthetic object-cache behavior and
+both frontends' transpilation. No application execution, performance
+measurement, GUI/audio work or guest operation is authorized here. No timing
+baseline is promoted. Keep PR125 at `1ca47cb9` while hosted CI runs.
+
+
+### CX-APP-SCALE-BENCH (2026-10-23)
+
+Codex reserves `codex/app-scale-benchmark-20261023` for issues #5 and #9 under D29.
+Owned paths: `tools/bench/{app_scale,suite,baseline}.py`, the generated
+`src/tests/benchmarks/CompileAppScale.btrc`, focused benchmark tests under
+`src/tests/python/`, and benchmark documentation.
+
+The fixture reaches the GUI, Audio, Image, GPU, HTTP, FileSystem and
+BackgroundJobs packages and a bounded family of distinct generic instances.
+Both frontends must produce an executable with the same checked output.
+Phase timings use the existing compiler-stage aggregation owner; the four
+app-scale stages use the normal 35% tolerance only after a recorded baseline
+qualifies at at most 10 seconds. The reference timing stays informational.
+Existing per-mark attribution metrics retain their policy.
+
+Local work verifies generation, compilation, output and comparison policy.
+Timing acceptance requires the existing quiet-host protocol or hosted CI;
+no new baseline or performance claim is inferred from correctness runs.
+
+The same workload packet supplies #9's `incremental.edit_ms` measurement.
+Each sample changes the scratch app module's main body and expected checksum,
+then compiles module units, links through the native object cache at -O1 and
+runs the result. Cache priming and source editing are outside the timed span.
+Every sampled source revision is new; checking its distinct output rejects
+stale executables. Existing per-platform timing comparisons apply. Real
+BTRSmith measurements and platform baseline promotion remain outstanding.
+
+Application-scale composition validation: all 51 selected benchmark/generator,
+policy and diagnostic tests pass, including a synthetic program that checks
+real native object reuse and stale-output rejection. Two real memory-measurement
+tests remain excluded. Both frontends transpile the full 64-model fixture
+under strict imports without warnings; their native link plans are byte-identical.
+Raw C differs only in 128 Vector free and 64 Vector pop functions at cycle-flush
+and return-staging sites. Collection release policy is unchanged. The initial
+self-host invocation lacked BTRC_HOME; the corrected invocation uses this
+checkout's src data root. Generated-source, lint and both formatting gates pass.
+Evidence is in `build/issue-gates/app-scale-composition/`. No application was
+executed, no performance was measured, and no timing baseline was promoted.
+Final integrated and hosted qualification remain open.
+
+
+### 2026-10-27 Linux unit failure repairs for PR125
+
+Packet: CX-LINUX-UNIT-REPAIRS, based on composed head `abf08fc9`.
+Own the enum/constructor regression cases in
+`src/tests/python/test_module_units.py`, any demonstrated constructor
+setjmp repair in the paired lowering owners, and this record.
+
+Hosted Linux unit at PR125 head `1ca47cb9` reports 13 failures: two enum
+assertions, ten collection raw-C parity differences and one inferred generic
+constructor runtime assertion. Current-tree Mac baseline has two enum
+failures and eight constructor cases passing with Clang. Inspection shows
+the enum declarations remain in their module units but now carry C tags;
+the test still expects anonymous enum declarations. Current constructor
+initializer parameters already carry volatile qualifiers. Compare GCC
+before choosing a compiler repair. Retain strict/sanitizer execution and
+raw-C parity checks. Collection release policy remains unchanged pending
+qualified measurements. Published PR125 stays fixed while its CI is active.
+
+
+Linux unit repair evidence: GCC 15.2 reproduces the hosted constructor
+failure on the Mac at -O2 and -O3. The integer parameter returns to 3 after
+longjmp instead of retaining 4; payload identity and live-object count remain
+correct. A small C-only reproducer fails with a volatile parameter and passes
+with a volatile local. Disabling IPA constant propagation repairs that
+reproducer, but disabling inlining, strict aliasing or IPA scalar replacement
+does not. Compiler flags were diagnostic controls only.
+
+Both setjmp owners now materialize modified volatile parameters as local
+IR declarations before the body. The existing resolved mutation identities
+distinguish parameter writes from shadowing locals, and alias validation
+still runs first. Reapplying the pass does not duplicate storage. The enum
+checks now accept and verify the explicit tags introduced by record ownership
+work; declarations remain in the module C files. They also check local/import
+order and the imported declaration against its defining unit.
+
+The fresh compiler fingerprint is `e268363313d3fd18e3b1b551a17da6bf`.
+All 240 selected tests pass with no skips: ten constructor/enum cases,
+151 reference exception/flow/cleanup contracts and 79 paired contracts.
+Each constructor case runs through both frontends, GCC and Clang at
+-O0 through -O3, and address/undefined sanitizers. The new local-storage
+contract failed before the change. Generated-source, lint and Python/BTRC
+format checks pass. Evidence is in `build/issue-gates/linux-unit-1ca/`.
+
+The repair owns the paired setjmp safety/lowering files and
+`src/tests/python/test_exception_codegen_contracts.py` in addition to the
+claimed module-unit tests. Collection release policy is unchanged. Full
+integrated and hosted qualification remain open; PR125 still publishes
+`1ca47cb9` while its CI runs. No application, GUI or audio execution,
+bootstrap, guest operation or performance measurement was performed.
+
+**2026-10-27 E40 host shutdown diagnostic (Codex).** Reserved private repair
+`codex/e40-host-shutdown-diagnostic-20261027`, base `b6d636a0`.
+Owned paths: `src/tests/python/test_native_ui2_macos_e40.py`,
+`src/tests/python/test_native_ui2_e40_evidence.py`, and this claim.
+PR125 job `122150557434` on published `1ca47cb9` recorded all 1,200
+host burst trials, and their report passes the unchanged evidence validator,
+but the native process exceeded its 1,800-second timeout. Its exact stall
+location is unproved. The diagnostic waits for a fresh report and takes at most
+two bounded stack samples during shutdown, preserving the original timeout,
+process result, and acceptance checks. Synthetic child-process tests cover
+report publication, stale evidence, nonzero exit, and timeout before/after
+publication. No local AppKit execution or runtime repair is claimed.
+The published head remains fixed while its CI jobs run; this branch is backed
+up only to the local hub.
+
+## 2026-10-28 hosted arithmetic storage across setjmp
+
+Packet: CX-HOSTED-SETJMP-SCALARS. Local repair from PR125 `bc8c356e`.
+The owner stopped CI iteration; this packet is checked locally and is not
+published to a CI-triggering branch. Claim: the hosted ABI specification and
+its generator/catalogs, the paired hosted ABI repositories and setjmp safety
+owners, their self-host composition calls, and the corresponding ABI,
+exception and module compilation tests.
+
+The completed benchmark job fails strict GCC compilation of
+`ForkedWorkerPool_start`: `pid_t child` is omitted from the scalar-storage
+classification. A reduced local program reproduces `-Wclobbered` at O1,
+O2 and O3 on GCC 15.2. Arithmetic hosted typedefs will be classified in the
+shared ABI data; aggregate and opaque hosted types retain their existing
+rules. No benchmark execution or performance claim is part of this repair.
+
+Local validation: 226 ABI/reference checks, ten paired whole/module checks
+and 108 setjmp/qualifier checks pass without skips. The paired regression
+runs both frontends through GCC and Clang at O0–O3 plus sanitizers. Its
+Windows source uses `ptrdiff_t`, preserving the arithmetic-storage contract
+without assuming POSIX `pid_t`; the two cases were rerun after that adjustment.
+The actual `HostWorkerPools` module output was also compiled without execution:
+both frontends' `WorkerPoolProvider` units pass GCC/Clang O0–O3, 16 builds.
+Generated-source, lint, repository formatting and diff checks pass.
+
+The compiler built for these tests is fingerprint
+`53285b24219aac9d4903bd86140b7276`, SHA-256
+`fb413e4847e685cfd059da3aba94070c1c30c67d2763c1e15e07098781d5bd44`.
+A subsequent line wrap in the generator changes the fixture's broad input
+fingerprint to `f3c8c584d04e47aa2889a3ca88b9c876`; the two generator ASTs
+are identical and every other compiler input is unchanged. The paired checks
+explicitly reuse the completed compiler; no cache entry was renamed or copied.
+Evidence: `build/issue-gates/hosted-setjmp-bc8/`. Host: Apple M1 Max, 8P+2E,
+64 GiB, macOS 27.0. No CI dispatch, application/GUI/audio execution, bootstrap,
+guest operation or performance measurement was performed. Collection parity,
+platform qualification and the remaining issue requirements remain open.
+
+### 2026-10-28 C2 designated-index analysis facts
+
+Packet: CX-C2-DESIGNATOR-FACTS. Base `77667815`. Continue approved r10
+locally under the owner's instruction to stop CI iteration. Own Python
+`analyzer/{analyzer,expressions,program}.py`, self-host
+`analyzer/{Models,validation/Expressions,validation/Validator}.btrc`,
+`pipeline/ModuleUnits.btrc`, focused designated-index tests and their driver.
+
+Record known index values through the existing constant evaluator, preserve
+full-width values through validation journals and cache relocation, and reject
+unknown or nonconstant indexes at the index node. This is a prerequisite for
+parser, typed-slot and lowering work; it does not claim r10 completion.
+The previous paired baseline has 11 host-C passes and 40 BTRC failures.
+No GitHub push, CI dispatch, native GUI execution or measurement is authorized
+by this packet. Existing collection and platform failures remain open.
+
+The focused structural regression also exposed stale assertions from the
+preceding hosted-setjmp repair: Safety now consumes the pipeline-owned ABI
+repository to classify arithmetic typedefs. Own
+`src/tests/btrc/test_compiler_structure_contract.py` to require that injection
+and lookup while continuing to forbid generated-data construction in the owner.
+
+### 2026-10-28 C2 initializer path validation
+
+Packet: CX-C2-DESIGNATOR-PATHS. Base `a1b8f600`. Own both analyzer
+Types/Models owners, Python aggregates/program, self-host validation/Expressions,
+initializer-slot contract tests and paired path-analysis tests/driver.
+Validate prefix overlaps and divergent union selections, refuse positional
+continuation through anonymous members, consume indexed slot types and bind
+cached plans to their concrete record. Keep parser activation with the later
+complete bounds and lowering increment. Local tests and hub backup only; no CI.
+
+This packet also owns `src/compiler/btrc/ir/lowering/Aggregates.btrc`: a
+provided concrete type must be resolved before consulting a recorded plan.
+The source analysis plan remains a fallback only when no target type is given.
+
+### 2026-10-28 C2 designated array bounds and extents
+
+Packet: CX-C2-DESIGNATOR-ARRAYS. Base `d23b226d`. Own the paired analyzer
+type, model, expression and storage owners, validation replay/cache transport,
+initializer lowering and parser owners, and focused initializer tests.
+Preserve evaluated bounds for typed paths and cache replay, validate array
+indexes and infer sparse extents, then connect source syntax and nested IR.
+Batch reference checks before rebuilding the self-hosted compiler. Work stays
+local; no CI, GitHub push, bootstrap, application execution or measurements.
+
+The first checkpoint exports evaluated array bounds in Python and journals
+full-width bound values in the self-hosted analyzer (validation cache v8).
+Both path owners now check nested array indexes and report wrong target types.
+The reference and structural checks pass: 205 tests, zero skips. Self-hosted
+execution remains pending. A source transpilation reached IR optimization and
+was interrupted to defer that expensive work to the combined validation run.
+Do not treat this checkpoint as end-user syntax support or r10 completion.
+
+The next checkpoint connects designation parsing, array slot plans and sparse
+extents to nested structured IR in both compilers. It preserves source-order
+operand staging, rejects reconstructed-plan errors for concrete generic
+targets and permits named public fields in native records with private fields.
+Reference/parser checks: 468 passed, with self-hosted execution still pending.
+The combined paired run will use a fresh reference-built O0 development
+compiler; optimized compilation and the full completion gates remain deferred.
+Compound literals are still unfinished.
+
+The follow-up preserves nested paths inside anonymous braces, uses sparse
+extents in global `sizeof`, and matches array-initializer C output between
+compilers. A fresh local O0 compiler passed 189 paired designation, anonymous
+member and record checks. The two positive designation probes now live in
+the corpus; the recorder and nine inventory checks confirmed their outcomes.
+
+A further host-C comparison exposed nested positional continuation skipping
+to the enclosing member. Both slot owners now advance through nested fields
+and indexes before climbing out, including union boundaries. Five host-C
+cases reproduced ten compiler failures before repair; 70 reference checks
+and 16 focused continuation, overlap and evaluation-order checks pass after
+repair. A fresh local O0 compiler then passed 185 designation, anonymous-member
+and inventory checks, including exact generated-C parity. The 85 semantic-fact
+replay, typed-path and ownership checks pass on the same production sources.
+The full-width codec fixture runs its boundary checks in the journal callback
+with explicitly typed 64-bit limits. Generated-source, lint and formatting
+checks pass. These results do not qualify compound literals or the full
+issue-completion gates.
+
+### 2026-10-28 issue #8 shared module records
+
+Packet: CX-SHARED-MODULE-RECORDS. Branch
+`codex/shared-module-records-20261028`, base `ef13a269`.
+Own paired module-record codecs, the Python cache payload transport and its
+application ports, focused cache/interchange tests, and protocol documentation.
+
+Issue #8 requires both frontends to consume the same cached module artifacts.
+First converge their semantic record format on the existing self-hosted counted
+text sections, keeping generated C as a separate payload. Exercise real cache
+replay and both record readers; preserve strict malformed-record rejection.
+Compiler identity, key inputs and shared directory publication remain required
+follow-up work before claiming cross-frontend cache reuse. Work stays local.
+
+The reference module owner now reads and writes the existing counted-text
+metadata format, with generated C carried separately through the cache port.
+The reference envelope verifies both payload digests. Both encoders order
+setjmp effects and generic instances consistently. The self-host reader now
+rejects noncanonical/overflowing counts, duplicate effects and instances,
+missing instance bodies, invalid kept-instance sets and empty graph targets.
+
+A current-source strict-C11 O0 driver passes both directions of metadata
+exchange, including Unicode paths and all semantic fields. Real reference
+cache records round-trip through that driver and then replay without lowering;
+the C output is byte-identical. Final interchange suite: 56 passed. Existing
+cache/record/structure regressions: 98 passed and one expected macOS XDG skip.
+The warm-build fixture was corrected to use include_stdlib and a different
+output prefix, ensuring it exercises module replay rather than a complete
+artifact-cache hit. No production failure remains in these checks.
+Evidence: `build/issue-gates/shared-module-records/`. Shared module keys,
+compiler identity, directory publication, interface/link-plan artifacts,
+dependent-only invalidation and application budgets remain unfinished.
+No GitHub write, CI dispatch, bootstrap or application execution occurred.
+
+### 2026-10-28 issue #8 module key inputs
+
+Packet: CX-SHARED-MODULE-KEYS. Branch `codex/shared-module-keys-20261028`,
+base `982c0324`. Own paired module-key/source-digest owners, the self-host
+validation record source-digest reuse path, focused key/replay tests and
+protocol documentation.
+
+Converge the encoding of resolved source lines, compilation options and outer
+module identities using byte-length framing. Preserve all existing semantic
+inputs and executable identity checks. Test Unicode, delimiter-bearing paths,
+option changes, source order and the validation-to-lowering digest reuse path.
+Program-interface/fact convergence and a build-bound common compiler identity
+remain necessary before a shared store can safely be enabled. No CI or
+GitHub writes; batch local validation after formatting.
+
+Both module owners now frame source records, options and outer key fields by
+UTF-8 byte length. The self-host validation owner supplies the same source
+digest to lowering. The new context includes all existing options plus explicit
+strict-import and stdlib-inclusion flags; native defines sort by name. Release
+output paths remain reusable, while debug paths remain distinct. Both owners
+also derive the same ASCII unit filename from Unicode/punctuation stems and
+Windows-style separators, retaining the full group-path hash suffix.
+
+Final local evidence: 83 paired codec/key/name checks and nine reference
+cache/CLI regressions pass, with no skips. A fresh strict-C11 O0 driver tests
+all key inputs and the actual validation-record constructor; native-define
+invalidation and edit builds also pass through the reference CLI. Targeted
+lint, formatting and diff checks pass. The first reference run caught the
+native-define port using a mapping instead of its existing tuple-of-pairs;
+that was repaired before the single driver build.
+
+Evidence: `build/issue-gates/shared-module-keys/`. The outer framing is common,
+but program-interface/fact contents still differ. The executable hash remains
+in the self-host store: replacing it with a current source-tree hash would
+misidentify an old executable. A common identity must be bound at build time.
+Shared physical storage, complete key parity, dependency-scoped invalidation
+and application performance acceptance remain unfinished. No full compiler,
+bootstrap, application execution, CI dispatch or GitHub write occurred.
+
+### 2026-10-28 issue #8 shared declaration interfaces
+
+Packet: CX-SHARED-MODULE-INTERFACES. Branch
+`codex/shared-module-interfaces-20261028`, base `bd4641ff`.
+Own the paired AST interface rendering owners, the reference program-interface
+hasher, module-interface driver/regression tests and protocol documentation.
+
+Use the same declaration text on both sides, retaining generic bodies and
+non-template body presence/ownership summaries. Position-free identities must
+preserve binary64 values exactly; inspection output keeps its existing format.
+Exercise declaration parity, body-edit invalidation and actual reference cache
+replay. Preserve all program facts and executable provenance while the remaining
+whole-program grouping/timing and storage differences are reconciled. Local
+checks only, with no CI, GitHub writes or application execution.
+
+The reference interface hasher now uses the retained AST renderer's interface
+mode. Both renderers preserve generic bodies and export matching body-presence
+and consumed-parameter summaries. Position-free float values retain binary64
+bits; the self-host renderer reads wide integer magnitudes from the existing
+literal owner. Inspection output is unchanged.
+
+Local evidence: 134 interchange checks pass with a fresh strict-C11 O0 driver,
+including declaration text/hash parity, interface invalidation, exact numeric
+values and cache replay. Eleven reference boundary/cache regressions pass by
+latest result. One parallel cache test initially observed a cold warm build
+while source formatting overlapped the run; its repeat on the frozen tree
+passed. Generated-source, targeted lint/format and diff checks pass. Evidence
+is retained under `build/issue-gates/shared-module-interfaces/`.
+
+This closes the declaration-encoding difference only. Whole-program grouping,
+pre/post-analysis timing, program facts, build-bound compiler identity, shared
+storage, dependency-scoped invalidation and application budgets remain. No
+full compiler build, bootstrap, application execution, CI or GitHub write.
+
+### 2026-10-28 issue #8 grouped program interfaces
+
+Packet: CX-GROUPED-PROGRAM-INTERFACES. Branch
+`codex/grouped-program-interfaces-20261028`, base `83de57f5`.
+Own paired program-interface composition, pipeline timing, the reference
+frontend's inline-stdlib provenance transport, and focused cache/driver tests.
+
+Capture interfaces before semantic analysis in both pipelines. Share framed
+source-group/native/other composition and per-source interface cache records,
+while keeping semantic validation replay and all program facts intact. Preserve
+inline-stdlib provenance across split and combined parse coordinates. Baseline
+is the current-tree declaration-interface proof (145 passing latest outcomes).
+Format before local driver validation; no CI, GitHub writes or application runs.
+
+Both pipelines now capture grouped interfaces before analysis, including when
+persistent caching is disabled. `ModuleUnitInterfaces` owns the self-host
+snapshot and supplies it to validation replay and lowering. Python retains
+inline-stdlib membership from parsing and uses the same framed group/native
+cache keys and program composition. Invalid digest text is rejected. Lowering
+requires the prepared snapshot; the old post-analysis fallback is removed.
+Source-file traversal order remains in the program facts, and test counters
+count lowered-unit records separately from interface records.
+
+Final local evidence: 160 interchange checks and six reference regressions
+pass. The focused driver exercises the production self-host pipeline across
+cold, warm, private-body-edit and cache-disabled builds. Its interface-cache
+keys and records match the reference pipeline; warm builds reuse both modules,
+and the body edit lowers only its module. Cached generated C matches uncached
+output. The reference regressions also cover generic demand, import reordering
+and whole-program directive order. Targeted lint, formatting and diff checks
+pass. Evidence: `build/issue-gates/grouped-program-interfaces/`.
+
+One legacy test's `btrc` parameter escaped an initial `not selfhost` filter and
+started an unwanted full-compiler transpile. It was stopped before native
+compilation. The final run uses explicit reference node IDs and one completed
+driver build after source formatting. No full compiler qualification, CI,
+GitHub write, application execution, bootstrap or measurement occurred.
+Program facts, build-bound compiler identity, shared storage, dependent-only
+interface invalidation and application acceptance remain unfinished.
+
+### 2026-10-28 issue #8 dependency-scoped module reuse
+
+Packet: CX-MODULE-DEPENDENCY-SCOPE. Branch
+`codex/module-dependency-scope-20261028`, base `dc7dd865`.
+Own the paired module-unit and pipeline owners, cache-record protocol, and
+focused module-cache tests. The saved Alpha/Beta baseline rebuilds all three
+groups after Alpha adds an unused declaration; Beta's C stays identical.
+
+Scope interface identities to imports and retain a certificate of consumed
+shared declarations, including their content and order. Keep global directives
+and semantic safety facts checked. Verify edits against uncached output locally;
+no CI, GitHub writes, application execution or full compiler build.
+
+Both lowering pipelines now key each group on its transitive imported interfaces
+and retain a declaration dependency certificate. The certificate checks the
+current structured IR closure, its emitted content and order, global directives,
+and names that previously had no provider. Record version 6 carries those roots
+and their digest. Generic demand and library method selection remain checked;
+the reference realtime guard retains the global boolean read by lowering.
+
+Local evidence: 176 paired interface/cache/codec checks and 37 final regressions
+pass, with no skips. An added declaration, changed signature, transitive import,
+include component and new tuple shape leave unrelated units reusable. Macro
+changes invalidate their output. Cached C equals uncached C. The existing
+staleness suite, generic-demand tests at one and two workers, helper-local
+filtering, lint, formatting and diff checks pass. Evidence is in
+`build/issue-gates/module-dependency-scope/`.
+
+One strict-C11 O0 driver build completed. Two earlier transpiles were stopped
+before native compilation to fix a test API call and preserve the exact global
+realtime guard found during review. The initial staleness run caught a missing
+type-declaration preparation step in the certificate emitter; the final run is
+green. No full compiler, application, bootstrap, measurement, CI or GitHub run.
+Shared compiler identity, complete key parity, physical storage and application
+performance acceptance remain open; this increment does not close issue #8.
+
+### 2026-10-28 issue #8 compiler build identity
+
+Packet: CX-COMPILER-BUILD-IDENTITY. Branch
+`codex/compiler-build-identity-20261028`, base `b54c2001`.
+Own compiler source inventory and module-cache identity, compiler build receipts,
+the existing self-host build/bundle owners and Makefile recipes, and focused
+identity/build/cache tests. Bind source identity while generating C and bind that
+C to the binary during native compilation. Runtime verification must reject stale
+or malformed receipts and retain executable-specific fallback. Use local synthetic
+builds and one focused driver; do not run a full compiler build, CI, applications,
+bootstrap, measurements or GitHub writes.
+
+Implemented source snapshots and checked C/binary receipts through the existing
+build and bundle owners. Reference module keys use the complete source snapshot;
+self-host keys accept it only after checking the actual executable and runtime
+data. Missing or invalid receipts use binary plus current resource digests, so
+grammar and manifest edits still invalidate fallback entries. Bundles validate
+the copied binary/receipt pair and never stamp the current checkout onto old C.
+Makefile recipes publish receipts alongside their build products.
+
+Local evidence: 47 focused checks pass, including the production self-host cache,
+Unicode key parity, changed/malformed/missing receipts, resource invalidation
+with and without receipts, source edits between transpilation and native build,
+failed-build preservation, and bundle-copy substitution. The existing reference
+cache/bundle suites add 116 passes and two platform skips (non-macOS XDG behavior
+and native Windows stat modes). Targeted lint/format, diff checks and Makefile
+dry runs pass. Evidence: `build/issue-gates/compiler-build-identity/`.
+
+One native driver build completed. One early transpile was stopped to include
+resource digests in fallback keys; a second exposed a missing default argument
+at two existing cache call sites, repaired before native compilation. No full
+compiler, bootstrap, application, measurement, CI or GitHub write ran. Complete
+program-key parity, shared physical storage, interface/link-plan cache artifacts
+and the BTRSmith performance acceptance remain open. This does not close #8.
+
+### 2026-10-28 issue #8 shared module storage
+
+Packet: CX-SHARED-MODULE-STORAGE. Branch
+`codex/shared-module-storage-20261028`, base `149c10a8`.
+Own the existing cache owners, module-cache path policy, focused store and
+generation-reference tests, and cache documentation. Use one private directory,
+entry framing and lock protocol for both frontends, with default module output
+under the source package's `build/`. Preserve semantic key inputs; different keys
+remain misses. Verify both write/read directions, corrupted entries and generation
+references using local headless tests and one focused driver build. No full
+compiler build, CI, GitHub writes, application execution or measurements.
+
+Implemented one `modules-v1/<key>/` layout, with `unit.c`, a versioned/key-bound
+checksummed `record.txt`, and the same entry lease in both frontends. Default
+placement is the source package's `build/btrc/`, or the input directory's
+`build/btrc/` without a package. Explicit absolute and relative cache overrides
+agree. POSIX directories/files retain private modes and reject links or unsafe
+entries. The self-host whole-generation cache now follows module references
+through the shared key/path; its old lookup still used the pre-identity key.
+
+Evidence: 170 unique local checks pass, with one non-macOS XDG skip. The reference
+pass has 135 passes; the focused paired pass has 82, with overlap, and the six
+default-path cases passed again after adding actual store interchange. Coverage
+includes both writer/reader directions, identical bytes, corrupt and moved
+records, interrupted publication, private modes, symlink rejection, lock waiting,
+whole-generation references and existing module-staleness regressions. Targeted
+lint/format and diff checks pass. Evidence is under
+`build/issue-gates/shared-module-storage/`.
+
+One native driver build completed. An unintended record-driver selection was
+stopped before native compilation; the focused driver's first transpile caught
+a missing explicit return after the directory-search loop. Final paired checks
+passed after that repair. No full compiler, bootstrap, CI, GitHub write,
+application or measurement ran. Complete semantic key parity, interface-header
+and link-plan fragment artifacts, and BTRSmith performance acceptance remain open.
+
+### 2026-10-28 issue #8 program fact identities
+
+Packet: CX-MODULE-PROGRAM-FACTS. Branch `codex/module-program-facts-20261028`,
+base `8eff9fac`. Own paired module program-fact serialization, the realtime and
+stdlib reachability facts it reads, and focused key/pipeline tests. Preserve all
+existing dependencies. Generic class callable selection differs semantically;
+encode that policy explicitly until both lowerers agree. Prove actual interchange
+where inputs and output agree, and preserve misses for differing generic plans.
+Use local headless checks and one focused driver build; no CI, GitHub writes,
+full compiler build, application execution or measurements.
+
+Implemented common framed program facts and scoped identities. Both compilers
+now encode source traversal, exception/realtime facts, specialization demand
+and stdlib reachability in the same section order. Generic callable policy
+remains explicit because the lowerers still select different bodies.
+
+One focused ModuleRecordDriver build completed locally. Its first pass had
+215 passes and one invalid generic-constructor test; changing the test to
+`new Box<int>(7)` passed on that same binary. Ordinary functions, typedefs,
+realtime functions and exception handlers exchanged complete keys, metadata
+and C and reused every module in both directions. The reference invalidation
+and fact checks passed 41 cases; five reference replay cases now pass.
+
+A further BitPattern import regression exposed two differences: the self-host
+program fact used the authenticated `compiler:stdlib` marker instead of the
+resolved source path, and graph roots repeated a destructor referenced by a
+global initializer. Inspection of the existing native driver with LLDB proved
+the marker mismatch; C text already matched for all three modules. The source
+now resolves that path through the line map, uses `<stdlib>` for inline stdlib,
+and collects graph roots as a set. The test counts the imported third group.
+
+The follow-up driver build passed all 218 interchange checks, including the
+three-module BitPattern case. The final library repairs are now verified.
+The structure gate found an unused `ModuleUnitDeclarations.orderDigest` left
+by dependency-scoped keys. Removed it and the unused Python
+`SharedDeclarations.order`; no references remain, and the self-host helper
+was already absent from generated driver C. The 11 target-specific ownership
+failures pass after removal. No second native build was needed for that
+unreachable-code deletion.
+
+Across the interchange, structure/realtime/reachability and cleanup runs,
+445 distinct checks pass with no unresolved failures or skips. Generated-source,
+targeted lint/format and diff checks pass. Logs, XML, exact build provenance
+and the marker inspection are retained under
+`build/issue-gates/module-program-facts/`. The driver was built before the
+unused-method deletion; full final-tree gates remain part of overall issue
+acceptance. No CI, GitHub write, full compiler, application or measurement ran.
+
+Issue #8 remains open: generic callable lowering parity, shared interface-header
+and link-plan fragment artifacts, precise remaining invalidation and the real
+BTRSmith warm-build budget still need work. Link-plan fragments must store
+output-independent unit identities and resolve output paths at use time.
+
+### 2026-10-28 issue #8 complete module artifact bundles
+
+Packet: CX-MODULE-ARTIFACT-BUNDLES. Branch
+`codex/module-artifact-bundles-20261028`, base `c0551940`. Own the paired
+pre-analysis interface snapshots, module bundle persistence and output-independent
+link-plan fragments, with focused tests and artifact documentation. The language
+interface retains canonical declarations and generic bodies used by import keys;
+it is not reconstructed from C text. A bundle must bind C, metadata, interface
+and link fragment under one publication receipt. Missing or corrupt components
+are misses. Preserve analysis-record compatibility and the current key inputs.
+Review and run reference/structure checks before one combined local driver build.
+No CI, GitHub writes, full compiler builds, applications or measurements.
+
+Both pipelines now persist the pre-analysis language header and an
+output-independent link fragment with each module's C and metadata. A v2
+receipt binds all four components; analysis records retain v1 storage.
+Replay validates the current header and the fragment's unit name, C digest
+and kept state. The native whole-generation reader verifies all artifacts
+of every referenced module. Changing the output directory preserves reuse;
+missing either added artifact relowers only its affected module.
+
+Before the native build, 218 reference, invalidation and structural checks
+passed. Generated-source, targeted lint/format and diff checks also passed.
+A broad reference test filter accidentally started a native transpile; it
+was stopped before C compilation. Exact test names replaced that filter.
+Three initial test failures were an invalid same-line import/main fixture;
+the corrected fixture passes. One combined local driver build passed all 272 storage, program-fact and
+record/interface interchange checks in 257.44 seconds. Together with the
+pre-build run, 459 distinct checks pass with no failures or skips. Logs, XML
+and binary provenance are retained under
+`build/issue-gates/module-artifact-bundles/`.
+
+Generic callable parity, complete invalidation coverage, stamped-output
+integration and BTRSmith warm-build qualification remain open. No issue is
+closed by this packet. No CI, GitHub write, full compiler build, application,
+guest or measurement ran.
+
+### 2026-10-28 issue #8 generic callable demand
+
+Packet: CX-GENERIC-CALLABLE-DEMAND. Branch
+`codex/generic-callable-demand-20261028`, base `11c80878`. Own native generic
+callable dependency capture and replay, per-specialization lowering selection,
+shared program facts and focused parity tests. Existing analysis walks record
+which callable uses another; root and lifecycle demands close over that graph.
+Only selected ordinary methods and property accessors lower. Generic method
+specializations retain their separate analysis contract. Validate cold/warm
+analysis and cross-frontend artifacts before removing the explicit policy
+mismatch from keys. No CI, GitHub writes, full compiler or application runs.
+The existing generic guard baseline passes on the retained driver. An initial
+baseline invocation omitted BTRC_CC and selected a different compiler identity;
+its redundant transpile was stopped. Pin BTRC_CC=/usr/bin/clang for all runs.
+
+Local checkpoint, unfinished: the combined driver run completed with 281
+passes and 10 generic bundle-exchange failures in 259.18 seconds. The retained
+driver replays all ten cases from its own cache with identical output and no
+lowered units. That check took less than one second and required no rebuild.
+Inspection found declaration-order differences, redundant empty-method IR,
+property/index storage differences, and extra string-conversion retains.
+The reference also failed to select toString for a borrowed string argument.
+That reference defect now has a regression test; 27 focused reference tests
+pass. Native declaration order and empty-body handling are repaired in source,
+but have not been rebuilt. Generic entries retain a native-specific policy
+key until bundle parity passes. The exchange tests remain failing acceptance
+tests, with no skips or weaker comparisons. Evidence lives in
+`build/issue-gates/generic-callable-demand/`. No further build ran; no issue
+is complete. Resolve the remaining storage/conversion differences before the
+next combined driver build.
+
+Verified follow-up: ordinary and generic class prototypes now use the reference
+declaration order. Native physical, property and indexed stores share a
+stabilized target; compound and prefix/postfix updates evaluate their receiver,
+key and RHS once. Virtual stores protect a managed RHS across the setter and
+hand its reference to the assignment result. Automatic getters and string
+conversions avoid redundant receiver retains. The reference now protects an
+owned assignment result while releasing its receiver under exceptions.
+
+The final combined driver run passed all 299 checks in 269.20 seconds,
+including 14 generic programs with exact cache-key and four-file bundle
+comparisons, cold/warm replay, cross-frontend replay in both directions, and
+strict C11 compilation and execution. The focused reference and ownership
+structure run passed 34 checks; these overlap the combined run. Ruff, format,
+generated-source and diff checks pass. Final driver:
+`build/test-btrcc/drivers/530345435fff92b66f43bf81cf94e64a/driver`.
+Evidence: `build/issue-gates/generic-callable-demand/proof.json`.
+
+One broad lifetime-test selection accidentally started a full-compiler
+transpile; it was terminated before native compilation. Its replacement used
+three explicit static test IDs. Two combined driver builds completed during
+the repair: the first isolated three failures, the second verified their fixes.
+No CI, GitHub writes, application execution, guests or measurements occurred.
+
+Issue #8 remains open. Its BTRSmith build rules still select the whole-program
+split through `--emit-units`; module-mode integration and the required warm
+transpile measurement remain outstanding. Broader parity and final-tree gates
+also remain necessary before claiming the whole issue or goal complete. The
+read-only build-rule audit is recorded beside the test evidence.

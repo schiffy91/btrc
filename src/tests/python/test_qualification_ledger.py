@@ -1209,7 +1209,9 @@ def test_ui_catalog_and_p0_rows_roll_up_against_the_frozen_denominators():
         SubjectKind.UI_CASE: 470,
         SubjectKind.OPERATION: 1998,
     }
-    assert sum(row["slots"] for row in evidence if row["kind"] == "operation") == 1998
+    # The base release stays frozen; the supervisor/image/file supplements
+    # add distinct operations to the active union.
+    assert sum(row["slots"] for row in evidence if row["kind"] == "operation") == 2166
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-operation") == 1620
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-case") == 470
     assert sum(row["slots"] for row in evidence if row["kind"] == "family-cell") == 300
@@ -1219,6 +1221,9 @@ def test_ui_catalog_and_p0_rows_roll_up_against_the_frozen_denominators():
         ("family-cell", 0, 0),
         ("ui-operation", 0, 0),
         ("ui-case", 0, 0),
+        ("operation", 0, 0),
+        ("operation", 0, 0),
+        ("operation", 0, 0),
         ("operation", 0, 0),
     ]
     implementation = {row["platform"]: row for row in report.implementation_rows()}
@@ -1244,7 +1249,7 @@ def test_the_tracked_denominators_match_their_sources():
     assert manifest.drift() == []
     counts = {
         denominator.kind.value: (len(denominator.ids), denominator.frozen_slots)
-        for denominator in manifest.denominators
+        for denominator in manifest.by_kind().values()
     }
     assert counts == {
         "family-cell": (60, 300),
@@ -1252,6 +1257,14 @@ def test_the_tracked_denominators_match_their_sources():
         "ui-case": (47, 470),
         "operation": (333, 1998),
     }
+    assert [
+        (entry.release, len(entry.ids), entry.frozen_slots) for entry in manifest.releases(SubjectKind.OPERATION)
+    ] == [
+        ("p0-inventory-2026-10-19-winproc", 333, 1998),
+        ("p0-windows-supervisor-2026-10-29", 10, 60),
+        ("p0-windows-supervisor-image-2026-10-29", 4, 24),
+        ("p0-windows-daemon-files-2026-10-29", 14, 84),
+    ]
     ids = manifest.by_kind()[SubjectKind.UI_CASE].ids
     assert (ids[0], ids[-1], len(set(ids))) == ("E01", "E47", 47)
 
@@ -1265,7 +1278,16 @@ def _frozen_copy(tmp_path: Path, *, drop: str | None = None, rewrite=None) -> Pa
 
     from tools.qualification.denominators import MANIFEST, REPO
 
-    for document in ("docs/design/native-ui-parity.md", SEED, FAMILIES, "docs/design/platform-inventory.toml"):
+    supplements = sorted(
+        str(path.relative_to(REPO)) for path in (REPO / "docs/design/platform-inventory").glob("*.toml")
+    )
+    for document in (
+        "docs/design/native-ui-parity.md",
+        SEED,
+        FAMILIES,
+        "docs/design/platform-inventory.toml",
+        *supplements,
+    ):
         text = (REPO / document).read_text(encoding="utf-8")
         if drop is not None and document in (SEED, FAMILIES):
             # Both ledgers are one blank-line-separated `[[records]]` table per slot.

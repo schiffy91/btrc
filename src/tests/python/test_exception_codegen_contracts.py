@@ -24,6 +24,7 @@ from src.compiler.python.ir.nodes import (
     IRLiteral,
     IRModule,
     IRParam,
+    IRReturn,
     IRStmtExpr,
     IRTypedefDef,
     IRVar,
@@ -67,7 +68,8 @@ def test_setjmp_functions_qualify_params_loops_and_capture_locals():
         }
     """)
 
-    assert "int mutate(volatile int value)" in emitted
+    assert "int mutate(volatile int __btrc_setjmp_parameter_value)" in emitted
+    assert "volatile int value = __btrc_setjmp_parameter_value;" in emitted
     assert "volatile int i = 0;" in emitted
     assert "for (; (i < 1); ((void)(" in emitted
     # The volatile loop variable is updated in place on every iteration.
@@ -176,7 +178,8 @@ def test_try_local_c_aggregate_is_not_volatile():
         int main() { return run(0); }
     """)
 
-    assert "int run(volatile int outer)" in emitted
+    assert "int run(volatile int __btrc_setjmp_parameter_outer)" in emitted
+    assert "volatile int outer = __btrc_setjmp_parameter_outer;" in emitted
     assert "Probe probe;" in emitted
     assert "volatile Probe probe;" not in emitted
 
@@ -798,7 +801,10 @@ _REGISTER_SCALARS = """
 
 def test_register_scalar_shapes_qualify_parameters_and_once_initialized_locals():
     emitted = emit_c(_REGISTER_SCALARS)
-    assert "void Pump_pumpOnce(Pump* volatile self, volatile int timeoutMilliseconds) {" in emitted
+    assert (
+        "void Pump_pumpOnce(Pump* volatile self, volatile int __btrc_setjmp_parameter_timeoutMilliseconds) {" in emitted
+    )
+    assert "volatile int timeoutMilliseconds = __btrc_setjmp_parameter_timeoutMilliseconds;" in emitted
     assert re.search(r"^\s*volatile int window = ", emitted, re.MULTILINE)
     assert re.search(r"^\s*volatile int replace = ", emitted, re.MULTILINE)
     assert "int publish(volatile int count, volatile long key, volatile bool fail) {" in emitted
@@ -919,3 +925,67 @@ def test_setjmp_shapes_build_with_gcc_clobbered_errors(tmp_path, program):
         assert build.returncode == 0, build.stderr
         run = subprocess.run([str(tmp_path / "shapes")], capture_output=True, text=True, timeout=30)
         assert run.returncode == 0, run.stderr
+
+
+def test_mutated_setjmp_parameters_use_local_storage_once():
+    parameter = IRParam(CType("int"), "value")
+    untouched = IRParam(CType("int"), "untouched")
+    shadow = IRVarDecl(CType("int"), "untouched", IRLiteral("1"))
+    branch = IRIf(
+        condition=IRBinOp(IRCall("setjmp", [IRVar("frame")]), "==", IRLiteral("0")),
+        then_block=IRBlock(
+            stmts=[
+                IRAssign(IRVar("value"), IRLiteral("4")),
+                shadow,
+                IRAssign(IRVar("untouched"), IRLiteral("2")),
+            ]
+        ),
+    )
+    function = IRFunctionDef(
+        name="probe",
+        return_type=CType("int"),
+        params=[parameter, untouched],
+        body=IRBlock(stmts=[branch, IRReturn(IRVar("value"))]),
+        is_static=True,
+    )
+    module = IRModule(function_defs=[function])
+    ExceptionLowerer.apply_setjmp_volatility(module)
+    local = function.body.stmts[0]
+    assert isinstance(local, IRVarDecl)
+    assert local.name == "value" and local.is_volatile and local.effective_is_volatile
+    assert isinstance(local.init, IRVar) and local.init.name == parameter.name
+    assert parameter.name != "value"
+    assert untouched.name == "untouched"
+    assert function.body.stmts[1] is branch
+    result = function.body.stmts[-1]
+    ExceptionLowerer.apply_setjmp_volatility(module)
+    assert function.body.stmts == [local, branch, result]
+
+
+@pytest.mark.parametrize("hosted_type", ["pid_t", "size_t", "ssize_t", "uint64_t", "time_t", "double_t"])
+def test_hosted_arithmetic_storage_visible_at_setjmp_is_volatile(hosted_type):
+    parameter = IRParam(CType(hosted_type), "parameter")
+    local = IRVarDecl(CType(hosted_type), "local", IRLiteral("0"))
+    alias = IRVarDecl(CType("Count"), "count", IRLiteral("0"))
+    addressed = IRVarDecl(CType(hosted_type), "addressed", IRLiteral("0"))
+    body = IRBlock(
+        stmts=[
+            local,
+            alias,
+            addressed,
+            IRExprStmt(IRAddressOf(IRVar("addressed"))),
+            IRIf(IRBinOp(IRCall("setjmp", [IRVar("frame")]), "==", IRLiteral("0")), IRBlock()),
+        ]
+    )
+    module = IRModule(
+        typedef_defs=[IRTypedefDef(CType(hosted_type), "Count")],
+        function_defs=[IRFunctionDef(name="probe", return_type=CType("void"), params=[parameter], body=body)],
+    )
+    ExceptionLowerer.apply_setjmp_volatility(module)
+    assert all(value.is_volatile for value in (parameter, local, alias))
+    assert not addressed.is_volatile
+
+
+def test_local_typedef_representation_overrides_hosted_scalar_classification():
+    module = IRModule(typedef_defs=[IRTypedefDef(CType("struct Record"), "pid_t")])
+    assert "pid_t" not in ExceptionLowerer.scalar_type_aliases(module)

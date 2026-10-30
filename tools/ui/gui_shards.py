@@ -1,6 +1,6 @@
-"""Run and verify deterministic partitions of the complete Linux GUI selection.
+"""Run and verify deterministic partitions of the complete GUI selection.
 
-Collection and execution run inside the same headless session. A partition is
+Collection and execution run inside the same platform session. A partition is
 qualified only with exact JUnit/skip membership; a session requires the disjoint
 union of all of its partitions. No test timeout or skip policy is changed here.
 """
@@ -19,7 +19,8 @@ from pathlib import Path
 from tools.qualification.skips import SkipGate, SkipReport
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = "btrc.gui-partition/1"
+SCHEMA = "btrc.gui-partition/2"
+LEGACY_SCHEMA = "btrc.gui-partition/1"
 NODE_PROPERTY = "btrc.gui-shard-nodeid"
 
 
@@ -52,13 +53,35 @@ class GUIPartition:
     def digest(nodes: list[str]) -> str:
         return hashlib.sha256(json.dumps(nodes, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
 
+    @staticmethod
+    def runner(session: str) -> str:
+        if session == "macos":
+            return "macos-hosted"
+        if session in ("x11", "wayland"):
+            return "linux-devcontainer"
+        raise ValueError(f"Unknown GUI session: {session}")
+
     @classmethod
-    def create(cls, whole: list[str], session: str, index: int, count: int, revision: str) -> dict:
+    def create(
+        cls, whole: list[str], session: str, index: int, count: int, revision: str, *, schema: str = SCHEMA
+    ) -> dict:
+        cls.runner(session)
         whole = cls.nodes(whole)
         if count < 1 or not 0 <= index < count or len(whole) < count:
             raise ValueError("GUI partition index/count must describe nonempty cells")
+        if schema not in (SCHEMA, LEGACY_SCHEMA):
+            raise ValueError("Unsupported GUI partition schema")
+        # Fixed strides align repeated parameter matrices with individual cells.
+        # Rotate each block while retaining sorted invocation order and full coverage.
+        selected = (
+            whole[index::count]
+            if schema == LEGACY_SCHEMA
+            else [
+                node for position, node in enumerate(whole) if (position % count + position // count) % count == index
+            ]
+        )
         return {
-            "schema": SCHEMA,
+            "schema": schema,
             "session": session,
             "cell": f"{session}-{index}",
             "index": index,
@@ -66,13 +89,13 @@ class GUIPartition:
             "revision": revision,
             "whole": whole,
             "whole_sha256": cls.digest(whole),
-            "selected": whole[index::count],
+            "selected": selected,
             "status": "collected",
         }
 
     @classmethod
     def validate(cls, record: dict, session: str, count: int, revision: str) -> list[str]:
-        expected = cls.create(record["whole"], session, record["index"], count, revision)
+        expected = cls.create(record["whole"], session, record["index"], count, revision, schema=record.get("schema"))
         if any(record.get(key) != value for key, value in expected.items() if key != "status"):
             raise ValueError("GUI partition source, manifest, hash or membership differs")
         if record.get("status") != "passed":
@@ -80,7 +103,7 @@ class GUIPartition:
         return record["selected"]
 
     @classmethod
-    def outcomes(cls, directory: Path, selected: list[str], revision: str) -> None:
+    def outcomes(cls, directory: Path, selected: list[str], revision: str, session: str) -> None:
         selected = cls.nodes(selected)
         cases = list(ET.parse(directory / "junit.xml").getroot().iter("testcase"))
         found: dict[str, str] = {}
@@ -98,7 +121,7 @@ class GUIPartition:
         skip_path = directory / "skip-report.json"
         skip = SkipReport.load(skip_path)
         if (
-            skip["runner"] != "linux-devcontainer"
+            skip["runner"] != cls.runner(session)
             or skip["tests"] != found
             or skip.get("invocation", {}).get("exitstatus") != 0
             or skip.get("revision") != revision
@@ -114,6 +137,8 @@ class GUIPartition:
         records = [(path, json.loads(path.read_text())) for path in paths]
         if len(records) != count:
             raise ValueError(f"GUI session needs exactly {count} cell receipts, got {len(records)}")
+        if any(record.get("schema") != records[0][1].get("schema") for _, record in records):
+            raise ValueError("GUI cells mix partition assignment schemas")
         indexes: set[int] = set()
         union: set[str] = set()
         whole: list[str] | None = None
@@ -128,7 +153,7 @@ class GUIPartition:
             if whole is not None and record["whole"] != whole:
                 raise ValueError("GUI cells collected different complete manifests")
             whole = record["whole"]
-            cls.outcomes(path.parent, selected, revision)
+            cls.outcomes(path.parent, selected, revision, session)
         if indexes != set(range(count)) or sorted(union) != whole:
             raise ValueError("GUI cells do not cover the complete collection")
         return {
@@ -178,12 +203,13 @@ class GUIShardRun:
         return code
 
     def run(self) -> None:
-        if (
-            sys.platform != "linux"
-            or os.environ.get("SDL_VIDEODRIVER") != self.session
-            or os.environ.get("BTRC_TEST_RUNNER") != "linux-devcontainer"
-        ):
-            raise ValueError("GUI partitions require their selected Linux devcontainer headless session")
+        runner = GUIPartition.runner(self.session)
+        if self.session == "macos":
+            admitted = sys.platform == "darwin"
+        else:
+            admitted = sys.platform == "linux" and os.environ.get("SDL_VIDEODRIVER") == self.session
+        if not admitted or os.environ.get("BTRC_TEST_RUNNER") != runner:
+            raise ValueError(f"GUI partitions require the selected {self.session} session on {runner}")
         self.output.mkdir(parents=True, exist_ok=True)
         if (
             any(
@@ -242,7 +268,7 @@ class GUIShardRun:
                 (self.output / "skip-report.json").write_bytes(self.skip_report.read_bytes())
             if code:
                 raise ValueError(f"GUI tests exited {code}")
-            GUIPartition.outcomes(self.output, self.record["selected"], revision)
+            GUIPartition.outcomes(self.output, self.record["selected"], revision, self.session)
             self.record["status"] = "passed"
         except Exception as error:
             self.record.update(status="failed", error=str(error))
@@ -255,7 +281,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run")
-    run.add_argument("--session", choices=("x11", "wayland"), required=True)
+    run.add_argument("--session", choices=("x11", "wayland", "macos"), required=True)
     run.add_argument("--index", type=int, default=0)
     run.add_argument("--count", type=int, default=1)
     run.add_argument("--output", type=Path, required=True)
@@ -263,7 +289,7 @@ def main() -> int:
     run.add_argument("--selectors", nargs="+", required=True)
     run.add_argument("arguments", nargs=argparse.REMAINDER)
     aggregate = commands.add_parser("aggregate")
-    aggregate.add_argument("--session", choices=("x11", "wayland"), required=True)
+    aggregate.add_argument("--session", choices=("x11", "wayland", "macos"), required=True)
     aggregate.add_argument("--count", type=int, required=True)
     aggregate.add_argument("--revision", required=True)
     aggregate.add_argument("--input", type=Path, required=True)

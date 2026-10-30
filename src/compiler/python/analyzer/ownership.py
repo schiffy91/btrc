@@ -113,6 +113,11 @@ class CallableValueSemantics:
         if expected is None:
             return None
         if isinstance(value, (BraceInitializer, ListLiteral)):
+            if expected.is_array and self.types.has_designators(value):
+                plan = self.types.plan_initializer_slots(
+                    expected, value, self.index, self.session.designator_index_values, self.session.array_bound_values
+                )
+                return ((slot.type, slot.element) for slot in plan.slots)
             if expected.is_array:
                 element_type = self.types.strip_outer_storage(expected, array=True)
                 return ((element_type, element) for element in value.elements)
@@ -122,8 +127,10 @@ class CallableValueSemantics:
                 return zip(expected.generic_args, value.elements)
             declaration = self.struct_declaration(expected)
             if declaration is not None:
-                plan = self.types.initializer_slots(self.session.initializer_slot_plans, self.index, declaration, value)
-                return ((slot.type, slot.element) for slot in plan.slots)
+                slots = self.types.initializer_leaf_slots(
+                    self.session.initializer_slot_plans, self.index, declaration, value
+                )
+                return ((slot.type, slot.element) for slot in slots)
         if isinstance(value, TupleLiteral) and expected.base == "Tuple":
             return zip(expected.generic_args, value.elements)
         if isinstance(value, MapLiteral) and expected.base == "Map" and (len(expected.generic_args) == 2):
@@ -579,7 +586,9 @@ class OwnershipAnalyzer:
                         self.session.error(
                             "Native invocation parameters require @realtime", parameter.line, parameter.col
                         )
-                    if not self._invocation_uses_are_local(
+                    if id(
+                        getattr(callable_, "body", None)
+                    ) not in self.session.unreached_stdlib_bodies and not self._invocation_uses_are_local(
                         getattr(callable_, "body", None), parameter.name, capability
                     ):
                         self.session.error(
@@ -595,7 +604,11 @@ class OwnershipAnalyzer:
         pending = [root]
         while pending:
             node = pending.pop()
-            if node is None or isinstance(node, (str, int, float, bool)):
+            if (
+                node is None
+                or isinstance(node, (str, int, float, bool))
+                or id(node) in self.session.unreached_stdlib_bodies
+            ):
                 continue
             if isinstance(node, (list, tuple)):
                 pending.extend(reversed(node))

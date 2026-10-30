@@ -20,11 +20,12 @@ class Vector<T> {
 		self.len++;
 	}
 
-	public void clear() {
+	public void clear(bool returnEarly) {
 		for (int i = 0; i < self.len; i++) {
 			release self.data[i];
 		}
 		self.len = 0;
+		if (returnEarly) { return; }
 	}
 
 	public void __del__() { free(self.data); }
@@ -56,7 +57,7 @@ int main() {
 	/* Vector.clear contains edge replacement but no ordinary ARC release.
      * Its public collection boundary must force the sub-threshold cycle now,
      * rather than deferring collection until main exits. */
-	roots.clear();
+	roots.clear(false);
 	assert(cycleNodesAlive == 0);
 	print("PASS: edge-only cycle boundary");
 	return 0;

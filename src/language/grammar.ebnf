@@ -19,16 +19,6 @@
 
   -- Keywords: identifiers reserved by the language.
   -- The lexer maps these to distinct token types.
-  --
-  -- RESERVED (lexed as keywords, but no @syntax rule consumes them yet —
-  -- using them is a parse error; they are reserved to keep the C surface
-  -- intact and to leave room for future syntax):
-  --   auto, register  -- C storage classes, not implemented
-  --   goto            -- no goto/label syntax
-  --   override        -- not a member modifier (member_body has no slot for
-  --                      it); `public override int f()` is a parse error
-  -- These remain in @keywords so the keyword/token round-trip stays total
-  -- (every keyword maps to an existing TokenKind, and syntax/tokens.py validates it).
 
   @keywords {
     -- C keywords
@@ -220,11 +210,14 @@
                   (* "class" and "static" both mark a static member; the
                      parser maps both to access "class". *) ;
 
-  member_body = [ "abstract" ] [ "@gpu" ] [ "keep" ] method_or_field_or_property
-                (* Modifier order is fixed: abstract, then @gpu, then keep.
-                   "abstract" is only accepted inside an `abstract class`
-                   (abstract methods elsewhere are a parse error). "keep" marks
-                   the return value as keep-retained. *) ;
+  member_body = [ "abstract" ] [ "override" ] [ "@gpu" ] [ "@realtime" ]
+                [ "keep" ] method_or_field_or_property
+                (* Modifier order is fixed as shown. "abstract" is only
+                   accepted inside an abstract class. "override" applies only
+                   to non-constructor methods and requires a compatible method
+                   inherited from a parent class; dispatch remains static.
+                   @gpu and @realtime cannot be combined. "keep" marks the
+                   return value as keep-retained. *) ;
 
   method_or_field_or_property
               = type_expr IDENT method_rest        (* method: has ( *)
@@ -393,7 +386,9 @@
                  pointer-valued T[]. A cast to an array type is refused
                  (C11 6.5.4p2). *) ;
 
-  type_qualifier = "const" | "static" | "extern" | "volatile" ;
+  type_qualifier = "const" | "static" | "extern" | "volatile" | "auto" | "register" ;
+                  (* auto declares a block-scope object, including a C-for
+                     initializer; var remains the type-inference spelling. *)
 
   -- Several declarators (C11 6.7.6, PLAN.md D20). The first declarator's
   -- "*"s are the ones type_expr reads; every later declarator writes its own,
@@ -481,18 +476,21 @@
   -- Statements
   -- ----------------------------------------------------------------
 
-  block = "{" { statement | ";" } "}"
+  block = "{" { block_item } "}"
           (* A ";" inside a statement list is an empty statement and
              produces no node. *) ;
 
+  block_item = label | statement | ";" ;
+  label = IDENT ":" ;
+
   body = block
-       | ";"
-       | statement
+       | { label } ( ";" | statement )
          (* The substatement of if, else, while, do and the C-style for
             (C11 6.8.4, 6.8.5). Anything but a block is wrapped in a
             synthesized block positioned at its first token, so it keeps the
             scope a braced body has; a lone ";" is an empty block positioned
-            at the ";". A var_decl_stmt is not a statement in C and is
+            at the ";". Leading labels precede that one statement in the
+            synthesized block. A var_decl_stmt is not a statement in C and is
             refused as a body. A dangling "else" binds to the nearest "if".
             for-in, parallel for, try/catch/finally and switch stay
             braced. *) ;
@@ -508,6 +506,7 @@
             | switch_stmt
             | break_stmt
             | continue_stmt
+            | goto_stmt
             | try_catch_stmt
             | throw_stmt
             | delete_stmt
@@ -536,6 +535,7 @@
   do_while_stmt   = "do" body "while" "(" expr ")" ";" ;
   break_stmt      = "break" ";" ;
   continue_stmt   = "continue" ";" ;
+  goto_stmt       = "goto" IDENT ";" ;
   throw_stmt      = "throw" expr ";" ;
   delete_stmt     = "delete" expr ";" ;
   keep_stmt       = "keep" expr ";" ;
@@ -576,7 +576,7 @@
   parallel_for_stmt = "parallel" "for" IDENT "in" expr block ;
 
   switch_stmt = "switch" "(" expr ")" "{" { case_clause } "}" ;
-  case_clause = ( "case" expr | "default" ) ":" { statement | ";" } ;
+  case_clause = ( "case" expr | "default" ) ":" { block_item } ;
 
   try_catch_stmt = "try" block
                    [ "catch" "(" [ type_expr ] IDENT ")" block ]

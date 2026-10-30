@@ -5,7 +5,10 @@ import Library.Strings;
 import Library.Vector;
 
 import ../generated/ast/Node.btrc;
+import ./Literals.btrc;
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 class AstIdentity {
 	/* Source positions are not unique for chained expressions. The self-host
@@ -148,6 +151,17 @@ class AstCanonicalRenderer {
 	}
 
 	public string render(Node node) { return self.renderAtDepth(node, 0); }
+
+	/* Constructor spelling belongs to the canonical renderer. Rendering an
+	 * empty node of that kind avoids traversing the declaration's body. */
+	public string constructorName(Node node) {
+		var empty = Node();
+		empty.kind = node.kind;
+		string text = self.renderAtDepth(empty, 0);
+		int end = text.indexOf("\n");
+		if (end < 0) { end = text.length() - 1; }
+		return text.substring(1, end - 1);
+	}
 
 	private void enterMembers(bool template) { if (template) { self.templateDepth = self.templateDepth + 1; } }
 
@@ -293,6 +307,8 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "generic_args=" + self.canonNodeList(node.genericArgs(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "pointer_depth=" + self.canonInt(node.pointerDepth);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_array=" + self.canonBool(node.isArray);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_register=" + self.canonBool(node.isRegister);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_auto=" + self.canonBool(node.isAuto);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "array_size=" + self.canonNode(node.arraySize, d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "elements=" + self.canonNodeList(node.elements(), d + 1);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_const=" + self.canonBool(node.isConst);
@@ -340,6 +356,7 @@ class AstCanonicalRenderer {
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.isGpu);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.isRealtime);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_abstract=" + self.canonBool(node.isAbstract);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "is_override=" + self.canonBool(node.isOverride);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keepReturn);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
@@ -529,6 +546,20 @@ class AstCanonicalRenderer {
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
 			return out + ")";
+		} else if (node.kind == NK_GOTO_STMT) {
+			string out = "(GotoStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.nameLine); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.nameCol); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
+			return out + ")";
+		} else if (node.kind == NK_LABEL_STMT) {
+			string out = "(LabelStmt";
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "name=" + self.canonStr(node.name);
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
+			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
+			return out + ")";
 		} else if (node.kind == NK_ELSE_BLOCK) {
 			string out = "(ElseBlock";
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.bodyNode, d + 1);
@@ -554,7 +585,7 @@ class AstCanonicalRenderer {
 			return out + ")";
 		} else if (node.kind == NK_INT_LITERAL) {
 			string out = "(IntLiteral";
-			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonInt(node.valueInt);
+			out = out + "\n" + self.spaces(2 * (d + 1)) + "value=" + self.canonInt(node.valueInt, node.raw);
 			out = out + "\n" + self.spaces(2 * (d + 1)) + "raw=" + self.canonStr(node.raw);
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "line=" + self.canonInt(node.line); }
 			if (self.positions) { out = out + "\n" + self.spaces(2 * (d + 1)) + "col=" + self.canonInt(node.col); }
@@ -808,7 +839,14 @@ class AstCanonicalRenderer {
 		return s;
 	}
 
-	private string canonInt(int v) { return Strings.fromInt(v); }
+	private string canonInt(int v, string raw = "") {
+		/* Wide source integers live in raw; valueInt is only a small-value cache. */
+		if (!self.positions && !raw.isEmpty()) {
+			var literal = IntegerLiteral(raw).details();
+			if (literal.valid) { return f"{literal.magnitude}"; }
+		}
+		return Strings.fromInt(v);
+	}
 
 	private string canonBool(bool b) { if (b) { return "true"; } return "false"; }
 
@@ -816,6 +854,14 @@ class AstCanonicalRenderer {
 	 * one at or past the overflow midpoint 2^128 - 2^103 prints as infinity
 	 * rather than converting out of range. */
 	private string canonFloat(double f) {
+		if (!self.positions) {
+			/* Identity retains binary64 bits; inspection keeps display rounding. */
+			unsigned long long bits = 0;
+			memcpy(&bits, &f, sizeof(double));
+			char text[17];
+			snprintf(text, sizeof(text), "%016llx", bits);
+			return "binary64:" + Strings.copy(text);
+		}
 		double overflow = 340282356779733661637539395458142568448.0;
 		if (f >= overflow) { return "inf"; }
 		if (f <= -overflow) { return "-inf"; }
@@ -923,6 +969,8 @@ class TypeIdentity {
 		if (typeExpr.isStatic) { bits = bits + 2; }
 		if (typeExpr.isExtern) { bits = bits + 4; }
 		if (typeExpr.isVolatile) { bits = bits + 8; }
+		if (typeExpr.isRegister) { bits = bits + 16; }
+		if (typeExpr.isAuto) { bits = bits + 32; }
 		return bits;
 	}
 
@@ -1069,7 +1117,7 @@ class TypeIdentity {
 		int array = TypeIdentity.decodeTagged(text, 'a', cursor);
 		int qualifiers = TypeIdentity.decodeTagged(text, 'q', cursor);
 		int count = TypeIdentity.decodeTagged(text, 'k', cursor);
-		if (base == null || pointers < 0 || nullable < 0 || nullable > 1 || outer < 0 || array < 0 || array > 1 || qualifiers < 0 || qualifiers > 15 || count < 0) { return null; }
+		if (base == null || pointers < 0 || nullable < 0 || nullable > 1 || outer < 0 || array < 0 || array > 1 || qualifiers < 0 || qualifiers > 63 || count < 0) { return null; }
 		Node result = Node();
 		result.kind = NK_TYPE_EXPR;
 		result.base = base;
@@ -1081,6 +1129,8 @@ class TypeIdentity {
 		result.isStatic = (qualifiers / 2) % 2 == 1;
 		result.isExtern = (qualifiers / 4) % 2 == 1;
 		result.isVolatile = (qualifiers / 8) % 2 == 1;
+		result.isRegister = (qualifiers / 16) % 2 == 1;
+		result.isAuto = (qualifiers / 32) % 2 == 1;
 		int index = 0;
 		while (index < count) {
 			string? argument = TypeIdentity.decodeField(text, "t", cursor);
@@ -1105,6 +1155,15 @@ class TypeIdentity {
 	class string shapeKey(Node typeExpr) { return TypeIdentity.encode(typeExpr); }
 
 	class string genericInstanceKey(string base, Vector<Node> args) { return TypeIdentity.encodeNameAndTypes(base, args); }
+
+	class string classCallableKey(Node receiver, string kind, string name) {
+		StringBuilder out = StringBuilder();
+		TypeIdentity.appendHexField(out, "b", receiver.base);
+		TypeIdentity.appendTypes(out, receiver.genericArgs());
+		TypeIdentity.appendHexField(out, "k", kind);
+		TypeIdentity.appendHexField(out, "m", name);
+		return out.toString();
+	}
 
 	class string methodInstanceKey(string classBase, Vector<Node> classArgs, string methodName, Vector<Node> methodArgs) {
 		StringBuilder out = StringBuilder();
@@ -1141,6 +1200,12 @@ class TypeIdentity {
 		if (!qualifiedComponent && typeExpr.isVolatile) {
 			return "generic arguments cannot be volatile-qualified";
 		}
+		if (!qualifiedComponent && typeExpr.isRegister) {
+			return "generic arguments cannot be register-qualified";
+		}
+		if (!qualifiedComponent && typeExpr.isAuto) {
+			return "generic arguments cannot be auto-qualified";
+		}
 		bool childIsStructuralComponent = typeExpr.base == "Tuple" || typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr";
 		int index = 0;
 		while (index < typeExpr.genericArgs().len) {
@@ -1174,7 +1239,7 @@ class TypeIdentity {
 	 * when an ordinary identifier x is in scope, so the caller checks the name
 	 * against its own bindings. */
 	class string ordinaryIdentifier(Node? typeExpr) {
-		if (typeExpr == null || typeExpr.genericArgs().len > 0 || typeExpr.pointerDepth != 0 || typeExpr.isArray || typeExpr.arraySize != null || typeExpr.elements().len > 0 || typeExpr.isConst || typeExpr.isNullable || typeExpr.isStatic || typeExpr.isExtern || typeExpr.isVolatile || typeExpr.arrayPointerDepth != 0) {
+		if (typeExpr == null || typeExpr.genericArgs().len > 0 || typeExpr.pointerDepth != 0 || typeExpr.isArray || typeExpr.arraySize != null || typeExpr.elements().len > 0 || typeExpr.isConst || typeExpr.isNullable || typeExpr.isStatic || typeExpr.isExtern || typeExpr.isVolatile || typeExpr.isRegister || typeExpr.isAuto || typeExpr.arrayPointerDepth != 0) {
 			return "";
 		}
 		return typeExpr.base;
@@ -1189,7 +1254,7 @@ class TypeIdentity {
 		}
 	}
 
-	class bool legacyComponentPossible(Node typeExpr) { return typeExpr.genericArgs().len == 0 && TypeIdentity.safeBase(typeExpr.base) && typeExpr.nullableOuterDepth == 0 && !typeExpr.isConst && !typeExpr.isStatic && !typeExpr.isExtern && !typeExpr.isVolatile; }
+	class bool legacyComponentPossible(Node typeExpr) { return typeExpr.genericArgs().len == 0 && TypeIdentity.safeBase(typeExpr.base) && typeExpr.nullableOuterDepth == 0 && !typeExpr.isConst && !typeExpr.isStatic && !typeExpr.isExtern && !typeExpr.isVolatile && !typeExpr.isRegister && !typeExpr.isAuto; }
 
 	class string legacyComponent(Node typeExpr) {
 		string component = typeExpr.base;

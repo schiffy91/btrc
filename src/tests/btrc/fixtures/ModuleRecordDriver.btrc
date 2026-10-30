@@ -1,0 +1,354 @@
+import Library.IO;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+import Library.JSON;
+import Library.Digest.SHA256;
+
+import ../../../compiler/btrc/pipeline/ModuleUnits.btrc;
+import ../../../compiler/btrc/cli/Driver.btrc;
+import ../../../compiler/btrc/pipeline/Models.btrc;
+import ../../../compiler/btrc/pipeline/Pipeline.btrc;
+import ../../../compiler/btrc/ir/optimization/setjmp/Analysis.btrc;
+import ../../../compiler/btrc/frontend/Models.btrc;
+import ../../../compiler/btrc/frontend/SourceIo.btrc;
+import ../../../compiler/btrc/generated/ast/Node.btrc;
+import ../../../compiler/btrc/parser/Stage.btrc;
+import ../../../compiler/btrc/syntax/Identity.btrc;
+import ../../../compiler/btrc/ir/Model.btrc;
+
+class EmptyModuleCache implements IBtrccArtifactCache {
+	public EmptyModuleCache() {}
+
+	public BtrccCompilationResult? load(string identity) { return null; }
+
+	public void store(string identity, BtrccCompilationResult result) {}
+
+	public BtrccModuleUnitPayload? loadModuleUnit(string identity) { return null; }
+
+	public void storeModuleUnit(string identity, BtrccModuleUnitPayload payload) {}
+}
+
+class ModuleKeyProbe {
+	class string run(JSONValue data, string group) {
+		var options = BtrccOptions();
+		options.debug = data.get("debug").asBool();
+		options.runDce = data.get("dce").asBool();
+		options.strictImports = data.get("strict_imports").asBool();
+		options.includeStdlib = data.get("include_stdlib").asBool();
+		options.stdlibStrict = data.get("stdlib_strict").asBool();
+		options.unitsPrefix = data.get("units_prefix").asString();
+		options.outputPath = data.get("generated_c_path").asString();
+		string target = data.get("target").asString();
+		Map<string, string> defines = {};
+		var configured = data.get("native_defines");
+		for name in configured.keys() { defines.put(name, configured.get(name).asString()); }
+		string context = ModuleUnitCompiler.cacheContext(options, target, defines);
+		SHA256 digest = SHA256();
+		Vector<FeLine> lines = [];
+		Map<string, Vector<FeDependencyEdge>> outgoing = {};
+		var rows = data.get("lines");
+		for (int index = 0; index < rows.size(); index++) {
+			var row = rows.at(index);
+			string path = row.at(0).asString();
+			int number = row.at(1).asInt();
+			string text = row.at(2).asString();
+			ModuleUnitCompiler.appendSourceLine(digest, path, number, text);
+			lines.push(FeLine(text, path, number));
+			outgoing.put(path, []);
+		}
+		string source = digest.finish();
+		Map<string, Vector<string>> parents = {};
+		var resolved = FeResolvedSource("", "", "", lines, FeDependencyGraph(outgoing, parents), options.strictImports, 0, group, FeStdlibRootSnapshot([], []));
+		var program = Node();
+		program.kind = NK_PROGRAM;
+		Vector<Node> declarations = [];
+		var validation = ValidationRecords(program, declarations, resolved, options, EmptyModuleCache(), "native", target);
+		var output = JSONValue.makeObject();
+		output.set("context", JSONValue.makeString(context));
+		output.set("source", JSONValue.makeString(source));
+		output.set("key", JSONValue.makeString(ModuleUnitCompiler.cacheKey(context, group, source, data.get("program").asString())));
+		var reused = JSONValue.makeObject();
+		for name in validation.groupSourceDigests.keys() { reused.set(name, JSONValue.makeString(validation.groupSourceDigests.get(name))); }
+		output.set("validation", reused);
+		return output.stringify();
+	}
+}
+
+class ModuleInterfaceProbe {
+	class Node parse(string source) {
+		var grammar = EbnfGrammarParser(Path.readAll("src/language/grammar.ebnf")).parse();
+		var lexer = Lexer(source, grammar);
+		var tokens = lexer.tokenize();
+		if (lexer.failed) { throw lexer.diagnostic; }
+		var parser = Parser(tokens, grammar);
+		var program = parser.parseProgram();
+		if (parser.failed) { throw parser.diagnostic; }
+		return program;
+	}
+
+	class string run(string path) {
+		var program = ModuleInterfaceProbe.parse(Path.readAll(path));
+		var renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
+		var digest = SHA256();
+		for declaration in program.declarations() { digest.appendText(SHA256.digest(renderer.render(declaration))); }
+		var result = JSONValue.makeObject();
+		result.set("text", JSONValue.makeString(renderer.render(program)));
+		result.set("digest", JSONValue.makeString(digest.finish()));
+		return result.stringify();
+	}
+}
+
+class InterfaceProbeCache implements IBtrccArtifactCache {
+	public Map<string, BtrccModuleUnitPayload> records = {};
+	public Vector<string> writes = [];
+	public InterfaceProbeCache(JSONValue rows) {
+		for key in rows.keys() { var row = rows.get(key); self.records.put(key, BtrccModuleUnitPayload(row.at(0).asString(), row.at(1).asString(), row.size() > 2 ? row.at(2).asString() : "", row.size() > 3 ? row.at(3).asString() : "")); }
+	}
+
+	public BtrccCompilationResult? load(string identity) { return null; }
+
+	public void store(string identity, BtrccCompilationResult result) {}
+
+	public BtrccModuleUnitPayload? loadModuleUnit(string identity) { return self.records.has(identity) ? self.records.get(identity) : null; }
+
+	public void storeModuleUnit(string identity, BtrccModuleUnitPayload payload) { self.records.put(identity, payload); self.writes.push(identity); }
+}
+
+class GroupedInterfaceProbe {
+	class string run(JSONValue data, string root) {
+		var options = BtrccOptions();
+		options.useCache = data.get("use_cache").asBool();
+		options.strictImports = data.get("strict_imports").asBool();
+		options.includeStdlib = data.get("include_stdlib").asBool();
+		options.stdlibStrict = data.get("stdlib_strict").asBool();
+		Vector<FeLine> lines = [];
+		Vector<string> texts = [];
+		Map<string, Vector<FeDependencyEdge>> outgoing = {};
+		outgoing.put(root, []);
+		var rows = data.get("lines");
+		for (int index = 0; index < rows.size(); index++) {
+			var row = rows.at(index);
+			string path = row.at(0).asString();
+			string text = row.at(2).asString();
+			lines.push(FeLine(text, path, row.at(1).asInt()));
+			texts.push(text);
+			if (!outgoing.has(path)) { outgoing.put(path, []); outgoing.get(root).push(FeDependencyEdge(path, FE_DEPENDENCY_IMPORT)); }
+		}
+		string userSource = Strings.join(texts, "\n");
+		string stdlib = data.get("stdlib").asString();
+		string source = stdlib.isEmpty() ? userSource : stdlib + "\n" + userSource;
+		int stdlibLines = stdlib.isEmpty() ? 0 : Strings.split(stdlib, "\n").len;
+		Map<string, Vector<string>> parents = {};
+		var resolved = FeResolvedSource(userSource, source, stdlib, lines, FeDependencyGraph(outgoing, parents), options.strictImports, stdlibLines, root, FeStdlibRootSnapshot([], []));
+		var program = ModuleInterfaceProbe.parse(source);
+		Vector<Node> sourceDeclarations = [];
+		for declaration in program.declarations() { sourceDeclarations.push(declaration); }
+		var others = ModuleInterfaceProbe.parse(data.get("other").asString());
+		for declaration in others.declarations() { declaration.line = 0; sourceDeclarations.push(declaration); }
+		var natives = ModuleInterfaceProbe.parse(data.get("native").asString());
+		Vector<Node> combined = [];
+		for declaration in natives.declarations() { combined.push(declaration); }
+		for declaration in sourceDeclarations { combined.push(declaration); }
+		program.declarationsStorage = combined;
+		var store = InterfaceProbeCache(data.get("records"));
+		string nativeIdentity = data.get("native_identity").asString();
+		string target = data.get("target").asString();
+		var interfaces = ModuleUnitInterfaces(program, sourceDeclarations, resolved, options, store, nativeIdentity, target);
+		var validation = ValidationRecords(program, sourceDeclarations, resolved, options, store, nativeIdentity, target, interfaces);
+		var result = JSONValue.makeObject();
+		result.set("digest", JSONValue.makeString(interfaces.digest));
+		result.set("validation_digest", JSONValue.makeString(validation.interfaceDigest));
+		result.set("context", JSONValue.makeString(interfaces.contextValue));
+		var records = JSONValue.makeObject();
+		for key in store.records.keys() {
+			var payload = store.records.get(key);
+			var row = JSONValue.makeArray();
+			row.push(JSONValue.makeString(payload.record));
+			row.push(JSONValue.makeString(payload.text));
+			if (!payload.interfaceHeader.isEmpty() || !payload.linkPlanFragment.isEmpty()) {
+				row.push(JSONValue.makeString(payload.interfaceHeader));
+				row.push(JSONValue.makeString(payload.linkPlanFragment));
+			}
+			records.set(key, row);
+		}
+		result.set("records", records);
+		store.writes.sort();
+		var writes = JSONValue.makeArray();
+		for key in store.writes { writes.push(JSONValue.makeString(key)); }
+		result.set("writes", writes);
+		return result.stringify();
+	}
+}
+
+class ModulePipelineProbe {
+	class string run(JSONValue data, string root) {
+		var options = BtrccOptions();
+		options.includeStdlib = false;
+		options.moduleUnits = true;
+		options.unitsPrefix = data.get("prefix").asString();
+		options.useCache = data.get("use_cache").asBool();
+		var grammar = EbnfGrammarParser(Path.readAll("src/language/grammar.ebnf")).parse();
+		var pipeline = CompilerPipeline(grammar, "src/stdlib", FeSourceFileReader());
+		var store = InterfaceProbeCache(data.get("records"));
+		pipeline.setModuleUnitStore(store);
+		var built = pipeline.compile(Path.readAll(root), root, options);
+		if (!built.success) { throw built.diagnostic; }
+		var result = JSONValue.makeObject();
+		result.set("output", JSONValue.makeString(built.output));
+		var units = JSONValue.makeArray();
+		for unit in built.units { units.push(JSONValue.makeString(unit)); }
+		result.set("units", units);
+		result.set("lowered", JSONValue.makeInt(built.moduleUnitsLowered.len));
+		result.set("reused", JSONValue.makeInt(built.moduleUnitsReused.len));
+		var records = JSONValue.makeObject();
+		for key in store.records.keys() {
+			var payload = store.records.get(key);
+			var row = JSONValue.makeArray();
+			row.push(JSONValue.makeString(payload.record));
+			row.push(JSONValue.makeString(payload.text));
+			if (!payload.interfaceHeader.isEmpty() || !payload.linkPlanFragment.isEmpty()) {
+				row.push(JSONValue.makeString(payload.interfaceHeader));
+				row.push(JSONValue.makeString(payload.linkPlanFragment));
+			}
+			records.set(key, row);
+		}
+		result.set("records", records);
+		return result.stringify();
+	}
+}
+
+int main(int argc, char** argv) {
+	if (argc != 4) { return 3; }
+	string mode = Strings.copy(argv[1]);
+	string group = Strings.copy(argv[3]);
+	if (mode == "artifacts") {
+		var input = JSONValue.parse(Path.readAll(Strings.copy(argv[2])));
+		var files = FeSourceFileReader();
+		string prefix = input.has("prefix") ? input.get("prefix").asString() : "";
+		var cache = BtrccArtifactCache(input.get("executable").asString(), files, prefix, null, input.get("data_root").asString(), "");
+		string key = input.get("module").asString();
+		if (input.get("mode").asString() == "put") {
+			cache.storeModuleUnit(key, BtrccModuleUnitPayload(input.get("record").asString(), input.get("text").asString(), input.get("interface_header").asString(), input.get("link_plan_fragment").asString()));
+		}
+		var result = JSONValue.makeObject();
+		string action = input.get("mode").asString();
+		if (action == "generation-put") {
+			var generation = BtrccCompilationResult(true, "primary", "", input.get("plan").asString());
+			generation.units.push(input.get("text").asString());
+			generation.unitKeys.push(key);
+			cache.store("generation", generation);
+		}
+		if (action == "generation-put" || action == "generation-get") {
+			var generation = cache.load("generation");
+			result.set("generation_hit", JSONValue.makeBool(generation != null));
+			if (generation != null) { result.set("unit", JSONValue.makeString(generation.units.get(0))); }
+		}
+		var payload = cache.loadModuleUnit(key);
+		result.set("hit", JSONValue.makeBool(payload != null));
+		if (payload != null) {
+			result.set("record", JSONValue.makeString(payload.record));
+			result.set("text", JSONValue.makeString(payload.text));
+			result.set("interface_header", JSONValue.makeString(payload.interfaceHeader));
+			result.set("link_plan_fragment", JSONValue.makeString(payload.linkPlanFragment));
+		}
+		print(result.stringify());
+		return 0;
+	}
+	if (mode == "interface-header") {
+		print(ModuleUnitInterfaces.headerDigest(Path.readAll(Strings.copy(argv[2]))));
+		return 0;
+	}
+	if (mode == "program-facts") {
+		var input = JSONValue.parse(Path.readAll(Strings.copy(argv[2])));
+		Map<string, Vector<string>> sections = {};
+		for name in input.get("sections").keys() {
+			Vector<string> values = [];
+			if (!ModuleUnitRecord.stringsFrom(input.get("sections").get(name), values)) { return 2; }
+			sections.put(name, values);
+		}
+		string digest = ModuleUnitCompiler.programFactsDigest(sections);
+		var result = JSONValue.makeObject();
+		result.set("program", JSONValue.makeString(digest));
+		result.set("scope", JSONValue.makeString(ModuleUnitCompiler.scopedProgramIdentity(input.get("interface").asString(), digest)));
+		print(result.stringify());
+		return 0;
+	}
+	if (mode == "dependencies") {
+		JSONValue input = JSONValue.parse(Path.readAll(Strings.copy(argv[2])));
+		IRModule unit = IRModule();
+		for value in input.get("declarations").elements() {
+			unit.functionDecls.push(IRFunctionDecl(value.get("name").asString(), value.get("type").asString(), false));
+		}
+		Vector<string> roots = [];
+		if (!ModuleUnitRecord.stringsFrom(input.get("roots"), roots)) { return 2; }
+		print(ModuleUnitDeclarations(unit).dependencyDigest(roots));
+		return 0;
+	}
+	if (mode == "pipeline") {
+		print(ModulePipelineProbe.run(JSONValue.parse(Path.readAll(Strings.copy(argv[2]))), group));
+		return 0;
+	}
+	if (mode == "grouped") {
+		print(GroupedInterfaceProbe.run(JSONValue.parse(Path.readAll(Strings.copy(argv[2]))), group));
+		return 0;
+	}
+	if (mode == "interface") {
+		print(ModuleInterfaceProbe.run(Strings.copy(argv[2])));
+		return 0;
+	}
+	if (mode == "float") {
+		var literal = Node();
+		literal.kind = NK_FLOAT_LITERAL;
+		literal.valueDouble = Strings.copy(argv[2]).toDouble();
+		print(AstCanonicalRenderer.positionFreeRenderer().render(literal));
+		return 0;
+	}
+	if (mode == "name") {
+		print(ModuleUnitCompiler.unitName(group));
+		return 0;
+	}
+	if (mode == "keys") {
+		print(ModuleKeyProbe.run(JSONValue.parse(Path.readAll(Strings.copy(argv[2]))), group));
+		return 0;
+	}
+	if (mode == "read") {
+		var payload = BtrccModuleUnitPayload(Path.readAll(Strings.copy(argv[2])), "int marker;\n");
+		var record = ModuleUnitRecord.fromPayload(payload, group);
+		if (record == null) { return 2; }
+		print(record.toText());
+		return 0;
+	}
+	if (mode != "make") { return 3; }
+	var record = ModuleUnitRecord();
+	record.group = group;
+	record.text = "int marker;\n";
+	record.kept = true;
+	record.exports = ["entry", "genericA"];
+	record.hasSetjmp = true;
+	record.effectsSolved = true;
+	var effect = SetjmpFunctionEffect();
+	effect.writes = [SetjmpParameterEffect(2, 1), SetjmpParameterEffect(10, 1), SetjmpParameterEffect(0, 2)];
+	effect.captures = [SetjmpParameterEffect(1, 0)];
+	effect.returns = [SetjmpParameterEffect(2147483647, 2147483647)];
+	effect.unknownReturn = true;
+	record.exportedEffects.put("entry", effect);
+	record.consultedEffects.put("external", SetjmpFunctionEffect());
+	record.releasesCyclable = true;
+	record.definesEntry = true;
+	record.programRelease = true;
+	record.helpers = ["__btrc_arc_release"];
+	record.realtimeRoots = ["entry"];
+	record.realtimeProofs.put("entry", ["genericA", "external"]);
+	record.realtimeProofs.put("genericA", []);
+	record.graph.roots = ["entry"];
+	record.graph.edges.put("entry", ["genericA"]);
+	record.graph.edges.put("genericA", ["external"]);
+	record.graph.instances.put("genericA", true);
+	record.keptInstances = ["genericA"];
+	record.consultedSources.put("/work/imported.btrc", "abc123");
+	record.declarationRoots = ["Alias", "external", "unknown"];
+	record.declarationDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+	print(record.toText());
+	return 0;
+}

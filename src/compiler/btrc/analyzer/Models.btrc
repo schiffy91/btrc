@@ -45,6 +45,19 @@ class MethodGenInstance {
 	}
 }
 
+/* One ordinary callable selected for a concrete generic class. */
+class ClassCallableInstance {
+	public Node receiver;
+	public string kind;
+	public string name;
+
+	public ClassCallableInstance(Node receiver, string kind, string name) {
+		self.receiver = receiver;
+		self.kind = kind;
+		self.name = name;
+	}
+}
+
 /* What body validation leaves behind for later stages, per kind of fact. */
 enum ValidationFactKind {
 	VALIDATION_HOSTED_CALL = 1,
@@ -61,6 +74,10 @@ enum ValidationFactKind {
 	VALIDATION_BOUNDED_LOOP = 12,
 	VALIDATION_WARNING = 13,
 	VALIDATION_DIVERGENCE = 14,
+	VALIDATION_DESIGNATOR_INDEX = 15,
+	VALIDATION_ARRAY_BOUND_VALUE = 16,
+	VALIDATION_CLASS_CALLABLE = 17,
+	VALIDATION_JUMP_BODY = 18,
 };
 
 /* The per-declaration analysis passes a record covers, in program order:
@@ -95,6 +112,7 @@ class ValidationFact {
 	public bool directCall = false;
 	public bool sourceKnown = false;
 	public int parameter = -1;
+	public long long integerValue = 0;
 	public string name = "";
 	public string member = "";
 	public string detail = "";
@@ -133,6 +151,9 @@ class ValidationJournal {
  * of being validated; a declaration validated live is journaled when
  * `journals` says so, and its journal is handed to `finish`. */
 interface IValidationRecords {
+	/* Body coverage is part of a record's identity. Node identities are
+	 * compilation-local; the record owner renders a stable ordered mask. */
+	void selectBodies(Map<Node, bool> unreached);
 	/* The declaration's recorded facts for a phase, resolved to this
 	 * program's nodes, or null when it must be analyzed live. */
 	Vector<ValidationFact>? recorded(int phase, Node declaration);
@@ -163,6 +184,7 @@ class SemanticInitializerSlot {
 	public Node element;
 	public Vector<Node> path;
 	public Node? type;
+	public Node? site = null;
 
 	public SemanticInitializerSlot(Node element, Vector<Node> path, Node? type) {
 		self.element = element;
@@ -170,26 +192,58 @@ class SemanticInitializerSlot {
 		self.type = type;
 	}
 
-	/* The initialized member: a FieldDef or an AnonymousMember. */
+	/* The leaf storage step: a field, anonymous member or array index. */
 	public Node member() { return self.path.get(self.path.len - 1); }
 }
 
-/* Every brace element of one record initializer mapped to its slot, in source
+class SemanticInitializerProblem {
+	public string message;
+	public Node site;
+	public SemanticInitializerProblem(string message, Node site) {
+		self.message = message;
+		self.site = site;
+	}
+}
+
+/* Every brace element of one record or array initializer mapped to its slot, in source
  * order. capacity is the number of positional slots the record offers, and
  * excess counts elements that found no slot. */
 class SemanticInitializerPlan {
 	public Vector<SemanticInitializerSlot> slots;
 	public int capacity;
 	public int excess;
+	public Node? record;
+	public Vector<SemanticInitializerProblem> problems = [];
+	public unsigned long long extent = 0ULL;
 
-	public SemanticInitializerPlan(Vector<SemanticInitializerSlot> slots, int capacity, int excess) {
+	public SemanticInitializerPlan(Vector<SemanticInitializerSlot> slots, int capacity, int excess, Node? record = null) {
 		self.slots = slots;
 		self.capacity = capacity;
 		self.excess = excess;
+		self.record = record;
 	}
 }
 
 class Analyzed {
+	/* Source pointer depths for type nodes whose class representation is upgraded. */
+	private Map<Node, int> writtenPointerDepths = {};
+
+	public void recordWrittenPointerDepth(Node typeExpr) {
+		if (!self.writtenPointerDepths.has(typeExpr)) { self.writtenPointerDepths.put(typeExpr, typeExpr.pointerDepth); }
+	}
+
+	public int writtenPointerDepth(Node typeExpr) {
+		if (self.writtenPointerDepths.has(typeExpr)) { return self.writtenPointerDepths.get(typeExpr); }
+		return typeExpr.pointerDepth;
+	}
+
+	/* Only callable body roots can be excluded. Signatures, defaults and
+	 * field initializers remain part of semantic analysis. */
+	public Map<Node, bool> unreachedStdlibBodies = {};
+	public Map<string, bool> callableOwnerDemands = {};
+
+	public bool bodyReached(Node? body) { return body == null || !self.unreachedStdlibBodies.has(body); }
+
 	public Vector<FeNativeImportedDeclaration> nativeDeclarations;
 	/* Combined source lines of files that textually include a C header or
 	 * source the importer does not model; ALL_CAPS names there may be C
@@ -371,6 +425,10 @@ class Analyzed {
 	/* Concrete generic instances in discovery (declaration-walk) order, deduped
      * by mangled name. Mirrors analyzer.generic_instances flattened. */
 	public Vector<GenInstance> genericInstances;
+	public Vector<ClassCallableInstance> classCallableInstances = [];
+	public Map<string, bool> classCallableSeen = {};
+	/* Whether realtime validation proved any callable safe. */
+	public bool hasRealtimeSafeCallable = false;
 	/* set of canonical recursive instance keys already collected (dedup). */
 	public Map<string, bool> genericSeen;
 	/* enum type name -> its EnumDecl node (NK_ENUM_DECL). Mirrors enum_table
@@ -446,11 +504,15 @@ class Analyzed {
      * expression. IR generation uses this to fail closed if an invalid VLA
      * initializer somehow bypasses validation. */
 	public Map<string, bool> constantArrayBoundKeys;
+	public Map<string, bool> jumpBodyKeys;
+	public Map<string, long long> arrayBoundValues;
 	/* Record brace-initializer identity -> its slot plan, recorded by
 	 * ExpressionValidator.validateStructInitializer. A replayed module-unit
 	 * record installs none; SemanticTypeSystem.initializerSlots plans such an
 	 * initializer again, identically. */
 	public Map<string, SemanticInitializerPlan> initializerPlans;
+	/* Known, full-width values keyed by the source IndexDesignator. */
+	public Map<string, long long> designatorIndexValues;
 	/* The program's source-macro namespace, installed by validation; lowering
 	 * decodes a string constant's extent through it. */
 	public SourceMacroNamespace? sourceMacros = null;
@@ -504,7 +566,10 @@ class Analyzed {
 		self.genericConstructorIndex = {};
 		self.arrayIterationCapacityKeys = {};
 		self.constantArrayBoundKeys = {};
+		self.jumpBodyKeys = {};
+		self.arrayBoundValues = {};
 		self.initializerPlans = {};
+		self.designatorIndexValues = {};
 		self.realtimeBoundedLoopKeys = {};
 	}
 
@@ -539,9 +604,26 @@ class Analyzed {
 		self.journalFact(VALIDATION_HOSTED_CALL, call, null);
 	}
 
+	public void recordJumpBody(Node body) {
+		self.jumpBodyKeys.put(AstIdentity.key(body), true);
+		self.journalFact(VALIDATION_JUMP_BODY, body, null);
+	}
+
 	public void recordConstantArrayBound(Node bound) {
 		self.constantArrayBoundKeys.put(AstIdentity.key(bound), true);
 		self.journalFact(VALIDATION_CONSTANT_BOUND, bound, null);
+	}
+
+	public void recordArrayBoundValue(Node bound, long long value) {
+		self.arrayBoundValues.put(AstIdentity.key(bound), value);
+		ValidationFact? fact = self.journalFact(VALIDATION_ARRAY_BOUND_VALUE, bound, null);
+		if (fact != null) { fact.integerValue = value; }
+	}
+
+	public void recordDesignatorIndex(Node designator, long long value) {
+		self.designatorIndexValues.put(AstIdentity.key(designator), value);
+		ValidationFact? fact = self.journalFact(VALIDATION_DESIGNATOR_INDEX, designator, null);
+		if (fact != null) { fact.integerValue = value; }
 	}
 
 	public void recordArrayIterationCapacity(Node iterable) {

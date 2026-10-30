@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { once } = require('node:events');
 const test = require('node:test');
+const { readChildPid } = require('./process_fixture');
 
 const extensionBuild = path.resolve(__dirname, '..', '..', '..', 'build', 'devex', 'vscode');
 const {
@@ -129,7 +130,9 @@ test('Windows command-script servers launch through an owned process', {
         try { process.kill(descendantPid, 'SIGKILL'); } catch {}
     });
     const childSource = [
-        "require('node:fs').writeFileSync(process.argv[1], String(process.pid));",
+        "const fs = require('node:fs');",
+        "fs.writeFileSync(process.argv[1] + '.tmp', String(process.pid));",
+        "fs.renameSync(process.argv[1] + '.tmp', process.argv[1]);",
         'setInterval(() => {}, 1000)',
     ].join(' ');
     fs.writeFileSync(command, [
@@ -146,8 +149,7 @@ test('Windows command-script servers launch through an owned process', {
     await languageServer.start();
     assert.notEqual(info.process.pid, undefined);
     assert.equal(await waitUntil(() => fs.existsSync(marker)), true);
-    descendantPid = Number(fs.readFileSync(marker, 'utf8'));
-    assert.equal(Number.isSafeInteger(descendantPid) && descendantPid > 0, true);
+    descendantPid = readChildPid(marker);
     await languageServer.stop();
     assert.equal(await waitUntilDead(info.process.pid), true);
     assert.equal(
@@ -189,8 +191,8 @@ test('normal server exit cleans up residual descendants', {
     const exited = once(info.process, 'exit');
 
     assert.equal(await waitUntil(() => fs.existsSync(pidFile)), true);
-    descendantPid = Number(fs.readFileSync(pidFile, 'utf8'));
     await exited;
+    descendantPid = readChildPid(pidFile);
     await languageServer.stop();
     assert.equal(
         await waitUntilDead(descendantPid),

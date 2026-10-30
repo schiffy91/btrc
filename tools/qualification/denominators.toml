@@ -61,3 +61,36 @@ ids = 333
 slots = 1998
 sha256 = "8b6edcab7038c1655138ae24839fa1bdc25716335950da93f6f571a9d6d407aa"
 source = { ledger = "docs/design/platform-inventory.toml" }
+
+[[denominators]]
+kind = "operation"
+release = "p0-windows-supervisor-2026-10-29"
+platforms = ["windows", "ios", "android"]
+slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
+frontends = []
+ids = 10
+slots = 60
+sha256 = "5218123d7bf687621aa5edb54ce3b5487a0f4a2584f8cbfe60aa8238fe988bc3"
+source = { ledger = "docs/design/platform-inventory/windows-supervisor.toml" }
+
+[[denominators]]
+kind = "operation"
+release = "p0-windows-supervisor-image-2026-10-29"
+platforms = ["windows", "ios", "android"]
+slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
+frontends = []
+ids = 4
+slots = 24
+sha256 = "058b5060fa442b93dba3684dcba97d574ef706a46b2e4208516b01a0d8f4a3e3"
+source = { ledger = "docs/design/platform-inventory/windows-supervisor-image.toml" }
+
+[[denominators]]
+kind = "operation"
+release = "p0-windows-daemon-files-2026-10-29"
+platforms = ["windows", "ios", "android"]
+slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
+frontends = []
+ids = 14
+slots = 84
+sha256 = "0883aed8d00a6cb2bd8505336545522640f1ff40109f66ae29ed34929d7152d5"
+source = { ledger = "docs/design/platform-inventory/windows-daemon-files.toml" }

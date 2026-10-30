@@ -1,0 +1,8 @@
+#include <assert.h>
+struct Point { int x; int y; };
+int main() {
+	struct Point point = {.y = 2, .x = 1};
+	assert(point.x == 1 && point.y == 2);
+	print("PASS: designated field initializer");
+	return 0;
+}

@@ -45,7 +45,9 @@ def _records(cache: Path) -> dict[Path, tuple[int, int]]:
     """The reference compiler's stored unit records, each by the file it was
     last written as: every store replaces the record with a new file."""
     records = {}
-    for path in cache.rglob("*.module.json") if cache.exists() else ():
+    for path in cache.glob("modules-v1/*/record.txt") if cache.exists() else ():
+        if not path.read_text().split("\n", 3)[3].startswith("btrc-module-unit-record\t"):
+            continue
         written = path.stat()
         records[path] = (written.st_ino, written.st_mtime_ns)
     return records
@@ -570,10 +572,10 @@ def test_a_new_tuple_shape_in_one_body_keeps_other_units_exact(compiler: str, de
 
 
 @pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
-def test_a_genuinely_new_tuple_shape_preserves_conservative_invalidation(
+def test_a_new_tuple_shape_reuses_units_with_unchanged_declarations(
     compiler: str, debug, tmp_path, request, monkeypatch
 ):
-    """A new shared shape still invalidates all groups until shared-answer replay exists."""
+    """A new shared shape invalidates only units whose declaration closure changes."""
     cold, incremental, _ = _incremental_matches_clean(
         compiler,
         request,
@@ -587,9 +589,7 @@ def test_a_genuinely_new_tuple_shape_preserves_conservative_invalidation(
     assert any(shape in text for text in incremental.units.values())
     changed = {name for name, text in incremental.units.items() if text != cold.units[name]}
     assert len(changed) == 1 and next(iter(changed)).startswith("p.unit-Lib-"), changed
-    # Canonical ordering does not remove a genuinely changed shared inventory
-    # from the current whole-program key. Keep this guard until replay is proved.
-    _lowered(incremental, 3)
+    _lowered(incremental, 1)
     _run_tuple_units(cold, tmp_path, monkeypatch, 6)
     _run_tuple_units(incremental, tmp_path, monkeypatch, 13)
 
@@ -623,10 +623,10 @@ int main() {
 }
 
 
-def test_reordered_span_shapes_keep_other_units_exact(compiler: str, tmp_path, request):
-    """btrcpy declares span shapes once, in body-discovery order, and every unit
-    takes them in that order; btrcc declares them in each unit's own session."""
-    _, incremental, _ = _incremental_matches_clean(
+@pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
+def test_reordered_span_shapes_keep_other_units_exact(compiler: str, debug, tmp_path, request):
+    """Reordering existing Span shapes changes only the edited module."""
+    cold, incremental, _ = _incremental_matches_clean(
         compiler,
         request,
         tmp_path,
@@ -639,8 +639,17 @@ def test_reordered_span_shapes_keep_other_units_exact(compiler: str, tmp_path, r
                 "\tint storage[2] = {value, value};\n\tSpan<int> view = Span(storage);\n",
             )
         },
+        *(["--debug"] if debug else []),
     )
-    _lowered(incremental, 3 if compiler == "python" else 1)
+    changed = {name for name, text in incremental.units.items() if text != cold.units[name]}
+    assert len(changed) == 1 and next(iter(changed)).startswith("p.unit-Lib-"), changed
+    _lowered(incremental, 1)
+    root = tmp_path.resolve()
+    warm = _build(
+        _command(compiler, request), root / "program", root / "out", root / "cache", *(["--debug"] if debug else [])
+    )
+    assert warm.units == incremental.units and warm.diagnostics == incremental.diagnostics
+    _lowered(warm, 0)
 
 
 _INSTANCE_ORDER_PROGRAM = {

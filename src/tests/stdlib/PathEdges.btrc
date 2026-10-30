@@ -54,6 +54,14 @@ int main() {
 	assert(PathTools.joinFor("\\\\host\\share\\dir", "\\tail", true).equals("\\\\host\\share\\tail"));
 	assert(PathTools.joinFor("/base", "tail", false).equals("/base/tail"));
 
+	assert(PathTools.basenameFor("C:\\state\\control", true).equals("control"));
+	assert(PathTools.dirnameFor("C:\\state\\control", true).equals("C:\\state"));
+	assert(PathTools.dirnameFor("C:\\control", true).equals("C:\\"));
+	assert(PathTools.basenameFor("C:\\", true).equals("C:\\"));
+	assert(PathTools.dirnameFor("\\\\host\\share\\control", true).equals("\\\\host\\share"));
+	assert(PathTools.basenameFor("a\\b", false).equals("a\\b"));
+	assert(PathTools.dirnameFor("a\\b", false).equals("."));
+
 	print("PASS: test_stdlib_path_edges");
 	return 0;
 }

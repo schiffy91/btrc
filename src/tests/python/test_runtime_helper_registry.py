@@ -3,6 +3,7 @@
 import ast
 import re
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -130,9 +131,13 @@ def test_runtime_assets_are_cohesive_domains_with_no_behavior_outside_markers() 
         "threads.c",
         "trycatch.c",
         "windows_os.h",
+        "windows_daemon_image.h",
     }
     # A declaration asset only declares; its external object defines it.
-    assert {(row.source, row.declarations) for row in manifest.external_objects} == {("windows_os.c", "windows_os.h")}
+    assert {(row.source, row.declarations) for row in manifest.external_objects} == {
+        ("windows_os.c", "windows_os.h"),
+        ("windows_daemon_image.c", "windows_daemon_image.h"),
+    }
 
 
 def test_runtime_helpers_do_not_aggregate_initialize_local_error_buffers() -> None:
@@ -141,6 +146,55 @@ def test_runtime_helpers_do_not_aggregate_initialize_local_error_buffers() -> No
     # A freestanding compiler may lower a large local aggregate initializer to
     # a libc memset call. Runtime helpers initialize only the sentinel byte.
     assert not offenders
+
+
+@pytest.mark.parametrize(
+    ("dependencies", "diagnostic"),
+    (
+        (["missing.c"], "unknown dependencies"),
+        (["windows_os.c", "windows_os.c"], "duplicate"),
+        ("windows_os.c", "array of non-empty strings"),
+        ([12], "array of non-empty strings"),
+    ),
+)
+def test_external_object_dependencies_reject_invalid_sources(tmp_path, dependencies, diagnostic):
+    import json
+
+    runtime = tmp_path / "runtime"
+    shutil.copytree(RUNTIME_ROOT, runtime)
+    path = runtime / "manifest.toml"
+    path.write_text(
+        path.read_text().replace(
+            'source = "windows_os.c"\n', f'source = "windows_os.c"\ndependencies = {json.dumps(dependencies)}\n', 1
+        )
+    )
+    with pytest.raises(RuntimeManifestError, match=diagnostic):
+        RuntimeManifest.load(path)
+
+
+def test_external_object_dependencies_resolve_forward_references_and_cycles(tmp_path, monkeypatch):
+    helper = RuntimeManifest.load(MANIFEST_PATH).helpers[0]
+    names = ("first", "second")
+    monkeypatch.setattr(RuntimeManifest, "_DECLARATION_ASSETS", tuple(f"{name}.h" for name in names))
+    helpers = []
+    objects = []
+    for index, name in enumerate(names):
+        (tmp_path / f"{name}.c").write_text(f'#include "{name}.h"\n')
+        helpers.append(replace(helper, name=name, asset=f"{name}.h", source=f"void {name}(void);"))
+        objects.append(
+            {
+                "source": f"{name}.c",
+                "declarations": f"{name}.h",
+                "libraries": [],
+                "dependencies": [f"{names[1 - index]}.c"],
+            }
+        )
+    rows = RuntimeManifest._external_objects(objects, tmp_path, helpers)
+    assert [row.dependencies for row in rows] == [("second.c",), ("first.c",)]
+    objects[1]["source"] = "first.c"
+    (tmp_path / "first.c").write_text('#include "first.h"\n#include "second.h"\n')
+    with pytest.raises(RuntimeManifestError, match="duplicate"):
+        RuntimeManifest._external_objects(objects, tmp_path, helpers)
 
 
 def test_manifest_dependencies_are_known_and_catalog_complete() -> None:

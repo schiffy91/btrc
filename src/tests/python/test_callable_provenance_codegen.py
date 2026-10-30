@@ -77,7 +77,13 @@ def _callable_owner(
     if local_names:
         session.local_ownership_scopes.append(dict.fromkeys(local_names))
     types = CTypeLowerer(session, analyzed)
-    return CallableProvenance(analyzed, session, types, CallableSignatureLowerer(analyzed, types))
+    return CallableProvenance(
+        analyzed,
+        session,
+        types,
+        CallableSignatureLowerer(analyzed, types),
+        SimpleNamespace(resolved_expression_type=session.type_of),
+    )
 
 
 class CallableRuntimeHarness:

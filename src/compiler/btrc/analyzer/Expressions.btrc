@@ -112,7 +112,10 @@ class ExpressionTypeResolver {
 
 	public Node? genericArgumentType(Node argument, Map<string, Node> variables) {
 		if (argument.kind == NK_IDENTIFIER && self.analyzed.funcTable.has(argument.name) && !variables.has(argument.name)) {
-			return CallableSignature.sourceFunctionPointer(self.analyzed.funcTable.get(argument.name));
+			Node declaration = self.analyzed.funcTable.get(argument.name);
+			Node signature = CallableSignature.sourceFunctionPointer(declaration);
+			SemanticTypeSystem.upgradeTypeGenericArgs(signature, self.analyzed, SemanticTypeSystem.genericParameterSet(declaration.genericParams()));
+			return signature;
 		}
 		return self.inferSpecialization(argument, variables);
 	}
@@ -290,6 +293,24 @@ class ExpressionTypeResolver {
 		return self.popBinaryType(values, present);
 	}
 
+	private Node identifierValueType(Node declared, Analyzed analyzed) {
+		Node? resolved = SemanticTypeSystem.resolveOuterTypedefType(declared, analyzed.typedefTable);
+		if (resolved == null || resolved == declared) { return declared; }
+		/* A volatile scalar alias must survive address-taking, which moves its
+		 * qualifier below the new pointer. Flattened types lose that layer. */
+		if (SemanticTypeSystem.typeVolatileMaxDepth(declared, analyzed.typedefTable) >= 0) { return declared; }
+		bool nominalReference = analyzed.isClass(resolved.base) || analyzed.isGenericClass(resolved.base) || analyzed.isInterface(resolved.base);
+		bool rawPointer = resolved.isArray || (resolved.pointerDepth > 0 && (!nominalReference || resolved.pointerDepth > 1));
+		if (rawPointer) {
+			int depth = 0;
+			while (depth <= resolved.pointerDepth + (resolved.isArray ? 1 : 0)) {
+				if (SemanticTypeSystem.typeConstAtDepth(declared, analyzed.typedefTable, depth) != SemanticTypeSystem.typeConstAtDepth(resolved, analyzed.typedefTable, depth)) { return declared; }
+				depth = depth + 1;
+			}
+		}
+		return resolved;
+	}
+
 	private Node? inferTypeRaw(Node? node, Analyzed a, OperatorSemantics operators, Map<string, Node> varTypes) {
 		if (node == null) { return null; }
 		if (node.kind == NK_INT_LITERAL) { return NumericSemantics.integerLiteralType(node.raw, a.longBits); }
@@ -303,11 +324,9 @@ class ExpressionTypeResolver {
 		if (node.kind == NK_IDENTIFIER) {
 			if (node.name == "NULL") { return operators.nullType(); }
 			if (varTypes.has(node.name)) {
-				Node valueType = varTypes.get(node.name);
-				if (valueType.isExtern || valueType.isStatic) {
-					valueType = TypeShape.copy(valueType);
-					valueType.isExtern = false;
-					valueType.isStatic = false;
+				Node valueType = self.identifierValueType(varTypes.get(node.name), a);
+				if (valueType.isExtern || valueType.isStatic || valueType.isAuto || valueType.isRegister) {
+					valueType = TypeShape.valueType(valueType);
 				}
 				return valueType;
 			}
@@ -346,7 +365,7 @@ class ExpressionTypeResolver {
 			return self.inferBinaryType(node, a, operators, varTypes);
 		}
 		if (node.kind == NK_ASSIGN_EXPR) {
-			return self.inferSpecializationType(node.target, a, operators, varTypes);
+			return self.inferTypeRawMemoized(node.target, a, operators, varTypes);
 		}
 		// C's comma operator (for headers only): the last operand's value.
 		if (node.kind == NK_COMMA_EXPR) {
@@ -648,9 +667,9 @@ class ExpressionTypeResolver {
 		}
 		if (node.kind == NK_CAST_EXPR) { return node.targetType; }
 		if (node.kind == NK_TERNARY_EXPR) {
-			Node? trueType = self.inferSpecializationType(node.trueExpr, a, operators, varTypes);
-			Node? falseType = self.inferSpecializationType(node.falseExpr, a, operators, varTypes);
-			Node? numericType = NumericSemantics.resultType(trueType, falseType, a);
+			Node? trueType = self.inferTypeRawMemoized(node.trueExpr, a, operators, varTypes);
+			Node? falseType = self.inferTypeRawMemoized(node.falseExpr, a, operators, varTypes);
+			Node? numericType = NumericSemantics.resultType(SemanticTypeSystem.resolveOuterTypedefType(trueType, a.typedefTable), SemanticTypeSystem.resolveOuterTypedefType(falseType, a.typedefTable), a);
 			if (numericType != null) { return numericType; }
 			if (operators.isNullType(trueType) && falseType != null) {
 				return falseType;

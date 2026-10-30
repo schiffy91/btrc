@@ -163,8 +163,8 @@ def test_unlocated_analyzer_error_becomes_diagnostic(monkeypatch):
 
     real = SemanticAnalyzer.analyze
 
-    def fake(self, program):
-        res = real(self, program)
+    def fake(self, program, *, prune_stdlib=False):
+        res = real(self, program, prune_stdlib=prune_stdlib)
         res.diags.append(Diag("a problem with no position", 0, 0))
         return res
 

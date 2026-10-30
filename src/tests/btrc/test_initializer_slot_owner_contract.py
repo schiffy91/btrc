@@ -29,9 +29,11 @@ OWNER = "the initializer-slot owner itself"
 
 BTRC_ALLOWED = {
     "analyzer/Types.btrc::planInitializerSlots": OWNER,
+    "analyzer/validation/Types.btrc::plainCObjectVisiting": "walks type array extents and record field types independently; no initializer elements",
 }
 PYTHON_ALLOWED = {
     "analyzer/types.py::TypeSystem.plan_initializer_slots": OWNER,
+    "analyzer/types.py::TypeSystem.is_plain_c_object": "walks type array extents and record field types independently; no initializer elements",
     "ir/lowering/exceptions.py::PointerFlow._expression": "walks IRInitializerList.elements and IRCompoundLiteral.fields, lowered IR",
 }
 
@@ -274,8 +276,11 @@ def test_python_slot_plan_follows_members_and_designators() -> None:
         ],
     )
     plan = TypeSystem.plan_initializer_slots(record, designated, tables)
-    assert [slot.path for slot in plan.slots] == [(anonymous, integer), (tail,)]
-    assert plan.excess == 1
+    assert [slot.path for slot in plan.slots] == [(anonymous, integer)]
+    assert len(plan.problems) == 2
+    assert "cannot follow a designator into an anonymous member" in plan.problems[0][0]
+    assert "has no field 'missing'" in plan.problems[1][0]
+    assert plan.excess == 0
 
     union = StructDecl(name="U", fields=[kind, tail], is_union=True)
     first_member = TypeSystem.plan_initializer_slots(union, BraceInitializer(elements=[one, two]), tables)

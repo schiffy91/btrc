@@ -11,13 +11,14 @@ from types import MappingProxyType
 from typing import ClassVar
 
 from src.compiler.python.abi.generated import GeneratedTargetRow
-from src.compiler.python.abi.hosted import TargetRepository, TargetSelectionError
+from src.compiler.python.abi.hosted import HOSTED_ABI, TargetRepository, TargetSelectionError
 from src.compiler.python.analyzer.program import (
     AnalysisSession,
     DeclarationIndex,
     InitializerSlot,
     InitializerSlotPlan,
 )
+from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.lexer.lexer import LiteralDecoder
 from src.compiler.python.syntax.ast.generated import (
     AnonymousMember,
@@ -27,7 +28,9 @@ from src.compiler.python.syntax.ast.generated import (
     FieldDef,
     FieldDesignator,
     FunctionDecl,
+    IndexDesignator,
     InterfaceDecl,
+    IntLiteral,
     ListLiteral,
     MapLiteral,
     MethodDecl,
@@ -469,6 +472,8 @@ class TypeIdentity:
                     ("is_static", "static"),
                     ("is_extern", "extern"),
                     ("is_volatile", "volatile"),
+                    ("is_register", "register"),
+                    ("is_auto", "auto"),
                 )
             ),
         )
@@ -505,6 +510,8 @@ class TypeIdentity:
             or type_expr.is_static
             or type_expr.is_extern
             or type_expr.is_volatile
+            or type_expr.is_register
+            or type_expr.is_auto
             or type_expr.array_pointer_depth
         ):
             return None
@@ -527,6 +534,8 @@ class TypeIdentity:
             bool(type_expr.is_static),
             bool(type_expr.is_extern),
             bool(type_expr.is_volatile),
+            bool(type_expr.is_register),
+            bool(type_expr.is_auto),
         )
 
     def generic_instance_key(self, base: str, arguments: Iterable[TypeExpr]) -> tuple:
@@ -1197,6 +1206,19 @@ class TypeSystem:
         return base
 
     @classmethod
+    def is_identity_typedef(cls, declaration, records, enums) -> bool:
+        """A plain source alias of its own declared C tag is a redeclaration."""
+        if not isinstance(declaration, TypedefDecl) or isinstance(declaration.source_file, NativeHeaderSource):
+            return False
+        original = declaration.original
+        if original != TypeExpr(base=original.base):
+            return False
+        record = records.get(declaration.alias)
+        if record is not None and not isinstance(record.source_file, NativeHeaderSource):
+            return original.base == f"{cls.record_keyword(record)} {declaration.alias}"
+        return declaration.alias in enums and original.base == f"enum {declaration.alias}"
+
+    @classmethod
     def record_declarators(cls, record) -> tuple:
         """Every member declarator of a record or anonymous member, in source
         order: named fields, unnamed bit-fields and anonymous members. Only
@@ -1292,8 +1314,14 @@ class TypeSystem:
         declaration = tables.struct_table.get(TypeSystem.record_tag_name(canonical.base))
         return declaration if declaration is not None and not declaration.is_forward else None
 
+    @staticmethod
+    def has_designators(initializer) -> bool:
+        return isinstance(initializer, BraceInitializer) and any(entry.parts for entry in initializer.entries)
+
     @classmethod
-    def plan_initializer_slots(cls, record, initializer, tables) -> InitializerSlotPlan:
+    def plan_initializer_slots(
+        cls, record, initializer, tables, index_values=None, bound_values=None
+    ) -> InitializerSlotPlan:
         """Map each brace element to a member path of ``record`` (C11 6.7.9p17).
 
         Positional elements fill the direct members in order (only the first
@@ -1302,34 +1330,217 @@ class TypeSystem:
         a flattened member, and its chain continues through nested records
         (resolved through ``tables``) and array elements (the
         ``IndexDesignator`` itself is the step). A positional element after a
-        designated one continues at the next direct member. Only a brace
+        designated one continues within that subobject before advancing to
+        the enclosing record's next member. Only a brace
         initializer carries designations.
         """
+        if isinstance(record, TypeExpr) and record.is_array:
+            return cls._plan_array_initializer_slots(record, initializer, tables, index_values, bound_values)
         members = cls.record_members(record)
         capacity = min(len(members), 1) if record.is_union else len(members)
         designations = initializer.entries if isinstance(initializer, BraceInitializer) else []
         slots: list[InitializerSlot] = []
         excess = 0
         cursor = 0
+        continuation = None
+        anonymous_continuation = False
+        problems = []
+        if index_values is None:
+            index_values = getattr(tables, "designator_index_values", {})
+        if bound_values is None:
+            bound_values = getattr(tables, "array_bound_values", {})
         for position, element in enumerate(initializer.elements):
             parts = designations[position].parts if position < len(designations) else []
             if parts:
-                slot = cls._designated_slot(record, element, parts, tables)
+                before = len(problems)
+                slot = cls._designated_slot(record, element, parts, tables, problems, index_values, bound_values)
                 if slot is None:
-                    excess += 1
+                    if len(problems) == before:
+                        excess += 1
                     continue
+                for previous in slots:
+                    conflict = cls._initializer_path_conflict(
+                        record, previous, slot, tables, index_values, bound_values
+                    )
+                    if conflict is not None:
+                        problems.append((conflict, slot.site))
+                        break
                 slots.append(slot)
                 cursor = cls.member_position(members, slot.path[0]) + 1
+                continuation = cls._next_nested_initializer_slot(record, slot, tables, index_values, bound_values)
+                anonymous_continuation = any(isinstance(step, AnonymousMember) for step in slot.path)
                 continue
-            if cursor >= capacity:
+            if anonymous_continuation:
+                problems.append(
+                    (
+                        "A positional initializer cannot follow a designator into an anonymous member; designate the next member",
+                        element,
+                    )
+                )
+                continue
+            if continuation is None and cursor >= capacity:
                 excess += 1
                 continue
-            member = members[cursor]
-            cursor += 1
-            slots.append(
-                InitializerSlot(element, (member,), None if isinstance(member, AnonymousMember) else member.type)
+            if continuation is not None:
+                slot = InitializerSlot(element, continuation.path, continuation.type, element)
+            else:
+                member = members[cursor]
+                cursor += 1
+                slot = InitializerSlot(
+                    element, (member,), None if isinstance(member, AnonymousMember) else member.type, element
+                )
+            continuation = cls._next_nested_initializer_slot(record, slot, tables, index_values, bound_values)
+            for previous in slots:
+                conflict = cls._initializer_path_conflict(record, previous, slot, tables, index_values, bound_values)
+                if conflict is not None:
+                    problems.append((conflict, element))
+                    break
+            slots.append(slot)
+        return InitializerSlotPlan(initializer, tuple(slots), capacity, excess, record, tuple(problems))
+
+    @classmethod
+    def _plan_array_initializer_slots(cls, target, initializer, tables, index_values, bound_values):
+        if index_values is None:
+            index_values = getattr(tables, "designator_index_values", {})
+        if bound_values is None:
+            bound_values = getattr(tables, "array_bound_values", {})
+        canonical = cls.canonical_declaration_type(target, tables.typedef_table)
+        bound = cls.initializer_array_bound(canonical, bound_values)
+        slots, problems = [], []
+        cursor = extent = 0
+        continuation = None
+        entries = initializer.entries if isinstance(initializer, BraceInitializer) else []
+        for position, element in enumerate(initializer.elements):
+            parts = entries[position].parts if position < len(entries) else []
+            if parts:
+                slot = cls._designated_slot(target, element, parts, tables, problems, index_values, bound_values)
+                if slot is None:
+                    continue
+                cursor = cls.initializer_index_value(slot.path[0], index_values) + 1
+            elif continuation is not None:
+                slot = InitializerSlot(element, continuation.path, continuation.type, element)
+            else:
+                if cursor > 2**63 - 1 or (bound is not None and cursor >= bound):
+                    name = cls.initializer_storage_name(canonical, bound_values)
+                    problems.append((f"Initializer element for index {cursor} is outside '{name}'", element))
+                    cursor += 1
+                    continue
+                step = IndexDesignator(index=IntLiteral(value=cursor), line=element.line, col=element.col)
+                slot = InitializerSlot(element, (step,), cls.strip_outer_storage(canonical, array=True), element)
+                cursor += 1
+            for previous in slots:
+                conflict = cls._initializer_path_conflict(target, previous, slot, tables, index_values, bound_values)
+                if conflict is not None:
+                    problems.append((conflict, slot.site))
+                    break
+            slots.append(slot)
+            extent = max(extent, cursor)
+            continuation = cls._next_nested_initializer_slot(target, slot, tables, index_values, bound_values)
+        return InitializerSlotPlan(initializer, tuple(slots), bound or 0, 0, target, tuple(problems), extent)
+
+    @classmethod
+    def _next_nested_initializer_slot(cls, target, slot, tables, index_values, bound_values):
+        """Resume a nested designation, climbing exhausted arrays and records.
+
+        The caller owns the outer cursor. A union has no following member,
+        and an aggregate sibling remains one slot requiring its own braces.
+        """
+        if len(slot.path) < 2:
+            return None
+        parents = []
+        for step in slot.path:
+            parents.append(target)
+            if isinstance(step, IndexDesignator):
+                target = cls.strip_outer_storage(
+                    cls.canonical_declaration_type(target, tables.typedef_table), array=True
+                )
+            else:
+                target = step if isinstance(step, AnonymousMember) else step.type
+        for depth in range(len(slot.path) - 1, 0, -1):
+            parent = parents[depth]
+            step = slot.path[depth]
+            if isinstance(step, IndexDesignator):
+                canonical = cls.canonical_declaration_type(parent, tables.typedef_table)
+                index = cls.initializer_index_value(step, index_values) + 1
+                bound = cls.initializer_array_bound(canonical, bound_values)
+                if index > 2**63 - 1 or (bound is not None and index >= bound):
+                    continue
+                member = IndexDesignator(index=IntLiteral(value=index), line=step.line, col=step.col)
+                member_type = cls.strip_outer_storage(canonical, array=True)
+            else:
+                record = cls.complete_member_record(parent, tables) if isinstance(parent, TypeExpr) else parent
+                if record is None or record.is_union:
+                    continue
+                members = cls.record_members(record)
+                index = cls.member_position(members, step) + 1
+                if index >= len(members):
+                    continue
+                member = members[index]
+                member_type = None if isinstance(member, AnonymousMember) else member.type
+            return InitializerSlot(slot.element, (*slot.path[:depth], member), member_type, slot.site)
+        return None
+
+    @staticmethod
+    def initializer_index_value(step, index_values):
+        if id(step) in index_values:
+            return index_values[id(step)]
+        return step.index.value if isinstance(step.index, IntLiteral) else None
+
+    @classmethod
+    def _initializer_path_conflict(
+        cls, record, previous, current, tables, index_values, bound_values=None
+    ) -> str | None:
+        array_target = isinstance(record, TypeExpr) and record.is_array
+        parent_record = None if array_target else record
+        parent_type = record if array_target else None
+        for depth, (left, right) in enumerate(zip(previous.path, current.path)):
+            same = left is right
+            if isinstance(left, IndexDesignator) and isinstance(right, IndexDesignator):
+                left_value = cls.initializer_index_value(left, index_values)
+                same = left_value is not None and left_value == cls.initializer_index_value(right, index_values)
+            if not same:
+                if parent_record is None or not parent_record.is_union:
+                    return None
+                left_name = cls.initializer_member_name(previous, depth)
+                right_name = cls.initializer_member_name(current, depth)
+                return (
+                    f"Union '{getattr(parent_record, 'name', '') or getattr(record, 'name', '')}' initializer sets both '{left_name}' and '{right_name}'; "
+                    "a union initializer sets one member"
+                )
+            if isinstance(left, AnonymousMember):
+                parent_record, parent_type = left, None
+            elif isinstance(left, IndexDesignator):
+                parent_type = cls.strip_outer_storage(parent_type, array=True)
+                parent_record = cls.complete_member_record(parent_type, tables)
+            else:
+                parent_type = cls.canonical_declaration_type(left.type, tables.typedef_table)
+                parent_record = cls.complete_member_record(parent_type, tables)
+        if array_target:
+            first = previous.site or previous.element
+            value = cls.initializer_index_value(current.path[0], index_values)
+            name = cls.initializer_storage_name(
+                record, bound_values if bound_values is not None else getattr(tables, "array_bound_values", {})
             )
-        return InitializerSlotPlan(initializer, tuple(slots), capacity, excess)
+            return (
+                f"Index {value} of '{name}' is initialized more than once "
+                f"(first at {first.line}:{first.col}); each element may be initialized once"
+            )
+        member = next(step for step in (*previous.path, *current.path) if isinstance(step, FieldDef))
+        first = previous.site or previous.element
+        return (
+            f"Field '{member.name}' of {cls.record_keyword(record)} '{getattr(record, 'name', '')}' is initialized more than once "
+            f"(first at {first.line}:{first.col}); each member may be initialized once"
+        )
+
+    @classmethod
+    def initializer_member_name(cls, slot, depth):
+        step = slot.path[depth]
+        if not isinstance(step, AnonymousMember):
+            return step.name
+        for nested in slot.path[depth + 1 :]:
+            if isinstance(nested, FieldDef):
+                return nested.name
+        return "anonymous " + cls.record_keyword(step)
 
     @classmethod
     def zero_filled_members(cls, record, plan: InitializerSlotPlan) -> tuple:
@@ -1348,29 +1559,79 @@ class TypeSystem:
         return next((index for index, candidate in enumerate(members) if candidate is member), -1)
 
     @classmethod
-    def _designated_slot(cls, record, element, parts, tables) -> InitializerSlot | None:
-        first = parts[0]
-        if not isinstance(first, FieldDesignator):
-            return None
-        path = cls.record_member_path(record, first.field)
-        if path is None:
-            return None
-        steps = list(path)
-        slot_type = path[-1].type
-        for part in parts[1:]:
+    def _designated_slot(
+        cls, record, element, parts, tables, problems, index_values, bound_values
+    ) -> InitializerSlot | None:
+        current_record = None if isinstance(record, TypeExpr) else record
+        slot_type = record if isinstance(record, TypeExpr) else TypeExpr(base=getattr(record, "name", ""))
+        steps = []
+        for part in parts:
             if isinstance(part, FieldDesignator):
-                nested = cls.complete_member_record(slot_type, tables)
-                nested_path = cls.record_member_path(nested, part.field) if nested is not None else None
+                nested = current_record or cls.complete_member_record(slot_type, tables)
+                if nested is None:
+                    name = cls.initializer_storage_name(slot_type, bound_values)
+                    problems.append(
+                        (
+                            f"Designator '.{part.field}' needs a struct or union, but the initialized type is '{name}'",
+                            part,
+                        )
+                    )
+                    return None
+                nested_path = cls.record_member_path(nested, part.field)
                 if nested_path is None:
+                    problems.append(
+                        (
+                            f"{cls.record_keyword(nested).capitalize()} '{getattr(nested, 'name', '')}' has no field '{part.field}'",
+                            part,
+                        )
+                    )
                     return None
                 steps.extend(nested_path)
                 slot_type = nested_path[-1].type
             else:
+                value = cls.initializer_index_value(part, index_values)
+                if value is None:
+                    return None
                 if slot_type is None or not slot_type.is_array:
+                    name = cls.initializer_storage_name(slot_type, bound_values)
+                    problems.append(
+                        (f"Designator '[{value}]' needs an array, but the initialized type is '{name}'", part)
+                    )
+                    return None
+                canonical = cls.canonical_declaration_type(slot_type, tables.typedef_table)
+                if canonical is None or not canonical.is_array:
+                    return None
+                bound = cls.initializer_array_bound(canonical, bound_values)
+                if value < 0 or (bound is not None and value >= bound):
+                    name = cls.initializer_storage_name(canonical, bound_values)
+                    problems.append((f"Array designator index {value} is outside '{name}'", part))
                     return None
                 steps.append(part)
-                slot_type = cls.strip_outer_storage(slot_type, array=True)
-        return InitializerSlot(element, tuple(steps), slot_type)
+                slot_type = cls.strip_outer_storage(canonical, array=True)
+            current_record = None
+        return InitializerSlot(element, tuple(steps), slot_type, parts[0])
+
+    @staticmethod
+    def initializer_array_bound(type_expr, bound_values) -> int | None:
+        """Read an analyzed bound, including a native declaration's literal."""
+        bound = type_expr.array_size
+        return bound.value if isinstance(bound, IntLiteral) else bound_values.get(id(bound))
+
+    @classmethod
+    def initializer_storage_name(cls, type_expr, bound_values) -> str:
+        """Describe the current subobject, retaining its known array extent."""
+        if type_expr is None:
+            return "<unknown>"
+        name = cls.record_tag_name(type_expr.base)
+        if type_expr.generic_args:
+            name += (
+                "<" + ", ".join(cls.initializer_storage_name(arg, bound_values) for arg in type_expr.generic_args) + ">"
+            )
+        name += "*" * type_expr.pointer_depth
+        if type_expr.is_array:
+            bound = cls.initializer_array_bound(type_expr, bound_values)
+            name += f"[{bound if bound is not None else ''}]"
+        return name
 
     @classmethod
     def initializer_slots(
@@ -1380,9 +1641,34 @@ class TypeSystem:
         analyzer never typed as this record (a generic body's ``T x = {...}``)
         is planned again here, identically."""
         plan = plans.get(id(initializer))
-        if plan is not None and plan.initializer is initializer:
+        if (
+            plan is not None
+            and plan.initializer is initializer
+            and (plan.target is record or (isinstance(record, TypeExpr) and plan.target == record))
+        ):
             return plan
         return cls.plan_initializer_slots(record, initializer, tables)
+
+    @classmethod
+    def initializer_leaf_slots(cls, plans, tables, record, initializer, problems=None) -> tuple[InitializerSlot, ...]:
+        """Typed leaves in evaluation order, with anonymous brace slots expanded."""
+        result = []
+        plan = cls.initializer_slots(plans, tables, record, initializer)
+        if problems is not None:
+            problems.extend(plan.problems)
+            if plan.excess:
+                problems.append(("Initializer has more elements than the concrete target has fields", initializer))
+        for slot in plan.slots:
+            if isinstance(slot.member, AnonymousMember) and isinstance(slot.element, BraceInitializer):
+                for nested in cls.initializer_leaf_slots(plans, tables, slot.member, slot.element, problems):
+                    result.append(InitializerSlot(nested.element, (*slot.path, *nested.path), nested.type))
+            else:
+                result.append(slot)
+        return tuple(result)
+
+    @classmethod
+    def record_has_anonymous_members(cls, record) -> bool:
+        return any(isinstance(member, AnonymousMember) for member in cls.record_members(record))
 
     def function_pointer_signature(self, type_expr):
         """Return the canonical callable shape: return type followed by parameters."""
@@ -1424,10 +1710,21 @@ class TypeSystem:
         A ``CFunction<...>?`` is callable once the flow proves it non-null; the
         call site, not this shape, checks that.
         """
-        signature = self.function_pointer_signature(type_expr)
-        if signature is None and self.is_nullable_function_pointer(type_expr):
-            return self.canonical_type(type_expr).generic_args
-        return signature
+        return self.declaration_callable_signature(type_expr, self.index.typedef_table)
+
+    @classmethod
+    def declaration_callable_signature(cls, type_expr, typedefs):
+        """Resolve a declared callable without mutable analysis state."""
+        canonical = cls.canonical_declaration_type(type_expr, typedefs)
+        if (
+            canonical is None
+            or canonical.base not in _FUNCTION_POINTER_BASES
+            or canonical.is_array
+            or not canonical.generic_args
+        ):
+            return None
+        depth = canonical.pointer_depth - int(cls.nullable_collapses_reference_layer(canonical, base_is_reference=True))
+        return canonical.generic_args if depth == 0 else None
 
     def function_object_pointer_hint(self, target, source) -> str:
         """Explain a refused conversion between a function pointer and ``void*``.
@@ -1474,8 +1771,13 @@ class TypeSystem:
         )
 
     @staticmethod
+    def value_type(type_expr: TypeExpr) -> TypeExpr:
+        """Copy a value's type without the declaration's storage classes."""
+        return replace(type_expr, is_extern=False, is_static=False, is_register=False, is_auto=False)
+
+    @staticmethod
     def function_signature_component(type_expr: TypeExpr) -> TypeExpr:
-        return replace(type_expr, is_extern=False, is_static=False)
+        return TypeSystem.value_type(type_expr)
 
     def current_self_type(self) -> TypeExpr | None:
         """Return the specialized receiver type for the active class body."""
@@ -1995,7 +2297,7 @@ class TypeSystem:
         type_line = type_expr.line or line
         type_col = type_expr.col or col
         self.validate_tag_keyword(type_expr, type_line, type_col)
-        self._validate_storage_qualifiers(type_expr, subject, role, type_line, type_col)
+        self.validate_declaration_specifiers(type_expr, subject, role, type_line, type_col)
         if role == "return" and self._return_type_has_outer_cv_qualifier(type_expr):
             self.session.error(
                 f"{subject} cannot carry an outer const/volatile qualifier; C discards qualifiers on returned values",
@@ -2214,7 +2516,7 @@ class TypeSystem:
         for index, argument in enumerate(arguments):
             result_slot = (type_expr.base in _FUNCTION_POINTER_BASES or type_expr.base == "Thread") and index == 0
             parameter_slot = type_expr.base in _FUNCTION_POINTER_BASES and index > 0
-            argument_role = "return" if result_slot else "parameter" if parameter_slot else "object"
+            argument_role = "return" if result_slot else "parameter" if parameter_slot else "type-name"
             self.validate_declared_type(
                 argument,
                 f"Generic argument {index + 1} of {subject}",
@@ -2354,7 +2656,7 @@ class TypeSystem:
             return True
         if base in self.NUMERIC_TYPES or base in {"bool", "string", "void"}:
             return True
-        if base in _RUNTIME_TYPE_BASES:
+        if base in _RUNTIME_TYPE_BASES or base in HOSTED_ABI.types:
             return True
         if base in self.index.class_table or base in self.index.interface_table:
             return True
@@ -2520,11 +2822,106 @@ class TypeSystem:
             self.contains_realtime_function_storage(field.type, nested) for field in self.record_fields(declaration)
         )
 
-    def _validate_storage_qualifiers(self, type_expr, subject, role, line, col) -> None:
+    def validate_declaration_specifiers(self, type_expr, subject, role, line, col) -> None:
+        if type_expr is None:
+            return
         if type_expr.is_static and type_expr.is_extern:
             self.session.error(f"{subject} cannot be both static and extern", line, col)
         if role in {"parameter", "field", "stable_field"} and (type_expr.is_static or type_expr.is_extern):
             self.session.error(f"{subject} cannot carry static/extern storage qualifiers", line, col)
+        if type_expr.is_register:
+            if type_expr.is_static or type_expr.is_extern or type_expr.is_auto:
+                self.session.error(f"{subject} has more than one storage class", line, col)
+            if role not in {"object", "parameter"}:
+                self.session.error("'register' is allowed only on block-scope objects and parameters", line, col)
+            if not self.register_storage_type(type_expr):
+                self.session.error("'register' requires a scalar plain C value or raw pointer", line, col)
+        if type_expr.is_auto and (type_expr.is_static or type_expr.is_extern or type_expr.is_register):
+            self.session.error(f"{subject} has more than one storage class", line, col)
+        if type_expr.is_auto and role != "object":
+            if role == "type-name":
+                message = "'auto' is a storage class; it cannot appear in a type name"
+            else:
+                position = (
+                    "at file scope"
+                    if role == "global"
+                    else "in a typedef"
+                    if role == "alias"
+                    else f"on {subject[0].lower()}{subject[1:]}"
+                )
+                message = f"'auto' is not allowed {position}; C11 auto declares a block-scope object"
+            self.session.error(message, line, col)
+
+    def is_variably_modified(self, type_expr) -> bool:
+        canonical = self.canonical_type(type_expr)
+        return bool(
+            canonical
+            and canonical.array_size is not None
+            and id(canonical.array_size) not in self.session.constant_array_bound_ids
+        )
+
+    def _jump_type_parameters(self) -> set[str]:
+        active = set(self.session.current_class.generic_params if self.session.current_class else ())
+        if self.session.current_method:
+            active.update(self.session.current_method.generic_params)
+        return active
+
+    def is_plain_c_object(self, type_expr, visiting=frozenset()) -> bool:
+        """Whether skipping this storage needs no language-managed initialization."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None:
+            return False
+        base = canonical.base
+        if canonical.is_nullable or base in self._jump_type_parameters() or canonical.generic_args:
+            return False
+        if base in {"string", "Mutex", "Thread", "Tuple", "Span", "Atomic", "__fn_ptr", "__realtime_fn_ptr"}:
+            return False
+        if base in self.index.class_table or base in self.index.interface_table or base in self.index.rich_enum_table:
+            return False
+        if canonical.is_array:
+            bounds = [canonical.array_size, *(extent.array_size for extent in canonical.elements)]
+            if any(bound is None or id(bound) not in self.session.constant_array_bound_ids for bound in bounds):
+                return False
+            return self.is_plain_c_object(replace(canonical, is_array=False, array_size=None, elements=[]), visiting)
+        if canonical.pointer_depth > 0:
+            return True
+        if base == "bool" or self.is_numeric_value(canonical):
+            return True
+        name = self.record_tag_name(base)
+        record = self.index.struct_table.get(name)
+        if record is not None:
+            if name in visiting:
+                return False
+            return all(self.is_plain_c_object(field.type, visiting | {name}) for field in self.record_fields(record))
+        return base in HOSTED_ABI.types or base in HOSTED_ABI.typedefs or base.startswith(("struct ", "union "))
+
+    def declaration_is_plain(self, type_expr, initializer_type, *, initializer_managed: bool) -> bool:
+        initializer = self.canonical_type(initializer_type)
+        return (
+            self.is_plain_c_object(type_expr)
+            and not initializer_managed
+            and (initializer is None or initializer.base not in self._jump_type_parameters())
+        )
+
+    def register_storage_type(self, type_expr) -> bool:
+        canonical = self.canonical_type(type_expr)
+        if canonical is None or canonical.is_array:
+            return False
+        managed = canonical.pointer_depth <= 1 and (
+            canonical.base in {"string", "Mutex"}
+            or canonical.base in self.index.class_table
+            or canonical.base in self.index.interface_table
+        )
+        return not managed and (
+            canonical.pointer_depth > 0 or self.is_numeric_value(canonical) or canonical.base == "__fn_ptr"
+        )
+
+    def validate_type_name_storage(self, type_expr) -> None:
+        if type_expr is None:
+            return
+        self.validate_declaration_specifiers(type_expr, "Type name", "type-name", type_expr.line, type_expr.col)
+        for argument in type_expr.generic_args:
+            self.validate_type_name_storage(argument)
 
     def upgrade_class_type(self, type_expr, shadowed_names=None):
         """Auto-upgrade class references without capturing type parameters.
@@ -3342,6 +3739,8 @@ class TypeSystem:
             nullable_outer_depth=nullable_outer_depth,
             is_static=applied.is_static or resolved.is_static,
             is_extern=applied.is_extern or resolved.is_extern,
+            is_register=applied.is_register or resolved.is_register,
+            is_auto=applied.is_auto or resolved.is_auto,
             is_volatile=applied.is_volatile or resolved.is_volatile,
             line=applied.line or resolved.line,
             col=applied.col or resolved.col,

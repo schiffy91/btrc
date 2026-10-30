@@ -390,6 +390,7 @@ def test_root_path_cannot_spoof_compiler_stdlib_provenance(tmp_path: Path) -> No
     # lock into the checkout (or an immutable installed compiler directory).
     library = tmp_path / "stdlib"
     shutil.copytree(SOURCE_ROOT / "stdlib", library, ignore=shutil.ignore_patterns("btrc.lock"))
+    shutil.copytree(SOURCE_ROOT / "runtime", tmp_path / "runtime")
     stdlib_path = library / "Process.btrc"
     source = '#include "Process.btrc"\nextern char** environ;\nint main() { return 0; }'
     pipeline = CompilationPipeline(frontend=FrontendStage(StdlibRepository(directory=str(library))))
@@ -1084,3 +1085,14 @@ def test_self_hosted_analyzer_widths_equal_every_target_row(tmp_path: Path) -> N
         char, short, int_, long_long = _table_widths(label)
         assert limits == (char, char, short, int_), label
         assert (long_long_max + 1).bit_length() == long_long, label
+
+
+def test_hosted_arithmetic_type_classification_is_shared_and_validated() -> None:
+    runtime = RuntimeManifest.load(SOURCE_ROOT / "runtime/c/manifest.toml")
+    manifest = HostedAbiManifest.load(SOURCE_ROOT / "language/hosted_abi.toml", runtime)
+    assert HOSTED_ABI.arithmetic_types == frozenset(manifest.names.arithmetic_types)
+    assert {"pid_t", "size_t", "ssize_t", "uint64_t", "time_t", "double_t"} <= HOSTED_ABI.arithmetic_types
+    assert not {"pthread_t", "FILE", "jmp_buf", "va_list", "max_align_t"} & HOSTED_ABI.arithmetic_types
+    invalid = replace(manifest, names=replace(manifest.names, arithmetic_types=("UnknownType",)))
+    with pytest.raises(HostedAbiManifestError, match="arithmetic types must be hosted typedef names"):
+        invalid._validate(runtime)

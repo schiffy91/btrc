@@ -14,6 +14,7 @@ from src.compiler.python.frontend.sources import (
 )
 from src.compiler.python.lexer.lexer import Lexer, LexerError
 from src.compiler.python.parser.parser import ParseError, Parser
+from src.compiler.python.syntax.tokens import TokenVocabulary
 
 from .lexing import Lexeme, LexemeKind, LosslessScanner
 from .model import StyleConfig
@@ -185,6 +186,9 @@ class SourceView:
         self.lines = self._physical_lines(source)
         self.pairs = self._delimiter_pairs()
         self._containing_braces = self._index_containing_braces()
+        self.label_colons: set[int] = set()
+        self.case_colons: set[int] = set()
+        self._index_statement_colons()
         self.class_braces = self._class_braces()
         self._construct_cache: tuple[Construct, ...] | None = None
         self._function_span_cache: tuple[FunctionSpan, ...] | None = None
@@ -367,6 +371,26 @@ class SourceView:
             and self.significant[open_index - 1].text in self._BODY_CONDITION_WORDS
         )
 
+    def _index_statement_colons(self) -> None:
+        """Distinguish statement labels from ternaries, named arguments and fields."""
+        keywords = TokenVocabulary.canonical().keywords
+        for index, token in enumerate(self.significant):
+            if token.text != ":" or index == 0:
+                continue
+            start = self._statement_start(index)
+            prefix = self.significant[start:index]
+            if not prefix:
+                continue
+            if prefix[0].text in {"case", "default"}:
+                if any(self.pairs.get(i, i) > index for i in range(start, index)):
+                    continue
+                if sum(t.text == "?" for t in prefix) == sum(t.text == ":" for t in prefix):
+                    self.case_colons.add(index)
+            elif len(prefix) == 1 and prefix[0].kind is LexemeKind.WORD and prefix[0].text not in keywords:
+                parent = self.containing_brace(index)
+                if parent is not None and not self._brace_is_expression(parent):
+                    self.label_colons.add(index)
+
     def _statement_start(self, end_index: int) -> int:
         balances = {")": 0, "]": 0}
         matching_close = {"(": ")", "[": "]"}
@@ -389,6 +413,8 @@ class SourceView:
                 if balances[close]:
                     balances[close] -= 1
             elif not any(balances.values()):
+                if cursor in self.label_colons or cursor in self.case_colons:
+                    return cursor + 1
                 if lexeme.text in {";", "{"} or lexeme.kind is LexemeKind.PREPROCESSOR:
                     return cursor + 1
                 if lexeme.text == "import":
@@ -402,6 +428,8 @@ class SourceView:
 
     def _brace_is_expression(self, open_index: int) -> bool:
         if open_index == 0:
+            return False
+        if open_index - 1 in self.label_colons:
             return False
         return self.significant[open_index - 1].text in {
             "=",
@@ -545,6 +573,7 @@ class BtrcFormatter:
             previous = formatted
             formatted = self._normalize_import_groups(formatted)
             formatted = self._format_constructs(formatted)
+            formatted = self._format_labels(formatted)
             formatted = self._format_statements(formatted)
             formatted = self._compact_trivial_functions(formatted)
             formatted = self._normalize_blank_lines(formatted)
@@ -564,6 +593,16 @@ class BtrcFormatter:
             line = self.first_changed_line(source, formatted)
             raise FormatError("formatting would change comment contents or order", line, 1)
         return formatted
+
+    def _format_labels(self, source: str) -> str:
+        view = SourceView(source)
+        edits = []
+        for index in view.label_colons:
+            name, colon = view.significant[index - 1 : index + 1]
+            gap = source[name.end : colon.start]
+            if gap and gap.isspace():
+                edits.append((name.end, colon.start, ""))
+        return self._apply_edits(source, edits)
 
     def _format_statements(self, source: str) -> str:
         if not self.style.single_line_statements:
@@ -1287,12 +1326,18 @@ class BtrcFormatter:
                         or (previous_token is not None and previous_token.text in self._TRAILING_CONTINUATION_TOKENS)
                         or self._continues_adjacent_strings(first_token, previous_token, previous_first)
                     )
+                    follows_label = previous_token is not None and index_of[id(previous_token)] in view.label_colons
+                    starts_label = first_token is not None and index_of[id(first_token)] + 1 in view.label_colons
+                    if follows_label or starts_label:
+                        continued = False
                     continued = type_header_continuations.get(line.number, continued)
                     if continued or first == "}" or (paren_depth > 0 and first in {")", "]"}):
                         # A closing ')' or ']' line stays with its statement.
                         pass
                     elif header_extra is not None:
                         body_extra = header_extra + (0 if first == "{" else 1)
+                    elif follows_label:
+                        pass
                     elif first == "else":
                         # The nearest if still open for an else.
                         if pending_ifs:

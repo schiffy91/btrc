@@ -2414,6 +2414,8 @@ class StdlibRepository:
                 files.extend(entry.name for entry in entries if entry.name.endswith(".btrc"))
         except OSError:
             return []
+        policy = PackageImportPolicy()
+        files = [name for name in files if not policy.executable_entry(os.path.join(self._directory, name))]
         files.sort()
         prioritized = [name for name in _PRIORITY_FILES if name in files]
         prioritized.extend(name for name in files if name not in _PRIORITY_FILES)

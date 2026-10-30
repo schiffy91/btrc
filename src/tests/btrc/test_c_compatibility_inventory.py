@@ -74,8 +74,6 @@ REFUSAL_ROWS = frozenset({"18", "19", "20", "21", "22", "23", "24"})
 # the C compiler to reject, or rejects for the wrong reason. Each is fixed by
 # the named stage, which flips the entry in the same commit.
 KNOWN_DIVERGENCES = {
-    "r10-designated-index-initializer": "{[2] = 7} parses as a list literal holding an assignment (Stage 17)",
-    "x-enum-tag-btrc-enum": "the reference rejects enum Color for a btrc enum; btrcc emits C naming no enum (Stage 17)",
     "x-enum-tag-unknown": "an unknown enum tag passes through to C, which rejects it (Stage 17)",
     "x-alignof-expression": "_Alignof(expression) passes through as an unknown call (Stage 19)",
 }

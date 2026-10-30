@@ -14,13 +14,20 @@ import sys
 import threading
 import time
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.application.compiler import Compiler
-from src.compiler.python.application.modules import ForkedModuleUnitWorkers, ModuleUnitCompiler, ModuleUnitRecord
+from src.compiler.python.application.modules import (
+    ForkedModuleUnitWorkers,
+    ModuleUnitCompiler,
+    ModuleUnitGraph,
+    ModuleUnitRecord,
+    SharedDeclarations,
+    _GroupState,
+)
 from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.artifacts.cache import CompilerCache
 from src.compiler.python.frontend.native_imports import NativeGeneratedSource, NativeHeaderSource
@@ -31,6 +38,7 @@ from src.compiler.python.ir.lowering.exceptions import (
     ParameterEffect,
     SetjmpUnitSolver,
 )
+from src.compiler.python.ir.lowering.session import ModuleLoweringFacts
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -38,18 +46,29 @@ from src.compiler.python.ir.nodes import (
     IRExprStmt,
     IRFunctionDecl,
     IRFunctionDef,
+    IRFunctionRef,
+    IRGlobalDecl,
+    IRHelperDecl,
+    IRMacroDef,
     IRModule,
+    IRObjectiveCClass,
+    IRObjectiveCMethod,
     IRParam,
     IRVar,
     IRVarDecl,
 )
+from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.tests import runner
+from src.tests.btrc.runtime_ownership_harness import require_sanitizers, sanitizer_environment
 from src.tests.c_toolchains import HOST_C_COMPILERS, HOST_CLANG, host_c_compiler
+from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.core_audio_fixtures import fault_package
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.pugixml_fixtures import pugixml_project as pugixml_project
+from src.tests.python.test_native_c_completions import c_one_shot_project as c_one_shot_project
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -124,10 +143,10 @@ def test_record_round_trips_and_rejects_malformed_payloads():
         realtime_roots=("f",),
         realtime_proofs={"f": ("g", "h"), "g": ()},
     )
-    assert ModuleUnitRecord.from_json(record.to_json(), "/g") == record
-    assert ModuleUnitRecord.from_json(record.to_json(), "/elsewhere") is None
-    assert ModuleUnitRecord.from_json(record.to_json()[:-1], "/g") is None
-    assert ModuleUnitRecord.from_json(record.to_json().replace('"kept":true', '"kept":1'), "/g") is None
+    assert ModuleUnitRecord.from_text(record.to_text(), record.text, "/g") == record
+    assert ModuleUnitRecord.from_text(record.to_text(), record.text, "/elsewhere") is None
+    assert ModuleUnitRecord.from_text(record.to_text()[:-1], record.text, "/g") is None
+    assert ModuleUnitRecord.from_text(record.to_text().replace("flags\t1", "flags\ttrue"), record.text, "/g") is None
 
 
 def test_unit_names_are_stable_and_distinct():
@@ -152,7 +171,7 @@ class _Workspace:
         assert old in text
         path.write_text(text.replace(old, new))
 
-    def build(self, entry: str, output: Path, monkeypatch):
+    def build(self, entry: str, output: Path, monkeypatch, *, stdlib_strict=False):
         monkeypatch.setenv("BTRC_CACHE_DIR", str(self.cache))
         output.mkdir(parents=True, exist_ok=True)
         path = self.modules / entry
@@ -162,6 +181,7 @@ class _Workspace:
             CompilerOptions(
                 units_prefix=str(output / "program"),
                 module_units=True,
+                stdlib_strict=stdlib_strict,
                 generated_c_path=str(output / "program.c"),
             ),
         )
@@ -269,14 +289,15 @@ def test_interface_edit_and_corrupt_records_rebuild(tmp_path, monkeypatch):
         'public string title() { return "shape"; }\n\n\tpublic string label() {',
     )
     widened, _ = workspace.build("GalleryMain.btrc", tmp_path / "widened", monkeypatch)
-    # Stage A digests the whole program interface: every group rebuilds.
-    assert not widened.module_units_reused
-    records = list(workspace.cache.glob("*.module.json"))
+    # The changed interface reaches its consumers, but not unrelated stdlib units.
+    assert _names(widened.module_units_lowered) == {"Shapes.btrc", "Gallery.btrc", "GalleryMain.btrc"}
+    assert _names(widened.module_units_reused) == {"Iterable.btrc", "Vector.btrc"}
+    records = list(workspace.cache.glob("modules-v1/*/record.txt"))
     assert records
     for position, record in enumerate(records):
-        # Truncated JSON and a checksum mismatch are both misses, never reuse.
+        # Truncated records and a checksum mismatch are both misses, never reuse.
         text = record.read_text()
-        record.write_text(text[:-8] if position % 2 else text.replace('"sha256":"', '"sha256":"0', 1))
+        record.write_text(text[:-8] if position % 2 else text + "corrupt")
     rebuilt, _ = workspace.build("GalleryMain.btrc", tmp_path / "rebuilt", monkeypatch)
     assert not rebuilt.module_units_reused
     assert workspace.run(rebuilt, tmp_path / "rebuilt") == "shape square measured 12\ngallery value 37\n"
@@ -289,7 +310,14 @@ def _btrcc_build(btrcc, workspace: _Workspace, entry: str, output: Path) -> tupl
 
 
 def _btrcc_build_logged(
-    btrcc, workspace: _Workspace, entry: str, output: Path, environment: dict[str, str] | None = None
+    btrcc,
+    workspace: _Workspace,
+    entry: str,
+    output: Path,
+    environment: dict[str, str] | None = None,
+    *,
+    stdlib_strict=False,
+    jobs=None,
 ) -> tuple[dict[str, int], dict[str, str], str, str]:
     """`_btrcc_build`, also returning the compiler's diagnostic output."""
     output.mkdir(parents=True, exist_ok=True)
@@ -302,6 +330,8 @@ def _btrcc_build_logged(
             "--emit-units",
             str(output / "program"),
             "--module-units",
+            *(["--stdlib-strict"] if stdlib_strict else []),
+            *(["--jobs", str(jobs)] if jobs is not None else []),
         ],
         cwd=workspace.modules,
         env={
@@ -361,6 +391,78 @@ def test_selfhost_private_body_edit_relowers_only_its_group(tmp_path, immutable_
     assert fresh == {"lowered": 6, "reused": 0}
     assert fresh_units == edited_units
     assert fresh_primary == edited_primary
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
+@pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
+def test_module_cache_distinguishes_delimiters_in_output_paths(
+    tmp_path, monkeypatch, request, frontend, reverse, debug
+):
+    """A path containing a key delimiter must not borrow another output's debug lines."""
+    if frontend == "selfhost" and os.name == "nt":
+        pytest.skip("self-hosted artifact cache requires POSIX private directories")
+    root = tmp_path.resolve()
+    monkeypatch.chdir(root)
+    source = root / "Main.btrc"
+    source.write_text('import "./Leaf.btrc";\nint main() { return answer() == 42 ? 0 : 1; }\n')
+    (root / "Leaf.btrc").write_text(
+        "class Value { public int number; public Value(int number) { self.number = number; } }\n"
+        "int answer() { var value = Value(42); return value.number; }\n"
+    )
+    prefix, middle, output = "units", "middle", "primary.c"
+    configurations = [(prefix + ";output=" + middle, output), (prefix, middle + ";output=" + output)]
+    if reverse:
+        configurations.reverse()
+    btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+
+    def build(configuration, cache):
+        prefix, output = configuration
+        monkeypatch.setenv("BTRC_CACHE_DIR", str(cache))
+        if frontend == "python":
+            result = Compiler(cache=CompilerCache()).compile(
+                source.read_text(),
+                str(source),
+                CompilerOptions(debug=debug, module_units=True, units_prefix=prefix, generated_c_path=output),
+            )
+            assert result.failure is None, result.failure
+            counts = (len(result.module_units_lowered), len(result.module_units_reused))
+            return counts, result.c_source, dict(zip(result.unit_names, result.c_units, strict=True))
+        Path(prefix).parent.mkdir(parents=True, exist_ok=True)
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        process = subprocess.run(
+            [
+                str(btrcc),
+                str(source),
+                "--module-units",
+                "--jobs",
+                "1",
+                "--emit-units",
+                prefix,
+                "-o",
+                output,
+                *(["--debug"] if debug else []),
+            ],
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "BTRC_TIMING": "1"},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert process.returncode == 0, process.stderr
+        match = re.search(r"module-units=lowered:(\d+),reused:(\d+)", process.stderr)
+        assert match, process.stderr
+        stem = Path(prefix).name + "."
+        units = {path.name.removeprefix(stem): path.read_text() for path in Path(prefix).parent.glob(stem + "unit-*.c")}
+        return (int(match[1]), int(match[2])), Path(output).read_text(), units
+
+    first, _, _ = build(configurations[0], root / "shared-cache")
+    warm, warm_primary, warm_units = build(configurations[1], root / "shared-cache")
+    clean, clean_primary, clean_units = build(configurations[1], root / "fresh-cache")
+    assert first == clean == (2, 0)
+    assert len(warm_units) == len(clean_units) == 3
+    assert warm_primary == clean_primary
+    assert warm_units == clean_units
+    assert warm == ((2, 0) if debug else (0, 2))
 
 
 def test_selfhost_unchanged_groups_replay_validation_records(tmp_path, immutable_btrcc):
@@ -456,7 +558,7 @@ def test_selfhost_generation_references_stored_units(tmp_path, immutable_btrcc):
     digest = manifest["hashes"][referenced[-1]]
     stored = [
         path
-        for path in workspace.cache.glob("selfhost-artifacts-v1/*/unit.c")
+        for path in workspace.cache.glob("modules-v1/*/unit.c")
         if hashlib.sha256(path.read_bytes()).hexdigest() == digest
     ]
     assert stored
@@ -826,6 +928,116 @@ def test_enum_functions_belong_to_the_enums_unit(tmp_path, request):
         )
         ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
         assert ran.returncode == 0 and ran.stdout == "Dark\nHit\n", (compiler, ran)
+
+
+@pytest.mark.parametrize("rich", [False, True], ids=["plain", "rich"])
+def test_module_enum_declarations_match_their_owning_group_order(tmp_path, request, rich):
+    if C_COMPILER is None:
+        pytest.skip("module-unit execution needs a C compiler")
+    sanitizer = require_sanitizers(tmp_path)
+    source = tmp_path / "source"
+    source.mkdir()
+    if rich:
+        shared = "enum class SharedKind { Value(int amount), Empty }\n"
+        local = """
+            enum class LocalKind { Mark(int amount), Missing }
+            int main() {
+                SharedKind shared = SharedKind.Value(5);
+                LocalKind local = LocalKind.Mark(7);
+                print(shared.toString());
+                print(local.toString());
+                print(shared.data.Value.amount + local.data.Mark.amount);
+                return 0;
+            }
+        """
+        expected = "Value\nMark\n12\n"
+    else:
+        shared = "enum SharedKind { low = 3, high = low + 2 };\n"
+        local = """
+            enum LocalKind { first = 6, here = first + 1 };
+            int main() {
+                SharedKind shared = SharedKind.high;
+                LocalKind local = LocalKind.here;
+                print(shared.toString());
+                print(local.toString());
+                print((int)shared + (int)local);
+                return 0;
+            }
+        """
+        expected = "high\nhere\n12\n"
+    (source / "Shared.btrc").write_text(shared)
+    (source / "Main.btrc").write_text("import ./Shared.btrc;\n" + local)
+    declarations = {}
+    enum_pattern = r"^typedef enum ((?:SharedKind|LocalKind)(?:_Tag)?) \{\n([^{}]*)^\} \1;"
+    for compiler in ("python", "btrc"):
+        output = tmp_path / compiler
+        output.mkdir()
+        completed = subprocess.run(
+            [
+                *_native_command(compiler, request),
+                str(source / "Main.btrc"),
+                "--no-cache",
+                "--strict-imports",
+                "--module-units",
+                "--jobs",
+                "1",
+                "--emit-units",
+                str(output / "program"),
+                "-o",
+                str(output / "program.c"),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert completed.returncode == 0, completed.stderr
+        sources = sorted(output.glob("*.c"))
+        main_unit = next(path for path in sources if ".unit-Main-" in path.name)
+        declarations[compiler] = re.findall(enum_pattern, main_unit.read_text(), re.M)
+        suffix = "_Tag" if rich else ""
+        assert [name for name, _body in declarations[compiler]] == [f"LocalKind{suffix}", f"SharedKind{suffix}"]
+        shared_unit = next(path for path in sources if ".unit-Shared-" in path.name)
+        shared_declarations = re.findall(enum_pattern, shared_unit.read_text(), re.M)
+        assert shared_declarations == [declarations[compiler][1]]
+        for mode in ("strict", "sanitized"):
+            native_compiler = sanitizer.command if mode == "sanitized" else C_COMPILER
+            flags = (
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if mode == "sanitized" else ["-O2"]
+            )
+            environment = sanitizer.environment if mode == "sanitized" else None
+            executable = output / mode
+            built = subprocess.run(
+                [
+                    *native_compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *map(str, sources),
+                    "-lm",
+                    "-lpthread",
+                    "-o",
+                    str(executable),
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert built.returncode == 0, built.stderr
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0 and ran.stdout == expected, (compiler, mode, ran)
+    assert declarations["python"] == declarations["btrc"]
 
 
 def _cli_units(command: list[str], workspace: _Workspace, entry: str, output: Path, jobs: int) -> dict[str, str]:
@@ -2055,3 +2267,2937 @@ def test_unit_flow_roots_cover_every_setjmp_safety_location(location):
         IRFunctionDef("ordinary", CType("void"), body=IRBlock([])),
     ]
     assert ModuleUnitCompiler.setjmp_flow_functions(module) == {"protected"}
+
+
+def test_strict_stdlib_validation_has_separate_module_units(tmp_path, monkeypatch):
+    workspace = _Workspace(tmp_path)
+    normal, normal_units = workspace.build("CatalogMain.btrc", tmp_path / "normal", monkeypatch)
+    assert normal.module_units_lowered and not normal.module_units_reused
+    strict, strict_units = workspace.build("CatalogMain.btrc", tmp_path / "strict", monkeypatch, stdlib_strict=True)
+    assert strict.module_units_lowered == normal.module_units_lowered
+    assert not strict.module_units_reused
+    repeated, repeated_units = workspace.build("CatalogMain.btrc", tmp_path / "repeat", monkeypatch, stdlib_strict=True)
+    assert repeated.module_units_reused and not repeated.module_units_lowered
+    assert normal_units == strict_units == repeated_units
+
+
+def test_selfhost_strict_stdlib_validation_has_separate_records(tmp_path, immutable_btrcc):
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("self-hosted artifact reuse needs the native header reader identity")
+    workspace = _Workspace(tmp_path.resolve())
+    normal, normal_units, _, normal_log = _btrcc_build_logged(
+        immutable_btrcc, workspace, "CatalogMain.btrc", workspace.root / "normal"
+    )
+    strict, strict_units, _, strict_log = _btrcc_build_logged(
+        immutable_btrcc, workspace, "CatalogMain.btrc", workspace.root / "strict", stdlib_strict=True
+    )
+    assert normal == strict == {"lowered": 6, "reused": 0}
+    assert _validation_records(strict_log) == _validation_records(normal_log)
+    assert _validation_records(strict_log)["replayed"] == 0
+    repeated, repeated_units, _, repeated_log = _btrcc_build_logged(
+        immutable_btrcc, workspace, "CatalogMain.btrc", workspace.root / "repeat", stdlib_strict=True
+    )
+    assert repeated == {"lowered": 0, "reused": 6}
+    assert _validation_records(repeated_log)["replayed"] > 0
+    assert normal_units == strict_units == repeated_units
+
+
+def _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, expected_stdout):
+    sanitizer = require_sanitizers(tmp_path)
+    generated = {}
+    for frontend, command in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = tmp_path.resolve() / frontend
+        output.mkdir()
+        compiled = subprocess.run(
+            [
+                *command,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                "--module-units",
+                "--jobs",
+                "1",
+                "--emit-units",
+                str(output / "program"),
+                "-o",
+                str(output / "program.c"),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        units = sorted(output.glob("program*.c"))
+        generated[frontend] = {unit.name: unit.read_text() for unit in units}
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "module qualification requires a C compiler"
+            executable = output / mode
+            built = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *map(str, units),
+                    "-lm",
+                    "-lpthread",
+                    "-o",
+                    str(executable),
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert built.returncode == 0, built.stderr
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0, ran.stderr
+            assert ran.stdout == expected_stdout
+    return generated
+
+
+@pytest.mark.parametrize(
+    ("payload", "values", "macro"),
+    [
+        ("uint", "uint first = 1u; uint second = 7u;", "ATOMIC_INT_LOCK_FREE"),
+        (
+            "const int*",
+            "int firstValue = 1; int secondValue = 7; const int* first = &firstValue; const int* second = &secondValue;",
+            "ATOMIC_POINTER_LOCK_FREE",
+        ),
+    ],
+)
+def test_module_atomic_types_keep_their_lock_free_proofs(tmp_path, immutable_btrcc, payload, values, macro):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (source / "Counter.btrc").write_text(
+        f"{payload} readCounter(Atomic<{payload}>* counter) {{ return counter->load(MemoryOrder.ACQUIRE); }}\n"
+    )
+    (source / "Main.btrc").write_text(
+        f"""
+        #include <assert.h>
+        import ./Counter.btrc;
+        int main() {{
+            {values}
+            Atomic<{payload}> counter = Atomic(first);
+            assert(readCounter(&counter) == first);
+            counter.store(second, MemoryOrder.RELEASE);
+            assert(readCounter(&counter) == second);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
+    for frontend, units in generated.items():
+        atomic_units = [text for name, text in units.items() if ".unit-Main-" in name or ".unit-Counter-" in name]
+        assert len(atomic_units) == 2, frontend
+        for text in atomic_units:
+            assert text.count("__btrc_atomic_lock_free_") == 1, frontend
+            assert f"{macro} == 2" in text, frontend
+
+
+@pytest.mark.parametrize("generic", [False, True])
+def test_shared_span_callback_layouts_keep_frontend_order(tmp_path, immutable_btrcc, generic):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (source / "Shared.btrc").write_text(
+        "typedef RealtimeFunction<int, Span<int>, Span<const int>> Processor;\n"
+        "@realtime int process(Span<int> values, Span<const int> source) { return 0; }\n"
+        "class Holder {\n"
+        "    public Processor callback;\n"
+        "    public int value;\n"
+        "    public Holder(int value) { self.callback = process; self.value = value; }\n"
+        "}\n"
+    )
+    local_type = "Box<int>" if generic else "Marker"
+    declaration = (
+        "class Box<T> { public T value; public Box(T value) { self.value = value; } }"
+        if generic
+        else "class Marker { public int value; public Marker(int value) { self.value = value; } }"
+    )
+    (source / "Local.btrc").write_text(
+        "import ./Shared.btrc;\n" + declaration + "\n"
+        "int sample() {\n"
+        "    Holder holder = new Holder(15);\n"
+        f"    {local_type} marker = new {local_type}(7);\n"
+        "    return holder.value + marker.value;\n"
+        "}\n"
+    )
+    (source / "Main.btrc").write_text("import ./Local.btrc;\nint main() { print(sample()); return 0; }\n")
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "22\n")
+    local_units = {
+        frontend: next(text for name, text in units.items() if ".unit-Local-" in name)
+        for frontend, units in generated.items()
+    }
+    for frontend, text in local_units.items():
+        layouts = re.findall(r"^struct (\w+) \{", text, re.MULTILINE)
+        spans = [name for name in layouts if name.startswith(("btrc_Span_", "btrc_ZQgb8_5370616e"))]
+        assert len(spans) == 2, (frontend, layouts)
+        assert "const int* data;" in text and "int* data;" in text
+    assert local_units["reference"] == local_units["selfhost"]
+
+
+def _compile_and_run_native_frontends(
+    source,
+    tmp_path,
+    immutable_btrcc,
+    expected_stdout,
+    *,
+    module_units,
+    no_stdlib=False,
+    strict_compilers=None,
+    strict_optimizations=(2,),
+):
+    NativeBindingPackage.require_reader()
+    sanitizer = require_sanitizers(tmp_path)
+    root = tmp_path.resolve()
+    generated = {}
+    for frontend, compiler in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = root / frontend
+        output.mkdir()
+        c_source, plan = output / "program.c", output / "program.json"
+        compiled = subprocess.run(
+            [
+                *compiler,
+                str(source / "Main.btrc"),
+                "--strict-imports",
+                "--no-cache",
+                *(["--no-stdlib"] if no_stdlib else []),
+                *(["--module-units", "--jobs", "1", "--emit-units", str(output / "program")] if module_units else []),
+                "--emit-link-plan",
+                str(plan),
+                "-o",
+                str(c_source),
+            ],
+            cwd=ROOT,
+            env={**os.environ, "BTRC_HOME": str(ROOT / "src"), "PYTHONPATH": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        generated[frontend] = {path.name: path.read_bytes() for path in output.glob("program*.c")}
+        for mode, compiler, optimization, flags, environment in (
+            *(
+                (f"strict-{index}-O{optimization}", compiler, optimization, [], None)
+                for index, compiler in enumerate(strict_compilers or [C_COMPILER])
+                for optimization in strict_optimizations
+            ),
+            (
+                "sanitized",
+                sanitizer.command,
+                1,
+                ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer.environment,
+            ),
+        ):
+            assert compiler is not None, "native module qualification requires a C compiler"
+
+            def run_build(command, *, environment=environment, **kwargs):
+                kwargs["timeout"] = 180
+                if environment is not None:
+                    kwargs["env"] = environment
+                return subprocess.run(command, **kwargs)
+
+            executable = output / mode
+            NativePlanBuilder(runner=run_build).build(
+                plan_path=plan,
+                generated_c=c_source,
+                output=executable,
+                cc=compiler,
+                optimization=optimization,
+                jobs=1,
+                compile_flags=["-pedantic-errors", "-Wall", "-Wextra", "-Werror", *flags],
+                link_flags=flags,
+            )
+            ran = subprocess.run(
+                [str(executable)],
+                env=sanitizer_environment(sanitizer) if mode == "sanitized" else None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert ran.returncode == 0 and ran.stdout == expected_stdout, (frontend, mode, ran.stdout, ran.stderr)
+    return generated
+
+
+@pytest.mark.parametrize(
+    "header_order,symbol_order,resource_order",
+    [
+        (("Gamma", "Beta", "Alpha"), ("Alpha", "Beta", "Gamma"), ("Beta", "Gamma", "Alpha")),
+        (("Alpha", "Beta", "Gamma"), ("Alpha", "Beta", "Gamma"), ("Beta", "Gamma", "Alpha")),
+        (("Gamma", "Beta", "Alpha"), ("Gamma", "Beta", "Alpha"), ("Beta", "Gamma", "Alpha")),
+        (("Gamma", "Beta", "Alpha"), ("Alpha", "Beta", "Gamma"), ("Alpha", "Gamma", "Beta")),
+    ],
+    ids=["mixed-order", "reverse-header", "reverse-symbols", "reverse-resources"],
+)
+def test_native_resource_shared_declarations_keep_frontend_order(
+    tmp_path, immutable_btrcc, header_order, symbol_order, resource_order
+):
+    root = tmp_path.resolve()
+    source = root / "src"
+    source.mkdir()
+    header = "#include <stdlib.h>\n#include <assert.h>\n"
+    for resource in header_order:
+        header += (
+            f"typedef struct {resource}Storage {{ int references; int value; }} *{resource}Ref;\n"
+            f"static inline {resource}Ref {resource}Create(int value) {{\n"
+            f"    {resource}Ref item = malloc(sizeof(*item)); assert(item);\n"
+            "    item->references = 1; item->value = value; return item;\n}\n"
+            f"static inline void {resource}Retain({resource}Ref item) {{\n"
+            "    assert(item && item->references > 0); ++item->references;\n}\n"
+            f"static inline void {resource}Release({resource}Ref item) {{\n"
+            "    assert(item && item->references > 0); if (--item->references == 0) { free(item); }\n}\n"
+            f"static inline int {resource}Read({resource}Ref item) {{ assert(item); return item->value; }}\n"
+        )
+    (root / "Resources.h").write_text(header)
+    symbols = [name + suffix for name in symbol_order for suffix in ("Ref", "Create", "Read", "Retain", "Release")]
+    manifest = (
+        'manifest-version = 1\n[package]\nname = "nativeOrder"\n'
+        '[[native.bindings]]\nmodule = "Resources"\nheader = "Resources.h"\n'
+        'language = "c"\nstandard = "c11"\n'
+        f"symbols = {json.dumps(symbols)}\n"
+        f"owned-results = {json.dumps([name + 'Create' for name in symbol_order])}\n"
+        f"borrowed-parameters = {json.dumps([name + 'Read.item' for name in symbol_order])}\n"
+    )
+    for resource in resource_order:
+        manifest += (
+            f"[native.bindings.resources.{resource}Ref]\n"
+            'ownership = "reference-counted"\n'
+            f'retain = "{resource}Retain"\nrelease = "{resource}Release"\n'
+        )
+    (root / "btrc.toml").write_text(manifest)
+    (source / "Resources.btrc").write_text("// Declarations come from Resources.h.\n")
+    (source / "Shared.btrc").write_text(
+        "import ./Resources.btrc;\n"
+        "class Holder {\n"
+        "    public GammaRef? gamma; public BetaRef? beta; public AlphaRef? alpha; public int value;\n"
+        "    public Holder() {\n"
+        "        self.gamma = GammaCreate(7); self.beta = BetaCreate(15); self.alpha = AlphaCreate(20);\n"
+        "        self.value = GammaRead(self.gamma) + BetaRead(self.beta) + AlphaRead(self.alpha);\n"
+        "    }\n}\n"
+        "Holder makeHolder() { return new Holder(); }\n"
+    )
+    (source / "Local.btrc").write_text(
+        "import ./Shared.btrc;\nint sample() { Holder holder = makeHolder(); return holder.value; }\n"
+    )
+    (source / "Main.btrc").write_text("import ./Local.btrc;\nint main() { print(sample()); return 0; }\n")
+    generated = _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "42\n", module_units=True)
+    local_units = {
+        frontend: next(text for name, text in units.items() if ".unit-Local-" in name)
+        for frontend, units in generated.items()
+    }
+    for text in local_units.values():
+        forwards = re.findall(rb"^typedef struct (__btrc_native_\w+) ", text, re.MULTILINE)
+        assert set(forwards) == {b"__btrc_native_AlphaRef", b"__btrc_native_BetaRef", b"__btrc_native_GammaRef"}
+    assert local_units["reference"] == local_units["selfhost"]
+
+
+@pytest.mark.parametrize("status_release", [False, True], ids=["void", "status"])
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_unique_resource_lifetime_helpers_match_frontends(tmp_path, immutable_btrcc, status_release, module_units):
+    folder = tmp_path.resolve()
+    source = folder / "src"
+    source.mkdir()
+    close_type = "int" if status_release else "void"
+    (folder / "Resource.h").write_text(
+        "#ifndef RESOURCE_H\n#define RESOURCE_H\n"
+        "typedef struct WidgetStorage { int value; } *WidgetRef;\n"
+        "WidgetRef WidgetCreate(int value);\n"
+        f"{close_type} WidgetRelease(WidgetRef widget);\n"
+        "int WidgetRead(WidgetRef widget);\nint WidgetLive(void);\nint WidgetDestroyed(void);\n#endif\n"
+    )
+    (source / "Resource.c").write_text(
+        '#include "../Resource.h"\n#include <assert.h>\n#include <stdlib.h>\n'
+        "static int live = 0, destroyed = 0;\n"
+        "WidgetRef WidgetCreate(int value) { if (value < 0) return NULL; WidgetRef widget = malloc(sizeof(*widget)); assert(widget); widget->value = value; ++live; return widget; }\n"
+        f"{close_type} WidgetRelease(WidgetRef widget) {{ assert(widget && live > 0); --live; ++destroyed; free(widget);"
+        + (" return -37;" if status_release else "")
+        + " }\n"
+        "int WidgetRead(WidgetRef widget) { return widget ? widget->value : -1; }\n"
+        "int WidgetLive(void) { return live; }\nint WidgetDestroyed(void) { return destroyed; }\n"
+    )
+    (folder / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "uniqueNames"\n'
+        '[[native.sources]]\npath = "src/Resource.c"\nlanguage = "c"\nstandard = "c11"\nmodules = ["Resource"]\n'
+        '[[native.bindings]]\nmodule = "Resource"\nheader = "Resource.h"\nlanguage = "c"\nstandard = "c11"\n'
+        'symbols = ["WidgetRef", "WidgetCreate", "WidgetRelease", "WidgetRead", "WidgetLive", "WidgetDestroyed"]\n'
+        'owned-results = ["WidgetCreate"]\nborrowed-parameters = ["WidgetRead.widget"]\n'
+        '[native.bindings.resources.WidgetRef]\nownership = "unique"\nrelease = "WidgetRelease"\n'
+        + ('release-consumption = "always"\ncleanup-status = "discard"\n' if status_release else "")
+    )
+    (source / "Resource.btrc").write_text("// Resource.h declarations with a manifest-owned implementation.\n")
+    (source / "Shared.btrc").write_text(
+        "import ./Resource.btrc;\n"
+        "class Holder { public WidgetRef? value; public Holder(int value) { self.value = WidgetCreate(value); } }\n"
+        "Holder makeHolder(int value) { return new Holder(value); }\n"
+    )
+    close = (
+        "assert(holder.value.close() == -37 && alias.close() == -37);"
+        if status_release
+        else "holder.value.close(); alias.close();"
+    )
+    (source / "Local.btrc").write_text(
+        "import ./Resource.btrc;\nimport ./Shared.btrc;\n"
+        "void sample() {\n"
+        " for (int index = 0; index < 3; index++) { var holder = makeHolder(42); var alias = holder.value;\n"
+        "  assert(alias != null && alias.isOpen() && WidgetRead(alias) == 42 && WidgetLive() == 1);\n"
+        f"  {close}\n"
+        "  assert(!alias.isOpen() && WidgetLive() == 0 && WidgetDestroyed() == index + 1);\n"
+        " }\n"
+        " assert(WidgetDestroyed() == 3);\n"
+        " { var holder = makeHolder(7); assert(WidgetRead(holder.value) == 7 && WidgetLive() == 1); }\n"
+        " assert(WidgetLive() == 0 && WidgetDestroyed() == 4);\n"
+        ' try { var holder = makeHolder(8); assert(holder.value.isOpen()); throw "expected"; }\n'
+        ' catch (string error) { assert(error == "expected"); }\n'
+        " assert(WidgetLive() == 0 && WidgetDestroyed() == 5);\n"
+        " var absent = WidgetCreate(-1); assert(absent == null && WidgetRead(absent) == -1); WidgetCreate(9);\n"
+        " assert(WidgetLive() == 0 && WidgetDestroyed() == 6);\n}\n"
+    )
+    (source / "Main.btrc").write_text('import ./Local.btrc;\nint main() { sample(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("native_binding", [False, True], ids=["extern", "native-binding"])
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_c_only_imported_module_keeps_its_implementation(tmp_path, immutable_btrcc, native_binding, module_units):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "Counter.h").write_text("int counterNext(void);\n")
+    (source / "Counter.c").write_text(
+        '#include "../Counter.h"\nstatic int count = 40;\nint counterNext(void) { return ++count; }\n'
+    )
+    (source / "Counter.btrc").write_text(
+        "import ./Counter.c;\n" + ("" if native_binding else "extern int counterNext();\n")
+    )
+    manifest = 'manifest-version = 1\n[package]\nname = "cOnlyImport"\n'
+    if native_binding:
+        manifest += '[[native.bindings]]\nmodule = "Counter"\nheader = "Counter.h"\nlanguage = "c"\nstandard = "c11"\nsymbols = ["counterNext"]\n'
+    (tmp_path / "btrc.toml").write_text(manifest)
+    (source / "Shared.btrc").write_text("import ./Counter.btrc;\nint sharedNext() { return counterNext(); }\n")
+    (source / "Main.btrc").write_text(
+        'import ./Counter.btrc;\nimport ./Shared.btrc;\nint main() { assert(counterNext() == 41); assert(sharedNext() == 42); assert(counterNext() == 43); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    for frontend, units in generated.items():
+        includes = [
+            name for name, content in units.items() if str((source / "Counter.c").resolve()).encode() in content
+        ]
+        assert len(includes) == 1, (frontend, includes)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("addressed", [False, True], ids=["function", "address"])
+@pytest.mark.parametrize("generic", [False, True], ids=["class", "generic-class"])
+def test_ordered_function_values_normalize_class_signatures(
+    tmp_path, immutable_btrcc, module_units, addressed, generic
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "orderedCallback"\n')
+    declaration = "Item<T>" if generic else "Item"
+    value_type = "T" if generic else "int"
+    payload = "Item<int>" if generic else "Item"
+    callback = "&receive" if addressed else "receive"
+    (source / "Main.btrc").write_text(
+        f"""
+        class {declaration} {{
+            public {value_type} value;
+            public Item({value_type} value) {{ self.value = value; }}
+        }}
+        static int calls = 0;
+        int next() {{ calls++; return calls; }}
+        int receive({payload} value) {{ return value.value; }}
+        int dispatch(int first, int second, CFunction<int, {payload}> callback, {payload} value) {{
+            assert(first == 1 && second == 2);
+            return callback(value);
+        }}
+        int main() {{
+            var input = new {payload}(42);
+            int output = dispatch(next(), next(), {callback}, input);
+            assert(output == 42 && calls == 2);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["selfhost"] == generated["reference"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("volatile", [False, True], ids=["plain", "volatile"])
+@pytest.mark.parametrize(
+    "declaration,local,argument",
+    [
+        ("", "Value value = 42;", "&value"),
+        ("", "Value value = 42; Pointer pointer = &value;", "pointer"),
+        ("", "Value value = 42; Pointer pointer = &value; Pointer* outer = &pointer;", "*outer"),
+        (
+            "struct Record { Pointer output; };",
+            "Value value = 42; Record record = {&value};",
+            "record.output",
+        ),
+        ("Pointer read(Pointer value) { return value; }", "Value value = 42;", "read(&value)"),
+        (
+            "",
+            "Value value = 42; bool condition = true; Pointer first = &value; Pointer second = &value;",
+            "condition ? first : second",
+        ),
+        ("", "Value values[2] = {42, 43};", "values"),
+    ],
+    ids=["address", "identifier", "dereference", "field", "call-result", "conditional", "array"],
+)
+def test_ordered_pointer_aliases_preserve_qualifiers(
+    tmp_path, immutable_btrcc, module_units, volatile, declaration, local, argument
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "orderedPointer"\n')
+    value_type = "volatile int" if volatile else "unsigned long"
+    (source / "Main.btrc").write_text(
+        f"""
+        typedef {value_type} Value;
+        typedef Value* Pointer;
+        {declaration}
+        static int calls = 0;
+        int next() {{ calls++; return calls; }}
+        bool capture(int first, int second, Pointer input) {{
+            assert(first == 1 && second == 2);
+            return *input == 42;
+        }}
+        int main() {{
+            {local}
+            assert(capture(next(), next(), {argument}));
+            assert(calls == 2);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["selfhost"] == generated["reference"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize(
+    "local,argument",
+    [
+        ("", "&handle"),
+        ("Slot* pointer = &handle;", "pointer"),
+        ("Slot* first = &handle; Slot* second = &handle; bool condition = true;", "condition ? first : second"),
+    ],
+    ids=["address", "identifier", "conditional"],
+)
+def test_ordered_const_handle_slots_preserve_mutable_pointees(tmp_path, immutable_btrcc, module_units, local, argument):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "orderedConstSlot"\n')
+    (source / "Main.btrc").write_text(
+        f"""
+        typedef int* Handle;
+        typedef const Handle Slot;
+        static int calls = 0;
+        int next() {{ calls++; return calls; }}
+        bool capture(int first, int second, Slot* input) {{
+            assert(first == 1 && second == 2 && **input == 42);
+            **input = 43;
+            return true;
+        }}
+        int main() {{
+            int value = 42;
+            Slot handle = &value;
+            {local}
+            assert(capture(next(), next(), {argument}));
+            assert(calls == 2 && value == 43);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["selfhost"] == generated["reference"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("method", [False, True], ids=["function", "method"])
+@pytest.mark.parametrize(
+    "kind,collection,literal,assertion",
+    [
+        (
+            "Vector",
+            "Vector<string>",
+            '["first", "second"]',
+            'values.len == 2 && values.get(0) == "first" && values.get(1) == "second"',
+        ),
+        (
+            "Map",
+            "Map<string, int>",
+            '{"first": 41, "second": 42}',
+            'values.get("first") == 41 && values.get("second") == 42',
+        ),
+    ],
+    ids=["vector", "map"],
+)
+def test_collection_construction_cleanup_matches_frontends(
+    tmp_path, immutable_btrcc, module_units, method, kind, collection, literal, assertion
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "collectionConstruction"\n')
+    declaration = f"{collection} makeValues() {{ return {literal}; }}"
+    if method:
+        declaration = "class Factory { public Factory() {} public " + declaration + " }"
+    setup = "var factory = new Factory();" if method else ""
+    call = "factory.makeValues()" if method else "makeValues()"
+    (source / "Main.btrc").write_text(
+        f"""
+        import Library.{kind};
+        {declaration}
+        int main() {{
+            {setup}
+            try {{
+                for (int index = 0; index < 3; index++) {{
+                    {collection} values = {call};
+                    assert({assertion});
+                }}
+            }} catch (string error) {{ print(error); return 1; }}
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    if not module_units:
+        assert generated["reference"] == generated["selfhost"]
+        return
+    function_name = "Factory_makeValues" if method else "makeValues"
+    pattern = re.compile(rb"^\w+\* " + function_name.encode() + rb"\([^;\n]*\) \{\n.*?^\}", re.MULTILINE | re.DOTALL)
+    bodies = {}
+    for frontend, units in generated.items():
+        main = next(text for name, text in units.items() if ".unit-Main-" in name)
+        match = pattern.search(main)
+        assert match is not None, (frontend, function_name)
+        bodies[frontend] = match.group()
+    assert bodies["reference"] == bodies["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize(
+    "kind,collection,literal",
+    [
+        ("Vector", "Vector<Item>", "[new Item(), makeItem(iteration)]"),
+        ("Map", "Map<int, Item>", "{1: new Item(), 2: makeItem(iteration)}"),
+    ],
+    ids=["vector", "map"],
+)
+def test_collection_construction_cleanup_survives_try_reentry(
+    tmp_path, immutable_btrcc, module_units, kind, collection, literal
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "collectionReentry"\n')
+    (source / "Main.btrc").write_text(
+        f"""
+        import Library.{kind};
+        int alive = 0;
+        class Item {{
+            public Item() {{ alive++; }}
+            public void __del__() {{ alive--; }}
+        }}
+        Item makeItem(int iteration) {{
+            if (iteration == 1) {{ throw "expected"; }}
+            return new Item();
+        }}
+        int main() {{
+            int caught = 0;
+            for (int iteration = 0; iteration < 3; iteration++) {{
+                try {{
+                    {collection} values = {literal};
+                    assert(values.len == 2 && alive == 2);
+                }} catch (string error) {{
+                    assert(error == "expected");
+                    caught++;
+                }}
+                assert(alive == 0);
+            }}
+            assert(caught == 1);
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["source", "reverse"])
+@pytest.mark.parametrize("inherited", [False, True], ids=["independent", "inherited"])
+def test_interface_declarations_preserve_source_order(tmp_path, immutable_btrcc, module_units, reverse, inherited):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "interfaceOrder"\n')
+    parent = " extends IShort" if inherited else ""
+    declarations = ["interface IShort { int read(); }", f"interface ILongName{parent} {{ int write(int value); }}"]
+    if reverse:
+        declarations.reverse()
+    (source / "Owners.btrc").write_text(
+        "\n".join(declarations)
+        + """
+int alive = 0;
+class Buffer implements IShort, ILongName {
+    public int stored;
+    public Buffer() { self.stored = 1; alive++; }
+    public void __del__() { alive--; }
+    public int read() { return self.stored; }
+    public int write(int value) { self.stored = value; return value; }
+}
+"""
+    )
+    inherited_check = "assert(writer.read() == 41);" if inherited else ""
+    (source / "Main.btrc").write_text(
+        """import ./Owners.btrc;
+int consume(IShort reader, ILongName writer) {
+    int initial = reader.read();
+    int changed = writer.write(41);
+"""
+        + inherited_check
+        + """
+    return initial + changed;
+}
+int main() {
+    try {
+        var buffer = new Buffer();
+        IShort reader = buffer;
+        ILongName writer = buffer;
+        assert(consume(reader, writer) == 42);
+        assert(reader.read() == 41 && alive == 1);
+    } catch (string message) {
+        assert(false);
+    }
+    assert(alive == 0);
+    print("PASS");
+    return 0;
+}
+"""
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("readonly", [False, True], ids=["mutable", "readonly"])
+@pytest.mark.parametrize("effectful", [False, True], ids=["plain", "ordered"])
+def test_span_construction_and_arguments_match_frontends(tmp_path, immutable_btrcc, module_units, readonly, effectful):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "spanOrder"\n')
+    element = "const int" if readonly else "int"
+    data = "selectData(values)" if effectful else "values"
+    extent = "selectExtent()" if effectful else "(size_t)3"
+    index = "nextIndex()" if effectful else "indexValue"
+    output = "selectOutput()" if effectful else "&output"
+    value = "nextValue()" if effectful else "41"
+    writes = (
+        ""
+        if readonly
+        else f"""
+    trace = 0;
+    assert(view.trySet({index}, {value}));
+    assert(trace == {35 if effectful else 0} && values[1] == 41);
+    indexValue = (size_t)3;
+    trace = 0;
+    assert(!view.trySet({index}, {value}));
+    assert(trace == {35 if effectful else 0} && values[1] == 41);
+    trace = 0;
+    assert(!missing.trySet({index}, {value}));
+    assert(trace == {35 if effectful else 0});
+"""
+    )
+    (source / "Operations.btrc").write_text(
+        """int trace = 0;
+int output = 0;
+size_t indexValue = (size_t)1;
+int* selectData(int* storage) { trace = trace * 10 + 1; return storage; }
+size_t selectExtent() { trace = trace * 10 + 2; return (size_t)3; }
+size_t nextIndex() { trace = trace * 10 + 3; return indexValue; }
+int* selectOutput() { trace = trace * 10 + 4; return &output; }
+int nextValue() { trace = trace * 10 + 5; return 41; }
+void probe() {
+    int values[3] = {11, 13, 17};
+"""
+        + f"""    Span<{element}> view = Span(({element}*){data}, {extent});
+    assert(trace == {12 if effectful else 0} && view.length() == (size_t)3);
+    trace = 0;
+    assert(view.tryGet({index}, {output}));
+    assert(trace == {34 if effectful else 0} && output == 13);
+    indexValue = (size_t)3;
+    trace = 0;
+    assert(!view.tryGet({index}, {output}));
+    assert(trace == {34 if effectful else 0} && output == 13);
+    Span<{element}> missing = Span(({element}*)null, (size_t)1);
+    indexValue = (size_t)0;
+    trace = 0;
+    assert(!missing.tryGet({index}, {output}));
+    assert(trace == {34 if effectful else 0} && output == 13);
+    indexValue = (size_t)1;
+"""
+        + writes
+        + """
+    int fixed[2 + 1] = {7, 11, 19};
+    Span<int> fixedView = Span(fixed);
+    assert(fixedView.length() == (size_t)3);
+    output = 0;
+    assert(fixedView.tryGet((size_t)2, &output) && output == 19);
+}
+"""
+    )
+    (source / "Main.btrc").write_text('import ./Operations.btrc;\nint main() { probe(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize(
+    "backing, extent, index",
+    [("values", 3, 1), ("values", 3, 3), ("null", 3, 1), ("values", 0, 0)],
+    ids=["valid", "out-of-bounds", "null", "empty"],
+)
+def test_span_argument_exceptions_precede_bounds_checks(
+    tmp_path, immutable_btrcc, module_units, backing, extent, index
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "spanThrows"\n')
+    (source / "Operations.btrc").write_text(
+        """int trace = 0;
+int caught = 0;
+int values[3] = {11, 13, 17};
+int* selectData(int* storage) { trace = trace * 10 + 1; return storage; }
+size_t throwingExtent() { trace = trace * 10 + 2; throw "extent"; }
+int throwingValue() { trace = trace * 10 + 5; throw "value"; }
+"""
+        + f"size_t nextIndex() {{ trace = trace * 10 + 3; return (size_t){index}; }}\n"
+        + """void probe() {
+    try {
+        Span<int> impossible = Span(selectData(values), throwingExtent());
+        assert(impossible.length() == (size_t)3);
+    } catch (string error) {
+        assert(error == "extent" && trace == 12);
+        caught++;
+    }
+    assert(caught == 1);
+    trace = 0;
+"""
+        + f"    Span<int> view = Span((int*){backing}, (size_t){extent});\n"
+        + """    try {
+        bool stored = view.trySet(nextIndex(), throwingValue());
+        assert(!stored);
+    } catch (string error) {
+        assert(error == "value");
+        caught++;
+    }
+    assert(caught == 2 && trace == 35 && values[1] == 13);
+}
+"""
+    )
+    (source / "Main.btrc").write_text('import ./Operations.btrc;\nint main() { probe(); print("PASS"); return 0; }\n')
+    _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("field_kind", ["scalar", "chain", "readonly-pointer", "managed"])
+def test_owned_field_alias_storage_matches_frontends(tmp_path, immutable_btrcc, module_units, field_kind):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "ownedFieldAlias"\n')
+    managed = field_kind == "managed"
+    declarations = {
+        "scalar": "typedef unsigned long long Value;\n",
+        "chain": "typedef unsigned long long Token;\ntypedef Token Value;\n",
+        "readonly-pointer": "typedef const int* Value;\nint storage = 41;\n",
+        "managed": """int payloads = 0;
+class Payload {
+    public int number;
+    public Payload(int number) { self.number = number; payloads++; }
+    public void __del__() { payloads--; }
+}
+typedef Payload Value;
+""",
+    }[field_kind]
+    value = "new Payload(41)" if managed else "&storage" if field_kind == "readonly-pointer" else "41ULL"
+    (source / "Entries.btrc").write_text(
+        declarations
+        + """int alive = 0;
+int calls = 0;
+class Entry {
+    public Value value;
+    public Entry(Value value) { self.value = value; alive++; }
+    public void __del__() { alive--; }
+}
+Entry createEntry(bool fail) {
+    calls++;
+"""
+        + f"    Entry entry = new Entry({value});\n"
+        + """    if (fail) { throw "factory"; }
+    return entry;
+}
+"""
+    )
+    inspect = (
+        "value.number == 41 && payloads == 1"
+        if managed
+        else "value == &storage && *value == 41"
+        if field_kind == "readonly-pointer"
+        else "value == 41ULL"
+    )
+    payload_check = "assert(payloads == 0);" if managed else ""
+    (source / "Operations.btrc").write_text(
+        "import ./Entries.btrc;\n"
+        + """void probe() {
+    for (int iteration = 0; iteration < 3; iteration++) {
+        try {
+            Value value = createEntry(iteration == 1).value;
+"""
+        + f"            assert({inspect});\n"
+        + """            assert(alive == 0 && calls == iteration + 1);
+            assert(iteration != 1);
+        } catch (string message) {
+            assert(message == "factory" && iteration == 1);
+        }
+        assert(alive == 0 && calls == iteration + 1);
+"""
+        + f"        {payload_check}\n"
+        + """    }
+}
+"""
+    )
+    storage_import = "import ./Entries.btrc;\n" if field_kind == "readonly-pointer" else ""
+    storage_check = "assert(storage == 41);" if field_kind == "readonly-pointer" else ""
+    (source / "Main.btrc").write_text(
+        "import ./Operations.btrc;\n"
+        + storage_import
+        + f'int main() {{ try {{ probe(); {storage_check} print("PASS"); }} '
+        + "catch (string message) { assert(false); } return 0; }\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("cyclic", [False, True], ids=["acyclic", "cycle"])
+def test_alias_field_cycle_visitors_match_frontends(tmp_path, immutable_btrcc, module_units, cyclic):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "visitorAlias"\n')
+    acyclic = """int alive = 0;
+class Payload {
+ public int number;
+ public Payload(int value) { self.number = value; alive++; }
+ public void __del__() { alive--; }
+}
+typedef Payload Value;
+class Holder {
+ public Value value;
+ public Holder(Value value) { self.value = value; }
+ public void replace(Value value) { self.value = value; }
+}
+void exercise() {
+ var first = new Holder(new Payload(41));
+ assert(first.value.number == 41 && alive == 1);
+ first.replace(new Payload(42));
+ assert(first.value.number == 42 && alive == 1);
+}
+"""
+    cycle = """int alive = 0;
+class Link {
+ public LinkAlias? next;
+ public Link() { alive++; }
+ public void connect(LinkAlias value) { self.next = value; }
+ public void __del__() { alive--; }
+}
+typedef Link LinkAlias;
+void exercise() {
+ var first = new Link();
+ var second = new Link();
+ first.connect(second);
+ second.connect(first);
+ assert(alive == 2 && first.next == second && second.next == first);
+}
+"""
+    (source / "Operations.btrc").write_text(cycle if cyclic else acyclic)
+    (source / "Main.btrc").write_text(
+        'import ./Operations.btrc;\nint main() { try { exercise(); assert(alive == 0); print("PASS"); } '
+        "catch (string error) { assert(false); } return 0; }\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("kind", ["independent", "dependent", "forward", "callback", "qualified"])
+def test_owned_typedefs_precede_shared_aliases(tmp_path, immutable_btrcc, module_units, kind):
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "aliasOrder"\n')
+    imported = "typedef int ImportedCount;\nImportedCount increment(ImportedCount value) { return value + 1; }\n"
+    local = {
+        "independent": "typedef int LocalCount;",
+        "dependent": "typedef ImportedCount LocalCount;",
+        "forward": "typedef LocalTail LocalCount; typedef ImportedCount LocalTail;",
+    }.get(kind, "")
+    operation = (
+        local
+        + "\nLocalCount combine(ImportedCount value) { LocalCount result = increment(value); return result + 1; }\n"
+    )
+    setup = ""
+    argument = "39"
+    if kind == "callback":
+        imported = "typedef CFunction<int, int> ImportedTransform;\nint twice(int value) { return value * 2; }\n"
+        operation = (
+            "typedef CFunction<int, int> LocalTransform;\n"
+            "int combine(ImportedTransform callback) { LocalTransform local = callback; return local(20) + 1; }\n"
+        )
+        argument = "twice"
+    elif kind == "qualified":
+        imported = (
+            "typedef const int* ImportedPointer;\nImportedPointer identity(ImportedPointer value) { return value; }\n"
+        )
+        operation = (
+            "typedef const int* LocalPointer;\n"
+            "int combine(ImportedPointer value) { LocalPointer local = identity(value); return *local + 1; }\n"
+        )
+        setup = "int storage = 40; "
+        argument = "&storage"
+    (source / "Imported.btrc").write_text(imported)
+    (source / "Operations.btrc").write_text("import ./Imported.btrc;\n" + operation)
+    (source / "Main.btrc").write_text(
+        "import ./Imported.btrc;\nimport ./Operations.btrc;\n"
+        f'int main() {{ {setup}assert(combine({argument}) == 41); print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("record_order", [("Alpha", "Beta", "Gamma"), ("Beta", "Gamma", "Alpha")])
+@pytest.mark.parametrize("nested", [False, True], ids=["independent", "nested"])
+def test_native_record_input_declarations_match_frontends(
+    tmp_path, immutable_btrcc, module_units, record_order, nested
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    child = "const Gamma* child;" if nested else ""
+    child_value = " + value->child->value" if nested else ""
+    (tmp_path / "Records.h").write_text(
+        "#pragma once\n"
+        "typedef struct Gamma { int value; } Gamma;\n"
+        f"typedef struct Alpha {{ int value; {child} }} Alpha;\n"
+        "typedef struct Beta { int value; } Beta;\n"
+        f"static inline int readAlpha(const Alpha* value) {{ return value->value{child_value}; }}\n"
+        "static inline int readBeta(const Beta* value) { return value->value; }\n"
+        "static inline int readGamma(const Gamma* value) { return value->value; }\n"
+    )
+    (tmp_path / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "recordInputOrder"\n'
+        '[[native.bindings]]\nmodule = "Records"\nheader = "Records.h"\nlanguage = "c"\nstandard = "c11"\n'
+        'symbols = ["Alpha", "Beta", "Gamma", "readAlpha", "readBeta", "readGamma"]\n'
+        f"owned-records = {json.dumps(record_order)}\n"
+        'record-inputs = ["readAlpha.value", "readBeta.value", "readGamma.value"]\n'
+        + ('[native.bindings.object-fields]\n"Alpha.child" = "Gamma"\n' if nested else "")
+    )
+    (source / "Records.btrc").write_text("// Native record input projections.\n")
+    initialize = "alpha.child = gamma;" if nested else ""
+    expected = 49 if nested else 42
+    (source / "Reader.btrc").write_text(
+        "import ./Records.btrc;\n"
+        "int read() {\n"
+        "    var alpha = AlphaInput(); alpha.value = 20;\n"
+        "    var beta = BetaInput(); beta.value = 15;\n"
+        "    var gamma = GammaInput(); gamma.value = 7;\n"
+        f"    {initialize}\n"
+        "    return readAlpha(alpha) + readBeta(beta) + readGamma(gamma);\n}\n"
+    )
+    (source / "Main.btrc").write_text(
+        f'import ./Reader.btrc;\nint main() {{ assert(read() == {expected}); print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("dispatch", [False, True], ids=["field-only", "interface-call"])
+def test_generic_interface_tables_retain_implementation_dependencies(tmp_path, immutable_btrcc, module_units, dispatch):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Box.btrc").write_text("""interface IValue { int read(); }
+class Helper<T> {
+ public T value;
+ public Helper(T value) { self.value = value; }
+ public int answer() { return 42; }
+}
+class Box<T> implements IValue {
+ public T value;
+ public Box(T value) { self.value = value; }
+ public int read() {
+  var helper = new Helper<T>(self.value);
+  return helper.answer();
+ }
+}
+""")
+    use = "IValue value = box; assert(value.read() == 42);" if dispatch else "assert(box.value == 7);"
+    (source / "Main.btrc").write_text(
+        "import ./Box.btrc;\nint main() { var box = new Box<int>(7); " + use + ' print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+def test_generic_interface_demand_survives_validation_record_replay(tmp_path, immutable_btrcc):
+    NativeBindingPackage.require_reader()
+    assert C_COMPILER is not None
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Box.btrc").write_text("""interface IValue { int read(); }
+class Box<T> implements IValue {
+ public T value;
+ public Box(T value) { self.value = value; }
+ public int read() { return 42; }
+}
+""")
+    (workspace.modules / "Version.btrc").write_text("int version() { return 0; }\n")
+    (workspace.modules / "Main.btrc").write_text(
+        "import ./Box.btrc;\nimport ./Version.btrc;\n"
+        "int main() { IValue box = new Box<int>(7); assert(box.read() == 42); "
+        'assert(version() == 0); print("PASS"); return 0; }\n'
+    )
+    previous = None
+    for phase in ("cold", "edit", "verify", "fresh"):
+        if phase == "edit":
+            workspace.edit("Version.btrc", "return 0;", "return 1 - 1;")
+        if phase == "fresh":
+            shutil.rmtree(workspace.cache)
+        output = workspace.root / phase
+        _, units, primary, log = _btrcc_build_logged(
+            immutable_btrcc,
+            workspace,
+            "Main.btrc",
+            output,
+            {"BTRC_VERIFY_VALIDATION_RECORDS": "1"} if phase == "verify" else None,
+            jobs=1,
+        )
+        if phase == "edit":
+            assert _validation_records(log)["replayed"] > 0
+        if phase in {"verify", "fresh"}:
+            assert (units, primary) == previous
+        executable = output / "program"
+        compiled = subprocess.run(
+            [
+                *C_COMPILER,
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-O2",
+                *map(str, sorted(output.glob("program*.c"))),
+                "-o",
+                str(executable),
+                "-lm",
+                "-lpthread",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        assert compiled.returncode == 0, compiled.stderr
+        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0 and ran.stdout == "PASS\n", (phase, ran.stdout, ran.stderr)
+        previous = units, primary
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["cycle", "scalar", "phantom"])
+def test_generic_interface_cycles_preserve_retained_owners(tmp_path, immutable_btrcc, module_units, shape):
+    source = tmp_path / "src"
+    source.mkdir()
+    argument, value = ("int", "7") if shape == "scalar" else ("Owner", "owner")
+    field = "" if shape == "phantom" else "public T value;"
+    initialize = "" if shape == "phantom" else "self.value = value;"
+    (source / "Graph.btrc").write_text(f"""int destroyed = 0;
+interface ILink {{ int tag(); }}
+class Box<T> implements ILink {{
+ public Box(T value) {{ {initialize} }}
+ {field}
+ public int tag() {{ return 1; }}
+ public void __del__() {{ destroyed++; }}
+}}
+class Owner {{
+ public ILink? edge = null;
+ public void __del__() {{ destroyed++; }}
+}}
+Owner build() {{
+ Owner owner = new Owner();
+ Box<{argument}> link = new Box<{argument}>({value});
+ owner.edge = link;
+ return owner;
+}}
+void exercise() {{
+ Owner retained = build();
+ assert(destroyed == 0);
+ assert(retained.edge.tag() == 1);
+}}
+""")
+    (source / "Main.btrc").write_text(
+        'import ./Graph.btrc;\nint main() { exercise(); assert(destroyed == 2); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("jobs", [1, 2])
+def test_reference_generic_demand_tracks_cached_caller_edits(tmp_path, monkeypatch, jobs):
+    assert C_COMPILER is not None
+    sanitizer = require_sanitizers(tmp_path)
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Main.btrc").write_text(
+        'import ./Operations.btrc;\nint main() { assert(probe() == 41); print("PASS"); return 0; }\n'
+    )
+    body = """import Library.Map;
+import Library.Vector;
+int probe() {
+    try {
+        Map<int, int> values = {7: 41, 9: 43};
+        Vector<int>? spare = /* demand */;
+        assert(spare == null || spare.len == 0);
+        return values.get(7);
+    } catch (string message) { assert(false); }
+    return 0;
+}
+"""
+    monkeypatch.setenv("BTRC_CACHE_DIR", str(workspace.cache))
+    previous = None
+    baseline = None
+    observed = []
+    expected_states = []
+    for phase, demand, expected in (
+        ("cold", False, {"lowered": 5, "reused": 0}),
+        ("warm", False, {"lowered": 0, "reused": 5}),
+        ("add", True, {"lowered": 2, "reused": 3}),
+        ("added-warm", True, {"lowered": 0, "reused": 5}),
+        ("remove", False, {"lowered": 1, "reused": 4}),
+        ("removed-warm", False, {"lowered": 0, "reused": 5}),
+    ):
+        constructor = "new Vector<int>()" if demand else "null"
+        (workspace.modules / "Operations.btrc").write_text(body.replace("/* demand */", constructor))
+        output = tmp_path / phase
+        output.mkdir()
+        entry = workspace.modules / "Main.btrc"
+        result = Compiler(cache=CompilerCache()).compile(
+            entry.read_text(),
+            str(entry),
+            CompilerOptions(
+                units_prefix=str(output / "program"),
+                module_units=True,
+                module_jobs=jobs,
+                generated_c_path=str(output / "program.c"),
+            ),
+        )
+        assert result.successful, (result.failure, result.diagnostics)
+        counters = {"lowered": len(result.module_units_lowered), "reused": len(result.module_units_reused)}
+        units = {f"program.{name}.c": text for name, text in zip(result.unit_names, result.c_units, strict=True)}
+        generated = {"program.c": result.c_source, **units}
+        for name, text in generated.items():
+            (output / name).write_text(text)
+        if phase == "cold":
+            baseline = generated
+        if "warm" in phase:
+            assert generated == previous
+        if phase == "remove":
+            assert generated == baseline
+        vector = next(text for name, text in units.items() if name.startswith("program.unit-Vector-"))
+        present = "btrc_Vector_int* btrc_Vector_int_new(void) {" in vector
+        observed.append((phase, counters, present))
+        expected_states.append((phase, expected, demand))
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer_environment(sanitizer),
+            ),
+        ):
+            executable = output / mode
+            compiled = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *[str(output / name) for name in sorted(generated)],
+                    "-o",
+                    str(executable),
+                    "-lm",
+                    "-lpthread",
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert compiled.returncode == 0, compiled.stderr
+            ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+            assert ran.returncode == 0 and ran.stdout == "PASS\n", (phase, mode, ran.stdout, ran.stderr)
+        if phase in {"add", "remove"}:
+            with monkeypatch.context() as clean_environment:
+                clean_environment.setenv("BTRC_CACHE_DIR", str(tmp_path / f"fresh-{phase}"))
+                clean = Compiler(cache=CompilerCache()).compile(entry.read_text(), str(entry), result.options)
+            assert clean.successful, (clean.failure, clean.diagnostics)
+            fresh = {
+                "program.c": clean.c_source,
+                **{f"program.{name}.c": text for name, text in zip(clean.unit_names, clean.c_units, strict=True)},
+            }
+            assert fresh == generated, phase
+            assert len(clean.module_units_lowered) == 5 and not clean.module_units_reused
+        previous = generated
+
+    assert observed == expected_states
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("member", ["keys", "values"])
+def test_generic_method_sharing_a_field_name_matches_frontends(tmp_path, immutable_btrcc, module_units, member):
+    source = tmp_path / "source"
+    source.mkdir()
+    expected = "name" if member == "keys" else "value"
+    (source / "Main.btrc").write_text(f"""import Library.Map;
+import Library.Vector;
+int main() {{
+    Map<string, string> aliases = {{"name": "value"}};
+    var names = aliases.{member}();
+    assert(names.len == 1 && names.get(0) == "{expected}");
+    print("PASS");
+    return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_contextual_nested_literals_retain_insertions_and_conversions(tmp_path, immutable_btrcc, module_units):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "Main.btrc").write_text("""import Library.Map;
+import Library.Vector;
+class Token<T> {
+ public T value;
+ public Token(T value) { self.value = value; }
+ public string toString() { return "token"; }
+}
+typedef Vector<Vector<string>> Nested;
+class Holder {
+ public Nested values = [[], [new Token<int>(1)]];
+ public Holder() {}
+}
+class Factory<T> {
+ public Factory() {}
+ public Vector<Vector<T>> build(T value) { return [[], [value]]; }
+}
+Nested returned() { return [[], [new Token<int>(2)]]; }
+void accept(Nested values = [[], [new Token<int>(3)]]) {
+ assert(values.len == 2 && values.get(0).len == 0 && values.get(1).get(0) == "token");
+}
+int main() {
+ Nested values = [[], [new Token<int>(4)]];
+ accept(values);
+ values = [[], [new Token<int>(5)]];
+ accept(values);
+ accept([[], [new Token<int>(6)]]);
+ accept();
+ accept(returned());
+ accept(new Holder().values);
+ accept(new Factory<string>().build("token"));
+ Vector<Map<string, string>> maps = [{}, {new Token<int>(7): new Token<int>(8)}];
+ assert(maps.get(1).get("token") == "token");
+ Vector<Vector<float>> numbers = [[], [1.5, 2.5]];
+ assert(numbers.get(1).get(0) == 1.5f && numbers.get(1).get(1) == 2.5f);
+ print("PASS");
+ return 0;
+}
+""")
+    _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units)
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("cycle", [False, True], ids=["acyclic", "cycle"])
+def test_generic_class_method_demand_matches_frontends(tmp_path, immutable_btrcc, module_units, cycle):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "classDemand"\n')
+    (source / "Box.btrc").write_text(
+        ("import ./Reader.btrc;\n" if cycle else "")
+        + """
+class Box<T> {
+    public T value;
+    public Box(T value) { self.value = value; }
+    public T read() { return self.value; }
+    public T unused() { return self.value; }
+    public U select<U>(U value) { return value; }
+}
+"""
+    )
+    (source / "Reader.btrc").write_text("""import ./Box.btrc;
+int readBox(Box<int> value) { return value.read(); }
+int selected(Box<int> value) { return value.select(2); }
+""")
+    (source / "Main.btrc").write_text("""import ./Box.btrc;
+import ./Reader.btrc;
+int main() {
+    var value = new Box<int>(40);
+    CFunction<int, Box<int>> reader = readBox;
+    assert(reader(value) + selected(value) == 42);
+    print("PASS");
+    return 0;
+}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    bodies = {
+        frontend: _function_bodies(text.decode() for text in units.values()) for frontend, units in generated.items()
+    }
+    assert bodies["reference"] == bodies["selfhost"]
+    assert not any("unused" in name for name in bodies["reference"])
+    assert any("select" in name for name in bodies["reference"])
+    assert generated["reference"] == generated["selfhost"]
+
+
+def _instance_graph_record(graph, kept=frozenset()):
+    return ModuleUnitRecord(
+        group="owner",
+        text="int marker;\n",
+        kept=True,
+        exports=tuple(graph.edges),
+        has_setjmp=False,
+        effects_solved=False,
+        exported_effects={},
+        consulted_effects={},
+        releases_cyclable=False,
+        defines_entry=False,
+        program_release=False,
+        helpers=(),
+        realtime_roots=(),
+        realtime_proofs={},
+        graph=graph,
+        kept_instances=kept,
+    )
+
+
+@pytest.mark.parametrize("route", ["call", "callback", "global", "macro", "native-method"])
+@pytest.mark.parametrize("cached", [False, True], ids=["lowered", "cached"])
+@pytest.mark.parametrize("dce", [True, False], ids=["pruned", "all"])
+def test_instance_demand_keeps_cross_unit_roots_and_cycles(route, cached, dce):
+    consumer = IRModule()
+    if route in {"call", "callback"}:
+        reference = IRCall("genericA") if route == "call" else IRCall("registerCallback", [IRFunctionRef("genericA")])
+        consumer.function_defs = [
+            IRFunctionDef("entry", CType("void"), body=IRBlock([IRExprStmt(IRCall("dispatch"))])),
+            IRFunctionDef("dispatch", CType("void"), body=IRBlock([IRExprStmt(reference)]), is_static=True),
+        ]
+    elif route == "global":
+        consumer.global_decls = [
+            IRGlobalDecl(CType("Callback"), "registration", IRFunctionRef("genericA"), is_static=False)
+        ]
+    elif route == "macro":
+        consumer.preprocessor_decls = [IRMacroDef(name="REGISTERED", replacement="&genericA /* genericUnused */")]
+    else:
+        consumer.objective_c_classes = [
+            IRObjectiveCClass(
+                "NativeOwner",
+                "NSObject",
+                methods=[IRObjectiveCMethod("invoke", CType("void"), [], IRBlock([IRExprStmt(IRCall("genericA"))]))],
+            )
+        ]
+    left = IRModule(
+        function_defs=[
+            IRFunctionDef("genericA", CType("void"), body=IRBlock([IRExprStmt(IRCall("dispatch"))])),
+            IRFunctionDef("dispatch", CType("void"), body=IRBlock([IRExprStmt(IRCall("genericB"))]), is_static=True),
+            IRFunctionDef("genericUnused", CType("void"), body=IRBlock()),
+        ]
+    )
+    right = IRModule(
+        function_defs=[
+            IRFunctionDef("genericB", CType("void"), body=IRBlock([IRExprStmt(IRCall("genericA"))])),
+        ]
+    )
+    units = [consumer, left, right]
+    facts = [
+        ModuleLoweringFacts(),
+        ModuleLoweringFacts({"genericA", "genericUnused", "dispatch"}),
+        ModuleLoweringFacts({"genericB"}),
+    ]
+    states = []
+    for name, unit, metadata in zip(["consumer", "left", "right"], units, facts, strict=True):
+        graph = ModuleUnitGraph.from_unit(unit, metadata)
+        state = _GroupState(name, name, stale=not cached, graph=graph if not cached else ModuleUnitGraph())
+        if cached:
+            record = replace(_instance_graph_record(graph), group=name)
+            state.record = ModuleUnitRecord.from_text(record.to_text(), record.text, name)
+            assert state.record is not None
+        states.append(state)
+    ModuleUnitCompiler._demand_instances(states, ModuleUnitGraph(), dce=dce)
+    assert states[0].kept_instances == frozenset()
+    assert states[1].kept_instances == ({"genericA"} if dce else {"genericA", "genericUnused"})
+    assert states[2].kept_instances == {"genericB"}
+    for state, unit, metadata in zip(states, units, facts, strict=True):
+        graph = ModuleUnitGraph.from_unit(unit, metadata)
+        IROptimizer(
+            unit, dce=dce, module_unit=True, unneeded_instances=graph.instances - state.kept_instances
+        ).optimize()
+    assert {function.name for function in left.function_defs} == (
+        {"genericA", "dispatch"} if dce else {"genericA", "dispatch", "genericUnused"}
+    )
+    assert {function.name for function in right.function_defs} == {"genericB"}
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("record\t6", "record\t5"),
+        ("graph-roots\tgenericA\n", ""),
+        ("graph-instances\tgenericA", "graph-instances\tmissing"),
+        ("graph-instances\tgenericA", "graph-instances\tgenericA\tgenericA"),
+        ("kept-instances\tgenericA", "kept-instances\tmissing"),
+        ("kept-instances\tgenericA", "kept-instances\tgenericA\tgenericA"),
+        ("@graph-edges\t1", "@graph-edges\t01"),
+        ("@graph-edges\t1", "@graph-edges\tgarbage"),
+        ("genericA\texternal", "genericA\t"),
+    ],
+)
+def test_instance_graph_records_reject_invalid_cache_payloads(before, after):
+    graph = ModuleUnitGraph({"genericA": ("external",)}, ("genericA",), frozenset({"genericA"}))
+    record = _instance_graph_record(graph, frozenset({"genericA"}))
+    payload = record.to_text()
+    assert ModuleUnitRecord.from_text(payload, record.text, "owner") == record
+    assert before in payload
+    assert ModuleUnitRecord.from_text(payload.replace(before, after), record.text, "owner") is None
+
+
+@pytest.mark.parametrize("reference_kind", ["comment", "literal", "reference"])
+def test_native_headers_follow_code_references(compiler, tmp_path, request, reference_kind):
+    NativeBindingPackage.require_reader()
+    root = tmp_path.resolve()
+    sources = root / "src"
+    sources.mkdir()
+    if reference_kind == "comment":
+        # The string runtime's declaration comment says "Byte length".
+        header = "typedef unsigned char Byte;\nstatic inline Byte nativeByte(void) { return 7; }\n"
+        symbol, native_value, body = "nativeByte", "nativeByte()", 'return "hello";'
+        expected = "hello\n"
+    else:
+        header = "enum { ProbeToken = 7 };\n"
+        symbol, native_value = "ProbeToken", "ProbeToken"
+        if reference_kind == "literal":
+            body = r'return "prefix \"ProbeToken\" /* ProbeToken */";'
+            expected = 'prefix "ProbeToken" /* ProbeToken */\n'
+        else:
+            body, expected = 'return f"{(int)ProbeToken}";', "7\n"
+    (root / "Probe.h").write_text(header)
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "headerReferences"\n'
+        '[[native.bindings]]\nmodule = "Foundation"\nheader = "Probe.h"\n'
+        f'language = "c"\nstandard = "c11"\nsymbols = ["{symbol}"]\n'
+    )
+    (sources / "Foundation.btrc").write_text("// Declarations come from Probe.h.\n")
+    (sources / "Text.btrc").write_text(f"import ./Foundation.btrc;\nstring message() {{ {body} }}\n")
+    source = sources / "Main.btrc"
+    source.write_text(
+        "import ./Foundation.btrc;\nimport ./Text.btrc;\n"
+        f"int main() {{ assert({native_value} == 7); print(message()); return 0; }}\n"
+    )
+    generated, plan = root / "Program.c", root / "Program.json"
+    compiled = subprocess.run(
+        [
+            *_native_command(compiler, request),
+            "--no-cache",
+            "--strict-imports",
+            "--module-units",
+            "--jobs",
+            "1",
+            "--emit-units",
+            str(root / "Program"),
+            "--emit-link-plan",
+            str(plan),
+            "-o",
+            str(generated),
+            str(source),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "BTRC_HOME": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    units = list(root.glob("Program.unit-Text-*.c"))
+    assert len(units) == 1
+    text = units[0].read_text()
+    executable = root / "program"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc=C_COMPILER)
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0 and ran.stdout == expected, ran.stdout + ran.stderr
+    includes_probe = any("Probe.h" in line for line in text.splitlines() if line.startswith("#include "))
+    assert includes_probe == (reference_kind == "reference")
+
+
+@pytest.mark.parametrize("explicit_headers", [False, True])
+def test_runtime_headers_follow_live_unit_dependencies(compiler: str, tmp_path, request, explicit_headers):
+    """Derived headers stay with their live uses; source includes stay in every unit."""
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Leaf.btrc").write_text("int leaf() { return 7; }\n")
+    (workspace.modules / "Work.btrc").write_text(
+        'int checked(int value) { if (value < 0) { throw "negative"; } return value; }\n'
+        "int work() { Atomic<uint> value = Atomic(5u);\n"
+        "try { return checked((int)value.load(MemoryOrder.ACQUIRE)); }\n"
+        "catch (string error) { return -1; } }\n"
+    )
+    (workspace.modules / "Main.btrc").write_text(
+        ("#include <setjmp.h>\n#include <stdatomic.h>\n" if explicit_headers else "")
+        + "import ./Leaf.btrc;\nimport ./Work.btrc;\n"
+        + "int main() { return leaf() == 7 && work() == 5 ? 0 : 1; }\n"
+    )
+    output = workspace.root / "out"
+    units = _cli_units(_timing_command(compiler, request), workspace, "Main.btrc", output, 1)
+    if C_COMPILER is None:
+        pytest.skip("module-unit execution needs a C compiler")
+    executable = output / "program"
+    build = subprocess.run(
+        [
+            *C_COMPILER,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            *(str(output / name) for name in units),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert build.returncode == 0, build.stderr
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+    assert ran.returncode == 0, ran.stderr
+    leaf = next(text for name, text in units.items() if ".unit-Leaf-" in name)
+    work = next(text for name, text in units.items() if ".unit-Work-" in name)
+    for header in ("setjmp.h", "stdatomic.h"):
+        include = f"#include <{header}>"
+        assert (include in leaf) == explicit_headers, (compiler, header, leaf)
+        assert include in work
+        if explicit_headers:
+            assert all(include in text for text in units.values())
+
+
+@pytest.mark.parametrize("jobs", [1, 2])
+def test_selfhost_generic_summaries_survive_demand_pruning(tmp_path, immutable_btrcc, jobs):
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("self-hosted artifact reuse needs the native header reader identity")
+    assert C_COMPILER is not None
+    sanitizer = require_sanitizers(tmp_path)
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Main.btrc").write_text(
+        'import ./Operations.btrc;\nint main() { assert(probe() == 41); print("PASS"); return 0; }\n'
+    )
+    body = """import Library.Map;
+import Library.Vector;
+int probe() {
+    try {
+        Map<int, int> values = {7: 41, 9: 43};
+        Vector<int>? spare = /* demand */;
+        assert(spare == null || spare.len == 0);
+        return values.get(7);
+    } catch (string message) { assert(false); }
+    return 0;
+}
+"""
+    previous = None
+    baseline = None
+    for phase, demand, expected in (
+        ("cold", False, {"lowered": 5, "reused": 0}),
+        ("warm", False, {"lowered": 0, "reused": 5}),
+        ("add", True, {"lowered": 2, "reused": 3}),
+        ("added-warm", True, {"lowered": 0, "reused": 5}),
+        ("remove", False, {"lowered": 1, "reused": 4}),
+        ("removed-warm", False, {"lowered": 0, "reused": 5}),
+    ):
+        constructor = "new Vector<int>()" if demand else "null"
+        (workspace.modules / "Operations.btrc").write_text(body.replace("/* demand */", constructor))
+        output = tmp_path / phase
+        counters, units, primary, _ = _btrcc_build_logged(immutable_btrcc, workspace, "Main.btrc", output, jobs=jobs)
+        assert counters == expected, phase
+        generated = {"program.c": primary, **units}
+        if phase == "cold":
+            baseline = generated
+        if "warm" in phase:
+            assert generated == previous
+        if phase == "remove":
+            assert generated == baseline
+        vector = next(text for name, text in units.items() if name.startswith("program.unit-Vector-"))
+        assert ("btrc_Vector_int* btrc_Vector_int_new(void) {" in vector) == demand
+        for mode, compiler, flags, environment in (
+            ("strict", C_COMPILER, ["-O2"], None),
+            (
+                "sanitized",
+                sanitizer.command,
+                ["-O1", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"],
+                sanitizer_environment(sanitizer),
+            ),
+        ):
+            executable = output / mode
+            compiled = subprocess.run(
+                [
+                    *compiler,
+                    "-std=c11",
+                    "-pedantic-errors",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    *[str(output / name) for name in sorted(generated)],
+                    "-o",
+                    str(executable),
+                    "-lm",
+                    "-lpthread",
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            assert compiled.returncode == 0, compiled.stderr
+            ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=30)
+            assert ran.returncode == 0 and ran.stdout == "PASS\n", (phase, mode, ran.stdout, ran.stderr)
+        previous = generated
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("reference_global", [False, True], ids=["literal", "reference"])
+def test_literal_text_does_not_add_module_dependencies(tmp_path, immutable_btrcc, module_units, reference_global):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Data.btrc").write_text("int argument = 7;\nint readArgument() { return argument; }\n")
+    (source / "Text.btrc").write_text(
+        ("import ./Data.btrc;\n" if reference_global else "")
+        + "void display() { "
+        + ("assert(argument == 7); " if reference_global else "")
+        + 'print("argument"); }\n'
+    )
+    (source / "Main.btrc").write_text(
+        "import ./Data.btrc;\nimport ./Text.btrc;\nint main() { assert(readArgument() == 7); display(); return 0; }\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "argument\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("allocated", [False, True], ids=["unused", "allocated"])
+def test_module_arc_descriptors_follow_live_constructors(tmp_path, immutable_btrcc, module_units, allocated):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Cell.btrc").write_text(
+        """
+int alive = 0;
+int destroyed = 0;
+class Cell<T> {
+    public T value;
+    public Cell(T value) { self.value = value; alive++; }
+    public void __del__() { alive--; destroyed++; }
+    public T read() { return self.value; }
+}
+"""
+    )
+    initializer = "new Cell<int>(7)" if allocated else "null"
+    result = 7 if allocated else 0
+    (source / "Graph.btrc").write_text(
+        "import ./Cell.btrc;\n"
+        f"int exercise() {{ Cell<int>? value = {initializer}; "
+        "if (value == null) { return 0; } return value.read(); }\n"
+    )
+    (source / "Main.btrc").write_text(
+        "import ./Cell.btrc;\nimport ./Graph.btrc;\n"
+        f"int main() {{ for (int i = 0; i < 20; i++) {{ assert(exercise() == {result}); "
+        f"assert(alive == 0 && destroyed == {'i + 1' if allocated else '0'}); }} "
+        'print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("helper_kind", ["canonical", "opaque", "catalog-name-override"])
+@pytest.mark.parametrize("referenced", [False, True], ids=["unused", "referenced"])
+def test_shared_declarations_ignore_canonical_helper_locals(helper_kind, referenced):
+    shared = SharedDeclarations(
+        IRModule(global_decls=[IRGlobalDecl(CType("int"), "destroyed", is_static=False, is_extern=True)])
+    )
+    helper = IRHelperDecl.from_runtime(RuntimeHelperCatalog().definition("__btrc_tls_state"))
+    if helper_kind != "canonical":
+        if helper_kind == "opaque":
+            helper.name = "custom_helper"
+        helper.c_source = "static int custom_helper(void) { return destroyed; }"
+    unit = IRModule(helper_decls=[helper])
+    if referenced:
+        unit.function_defs.append(
+            IRFunctionDef(
+                name="read_destroyed",
+                return_type=CType("int"),
+                body=IRBlock([IRExprStmt(IRVar("destroyed"))]),
+            )
+        )
+
+    shared.merge_into(unit)
+
+    assert ("destroyed" in {declaration.name for declaration in unit.global_decls}) == (
+        referenced or helper_kind != "canonical"
+    )
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("storage", ["field", "vector"])
+def test_native_release_slots_have_no_arc_edges(tmp_path, native_project, immutable_btrcc, module_units, storage):
+    from src.tests.python.native_import_fixtures import resource_project
+
+    source, _sdk, _triple = resource_project.__wrapped__(native_project)
+    header = tmp_path / "Foundation.h"
+    text = header.read_text()
+    counts = "static int widgetLive = 0, widgetDestroyed = 0;"
+    assert text.count(counts) == 1
+    header.write_text(text.replace(counts, "extern int widgetLive, widgetDestroyed;"))
+    (source.parent / "Resource.c").write_text("int widgetLive = 0, widgetDestroyed = 0;\n")
+    manifest = tmp_path / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        + '\n[[native.sources]]\npath = "src/Resource.c"\nlanguage = "c"\nstandard = "c11"\nmodules = ["Foundation"]\n'
+    )
+    declaration = (
+        "class Holder { public WidgetRef? value; public Holder(WidgetRef? value) { self.value = value; } }\n"
+        if storage == "field"
+        else ""
+    )
+    operation = (
+        "var holder = Holder(owner); release owner; release holder.value; "
+        "assert(holder.value == null); release holder.value; release holder;"
+        if storage == "field"
+        else "Vector<WidgetRef> values = []; values.push(owner); release owner; values.free(); release values;"
+    )
+    source.write_text(
+        "import ./Foundation.btrc;\n"
+        + ("import Library.Vector;\n" if storage == "vector" else "")
+        + declaration
+        + "int main() {\nfor (int index = 0; index < 4; index++) {\n"
+        + "var owner = WidgetCreate(41); assert(owner != null);\n"
+        + operation
+        + "\nassert(WidgetLive() == 0 && WidgetDestroyed() == index + 1);\n}\nreturn 0;\n}\n"
+    )
+    generated = _compile_and_run_native_frontends(
+        source.parent, tmp_path, immutable_btrcc, "", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("cyclic", [False, True], ids=["acyclic", "cycle"])
+@pytest.mark.parametrize("receiver", ["self", "variable"])
+@pytest.mark.parametrize("guarded", [False, True], ids=["plain", "unwind"])
+def test_explicit_field_release_preserves_owner_and_cleanup(
+    tmp_path, immutable_btrcc, module_units, cyclic, receiver, guarded
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    edge = "public Owner? owner = null;" if cyclic else ""
+    connect = "self.child.owner = self;" if cyclic else ""
+    method = "public void clear() { release self.child; }" if receiver == "self" else ""
+    clear = "owner.clear();" if receiver == "self" else "release owner.child;"
+    operation = (
+        f'try {{ {clear} throw "done"; }} catch (string error) {{ assert(error == "done"); }}' if guarded else clear
+    )
+    (source / "Owners.btrc").write_text(f"""
+int children = 0;
+int owners = 0;
+class Child {{
+    {edge}
+    public Child() {{ children++; }}
+    public void __del__() {{ children--; }}
+}}
+class Owner {{
+    public Child? child = null;
+    public Owner() {{ owners++; }}
+    public void __del__() {{ owners--; }}
+    public void attach() {{ self.child = new Child(); {connect} }}
+    {method}
+}}
+void exercise() {{
+    Owner owner = new Owner();
+    owner.attach();
+    assert(owners == 1 && children == 1);
+    {operation}
+    assert(owner.child == null && children == 0 && owners == 1);
+}}
+""")
+    (source / "Main.btrc").write_text(
+        "import ./Owners.btrc;\nint main() { for (int i = 0; i < 20; i++) { exercise(); "
+        'assert(children == 0 && owners == 0); } print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("kind", ["interface", "base"])
+@pytest.mark.parametrize("static", [False, True], ids=["free", "class-method"])
+def test_default_helpers_use_stabilized_argument_types(tmp_path, immutable_btrcc, kind, static):
+    source = tmp_path / "source"
+    source.mkdir()
+    parent = "IBackend" if kind == "interface" else "Base"
+    declarations = (
+        "interface IBackend { int number(); }\n"
+        "class Backend implements IBackend { public int number() { return 42; } }\n"
+        if kind == "interface"
+        else "class Base { public int number() { return 42; } }\nclass Backend extends Base {}\n"
+    )
+    setup = (
+        "class Setup {\n"
+        f" public {parent}? backend; public string message;\n"
+        f" public Setup({parent}? backend, string message) {{ self.backend = backend; self.message = message; }}\n"
+    )
+    method = f'Setup failed({parent}? backend, string message = "ok") {{ return Setup(backend, message); }}\n'
+    (source / "Shared.btrc").write_text(
+        declarations + setup + (" class " + method + "}\n" if static else "}\n" + method)
+    )
+    callee = "Setup.failed" if static else "failed"
+    (source / "Main.btrc").write_text(
+        "import ./Shared.btrc;\nint main() {\n"
+        " Backend backend = new Backend();\n"
+        f" Setup result = {callee}(backend);\n"
+        " assert(result.backend != null); assert(result.backend.number() == 42);\n"
+        ' assert(result.message == "ok"); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_default_helper_reads_prior_upcast_once(tmp_path, immutable_btrcc, module_units):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "Values.btrc").write_text(
+        "int evaluations = 0;\n"
+        "class Base { public int value; }\n"
+        "class Derived extends Base {}\n"
+        "Derived nextValue() { evaluations++; Derived value = new Derived(); value.value = 21; return value; }\n"
+        "int read(Base value, int fallback = value.value) { return value.value + fallback; }\n"
+        "void exercise() { assert(read(nextValue()) == 42); assert(evaluations == 1); }\n"
+    )
+    (source / "Main.btrc").write_text('import ./Values.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["acyclic", "payload-cycle", "mutex-cycle", "shared-alias", "mixed-alias"])
+def test_mutex_payload_calls_preserve_typed_ownership(tmp_path, immutable_btrcc, module_units, shape):
+    source = tmp_path / "src"
+    source.mkdir()
+    edge = {
+        "acyclic": "",
+        "payload-cycle": "public Payload? next = null;",
+        "mutex-cycle": "public Mutex<Payload?> owner;",
+        "shared-alias": "public Mutex<PayloadAlias?> owner;",
+        "mixed-alias": "public Mutex<Payload?> owner;",
+    }[shape]
+    connect = "self.next = self;" if shape == "payload-cycle" else ""
+    alias = shape in {"shared-alias", "mixed-alias"}
+    payload = "PayloadAlias" if alias else "Payload"
+    typedef = "typedef Payload PayloadAlias;" if alias else ""
+    link = "value.owner = self.slot;" if shape in {"mutex-cycle", "shared-alias", "mixed-alias"} else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+{typedef}
+class Payload {{
+ {edge}
+ public int number = 7;
+ public Payload() {{ alive++; {connect} }}
+ public void __del__() {{ alive--; }}
+}}
+class Holder {{
+ private Mutex<{payload}?> slot;
+ public Holder() {{ {payload}? value = new Payload(); self.slot = Mutex(value); {link} }}
+ public bool isOpen() {{ return self.slot.get() != null; }}
+ public int read() {{ var value = self.slot.get(); if (value == null) {{ throw "closed"; }} return value.number; }}
+ public void close() {{ self.slot.set(null); }}
+}}
+void exercise() {{
+ Holder holder = new Holder();
+ assert(alive == 1 && holder.isOpen() && holder.read() == 7);
+ holder.close();
+ assert(alive == 0 && !holder.isOpen());
+ bool caught = false;
+ try {{ holder.read(); }} catch (string error) {{ assert(error.equals("closed")); caught = true; }}
+ assert(caught);
+ holder.close();
+}}
+void abandon() {{ Holder holder = new Holder(); assert(alive == 1 && holder.read() == 7); }}
+int main() {{ for (int i = 0; i < 20; i++) {{ exercise(); assert(alive == 0); abandon(); assert(alive == 0); }} print("PASS"); return 0; }}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+def test_external_prototypes_have_the_same_order_in_both_compilers(tmp_path, immutable_btrcc):
+    """Foreign class callables and cycle visitors have one declaration order."""
+    workspace = _Workspace(tmp_path.resolve())
+    (workspace.modules / "Model.btrc").write_text(
+        "class Item { public Item? child; public int value;\n"
+        "public Item(int value) { self.value = value; } }\n"
+        "class Factory { public Item make(int value) { return new Item(value); } }\n"
+    )
+    (workspace.modules / "Use.btrc").write_text(
+        "import ./Model.btrc;\n"
+        "int zLocal(int value) { return value + 1; }\n"
+        "int aLocal(int value) { return value + 1; }\n"
+        "int use() { var factory = new Factory(); var item = factory.make(7); return aLocal(zLocal(item.value)); }\n"
+    )
+    (workspace.modules / "Main.btrc").write_text("import ./Use.btrc;\nint main() { print(use()); return 0; }\n")
+    declarations = []
+    for frontend, command in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [str(immutable_btrcc)]),
+    ):
+        output = workspace.root / frontend
+        units = _cli_units(command, workspace, "Main.btrc", output, 1)
+        if C_COMPILER is None:
+            pytest.skip("module-unit execution needs a C compiler")
+        executable = output / "program"
+        built = subprocess.run(
+            [
+                *C_COMPILER,
+                "-std=c11",
+                "-pedantic-errors",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                *(str(output / name) for name in units),
+                "-o",
+                str(executable),
+                "-lm",
+                "-lpthread",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        assert built.returncode == 0, built.stderr
+        ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0 and ran.stdout == "9\n", (frontend, ran)
+        use = next(text for name, text in units.items() if ".unit-Use-" in name)
+        prototypes = [line for line in use.splitlines() if line.endswith(");") and line[0].isalpha()]
+        assert any("Factory_make(" in line for line in prototypes)
+        assert any("__btrc_arc_visit_Item(" in line for line in prototypes)
+        assert prototypes.index("int zLocal(int value);") < prototypes.index("int aLocal(int value);")
+        declarations.append(prototypes)
+    assert sorted(declarations[0]) == sorted(declarations[1])
+    assert declarations[0] == declarations[1]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+def test_cleanup_adapters_ignore_dead_generic_method_order(tmp_path, immutable_btrcc, module_units, generic):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Data.btrc").write_text("""int alive = 0;
+int failure = 0;
+class Payload { public Payload() { alive++; } public void __del__() { alive--; } }
+class Model {
+ private Payload payload;
+ public Model() { alive++; self.payload = new Payload(); }
+ public void __del__() { alive--; }
+ public Payload read() { if (failure == 1) { throw "read"; } return self.payload; }
+}
+class Result {
+ private Model model;
+ private Payload payload;
+ public Result(Model model, Payload payload) { alive++; self.model = model; self.payload = payload; }
+ public void __del__() { alive--; }
+ class Result done(Model model, Payload payload) { if (failure == 2) { throw "done"; } return new Result(model, payload); }
+}
+class Request {
+ private Payload payload;
+ public Request(Payload payload) { alive++; self.payload = payload; }
+ public void __del__() { alive--; }
+ public Payload read() { if (failure == 3) { throw "request"; } return self.payload; }
+}
+class Provider { public Request get(Model model) { return new Request(model.read()); } }
+""")
+    worker = """import ./Data.btrc;
+class WorkerGENERIC {
+ private PROVIDER provider;
+ public Worker(PROVIDER provider) { self.provider = provider; }
+ public Result start(Model model) { return self.complete(model, self.provider.get(model)); }
+ public Result complete(Model model, Request input) {
+  Payload local = model.read();
+  assert(input.read() == local);
+  return Result.done(model, input.read());
+ }
+}
+"""
+    worker = worker.replace("GENERIC", "<T>" if generic else "").replace("PROVIDER", "T" if generic else "Provider")
+    (source / "Worker.btrc").write_text(worker)
+    main = """import ./Data.btrc;
+import ./Worker.btrc;
+void exercise(int fail) {
+ failure = fail;
+ Model model = new Model(); Provider provider = new Provider(); WorkerINSTANCE worker = new WorkerINSTANCE(provider);
+ bool caught = false;
+ try { Result value = worker.complete(model, provider.get(model)); assert(alive == 3); }
+ catch (string error) { caught = true; assert(error == (fail == 1 ? "read" : fail == 2 ? "done" : "request")); }
+ assert(caught == (fail != 0));
+ failure = 0;
+ assert(alive == 2);
+}
+int main() { for (int i = 0; i < 8; i++) { for (int fail = 0; fail < 4; fail++) { exercise(fail); assert(alive == 0); } } print("PASS"); return 0; }
+"""
+    (source / "Main.btrc").write_text(main.replace("INSTANCE", "<Provider>" if generic else ""))
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("named_alias", [False, True], ids=["nested-callback", "named-alias"])
+def test_callback_declaration_order_preserves_nested_dependencies(tmp_path, immutable_btrcc, named_alias):
+    source = tmp_path / "source"
+    source.mkdir()
+    transform = "Transform" if named_alias else "CFunction<int, int>"
+    aliases = "typedef CFunction<int, int> Transform;\n" if named_alias else ""
+    (source / "Shared.btrc").write_text(
+        aliases
+        + "class Alpha { public int value = 42; }\n"
+        + "class Beta { public int value = 42; }\n"
+        + "class Gamma { public int value = 42; }\n"
+        + "class Handle<T> {\n"
+        + " public T value; public CFunction<bool, T> callback;\n"
+        + " public Handle(T value, CFunction<bool, T> callback) { self.value = value; self.callback = callback; }\n"
+        + " public bool run() { return self.callback(self.value); }\n}\n"
+        + "int increment(int value) { return value + 1; }\n"
+        + f"{transform} identity({transform} callback) {{ return callback; }}\n"
+    )
+    main = "import ./Shared.btrc;\n"
+    for name in ("Gamma", "Alpha", "Beta"):
+        main += f"bool accept{name}({name} value) {{ return value.value == 42; }}\n"
+    main += "int main() {\n"
+    for name in ("Gamma", "Alpha", "Beta"):
+        main += f" var {name.lower()} = new Handle<{name}>(new {name}(), accept{name});\n"
+        main += f" assert({name.lower()}.run());\n"
+    main += (
+        f" CFunction<{transform}, {transform}> factory = identity;\n"
+        f" {transform} callback = factory(increment);\n"
+        ' assert(callback(41) == 42); print("PASS"); return 0; }\n'
+    )
+    (source / "Main.btrc").write_text(main)
+    generated = _compile_and_run_module_frontends(source, tmp_path, immutable_btrcc, "PASS\n")
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["inline", "inferred", "explicit", "local-only"])
+def test_span_declarations_follow_shared_catalog_order(tmp_path, immutable_btrcc, module_units, shape):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (source / "Shared.btrc").write_text(
+        "class Marker { public int value; public Marker(int value) { self.value = value; } }\n"
+        + (
+            ""
+            if shape == "local-only"
+            else "int consume(Span<const int> samples, Marker marker) {\n"
+            " int value = 0; assert(samples.tryGet((size_t)0, &value)); return value + marker.value;\n}\n"
+        )
+    )
+    span = "Span((const int*)values, (size_t)1)"
+    if shape == "inline":
+        statement = f"return consume({span}, marker);"
+    elif shape == "local-only":
+        statement = (
+            f"var view = {span}; int value = 0; assert(view.tryGet((size_t)0, &value)); return value + marker.value;"
+        )
+    else:
+        declaration = "var" if shape == "inferred" else "Span<const int>"
+        statement = f"{declaration} view = {span}; return consume(view, marker);"
+    (source / "Reader.btrc").write_text(
+        "import ./Shared.btrc;\nint read() { int values[1] = {35}; var marker = new Marker(7); " + statement + " }\n"
+    )
+    (source / "Main.btrc").write_text(
+        'import ./Reader.btrc;\nint main() { assert(read() == 42); print("PASS"); return 0; }\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("kind", ["alias", "independent"])
+@pytest.mark.parametrize("keep", [False, True], ids=["borrow", "keep"])
+@pytest.mark.parametrize("throws", [False, True], ids=["plain", "throws"])
+def test_hosted_string_arguments_preserve_borrow_and_keep(tmp_path, immutable_btrcc, module_units, kind, keep, throws):
+    source = tmp_path / "src"
+    source.mkdir()
+    expression = "strchr(raw, 'b')" if kind == "alias" else "strerror(1)"
+    qualifier = "keep " if keep else ""
+    call = f"observe({expression});"
+    invoke = (
+        ("try { " + call + ' assert(false); } catch (string error) { assert(error.equals("stop")); }')
+        if throws
+        else call
+    )
+    (source / "Main.btrc").write_text(f"""
+#include <string.h>
+#include <stdlib.h>
+size_t baseline = 0;
+int observations = 0;
+void observe({qualifier}string value) {{
+    assert(value != null && strlen(value) > (size_t)0);
+    assert(__btrc_string_live_count() == baseline + (size_t){1 if keep else 0});
+    observations++;
+    {'throw "stop";' if throws else ""}
+}}
+int main() {{
+    baseline = __btrc_string_live_count();
+    char* raw = (char*)"borrowed";
+    (void)raw;
+    for (int round = 0; round < 20; round++) {{
+        {invoke}
+        assert(__btrc_string_live_count() == baseline);
+    }}
+    assert(observations == 20);
+    print("PASS");
+    return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+def test_conditional_return_from_nullable_receiver_releases_result(tmp_path, immutable_btrcc, module_units, generic):
+    source = tmp_path / "src"
+    source.mkdir()
+    generic_parameters = "<T>" if generic else ""
+    receiver_type = "T" if generic else "Holder"
+    generic_arguments = "<Holder>" if generic else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+class Item {{
+ public Item() {{ alive++; }}
+ public void __del__() {{ alive--; }}
+ class Item idle() {{ return new Item(); }}
+}}
+class Holder {{ public Item read() {{ return new Item(); }} }}
+class Choice{generic_parameters} {{
+ private {receiver_type}? current;
+ public Choice({receiver_type}? current) {{ self.current = current; }}
+ public Item read(bool closed) {{
+  {receiver_type}? optional = self.current;
+  return closed || optional == null ? Item.idle() : optional.read();
+ }}
+}}
+void visit(bool present, bool closed) {{
+ Holder? holder = null;
+ if (present) {{ holder = new Holder(); }}
+ Choice{generic_arguments} choice = new Choice{generic_arguments}(holder);
+ Item item = choice.read(closed);
+ assert(alive == 1);
+}}
+int main() {{
+ for(int i = 0; i < 12; i++) {{ visit(i % 2 == 0, i % 3 == 0); assert(alive == 0); }}
+ print("PASS"); return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("receiver", ["self", "variable", "keep"])
+@pytest.mark.parametrize("default", [False, True], ids=["explicit", "default"])
+@pytest.mark.parametrize("throws", [False, True], ids=["plain", "throws"])
+def test_call_argument_pins_preserve_self_and_owned_bindings(
+    tmp_path, immutable_btrcc, module_units, receiver, default, throws
+):
+    source = tmp_path.resolve() / "source"
+    source.mkdir()
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "selfArgumentPins"\n')
+    binding = "Owner alias = self;" if receiver == "variable" else ""
+    argument = "alias" if receiver == "variable" else "self"
+    later = "" if default else ", touch()"
+    qualifier = "keep " if receiver == "keep" else ""
+    effect = 'throw "later";' if throws else "return 7;"
+    invoke = (
+        'try { owner.exercise(); assert(false); } catch (string error) { assert(error.equals("later")); }'
+        if throws
+        else "owner.exercise();"
+    )
+    (source / "Main.btrc").write_text(
+        f"""
+        int alive = 0;
+        int calls = 0;
+        int observations = 0;
+        int touch() {{ calls++; {effect} }}
+        class Owner {{
+            public int value = 9;
+            public Owner() {{ alive++; }}
+            public void __del__() {{ alive--; }}
+            public void exercise() {{ {binding} observe({argument}{later}); assert(alive == 1); }}
+        }}
+        void observe({qualifier}Owner owner, int later = touch()) {{
+            observations++;
+            assert(owner.value == 9 && later == 7 && calls == 1);
+        }}
+        void exercise() {{
+            calls = 0;
+            observations = 0;
+            Owner owner = new Owner();
+            {invoke}
+            assert(calls == 1 && alive == 1 && observations == {0 if throws else 1});
+        }}
+        int main() {{
+            for (int round = 0; round < 20; round++) {{ exercise(); assert(alive == 0); }}
+            print("PASS");
+            return 0;
+        }}
+        """
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_stored_callback_prototypes_keep_declared_parameter_qualifiers(
+    tmp_path, native_project, immutable_btrcc, module_units
+):
+    from src.tests.python.test_native_objective_c_delegates import stored_objective_c_project
+
+    source = native_project[0].parent
+    stored_objective_c_project.__wrapped__(native_project)
+    generated = _compile_and_run_native_frontends(source, tmp_path, immutable_btrcc, "", module_units=module_units)
+    expected = {
+        "retain": "void* rawContext",
+        "release": "void* rawContext",
+        "0_invoke": "int argument0, void* argument1",
+    }
+    for frontend, units in generated.items():
+        declarations = 0
+        definitions = 0
+        for text in units.values():
+            for suffix, parameters in expected.items():
+                pattern = rb"^.* __btrc_objc_NativeSubscription_listen_" + suffix.encode() + rb"\(([^)]*)\)([; {]+)$"
+                for match in re.finditer(pattern, text, re.MULTILINE):
+                    if match[2] == b";":
+                        assert match[1].decode() == parameters, (frontend, suffix, match[0])
+                        declarations += 1
+                    else:
+                        assert b"volatile" in match[1], (frontend, suffix, match[0])
+                        definitions += 1
+        assert definitions == 3, (frontend, definitions)
+        if module_units:
+            assert declarations >= 3, (frontend, declarations)
+    if module_units:
+        assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("shape", ["record", "array"], ids=["record", "array"])
+@pytest.mark.parametrize("effects", [False, True], ids=["constants", "effects"])
+def test_nested_aggregate_operands_preserve_order_and_shape(tmp_path, immutable_btrcc, module_units, shape, effects):
+    source = tmp_path / "src"
+    source.mkdir()
+    values = [f"nextValue({value})" if effects else str(value) for value in range(1, 5)]
+    initializer = "{{" + ", ".join(values[:2]) + "}, {" + ", ".join(values[2:]) + "}}"
+    declaration = "Frame frame" if shape == "record" else "Pair frame[2]"
+    first = "frame.first" if shape == "record" else "frame[0]"
+    second = "frame.second" if shape == "record" else "frame[1]"
+    (source / "Shapes.btrc").write_text(
+        "struct Pair { int left; int right; };\n"
+        "struct Frame { Pair first; Pair second; };\n"
+        "int trace = 0;\n"
+        "int nextValue(int value) { trace = trace * 10 + value; return value; }\n"
+        f"void exercise() {{ trace = 0; {declaration} = {initializer};\n"
+        f" assert({first}.left == 1); assert({first}.right == 2);\n"
+        f" assert({second}.left == 3); assert({second}.right == 4);\n"
+        f" assert(trace == {1234 if effects else 0}); }}\n"
+    )
+    (source / "Main.btrc").write_text('import ./Shapes.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("record", [False, True], ids=["tuple", "record"])
+def test_nested_tuple_operands_preserve_effects(tmp_path, immutable_btrcc, module_units, record):
+    source = tmp_path / "src"
+    source.mkdir()
+    declaration = "Frame frame" if record else "((int, int), (int, int)) frame"
+    initializer = (
+        "{(nextValue(1), nextValue(2)), (nextValue(3), nextValue(4))}"
+        if record
+        else "((nextValue(1), nextValue(2)), (nextValue(3), nextValue(4)))"
+    )
+    first, second = ("frame.first", "frame.second") if record else ("frame._0", "frame._1")
+    (source / "Shapes.btrc").write_text(
+        "struct Frame { (int, int) first; (int, int) second; };\n"
+        "int trace = 0;\n"
+        "int nextValue(int value) { trace = trace * 10 + value; return value; }\n"
+        f"void exercise() {{ trace = 0; {declaration} = {initializer};\n"
+        f" assert({first}._0 == 1 && {first}._1 == 2);\n"
+        f" assert({second}._0 == 3 && {second}._1 == 4);\n"
+        " assert(trace == 1234); }\n"
+    )
+    (source / "Main.btrc").write_text('import ./Shapes.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("future", [False, True], ids=["one-shot", "future"])
+def test_native_completion_cleanup_matches_frontends(tmp_path, immutable_btrcc, c_one_shot_project, future):
+    from src.tests.python.test_native_c_completions import c_future_project, c_owned_completion_project
+
+    source = c_one_shot_project
+    if future:
+        source = c_future_project.__wrapped__(c_owned_completion_project.__wrapped__(source))
+    # The callback adapter and caller are separate translation units. Both must
+    # observe the same pending callback and live resource count.
+    header = tmp_path / "Completion.h"
+    header.write_text(
+        header.read_text()
+        .replace(
+            "static Completion pending; static void *pendingContext;",
+            "extern Completion pending; extern void *pendingContext;",
+        )
+        .replace("static int liveWidgets;", "extern int liveWidgets;")
+    )
+    (tmp_path / "Completion.c").write_text(
+        '#include "Completion.h"\nCompletion pending; void *pendingContext;\n'
+        + ("int liveWidgets;\n" if future else "")
+    )
+    manifest = tmp_path / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text() + '\n[[native.sources]]\npath = "Completion.c"\nlanguage = "c"\nstandard = "c11"\n'
+    )
+    expected = (
+        "PASS: claimed and abandoned native resource completions\n"
+        if future
+        else "PASS: C one-shot native completion and cancellation\n"
+    )
+    generated = _compile_and_run_native_frontends(source.parent, tmp_path, immutable_btrcc, expected, module_units=True)
+    # Compare the complete unit that owns the native adapters. Imported generic
+    # collection units have their own release-boundary parity coverage.
+    assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
+
+
+@pytest.mark.parametrize("header_name", ["Extra", "Zeta"])
+@pytest.mark.parametrize("in_flight", [False, True], ids=["normal", "in-flight"])
+def test_realtime_native_declarations_match_frontends(
+    tmp_path, native_project, immutable_btrcc, header_name, in_flight
+):
+    from src.tests.python.native_import_fixtures import resource_project, unique_project
+    from src.tests.python.test_native_realtime_callbacks import realtime_project
+
+    source, _sdk, _triple = realtime_project.__wrapped__(
+        unique_project.__wrapped__(resource_project.__wrapped__(native_project))
+    )
+    header = tmp_path / "Foundation.h"
+    text = header.read_text()
+    widget_counts = "static int widgetLive = 0, widgetDestroyed = 0;"
+    assert text.count(widget_counts) == 1
+    text = text.replace(widget_counts, "extern int widgetLive, widgetDestroyed;")
+    definitions = ["int widgetLive, widgetDestroyed;"]
+    for declaration in (
+        "RenderRecord savedRender;",
+        "int stopResult;",
+        "int stopCalls;",
+        "int inputCalls;",
+        "_Atomic int asyncEntered;",
+        "_Atomic int asyncReleased;",
+        "_Atomic int asyncEnabled;",
+        "pthread_t renderThread;",
+    ):
+        assert text.count("static " + declaration) == 1
+        text = text.replace("static " + declaration, "extern " + declaration)
+        definitions.append(declaration)
+    header.write_text(text)
+    (tmp_path / "Render.c").write_text('#include "Foundation.h"\n' + "\n".join(definitions) + "\n")
+    (tmp_path / (header_name + ".h")).write_text("static inline int extraValue(void) { return 14; }\n")
+    (source.parent / (header_name + ".btrc")).write_text("")
+    manifest = tmp_path / "btrc.toml"
+    manifest.write_text(
+        manifest.read_text()
+        + '\n[[native.bindings]]\nmodule = "'
+        + header_name
+        + '"\nheader = "'
+        + header_name
+        + '.h"\nlanguage = "c"\nstandard = "c11"\nsymbols = ["extraValue"]\n'
+        + '\n[[native.sources]]\npath = "Render.c"\nlanguage = "c"\nstandard = "c11"\n'
+    )
+    delivery = (
+        "StartAsyncRender(); assert(scope.cancel() == CALLBACK_CANCELLATION_PENDING); "
+        "assert(WidgetLive() == 1); ReleaseAsyncRender(); "
+        "assert(scope.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE);"
+        if in_flight
+        else "assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);"
+    )
+    source.write_text(
+        "import ./Foundation.btrc;\nimport ./"
+        + header_name
+        + ".btrc;\n"
+        + """import Library.Callback;
+class Renderer implements IRender {
+    public @realtime int invoke(RenderInvocation invocation, unsigned int frames, float* samples) {
+        return invocation.input(frames, samples);
+    }
+}
+@realtime int silence(unsigned int frames, float* samples) { samples[0] = 0.0f; return 0; }
+int main() {
+    assert(extraValue() == 14);
+    var owner = WidgetCreate(7);
+    var scope = new CallbackScope();
+    var receiver = new Renderer();
+    var registration = installRender(owner, 1u, receiver, silence, scope);
+    assert(registration.isOpen());
+"""
+        + delivery
+        + """
+    assert(scope.pendingCount() == 0);
+    owner.close();
+    assert(WidgetLive() == 0 && WidgetDestroyed() == 1);
+    print("PASS");
+    return 0;
+}
+"""
+    )
+    generated = _compile_and_run_native_frontends(source.parent, tmp_path, immutable_btrcc, "PASS\n", module_units=True)
+    # The native adapter unit owns the declarations under test. Collection
+    # release batching and the caller's cycle classification have separate tests.
+    assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
+
+
+@pytest.mark.parametrize("mode", [0, 3], ids=["normal", "cancel-during-call"])
+def test_scoped_super_native_unit_matches_frontends(tmp_path, native_project, immutable_btrcc, mode):
+    from src.tests.python.test_native_objective_c_super_admission import PROGRAM, admission_project
+
+    source = admission_project.__wrapped__(native_project)
+    source.write_text(PROGRAM.replace("MODE", str(mode)))
+    generated = _compile_and_run_native_frontends(
+        source.parent,
+        tmp_path,
+        immutable_btrcc,
+        "after press\nnative released\nreceiver released\n",
+        module_units=True,
+    )
+    assert generated["reference"]["program.c"] == generated["selfhost"]["program.c"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("kind", ["Vector", "Map"])
+@pytest.mark.parametrize("failure", ["none", "leaf", "constructor"])
+def test_collection_literals_evaluate_leaves_before_construction(
+    tmp_path, immutable_btrcc, module_units, kind, failure
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    fail_leaf = 'if (value == 2) { throw "leaf"; }' if failure == "leaf" else ""
+    fail_constructor = 'throw "constructor";' if failure == "constructor" else ""
+    declarations = f"int trace = 0;\nint mark(int value) {{ trace = trace * 10 + value; {fail_leaf} return value; }}\n"
+    if kind == "Vector":
+        declarations += (
+            "class Vector<T> { public T* data; public int len; public int cap; "
+            f"public Vector() {{ trace = trace * 10 + 9; {fail_constructor} }} "
+            "public void push(T value) { trace = trace * 10 + 8; self.len++; } }\n"
+        )
+        collection, literal = "Vector<int>", "[mark(1), mark(2)]"
+        expected = {"none": 12988, "leaf": 12, "constructor": 129}[failure]
+    else:
+        declarations += (
+            "class Map<K, V> { public K* keys; public V* values; public bool* occupied; "
+            "public int len; public int cap; "
+            f"public Map() {{ trace = trace * 10 + 9; {fail_constructor} }} "
+            "public void put(K key, V value) { trace = trace * 10 + 8; self.len++; } }\n"
+        )
+        collection, literal = "Map<int, int>", "{mark(1): mark(2), mark(3): mark(4)}"
+        expected = {"none": 1234988, "leaf": 12, "constructor": 12349}[failure]
+    (source / "Graph.btrc").write_text(
+        declarations
+        + f"{collection} build() {{ return {literal}; }}\n"
+        + f"void exercise() {{ {collection} values = build(); assert(values.len == 2); }}\n"
+    )
+    caught = "false" if failure == "none" else "true"
+    (source / "Main.btrc").write_text(
+        "import ./Graph.btrc;\nint main() { bool caught = false; "
+        f'try {{ exercise(); }} catch (string error) {{ assert(error == "{failure}"); caught = true; }} '
+        f'assert(caught == {caught} && trace == {expected}); print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units, no_stdlib=True
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("kind", ["Vector", "List", "Map"])
+@pytest.mark.parametrize("operation", ["throwing-leaf", "borrowed-rebind"])
+def test_collection_literal_operand_lifetimes(tmp_path, immutable_btrcc, module_units, kind, operation):
+    source = tmp_path / "src"
+    source.mkdir()
+    collection = f"{kind}<Box>" if kind != "Map" else "Map<int, Box>"
+    leaves = ["new Box(1)", "fail()"] if operation == "throwing-leaf" else ["holder.value", "replace(holder)"]
+    literal = f"[{', '.join(leaves)}]" if kind != "Map" else f"{{0: {leaves[0]}, 1: {leaves[1]}}}"
+    declarations = f"""
+import Library.{kind};
+int alive = 0;
+int evaluations = 0;
+class Box {{
+    public int value;
+    public Box(int value) {{ self.value = value; alive++; }}
+    public void __del__() {{ alive--; }}
+}}
+class Holder {{
+    public Box value;
+    public Holder() {{ self.value = new Box(1); }}
+}}
+Box replace(Holder holder) {{ holder.value = new Box(2); return holder.value; }}
+Box fail() {{ evaluations++; if (evaluations > 0) {{ throw "leaf"; }} return new Box(3); }}
+"""
+    if operation == "throwing-leaf":
+        exercise = f"""
+void exercise() {{
+    bool caught = false;
+    try {{ {collection} values = {literal}; (void)values; }}
+    catch (string error) {{ assert(error == "leaf"); caught = true; }}
+    assert(caught && alive == 0);
+}}
+"""
+    else:
+        exercise = f"""
+void exercise() {{
+    Holder holder = new Holder();
+    {collection} values = {literal};
+    assert(values.len == 2 && values.get(0).value == 1 && values.get(1).value == 2);
+    assert(alive == 2);
+}}
+"""
+    (source / "Graph.btrc").write_text(declarations + exercise)
+    expected = 20 if operation == "throwing-leaf" else 0
+    (source / "Main.btrc").write_text(
+        "import ./Graph.btrc;\nint main() { for (int i = 0; i < 20; i++) { exercise(); assert(alive == 0); } "
+        f'assert(evaluations == {expected}); print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("called", [False, True], ids=["unused", "called"])
+def test_runtime_helper_locals_do_not_retain_application_prototypes(tmp_path, immutable_btrcc, module_units, called):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Graph.btrc").write_text(
+        'int mark(int value) { return value; }\nvoid exercise(bool fail) { if (fail) { throw "leaf"; } }\n'
+    )
+    direct_call = "assert(mark(7) == 7);" if called else ""
+    (source / "Main.btrc").write_text(
+        "import ./Graph.btrc;\nint main() { bool caught = false; "
+        'try { exercise(true); } catch (string error) { assert(error == "leaf"); caught = true; } '
+        f'assert(caught); {direct_call} print("PASS"); return 0; }}\n'
+    )
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("generic", [False, True], ids=["ordinary", "generic"])
+@pytest.mark.parametrize("volatile", [False, True], ids=["inferred", "explicit"])
+def test_constructor_parameter_qualifiers_belong_to_each_function(
+    tmp_path, immutable_btrcc, module_units, generic, volatile
+):
+    source = tmp_path / "src"
+    source.mkdir()
+    parameters = "<T>" if generic else ""
+    instance = "Box<int>" if generic else "Box"
+    qualifier = "volatile " if volatile else ""
+    (source / "Main.btrc").write_text(f"""
+int alive = 0;
+class Payload {{ public Payload() {{ alive++; }} public void __del__() {{ alive--; }} }}
+class Box{parameters} {{
+ public int value = 0;
+ public Payload? payload = null;
+ public Box({qualifier}int number, Payload input) {{
+  try {{ number++; throw "adjust"; }}
+  catch (string error) {{ assert(error.equals("adjust")); self.value = number; }}
+  self.payload = input;
+ }}
+}}
+void exercise() {{
+ Payload payload = new Payload();
+ {instance} box = new {instance}(3, payload);
+ assert(box.value == 4 && box.payload == payload && alive == 1);
+}}
+int main() {{
+ for (int round = 0; round < 20; round++) {{ exercise(); assert(alive == 0); }}
+ print("PASS"); return 0;
+}}
+""")
+    generated = _compile_and_run_native_frontends(
+        source,
+        tmp_path,
+        immutable_btrcc,
+        "PASS\n",
+        module_units=module_units,
+        strict_compilers=[[compiler] for compiler in HOST_C_COMPILERS],
+        strict_optimizations=(0, 1, 2, 3),
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_anonymous_record_children_keep_value_and_array_boundaries(tmp_path, immutable_btrcc, module_units):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Records.btrc").write_text("""
+struct Pair { int first; int second; };
+struct Frame {
+ union { struct { Pair pair; int values[2]; }; double unused; };
+ int tail;
+};
+Frame globalFrames[1] = {{{{{1, 2}, {3, 4}}}, 5}};
+int calls = 0;
+int nextValue() { calls++; return calls; }
+int sum(Frame frame) {
+ return frame.pair.first + frame.pair.second + frame.values[0] + frame.values[1] + frame.tail;
+}
+void exercise() {
+ static Frame staticFrames[1] = {{{{{1, 2}, {3, 4}}}, 5}};
+ Frame constantFrames[1] = {{{{{1, 2}, {3, 4}}}, 5}};
+ assert(sum(globalFrames[0]) == 15 && sum(staticFrames[0]) == 15 && sum(constantFrames[0]) == 15);
+ Frame frame = {{{{nextValue(), nextValue()}, {nextValue(), nextValue()}}}, nextValue()};
+ assert(frame.pair.first == 1 && frame.pair.second == 2);
+ assert(frame.values[0] == 3 && frame.values[1] == 4 && frame.tail == 5);
+ assert(sum(frame) == 15 && calls == 5);
+ Frame frames[2] = {
+  {{{{nextValue(), nextValue()}, {nextValue(), nextValue()}}}, nextValue()},
+  {{{{nextValue(), nextValue()}, {nextValue(), nextValue()}}}, nextValue()}
+ };
+ assert(sum(frames[0]) == 40 && sum(frames[1]) == 65 && calls == 15);
+ assert(sum({{{{nextValue(), nextValue()}, {nextValue(), nextValue()}}}, nextValue()}) == 90);
+ assert(calls == 20);
+}
+""")
+    (source / "Main.btrc").write_text('import ./Records.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("aliases_first", [False, True], ids=["aliases-after", "aliases-before"])
+def test_identity_typedefs_share_record_providers(tmp_path, immutable_btrcc, module_units, aliases_first):
+    source = tmp_path / "src"
+    source.mkdir()
+    aliases = "typedef struct Point Point; typedef union Number Number; typedef enum Color Color;\n"
+    records = "struct Point { int x; }; union Number { int integer; float real; }; enum Color { RED, GREEN };\n"
+    (source / "Records.btrc").write_text(
+        (aliases + records if aliases_first else records + aliases)
+        + "typedef struct Point Pair, *PairPtr;\n"
+        + "int sum(Point point, Number number, Color color) { return point.x + number.integer + (int)color; }\n"
+    )
+    (source / "Main.btrc").write_text("""
+import ./Records.btrc;
+int main() {
+ Pair point = {2}; PairPtr pointer = &point; Number number = {3}; Color color = GREEN;
+ assert(pointer->x == 2 && sum(point, number, color) == 6);
+ print("PASS"); return 0;
+}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize("anonymous", [False, True], ids=["named", "anonymous"])
+def test_record_pointer_array_operands_keep_source_order(tmp_path, immutable_btrcc, module_units, anonymous):
+    source = tmp_path / "src"
+    source.mkdir()
+    fields = "int* pointers[2];"
+    if anonymous:
+        fields = "struct { " + fields + " };"
+    pair = "{nextPointer(), nextPointer()}"
+    if anonymous:
+        pair = "{" + pair + "}"
+    initializer = "{" + pair + ", nextValue()}"
+    (source / "Records.btrc").write_text(
+        "struct Frame { " + fields + " int tail; };\n"
+        "int values[12] = {}; int calls = 0;\n"
+        "int* nextPointer() { values[calls] = calls + 1; calls++; return &values[calls - 1]; }\n"
+        "int nextValue() { calls++; return calls; }\n"
+        "int sum(Frame frame) { return *frame.pointers[0] + *frame.pointers[1] + frame.tail; }\n"
+        "void exercise() { Frame frame = " + initializer + ";\n"
+        "assert(*frame.pointers[0] == 1 && *frame.pointers[1] == 2 && frame.tail == 3);\n"
+        "Frame frames[1] = {" + initializer + "};\n"
+        "assert(*frames[0].pointers[0] == 4 && *frames[0].pointers[1] == 5 && frames[0].tail == 6);\n"
+        "assert(sum(" + initializer + ") == 24 && calls == 9); }\n"
+    )
+    (source / "Main.btrc").write_text('import ./Records.btrc;\nint main() { exercise(); print("PASS"); return 0; }\n')
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_hosted_scalar_storage_builds_under_optimized_setjmp(tmp_path, immutable_btrcc, module_units):
+    source = tmp_path / "src"
+    source.mkdir()
+    program = """
+#include <sys/types.h>
+#include <stdint.h>
+class Barrier {
+ public int entered = 0;
+ public void require(bool condition) { if (!condition) { throw "barrier"; } }
+ public int poll(int turn) { self.entered += (turn % 3 == 0 ? 1 : 0); return self.entered; }
+}
+int verify(int workers, int capacity, bool fail) {
+ pid_t window = capacity == 1 ? 1 : (workers < capacity - 1 ? workers : capacity - 1);
+ size_t attempts = (size_t)(capacity + 1);
+ uint64_t stamp = (uint64_t)(workers + capacity);
+ Barrier barrier = new Barrier();
+ int outcome = 0;
+ try {
+  for (int turn = 0; turn < 9; turn++) { barrier.require(barrier.poll(turn) >= 0); }
+  barrier.require(!fail && barrier.entered >= (int)window);
+  outcome = (int)window;
+ } catch (string error) { outcome = -(int)window; }
+ assert(attempts == (size_t)(capacity + 1) && stamp == (uint64_t)(workers + capacity));
+ return outcome;
+}
+int main() {
+ assert(verify(2, 8, false) == 2 && verify(2, 8, true) == -2 && verify(4, 1, false) == 1);
+ print("PASS");
+ return 0;
+}
+"""
+    scalar_type = "ptrdiff_t" if os.name == "nt" else "pid_t"
+    if os.name == "nt":
+        program = program.replace("sys/types.h", "stddef.h").replace("pid_t", scalar_type)
+    (source / "Main.btrc").write_text(program)
+    generated = _compile_and_run_native_frontends(
+        source,
+        tmp_path,
+        immutable_btrcc,
+        "PASS\n",
+        module_units=module_units,
+        strict_compilers=[[compiler] for compiler in HOST_C_COMPILERS],
+        strict_optimizations=(0, 1, 2, 3),
+    )
+    for units in generated.values():
+        emitted = b"\n".join(units.values()).decode()
+        assert f"volatile {scalar_type} window =" in emitted
+        assert "volatile size_t attempts =" in emitted
+        assert "volatile uint64_t stamp =" in emitted

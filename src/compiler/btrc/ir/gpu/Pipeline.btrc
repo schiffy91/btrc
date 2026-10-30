@@ -598,12 +598,14 @@ class GpuPipeline {
 				string releasedName = "__gpu_output_target_released_" + suffix;
 				string dataName = "__gpu_output_data_" + suffix;
 				string lengthName = "__gpu_output_len_" + suffix;
-				result.statements.push(IRNode.variableDeclaration(self.operandPlanner.operandCType(collectionTarget, collectionType), targetName, IRNode.literal("NULL")));
+				IRNode targetDeclaration = IRNode.variableDeclaration(self.operandPlanner.operandCType(collectionTarget, collectionType), targetName, IRNode.literal("NULL"));
+				result.statements.push(targetDeclaration);
 				result.statements.push(IRNode.variableDeclaration(self.operandPlanner.operandCType(collectionTarget, collectionType), releasedName, null));
 				result.statements.push(IRNode.variableDeclaration(self.outputElementCType(target) + "*", dataName, null));
 				result.statements.push(IRNode.variableDeclaration("int", lengthName, null));
 				string runtimeType = self.managedValues.runtimeType(collectionType);
-				self.managedLifetime.maybeRegisterCleanup(targetName, runtimeType, result.statements);
+				IRNode? registration = self.managedLifetime.cleanupRegistration(targetDeclaration, runtimeType);
+				if (registration != null) { result.statements.push(IRNode.expressionStatement(registration)); }
 				IRNode stable = IRNode.variable(targetName);
 				result.statements.push(IRNode.expressionStatement(IRNode.binary(stable, "=", concreteCollection)));
 				if (!collection.owned) {
@@ -635,12 +637,14 @@ class GpuPipeline {
 				string dataName = "__gpu_output_data_" + suffix;
 				string lengthName = "__gpu_output_len_" + suffix;
 				string receiverCType = self.operandPlanner.operandCType(receiverExpression, receiverType);
-				result.statements.push(IRNode.variableDeclaration(receiverCType, receiverName, IRNode.literal("NULL")));
+				IRNode receiverDeclaration = IRNode.variableDeclaration(receiverCType, receiverName, IRNode.literal("NULL"));
+				result.statements.push(receiverDeclaration);
 				result.statements.push(IRNode.variableDeclaration(receiverCType, releasedName, null));
 				result.statements.push(IRNode.variableDeclaration(self.outputElementCType(target) + "*", dataName, null));
 				result.statements.push(IRNode.variableDeclaration("int", lengthName, null));
 				string runtimeType = self.managedValues.runtimeType(receiverType);
-				self.managedLifetime.maybeRegisterCleanup(receiverName, runtimeType, result.statements);
+				IRNode? registration = self.managedLifetime.cleanupRegistration(receiverDeclaration, runtimeType);
+				if (registration != null) { result.statements.push(IRNode.expressionStatement(registration)); }
 				IRNode stable = IRNode.variable(receiverName);
 				result.statements.push(IRNode.expressionStatement(IRNode.binary(stable, "=", receiver.value)));
 				if (!receiver.owned) {

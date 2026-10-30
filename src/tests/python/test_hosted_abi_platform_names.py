@@ -136,7 +136,7 @@ def test_tables_are_subsets_of_platform_and_never_list_iso_c_or_runtime_names() 
 
 def test_generated_tables_equal_the_spec_rows() -> None:
     document = tomllib.loads(HOSTED_SPEC.read_text())
-    assert document["schema_version"] == 3
+    assert document["schema_version"] == 4
     rows = document["platform_targets"]
     assert [row["target"] for row in rows] == list(LABELS)
     for row in rows:

@@ -57,6 +57,7 @@ class HostedAbiRepository {
 	private Map<string, bool>? functionNames = null;
 	private Map<string, bool>? macroNames = null;
 	private Map<string, bool>? typedefNames = null;
+	private Map<string, bool>? typeNames = null;
 	private Map<string, bool>? ownedNames = null;
 	private Map<string, bool>? adoptingHelpers = null;
 	private Map<string, bool>? noreturnFunctions = null;
@@ -104,6 +105,14 @@ class HostedAbiRepository {
 		return built.has(name);
 	}
 
+	public bool typeName(string name) {
+		Map<string, bool>? existing = self.typeNames;
+		if (existing != null) { return existing.has(name); }
+		Map<string, bool> built = self.indexNames(self.data.typeNames());
+		self.typeNames = built;
+		return built.has(name);
+	}
+
 	public bool typedefName(string name) {
 		Map<string, bool>? existing = self.typedefNames;
 		if (existing != null) { return existing.has(name); }
@@ -122,6 +131,9 @@ class HostedAbiRepository {
 		self.ownedNames = built;
 		return built;
 	}
+
+	/* Hosted typedefs with arithmetic representation on every supported target. */
+	public Vector<string> arithmeticTypes() { return self.data.arithmeticTypeNames(); }
 
 	/* The generated tables, target spec included. */
 	public GeneratedHostedAbiData tables() { return self.data; }

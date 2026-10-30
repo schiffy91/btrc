@@ -374,7 +374,7 @@ class DeclarationValidator {
 			if (substitutions.len > 0) {
 				expectedType = SemanticTypeSystem.resolveGenericType(expectedType, substitutions, self.state.analyzed);
 			}
-			if (!self.types.aliasTypesSame(expectedType, actual.type) || expected.keep_ != actual.keep_) {
+			if (!self.types.aliasTypesSame(CallableSignature.component(expectedType), CallableSignature.component(actual.type)) || expected.keep_ != actual.keep_) {
 				return false;
 			}
 			index = index + 1;
@@ -900,21 +900,21 @@ class DeclarationValidator {
 			self.state.borrowedBindings.put("self", true);
 			self.state.localBindings.put("self", true);
 		}
-		if (callable.bodyNode != null) {
+		if (callable.bodyNode != null && self.state.analyzed.bodyReached(callable.bodyNode)) {
 			self.names.validateDirectLocalNames(callable.bodyNode, parameterNames);
 		}
 		self.validateParameterDefaults(callable.params(), vars, callable);
 		Map<string, Node> kernelVars = TypeValidator.cloneTypes(vars);
-		if (callable.bodyNode != null) {
+		if (callable.bodyNode != null && self.state.analyzed.bodyReached(callable.bodyNode)) {
 			bool ownsMemo = self.expressions.beginBodyMemo();
-			self.controlFlow.validateBlock(callable.bodyNode,  vars);
+			self.controlFlow.validateCallableBlock(callable.bodyNode, vars);
 			self.expressions.endBodyMemo(ownsMemo);
 		}
-		if (callable.isGpu && classDeclaration == null) {
+		if (callable.isGpu && classDeclaration == null && self.state.analyzed.bodyReached(callable.bodyNode)) {
 			self.kernels.validate(callable, kernelVars);
 		}
 		bool nonVoid = self.state.returnType != null && !TypeValidator.scalarVoid(self.state.returnType);
-		if (callable.bodyNode != null && nonVoid && !ControlFlowValidator.blockTerminates(callable.bodyNode)) {
+		if (callable.bodyNode != null && self.state.analyzed.bodyReached(callable.bodyNode) && nonVoid && !self.controlFlow.callableTerminates(callable.bodyNode)) {
 			TypeValidator.fail("Callable '" + self.state.owner + "' has non-void return type but does not return on every path", callable);
 		}
 		self.state.returnType = previousReturn;

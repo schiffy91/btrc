@@ -121,16 +121,26 @@ executes each row. Generated outputs, when authorized, belong in a separate
 `derived: regenerate` commit. Claude re-applies fragments and regenerates
 outputs at integration; Codex never hand-edits generated files.
 
+Linux GUI qualification uses eight cells per session, `x11-0` through
+`x11-7` and `wayland-0` through `wayland-7`. The `linux-gui-coverage` job
+requires all eight receipts to cover the complete collected selection exactly.
+A canceled cell leaves the session incomplete even if its retained progress
+journal contains no failures. Wayland keeps its report-only policy until its
+main-branch qualification is complete.
+
 macOS/AppKit and hosted GPU correctness evidence comes from the draft PR's
-`macos.yml` native-gui job. Read its `junit-macos-native-gui` artifact to confirm
-the AppKit rows actually executed. The packet may use at most one
+`macos.yml` native-gui matrix. Its four cells retain
+`junit-macos-native-gui-macos-0` through `junit-macos-native-gui-macos-3`.
+The `native-gui-coverage` job requires their exact disjoint union to match the
+complete collected selection. Read all four JUnit artifacts to confirm the AppKit
+rows executed; a green cell alone does not qualify the suite. The packet may use at most one
 `focus=native-gui` dispatch per workflow when needed:
 
 ```sh
 nix develop --command gh workflow run macos.yml --ref codex/cx-example -f focus=native-gui
 nix develop --command gh run list --branch codex/cx-example
 nix develop --command gh run view RUN_ID --log-failed
-nix develop --command gh run download RUN_ID -n junit-macos-native-gui
+nix develop --command gh run download RUN_ID -p 'junit-macos-native-gui-macos-*'
 ```
 
 These are hosted/headless stand-ins. They do not establish physical display,

@@ -321,12 +321,7 @@ class CallableValueSemantics {
 		return null;
 	}
 
-	public Node arrayElement(Node arrayType) {
-		Node element = TypeShape.withoutOuterArray(arrayType);
-		element.isStatic = false;
-		element.isExtern = false;
-		return element;
-	}
+	public Node arrayElement(Node arrayType) { return TypeShape.valueType(TypeShape.withoutOuterArray(arrayType)); }
 
 	public Node? structDeclaration(Node typeExpr) {
 		if (typeExpr.pointerDepth > 0) { return null; }
@@ -339,8 +334,8 @@ class CallableValueSemantics {
 		return declaration;
 	}
 
-	/* The slot plan of a record initializer (the initializer-slot owner). */
-	public SemanticInitializerPlan recordInitializerSlots(Node declaration, Node value) { return SemanticTypeSystem.initializerSlots(declaration, value, self.analysis); }
+	/* Typed record leaves include storage nested in anonymous members. */
+	public Vector<SemanticInitializerSlot> recordInitializerLeafSlots(Node declaration, Node value) { return SemanticTypeSystem.initializerLeafSlots(declaration, value, self.analysis); }
 
 	private bool typeContainsManagedSeen(Node? typeExpr, CallableBoundaryContext context, Map<string, bool> active) {
 		Node? canonicalType = self.canonicalType(typeExpr, context);
@@ -396,6 +391,12 @@ class CallableValueSemantics {
 		}
 		if (value.kind == NK_LIST_LITERAL || value.kind == NK_BRACE_INITIALIZER) {
 			Node? elementType = null;
+			if (canonical.isArray && SemanticTypeSystem.hasDesignators(value)) {
+				for slot in self.recordInitializerLeafSlots(canonical, value) {
+					if (self.valueRequiresEnvironment(slot.type, slot.element, context)) { return true; }
+				}
+				return false;
+			}
 			if (canonical.isArray) {
 				elementType = self.arrayElement(canonical);
 			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs().len == 1) {
@@ -423,7 +424,7 @@ class CallableValueSemantics {
 			}
 			Node? declaration = self.structDeclaration(canonical);
 			if (declaration != null) {
-				for slot in self.recordInitializerSlots(declaration, value).slots {
+				for slot in self.recordInitializerLeafSlots(declaration, value) {
 					if (self.valueRequiresEnvironment(slot.type, slot.element, context)) {
 						return true;
 					}
@@ -492,6 +493,12 @@ class CallableBoundaryPolicy {
 		}
 		if (value.kind == NK_LIST_LITERAL || value.kind == NK_BRACE_INITIALIZER) {
 			Node? elementType = null;
+			if (canonical.isArray && SemanticTypeSystem.hasDesignators(value)) {
+				for slot in self.values.recordInitializerLeafSlots(canonical, value) {
+					if (self.unsafeValue(slot.type, slot.element, context)) { return true; }
+				}
+				return false;
+			}
 			if (canonical.isArray) {
 				elementType = self.values.arrayElement(canonical);
 			} else if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs().len == 1) {
@@ -519,7 +526,7 @@ class CallableBoundaryPolicy {
 			}
 			Node? declaration = self.values.structDeclaration(canonical);
 			if (declaration != null) {
-				for slot in self.values.recordInitializerSlots(declaration, value).slots {
+				for slot in self.values.recordInitializerLeafSlots(declaration, value) {
 					if (self.unsafeValue(slot.type, slot.element, context)) {
 						return true;
 					}

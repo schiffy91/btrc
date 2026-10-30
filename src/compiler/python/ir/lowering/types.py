@@ -26,6 +26,8 @@ from src.compiler.python.ir.nodes import (
     IRCommaExpr,
     IRCompoundLiteral,
     IRDeref,
+    IREnumDef,
+    IREnumValue,
     IRExpr,
     IRFunctionPointerTypedef,
     IRLiteral,
@@ -151,6 +153,7 @@ class CTypeLowerer:
             enum_names=analyzed.enum_table,
         )
         self._function_pointers = FunctionPointerTypedefRegistry(self._identity)
+        self._atomic_types: dict[str, TypeExpr] = {}
 
     def substitute_concrete_type(
         self, type_expr: TypeExpr | None, substitutions: dict[str, TypeExpr]
@@ -174,6 +177,8 @@ class CTypeLowerer:
             c_type = self._function_pointer_name(type_expr)
         elif base == "Atomic" and len(type_expr.generic_args) == 1:
             self._session.require_runtime_header("stdatomic.h")
+            symbol = self._identity.generic_symbol(base, type_expr.generic_args)
+            self._atomic_types.setdefault(symbol, type_expr.generic_args[0])
             c_type = f"_Atomic({self.render(type_expr.generic_args[0])})"
         elif base == "MemoryOrder" and not type_expr.generic_args:
             self._session.require_runtime_header("stdatomic.h")
@@ -274,6 +279,47 @@ class CTypeLowerer:
         if base == "bool":
             return "%s"
         return "%d"
+
+    def atomic_lock_free_proofs(self) -> list[IREnumDef]:
+        """Prove every concrete atomic type rendered by this translation unit."""
+        proofs: list[IREnumDef] = []
+        for symbol, payload in self._atomic_types.items():
+            macro = self._atomic_lock_free_macro(payload)
+            if macro is None:
+                raise CodegenError(f"Atomic payload '{self.render(payload)}' has no lock-free proof")
+            self._session.require_runtime_header("stdatomic.h")
+            proofs.append(
+                IREnumDef(
+                    name=None,
+                    values=[
+                        IREnumValue(
+                            name=f"__btrc_atomic_lock_free_{symbol}",
+                            value=IRBinOp(
+                                left=IRLiteral(text="1"),
+                                op="/",
+                                right=IRBinOp(
+                                    left=IRVar(name=macro),
+                                    op="==",
+                                    right=IRLiteral(text="2"),
+                                ),
+                            ),
+                        )
+                    ],
+                )
+            )
+        return proofs
+
+    def _atomic_lock_free_macro(self, payload: TypeExpr) -> str | None:
+        payload = self.canonical_type(payload)
+        if payload is None:
+            return None
+        if payload.pointer_depth > 0:
+            return "ATOMIC_POINTER_LOCK_FREE"
+        if payload.base == "bool":
+            return "ATOMIC_BOOL_LOCK_FREE"
+        if payload.base in {"int", "signed", "signed int", "uint", "unsigned", "unsigned int"}:
+            return "ATOMIC_INT_LOCK_FREE"
+        return None
 
     def consume_function_pointer_typedefs(self) -> list[IRFunctionPointerTypedef]:
         """Drain callback declarations registered since the previous phase."""
@@ -400,6 +446,29 @@ class CTypeLowerer:
         if target.base in nominal_types and source.base in nominal_types:
             return self._identity.specialization_is_subtype(source, target, classes, interfaces)
         return True
+
+    def conditional_result_type(
+        self,
+        true_type: TypeExpr | None,
+        false_type: TypeExpr | None,
+    ) -> TypeExpr | None:
+        """Resolve deferred conditional branches after concrete specialization."""
+        if true_type is None or false_type is None:
+            return None
+        if true_type.base == "null":
+            return replace(false_type, is_nullable=True)
+        if false_type.base == "null":
+            return replace(true_type, is_nullable=True)
+        numeric = TypeSystem.numeric_result_type(
+            self.canonical_type(true_type), self.canonical_type(false_type), self._analyzed.enum_table
+        )
+        if numeric is not None:
+            return numeric
+        if self.concrete_value_compatible(true_type, false_type):
+            return true_type
+        if self.concrete_value_compatible(false_type, true_type):
+            return false_type
+        raise CodegenError("Incompatible concrete conditional branches")
 
     def _resolve_typedef(
         self,
@@ -531,7 +600,7 @@ class CTypeLowerer:
         """Lower an operation owned by the shared portable type contract."""
         left_type = self.canonical_type(left_type)
         right_type = self.canonical_type(right_type)
-        if allow_unresolved_c_operands and (left_type is None or right_type is None):
+        if allow_unresolved_c_operands and operator != "??" and (left_type is None or right_type is None):
             return IRBinOp(left=left, op=operator, right=right)
         if (
             operator == "+"
@@ -855,6 +924,8 @@ class CTypeLowerer:
         value: IRExpr,
     ) -> IRExpr:
         """Preserve receiver identity through a checked class/interface upcast."""
+        target_type = self.canonical_type(target_type)
+        source_type = self.canonical_type(source_type)
         if target_type is None or source_type is None:
             return value
         ct = self._analyzed.class_table

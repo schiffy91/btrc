@@ -157,6 +157,7 @@ class RuntimeExternalObjectSpec:
     declarations: str
     helpers: tuple[str, ...]
     libraries: tuple[RuntimeObjectLibrariesSpec, ...]
+    dependencies: tuple[str, ...] = ()
 
     def libraries_for(self, operating_system: str) -> tuple[str, ...]:
         return tuple(
@@ -191,12 +192,12 @@ class RuntimeManifest:
             "external_objects",
         }
     )
-    _EXTERNAL_OBJECT_KEYS = frozenset({"source", "declarations", "libraries"})
+    _EXTERNAL_OBJECT_KEYS = frozenset({"source", "declarations", "libraries", "dependencies"})
     _OBJECT_LIBRARY_KEYS = frozenset({"os", "names"})
     _OPERATING_SYSTEMS = frozenset({"android", "ios", "linux", "macos", "windows"})
     # Declaration assets: their sections are pasted like helpers, but they only
     # declare what one external object defines.
-    _DECLARATION_ASSETS = ("windows_os.h",)
+    _DECLARATION_ASSETS = ("windows_os.h", "windows_daemon_image.h")
     _FREESTANDING_KEYS = frozenset({"calls", "objects", "types", "literals"})
     _CALL_FEATURE_KEYS = frozenset({"prefix", "macro"})
     _HEADER_FEATURE_KEYS = frozenset({"header", "macro"})
@@ -243,6 +244,7 @@ class RuntimeManifest:
         "trycatch.c",
         "gpu.c",
         "windows_os.h",
+        "windows_daemon_image.h",
     )
     _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
     # A function definition: a parameter list followed by a body.
@@ -411,7 +413,9 @@ class RuntimeManifest:
             context = f"external_objects[{index}]"
             if not isinstance(table, dict):
                 raise RuntimeManifestError(f"{context} must be a table")
-            cls._FIELDS.require_keys(table, cls._EXTERNAL_OBJECT_KEYS, context)
+            cls._FIELDS.require_keys(
+                table, cls._EXTERNAL_OBJECT_KEYS, context, required=cls._EXTERNAL_OBJECT_KEYS - {"dependencies"}
+            )
             source = cls._FIELDS.string(table, "source", context)
             declarations = cls._FIELDS.string(table, "declarations", context)
             if Path(source).name != source or not source.endswith(".c") or source in cls._ASSETS:
@@ -450,9 +454,19 @@ class RuntimeManifest:
                 libraries.append(RuntimeObjectLibrariesSpec(operating_systems=systems, names=names))
             objects.append(
                 RuntimeExternalObjectSpec(
-                    source=source, declarations=declarations, helpers=members, libraries=tuple(libraries)
+                    source=source,
+                    declarations=declarations,
+                    helpers=members,
+                    libraries=tuple(libraries),
+                    dependencies=cls._optional_string_tuple(table, "dependencies", context),
                 )
             )
+        sources = [external.source for external in objects]
+        cls._unique(tuple(sources), "external object sources")
+        for external in objects:
+            unknown = sorted(set(external.dependencies) - set(sources))
+            if unknown:
+                raise RuntimeManifestError(f"external object {external.source} names unknown dependencies: {unknown!r}")
         declared = [external.declarations for external in objects]
         if sorted(declared) != sorted(set(declared)) or set(declared) != set(cls._DECLARATION_ASSETS):
             raise RuntimeManifestError("every declaration asset belongs to exactly one external object")

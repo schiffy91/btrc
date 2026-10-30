@@ -1,0 +1,298 @@
+/* Windows Daemon policy. The runtime owns images, jobs, pipes and native file
+ * handles; this owner retains failed cleanup and never retries poisoned handles. */
+import Library.Daemon;
+import Library.Daemon.DaemonControl;
+import Library.Daemon.DaemonControlProtocol;
+import Library.FileSystem;
+import Library.Process;
+import Library.Timer;
+import Library.Vector;
+
+import "./DaemonControlStore.btrc";
+#include <stdint.h>
+#include <string.h>
+
+class WindowsDaemonController {
+	private WindowsDaemonControlStore files = WindowsDaemonControlStore();
+	private WindowsDaemonControlStore logs = WindowsDaemonControlStore();
+	private WindowsDaemonControlStore application = WindowsDaemonControlStore();
+	private __btrc_windows_image_owner* image = NULL;
+	private __btrc_windows_daemon_file_owner* logOwner = NULL;
+	private bool imagePoisoned = false;
+	private bool logPoisoned = false;
+	private bool committed = false;
+	private string controlName = "";
+	private string controlPath = "";
+	private string logPath = "";
+	public __btrc_windows_launch_error_t error;
+
+	public WindowsDaemonController() { memset(&self.error, 0, sizeof(self.error)); }
+
+	private ExecResult result(int code, string message, string operation) { return ExecResult(code, "", message, operation); }
+
+	private ExecResult indeterminate() {
+		ExecResult result = self.result(125, "daemon start outcome is indeterminate; reconcile control state before retry", "daemon start");
+		result.startIndeterminate = true;
+		return result;
+	}
+
+	private bool closeImage() {
+		if (self.image == NULL) { return true; }
+		if (self.imagePoisoned) { return false; }
+		__btrc_windows_launch_error_t prior = self.error;
+		if (__btrc_windows_supervisor_image_close(&self.image, &self.error) != 0) {
+			self.imagePoisoned = self.error.ownership_state == (uint32_t)2;
+			return false;
+		}
+		self.error = prior;
+		return true;
+	}
+
+	private bool closeLog() {
+		if (self.logOwner == NULL) { return true; }
+		if (self.logPoisoned) { return false; }
+		__btrc_windows_launch_error_t prior = self.error;
+		if (__btrc_windows_daemon_file_close(&self.logOwner, &self.error) != 0) {
+			self.logPoisoned = true;
+			return false;
+		}
+		self.error = prior;
+		return true;
+	}
+
+	private ExecResult finish(ExecResult result) {
+		bool closed = self.closeImage();
+		if (!self.closeLog()) { closed = false; }
+		if (!self.files.close()) { self.error = self.files.error; closed = false; }
+		if (!self.logs.close()) { self.error = self.logs.error; closed = false; }
+		if (!self.application.close()) { self.error = self.application.error; closed = false; }
+		if (!closed) {
+			if (self.committed && result.command.equals("daemon start")) { return self.indeterminate(); }
+			return self.result(125, "unsafe daemon specification", result.command);
+		}
+		return result;
+	}
+
+	private bool wellFormed(DaemonSpec spec) {
+		if (spec == null || !DaemonControlPaths.validDaemonName(spec.name) || spec.command == null || spec.command.command == null || spec.command.command.isEmpty() || spec.command.arguments == null || spec.command.arguments.len < 0 || spec.command.arguments.len >= 4096 || spec.workingDirectory == null) { return false; }
+		for argument in spec.command.arguments { if (argument == null) { return false; } }
+		return self.filePath(spec.controlFile) && self.filePath(spec.logFile);
+	}
+
+	private bool filePath(string path) {
+		if (!PathTools.isAbsoluteFor(path, true) || PathTools.isSeparatorFor(path[path.len() - 1], true)) { return false; }
+		string leaf = PathTools.basenameFor(path, true);
+		if (leaf.isEmpty() || leaf.equals(".") || leaf.equals("..") || leaf.endsWith(".") || leaf.endsWith(" ")) { return false; }
+		for value in leaf {
+			if (value < ' ' || value == ':' || value == '<' || value == '>' || value == '"' || value == '|' || value == '?' || value == '*') { return false; }
+		}
+		return true;
+	}
+
+	/* Only start creates the default hierarchy. Other configured parents must
+	 * already exist and satisfy the runtime's protected-directory policy. */
+	private bool openParent(WindowsDaemonControlStore store, string path, bool create) {
+		string parent = PathTools.dirnameFor(path, true);
+		string defaults = DaemonControlPaths.defaultDirectory();
+		if (create && !defaults.isEmpty() && parent.equals(defaults)) {
+			if (!self.application.open(PathTools.dirnameFor(defaults, true), true)) { self.error = self.application.error; return false; }
+			bool opened = store.open(parent, true);
+			if (!opened) { self.error = store.error; }
+			bool closed = self.application.close();
+			if (!closed) { self.error = self.application.error; }
+			return opened && closed;
+		}
+		bool opened = store.open(parent);
+		if (!opened) { self.error = store.error; }
+		return opened;
+	}
+
+	private bool prepare(DaemonSpec spec, bool create) {
+		if (!self.closeImage() || !self.closeLog() || !self.files.usable() || !self.logs.usable() || !self.application.usable() || !self.wellFormed(spec)) { return false; }
+		self.committed = false;
+		if (!self.openParent(self.files, spec.controlFile, create)) { return false; }
+		if (!self.openParent(self.logs, spec.logFile, create)) { return false; }
+		string controlDirectory = self.files.path();
+		string logDirectory = self.logs.path();
+		if (controlDirectory.isEmpty()) { self.error = self.files.error; return false; }
+		if (logDirectory.isEmpty()) { self.error = self.logs.error; return false; }
+		self.controlName = PathTools.basenameFor(spec.controlFile, true);
+		self.controlPath = PathTools.joinFor(controlDirectory, self.controlName, true);
+		self.logPath = PathTools.joinFor(logDirectory, PathTools.basenameFor(spec.logFile, true), true);
+		return !self.controlPath.toLower().equals(self.logPath.toLower());
+	}
+
+	private bool pause(long long deadline) {
+		/* image_close only polls pending cleanup; it adds no wait budget. */
+		self.closeImage();
+		return DaemonControlProtocol.pauseBeforeRetry(deadline);
+	}
+
+	private bool removeRequest(string name, __btrc_windows_daemon_directory_entry* identity, string content) {
+		if (self.files.remove(name, identity, content)) { return true; }
+		return self.files.missing();
+	}
+
+	private bool probe(DaemonControlRecord record, __btrc_windows_daemon_directory_entry* identity, string content, int timeoutMilliseconds) {
+		string challenge = DaemonControlProtocol.randomToken();
+		if (challenge.isEmpty()) { return false; }
+		string request = DaemonControlPaths.probe(self.controlName, record.token, challenge);
+		string acknowledgement = DaemonControlPaths.acknowledgement(request);
+		string tokenLine = record.token + "\n";
+		__btrc_windows_daemon_directory_entry requestIdentity;
+		__btrc_windows_daemon_directory_entry ackIdentity;
+		memset(&ackIdentity, 0, sizeof(ackIdentity));
+		if (!self.files.create(request, tokenLine, &requestIdentity)) { return false; }
+		long long deadline = MonotonicClock.deadlineAfter((long long)timeoutMilliseconds);
+		int attempts = timeoutMilliseconds / 20 + 1;
+		bool acknowledged = false;
+		bool matchedAck = false;
+		while (attempts > 0) {
+			string response = self.files.read(acknowledgement, NULL, &ackIdentity);
+			if (response.equals(tokenLine)) {
+				matchedAck = true;
+				acknowledged = self.files.read(self.controlName, identity).equals(content);
+				break;
+			}
+			if (!response.isEmpty() || !self.files.usable()) { break; }
+			attempts--;
+			if (attempts == 0 || !self.pause(deadline)) { break; }
+		}
+		bool cleaned = self.removeRequest(request, &requestIdentity, tokenLine);
+		if (matchedAck && !self.removeRequest(acknowledgement, &ackIdentity, tokenLine)) { cleaned = false; }
+		return acknowledged && cleaned;
+	}
+
+	private ExecResult reconcile(string token, int pid, bool indeterminate, long long deadline) {
+		int attempts = 126;
+		__btrc_windows_daemon_directory_entry identity;
+		string content = "";
+		DaemonControlRecord record = DaemonControlRecord();
+		while (attempts > 0) {
+			content = self.files.read(self.controlName, NULL, &identity);
+			record = DaemonControlRecord.parse(content);
+			if (record.valid || !self.files.usable()) { break; }
+			attempts--;
+			if (attempts == 0 || !self.pause(deadline)) { break; }
+		}
+		if (!record.valid || !record.token.equals(token) || record.supervisorPid != pid) {
+			return indeterminate ? self.indeterminate() : self.result(125, "daemon supervisor did not publish control state", "daemon start");
+		}
+		if (!self.probe(record, &identity, content, 2500)) {
+			return indeterminate ? self.indeterminate() : self.result(125, "daemon supervisor failed its liveness handshake", "daemon start");
+		}
+		return self.result(0, "", "daemon start");
+	}
+
+	private int digit(char value) { return value <= '9' ? (int)(value - '0') : (int)(value - 'a') + 10; }
+
+	private ExecResult launch(DaemonSpec spec) {
+		string token = DaemonControlProtocol.randomToken();
+		if (!DaemonControlRecord.validToken(token)) { return self.result(125, "failed to launch daemon supervisor", "daemon start"); }
+		if (__btrc_windows_supervisor_image_verify(&self.image, &self.error) != 0) {
+			self.imagePoisoned = self.error.ownership_state == (uint32_t)2;
+			return self.result(125, "failed to launch daemon supervisor", "daemon start");
+		}
+		Vector<string> arguments = [spec.command.command];
+		for argument in spec.command.arguments { arguments.push(argument); }
+		char** argv = (char**)__btrc_safe_realloc(NULL, ((size_t)arguments.len + (size_t)1) * sizeof(char*));
+		for (int index = 0; index < arguments.len; index++) {
+			string argument = arguments.get(index);
+			size_t size = strlen(argument) + (size_t)1;
+			char* copy = (char*)__btrc_safe_realloc(NULL, size);
+			memcpy(copy, argument, size);
+			argv[index] = copy;
+		}
+		argv[arguments.len] = NULL;
+		unsigned char bytes[16];
+		for (int index = 0; index < 16; index++) { bytes[index] = (unsigned char)((self.digit(token[index * 2]) << 4) | self.digit(token[index * 2 + 1])); }
+		__btrc_windows_daemon_startup startup;
+		memset(&startup, 0, sizeof(startup));
+		startup.name_utf8 = spec.name;
+		startup.control_path_utf8 = self.controlPath;
+		startup.log_path_utf8 = self.logPath;
+		startup.auto_restart = spec.autoRestart ? (uint32_t)1 : (uint32_t)0;
+		startup.command.executable_utf8 = argv[0];
+		startup.command.argv_utf8 = argv;
+		startup.command.argc = (size_t)arguments.len;
+		startup.command.cwd_utf8 = spec.workingDirectory.isEmpty() ? NULL : (char*)spec.workingDirectory;
+		__btrc_windows_transfer_result transfer;
+		memset(&transfer, 0, sizeof(transfer));
+		transfer.state = (uint32_t)1;
+		int transferred = __btrc_windows_supervisor_transfer(self.image, &startup, bytes, (uint64_t)3000, &transfer, &self.error);
+		long long recordDeadline = MonotonicClock.deadlineAfter(2500LL);
+		volatile unsigned char* secret = bytes;
+		for (int index = 0; index < 16; index++) { secret[index] = 0; }
+		for (int index = 0; index < arguments.len; index++) { free(argv[index]); }
+		free(argv);
+		self.imagePoisoned = self.error.ownership_state == (uint32_t)2;
+		self.committed = transfer.state == (uint32_t)0 || transfer.state == (uint32_t)2;
+		if (!self.committed) { return self.result(125, "failed to launch daemon supervisor", "daemon start"); }
+		if (transfer.supervisor_pid < (uint32_t)2 || transfer.supervisor_pid > (uint32_t)2147483647 || (transferred != 0 && transfer.state != (uint32_t)2)) { return self.indeterminate(); }
+		self.closeImage();
+		return self.reconcile(token, (int)transfer.supervisor_pid, transfer.state == (uint32_t)2, recordDeadline);
+	}
+
+	public ExecResult start(DaemonSpec spec) {
+		if (!self.prepare(spec, true)) { return self.finish(self.result(125, "unsafe daemon specification", "daemon start")); }
+		__btrc_windows_daemon_directory_entry existing;
+		if (self.files.inspect(self.controlName, &existing)) { return self.finish(self.result(1, "daemon control record already exists", "daemon start")); }
+		if (!self.files.missing()) { self.error = self.files.error; return self.finish(self.result(125, "unsafe daemon specification", "daemon start")); }
+		if (__btrc_windows_daemon_log_open((unsigned char*)self.logPath, strlen(self.logPath), &self.logOwner, &self.error) != 0) {
+			self.logPoisoned = self.error.ownership_state == (uint32_t)2;
+			return self.finish(self.result(125, "unsafe daemon log file", "daemon start"));
+		}
+		if (!self.closeLog()) { return self.finish(self.result(125, "unsafe daemon log file", "daemon start")); }
+		return self.finish(self.launch(spec));
+	}
+
+	private ExecResult unresolved(DaemonSpec spec, string operation) {
+		if (self.wellFormed(spec) && self.files.missing()) { return self.result(1, "daemon supervisor is not responding", operation); }
+		return self.result(125, "unsafe daemon specification", operation);
+	}
+
+	public ExecResult status(DaemonSpec spec) {
+		if (!self.prepare(spec, false)) { return self.finish(self.unresolved(spec, "daemon status")); }
+		__btrc_windows_daemon_directory_entry identity;
+		string content = self.files.read(self.controlName, NULL, &identity);
+		DaemonControlRecord record = DaemonControlRecord.parse(content);
+		bool live = record.valid && self.probe(record, &identity, content, 1500);
+		return self.finish(self.result(live ? 0 : 1, live ? "" : "daemon supervisor is not responding", "daemon status"));
+	}
+
+	public ExecResult stop(DaemonSpec spec, int timeoutMilliseconds) {
+		if (!self.prepare(spec, false)) { return self.finish(self.unresolved(spec, "daemon stop")); }
+		if (timeoutMilliseconds <= 0) { return self.finish(self.result(125, "invalid daemon stop timeout", "daemon stop")); }
+		__btrc_windows_daemon_directory_entry identity;
+		string content = self.files.read(self.controlName, NULL, &identity);
+		DaemonControlRecord record = DaemonControlRecord.parse(content);
+		if (!record.valid) { return self.finish(self.result(1, "daemon supervisor is not responding", "daemon stop")); }
+		string stop = DaemonControlPaths.stop(self.controlName, record.token);
+		string tokenLine = record.token + "\n";
+		string existing = self.files.read(stop, NULL);
+		if (!self.files.missing()) {
+			if (!existing.equals(tokenLine)) {
+				self.files.read(self.controlName, &identity);
+				if (self.files.missing()) { return self.finish(self.result(0, "", "daemon stop")); }
+				return self.finish(self.result(125, "unsafe daemon stop capability", "daemon stop"));
+			}
+		} else {
+			__btrc_windows_daemon_directory_entry stopIdentity;
+			if (!self.files.create(stop, tokenLine, &stopIdentity)) {
+				self.files.read(self.controlName, &identity);
+				if (self.files.missing()) { return self.finish(self.result(0, "", "daemon stop")); }
+				return self.finish(self.result(125, "failed to create daemon stop capability", "daemon stop"));
+			}
+		}
+		long long deadline = MonotonicClock.deadlineAfter((long long)timeoutMilliseconds);
+		int attempts = timeoutMilliseconds / 20 + 1;
+		while (attempts > 0) {
+			string current = self.files.read(self.controlName, &identity);
+			if (self.files.missing()) { return self.finish(self.result(0, "", "daemon stop")); }
+			if (!current.equals(content)) { break; }
+			attempts--;
+			if (attempts == 0 || !self.pause(deadline)) { break; }
+		}
+		return self.finish(self.result(124, "daemon did not confirm termination before the deadline", "daemon stop"));
+	}
+}

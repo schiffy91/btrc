@@ -1,0 +1,1 @@
+{"asset":"windows_os.h","btrc_order":242,"category":"process","dependencies":["__btrc_windows_daemon_file_types"],"headers":[],"name":"__btrc_windows_daemon_file_close","provided_objects":[],"provided_types":[],"python_order":256,"realtime_effect":"blocking","source_sha256":"036c9f728e90843fbd6e16f573678f3be4d1b66f985b1359f4a99dd119b8859f","source_size":120,"source_visible":true}

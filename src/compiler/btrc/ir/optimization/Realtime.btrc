@@ -88,11 +88,14 @@ class RealtimeIRVerifier {
 			index = index + 1;
 		}
 		next.put(definition.name, true);
-		self.validateNode(definition.body, path, next);
+		Map<string, bool> labels = {};
+		self.validateNode(definition.body, path, next, labels);
 	}
 
-	private void validateNode(IRNode? node, string path, Map<string, bool> visiting) {
+	private void validateNode(IRNode? node, string path, Map<string, bool> visiting, Map<string, bool> labels) {
 		if (node == null) { return; }
+		if (node.kind == IRK_LABEL) { labels.put(node.name, true); }
+		if (node.kind == IRK_GOTO && labels.has(node.name)) { self.fail("backward goto '" + node.name + "'", path); }
 		if (node.kind == IRK_OBJECTIVE_C_MESSAGE || node.kind == IRK_OBJECTIVE_C_BLOCK || node.kind == IRK_OBJECTIVE_C_AUTORELEASE_POOL || node.kind == IRK_OBJECTIVE_C_EXCEPTION_BOUNDARY || (node.kind == IRK_CAST && ((IRConversionPayload)node.payload).bridge != "")) { self.fail("Objective-C operation", path); }
 		if (node.kind == IRK_CXX_NEW || node.kind == IRK_CXX_DELETE || node.kind == IRK_CXX_EXCEPTION_BOUNDARY) { self.fail("C++ lifetime operation", path); }
 		if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE) {
@@ -133,32 +136,32 @@ class RealtimeIRVerifier {
 			}
 		}
 		int domain = node.payloadDomain();
-		self.validateNode(node.left, path, visiting);
-		self.validateNode(node.right, path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), path, visiting);
-		self.validateNode(node.expr, path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), path, visiting);
-		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), path, visiting);
+		self.validateNode(node.left, path, visiting, labels);
+		self.validateNode(node.right, path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), path, visiting, labels);
+		self.validateNode(node.expr, path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), path, visiting, labels);
+		self.validateNode((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), path, visiting, labels);
 		int index = 0;
 		while (index < node.args().len) {
-			self.validateNode(node.args().get(index), path, visiting);
+			self.validateNode(node.args().get(index), path, visiting, labels);
 			index = index + 1;
 		}
 		index = 0;
 		while (index < node.stmts().len) {
-			self.validateNode(node.stmts().get(index), path, visiting);
+			self.validateNode(node.stmts().get(index), path, visiting, labels);
 			index = index + 1;
 		}
 	}

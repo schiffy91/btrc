@@ -514,6 +514,57 @@ class SetjmpTypeFacts {
  * every local. The name index and the per-storage binding counts answer
  * resolution and visibility in constant time instead of rescanning the stack
  * once per variable reference and once per alias slot at every scope exit. */
+class SetjmpJumpSequence {
+	private Vector<IRNode> statements;
+	public SetjmpJumpSequence(Vector<IRNode> statements) { self.statements = statements; }
+
+	private void collectTargets(IRNode? statement, Map<string, bool> targets) {
+		if (statement == null) { return; }
+		if (statement.kind == IRK_GOTO) { targets.put(statement.name, true); return; }
+		if (statement.kind == IRK_BLOCK || statement.kind == IRK_CASE) {
+			for child in statement.stmts() { self.collectTargets(child, targets); }
+		} else if (statement.kind == IRK_IF) {
+			self.collectTargets(((IRControlPayload)statement.payload).thenBlock, targets);
+			self.collectTargets(((IRControlPayload)statement.payload).elseBlock, targets);
+		} else if (statement.kind == IRK_FOR || statement.kind == IRK_WHILE || statement.kind == IRK_DO_WHILE) {
+			self.collectTargets(((IRControlPayload)statement.payload).body, targets);
+		} else if (statement.kind == IRK_SWITCH) {
+			for clause in statement.args() { self.collectTargets(clause, targets); }
+		}
+	}
+
+	public bool backward(int position) {
+		Map<string, bool> targets = {};
+		int index = position + 1;
+		while (index < self.statements.len) { self.collectTargets(self.statements.get(index), targets); index++; }
+		return targets.has(self.statements.get(position).name);
+	}
+
+	public int continuationStart(int position) {
+		Map<string, int> labels = {};
+		int index = 0;
+		while (index <= position) {
+			IRNode statement = self.statements.get(index);
+			if (statement.kind == IRK_LABEL) { labels.put(statement.name, index); }
+			index++;
+		}
+		if (labels.len == 0) { return position + 1; }
+		int start = position;
+		while (start > 0) {
+			Map<string, bool> targets = {};
+			index = start;
+			while (index < self.statements.len) { self.collectTargets(self.statements.get(index), targets); index++; }
+			int earlier = start;
+			for name in labels.keys() {
+				if (targets.has(name) && labels.get(name) < earlier) { earlier = labels.get(name); }
+			}
+			if (earlier == start) { break; }
+			start = earlier;
+		}
+		return start < position ? start : position + 1;
+	}
+}
+
 class SetjmpPointerFlow {
 	private SetjmpTypeFacts typeFacts;
 	public SetjmpPointerFlowResult result;
@@ -523,6 +574,7 @@ class SetjmpPointerFlow {
 	private Map<string, SetjmpStorage> bindingsByName;
 	private Map<int, int> boundIdentityCounts;
 	public SetjmpAliasState state;
+	public Map<string, SetjmpAliasState> pendingJumps = {};
 	private int nextIdentity;
 
 	public SetjmpPointerFlow(IRFunction definition, Map<string, SetjmpStorage> globals, int globalCount, SetjmpTypeFacts typeFacts) {
@@ -688,6 +740,29 @@ class SetjmpPointerFlow {
 			index = index + 1;
 		}
 		self.state = visible;
+	}
+
+	public SetjmpAliasState pendingAt(string name, int bindingCount) {
+		SetjmpAliasState result = SetjmpAliasState();
+		if (!self.pendingJumps.has(name)) { return result; }
+		Map<int, bool> bound = {};
+		int index = 0;
+		while (index < bindingCount) { bound.put(self.bindings.get(index).storage.identity, true); index++; }
+		for slot in self.pendingJumps.get(name).slots {
+			if (slot.storage.kind == "global" || bound.has(slot.storage.identity)) { result.add(self.shareSlot(slot)); }
+		}
+		return result;
+	}
+
+	public void recordGoto(string name) {
+		SetjmpAliasState pending = SetjmpAliasState();
+		if (self.pendingJumps.has(name)) { pending = self.pendingJumps.get(name); }
+		self.pendingJumps.put(name, self.joinStates(pending, self.state));
+		self.state = SetjmpAliasState();
+	}
+
+	public void restoreBindings(int count) {
+		while (self.bindings.len > count) { self.unbind(); }
 	}
 }
 
@@ -1262,12 +1337,49 @@ class SetjmpEffectAnalysis {
 	private void flowBlock(SetjmpPointerFlow flow, IRNode? block, bool scoped) {
 		if (block == null) { return; }
 		int bindingCount = flow.bindings.len;
-		int index = 0;
-		while (index < block.stmts().len) {
-			self.flowStatement(flow, block.stmts().get(index));
-			index = index + 1;
-		}
+		self.flowSequence(flow, block.stmts(), 0);
 		if (scoped) { flow.leaveScope(bindingCount); }
+	}
+
+	private SetjmpAliasState flowWiden(SetjmpPointerFlow flow, SetjmpAliasState state) {
+		Vector<SetjmpOrigin> origins = [];
+		for slot in state.slots { flow.result.addOrigins(origins, slot.origins); }
+		SetjmpAliasState result = SetjmpAliasState();
+		for slot in state.slots {
+			result.add(SetjmpAliasSlot(slot.storage, flow.result.copyOrigins(slot.storage.isPointer ? origins : slot.origins)));
+		}
+		return result;
+	}
+
+	private void flowSequence(SetjmpPointerFlow flow, Vector<IRNode> statements, int start) {
+		int index = start;
+		while (index < statements.len) {
+			IRNode statement = statements.get(index);
+			if (statement.kind != IRK_LABEL) {
+				self.flowStatement(flow, statement);
+				index++;
+				continue;
+			}
+			SetjmpAliasState entry = flow.copyState(flow.state);
+			int bindingCount = flow.bindings.len;
+			self.flowStatement(flow, statement);
+			if (!SetjmpJumpSequence(statements).backward(index)) { index++; continue; }
+			SetjmpAliasState header = flow.copyState(flow.state);
+			int iteration = 0;
+			while (iteration < 16) {
+				flow.restoreBindings(bindingCount);
+				flow.state = flow.copyState(header);
+				self.flowSequence(flow, statements, index + 1);
+				SetjmpAliasState updated = flow.joinStates(entry, flow.pendingAt(statement.name, bindingCount));
+				if (self.flowSameState(header, updated)) { return; }
+				header = updated;
+				iteration++;
+			}
+			flow.restoreBindings(bindingCount);
+			flow.state = self.flowWiden(flow, header);
+			self.flowSequence(flow, statements, index + 1);
+			return;
+		}
 	}
 
 	private bool flowSameOrigins(Vector<SetjmpOrigin> left, Vector<SetjmpOrigin> right) {
@@ -1375,6 +1487,11 @@ class SetjmpEffectAnalysis {
 	}
 
 	private void flowStatement(SetjmpPointerFlow flow, IRNode statement) {
+		if (statement.kind == IRK_GOTO) { flow.recordGoto(statement.name); return; }
+		if (statement.kind == IRK_LABEL) {
+			flow.state = flow.joinStates(flow.state, flow.pendingAt(statement.name, flow.bindings.len));
+			return;
+		}
 		if (statement.kind == IRK_VAR_DECL) {
 			self.flowExpression(flow, ((IRDeclarationPayload)statement.payload).arraySize);
 			SetjmpStorage storage = flow.declare(statement);

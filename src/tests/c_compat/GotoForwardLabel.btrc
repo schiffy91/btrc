@@ -1,0 +1,15 @@
+#include <assert.h>
+int run(int fail) {
+	int status = 0;
+	if (fail) { goto cleanup; }
+	status = 1;
+	cleanup:
+	return status;
+}
+
+int main() {
+	assert(run(1) == 0);
+	assert(run(0) == 1);
+	print("PASS: goto forward label");
+	return 0;
+}

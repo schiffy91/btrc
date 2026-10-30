@@ -119,6 +119,7 @@ def test_extension_packaging_stages_lsp_payload(tmp_path):
     assert not (bundle_root / "src" / "compiler" / "btrc").exists()
     assert (bundle_root / "src" / "language" / "grammar.ebnf").exists()
     assert (bundle_root / "src" / "stdlib" / "Process.btrc").exists()
+    assert (bundle_root / "src" / "runtime" / "c" / "windows_security.h").is_file()
     for dependency in ("pygls", "lsprotocol", "attrs", "cattrs"):
         assert (bundle_root / "vendor" / dependency).is_dir()
     assert (bundle_root / "vendor" / "typing_extensions.py").is_file()

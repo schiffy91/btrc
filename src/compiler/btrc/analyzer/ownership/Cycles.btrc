@@ -300,6 +300,13 @@ class CycleSemantics {
 		return true;
 	}
 
+	/* The erased mutex runtime name cannot describe its concrete payload edges. */
+	public bool typeMayCycle(Node typeExpr) {
+		Node? resolved = self.canonical(typeExpr);
+		if (resolved != null && self.values.isMutex(resolved)) { return self.typeIsCyclable(resolved); }
+		return self.runtimeTypeMayCycle(self.values.runtimeType(typeExpr));
+	}
+
 	public bool runtimeTypeMayCycle(string runtimeType) {
 		if (runtimeType == self.values.mutexRuntimeType()) {
 			return true;

@@ -30,13 +30,20 @@ def test_open_regular_closes_descriptor_when_fstat_fails(
     artifact = tmp_path / "artifact"
     artifact.write_bytes(b"payload")
     closed = _observe_close(monkeypatch)
+    expected = artifact.stat()
+    fstat = os.fstat
 
     def fail_fstat(descriptor: int):
-        raise OSError("injected fstat failure")
+        metadata = fstat(descriptor)
+        if os.path.samestat(metadata, expected):
+            raise OSError("injected fstat failure")
+        return metadata
 
-    monkeypatch.setattr(storage_module.os, "fstat", fail_fstat)
-    with pytest.raises(OSError, match="injected fstat failure"):
-        ArtifactStorage().open_regular(artifact)
+    # Windows pytest capture also calls fstat; the fault belongs to this file.
+    with monkeypatch.context() as fault:
+        fault.setattr(storage_module.os, "fstat", fail_fstat)
+        with pytest.raises(OSError, match="injected fstat failure"):
+            ArtifactStorage().open_regular(artifact)
 
     assert len(closed) == 1
 
@@ -127,18 +134,27 @@ def test_fsync_directory_does_not_swallow_windows_identity_failure_after_open(
     opened = tmp_path / "opened"
     opened.write_bytes(b"payload")
     descriptor = os.open(opened, os.O_RDONLY)
+    open_file = os.open
+    fstat = os.fstat
 
     def open_directory(path: Path, flags: int) -> int:
-        return descriptor
+        if path == directory:
+            return descriptor
+        return open_file(path, flags)
 
-    def fail_fstat(descriptor: int):
-        raise OSError("injected identity failure")
+    def fail_fstat(candidate: int):
+        if candidate == descriptor:
+            raise OSError("injected identity failure")
+        return fstat(candidate)
 
-    monkeypatch.setattr(storage_module.os, "name", "nt")
-    monkeypatch.setattr(storage_module.os, "open", open_directory)
-    monkeypatch.setattr(storage_module.os, "fstat", fail_fstat)
-    with pytest.raises(OSError, match="injected identity failure"):
-        ArtifactStorage().fsync_directory(directory)
+    with monkeypatch.context() as fault:
+        fault.setattr(storage_module.os, "name", "nt")
+        fault.setattr(storage_module.os, "open", open_directory)
+        fault.setattr(storage_module.os, "fstat", fail_fstat)
+        with pytest.raises(OSError, match="injected identity failure"):
+            ArtifactStorage().fsync_directory(directory)
+    with pytest.raises(OSError):
+        fstat(descriptor)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="requires POSIX no-follow utime")

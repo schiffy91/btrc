@@ -30,7 +30,9 @@ from pathlib import Path
 import pytest
 
 from src.tests.c_toolchains import configured_c_compiler
+from src.tests.gui_provider_root import GUIProviderRoot
 from src.tests.process_limits import RUN_TIMEOUT, TOOL_TIMEOUT
+from src.tests.python.windows_evidence_fixtures import build_corpus_program
 from tools.compiler_codegen.runtime import RuntimeManifest, RuntimeManifestError
 from tools.native_plan import RuntimeObjects
 
@@ -161,6 +163,24 @@ def test_runtime_object_builds_strictly_for_windows(target, tmp_path):
     zig_compile(target, [RUNTIME / "windows_os.c"], tmp_path / "windows_os.o", "-c")
 
 
+@pytest.mark.parametrize("target", sorted(TARGETS))
+def test_gui_provider_root_preserves_native_filesystem_dependencies(target, tmp_path):
+    root = GUIProviderRoot.create(tmp_path / "data")
+    zig_compile(
+        target,
+        [root / "stdlib/FileSystem/Windows/Win32FileSystem.c"],
+        tmp_path / "filesystem.o",
+        "-c",
+    )
+
+
+@pytest.mark.parametrize("target", sorted(TARGETS))
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_daemon_capability_tokens_build_for_windows(frontend, target, request, tmp_path):
+    compiler = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
+    build_corpus_program("stdlib/DaemonToken.btrc", frontend, target, compiler, tmp_path)
+
+
 ROUND_TRIPS = [
     ["program", "a b"],
     ["program", 'q"x'],
@@ -210,8 +230,67 @@ def test_a_launch_off_windows_reports_an_unsupported_host(probe):
     assert quote(probe, ["--launch"]).strip() == "launch=1 owner=null stage=15 domain=4 wait=1 close=0"
 
 
+def test_startup_snapshot_off_windows_clears_outputs(probe):
+    assert quote(probe, ["--snapshot"]).strip() == "open=1 owner=null view=null stage=15 domain=4"
+
+
+def test_transfer_off_windows_clears_outputs(probe):
+    assert quote(probe, ["--transfer"]).strip() == (
+        "open=1 owner=null pid=0 lifetime=0 resume=1 commit=1 request=null reply=null stage=15 domain=4 close=0"
+    )
+
+
+def test_supervisor_off_windows_clears_outputs_and_preserves_copy_buffer(probe):
+    assert quote(probe, ["--supervisor"]).strip() == (
+        "accept=1 owner=null copy=1 prepare=1 commit=1 ack=1 delivered=0 "
+        "spawn=1 poll=1 running=0 code=0 terminate=1 "
+        "required=0 output=165 stage=15 domain=4 close=0"
+    )
+
+
+def test_daemon_files_off_windows_preserve_buffers_and_owner_lifetimes(probe):
+    assert quote(probe, ["--daemon-files"]).strip() == "daemon files unsupported: PASS"
+
+
 def test_runtime_object_builds_strictly_for_the_host(probe):
     assert probe.is_file()
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ('"C:\\app.exe" --btrc-daemon-bootstrap-v1 4 8', "0 10 4 8"),
+        ('"C:\\space \U0001f600\\app.exe" --btrc-daemon-bootstrap-v1 8 16', "0 19 8 16"),
+        ('"app" --btrc-daemon-bootstrap-v1 0 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 04 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 +4 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 -4 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 4', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 18446744073709551616', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 18446744073709551615', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 8 ', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 8 extra', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4  8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4\t8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v2 4 8', "-1 0 0 0"),
+        ('"app" --btrc-daemon-bootstrap-v1 4 8\0', "-1 0 0 0"),
+        ('"app\0" --btrc-daemon-bootstrap-v1 4 8', "-1 0 0 0"),
+        ('"app\n" --btrc-daemon-bootstrap-v1 4 8', "-1 0 0 0"),
+        ('"" --btrc-daemon-bootstrap-v1 4 8', "-1 0 0 0"),
+        ("app --btrc-daemon-bootstrap-v1 4 8", "-1 0 0 0"),
+        ('"' + "a" * 32767 + '" --btrc-daemon-bootstrap-v1 4 8', "-1 0 0 0"),
+    ],
+)
+def test_reserved_bootstrap_invocation_is_exact_and_clears_failed_outputs(probe, command, expected):
+    completed = subprocess.run(
+        [str(probe), "--bootstrap-invocation"],
+        input=command.encode("utf-16-be").hex().encode("ascii"),
+        capture_output=True,
+        timeout=RUN_TIMEOUT,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.decode("ascii").strip() == expected
 
 
 DECLARATION = (RUNTIME / "windows_os.h").read_text(encoding="utf-8")
@@ -236,7 +315,7 @@ def test_runtime_objects_follow_retained_code(text, selected):
 
 def test_runtime_object_libraries_are_per_operating_system():
     rows = RuntimeObjects.selected([DECLARATION])
-    assert RuntimeObjects.library_flags(rows, "windows") == ["-lkernel32"]
+    assert RuntimeObjects.library_flags(rows, "windows") == ["-lkernel32", "-ladvapi32"]
     assert RuntimeObjects.library_flags(rows, "linux") == []
     assert RuntimeObjects.sources(rows) == [RUNTIME / "windows_os.c"]
 
@@ -284,6 +363,22 @@ def test_the_windows_harness_exercises_every_seam_section():
     these sections, so no host corpus program can pin them (test_platform_inventory's target-only rows)."""
     harness = (NATIVE / "launch_harness.c").read_text(encoding="utf-8")
     uses = {
+        "__btrc_windows_daemon_file_types": (
+            "__btrc_windows_daemon_file_owner",
+            "__btrc_windows_daemon_directory_entry",
+        ),
+        "__btrc_windows_daemon_directory_open": ("__btrc_windows_daemon_directory_open(",),
+        "__btrc_windows_daemon_directory_path": ("__btrc_windows_daemon_directory_path(",),
+        "__btrc_windows_daemon_directory_next": ("__btrc_windows_daemon_directory_next(",),
+        "__btrc_windows_daemon_control_open": ("__btrc_windows_daemon_control_open(",),
+        "__btrc_windows_daemon_control_open_at": ("__btrc_windows_daemon_control_open_at(",),
+        "__btrc_windows_daemon_file_read": ("__btrc_windows_daemon_file_read(",),
+        "__btrc_windows_daemon_file_write": ("__btrc_windows_daemon_file_write(",),
+        "__btrc_windows_daemon_file_flush": ("__btrc_windows_daemon_file_flush(",),
+        "__btrc_windows_daemon_file_dispose": ("__btrc_windows_daemon_file_dispose(",),
+        "__btrc_windows_daemon_log_open": ("__btrc_windows_daemon_log_open(",),
+        "__btrc_windows_daemon_record_open": ("__btrc_windows_daemon_record_open(",),
+        "__btrc_windows_daemon_file_close": ("__btrc_windows_daemon_file_close(",),
         "__btrc_windows_launch_types": (
             "__btrc_windows_launch_owner_t",
             "__btrc_windows_launch_options_t",
@@ -291,11 +386,22 @@ def test_the_windows_harness_exercises_every_seam_section():
             "__btrc_windows_launch_result_t",
         ),
         "__btrc_windows_launch": ("__btrc_windows_launch(",),
+        "__btrc_windows_daemon_file_identity": ("__btrc_windows_daemon_file_identity(",),
         "__btrc_windows_launch_wait": ("__btrc_windows_launch_wait(",),
         "__btrc_windows_launch_copy_output": ("__btrc_windows_launch_copy_output(",),
         "__btrc_windows_launch_terminate": ("__btrc_windows_launch_terminate(",),
         "__btrc_windows_launch_close": ("__btrc_windows_launch_close(",),
         "__btrc_windows_quote_argv_utf8": ("__btrc_windows_quote_argv_utf8(",),
+        "__btrc_windows_supervisor_types": ("__btrc_windows_supervisor_owner",),
+        "__btrc_windows_supervisor_accept": ("__btrc_windows_supervisor_accept(",),
+        "__btrc_windows_supervisor_copy_startup": ("__btrc_windows_supervisor_copy_startup(",),
+        "__btrc_windows_supervisor_prepare": ("__btrc_windows_supervisor_prepare(",),
+        "__btrc_windows_supervisor_ready_wait_commit": ("__btrc_windows_supervisor_ready_wait_commit(",),
+        "__btrc_windows_supervisor_ack": ("__btrc_windows_supervisor_ack(",),
+        "__btrc_windows_supervisor_spawn_managed": ("__btrc_windows_supervisor_spawn_managed(",),
+        "__btrc_windows_supervisor_poll_managed": ("__btrc_windows_supervisor_poll_managed(",),
+        "__btrc_windows_supervisor_terminate_managed": ("__btrc_windows_supervisor_terminate_managed(",),
+        "__btrc_windows_supervisor_close": ("__btrc_windows_supervisor_close(",),
     }
     manifest = RuntimeManifest.load(RUNTIME / "manifest.toml")
     declared = {helper.name for helper in manifest.helpers if helper.asset == "windows_os.h"}
@@ -308,7 +414,7 @@ def test_the_windows_harness_exercises_every_seam_section():
 @pytest.mark.parametrize("target", sorted(TARGETS))
 def test_launch_harness_builds_for_windows(target, tmp_path):
     executable = tmp_path / f"windows-launch-seam-{target}.exe"
-    zig_compile(target, [NATIVE / "launch_harness.c", RUNTIME / "windows_os.c"], executable, "-lshell32")
+    zig_compile(target, [NATIVE / "launch_harness.c", RUNTIME / "windows_os.c"], executable, "-lshell32", "-ladvapi32")
     assert executable.read_bytes()[:2] == b"MZ"
     evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
     if evidence:

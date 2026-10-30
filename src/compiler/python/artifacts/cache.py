@@ -11,7 +11,7 @@ import sys
 import tempfile
 import threading
 from collections.abc import Callable, Sequence
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -703,6 +703,132 @@ class ToolchainSourceInventory:
                 found.extend(os.path.join(current, name) for name in files if name.endswith(".py"))
         return found
 
+    def compiler_files(self) -> tuple[Path, ...]:
+        """Complete inputs shared by the reference and self-host compiler builds."""
+        root = Path(self.source_directory).parent
+        categories = (
+            ("src/compiler/python", {".py"}),
+            ("src/compiler/btrc", {".btrc"}),
+            ("src/language", {".ebnf", ".asdl", ".toml"}),
+            ("src/runtime/c", {".c", ".h", ".toml"}),
+            ("src/runtime/windows", {".c", ".h"}),
+            ("src/stdlib", {".btrc", ".toml", ".h", ".c", ".cpp", ".m", ".mm", ".hpp", ".lock", ".symbols"}),
+            ("tools/compiler_codegen", {".py"}),
+        )
+        paths = [root / "tools/compiler_build.py"]
+        for relative, extensions in categories:
+            directory = root / relative
+            entries = [path for path in directory.rglob("*") if path.is_file() and path.suffix in extensions]
+            if not entries:
+                raise ValueError(f"compiler snapshot is missing {relative}")
+            paths.extend(entries)
+        paths.extend(Path(self.source_directory) / name for name in CompilerBuildIdentity.RESOURCES)
+        return tuple(sorted(set(paths)))
+
+
+class CompilerBuildIdentity:
+    """Content identities and build receipts; never infer a binary's source from CWD."""
+
+    HEADER = "btrc-compiler-build-v1"
+    SUFFIX = ".compiler-build"
+    RESOURCES = ("language/grammar.ebnf", "stdlib/btrc.toml", "stdlib/btrc.lock", "stdlib/btrc.symbols")
+    ENTRIES = (
+        "src/compiler/btrc/BtrccMain.btrc",
+        "src/compiler/btrc/cli/MacOSMain.btrc",
+        "src/compiler/btrc/cli/WindowsMain.btrc",
+    )
+    FIELDS = ("source", "c", "binary", "entry", "target", *RESOURCES)
+
+    @staticmethod
+    def file_digest(path: Path) -> str:
+        """Hash one stable regular file without following its final symlink."""
+        with os.fdopen(ArtifactStorage().open_regular(path), "rb") as stream:
+            before = os.fstat(stream.fileno())
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            after = os.fstat(stream.fileno())
+        current = path.lstat()
+        for item in (after, current):
+            if (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns) != (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            ):
+                raise ValueError(f"compiler build input changed: {path}")
+        return digest
+
+    @staticmethod
+    def append_field(digest, value: str) -> None:
+        encoded = value.encode("utf-8")
+        digest.update(str(len(encoded)).encode("ascii") + b":" + encoded)
+
+    @classmethod
+    def snapshot(cls, inventory: ToolchainSourceInventory) -> str:
+        root = Path(inventory.source_directory).parent
+        digest = hashlib.sha256(b"btrc-compiler-source-v1\n")
+        for path in inventory.compiler_files():
+            cls.append_field(digest, path.relative_to(root).as_posix())
+            cls.append_field(digest, cls.file_digest(path))
+        return digest.hexdigest()
+
+    @classmethod
+    def resources(cls, data_root: Path) -> dict[str, str]:
+        return {name: cls.file_digest(data_root / name) for name in cls.RESOURCES}
+
+    @classmethod
+    def receipt_text(cls, fields: dict[str, str]) -> str:
+        content = "\n".join((cls.HEADER, *(name + "\t" + fields[name] for name in cls.FIELDS)))
+        return content + "\nsha256\t" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def parse_receipt(cls, text: str, *, binary: bool) -> dict[str, str] | None:
+        lines = text.split("\n")
+        if len(lines) != 11 or lines[0] != cls.HEADER or "\0" in text:
+            return None
+        if lines[-1] != "sha256\t" + hashlib.sha256("\n".join(lines[:-1]).encode("utf-8")).hexdigest():
+            return None
+        fields = {}
+        for line, name in zip(lines[1:-1], cls.FIELDS, strict=True):
+            parts = line.split("\t")
+            if len(parts) != 2 or parts[0] != name:
+                return None
+            fields[name] = parts[1]
+        if fields["entry"] not in cls.ENTRIES or not re.fullmatch(r"[a-z0-9_]+(?:-[a-z0-9_]+)+", fields["target"]):
+            return None
+        for name in ("source", "c", *cls.RESOURCES, *(("binary",) if binary else ())):
+            if not re.fullmatch(r"[0-9a-f]{64}", fields[name]):
+                return None
+        if not binary and fields["binary"]:
+            return None
+        return fields
+
+    @classmethod
+    def from_receipt(cls, text: str, binary_digest: str, resources: dict[str, str]) -> str:
+        fields = cls.parse_receipt(text, binary=True)
+        if (
+            fields is not None
+            and fields["binary"] == binary_digest
+            and all(fields[name] == resources.get(name) for name in cls.RESOURCES)
+        ):
+            return "source:" + fields["source"]
+        return cls.binary_identity(binary_digest, resources)
+
+    @classmethod
+    def binary_identity(cls, binary_digest: str, resources: dict[str, str]) -> str:
+        digest = hashlib.sha256(b"btrc-compiler-resources-v1\n")
+        for name in cls.RESOURCES:
+            cls.append_field(digest, name)
+            cls.append_field(digest, resources.get(name, ""))
+        return "binary:" + binary_digest + ":" + digest.hexdigest()
+
+    @classmethod
+    def module_key(cls, compiler: str, identity: str) -> str:
+        digest = hashlib.sha256(b"btrc-module-cache-v1\n")
+        for value in (compiler, identity):
+            cls.append_field(digest, value)
+        return digest.hexdigest()
+
 
 class ToolchainFingerprint:
     """Own memoized fingerprints for one explicit source inventory."""
@@ -724,6 +850,16 @@ class ToolchainFingerprint:
                 cached = self._hash(self.inventory.files(scope))
                 self._digests[scope] = cached
         return cached
+
+    def compiler_identity(self) -> str:
+        with self._lock:
+            if "compiler" not in self._digests:
+                try:
+                    self._digests["compiler"] = "source:" + CompilerBuildIdentity.snapshot(self.inventory)
+                except (OSError, ValueError):
+                    self._digests["compiler"] = ""
+            identity = self._digests["compiler"]
+        return identity or "reference:" + self.digest("full")
 
     def _hash(self, paths: tuple[str, ...]) -> str:
         digest = hashlib.sha256()
@@ -769,6 +905,15 @@ class CacheDirectory:
         os.makedirs(directory, exist_ok=True)
         return directory
 
+    def resolve_modules(self, input_path: str | None = None) -> str:
+        configured = os.environ.get("BTRC_CACHE_DIR")
+        if configured:
+            return os.path.abspath(configured)
+        start = os.path.dirname(os.path.realpath(input_path)) if input_path else os.path.realpath(os.getcwd())
+        manifest = self._find_manifest(start)
+        package = os.path.dirname(manifest) if manifest is not None else start
+        return os.path.join(package, "build", "btrc")
+
     @staticmethod
     def _find_manifest(start_directory: str) -> str | None:
         """Find the nearest package marker needed by cache placement policy."""
@@ -804,6 +949,139 @@ class CompiledArtifacts:
     split_source_spaces: bool = False
 
 
+@dataclass(frozen=True)
+class ModuleUnitArtifacts:
+    """One module's metadata, C, language interface and link-plan contribution."""
+
+    record: str
+    text: str
+    interface_header: str = ""
+    link_plan_fragment: str = ""
+
+
+class ModuleUnitStore:
+    """Shared module payloads, with a per-entry lock and a last-written receipt."""
+
+    HEADER = "btrc-module-cache-entry-v1\n"
+    BUNDLE_HEADER = "btrc-module-cache-entry-v2\n"
+
+    def __init__(self, files: AtomicFileStore, maximum_bytes: int) -> None:
+        self._files = files
+        self._maximum_bytes = maximum_bytes
+        self._storage = ArtifactStorage()
+
+    def _private(self, path: Path) -> os.stat_result:
+        metadata = self._storage.require_real_directory(path, "module cache directory")
+        if os.name != "nt" and (metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o700):
+            raise ValueError("module cache directory must be private to its owner")
+        return metadata
+
+    def _regular(self, path: Path) -> None:
+        metadata = self._storage.require_real_regular(path, "module cache file")
+        if os.name != "nt" and (
+            metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1
+        ):
+            raise ValueError("module cache file must be private to its owner")
+
+    @contextmanager
+    def _entry(self, directory: Path, key: str):
+        if not re.fullmatch(r"[0-9a-f]{64}", key):
+            raise ValueError("invalid module cache key")
+        root = directory / "modules-v1"
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root_identity = self._private(root)
+        entry = root / key
+        entry.mkdir(mode=0o700, exist_ok=True)
+        entry_identity = self._private(entry)
+        with PublicationLock(entry, None, threading.Lock(), self._storage):
+            self._regular(entry / ".btrc-publications.lock")
+            for path, expected in ((root, root_identity), (entry, entry_identity)):
+                if not os.path.samestat(self._private(path), expected):
+                    raise ValueError("module cache directory changed while locking")
+            yield entry
+            for path, expected in ((root, root_identity), (entry, entry_identity)):
+                if not os.path.samestat(self._private(path), expected):
+                    raise ValueError("module cache directory changed during access")
+
+    def _read(self, path: Path, limit: int) -> bytes:
+        self._regular(path)
+        with os.fdopen(self._storage.open_regular(path), "rb") as stream:
+            if os.fstat(stream.fileno()).st_size > limit:
+                raise ValueError("module cache payload exceeds its byte limit")
+            result = stream.read(limit + 1)
+        if len(result) > limit or b"\0" in result:
+            raise ValueError("invalid module cache payload")
+        return result
+
+    def load_artifacts(self, directory: Path, key: str) -> ModuleUnitArtifacts | None:
+        with self._entry(directory, key) as entry:
+            prefix = (self.BUNDLE_HEADER + key + "\n").encode()
+            framed = self._read(entry / "record.txt", self._maximum_bytes + len(prefix) + 260)
+            bundle = framed.startswith(prefix)
+            if not bundle:
+                prefix = (self.HEADER + key + "\n").encode()
+            if not framed.startswith(prefix):
+                return None
+            framed = framed[len(prefix) :]
+            hashes, separator, record = framed.partition(b"\n")
+            digests = hashes.split(b" ")
+            if not separator or not record or len(digests) != (4 if bundle else 2):
+                return None
+            if any(re.fullmatch(rb"[0-9a-f]{64}", digest) is None for digest in digests):
+                return None
+            if hashlib.sha256(record).hexdigest().encode() != digests[0]:
+                return None
+            remaining = self._maximum_bytes - len(record)
+            values = [record.decode("utf-8")]
+            names = ("unit.c", "interface.header", "link-plan.json") if bundle else ("unit.c",)
+            for name, digest in zip(names, digests[1:], strict=True):
+                content = self._read(entry / name, remaining)
+                remaining -= len(content)
+                if hashlib.sha256(content).hexdigest().encode() != digest:
+                    return None
+                values.append(content.decode("utf-8"))
+            if bundle and (not values[2] or not values[3]):
+                return None
+            result = ModuleUnitArtifacts(*values)
+        return result
+
+    def store(
+        self,
+        directory: Path,
+        key: str,
+        record: str,
+        text: str,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None:
+        bundle = bool(interface_header or link_plan_fragment)
+        if bundle and not (interface_header and link_plan_fragment):
+            return
+        values = (record, text, interface_header, link_plan_fragment) if bundle else (record, text)
+        if not record or any("\0" in value for value in values):
+            return
+        encoded = [value.encode("utf-8") for value in values]
+        if sum(map(len, encoded)) > self._maximum_bytes:
+            return
+        framed = (
+            (self.BUNDLE_HEADER if bundle else self.HEADER)
+            + key
+            + "\n"
+            + " ".join(hashlib.sha256(value).hexdigest() for value in encoded)
+            + "\n"
+            + record
+        )
+        with self._entry(directory, key) as entry:
+            names = ("unit.c", "interface.header", "link-plan.json") if bundle else ("unit.c",)
+            for name in (*names, "record.txt"):
+                if (entry / name).exists() or (entry / name).is_symlink():
+                    self._regular(entry / name)
+            for name, value in zip(names, values[1:], strict=True):
+                self._files.write_text(str(entry / name), value, file_mode=0o600)
+            self._files.write_text(str(entry / "record.txt"), framed, file_mode=0o600)
+
+
 class CompilerCache:
     """Own framing, validation, and persistence of complete emitted generations."""
 
@@ -828,6 +1106,10 @@ class CompilerCache:
         self._files = file_store or AtomicFileStore()
         self._storage = ArtifactStorage()
         self._publisher = ArtifactPublisher(self._storage)
+
+    def _module_directory(self, input_path: str | None) -> Path:
+        resolve = getattr(self._directory, "resolve_modules", self._directory.resolve)
+        return Path(resolve(input_path))
 
     def load_artifacts(
         self,
@@ -991,42 +1273,47 @@ class CompilerCache:
             digest.update(encoded)
         return digest.hexdigest()
 
-    def load_module_unit(self, identity: str, input_path: str | None = None) -> str | None:
-        """Read one checksum-verified module-unit record, or None on any doubt."""
+    def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None:
+        """Read a shared, verified module record and C payload."""
+        payload = self.load_module_artifacts(identity, input_path)
+        return (payload.record, payload.text) if payload is not None else None
+
+    def load_module_artifacts(self, identity: str, input_path: str | None = None) -> ModuleUnitArtifacts | None:
+        """Read and verify every artifact bound by one module receipt."""
         try:
-            key = self.key_for(identity, "module-unit-v1")
-            path = Path(self._directory.resolve(input_path)) / f"{key}.module.json"
-            if not path.exists():
-                return None
-            self._storage.require_real_regular(path, "module unit")
-            payload = self._files.read_json(str(path), max_bytes=self._max_entry_bytes)
-            if (
-                not isinstance(payload, dict)
-                or set(payload) != {"key", "record", "sha256"}
-                or payload["key"] != key
-                or not isinstance(payload["record"], str)
-            ):
-                return None
-            encoded = payload["record"].encode("utf-8", errors="surrogatepass")
-            if hashlib.sha256(encoded).hexdigest() != payload["sha256"]:
-                return None
-            return payload["record"]
+            return ModuleUnitStore(self._files, self._max_entry_bytes).load_artifacts(
+                self._module_directory(input_path), self.module_key_for(identity)
+            )
         except (OSError, UnicodeError, ValueError, RecursionError):
             return None
 
-    def store_module_unit(self, identity: str, record: str, input_path: str | None = None) -> None:
-        """Atomically store a module-unit record; storage failure only costs reuse."""
+    def store_module_unit(
+        self,
+        identity: str,
+        record: str,
+        text: str,
+        input_path: str | None = None,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None:
+        """Store one shared module; interrupted publication only costs reuse."""
         try:
-            key = self.key_for(identity, "module-unit-v1")
-            encoded = record.encode("utf-8", errors="surrogatepass")
-            if len(encoded) > self._max_entry_bytes:
-                return
-            path = Path(self._directory.resolve(input_path)) / f"{key}.module.json"
-            self._files.write_json(
-                str(path), {"key": key, "record": record, "sha256": hashlib.sha256(encoded).hexdigest()}
+            ModuleUnitStore(self._files, self._max_entry_bytes).store(
+                self._module_directory(input_path),
+                self.module_key_for(identity),
+                record,
+                text,
+                interface_header=interface_header,
+                link_plan_fragment=link_plan_fragment,
             )
         except (OSError, UnicodeError, ValueError, RecursionError):
             return
+
+    def module_key_for(self, identity: str) -> str:
+        resolve = getattr(self._fingerprint, "compiler_identity", None)
+        compiler = resolve() if resolve is not None else "reference:" + self._fingerprint.digest("full")
+        return CompilerBuildIdentity.module_key(compiler, identity)
 
     def load_directives(self, source: str, input_path: str) -> tuple[tuple[int, int], ...] | None:
         """Read content/toolchain-keyed directive spans, never resolved paths."""

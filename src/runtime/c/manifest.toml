@@ -2501,10 +2501,299 @@ source_visible = true
 realtime_effect = "safe"
 order = { python = 229, btrc = 215 }
 
+# Supervisor lifecycle shares the same SDK-free external object.
+[[helpers]]
+name = "__btrc_windows_supervisor_types"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+provided_types = ["__btrc_windows_supervisor_owner"]
+source_visible = false
+order = { python = 230, btrc = 216 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_accept"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_supervisor_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 231, btrc = 217 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_copy_startup"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_supervisor_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 232, btrc = 218 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_prepare"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_supervisor_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 233, btrc = 219 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_ready_wait_commit"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_supervisor_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 234, btrc = 220 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_ack"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_supervisor_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 235, btrc = 221 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_spawn_managed"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_supervisor_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 236, btrc = 222 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_poll_managed"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_supervisor_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 237, btrc = 223 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_terminate_managed"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_supervisor_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 238, btrc = 224 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_close"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_supervisor_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 239, btrc = 225 }
+
 # Runtime C compiled as its own translation unit, selected per row and linked
 # whole when an emitted unit retains any section of its declarations asset; no
 # builder relies on --gc-sections or /OPT:REF to drop part of it.
 [[external_objects]]
 source = "windows_os.c"
 declarations = "windows_os.h"
-libraries = [{ os = ["windows"], names = ["kernel32"] }]
+libraries = [{ os = ["windows"], names = ["kernel32", "advapi32"] }]
+
+[[helpers]]
+name = "__btrc_windows_supervisor_image_types"
+category = "process"
+asset = "windows_daemon_image.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+provided_types = ["__btrc_windows_image_owner", "__btrc_windows_daemon_metadata_t", "__btrc_windows_daemon_startup", "__btrc_windows_transfer_result"]
+provided_objects = ["__btrc_windows_daemon_metadata"]
+source_visible = false
+order = { python = 240, btrc = 226 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_image_verify"
+category = "process"
+asset = "windows_daemon_image.h"
+dependencies = ["__btrc_windows_supervisor_image_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 241, btrc = 227 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_image_close"
+category = "process"
+asset = "windows_daemon_image.h"
+dependencies = ["__btrc_windows_supervisor_image_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 242, btrc = 228 }
+
+[[helpers]]
+name = "__btrc_windows_supervisor_transfer"
+category = "process"
+asset = "windows_daemon_image.h"
+dependencies = ["__btrc_windows_supervisor_image_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 243, btrc = 229 }
+
+[[external_objects]]
+source = "windows_daemon_image.c"
+declarations = "windows_daemon_image.h"
+dependencies = ["windows_os.c"]
+libraries = [{ os = ["windows"], names = ["bcrypt"] }]
+
+# Held daemon files use the same external object and security owner.
+[[helpers]]
+name = "__btrc_windows_daemon_file_types"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_launch_types"]
+headers = []
+provided_types = ["__btrc_windows_daemon_file_owner", "__btrc_windows_daemon_directory_entry"]
+source_visible = false
+order = { python = 244, btrc = 230 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_directory_open"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 245, btrc = 231 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_directory_path"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 246, btrc = 232 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_directory_next"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 247, btrc = 233 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_control_open"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 248, btrc = 234 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_control_open_at"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 249, btrc = 235 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_read"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 250, btrc = 236 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_write"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 251, btrc = 237 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_flush"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 252, btrc = 238 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_dispose"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 253, btrc = 239 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_log_open"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 254, btrc = 240 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_record_open"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 255, btrc = 241 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_close"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 256, btrc = 242 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_identity"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 257, btrc = 243 }

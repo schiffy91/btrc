@@ -2,7 +2,7 @@
 
 PLAN.md Stage 20 (`ccompat-r11-goto-labels`) adds `goto` and labels. D19 approves the row, and its consumer is the Stage 14 probe battery. Header inline functions never reach btrc, because the C compiler compiles their bodies.
 
-`goto` is already a keyword (`grammar.ebnf:38`). The RESERVED note says no rule consumes it (`grammar.ebnf:22-31`), so today each parser refuses it with its own wording (`c3_c4.toml:5-47`, `:745-766`).
+Both parsers accept `goto name;` and `name:`. Source-to-C execution is covered by `src/tests/python/test_goto_syntax.py`, the native runtime cases in `src/tests/btrc/test_jump_validation_records.py`, and `src/tests/c_compat/GotoForwardLabel.btrc`.
 
 A drafter and two adversarial reviewers compared the options on 2026-10-02 (workflow `wf_926e5dfc-b6e`). One reviewer covered implementability in both compilers; the other covered ARC and setjmp. Every finding was re-checked against the code at `3812e44`, or with gcc 13.3 and clang 18.1 under the gate flags (`Makefile:321`). Each finding and its resolution is listed at the end of this section.
 
@@ -68,10 +68,10 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
   - **Why lowering rebuilds it.** btrc module units can replay validation records instead of validating live (`analyzer/validation/Validator.btrc:154-176`), so an index that only live validation writes would be missing.
 - **Jump-body marker.** Python `AnalyzedProgram.jump_body_ids`, keyed by `id(body)`; btrc `Analyzed.jumpBodyKeys`, keyed by `AstIdentity.key`.
   - The analyzer records every callable body that contains a goto or a label.
-  - btrc journals the new fact `VALIDATION_JUMP_BODY = 13` (`analyzer/Models.btrc:46-59`), and `Validator.replay` installs it.
-  - The record context becomes `validation-record-v5` (`pipeline/ModuleUnits.btrc:2748`, `:2842`, `:3057`).
+  - btrc journals `VALIDATION_JUMP_BODY = 18` in `analyzer/Models.btrc`, and `Validator.replay` installs it.
+  - The record context is `validation-record-v12` in `pipeline/ModuleUnits.btrc`.
   - Lowering builds frames only for marked bodies. btrc checks the map's emptiness before computing any key, so a program without goto pays one check per body.
-- **Plain-value owner.** Python `TypeSystem.is_plain_c_object(type)` and `declaration_is_plain(type, initializer_type)`; btrc `SemanticTypeSystem.plainCObject` and `plainDeclaration`. The table is applied after typedef resolution and fails closed:
+- **Plain-value owner.** Python `TypeSystem.is_plain_c_object(type)` and `declaration_is_plain(type, initializer_type)`; btrc `TypeValidator.plainCObject` and `plainDeclaration`. The native policy belongs to validation because it needs lexical type parameters, proven bounds and `NumericSemantics`; placing it in `SemanticTypeSystem` would create an import cycle with `Operators.btrc`. The table is applied after typedef resolution and fails closed:
 
   | Plain | Not plain |
   |---|---|
@@ -85,7 +85,7 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
   | an unknown foreign `struct X`/`union X`, which is trusted C as today | |
 
   A declaration is plain when its declared type is plain and its initializer's type, if it has one, is neither a managed value type nor a type parameter. The managed-value test is Python `StorageModel.is_managed_value_type` (`analyzer/storage.py:263-277`) and its btrc counterpart. The initializer rule exists because `StorageLowerer` makes an owner from either type (`ir/lowering/storage.py:855-884`). Probes show scope-end releases for `void* p = new Box();`, `char* q = make();` and even `const char* r = "abc";` in both compilers.
-- **Variably modified.** Python `TypeSystem.is_variably_modified(type, constant_bounds)`; btrc `SemanticTypeSystem.variablyModified`. A type is variably modified when its outermost `array_size` is non-null and is *not* in `constant_array_bound_ids`/`constantArrayBoundKeys`. The analyzer adds a bound exactly when it is constant (`analyzer/statements.py:509-511`), and Stage 18 allows a run-time bound only on the outermost extent. Later rows for pointer-to-VLA and block-scope VM typedefs inherit this predicate.
+- **Variably modified.** Python `TypeSystem.is_variably_modified(type)`; btrc `TypeValidator.variablyModified`. A type is variably modified when its outermost `array_size` is non-null and is *not* in `constant_array_bound_ids`/`constantArrayBoundKeys`. The analyzer adds a bound exactly when it is constant (`analyzer/statements.py:509-511`), and Stage 18 allows a run-time bound only on the outermost extent. Later rows for pointer-to-VLA and block-scope VM typedefs inherit this predicate.
 - **The completion owner takes the targeted names.** Today's predicates are Python `ControlFlowAnalyzer.statement_must_terminate`, `block_must_terminate` and `statement_sequence_must_terminate` (`flow.py:249-306`) and btrc `ControlFlowValidator.statementTerminates`, `blockTerminates` and `statementSequenceTerminates` (`validation/ControlFlow.btrc:157-259`). Stage 19's r15b replaces them with one completion owner per compiler, `can_complete_normally` and `canCompleteNormally` (`c-vocabulary-specifiers.md`, "Completion owner"). Stage 20 gives that owner a targeted-name parameter, empty or null for bodies without jumps.
   - btrc's duplicate, `ExpressionTypeResolver.blockTerminates/elseTerminates/statementTerminates` (`analyzer/Expressions.btrc:86-119`), is already gone: the D-13 parity commit (`CL-C-02`) deleted it, with a both-compiler test (a typed lambda ending in `while (true) { return n; }` and one ending in a terminating `switch`, which Python accepted and btrc refused). btrc's one lambda check is now `ControlFlowValidator`'s statement-analysis path (`validation/ControlFlow.btrc:63`), as Python's is `_analyze_lambda`; `ExpressionValidator.validateLambda` no longer checks termination, because `validation/Expressions.btrc` cannot import `ControlFlowValidator` without the self-hosted compiler's first import cycle.
 
@@ -114,10 +114,11 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
 
 **Rendering.** The btrc `AstCanonicalRenderer` gains two branches: `name`, `name_line`, `name_col` for `GotoStmt`, and `name` for `LabelStmt`. The Python renderer and `AstJsonCodec` are generic. `AstStructure.children` gains nothing, because neither kind has a child.
 
-**Kind coverage.** btrc validators skip unknown kinds silently.
-- A new contract test requires every btrc function that dispatches on `NK_BREAK_STMT` or `NK_RETURN_STMT` to name `NK_GOTO_STMT` or sit on a reasoned allow-list. It does the same for every function that dispatches on `IRK_BREAK` and `IRK_GOTO`. Today 14 btrc files name those AST kinds and 3 name `IRK_BREAK`.
-- The Python test does the same for `BreakStmt`/`GotoStmt` and `IRBreak`/`IRGoto`. That would have caught the btrc lambda predicate (M3).
-- It also requires every btrc site that reads `IRNode.name` without a kind check to exclude `IRK_GOTO` and `IRK_LABEL`.
+**Kind coverage.** `src/tests/btrc/test_jump_dispatch_coverage.py` parses both compiler implementations and audits each terminal-statement dispatcher separately. A dispatcher must handle goto or have a specific reason recorded in the test. GPU refusal paths, return-type collection, expression-only generic walks and break-specific queries are intentional exceptions.
+
+The native IR name audit checks reads on explicitly typed `IRNode` parameters and locals. Branch and short-circuit kind guards distinguish label names from value references; constructor-only and declaration-only readers have recorded input contracts. Canonical rendering preserves the name as metadata. The reference optimizer regression proves that labels named like otherwise unused functions and globals do not retain those values.
+
+The audit found backward-goto realtime detection in native `collectLocals`, before `jumpRoot` was installed. It now belongs to `RealtimeAnalyzer.visit`, after `scanCallable` installs the callable's jump root, matching the reference compiler. Source-syntax and marker-based native regression cases cover this path.
 
 ## Rules
 
@@ -138,7 +139,7 @@ Each owner lives in one class per compiler and gets a contract test in both. Nei
    - **R9:** the declaration is variably modified;
    - **R10:** it is one of `E`'s automatic declarations and is not plain;
    - **R11:** it is one of `E`'s automatic declarations, and its name appears as an `Identifier` (inside lambda bodies too) anywhere in `E[reach_start(E, d, j):]`.
-   - Types are known by this point. Python reads `stmt.type`, which is set for `var` too, and the initializer's analyzed type. btrc reads the label list's `vars`.
+   - Types are known by this point. Python reads `stmt.type`, which is set for `var` too, and the initializer's analyzed type. btrc reads the label list's `vars` and saves each initializer's type at its declaration, before later bindings can shadow its inputs.
    - R11 matches by name and ignores shadowing, so it fails closed identically in both compilers. It keeps the C cleanup idiom: a resource declared after `if (!a) goto fail;` and released before `fail:` is never named after `fail:`.
    - R11 also covers a backward goto from after the label into the skipped region (fixture `backward-reach`), and clang's `-Wsometimes-uninitialized`, which fails the gate on a skipped initializer that is read later (probe `skipinit.c`, -O0 and -O2).
 
@@ -158,7 +159,7 @@ btrc stops at its first error. Python continues, and its first error is the same
   - **Limitation:** a targeted label that is reachable only from code after it (a dead labeled cycle such as `return 0; again: n++; goto again;`) is accepted. Its C is valid and warning-free, and a test pins it.
 - **Rebase on r15b.** Stage 19 r15b replaces these predicates with the completion owner, which also covers `_Noreturn` call statements. Stage 20 rebases after r15b and extends that owner. R14's wording follows whatever terminal set r15b chooses.
 
-### Python nullable facts (warnings only; btrc has no counterpart)
+### Nullable facts (warnings in both compilers)
 
 - At a targeted label, the facts become the intersection of two sets: the fall-through facts, when the list up to the label may fall through, and the facts recorded at each forward goto. Facts whose root is not visible at the label are dropped.
 - A label that any backward goto targets starts with no facts.
@@ -168,7 +169,7 @@ btrc stops at its first error. Python continues, and its first error is the same
 **Frames** exist only in marked bodies.
 - **Classes.** `JumpLoweringFrame` and `LoweredLabel` live in Python `ir/lowering/control_flow.py` and btrc `ir/lowering/ControlFlow.btrc`.
 - **Who pushes them.** `lower_block` (`statements.py:155-217`; btrc `lowerBlockWithBindings`) pushes a frame after its scope pushes and pops it before its scope pops. The switch-case lowering does the same (`control_flow.py:164-220`).
-- **Isolation.** `OwnershipLowerer.isolated_function_state` (`ownership.py:1880`) and its btrc counterpart isolate the frame stack, `jump_index` and the variable-length registry for each lifted lambda.
+- **Isolation.** Python `OwnershipLowerer.isolated_function_state` isolates the session's frame stack, `jump_index` and variable-length registry for each lifted lambda. Native `ControlFlowLowerer` owns a `JumpLoweringState`, saved and restored by `FunctionLowerer.enterIsolatedScope`/`exitIsolatedScope`. Keeping the native state with control flow avoids an import cycle from the data-only `LoweringContext` through `CallableFlowState` back to that context.
 - **A frame records:**
   - the list node, and its index on the managed-scope stack;
   - its marker's position in `CleanupScopeState._markers`;
@@ -191,8 +192,9 @@ btrc stops at its first error. Python continues, and its first error is the same
 
 **Re-issuing a registration.**
 - **The recipe.** `ManagedLocal` gains `cleanup_registration`, a small `CleanupRegistration` record of the `register` inputs: the declaration, the callback names and the direct flag. btrc `Managed` gains `cleanupRegistration: CleanupRegistration?`, null by default.
-- **Where it is attached.** `register_named_cleanup` and `register_direct_cleanup` (`ownership.py:1273-1304`; btrc `maybeRegisterCleanup` and `maybeRegisterDirectCleanup`, `Lifetime.btrc:474-489`) attach it to the owner with that C name in the innermost managed scope. Those are the paths for named locals, for-in owners and `Thread` locals; `Thread` locals are `ManagedLocal`s with `cleanup_kind="thread"` (`ownership.py:2007-2018`).
+- **Where it is attached.** Python `register_named_cleanup` and `register_direct_cleanup` return the recipe; storage and iteration pass it to `OwnershipLowerer.record_cleanup_registration`, which attaches it to the owner with that C name in the innermost managed scope. This keeps lifetime lowering independent of the ownership owner that uses it. Native `maybeRegisterCleanup` and `maybeRegisterDirectCleanup` attach it within `ManagedLifetimeLowerer`, which owns both operations. These paths cover named locals, for-in owners and `Thread` locals. A return temporary's unwind registration has no lexical owner and needs no replay recipe.
 - **How it is re-issued.** By calling `CleanupSlotRegistry.register` again (`ownership.py:150-171`). That builds fresh argument nodes and reuses the declaration's own `IRCleanupSlot`, as a second registration already does. A deep copy would fail the verifier, which matches slot metadata by identity (`ir/verifier.py:366-371`). The emitted call is the plain one, never the register-once ternary.
+- **Verifier contract.** Both verifiers allow multiple registration sites for one declaration. Each registration must match that declaration's typed slot and static take adapter; every declared cleanup slot must have a registration. Native runtime tests check that re-registering preserved owners after a backward jump still destroys each owner exactly once when a later call throws.
 - **A4:** every owner of F before the label must have a recipe when F's marker is active.
 
 **`lower_label`:**
@@ -235,12 +237,14 @@ gcc warns for the nested-block form (probe `ft_more.c`, function `b`). The `IRIf
 
 - **Volatility region.** Today, in Python `_LexicalVisibilityPass.block` (`exceptions.py:954-962`) and btrc `SetjmpSafetyPlanner.scanBlock` (`setjmp/Safety.btrc:573-586`), the continuation of a setjmp-containing item `i` is `stmts[i+1:]`.
   - New rule: if labels at indices `≤ i` of the same list are targeted by gotos located anywhere in `stmts[i:]`, the continuation becomes `stmts[m:]`. `m` comes from the same fixpoint as `reach_start`.
+  - The IR sequence owners are Python `JumpContinuation` in `exceptions.py` and native `SetjmpJumpSequence` in `setjmp/Analysis.btrc`. Their walks follow structured statement bodies and exclude nested callable expressions.
   - This mirrors the structured-loop rule (`exceptions.py:1061-1070`) at every list level.
   - Gotos never cross a try, so writes inside a try body stay in its then-branch. The `finally` statements sit after the setjmp `IRIf` and fall under the continuation.
   - More inferred-volatile locals can reach the existing qualifier-safety refusal (R18).
 - **Pointer flow.** In Python `PointerFlow` (`exceptions.py:383-539`) and btrc `SetjmpEffectAnalysis` (`setjmp/Analysis.btrc:1350-1410`):
   - `IRGoto(L)` joins the current state into `pending[L]` and then sets the state to bottom (the empty alias state). Pending states accumulate per function.
   - At `IRLabel(L)`, `pending[L]` is restricted to the storages bound at that point, then joined into the state. This is one explicit restriction rule in both compilers.
+    Bound storage includes an enclosing object whose name is shadowed in the current block. Its alias facts must survive a local jump so they remain available when the enclosing name becomes visible again. Each repeated suffix restores its label's lexical bindings before revisiting declarations.
   - If a later goto targets `L`, the rest of the list is iterated: `header = join(entry, restricted pending[L])`, at most 16 times.
   - If it has not converged, both compilers widen the header with Python's `_widen` rule (`exceptions.py:530-533`) and run the suffix once more. btrc gains `flowWiden`.
   - The list's exit is the end state of the last run. The schedule must bound the iteration, because Python's origin depth is unbounded (`PointerOrigin.deeper`, `exceptions.py:146-149`). Structured loops keep today's schedules (see the findings below).
@@ -386,7 +390,7 @@ The construct is one commit (D5): Python first, then the btrc port by the same i
     - `validation/Names.btrc`: `validateLabelName`;
     - `analyzer/Models.btrc`: `jumpBodyKeys`, `VALIDATION_JUMP_BODY`;
     - `validation/Validator.btrc`: the replay arm;
-    - `analyzer/Types.btrc`: `plainCObject`, `plainDeclaration`, `variablyModified`;
+    - `analyzer/validation/Types.btrc`: `plainCObject`, `plainDeclaration`, `variablyModified`;
     - `analyzer/Realtime.btrc`; `analyzer/GPU.btrc`.
   - Lowering:
     - `ir/Model.btrc`; `ir/lowering/Context.btrc` (index, frames, registry);

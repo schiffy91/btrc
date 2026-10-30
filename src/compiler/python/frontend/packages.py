@@ -23,7 +23,7 @@ from contextlib import suppress
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 
-from ..abi.generated import TARGET_ENVIRONMENTS, TARGET_ROWS, GeneratedTargetRow
+from ..abi.generated import HOSTED_FUNCTION_ROWS, TARGET_ENVIRONMENTS, TARGET_ROWS, GeneratedTargetRow
 from ..abi.hosted import TargetRepository, TargetSelectionError
 
 
@@ -270,6 +270,18 @@ class TargetSelector:
 
 
 @dataclass(frozen=True, order=True)
+class NativeAuxiliaryExecutable:
+    """A leaf executable selected by a retained runtime capability."""
+
+    kind: str
+    protocol: int
+    requires: tuple[str, ...]
+
+    def retained(self, helpers: Iterable[str]) -> bool:
+        return not set(self.requires).isdisjoint(helpers)
+
+
+@dataclass(frozen=True, order=True)
 class NativeDeclaration:
     """One validated native manifest declaration before target filtering."""
 
@@ -283,6 +295,7 @@ class NativeDeclaration:
     architectures: tuple[str, ...] = ()
     modules: tuple[str, ...] = ()
     environments: tuple[str, ...] = ()
+    auxiliary: NativeAuxiliaryExecutable | None = None
 
     @property
     def selector(self) -> TargetSelector:
@@ -304,6 +317,7 @@ class NativeDeclaration:
             self.operating_systems,
             self.architectures,
             self.environments,
+            self.auxiliary,
         ) == (
             other.kind,
             other.package,
@@ -314,6 +328,7 @@ class NativeDeclaration:
             other.operating_systems,
             other.architectures,
             other.environments,
+            other.auxiliary,
         )
 
 
@@ -687,6 +702,7 @@ class NativeLinkPlan:
     # The validated sysroot's identity (NativeSysroot) when the compile read
     # native headers through one, else empty. The plan never holds the path.
     sysroot_identity: str = ""
+    retained_runtime_helpers: tuple[str, ...] = ()
 
     @property
     def bindings(self) -> tuple[NativeBinding, ...]:
@@ -713,7 +729,7 @@ class NativeLinkPlan:
         paths.update(
             item.value
             for item in self.declarations
-            if item.kind in {"source", "header"} and item.selected_for(self.target)
+            if item.kind in {"source", "header", "auxiliary-executable"} and item.selected_for(self.target)
         )
         # A Java binding reads class files through the Java class reader, not a header.
         paths.update(binding.header for binding in self.bindings if binding.language != "java")
@@ -833,6 +849,26 @@ class NativeLinkPlan:
         )
         if libraries:
             result["libraries"] = libraries
+        auxiliaries = []
+        for item in selected:
+            auxiliary = item.auxiliary
+            if auxiliary is not None and auxiliary.retained(self.retained_runtime_helpers):
+                with open(item.value, "rb") as source:
+                    digest = hashlib.file_digest(source, "sha256").hexdigest()
+                auxiliaries.append(
+                    {
+                        "abi": self.target.label,
+                        "kind": auxiliary.kind,
+                        "package": item.package,
+                        "path": item.value,
+                        "protocol": auxiliary.protocol,
+                        "sha256": digest,
+                    }
+                )
+        if auxiliaries:
+            if len(auxiliaries) != 1:
+                raise IncludeResolutionError("a consumer must select exactly one daemon supervisor executable")
+            result["auxiliary-executables"] = auxiliaries
         if self.generated_units:
             result["generated-units"] = [
                 unit.as_dict() for unit in sorted(self.generated_units, key=lambda unit: unit.name)
@@ -907,6 +943,20 @@ class NativeLinkPlan:
         return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
     @classmethod
+    def module_fragment(cls, name: str, source: str, kept: bool) -> str:
+        """A module's emitted-unit contribution, independent of output location."""
+        if not _UNIT_NAME.fullmatch(name):
+            raise ValueError("module fragment requires a portable unit name")
+        return (
+            json.dumps(
+                {"kept": kept, "name": name, "schema": 1, "sha256": cls.unit_digest(source)},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
+
+    @classmethod
     def cached_unit_names(cls, serialized: str, units_prefix: str | None, count: int) -> tuple[str, ...] | None:
         """Recover a cached generation's unit names from its stored link plan.
 
@@ -973,9 +1023,24 @@ class NativeLinkPlan:
                 )
             if len({unit.name for unit in units}) != len(units):
                 return None
-            restored = replace(self, generated_units=tuple(units)).with_emitted_units(
-                units_prefix, emitted_units, unit_sources
+            auxiliaries = document.get("auxiliary-executables", [])
+            if not isinstance(auxiliaries, list) or any(not isinstance(row, dict) for row in auxiliaries):
+                return None
+            retained = tuple(
+                sorted(
+                    {
+                        helper
+                        for item in self.declarations
+                        if item.auxiliary is not None
+                        and item.selected_for(self.target)
+                        and any(row.get("path") == item.value for row in auxiliaries)
+                        for helper in item.auxiliary.requires
+                    }
+                )
             )
+            restored = replace(
+                self, generated_units=tuple(units), retained_runtime_helpers=retained
+            ).with_emitted_units(units_prefix, emitted_units, unit_sources)
             # Canonical equality rejects unknown/duplicate fields, wrong unit
             # count, stale package roots/flags/target, and changed schema/order.
             return restored if restored.canonical_json() == serialized else None
@@ -1065,6 +1130,7 @@ class NativeLinkPlan:
         if not selected.declarations and not selected.bindings:
             return self
         known = {package.name: package for package in packages}
+        existing_names = set()
         for existing in self.packages:
             if not existing.name.startswith(self.STDLIB_PACKAGE_PREFIX):
                 continue
@@ -1074,14 +1140,16 @@ class NativeLinkPlan:
                 and self._source_identity(existing.root) == self._source_identity(package.root)
                 and existing.manifest_hash == package.manifest_hash
             ):
-                return self
+                existing_names.add(existing.name)
+                continue
             raise IncludeResolutionError(
                 f"package identity {existing.name!r} is reserved for compiler-owned stdlib runtimes"
             )
         return NativeLinkPlan(
             self.target,
-            self.packages + selected.packages,
-            self.declarations + selected.declarations,
+            self.packages + tuple(package for package in selected.packages if package.name not in existing_names),
+            self.declarations
+            + tuple(declaration for declaration in selected.declarations if declaration.package not in existing_names),
             self.generated_units,
         )
 
@@ -1226,6 +1294,24 @@ class PackageImportPolicy:
         self._owners: dict[str, str | None] = {}
         self._exports: dict[str, tuple[str, frozenset[str] | None]] = {}
         self._providers: dict[str, dict[str, list[ModuleProvider]]] = {}
+        self._executables: dict[str, frozenset[str]] = {}
+
+    def executable_entry(self, target: str) -> bool:
+        """Executable classification applies even to same-package import edges."""
+        identity = os.path.normcase(os.path.realpath(target))
+        manifest_path = self._manifest_for(identity)
+        if manifest_path is None:
+            return False
+        if manifest_path not in self._executables:
+            try:
+                manifest = PackageManifestReader().read(manifest_path)
+                entries = ()
+                if "manifest-version" in manifest:
+                    entries = PackageManifestValidator().auxiliary_entries(manifest, manifest_path)
+                self._executables[manifest_path] = frozenset(os.path.normcase(item.value) for item in entries)
+            except (OSError, ValueError) as error:
+                raise IncludeResolutionError(str(error)) from error
+        return identity in self._executables[manifest_path]
 
     def provider_for(self, source: str) -> tuple[str, ...]:
         identity = os.path.normcase(os.path.realpath(source))
@@ -1278,6 +1364,8 @@ class PackageImportPolicy:
         self._check_owner(os.path.realpath(source), os.path.realpath(target))
 
     def _check_owner(self, source: str, target: str) -> None:
+        if self.executable_entry(target):
+            raise IncludeResolutionError(f"executable entry {target!r} cannot be imported")
         name = self._private_owner(source, target)
         if name is not None:
             raise IncludeResolutionError(f"module {target!r} is private to package {name!r}; import an exported module")
@@ -1286,7 +1374,8 @@ class PackageImportPolicy:
         """Transitive imports do not re-export private implementation names."""
 
         return (
-            self._private_owner(source, target) is None
+            not self.executable_entry(target)
+            and self._private_owner(source, target) is None
             and self._private_owner(os.path.realpath(source), os.path.realpath(target)) is None
         )
 
@@ -1360,9 +1449,20 @@ class PackageManifestReader:
 class PackageManifestValidator:
     """Validate the closed version-1 manifest model."""
 
+    _RUNTIME_FUNCTIONS = frozenset(row.name for row in HOSTED_FUNCTION_ROWS if row.origin == "runtime")
     _TOP_LEVEL_FIELDS = frozenset({"manifest-version", "package", "dependencies", "native"})
     _NATIVE_FIELDS = frozenset(
-        {"sources", "headers", "include-directories", "defines", "frameworks", "pkg-config", "libraries", "bindings"}
+        {
+            "sources",
+            "headers",
+            "include-directories",
+            "defines",
+            "frameworks",
+            "pkg-config",
+            "libraries",
+            "bindings",
+            "auxiliary-executables",
+        }
     )
     # The plan kind of each named native requirement.
     _NAMED_KINDS = MappingProxyType({"frameworks": "framework", "pkg-config": "pkg-config", "libraries": "library"})
@@ -1507,13 +1607,30 @@ class PackageManifestValidator:
             providers.append(provider)
         return tuple(providers)
 
+    def auxiliary_entries(self, manifest: Mapping, path: str) -> tuple[NativeDeclaration, ...]:
+        native = manifest.get("native", {})
+        if not isinstance(native, dict):
+            raise ValueError(f"package manifest {path!r} [native] must be a table")
+        entries = native.get("auxiliary-executables", [])
+        if entries == []:
+            return ()
+        return self.native(
+            {"native": {"auxiliary-executables": entries}},
+            os.path.dirname(path),
+            manifest.get("package", {}).get("name", ""),
+            path,
+        )
+
     def exported_modules(self, manifest: Mapping, path: str) -> tuple[str, ...] | None:
         package = manifest.get("package", {})
         if "exports" not in package:
             return None
-        return self._module_paths(
+        exports = self._module_paths(
             os.path.dirname(path), package, f"package manifest {path!r} package", field="exports", allow_empty=True
         )
+        if set(exports) & {item.value for item in self.auxiliary_entries(manifest, path)}:
+            raise ValueError(f"package manifest {path!r} cannot export an executable entry")
+        return exports
 
     def dependencies(self, manifest: Mapping, path: str) -> dict[str, Mapping]:
         dependencies = manifest.get("dependencies", {})
@@ -1568,7 +1685,45 @@ class PackageManifestValidator:
                 modules = self._module_paths(root, entry, context)
                 self._require_platform_directories(entry.get("modules", []), selector, context)
                 predicate_fields = frozenset({"os", "arch", "env", "modules"})
-                if field == "sources":
+                if field == "auxiliary-executables":
+                    self._reject_unknown(entry, predicate_fields | {"path", "kind", "protocol", "requires"}, context)
+                    if entry.get("kind") != "windows-daemon-supervisor":
+                        raise ValueError(f"{context}.kind must be windows-daemon-supervisor")
+                    if operating_systems != ("windows",):
+                        raise ValueError(f'{context} must select os = ["windows"]')
+                    protocol = entry.get("protocol")
+                    if type(protocol) is not int or protocol != 1:
+                        raise ValueError(f"{context}.protocol must be integer 1")
+                    requires = entry.get("requires")
+                    if (
+                        not isinstance(requires, list)
+                        or not requires
+                        or not all(isinstance(name, str) and _IDENTIFIER.fullmatch(name) for name in requires)
+                        or len(set(requires)) != len(requires)
+                    ):
+                        raise ValueError(f"{context}.requires must be distinct runtime helper names")
+                    for name in requires:
+                        if name not in self._RUNTIME_FUNCTIONS:
+                            raise ValueError(f"{context}.requires names unknown runtime helper {name!r}")
+                    value = self._inside_path(root, entry.get("path"), f"{context}.path", directory=False)
+                    if not value.endswith(".btrc"):
+                        raise ValueError(f"{context}.path must name a BTRC executable source")
+                    owner = os.path.dirname(value)
+                    while owner != os.path.realpath(root):
+                        if os.path.exists(os.path.join(owner, "btrc.toml")):
+                            raise ValueError(f"{context}.path must belong to the declaring package")
+                        owner = os.path.dirname(owner)
+                    declaration = NativeDeclaration(
+                        "auxiliary-executable",
+                        package,
+                        value,
+                        operating_systems=operating_systems,
+                        architectures=architectures,
+                        modules=modules,
+                        environments=selector.environments,
+                        auxiliary=NativeAuxiliaryExecutable(entry["kind"], protocol, tuple(sorted(requires))),
+                    )
+                elif field == "sources":
                     self._reject_unknown(
                         entry,
                         predicate_fields | {"path", "language", "standard"},

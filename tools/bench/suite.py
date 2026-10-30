@@ -14,9 +14,13 @@ import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
-from tools.perf import TimingReport
+from tools.native_plan import NativePlanBuilder
+from tools.perf import PHASES, CompilerRun, TimingReport
+
+from .app_scale import AppScaleFixture
 
 REPO = Path(__file__).resolve().parents[2]
 PROGRAMS = REPO / "src" / "tests" / "benchmarks"
@@ -50,9 +54,17 @@ class Program:
 
     @property
     def phases(self) -> bool:
-        """Per-phase compiler timings are kept for the floor program and the stdlib-heavy one."""
+        """Keep phase attribution for the floor and both stdlib workloads."""
 
-        return self.name in {"BenchHello", "CompileStdlibHeavy"}
+        return self.name in {"BenchHello", "CompileStdlibHeavy", AppScaleFixture.NAME}
+
+    @property
+    def native(self) -> bool:
+        return self.name == AppScaleFixture.NAME
+
+    def check_output(self, stdout: str, frontend: str) -> None:
+        if self.name == AppScaleFixture.NAME and stdout != AppScaleFixture.expected_stdout():
+            raise RuntimeError(f"{self.name}: {frontend} output failed the workload contract: {stdout!r}")
 
     @classmethod
     def discover(cls, names: list[str] | None = None) -> list[Program]:
@@ -234,6 +246,71 @@ class Workload:
 
 
 @dataclass
+class IncrementalBuild:
+    """Rebuild one scratch app module through the production caches and linker."""
+
+    btrcc: Path
+    cc: list[str]
+    directory: Path
+    env: dict[str, str]
+    original: str
+
+    def prepare(self, revision: int) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        (self.directory / "CompileAppScale.btrc").write_text(
+            AppScaleFixture.edited_source(self.original, revision), encoding="utf-8"
+        )
+
+    def run(self, revision: int) -> None:
+        env = {name: value for name, value in self.env.items() if name != TIMING_VARIABLE}
+        env["BTRC_CACHE_DIR"] = str(self.directory / "cache")
+        source = self.directory / "CompileAppScale.btrc"
+        generated = self.directory / "app.c"
+        plan = self.directory / "app.link.json"
+        binary = self.directory / "app"
+        runner = partial(subprocess.run, env=env, cwd=self.directory, timeout=COMMAND_TIMEOUT)
+        compiled = runner(
+            [
+                str(self.btrcc),
+                "--strict-imports",
+                "--debug",
+                "--emit-link-plan",
+                str(plan),
+                "--emit-units",
+                str(self.directory / "app"),
+                "--module-units",
+                "--jobs",
+                "1",
+                str(source),
+                "-o",
+                str(generated),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if compiled.returncode:
+            raise RuntimeError(f"app-scale edit {revision}: compile failed:\n{compiled.stderr[:2000]}")
+        NativePlanBuilder(runner=partial(subprocess.run, env=env, timeout=COMMAND_TIMEOUT)).build(
+            plan_path=plan,
+            generated_c=generated,
+            output=binary,
+            cc=self.cc,
+            optimization=1,
+            jobs=1,
+            object_cache=self.directory / "objects",
+            report_path=self.directory / f"native-{revision}.json",
+            compile_flags=CFLAGS,
+            link_flags=LIBS,
+        )
+        executed = runner([str(binary)], capture_output=True, text=True)
+        if executed.returncode or executed.stdout != AppScaleFixture.expected_stdout(revision):
+            raise RuntimeError(
+                f"app-scale edit {revision}: output failed the workload contract "
+                f"(exit {executed.returncode}): {executed.stdout!r}\n{executed.stderr[:2000]}"
+            )
+
+
+@dataclass
 class Suite:
     btrcc: Path
     cc: list[str]
@@ -269,16 +346,37 @@ class Suite:
         for program in programs:
             if not self.peak_only:
                 self._program(program, env)
+                if program.name == AppScaleFixture.NAME:
+                    self._incremental(program)
             if self.peaks:
                 self._program_peak(program)
         for workload in self.workloads:
             self._workload_peak(workload)
         return self.metrics
 
+    def _incremental(self, program: Program) -> None:
+        directory = self.out_dir / "incremental"
+        shutil.rmtree(directory, ignore_errors=True)
+        build = IncrementalBuild(
+            self.btrcc, self.cc, directory, self.peak_environment(), program.path.read_text(encoding="utf-8")
+        )
+        build.prepare(0)
+        build.run(0)
+        build.run(0)
+        samples = []
+        for revision in range(1, max(1, self.repeat) + 1):
+            build.prepare(revision)
+            started = time.perf_counter()
+            build.run(revision)
+            samples.append((time.perf_counter() - started) * 1000)
+        self.metrics["incremental.edit_ms"] = round(min(samples), 3)
+
     def _program_peak(self, program: Program) -> None:
         """The compile's peak memory, the lowest of up to three samples."""
 
         command = [str(self.btrcc), str(program.path)]
+        if program.native:
+            command.insert(1, "--no-cache")
         samples = [Peak.measure(command, self.peak_environment(), REPO) for _ in range(max(1, min(self.repeat, 3)))]
         self.metrics[f"btrcc.compile.{program.name}_peak"] = min(sample.bytes for sample in samples)
 
@@ -302,13 +400,26 @@ class Suite:
 
     def _program(self, program: Program, env: dict[str, str]) -> None:
         name = program.name
-        compiled, _ = Timing.best([str(self.btrcc), str(program.path)], env, REPO, self.repeat)
+        command = [str(self.btrcc), str(program.path)]
+        plan = self.out_dir / f"{name}.link.json"
+        if program.native:
+            command[1:1] = ["--no-cache", "--emit-link-plan", str(plan)]
+        compiled, _ = Timing.best(command, env, REPO, self.repeat)
         self.metrics[f"btrcc.compile.{name}_ms"] = round(compiled.wall_ms, 3)
         self.metrics[f"btrcc.compile.{name}_cpu_ms"] = round(compiled.cpu_ms, 3)
         if program.phases:
-            for phase, millis in TimingReport.phase_times(
-                compiled.stderr, compilers=("btrcc",), per_second=1000
-            ).items():
+            phases = TimingReport.phase_times(compiled.stderr, compilers=("btrcc",), per_second=1000)
+            if name == AppScaleFixture.NAME:
+                if not set(PHASES) <= phases.keys():
+                    raise RuntimeError(f"{name}: compiler timing report is missing stage marks")
+                for phase, millis in phases.items():
+                    self.metrics[f"btrcc.phase.{name}.marks.{phase}_ms"] = round(millis, 3)
+                seconds = {phase: millis / 1000 for phase, millis in phases.items()}
+                totals = CompilerRun(
+                    "btrcc", compiled.wall_ms / 1000, compiled.cpu_ms / 1000, 0, seconds, "", ""
+                ).phase_totals()
+                phases = {phase: totals[phase] * 1000 for phase in PHASES}
+            for phase, millis in phases.items():
                 self.metrics[f"btrcc.phase.{name}.{phase}_ms"] = round(millis, 3)
         c_source = compiled.stdout
         c_path = self.out_dir / f"{name}.c"
@@ -321,14 +432,14 @@ class Suite:
             self.metrics[f"reference.compile.{name}_ms"] = round(reference_ms, 3)
         for level in ("O0", "O2"):
             binary = self.out_dir / f"{name}.{level}"
-            command = [*self.cc, *CFLAGS, f"-{level}", str(c_path), "-o", str(binary), *LIBS]
-            timing, _ = Timing.best(command, env, REPO, self.repeat if level == "O0" else 1)
+            timing = self._build(program, c_path, plan, binary, int(level[1]), env, self.repeat if level == "O0" else 1)
             self.metrics[f"cc.{name}.{level}_ms"] = round(timing.wall_ms, 3)
             if level == "O2":
                 self.metrics[f"binary.{name}.bytes"] = binary.stat().st_size
         ran, _ = Timing.best(
             [str(self.out_dir / f"{name}.O2")], env, self.out_dir, max(self.repeat, 5) if program.runs else 1
         )
+        program.check_output(ran.stdout, "self-host")
         if program.runs:
             self.metrics[f"run.{name}_ms"] = round(ran.wall_ms, 3)
             self.metrics[f"run.{name}_cpu_ms"] = round(ran.cpu_ms, 3)
@@ -339,14 +450,43 @@ class Suite:
             reference_path = self.out_dir / f"{name}.reference.c"
             reference_path.write_text(reference_c, encoding="utf-8")
             reference_binary = self.out_dir / f"{name}.reference"
-            Timing.run([*self.cc, *CFLAGS, "-O2", str(reference_path), "-o", str(reference_binary), *LIBS], env, REPO)
+            self._build(
+                program, reference_path, self.out_dir / f"{name}.reference.link.json", reference_binary, 2, env, 1
+            )
             reference_run = Timing.run([str(reference_binary)], env, self.out_dir)
+            program.check_output(reference_run.stdout, "reference")
             parity = 1 if reference_run.stdout == ran.stdout else 0
             self.metrics[f"c.{name}.parity"] = parity
             if not parity:
                 self.notes.append(
                     f"{name}: reference and self-host programs print different output; see {self.out_dir}"
                 )
+
+    def _build(
+        self, program: Program, source: Path, plan: Path, binary: Path, level: int, env: dict[str, str], repeat: int
+    ) -> Timing:
+        if not program.native:
+            command = [*self.cc, *CFLAGS, f"-O{level}", str(source), "-o", str(binary), *LIBS]
+            return Timing.best(command, env, REPO, repeat)[0]
+        samples = []
+        builder = NativePlanBuilder(runner=partial(subprocess.run, env=env, timeout=COMMAND_TIMEOUT))
+        for _ in range(repeat):
+            before = Timing.children_cpu_seconds()
+            started = time.perf_counter()
+            builder.build(
+                plan_path=plan,
+                generated_c=source,
+                output=binary,
+                cc=self.cc,
+                optimization=level,
+                jobs=1,
+                compile_flags=CFLAGS,
+                link_flags=LIBS,
+            )
+            samples.append(
+                Timing((time.perf_counter() - started) * 1000, (Timing.children_cpu_seconds() - before) * 1000)
+            )
+        return min(samples, key=lambda sample: sample.wall_ms)
 
     def _reference(self, program: Program) -> tuple[float, str]:
         """In-process reference transpile, best of N after one warm-up."""
@@ -358,7 +498,7 @@ class Suite:
         compiler = Compiler()
         source = program.path.read_text(encoding="utf-8")
 
-        def transpile() -> str:
+        def transpile() -> tuple[str, str]:
             # The production pipeline, uncached so every repetition does the work.
             result = compiler.compile(
                 source, str(program.path), CompilerOptions(map_stdlib_positions=True, use_cache=False)
@@ -367,9 +507,11 @@ class Suite:
                 raise RuntimeError(f"{program.name}: reference compile failed: {result.failure}")
             if result.analyzed is not None and result.analyzed.errors:
                 raise RuntimeError(f"{program.name}: reference analyzer errors: {result.analyzed.errors}")
-            return result.c_source
+            return result.c_source, result.native_plan.canonical_json() if program.native else ""
 
-        emitted = transpile()
+        emitted, plan = transpile()
+        if program.native:
+            (self.out_dir / f"{program.name}.reference.link.json").write_text(plan)
         fastest = float("inf")
         for _ in range(self.repeat):
             started = time.perf_counter()

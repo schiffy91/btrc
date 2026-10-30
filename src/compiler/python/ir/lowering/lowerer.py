@@ -35,7 +35,7 @@ from .ownership import (
     OwnershipLowerer,
     OwnershipOperandOrder,
 )
-from .session import LoweringSession, ProgramLoweringFacts
+from .session import LoweringSession, ModuleLoweringFacts, ProgramLoweringFacts
 from .statements import StatementLowerer
 from .storage import StorageLowerer
 from .translation_unit import TranslationUnitLowerer
@@ -60,6 +60,7 @@ class IRLowerer:
         groups: CompilationGroups | None = None,
         owned_group: str | None = None,
         program_facts: ProgramLoweringFacts | None = None,
+        unit_facts: ModuleLoweringFacts | None = None,
         declarations_elsewhere: bool = False,
         native_defines: tuple[tuple[str, str], ...] = (),
     ) -> None:
@@ -82,6 +83,7 @@ class IRLowerer:
             source_map=source_map,
             runtime_helpers=catalog.selection(),
             owned_group=owned_group,
+            unit_facts=unit_facts,
             declarations_elsewhere=declarations_elsewhere,
         )
         facts = program_facts if program_facts is not None else ProgramLoweringFacts()
@@ -274,6 +276,8 @@ class IRLowerer:
             gpu,
             calls,
             lifetime,
+            control_flow,
+            collections,
         )
         classes = ClassLowerer(
             session,

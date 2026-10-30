@@ -19,6 +19,276 @@ import ./Ownership.btrc;
 import ./Storage.btrc;
 import ./Types.btrc;
 
+/* Lexical jump relationships are rebuilt from a callable body by each pass. */
+class JumpList {
+	public Node node;
+	public string kind;
+	public JumpList? parent;
+	public int parentIndex;
+
+	public JumpList(Node node, string kind, JumpList? parent, int parentIndex) {
+		self.node = node;
+		self.kind = kind;
+		self.parent = parent;
+		self.parentIndex = parentIndex;
+	}
+
+	public Vector<Node> statements() {
+		if (self.node.kind == NK_CASE_CLAUSE) { return self.node.bodyNodeList(); }
+		return self.node.statements();
+	}
+}
+
+class JumpStep {
+	public JumpList scope;
+	public int index;
+
+	public JumpStep(JumpList scope, int index) {
+		self.scope = scope;
+		self.index = index;
+	}
+}
+
+class JumpSite {
+	public Node node;
+	public Vector<JumpStep> path;
+	public int ordinal;
+
+	public JumpSite(Node node, Vector<JumpStep> path, int ordinal) {
+		self.node = node;
+		self.path = path;
+		self.ordinal = ordinal;
+	}
+}
+
+class JumpEnclosure {
+	public JumpList scope;
+	public int start;
+	public int end;
+
+	public JumpEnclosure(JumpList scope, int start, int end) {
+		self.scope = scope;
+		self.start = start;
+		self.end = end;
+	}
+}
+
+class JumpScopeIndex {
+	public Map<string, JumpList> lists = {};
+	public Map<string, JumpSite> sites = {};
+	public Map<string, JumpSite> labels = {};
+	public Vector<JumpSite> gotos = [];
+	public Map<string, bool> targetedNames = {};
+	private Map<string, Node> nestedLabels = {};
+	private int ordinal = 0;
+
+	class JumpScopeIndex build(Node root) {
+		JumpScopeIndex result = JumpScopeIndex();
+		Vector<JumpStep> path = [];
+		result.walkList(root, "body", path);
+		result.collectNested(root, false);
+		return result;
+	}
+
+	public JumpSite? target(Node jump) {
+		if (!self.labels.has(jump.name)) { return null; }
+		return self.labels.get(jump.name);
+	}
+
+	public bool targeted(string name) { return self.targetedNames.has(name); }
+
+	public bool isBackward(Node jump) {
+		JumpSite? target = self.target(jump);
+		return target != null && target.ordinal < self.sites.get(AstIdentity.key(jump)).ordinal;
+	}
+
+	public JumpEnclosure? enclosing(Node jump) {
+		JumpSite? target = self.target(jump);
+		if (target == null) { return null; }
+		JumpStep destination = target.path.get(target.path.len - 1);
+		for step in self.sites.get(AstIdentity.key(jump)).path {
+			if (step.scope == destination.scope) {
+				return JumpEnclosure(destination.scope, step.index, destination.index);
+			}
+		}
+		return null;
+	}
+
+	private int commonDepth(Node jump) {
+		JumpSite? target = self.target(jump);
+		if (target == null) { return 0; }
+		Vector<JumpStep> path = self.sites.get(AstIdentity.key(jump)).path;
+		int depth = 0;
+		while (depth < path.len && depth < target.path.len) {
+			if (path.get(depth).scope != target.path.get(depth).scope) { break; }
+			depth = depth + 1;
+		}
+		return depth;
+	}
+
+	public Vector<JumpList> leftLists(Node jump) {
+		Vector<JumpList> result = [];
+		if (self.target(jump) == null) { return result; }
+		Vector<JumpStep> path = self.sites.get(AstIdentity.key(jump)).path;
+		int common = self.commonDepth(jump);
+		int index = path.len - 1;
+		while (index >= common) {
+			result.push(path.get(index).scope);
+			index = index - 1;
+		}
+		return result;
+	}
+
+	public Vector<JumpList> enteredLists(Node jump) {
+		Vector<JumpList> result = [];
+		JumpSite? target = self.target(jump);
+		if (target == null) { return result; }
+		int index = self.commonDepth(jump);
+		while (index < target.path.len) {
+			result.push(target.path.get(index).scope);
+			index = index + 1;
+		}
+		return result;
+	}
+
+	public Vector<Node> enteredDeclarations(Node jump) {
+		Vector<Node> result = [];
+		JumpEnclosure? enclosing = self.enclosing(jump);
+		if (enclosing == null) { return result; }
+		Vector<Node> statements = enclosing.scope.statements();
+		int index = enclosing.start + 1;
+		while (index < enclosing.end) {
+			JumpScopeIndex.collectDeclaration(statements.get(index), result);
+			index = index + 1;
+		}
+		return result;
+	}
+
+	class void collectDeclaration(Node statement, Vector<Node> result) {
+		if (statement.kind == NK_VAR_DECL_STMT) {
+			result.push(statement);
+		} else if (statement.kind == NK_TRY_CATCH_STMT && statement.finallyBlock != null) {
+			for child in statement.finallyBlock.statements() { JumpScopeIndex.collectDeclaration(child, result); }
+		}
+	}
+
+	public Node? nestedLambdaLabel(string name) {
+		if (!self.nestedLabels.has(name)) { return null; }
+		return self.nestedLabels.get(name);
+	}
+
+	public int reachStart(JumpList scope, int declarationIndex, int labelIndex) {
+		int start = labelIndex;
+		while (true) {
+			int previous = start;
+			for jump in self.gotos {
+				bool reachable = false;
+				for step in jump.path {
+					if (step.scope == scope && step.index >= start) { reachable = true; }
+				}
+				if (!reachable) { continue; }
+				JumpSite? target = self.target(jump.node);
+				if (target == null) { continue; }
+				JumpStep destination = target.path.get(target.path.len - 1);
+				if (destination.scope == scope && declarationIndex < destination.index && destination.index < start) {
+					start = destination.index;
+				}
+			}
+			if (start == previous) { return start; }
+		}
+		return start;
+	}
+
+	private void walkList(Node node, string kind, Vector<JumpStep> path) {
+		JumpList? parent = null;
+		int parentIndex = -1;
+		if (path.len > 0) {
+			JumpStep step = path.get(path.len - 1);
+			parent = step.scope;
+			parentIndex = step.index;
+		}
+		JumpList scope = JumpList(node, kind, parent, parentIndex);
+		self.lists.put(AstIdentity.key(node), scope);
+		Vector<Node> statements = scope.statements();
+		int index = 0;
+		while (index < statements.len) {
+			Vector<JumpStep> childPath = [];
+			for step in path { childPath.push(step); }
+			childPath.push(JumpStep(scope, index));
+			self.walkStatement(statements.get(index), childPath);
+			index = index + 1;
+		}
+	}
+
+	private void walkStatement(Node statement, Vector<JumpStep> path) {
+		int kind = statement.kind;
+		if (kind == NK_GOTO_STMT || kind == NK_LABEL_STMT) {
+			JumpSite site = JumpSite(statement, path, self.ordinal);
+			self.ordinal = self.ordinal + 1;
+			self.sites.put(AstIdentity.key(statement), site);
+			if (kind == NK_GOTO_STMT) {
+				self.gotos.push(site);
+				self.targetedNames.put(statement.name, true);
+			} else if (!self.labels.has(statement.name)) {
+				self.labels.put(statement.name, site);
+			}
+		} else if (kind == NK_BLOCK) {
+			self.walkList(statement, "block", path);
+		} else if (kind == NK_IF_STMT) {
+			self.walkList(statement.thenBlock, "if", path);
+			Node? other = statement.elseBlock;
+			if (other != null && other.kind == NK_ELSE_BLOCK) { self.walkList(other.bodyNode, "else", path); }
+			if (other != null && other.kind == NK_ELSE_IF) { self.walkStatement(other.ifStmt, path); }
+		} else if (kind == NK_WHILE_STMT || kind == NK_DO_WHILE_STMT || kind == NK_C_FOR_STMT || kind == NK_FOR_IN_STMT || kind == NK_PARALLEL_FOR_STMT) {
+			self.walkList(statement.bodyNode, kind == NK_PARALLEL_FOR_STMT ? "parallel" : "loop", path);
+		} else if (kind == NK_SWITCH_STMT) {
+			for clause in statement.cases() { self.walkList(clause, "case", path); }
+		} else if (kind == NK_TRY_CATCH_STMT) {
+			self.walkList(statement.tryBlock, "try", path);
+			if (statement.catchBlock != null) { self.walkList(statement.catchBlock, "catch", path); }
+			if (statement.finallyBlock != null) { self.walkList(statement.finallyBlock, "finally", path); }
+		}
+	}
+
+	private void collectNested(Node? node, bool nested) {
+		if (node == null) { return; }
+		nested = nested || node.kind == NK_LAMBDA_EXPR;
+		if (nested && node.kind == NK_LABEL_STMT && !self.nestedLabels.has(node.name)) {
+			self.nestedLabels.put(node.name, node);
+		}
+		Vector<Node> children = [];
+		/* The fat-node field order differs from ASDL for these constructors.
+		 * Preserve source-tree preorder when choosing a nested label diagnostic. */
+		if (node.kind == NK_WHILE_STMT) {
+			self.collectNested(node.condition, nested);
+			self.collectNested(node.bodyNode, nested);
+		} else if (node.kind == NK_C_FOR_STMT) {
+			self.collectNested(node.init, nested);
+			self.collectNested(node.condition, nested);
+			self.collectNested(node.update, nested);
+			self.collectNested(node.bodyNode, nested);
+		} else if (node.kind == NK_FOR_IN_STMT || node.kind == NK_PARALLEL_FOR_STMT) {
+			self.collectNested(node.iterable, nested);
+			self.collectNested(node.bodyNode, nested);
+		} else if (node.kind == NK_ASSIGN_EXPR) {
+			self.collectNested(node.target, nested);
+			self.collectNested(node.valueNode, nested);
+		} else if (node.kind == NK_MAP_ENTRY) {
+			self.collectNested(node.key, nested);
+			self.collectNested(node.valueNode, nested);
+		} else if (node.kind == NK_CAST_EXPR) {
+			self.collectNested(node.targetType, nested);
+			self.collectNested(node.expr, nested);
+		} else if (node.kind == NK_COMPOUND_LITERAL) {
+			self.collectNested(node.targetType, nested);
+			self.collectNested(node.initializer, nested);
+		} else {
+			AstStructure.children(node, children);
+			for child in children { self.collectNested(child, nested); }
+		}
+	}
+}
+
 class ControlFlowValidator {
 	private SemanticValidationState state;
 	private OperatorSemantics operators;
@@ -30,6 +300,146 @@ class ControlFlowValidator {
 	private BorrowValidator borrows;
 	private ExpressionValidator expressions;
 	public NullableFlow flow;
+	private Vector<Node> jumpRoots = [];
+	private Map<string, JumpScopeIndex> jumpIndexes = {};
+	private Map<string, Node> jumpInitializers = {};
+
+	private JumpScopeIndex jumpIndex(Node root) {
+		string key = AstIdentity.key(root);
+		if (!self.jumpIndexes.has(key)) { self.jumpIndexes.put(key, JumpScopeIndex.build(root)); }
+		return self.jumpIndexes.get(key);
+	}
+
+	private bool targetedLabel(Node statement) { return statement.kind == NK_LABEL_STMT && self.jumpIndex(self.jumpRoots.get(self.jumpRoots.len - 1)).targeted(statement.name); }
+
+	private Map<string, bool>? activeJumpTargets() {
+		if (self.jumpRoots.len == 0) { return null; }
+		string key = AstIdentity.key(self.jumpRoots.get(self.jumpRoots.len - 1));
+		return self.jumpIndexes.has(key) ? self.jumpIndexes.get(key).targetedNames : null;
+	}
+
+	public bool callableTerminates(Node body) {
+		string key = AstIdentity.key(body);
+		Map<string, bool>? targets = null;
+		if (self.state.analyzed.jumpBodyKeys.has(key)) { targets = self.jumpIndex(body).targetedNames; }
+		return ControlFlowValidator.blockTerminates(body, targets);
+	}
+
+	private void enterLabelFlow(Node label) {
+		JumpScopeIndex index = self.jumpIndex(self.jumpRoots.get(self.jumpRoots.len - 1));
+		if (!index.targeted(label.name)) { return; }
+		bool backward = false;
+		for site in index.gotos {
+			if (site.node.name == label.name && index.isBackward(site.node)) { backward = true; }
+		}
+		self.flow.enterLabel(label, backward);
+	}
+
+	class int decisiveStart(Vector<Node> statements, Map<string, bool>? targets) {
+		int start = 0;
+		if (targets == null) { return start; }
+		for (int index = 0; index < statements.len; index++) {
+			Node statement = statements.get(index);
+			if (statement.kind == NK_LABEL_STMT && targets.has(statement.name)) { start = index + 1; }
+		}
+		return start;
+	}
+
+	public void validateCallableBlock(Node body, Map<string, Node> vars) {
+		self.jumpRoots.push(body);
+		self.validateBlock(body, vars);
+		self.jumpRoots.pop();
+	}
+
+	private void validateGoto(Node jump) {
+		Node root = self.jumpRoots.get(self.jumpRoots.len - 1);
+		self.state.analyzed.recordJumpBody(root);
+		JumpScopeIndex index = self.jumpIndex(root);
+		JumpSite? target = index.target(jump);
+		if (target == null) {
+			int depth = self.jumpRoots.len - 2;
+			while (depth >= 0) {
+				JumpSite? outer = self.jumpIndex(self.jumpRoots.get(depth)).target(jump);
+				if (outer != null) {
+					TypeValidator.fail(f"goto '{jump.name}' cannot leave a lambda body (label at {outer.node.line}:{outer.node.col})", jump);
+				}
+				depth = depth - 1;
+			}
+			Node? nested = index.nestedLambdaLabel(jump.name);
+			if (nested != null) { TypeValidator.fail(f"goto '{jump.name}' cannot enter a lambda body (label at {nested.line}:{nested.col})", jump); }
+			TypeValidator.fail(f"Label '{jump.name}' is not defined in this function", jump);
+		}
+		for scope in index.leftLists(jump) {
+			if (scope.kind == "try" || scope.kind == "catch" || scope.kind == "finally") {
+				TypeValidator.fail(f"goto '{jump.name}' cannot leave a {scope.kind} block; set a flag and test it after the try statement", jump);
+			}
+			if (scope.kind == "parallel") { TypeValidator.fail(f"goto '{jump.name}' cannot leave a parallel for body", jump); }
+		}
+		Vector<JumpList> entered = index.enteredLists(jump);
+		for scope in entered {
+			if (scope.kind == "try" || scope.kind == "catch" || scope.kind == "finally") {
+				TypeValidator.fail(f"goto '{jump.name}' cannot enter a {scope.kind} block", jump);
+			}
+		}
+		if (entered.len > 0) { TypeValidator.fail(f"goto '{jump.name}' cannot jump into a nested block; jump only to a label in the same block or an enclosing one", jump); }
+	}
+
+	private void validateLabelIdentity(Node label, Map<string, Node> vars) {
+		Node root = self.jumpRoots.get(self.jumpRoots.len - 1);
+		self.state.analyzed.recordJumpBody(root);
+		if (self.state.analyzed.sourceMacros != null && self.state.analyzed.sourceMacros.declared(label.name)) {
+			TypeValidator.fail(f"Label name '{label.name}' collides with source macro '{label.name}'", label);
+		}
+		self.names.validateDeclaredNameContext(label.name, "Label", label, true);
+		Node first = self.jumpIndex(root).labels.get(label.name).node;
+		if (first != label) { TypeValidator.fail(f"Duplicate label '{label.name}' in this function (first at {first.line}:{first.col})", label); }
+		self.validateJumpDeclarations(label, self.jumpIndex(root), vars);
+	}
+
+	class bool namesAfterJump(Node node, string name) {
+		for child in AstStructure.preorder(node) {
+			if (child.kind == NK_IDENTIFIER && child.name == name) { return true; }
+		}
+		return false;
+	}
+
+	private void validateJumpDeclarations(Node label, JumpScopeIndex index, Map<string, Node> vars) {
+		JumpSite destination = index.sites.get(AstIdentity.key(label));
+		for site in index.gotos {
+			Node jump = site.node;
+			if (jump.name != label.name || site.ordinal >= destination.ordinal) { continue; }
+			JumpEnclosure? enclosing = index.enclosing(jump);
+			if (enclosing == null) { continue; }
+			Vector<Node> statements = enclosing.scope.statements();
+			for declaration in index.enteredDeclarations(jump) {
+				int direct = -1;
+				int position = 0;
+				while (position < statements.len) {
+					if (statements.get(position) == declaration) { direct = position; break; }
+					position = position + 1;
+				}
+				Node? declared = declaration.type;
+				if (direct >= 0 && vars.has(declaration.name)) { declared = vars.get(declaration.name); }
+				declared = self.types.resolveAliases(declared);
+				if (self.types.variablyModified(declared)) {
+					TypeValidator.fail(f"goto '{jump.name}' jumps into the scope of variable-length array '{declaration.name}' declared at {declaration.line}:{declaration.col}", jump);
+				}
+				if (direct < 0 || declared == null || declared.isStatic || declared.isExtern) { continue; }
+				string key = AstIdentity.key(declaration);
+				Node? initializer = self.jumpInitializers.has(key) ? self.jumpInitializers.get(key) : null;
+				if (!self.types.plainDeclaration(declared, initializer, self.ownership.managedOwnershipType(initializer))) {
+					TypeValidator.fail(f"goto '{jump.name}' skips the declaration of '{declaration.name}' ({declaration.line}:{declaration.col}), which is not a plain C value; declare it before the goto or inside a nested block", jump);
+				}
+				int start = index.reachStart(enclosing.scope, direct, enclosing.end);
+				while (start < statements.len) {
+					if (ControlFlowValidator.namesAfterJump(statements.get(start), declaration.name)) {
+						TypeValidator.fail(f"goto '{jump.name}' skips the declaration of '{declaration.name}' ({declaration.line}:{declaration.col}), which is used after the label; declare it before the goto", jump);
+					}
+					start = start + 1;
+				}
+			}
+		}
+	}
 
 	public ControlFlowValidator(SemanticValidationState state, OperatorSemantics operators, TypeValidator types, ConstantValidator constants, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, ExpressionValidator expressions, NullableFlow flow) {
 		self.state = state;
@@ -69,9 +479,9 @@ class ControlFlowValidator {
 		self.flow.enterBody();
 		for parameter in expression.params() { self.flow.bind(parameter.name); }
 		if (body.kind == NK_LAMBDA_BLOCK) {
-			self.validateBlock(body.bodyNode, plan.variables);
+			self.validateCallableBlock(body.bodyNode, plan.variables);
 			bool nonVoid = !TypeValidator.scalarVoid(plan.resultType);
-			if (nonVoid && !ControlFlowValidator.blockTerminates(body.bodyNode)) {
+			if (nonVoid && !self.callableTerminates(body.bodyNode)) {
 				TypeValidator.fail("Non-void lambda does not return on every path", expression);
 			}
 		} else if (body.kind == NK_LAMBDA_EXPR_BODY) {
@@ -182,39 +592,39 @@ class ControlFlowValidator {
 		}
 	}
 
-	class bool statementSequenceTerminates(Vector<Node> statements) {
-		int index = 0;
+	class bool statementSequenceTerminates(Vector<Node> statements, Map<string, bool>? targets = null) {
+		int index = ControlFlowValidator.decisiveStart(statements, targets);
 		while (index < statements.len) {
-			if (ControlFlowValidator.statementTerminates(statements.get(index))) { return true; }
+			if (ControlFlowValidator.statementTerminates(statements.get(index), targets)) { return true; }
 			index = index + 1;
 		}
 		return false;
 	}
 
-	class bool blockTerminates(Node? block) {
+	class bool blockTerminates(Node? block, Map<string, bool>? targets = null) {
 		if (block == null) { return false; }
-		return ControlFlowValidator.statementSequenceTerminates(block.statements());
+		return ControlFlowValidator.statementSequenceTerminates(block.statements(), targets);
 	}
 
-	class bool elseTerminates(Node? elseNode) {
+	class bool elseTerminates(Node? elseNode, Map<string, bool>? targets = null) {
 		if (elseNode == null) { return false; }
 		if (elseNode.kind == NK_ELSE_BLOCK) {
-			return ControlFlowValidator.blockTerminates(elseNode.bodyNode);
+			return ControlFlowValidator.blockTerminates(elseNode.bodyNode, targets);
 		}
 		if (elseNode.kind == NK_ELSE_IF) {
-			return ControlFlowValidator.statementTerminates(elseNode.ifStmt);
+			return ControlFlowValidator.statementTerminates(elseNode.ifStmt, targets);
 		}
 		return false;
 	}
 
-	class bool switchTerminates(Node statement) {
+	class bool switchTerminates(Node statement, Map<string, bool>? targets = null) {
 		if (statement.cases().len == 0) { return false; }
 		bool hasDefault = false;
 		int index = 0;
 		while (index < statement.cases().len) {
 			Node caseClause = statement.cases().get(index);
 			if (caseClause.valueNode == null) { hasDefault = true; }
-			if (!ControlFlowValidator.statementSequenceTerminates(caseClause.bodyNodeList())) {
+			if (!ControlFlowValidator.statementSequenceTerminates(caseClause.bodyNodeList(), targets)) {
 				return false;
 			}
 			index = index + 1;
@@ -255,33 +665,33 @@ class ControlFlowValidator {
 		return false;
 	}
 
-	class bool statementTerminates(Node statement) {
-		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT) {
+	class bool statementTerminates(Node statement, Map<string, bool>? targets = null) {
+		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT || statement.kind == NK_GOTO_STMT) {
 			return true;
 		}
 		if (statement.kind == NK_BLOCK) {
-			return ControlFlowValidator.blockTerminates(statement);
+			return ControlFlowValidator.blockTerminates(statement, targets);
 		}
 		if (statement.kind == NK_IF_STMT) {
-			return ControlFlowValidator.blockTerminates(statement.thenBlock) && ControlFlowValidator.elseTerminates(statement.elseBlock);
+			return ControlFlowValidator.blockTerminates(statement.thenBlock, targets) && ControlFlowValidator.elseTerminates(statement.elseBlock, targets);
 		}
 		if (statement.kind == NK_SWITCH_STMT) {
-			return ControlFlowValidator.switchTerminates(statement);
+			return ControlFlowValidator.switchTerminates(statement, targets);
 		}
 		if (statement.kind == NK_TRY_CATCH_STMT) {
-			if (ControlFlowValidator.blockTerminates(statement.finallyBlock)) { return true; }
-			bool tryTerminates = ControlFlowValidator.blockTerminates(statement.tryBlock);
+			if (ControlFlowValidator.blockTerminates(statement.finallyBlock, targets)) { return true; }
+			bool tryTerminates = ControlFlowValidator.blockTerminates(statement.tryBlock, targets);
 			if (statement.catchBlock == null) { return tryTerminates; }
-			return tryTerminates && ControlFlowValidator.blockTerminates(statement.catchBlock);
+			return tryTerminates && ControlFlowValidator.blockTerminates(statement.catchBlock, targets);
 		}
 		if (statement.kind == NK_DO_WHILE_STMT) {
-			return !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && ControlFlowValidator.blockTerminates(statement.bodyNode);
+			return !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && ControlFlowValidator.blockTerminates(statement.bodyNode, targets);
 		}
 		if (statement.kind == NK_WHILE_STMT && statement.condition != null && statement.condition.kind == NK_BOOL_LITERAL && statement.condition.valueBool) {
-			return !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && ControlFlowValidator.blockTerminates(statement.bodyNode);
+			return !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && ControlFlowValidator.blockTerminates(statement.bodyNode, targets);
 		}
 		if (statement.kind == NK_C_FOR_STMT && statement.condition == null) {
-			return !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && ControlFlowValidator.blockTerminates(statement.bodyNode);
+			return !ControlFlowValidator.containsLoopBreak(statement.bodyNode) && ControlFlowValidator.blockTerminates(statement.bodyNode, targets);
 		}
 		return false;
 	}
@@ -586,8 +996,8 @@ class ControlFlowValidator {
 			bool terminal = false;
 			while (statementIndex < caseClause.bodyNodeList().len) {
 				Node bodyStatement = caseClause.bodyNodeList().get(statementIndex);
-				if (terminal) {
-					TypeValidator.fail("Unreachable code after return/throw/break/continue", bodyStatement);
+				if (terminal && !self.targetedLabel(bodyStatement)) {
+					TypeValidator.fail("Unreachable code after return/throw/break/continue/goto", bodyStatement);
 				}
 				self.validateSequenced(bodyStatement,  caseVars);
 				self.state.previousStatement = bodyStatement;
@@ -616,10 +1026,10 @@ class ControlFlowValidator {
 		int literals = self.expressions.inferredLiteralMark();
 		self.validateStmt(statement, vars);
 		self.expressions.checkInferredLiterals(literals);
-		if (!reached || self.flow.endsFlow(statement)) { self.flow.markUnreachable(); }
+		if ((!reached && !self.targetedLabel(statement)) || ControlFlowValidator.statementTerminates(statement, self.activeJumpTargets()) || self.flow.endsFlow(statement)) { self.flow.markUnreachable(); }
 	}
 
-	public bool directTerminal(Node statement) { return statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT || statement.kind == NK_BREAK_STMT || statement.kind == NK_CONTINUE_STMT; }
+	public bool directTerminal(Node statement) { return statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT || statement.kind == NK_BREAK_STMT || statement.kind == NK_CONTINUE_STMT || statement.kind == NK_GOTO_STMT; }
 
 	public void validateBlock(Node? block, Map<string, Node> outerVars) {
 		if (block == null) { return; }
@@ -635,8 +1045,8 @@ class ControlFlowValidator {
 		int index = 0;
 		while (index < block.statements().len) {
 			Node statement = block.statements().get(index);
-			if (terminal) {
-				TypeValidator.fail("Unreachable code after return/throw/break/continue", statement);
+			if (terminal && !self.targetedLabel(statement)) {
+				TypeValidator.fail("Unreachable code after return/throw/break/continue/goto", statement);
 			}
 			self.validateSequenced(statement,  vars);
 			self.state.previousStatement = statement;
@@ -692,6 +1102,9 @@ class ControlFlowValidator {
 			if (declaration.initializer == null) {
 				TypeValidator.fail("'var' declaration of '" + declaration.name + "' requires an initializer", declaration);
 			}
+			if (SemanticTypeSystem.hasDesignators(declaration.initializer)) {
+				TypeValidator.fail("A designated initializer needs a declared struct, union or array type", declaration.initializer);
+			}
 			if (declaration.initializer.kind == NK_BRACE_INITIALIZER) {
 				TypeValidator.fail("Cannot infer array storage for 'var' from " + "a brace initializer; use an explicit array declaration", declaration.initializer);
 			}
@@ -721,6 +1134,11 @@ class ControlFlowValidator {
 		}
 		self.flow.expression(declaration.initializer, vars);
 		if (declaration.type != null) { self.flow.checkStore(declaration.type, declaration.initializer, "variable '" + declaration.name + "'", vars); }
+		/* Keep the initializer's type at its declaration point. A later
+         * binding may shadow a name the initializer read. */
+		if (actual != null && self.jumpRoots.len > 0 && self.jumpIndexes.has(AstIdentity.key(self.jumpRoots.get(self.jumpRoots.len - 1)))) {
+			self.jumpInitializers.put(AstIdentity.key(declaration), actual);
+		}
 		vars.put(declaration.name, declared);
 		self.state.borrowedBindings.remove(declaration.name);
 		if (self.state.owner != "") {
@@ -830,6 +1248,7 @@ class ControlFlowValidator {
 			Map<string, Node> catchVars = TypeValidator.cloneTypes(vars);
 			Map<string, bool> catchNames = {};
 			Node catchType = statement.catchType;
+			self.types.validateTypeNameStorage(catchType);
 			// Exceptions carry a string message, so only `string e` names one.
 			if (catchType != null && !(catchType.base == "string" && catchType.pointerDepth == 0)) {
 				TypeValidator.fail(f"Catch type '{catchType.base}' is not supported — exceptions carry a string message; use 'string {statement.catchVar}' or an untyped catch", catchType);
@@ -861,8 +1280,8 @@ class ControlFlowValidator {
 			return;
 		}
 		Vector<NullableFlowState> continuing = [];
-		if (!NullableFlow.blockStopsFallthrough(statement.tryBlock)) { continuing.push(tryFlow); }
-		if (statement.catchBlock != null && !NullableFlow.blockStopsFallthrough(statement.catchBlock)) { continuing.push(catchFlow); }
+		if (!NullableFlow.blockStopsFallthrough(statement.tryBlock, self.activeJumpTargets())) { continuing.push(tryFlow); }
+		if (statement.catchBlock != null && !NullableFlow.blockStopsFallthrough(statement.catchBlock, self.activeJumpTargets())) { continuing.push(catchFlow); }
 		self.flow.restore(NullableFlow.join(continuing));
 	}
 
@@ -876,14 +1295,14 @@ class ControlFlowValidator {
 		self.flow.enter(entry, self.flow.outcome(statement.condition, true));
 		self.validateBlock(statement.thenBlock,  vars);
 		NullableFlowState thenFlow = self.flow.snapshot();
-		if (!NullableFlow.blockStopsFallthrough(statement.thenBlock)) { continuing.push(thenFlow); }
+		if (!NullableFlow.blockStopsFallthrough(statement.thenBlock, self.activeJumpTargets())) { continuing.push(thenFlow); }
 		Node? elseNode = statement.elseBlock;
 		self.flow.enter(entry, self.flow.outcome(statement.condition, false));
 		if (elseNode != null) {
 			self.validateStmt(elseNode,  vars);
 			NullableFlowState elseFlow = self.flow.snapshot();
-			bool stops = NullableFlow.stopsFallthrough(elseNode.ifStmt);
-			if (elseNode.kind == NK_ELSE_BLOCK) { stops = NullableFlow.blockStopsFallthrough(elseNode.bodyNode); }
+			bool stops = NullableFlow.stopsFallthrough(elseNode.ifStmt, self.activeJumpTargets());
+			if (elseNode.kind == NK_ELSE_BLOCK) { stops = NullableFlow.blockStopsFallthrough(elseNode.bodyNode, self.activeJumpTargets()); }
 			if (!stops) { continuing.push(elseFlow); }
 		} else {
 			continuing.push(self.flow.snapshot());
@@ -892,7 +1311,15 @@ class ControlFlowValidator {
 	}
 
 	public void validateStmt(Node statement, Map<string, Node> vars) {
-		if (statement.kind == NK_VAR_DECL_STMT) {
+		if (statement.kind == NK_GOTO_STMT) {
+			self.validateGoto(statement);
+			JumpScopeIndex index = self.jumpIndex(self.jumpRoots.get(self.jumpRoots.len - 1));
+			JumpSite? target = index.target(statement);
+			if (target != null && !index.isBackward(statement)) { self.flow.recordGoto(target.node); }
+		} else if (statement.kind == NK_LABEL_STMT) {
+			self.validateLabelIdentity(statement, vars);
+			self.enterLabelFlow(statement);
+		} else if (statement.kind == NK_VAR_DECL_STMT) {
 			self.validateVariable(statement,  vars);
 		} else if (statement.kind == NK_RETURN_STMT) {
 			self.validateReturn(statement,  vars);
@@ -988,6 +1415,7 @@ class NullableFlow {
 	private Map<string, Node> functionDefinitions = {};
 	private Map<Node, bool> warned = {};
 	private Map<Node, bool> storeWarned = {};
+	private Map<Node, NullableFlowState> jumpFlows = {};
 	/* The declared type a `return` in the body being validated stores into. */
 	public Node? returnTarget = null;
 
@@ -1040,6 +1468,26 @@ class NullableFlow {
 	public void enterBody() {
 		self.facts = {};
 		self.unreachable = false;
+	}
+
+	public void recordGoto(Node label) {
+		Vector<NullableFlowState> incoming = [self.snapshot()];
+		if (self.jumpFlows.has(label)) { incoming.push(self.jumpFlows.get(label)); }
+		self.jumpFlows.put(label, NullableFlow.join(incoming));
+	}
+
+	public void enterLabel(Node label, bool backward) {
+		if (backward) { self.enterBody(); return; }
+		Vector<NullableFlowState> incoming = [self.snapshot()];
+		if (self.jumpFlows.has(label)) { incoming.push(self.jumpFlows.get(label)); }
+		NullableFlowState joined = NullableFlow.join(incoming);
+		Map<string, bool> visible = {};
+		for name in self.bindings.keys() { visible.put(self.bindings.get(name), true); }
+		Map<string, bool> restricted = {};
+		for path in joined.facts.keys() {
+			if (NullableFlow.globalPath(path) || visible.has(NullableFlow.root(path))) { restricted.put(path, true); }
+		}
+		self.restore(NullableFlowState(restricted, joined.reachable));
 	}
 
 	public bool reachable() { return !self.unreachable; }
@@ -1461,20 +1909,22 @@ class NullableFlow {
 
 	/* Whether a statement certainly leaves its block without falling through:
 	 * a return, throw, break or continue, directly or in every branch. */
-	class bool stopsFallthrough(Node? statement) {
+	class bool stopsFallthrough(Node? statement, Map<string, bool>? targets = null) {
 		if (statement == null) { return false; }
-		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT || statement.kind == NK_BREAK_STMT || statement.kind == NK_CONTINUE_STMT) { return true; }
-		if (statement.kind == NK_BLOCK) { return NullableFlow.blockStopsFallthrough(statement); }
-		if (statement.kind != NK_IF_STMT || !NullableFlow.blockStopsFallthrough(statement.thenBlock)) { return false; }
+		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT || statement.kind == NK_BREAK_STMT || statement.kind == NK_CONTINUE_STMT || statement.kind == NK_GOTO_STMT) { return true; }
+		if (statement.kind == NK_BLOCK) { return NullableFlow.blockStopsFallthrough(statement, targets); }
+		if (statement.kind != NK_IF_STMT || !NullableFlow.blockStopsFallthrough(statement.thenBlock, targets)) { return false; }
 		Node? elseNode = statement.elseBlock;
 		if (elseNode == null) { return false; }
-		if (elseNode.kind == NK_ELSE_BLOCK) { return NullableFlow.blockStopsFallthrough(elseNode.bodyNode); }
-		return elseNode.kind == NK_ELSE_IF && NullableFlow.stopsFallthrough(elseNode.ifStmt);
+		if (elseNode.kind == NK_ELSE_BLOCK) { return NullableFlow.blockStopsFallthrough(elseNode.bodyNode, targets); }
+		return elseNode.kind == NK_ELSE_IF && NullableFlow.stopsFallthrough(elseNode.ifStmt, targets);
 	}
 
-	class bool blockStopsFallthrough(Node? block) {
+	class bool blockStopsFallthrough(Node? block, Map<string, bool>? targets = null) {
 		if (block == null) { return false; }
-		for statement in block.statements() { if (NullableFlow.stopsFallthrough(statement)) { return true; } }
+		for (int index = ControlFlowValidator.decisiveStart(block.statements(), targets); index < block.statements().len; index++) {
+			if (NullableFlow.stopsFallthrough(block.statements().get(index), targets)) { return true; }
+		}
 		return false;
 	}
 
@@ -1483,7 +1933,7 @@ class NullableFlow {
 	 * those are callee body facts, outside the interface a record is keyed
 	 * by, so a replay asks them again. */
 	public bool endsFlow(Node statement) {
-		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT) { return true; }
+		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_THROW_STMT || statement.kind == NK_GOTO_STMT) { return true; }
 		Node? called = statement.expr;
 		if (statement.kind != NK_EXPR_STMT || called == null || called.kind != NK_CALL_EXPR) { return false; }
 		if (self.state.analyzed.journal == null) { return self.callDiverges(called, self.ownerClass, {}, true, null); }
@@ -1670,7 +2120,7 @@ class NullableFlow {
 	private bool statementsDiverge(Vector<Node> statements, string owner, Map<string, bool> locals) {
 		for statement in statements {
 			if (self.statementDiverges(statement, owner, locals)) { return true; }
-			if (NullableFlow.containsReturn(statement)) { return false; }
+			if (NullableFlow.containsReturnOrJump(statement)) { return false; }
 		}
 		return false;
 	}
@@ -1710,28 +2160,28 @@ class NullableFlow {
 	}
 
 	/* Whether a return statement (outside any lambda) is nested in a statement. */
-	class bool containsReturn(Node? statement) {
+	class bool containsReturnOrJump(Node? statement) {
 		if (statement == null) { return false; }
-		if (statement.kind == NK_RETURN_STMT) { return true; }
+		if (statement.kind == NK_RETURN_STMT || statement.kind == NK_GOTO_STMT) { return true; }
 		if (statement.kind == NK_BLOCK) {
-			for child in statement.statements() { if (NullableFlow.containsReturn(child)) { return true; } }
+			for child in statement.statements() { if (NullableFlow.containsReturnOrJump(child)) { return true; } }
 			return false;
 		}
 		if (statement.kind == NK_IF_STMT) {
-			if (NullableFlow.containsReturn(statement.thenBlock)) { return true; }
+			if (NullableFlow.containsReturnOrJump(statement.thenBlock)) { return true; }
 			Node? elseNode = statement.elseBlock;
 			if (elseNode == null) { return false; }
-			if (elseNode.kind == NK_ELSE_BLOCK) { return NullableFlow.containsReturn(elseNode.bodyNode); }
-			return NullableFlow.containsReturn(elseNode.ifStmt);
+			if (elseNode.kind == NK_ELSE_BLOCK) { return NullableFlow.containsReturnOrJump(elseNode.bodyNode); }
+			return NullableFlow.containsReturnOrJump(elseNode.ifStmt);
 		}
-		if (statement.kind == NK_WHILE_STMT || statement.kind == NK_DO_WHILE_STMT || statement.kind == NK_C_FOR_STMT || statement.kind == NK_FOR_IN_STMT || statement.kind == NK_PARALLEL_FOR_STMT) { return NullableFlow.containsReturn(statement.bodyNode); }
+		if (statement.kind == NK_WHILE_STMT || statement.kind == NK_DO_WHILE_STMT || statement.kind == NK_C_FOR_STMT || statement.kind == NK_FOR_IN_STMT || statement.kind == NK_PARALLEL_FOR_STMT) { return NullableFlow.containsReturnOrJump(statement.bodyNode); }
 		if (statement.kind == NK_SWITCH_STMT) {
 			for clause in statement.cases() {
-				for child in clause.bodyNodeList() { if (NullableFlow.containsReturn(child)) { return true; } }
+				for child in clause.bodyNodeList() { if (NullableFlow.containsReturnOrJump(child)) { return true; } }
 			}
 			return false;
 		}
-		if (statement.kind == NK_TRY_CATCH_STMT) { return NullableFlow.containsReturn(statement.tryBlock) || NullableFlow.containsReturn(statement.catchBlock) || NullableFlow.containsReturn(statement.finallyBlock); }
+		if (statement.kind == NK_TRY_CATCH_STMT) { return NullableFlow.containsReturnOrJump(statement.tryBlock) || NullableFlow.containsReturnOrJump(statement.catchBlock) || NullableFlow.containsReturnOrJump(statement.finallyBlock); }
 		return false;
 	}
 }

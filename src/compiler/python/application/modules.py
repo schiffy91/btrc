@@ -6,7 +6,6 @@ import contextlib
 import copy
 import gc
 import hashlib
-import json
 import os
 import pickle
 import signal
@@ -15,33 +14,34 @@ import threading
 import time
 import traceback
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field
 from multiprocessing import Pipe
 from multiprocessing.connection import Connection, wait
 from typing import NoReturn, Protocol
 
 from ..abi.hosted import HOSTED_ABI
 from ..analyzer.ownership import OwnershipAnalyzer
+from ..analyzer.reachability import StdlibReachability
 from ..backend.c_emitter import CEmitter
 from ..frontend.native_imports import NativeHeaderSource
+from ..frontend.packages import NativeLinkPlan
 from ..frontend.sources import CompilationGroups, ResolvedSource, SourceDependencyGraph
 from ..ir.lowering.exceptions import ExceptionLowerer, FunctionEffect, ParameterEffect, SetjmpUnitSolver
-from ..ir.lowering.session import ProgramLoweringFacts
+from ..ir.lowering.session import ModuleLoweringFacts, ProgramLoweringFacts
 from ..ir.lowering.types import CodegenError
 from ..ir.nodes import CType, IRCall, IRFunctionRef, IRInclude, IRModule, IRNode, IRVar
 from ..ir.optimizer import IROptimizer
 from ..ir.verifier import IRVerifier
 from ..runtime.catalog import RuntimeHelperCatalog
-from ..syntax.ast.generated import ClassDecl, FunctionDecl, MethodDecl, PropertyDecl
+from ..syntax.ast.codec import AstCanonicalRenderer
+from ..syntax.ast.generated import FunctionDecl, MethodDecl
 from .results import CompilerOptions
 
-_RECORD_SCHEMA = 6
 # The unit that defines every runtime helper of a module-unit program; a
 # group's unit is named for its path hash and so never takes this name.
 RUNTIME_UNIT_NAME = "unit-runtime"
 # The owner of the declarations-only session: a name no compilation group has.
 _DECLARATIONS = "\0declarations"
-_UNHASHED_FIELDS = frozenset({"line", "col", "name_line", "name_col", "source_file"})
 # Words of a C type spelling that name nothing a binding header declares.
 # The worker operations a forked worker's timing report counts, in order.
 _TIMED_OPERATIONS = ("lower", "setjmp", "realtime", "finish")
@@ -51,12 +51,39 @@ _C_TYPE_WORDS = frozenset(
 )
 
 
+class CachedModuleArtifacts(Protocol):
+    """Value-only view of one verified module artifact bundle."""
+
+    @property
+    def record(self) -> str: ...
+
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def interface_header(self) -> str: ...
+
+    @property
+    def link_plan_fragment(self) -> str: ...
+
+
 class ModuleUnitStore(Protocol):
     """Persistent per-group artifacts; the store frames keys with its toolchain."""
 
-    def load_module_unit(self, identity: str, input_path: str | None = None) -> str | None: ...
+    def load_module_unit(self, identity: str, input_path: str | None = None) -> tuple[str, str] | None: ...
 
-    def store_module_unit(self, identity: str, payload: str, input_path: str | None = None) -> None: ...
+    def load_module_artifacts(self, identity: str, input_path: str | None = None) -> CachedModuleArtifacts | None: ...
+
+    def store_module_unit(
+        self,
+        identity: str,
+        record: str,
+        text: str,
+        input_path: str | None = None,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None: ...
 
 
 class DisabledModuleUnitStore:
@@ -68,8 +95,64 @@ class DisabledModuleUnitStore:
         return None
 
     @staticmethod
-    def store_module_unit(identity: str, payload: str, input_path: str | None = None) -> None:
-        del identity, payload, input_path
+    def load_module_artifacts(identity: str, input_path: str | None = None) -> None:
+        del identity, input_path
+        return None
+
+    @staticmethod
+    def store_module_unit(
+        identity: str,
+        record: str,
+        text: str,
+        input_path: str | None = None,
+        *,
+        interface_header: str = "",
+        link_plan_fragment: str = "",
+    ) -> None:
+        del identity, record, text, input_path, interface_header, link_plan_fragment
+
+
+@dataclass(frozen=True)
+class ModuleUnitGraph:
+    """Pre-optimization references and roots used to demand generic bodies."""
+
+    edges: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    roots: tuple[str, ...] = ()
+    instances: frozenset[str] = frozenset()
+
+    @staticmethod
+    def references(value: object) -> tuple[str, ...]:
+        names: set[str] = set()
+        for node in IRNode.walk_value(value):
+            if isinstance(node, IRCall) and isinstance(node.callee, str):
+                names.add(node.callee)
+            elif isinstance(node, IRFunctionRef | IRVar):
+                names.add(node.name)
+        return tuple(sorted(names))
+
+    @classmethod
+    def from_unit(cls, unit: IRModule, facts: ModuleLoweringFacts) -> ModuleUnitGraph:
+        edges = {function.name: cls.references(function.body) for function in unit.function_defs}
+        instances = frozenset(
+            function.name
+            for function in unit.function_defs
+            if not function.is_static and function.name in facts.instance_functions
+        )
+        roots = {
+            function.name
+            for function in unit.function_defs
+            if function.name in {"main", "btrc_main"} or (not function.is_static and function.name not in instances)
+        }
+        for declaration in unit.global_decls:
+            if not declaration.is_extern:
+                roots.update(cls.references(declaration.init))
+        for declaration in unit.objective_c_classes:
+            roots.update(cls.references(declaration))
+        for declaration in unit.preprocessor_decls:
+            replacement = getattr(declaration, "replacement", None)
+            if isinstance(replacement, str):
+                roots.update(IROptimizer.identifier_tokens(replacement))
+        return cls(edges, tuple(sorted(roots)), instances)
 
 
 @dataclass(frozen=True)
@@ -102,131 +185,204 @@ class ModuleUnitRecord:
     # WGSL, an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__`
     # position. None of them is in the program interface.
     consulted_sources: Mapping[str, str] = field(default_factory=dict)
+    graph: ModuleUnitGraph = field(default_factory=ModuleUnitGraph)
+    kept_instances: frozenset[str] = frozenset()
+    declaration_roots: tuple[str, ...] = ()
+    declaration_digest: str = ""
 
     @staticmethod
-    def _effect_json(effect: FunctionEffect) -> dict:
-        return {
-            "writes": sorted([item.index, item.depth] for item in effect.writes),
-            "captures": sorted([item.index, item.depth] for item in effect.captures),
-            "returns": sorted([item.index, item.depth] for item in effect.returns),
-            "unknown-return": effect.unknown_return,
-        }
+    def _name(value: str) -> str:
+        if not value or any(char in value for char in "\t\n\0"):
+            raise ValueError("unrepresentable module record field")
+        return value
 
     @staticmethod
-    def _effect_value(value: object) -> FunctionEffect:
-        if not isinstance(value, dict) or set(value) != {"writes", "captures", "returns", "unknown-return"}:
-            raise ValueError("malformed effect")
-
-        def parameters(items: object) -> frozenset[ParameterEffect]:
-            if not isinstance(items, list):
-                raise ValueError("malformed effect")
-            result = set()
-            for item in items:
-                if not (isinstance(item, list) and len(item) == 2 and all(type(part) is int for part in item)):
-                    raise ValueError("malformed effect")
-                result.add(ParameterEffect(item[0], item[1]))
-            return frozenset(result)
-
-        if type(value["unknown-return"]) is not bool:
-            raise ValueError("malformed effect")
-        return FunctionEffect(
-            writes=parameters(value["writes"]),
-            captures=parameters(value["captures"]),
-            returns=parameters(value["returns"]),
-            unknown_return=value["unknown-return"],
-        )
-
-    def to_json(self) -> str:
-        return json.dumps(
-            {
-                "schema": _RECORD_SCHEMA,
-                "group": self.group,
-                "text": self.text,
-                "kept": self.kept,
-                "exports": list(self.exports),
-                "has-setjmp": self.has_setjmp,
-                "effects-solved": self.effects_solved,
-                "exported-effects": {name: self._effect_json(effect) for name, effect in self.exported_effects.items()},
-                "consulted-effects": {
-                    name: self._effect_json(effect) for name, effect in self.consulted_effects.items()
-                },
-                "releases-cyclable": self.releases_cyclable,
-                "defines-entry": self.defines_entry,
-                "program-release": self.program_release,
-                "helpers": list(self.helpers),
-                "realtime-roots": list(self.realtime_roots),
-                "realtime-proofs": {name: sorted(callees) for name, callees in self.realtime_proofs.items()},
-                "consulted-sources": dict(self.consulted_sources),
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+    def _number(value: str) -> int:
+        if not value.isascii() or not value.isdecimal() or (len(value) > 1 and value[0] == "0"):
+            raise ValueError("malformed module record number")
+        number = int(value)
+        if number > 2147483647:
+            raise ValueError("module record number overflow")
+        return number
 
     @classmethod
-    def from_json(cls, payload: str, group: str) -> ModuleUnitRecord | None:
-        """Decode a stored record, or None for anything not exactly well formed."""
+    def _parameters(cls, text: str) -> frozenset[ParameterEffect]:
+        result = set()
+        for item in text.split(",") if text else ():
+            index, depth = item.split(":")
+            effect = ParameterEffect(cls._number(index), cls._number(depth))
+            if effect in result:
+                raise ValueError("duplicate parameter effect")
+            result.add(effect)
+        return frozenset(result)
+
+    @classmethod
+    def _effect_text(cls, effect: FunctionEffect) -> str:
+        fields = []
+        for values in (effect.writes, effect.captures, effect.returns):
+            fields.append(",".join(sorted(f"{value.index}:{value.depth}" for value in values)))
+        fields.append("1" if effect.unknown_return else "0")
+        return "|".join(fields)
+
+    @classmethod
+    def _effect_value(cls, text: str) -> FunctionEffect:
+        writes, captures, returns, unknown = text.split("|")
+        if unknown not in ("0", "1"):
+            raise ValueError("malformed effect flag")
+        return FunctionEffect(
+            cls._parameters(writes), cls._parameters(captures), cls._parameters(returns), unknown == "1"
+        )
+
+    def to_text(self) -> str:
+        """Encode the shared metadata; generated C travels separately."""
         try:
-            value = json.loads(payload)
-            expected = {
-                "schema",
-                "group",
-                "text",
-                "kept",
-                "exports",
-                "has-setjmp",
-                "effects-solved",
+            lines = ["btrc-module-unit-record\t6", "group\t" + self._name(self.group)]
+            flags = (
+                self.kept,
+                self.has_setjmp,
+                self.effects_solved,
+                self.releases_cyclable,
+                self.defines_entry,
+                self.program_release,
+            )
+            lines.append("flags\t" + "\t".join("1" if flag else "0" for flag in flags))
+            for name, values in (
+                ("exports", self.exports),
+                ("helpers", self.helpers),
+                ("realtime-roots", self.realtime_roots),
+                ("kept-instances", sorted(self.kept_instances)),
+                ("graph-roots", self.graph.roots),
+                ("graph-instances", sorted(self.graph.instances)),
+            ):
+                lines.append("\t".join((name, *(self._name(value) for value in values))))
+            sections = (
+                (
+                    "exported-effects",
+                    {name: self._effect_text(effect) for name, effect in self.exported_effects.items()},
+                ),
+                (
+                    "consulted-effects",
+                    {name: self._effect_text(effect) for name, effect in self.consulted_effects.items()},
+                ),
+                ("realtime-proofs", self.realtime_proofs),
+                ("graph-edges", self.graph.edges),
+                ("consulted-sources", self.consulted_sources),
+            )
+            for section, entries in sections:
+                lines.append(f"@{section}\t{len(entries)}")
+                for name, value in sorted(entries.items()):
+                    self._name(name)
+                    if isinstance(value, str):
+                        self._name(value)
+                        row = name + "\t" + value
+                    else:
+                        values = sorted(value) if section == "realtime-proofs" else value
+                        row = "\t".join((name, *(self._name(item) for item in values)))
+                    lines.append(row)
+            lines.append("\t".join(("declaration-roots", *(self._name(name) for name in self.declaration_roots))))
+            lines.append("declaration-digest\t" + self.declaration_digest)
+            return "\n".join(lines)
+        except ValueError:
+            # A valid compile with an unrepresentable path simply forgoes reuse.
+            return ""
+
+    @classmethod
+    def from_text(cls, metadata: str, text: str, group: str) -> ModuleUnitRecord | None:
+        """Decode the common record, rejecting ambiguous or incomplete facts."""
+        try:
+            if "\0" in metadata or "\0" in text:
+                return None
+            cls._name(group)
+            lines = metadata.split("\n")
+            if len(lines) < 9 or lines[:2] != ["btrc-module-unit-record\t6", "group\t" + group]:
+                return None
+            flags = lines[2].split("\t")
+            if len(flags) != 7 or flags[0] != "flags" or any(flag not in ("0", "1") for flag in flags[1:]):
+                return None
+            lists = []
+            for line, name in zip(
+                lines[3:9],
+                ("exports", "helpers", "realtime-roots", "kept-instances", "graph-roots", "graph-instances"),
+                strict=True,
+            ):
+                label, *values = line.split("\t")
+                if label != name:
+                    return None
+                lists.append(tuple(cls._name(value) for value in values))
+            cursor = 9
+            sections = []
+            for name in (
                 "exported-effects",
                 "consulted-effects",
-                "releases-cyclable",
-                "defines-entry",
-                "program-release",
-                "helpers",
-                "realtime-roots",
                 "realtime-proofs",
+                "graph-edges",
                 "consulted-sources",
-            }
-            if not isinstance(value, dict) or set(value) != expected or value["schema"] != _RECORD_SCHEMA:
-                return None
-            if value["group"] != group or not isinstance(value["text"], str):
-                return None
-            flags = ("kept", "has-setjmp", "effects-solved", "releases-cyclable", "defines-entry", "program-release")
-            if any(type(value[name]) is not bool for name in flags):
-                return None
-            for name in ("exported-effects", "consulted-effects"):
-                if not isinstance(value[name], dict):
+            ):
+                label, count = lines[cursor].split("\t")
+                count = cls._number(count)
+                cursor += 1
+                if label != "@" + name or count > len(lines) - cursor:
                     return None
-            proofs = value["realtime-proofs"]
-            sources = value["consulted-sources"]
-            if not isinstance(proofs, dict) or not isinstance(sources, dict):
+                entries = {}
+                for line in lines[cursor : cursor + count]:
+                    key, *values = line.split("\t")
+                    cls._name(key)
+                    if key in entries:
+                        return None
+                    if name in ("exported-effects", "consulted-effects", "consulted-sources"):
+                        if len(values) != 1:
+                            return None
+                        value = cls._name(values[0])
+                        entries[key] = cls._effect_value(value) if name.endswith("effects") else value
+                    else:
+                        entries[key] = tuple(cls._name(value) for value in values)
+                sections.append(entries)
+                cursor += count
+            if cursor + 2 != len(lines):
                 return None
-            if not all(isinstance(digest, str) for digest in sources.values()):
+            label, *declaration_roots = lines[cursor].split("\t")
+            digest_label, declaration_digest = lines[cursor + 1].split("\t")
+            if label != "declaration-roots" or digest_label != "declaration-digest":
                 return None
-            names = value["helpers"], value["realtime-roots"], value["exports"], *proofs.values()
-            if any(not isinstance(items, list) or not all(isinstance(item, str) for item in items) for items in names):
+            declaration_roots = tuple(cls._name(name) for name in declaration_roots)
+            if len(set(declaration_roots)) != len(declaration_roots):
+                return None
+            if declaration_digest and (
+                len(declaration_digest) != 64 or any(c not in "0123456789abcdef" for c in declaration_digest)
+            ):
+                return None
+            exports, helpers, roots, kept, graph_roots, instances = lists
+            exported, consulted, proofs, edges, sources = sections
+            instance_set, kept_set = frozenset(instances), frozenset(kept)
+            if (
+                len(instance_set) != len(instances)
+                or len(kept_set) != len(kept)
+                or not instance_set <= edges.keys()
+                or not kept_set <= instance_set
+            ):
                 return None
             return cls(
                 group=group,
-                text=value["text"],
-                kept=value["kept"],
-                exports=tuple(value["exports"]),
-                has_setjmp=value["has-setjmp"],
-                effects_solved=value["effects-solved"],
-                exported_effects={
-                    name: cls._effect_value(effect) for name, effect in value["exported-effects"].items()
-                },
-                consulted_effects={
-                    name: cls._effect_value(effect) for name, effect in value["consulted-effects"].items()
-                },
-                releases_cyclable=value["releases-cyclable"],
-                defines_entry=value["defines-entry"],
-                program_release=value["program-release"],
-                helpers=tuple(value["helpers"]),
-                realtime_roots=tuple(value["realtime-roots"]),
-                realtime_proofs={name: tuple(callees) for name, callees in proofs.items()},
-                consulted_sources=dict(sources),
+                text=text,
+                kept=flags[1] == "1",
+                exports=exports,
+                has_setjmp=flags[2] == "1",
+                effects_solved=flags[3] == "1",
+                exported_effects=exported,
+                consulted_effects=consulted,
+                releases_cyclable=flags[4] == "1",
+                defines_entry=flags[5] == "1",
+                program_release=flags[6] == "1",
+                helpers=helpers,
+                realtime_roots=roots,
+                realtime_proofs=proofs,
+                consulted_sources=sources,
+                graph=ModuleUnitGraph(edges, graph_roots, instance_set),
+                kept_instances=kept_set,
+                declaration_roots=declaration_roots,
+                declaration_digest=declaration_digest,
             )
-        except (ValueError, RecursionError):
+        except (ValueError, IndexError, RecursionError):
             return None
 
 
@@ -266,6 +422,8 @@ class _GroupState:
     analyzed_round: int = -1
     consulted: set[str] = field(default_factory=set)
     realtime_proofs: dict[str, list[str]] = field(default_factory=dict)
+    graph: ModuleUnitGraph = field(default_factory=ModuleUnitGraph)
+    kept_instances: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -506,76 +664,184 @@ class ProgramInterface:
     statements consume. Source positions are not part of the interface.
     """
 
-    def __init__(self) -> None:
-        self._digest = hashlib.sha256()
+    HEADER = "btrc-module-interface-v1\n"
+
+    def header(self, declarations: Iterable[object]) -> str:
+        renderer = AstCanonicalRenderer.interface_renderer(self.callable_body)
+        return self.HEADER + "".join(
+            ModuleUnitCompiler._fact_row([renderer.render(declaration)]) for declaration in declarations
+        )
 
     @classmethod
-    def canonical(cls, value: object) -> str:
-        """A position-free rendering of an analyzer value for program digests."""
-        if is_dataclass(value) and not isinstance(value, type):
-            parts = (
-                f"{item.name}={cls.canonical(getattr(value, item.name))}"
-                for item in fields(value)
-                if item.name not in _UNHASHED_FIELDS
-            )
-            return f"{type(value).__name__}({', '.join(parts)})"
-        if isinstance(value, (list, tuple)):
-            return "[" + ", ".join(cls.canonical(item) for item in value) + "]"
-        if isinstance(value, (set, frozenset)):
-            return "{" + ", ".join(sorted(cls.canonical(item) for item in value)) + "}"
-        if isinstance(value, dict):
-            items = sorted((cls.canonical(key), cls.canonical(item)) for key, item in value.items())
-            return "{" + ", ".join(f"{key}: {item}" for key, item in items) + "}"
-        return repr(value)
+    def header_digest(cls, header: str) -> str | None:
+        if not header.startswith(cls.HEADER) or "\0" in header:
+            return None
+        content = header[len(cls.HEADER) :].encode("utf-8")
+        offset = 0
+        digest = hashlib.sha256()
+        try:
+            while offset < len(content):
+                colon = content.index(b":", offset)
+                raw = content[offset:colon]
+                if not raw or raw.startswith(b"0") or not raw.isdigit():
+                    return None
+                size = int(raw)
+                offset = colon + 1
+                if size > len(content) - offset:
+                    return None
+                declaration = content[offset : offset + size]
+                declaration.decode("utf-8")
+                digest.update(hashlib.sha256(declaration).hexdigest().encode("ascii"))
+                offset += size
+        except (ValueError, UnicodeError):
+            return None
+        return digest.hexdigest()
 
     def digest(self, declarations: Iterable[object]) -> str:
-        self._digest = hashlib.sha256()
+        digest = self.header_digest(self.header(declarations))
+        assert digest is not None
+        return digest
+
+    def group_header(self, group: str) -> str:
+        return self.group_headers.get("group:" + group, self.HEADER)
+
+    @staticmethod
+    def callable_body(node: object) -> str:
+        consumed = (
+            sorted(OwnershipAnalyzer.owned_transfer_param_indices(node))
+            if isinstance(node, (FunctionDecl, MethodDecl))
+            else []
+        )
+        return "defined consumed=" + ",".join(str(index) for index in consumed)
+
+    @staticmethod
+    def context(options: CompilerOptions, target: str) -> str:
+        flags = [
+            "true" if value else "false"
+            for value in (options.strict_imports, options.include_stdlib, options.stdlib_strict)
+        ]
+        return f"validation-record-v12;target={target};strict={flags[0]};stdlib={flags[1]};stdlib-strict={flags[2]}"
+
+    @staticmethod
+    def cache_key(context: str, group: str, source: str) -> str:
+        digest = hashlib.sha256(b"validation-interface-v3\n")
+        for value in (context, group, source):
+            ModuleUnitCompiler._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @staticmethod
+    def native_key(context: str, identity: str) -> str:
+        digest = hashlib.sha256(b"validation-natives-v2\n")
+        for value in (context, identity):
+            ModuleUnitCompiler._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @staticmethod
+    def compose(groups: Mapping[str, str], natives: str, others: str) -> str:
+        digest = hashlib.sha256(b"btrc-program-interface-v1\n")
+        for name, value in [*sorted(groups.items()), ("<native>", natives), ("<other>", others)]:
+            ModuleUnitCompiler._append_key_field(digest, name)
+            ModuleUnitCompiler._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _cached_digest(payload: tuple[str, str] | None, kind: str) -> str | None:
+        if payload is None or payload[0] != kind:
+            return None
+        digest = payload[1]
+        return digest if len(digest) == 64 and all(c in "0123456789abcdef" for c in digest) else None
+
+    def capture(
+        self,
+        declarations: Iterable[object],
+        source: ResolvedSource,
+        options: CompilerOptions,
+        *,
+        inline_stdlib_declarations: Iterable[object] = (),
+        store: ModuleUnitStore | None = None,
+        input_path: str | None = None,
+    ) -> str:
+        """Snapshot pre-analysis interfaces, reusing only source-matched groups."""
+        store = store if options.use_cache and store is not None else DisabledModuleUnitStore()
+        groups = source.graph.compilation_groups(source.root_source_path)
+        group_sources, _ = ModuleUnitCompiler._group_sources(source, groups)
+        sources = {"group:" + group: digest for group, digest in group_sources.items() if group}
+        if source.stdlib_source:
+            sources["<stdlib>"] = hashlib.sha256(source.stdlib_source.encode("utf-8")).hexdigest()
+        context = self.context(options, source.native_plan.target.label)
+        keys = {group: self.cache_key(context, group, digest) for group, digest in sources.items()}
+        cached = {}
+        headers = {}
+        for group, key in keys.items():
+            payload = store.load_module_unit(key, input_path)
+            if payload is not None and payload[0] == "validation-interface-v3":
+                digest = self.header_digest(payload[1])
+                if digest is not None:
+                    cached[group] = digest
+                    headers[group] = payload[1]
+        native_key = self.native_key(context, source.native_cache_identity) if source.native_cache_identity else None
+        natives_digest = (
+            self._cached_digest(store.load_module_unit(native_key, input_path), "validation-natives-v2")
+            if native_key
+            else None
+        )
+        native_ids = {id(declaration) for declaration in source.native_declarations}
+        inline_ids = {id(declaration) for declaration in inline_stdlib_declarations}
+        buckets: dict[str, list[object]] = {}
+        natives = []
+        others = []
         for declaration in declarations:
-            self._value(declaration, generic=False)
-        return self._digest.hexdigest()
-
-    def _text(self, value: str) -> None:
-        encoded = value.encode("utf-8", errors="surrogatepass")
-        self._digest.update(len(encoded).to_bytes(8, "big"))
-        self._digest.update(encoded)
-
-    def _value(self, value: object, *, generic: bool) -> None:
-        if value is None:
-            self._text("nil")
-        elif isinstance(value, bool):
-            self._text("true" if value else "false")
-        elif isinstance(value, (int, float)):
-            self._text(repr(value))
-        elif isinstance(value, str):
-            self._text("s" + value)
-        elif isinstance(value, (list, tuple)):
-            self._text(f"[{len(value)}")
-            for item in value:
-                self._value(item, generic=generic)
-        elif is_dataclass(value) and not isinstance(value, type):
-            self._node(value, generic=generic)
-        else:
-            self._text(f"?{type(value).__name__}")
-
-    def _node(self, node: object, *, generic: bool) -> None:
-        self._text("(" + type(node).__name__)
-        if isinstance(node, ClassDecl):
-            generic = bool(node.generic_params)
-        template = generic or bool(getattr(node, "generic_params", None))
-        for item in fields(node):
-            if item.name in _UNHASHED_FIELDS:
+            if id(declaration) in native_ids:
+                if natives_digest is None:
+                    natives.append(declaration)
                 continue
-            self._text(item.name)
-            value = getattr(node, item.name)
-            if isinstance(node, (FunctionDecl, MethodDecl)) and item.name == "body" and not template:
-                consumed = sorted(OwnershipAnalyzer.owned_transfer_param_indices(node))
-                self._text("body-elided" if value is not None else "no-body")
-                self._text(repr(consumed))
-            elif isinstance(node, PropertyDecl) and item.name in {"getter_body", "setter_body"} and not template:
-                self._text("body-elided" if value is not None else "no-body")
-            else:
-                self._value(value, generic=generic)
-        self._text(")")
+            group = groups.group_of(getattr(declaration, "source_file", None))
+            group = "<stdlib>" if id(declaration) in inline_ids else "group:" + group if group else ""
+            if group not in sources:
+                others.append(declaration)
+            elif group not in cached:
+                buckets.setdefault(group, []).append(declaration)
+        for group, items in buckets.items():
+            header = self.header(items)
+            digest = self.header_digest(header)
+            assert digest is not None
+            cached[group] = digest
+            headers[group] = header
+            store.store_module_unit(keys[group], "validation-interface-v3", header, input_path)
+        if natives_digest is None:
+            natives_digest = self.digest(natives)
+            if native_key is not None:
+                store.store_module_unit(native_key, "validation-natives-v2", natives_digest, input_path)
+        self.group_digests = cached
+        self.group_headers = headers
+        self.natives_digest = natives_digest
+        self.others_digest = self.digest(others)
+        return self.compose(cached, natives_digest, self.others_digest)
+
+    def dependencies(self, source: ResolvedSource, groups: CompilationGroups) -> dict[str, frozenset[str]]:
+        """Each group's transitive imports; include cycles already form one group."""
+        outgoing = {name: set() for name in groups.names()}
+        for path, edge in source.graph.iter_edges():
+            owner, target = groups.group_of(path), groups.group_of(edge.target)
+            if owner in outgoing and target in outgoing:
+                outgoing[owner].add(target)
+        result = {}
+        for name in groups.names():
+            reached, pending = {name}, [name]
+            while pending:
+                for target in outgoing[pending.pop()] - reached:
+                    reached.add(target)
+                    pending.append(target)
+            result[name] = frozenset(reached)
+        return result
+
+    def scoped_digest(self, dependencies: frozenset[str]) -> str:
+        selected = {
+            name: digest
+            for name, digest in self.group_digests.items()
+            if not name.startswith("group:") or name[6:] in dependencies
+        }
+        return self.compose(selected, self.natives_digest, self.others_digest)
 
 
 class SharedDeclarations:
@@ -600,7 +866,14 @@ class SharedDeclarations:
     )
 
     def __init__(self, module: IRModule) -> None:
-        self._preprocessor = list(module.preprocessor_decls)
+        self._runtime_catalog = RuntimeHelperCatalog()
+        # This declaration inventory spans every group. Its derived runtime
+        # headers do not belong to each unit: the optimizer rematerializes them
+        # from that unit's surviving declarations and bodies after the merge.
+        generated = {id(declaration) for declaration in module.take_generated_runtime_preprocessor()}
+        self._preprocessor = [
+            declaration for declaration in module.preprocessor_decls if id(declaration) not in generated
+        ]
         self._native_header_names: dict[str, set[str]] = {}
         self._entries: list[tuple[str, object]] = []
         for field_name in self._FIELDS:
@@ -639,13 +912,6 @@ class SharedDeclarations:
             elif isinstance(node, IRFunctionRef):
                 names.add(node.name)
         return names
-
-    def order(self) -> list[str]:
-        """Every entry's kind and names, in the shared order."""
-        return [
-            f"{field_name}:{','.join(sorted(self._provided(field_name, declaration)))}"
-            for field_name, declaration in self._entries
-        ]
 
     def configure_native_headers(self, declarations: Iterable[object]) -> None:
         """Record the C names each native binding header declares.
@@ -706,7 +972,27 @@ class SharedDeclarations:
             helper_decls=list(unit.helper_decls),
         )
 
-    def merge_into(self, unit: IRModule) -> None:
+    def dependency_digest(self, roots: Iterable[str]) -> str:
+        """Check referenced declarations, their relative order, and global directives."""
+        included: set[int] = set()
+        pending = list(roots)
+        seen = set(pending)
+        while pending:
+            for index in self._providers.get(pending.pop(), ()):
+                if index in included:
+                    continue
+                included.add(index)
+                for reference in self._references[index] - seen:
+                    seen.add(reference)
+                    pending.append(reference)
+        unit = IRModule(preprocessor_decls=list(self._preprocessor))
+        for index in sorted(included):
+            field_name, declaration = self._entries[index]
+            getattr(unit, field_name).append(declaration)
+        IROptimizer.refresh_type_declarations(unit)
+        return hashlib.sha256(CEmitter().emit_module_unit(unit).encode("utf-8")).hexdigest()
+
+    def merge_into(self, unit: IRModule) -> tuple[str, ...]:
         """Add the shared declarations `unit` needs that it does not provide."""
         provided: dict[str, set[str]] = {}
         roots: set[str] = set()
@@ -718,6 +1004,12 @@ class SharedDeclarations:
         for root in (*unit.function_defs, *unit.objective_c_classes, *unit.gpu_kernels):
             roots.update(self._referenced(root))
         for helper in unit.helper_decls:
+            # Catalog assets cannot reference application declarations merely
+            # by sharing a local name. Custom helper source remains opaque.
+            if self._runtime_catalog.contains(helper.name):
+                definition = self._runtime_catalog.definition(helper.name)
+                if helper.c_source == definition.c_source:
+                    continue
             roots.update(IROptimizer.identifier_tokens(helper.c_source))
         for declaration in (*self._preprocessor, *unit.preprocessor_decls):
             replacement = getattr(declaration, "replacement", None)
@@ -752,6 +1044,9 @@ class SharedDeclarations:
             for declaration in self._preprocessor
             if isinstance(declaration, IRInclude) and declaration not in unit.preprocessor_decls
         )
+        # Include owned names too: a body may change a shared shape that this
+        # group also declares. Unknown names remain roots to detect new providers.
+        return tuple(sorted(roots | set().union(*provided.values())))
 
 
 class ModuleUnitCompiler:
@@ -790,11 +1085,53 @@ class ModuleUnitCompiler:
     def unit_name(group: str) -> str:
         """A stable output name for a group's unit: its file stem and path hash."""
         stem = group.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].removesuffix(".btrc")
-        slug = "".join(character if character.isalnum() else "-" for character in stem).strip("-") or "group"
+        # Both frontends use ASCII file-safe names and count UTF-8 bytes.
+        slug = (
+            "".join(
+                chr(byte) if 48 <= byte <= 57 or 65 <= byte <= 90 or 97 <= byte <= 122 else "-"
+                for byte in stem.encode("utf-8", errors="surrogatepass")
+            ).strip("-")
+            or "group"
+        )
         return f"unit-{slug}-{hashlib.sha256(group.encode('utf-8', errors='surrogatepass')).hexdigest()[:12]}"
 
     @staticmethod
-    def _group_sources(source: ResolvedSource, groups: CompilationGroups) -> tuple[dict[str, str], dict[str, int]]:
+    def _append_key_field(digest, value: str) -> None:
+        encoded = value.encode("utf-8", errors="surrogatepass")
+        digest.update(str(len(encoded)).encode("ascii") + b":")
+        digest.update(encoded)
+
+    @classmethod
+    def _append_source_line(cls, digest, path: str, line: int, text: str) -> None:
+        for value in (path, str(line), text):
+            cls._append_key_field(digest, value)
+
+    @classmethod
+    def _cache_context(cls, options: CompilerOptions, target: str, native_defines: Sequence[tuple[str, str]]) -> str:
+        digest = hashlib.sha256(b"btrc-module-context-v1\n")
+        for flag in (options.debug, options.dce, options.strict_imports, options.include_stdlib, options.stdlib_strict):
+            cls._append_key_field(digest, "1" if flag else "0")
+        for value in (
+            target,
+            (options.units_prefix or "") if options.debug else "",
+            (options.generated_c_path or "") if options.debug else "",
+            str(len(native_defines)),
+        ):
+            cls._append_key_field(digest, value)
+        for name, value in sorted(native_defines):
+            cls._append_key_field(digest, name)
+            cls._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @classmethod
+    def _cache_key(cls, context: str, group: str, source: str, program: str) -> str:
+        digest = hashlib.sha256(b"btrc-module-unit-v8\n")
+        for value in (context, group, source, program):
+            cls._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @classmethod
+    def _group_sources(cls, source: ResolvedSource, groups: CompilationGroups) -> tuple[dict[str, str], dict[str, int]]:
         """Digest each group's resolved lines with their original positions; count them."""
         digests: dict[str, hashlib._Hash] = {}
         counts: dict[str, int] = {}
@@ -805,58 +1142,106 @@ class ModuleUnitCompiler:
                 owner = membership[path] = groups.group_of(path)
             digest = digests.setdefault(owner, hashlib.sha256())
             counts[owner] = counts.get(owner, 0) + 1
-            encoded = f"{SourceDependencyGraph.canonical_file(path)}\0{line}\0{text}\n".encode(
-                "utf-8", errors="surrogatepass"
-            )
-            digest.update(encoded)
+            cls._append_source_line(digest, SourceDependencyGraph.canonical_file(path), line, text)
         return {name: digest.hexdigest() for name, digest in digests.items()}, counts
 
+    _PROGRAM_FACT_SECTIONS = (
+        "files",
+        "trycatch",
+        "realtime",
+        "class-views",
+        "method-views",
+        "classes",
+        "methods",
+        "callable-policy",
+        "callables",
+        "stdlib",
+        "method-names",
+        "unreached",
+        "reached",
+    )
+
     @staticmethod
-    def _program_facts_digest(analyzed, facts: ProgramLoweringFacts, shared: SharedDeclarations) -> str:
-        digest = hashlib.sha256()
+    def _fact_row(values: Sequence[str]) -> str:
+        return "".join(f"{len(value.encode('utf-8'))}:{value}" for value in values)
 
-        def add(value: object) -> None:
-            encoded = json.dumps(value, sort_keys=True, default=str).encode()
-            digest.update(len(encoded).to_bytes(8, "big"))
-            digest.update(encoded)
-
-        def type_args(instances) -> list:
-            return sorted(ProgramInterface.canonical(instance) for instance in instances)
-
-        add(bool(facts.uses_trycatch))
-        # A unit takes the shared declarations it uses in their program order,
-        # while specialization views have canonical symbol order. Keep the
-        # actual shared order in the key: tuple, span and atomic shapes can
-        # still be discovered in other groups' bodies.
-        add(shared.order())
-        add([view.symbol for view in facts.class_views or ()])
-        add([view.symbol for view in facts.method_views or ()])
-        add({name: type_args(instances) for name, instances in analyzed.generic_instances.items()})
-        add(
-            {
-                ProgramInterface.canonical(key): type_args(value)
-                for key, value in analyzed.generic_method_instances.items()
-            }
-        )
-        add(
-            {
-                ProgramInterface.canonical(key): ProgramInterface.canonical(value)
-                for key, value in analyzed.generic_class_callable_instances.items()
-            }
-        )
-        add(sorted(analyzed.realtime_safe_callables))
-        plan = facts.stdlib_reachability
-        if plan is None:
-            add(None)
-        else:
-            add(sorted(plan.names))
-            add(sorted(plan.unreached_names))
-            reached = []
-            for declaration in analyzed.program.declarations:
-                if plan.reaches(declaration):
-                    reached.append([str(getattr(declaration, "source_file", "")), getattr(declaration, "name", "")])
-            add(reached)
+    @classmethod
+    def program_facts_digest(cls, sections: dict[str, list[str]]) -> str:
+        digest = hashlib.sha256(b"btrc-module-program-v1\n")
+        for name in cls._PROGRAM_FACT_SECTIONS:
+            values = sections[name]
+            for value in (name, str(len(values)), *values):
+                cls._append_key_field(digest, value)
         return digest.hexdigest()
+
+    @classmethod
+    def scoped_program_identity(cls, interface: str, program: str) -> str:
+        digest = hashlib.sha256(b"btrc-module-program-scope-v1\n")
+        for value in (interface, program):
+            cls._append_key_field(digest, value)
+        return digest.hexdigest()
+
+    @classmethod
+    def _program_facts_digest(cls, analyzed, facts: ProgramLoweringFacts, source: ResolvedSource) -> str:
+        renderer = AstCanonicalRenderer.position_free_renderer()
+
+        def arguments(values) -> list[str]:
+            return [str(len(values)), *(renderer.render(value) for value in values)]
+
+        files = []
+        for path, _ in source.source_positions:
+            if not files or files[-1] != path:
+                files.append(path)
+        classes = sorted(
+            cls._fact_row([name, *arguments(instance)])
+            for name, instances in analyzed.generic_instances.items()
+            for instance in instances
+        )
+        methods = sorted(
+            cls._fact_row([owner, name, *arguments(class_args), *arguments(method_args)])
+            for (owner, name), instances in analyzed.generic_method_instances.items()
+            for class_args, method_args in instances
+        )
+        callables = sorted(
+            cls._fact_row([key.owner, key.kind, key.name, *arguments(instance)])
+            for key, instances in analyzed.generic_class_callable_instances.items()
+            for instance in instances
+        )
+        plan = facts.stdlib_reachability
+        method_names = {
+            member.name
+            for declaration in analyzed.program.declarations
+            for member in getattr(declaration, "members", ())
+            if isinstance(member, MethodDecl)
+        }
+        sections = {
+            "files": files,
+            "trycatch": ["1" if facts.uses_trycatch else "0"],
+            "realtime": ["1" if analyzed.realtime_safe_callables else "0"],
+            "class-views": [view.symbol for view in facts.class_views or ()],
+            "method-views": [view.symbol for view in facts.method_views or ()],
+            "classes": classes,
+            "methods": methods,
+            "callable-policy": ["demanded"] if classes else [],
+            "callables": callables,
+            "stdlib": ["1" if plan is not None else "0"],
+            "method-names": sorted(plan.names & method_names) if plan is not None else [],
+            "unreached": sorted(plan.unreached_names) if plan is not None else [],
+            "reached": [
+                cls._fact_row(
+                    [
+                        str(getattr(declaration, "source_file", "")),
+                        getattr(declaration, "name", ""),
+                        type(declaration).__name__,
+                    ]
+                )
+                for declaration in analyzed.program.declarations
+                if plan is not None
+                and StdlibReachability.is_stdlib_declaration(declaration)
+                and plan.reaches(declaration)
+            ],
+        }
+        return cls.program_facts_digest(sections)
 
     def compile(
         self,
@@ -866,11 +1251,15 @@ class ModuleUnitCompiler:
         options: CompilerOptions,
         *,
         split_source_spaces: bool,
+        interface_digest: str,
+        interfaces: ProgramInterface,
         store: ModuleUnitStore | None = None,
         input_path: str | None = None,
         profile: dict[str, float] | None = None,
         timed: Callable[[dict[str, float] | None, str, float], None] | None = None,
     ) -> ModuleUnitBuild:
+        if not interface_digest:
+            raise CodegenError("module units require a pre-analysis interface snapshot")
         store = store or DisabledModuleUnitStore()
         timed = timed or (lambda _profile, _label, _start: None)
         self._target = source.native_plan.target.label
@@ -888,43 +1277,48 @@ class ModuleUnitCompiler:
         shared.configure_native_headers(analyzed.program.declarations)
         # The program unit is always lowered: it owns native adapters and
         # gathers every helper any unit uses, which the runtime unit defines.
+        program_facts = ModuleLoweringFacts()
         program_unit = self.lower_group(
-            analyzed, filename, options, source_map, groups, CompilationGroups.PROGRAM, facts
+            analyzed,
+            filename,
+            options,
+            source_map,
+            groups,
+            CompilationGroups.PROGRAM,
+            facts,
+            unit_facts=program_facts,
         )
         shared.merge_into(program_unit)
+        program_graph = ModuleUnitGraph.from_unit(program_unit, program_facts)
         program_setjmp = self.setjmp_functions(program_unit)
         program_releases = IROptimizer.releases_cyclable_values(program_unit)
-        interface = ProgramInterface().digest(analyzed.program.declarations)
-        program_digest = self._program_facts_digest(analyzed, facts, shared)
+        dependencies = interfaces.dependencies(source, groups)
+        program_digest = self._program_facts_digest(analyzed, facts, source)
         group_sources, group_lines = self._group_sources(source, groups)
-        context = json.dumps(
-            {
-                "debug": options.debug,
-                "dce": options.dce,
-                # The resolved row's canonical label: every spelling of one
-                # target, and the inferred host, key one set of units.
-                "target": source.native_plan.target.label,
-                "native-defines": self._native_defines,
-                "units-prefix": options.units_prefix if options.debug else None,
-                "generated-c-path": options.generated_c_path if options.debug else None,
-            },
-            sort_keys=True,
-        )
+        context = self._cache_context(options, source.native_plan.target.label, self._native_defines)
+        # Preserve both existing semantic authorities until their contents,
+        # not just their framing, have converged with the self-hosted owner.
         states: list[_GroupState] = []
         for name in groups.names():
-            identity = "\0".join(
-                (
-                    f"module-unit-v{_RECORD_SCHEMA}",
-                    context,
-                    name,
-                    group_sources.get(name, ""),
-                    interface,
-                    program_digest,
-                )
+            program_identity = self.scoped_program_identity(
+                interfaces.scoped_digest(dependencies[name]), program_digest
             )
+            identity = self._cache_key(context, name, group_sources.get(name, ""), program_identity)
             state = _GroupState(name, identity, lines=group_lines.get(name, 0))
-            payload = store.load_module_unit(identity, input_path)
-            state.record = ModuleUnitRecord.from_json(payload, name) if payload is not None else None
+            payload = store.load_module_artifacts(identity, input_path)
+            state.record = (
+                ModuleUnitRecord.from_text(payload.record, payload.text, name) if payload is not None else None
+            )
+            if state.record is not None and (
+                payload.interface_header != interfaces.group_header(name)
+                or payload.link_plan_fragment
+                != NativeLinkPlan.module_fragment(self.unit_name(name), state.record.text, state.record.kept)
+            ):
+                state.record = None
+            if state.record is not None and state.record.declaration_digest != shared.dependency_digest(
+                state.record.declaration_roots
+            ):
+                state.record = None
             # A unit that copied another group's bodies or positions is exact
             # only while that group's source is unchanged.
             if state.record is not None and any(
@@ -991,6 +1385,11 @@ class ModuleUnitCompiler:
                 if relower:
                     self._mark_stale(relower)
                     continue
+                self._demand_instances(states, program_graph, dce=options.dce)
+                relower = [state for state in reused if state.kept_instances != state.record.kept_instances]
+                if relower:
+                    self._mark_stale(relower)
+                    continue
                 break
             timed(profile, "lower", start)
 
@@ -1025,6 +1424,7 @@ class ModuleUnitCompiler:
                             "solved": delta,
                             "reset": reset,
                             "realtime_safe": state.realtime_reached,
+                            "unneeded_instances": state.graph.instances - state.kept_instances,
                         },
                     )
                 )
@@ -1041,13 +1441,17 @@ class ModuleUnitCompiler:
                     exports=reply["exports"],
                     has_setjmp=state.has_setjmp,
                     effects_solved=needs_solve,
-                    exported_effects={name: solved[name] for name in reply["exports"] if name in solved},
+                    exported_effects={name: solved[name] for name in state.exports if name in solved},
                     consulted_effects={name: solved[name] for name in sorted(state.consulted) if name in solved},
                     releases_cyclable=state.releases_cyclable,
                     defines_entry=reply["entry"],
                     program_release=releases,
                     helpers=reply["helpers"],
                     realtime_roots=state.realtime_roots,
+                    graph=state.graph,
+                    kept_instances=state.kept_instances,
+                    declaration_roots=reply["declaration_roots"],
+                    declaration_digest=shared.dependency_digest(reply["declaration_roots"]),
                     realtime_proofs={name: tuple(sorted(callees)) for name, callees in state.realtime_proofs.items()},
                     consulted_sources={
                         group: group_sources[group]
@@ -1059,7 +1463,16 @@ class ModuleUnitCompiler:
                 # and is never stored, so a reused unit never names one.
                 hosted.extend(reply["hosted"])
                 if not reply["hosted"]:
-                    store.store_module_unit(state.key, record.to_json(), input_path)
+                    store.store_module_unit(
+                        state.key,
+                        record.to_text(),
+                        record.text,
+                        input_path,
+                        interface_header=interfaces.group_header(state.name),
+                        link_plan_fragment=NativeLinkPlan.module_fragment(
+                            self.unit_name(state.name), record.text, record.kept
+                        ),
+                    )
                 state.record = record
             worker_profiles: tuple[str, ...] = ()
             if self._workers is not None:
@@ -1173,6 +1586,7 @@ class ModuleUnitCompiler:
             state.stale = True
             state.worker = worker
             state.exports = reply["exports"]
+            state.graph = reply["graph"]
             state.has_setjmp = reply["setjmp"]
             state.releases_cyclable = reply["releases"]
             state.realtime_roots = reply["realtime_roots"]
@@ -1180,6 +1594,29 @@ class ModuleUnitCompiler:
             state.calls = reply["calls"]
             state.analyzed_round = -1
             state.consulted = set()
+
+    @staticmethod
+    def _demand_instances(states: Sequence[_GroupState], program: ModuleUnitGraph, *, dce: bool) -> None:
+        graphs = {state.name: state.graph if state.stale else state.record.graph for state in states}
+        owners = {name: group for group, graph in graphs.items() for name in graph.instances}
+        graphs[CompilationGroups.PROGRAM] = program
+        reached: dict[str, set[str]] = {group: set() for group in graphs}
+        pending = [(group, name) for group, graph in graphs.items() for name in graph.roots]
+        while pending:
+            group, name = pending.pop()
+            graph = graphs[group]
+            if name not in graph.edges:
+                owner = owners.get(name)
+                if owner is not None and owner != group:
+                    pending.append((owner, name))
+                continue
+            if name in reached[group]:
+                continue
+            reached[group].add(name)
+            pending.extend((group, target) for target in graph.edges[name])
+        for state in states:
+            instances = graphs[state.name].instances
+            state.kept_instances = instances & reached[state.name] if dce else instances
 
     @staticmethod
     def external_calls(unit: IRModule) -> frozenset[str]:
@@ -1474,7 +1911,18 @@ class ModuleUnitCompiler:
                     stack.append(successor)
                     positions.append(0)
 
-    def lower_group(self, analyzed, filename, options, source_map, groups, name, facts) -> IRModule:
+    def lower_group(
+        self,
+        analyzed,
+        filename,
+        options,
+        source_map,
+        groups,
+        name,
+        facts,
+        *,
+        unit_facts: ModuleLoweringFacts | None = None,
+    ) -> IRModule:
         """Lower only what one group owns; shared declarations are merged later."""
         return self._lower(
             analyzed,
@@ -1484,6 +1932,7 @@ class ModuleUnitCompiler:
             groups,
             name,
             facts,
+            unit_facts=unit_facts,
             declarations_elsewhere=True,
             native_defines=self._native_defines,
         )
@@ -1506,7 +1955,14 @@ class ModuleUnitCompiler:
         for state in states:
             state.record = None
 
-    def optimize_unit(self, unit: IRModule, options: CompilerOptions, releases: bool) -> None:
+    def optimize_unit(
+        self,
+        unit: IRModule,
+        options: CompilerOptions,
+        releases: bool,
+        *,
+        unneeded_instances: frozenset[str] = frozenset(),
+    ) -> None:
         """Stage-five optimization of one module unit."""
         IRVerifier(unit).validate_schema()
         IROptimizer(
@@ -1516,6 +1972,7 @@ class ModuleUnitCompiler:
             freestanding_runtime=self._freestanding_runtime,
             module_unit=True,
             program_cyclable_release=releases,
+            unneeded_instances=unneeded_instances,
         ).optimize()
 
     def finalize_unit(self, unit: IRModule) -> None:
@@ -1603,6 +2060,7 @@ class ModuleUnitWorker:
         self._lowering = lowering
         self._shared = shared
         self._units: dict[str, tuple[IRModule, frozenset[str]]] = {}
+        self._declaration_roots: dict[str, tuple[str, ...]] = {}
         self._effects: dict[str, dict] = {}
         self._solvers: dict[str, SetjmpUnitSolver] = {}
         self._solved: dict[str, FunctionEffect] = {}
@@ -1669,18 +2127,22 @@ class ModuleUnitWorker:
 
     def _lower(self, group: str) -> dict:
         analyzed, filename, options, source_map, groups, facts = self._lowering
-        unit = self._compiler.lower_group(analyzed, filename, options, source_map, groups, group, facts)
+        unit_facts = ModuleLoweringFacts()
+        unit = self._compiler.lower_group(
+            analyzed, filename, options, source_map, groups, group, facts, unit_facts=unit_facts
+        )
         # Only the program unit's adapter units reach the link plan; one a
         # group lowered would be dropped and fail the link.
         if unit.native_units:
             raise CodegenError(
                 f"native adapters belong to the program unit; group {group!r} lowered {sorted(unit.native_units)}"
             )
-        self._shared.merge_into(unit)
+        self._declaration_roots[group] = self._shared.merge_into(unit)
         setjmp_functions = self._compiler.setjmp_functions(unit)
         self._units[group] = (unit, setjmp_functions)
         return {
             "exports": tuple(function.name for function in unit.function_defs if not function.is_static),
+            "graph": ModuleUnitGraph.from_unit(unit, unit_facts),
             "setjmp": bool(setjmp_functions),
             "releases": IROptimizer.releases_cyclable_values(unit),
             "realtime_roots": tuple(function.name for function in unit.function_defs if function.is_realtime),
@@ -1719,13 +2181,22 @@ class ModuleUnitWorker:
         solved = self._solved if request["solve"] else {}
         effects = self._effects.get(group, {}) if request["solve"] else {}
         ExceptionLowerer.apply_setjmp_volatility(unit, solved, call_effects=effects, setjmp_functions=setjmp_functions)
-        self._compiler.optimize_unit(unit, options, request["releases"])
+        self._compiler.optimize_unit(
+            unit, options, request["releases"], unneeded_instances=request["unneeded_instances"]
+        )
         # The owner refuses these over the whole program; a worker only reports.
         hosted = IROptimizer.unavailable_hosted_references(unit, self._compiler.unavailable_hosted())
         helpers = tuple(sorted(helper.name for helper in unit.helper_decls))
         self._compiler.finalize_unit(unit)
-        kept = any(not function.is_static for function in unit.function_defs) or any(
-            not declaration.is_extern for declaration in unit.global_decls
+        # Imported C implementations define symbols outside the btrc AST.
+        # Their owning unit must survive even without btrc definitions.
+        kept = (
+            any(not function.is_static for function in unit.function_defs)
+            or any(not declaration.is_extern for declaration in unit.global_decls)
+            or any(
+                isinstance(declaration, IRInclude) and declaration.header.endswith(".c")
+                for declaration in unit.preprocessor_decls
+            )
         )
         if kept:
             self._shared.trim_native_includes(unit)
@@ -1742,5 +2213,6 @@ class ModuleUnitWorker:
             "entry": any(function.name in {"main", "btrc_main"} for function in unit.function_defs),
             "helpers": helpers,
             "sources": tuple(sorted(consulted - {CompilationGroups.PROGRAM})),
+            "declaration_roots": self._declaration_roots[group],
             "hosted": tuple(hosted),
         }

@@ -17,6 +17,7 @@ import ../SourceMacros.btrc;
 import ../Types.btrc;
 import ./Borrows.btrc;
 import ./Calls.btrc;
+import ./Constants.btrc;
 import ./Names.btrc;
 import ./Ownership.btrc;
 import ./Storage.btrc;
@@ -57,6 +58,7 @@ class ExpressionValidator {
 	private SourceRuntimeSymbols sourceRuntimeSymbols;
 	private ExpressionTypeResolver expressionTypes;
 	private TypeValidator types;
+	private ConstantValidator constants;
 	private NameValidator names;
 	private StorageValidator storage;
 	private OwnershipValidator ownership;
@@ -65,18 +67,37 @@ class ExpressionValidator {
 	private Vector<InferredLiteralMismatch> literalMismatches = [];
 	private Map<string, bool> contextualLiterals = {};
 
-	public ExpressionValidator(SemanticValidationState state, OperatorSemantics operators, SourceMacroNamespace sourceMacros, SourceRuntimeSymbols sourceRuntimeSymbols, ExpressionTypeResolver expressionTypes, TypeValidator types, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, CallValidator calls) {
+	public ExpressionValidator(SemanticValidationState state, OperatorSemantics operators, SourceMacroNamespace sourceMacros, SourceRuntimeSymbols sourceRuntimeSymbols, ExpressionTypeResolver expressionTypes, TypeValidator types, ConstantValidator constants, NameValidator names, StorageValidator storage, OwnershipValidator ownership, BorrowValidator borrows, CallValidator calls) {
 		self.state = state;
 		self.operators = operators;
 		self.sourceMacros = sourceMacros;
 		self.sourceRuntimeSymbols = sourceRuntimeSymbols;
 		self.expressionTypes = expressionTypes;
 		self.types = types;
+		self.constants = constants;
 		self.names = names;
 		self.storage = storage;
 		self.ownership = ownership;
 		self.borrows = borrows;
 		self.calls = calls;
+	}
+
+	private void validateDesignatorIndexes(Node initializer, Map<string, Node> vars) {
+		for designation in initializer.entries() {
+			for part in designation.parts() {
+				if (part.kind != NK_INDEX_DESIGNATOR) { continue; }
+				self.validateExpr(part.index, vars);
+				Map<string, bool> unrestricted = {};
+				SemanticIntegerConstant constant = self.constants.integerConstant(part.index, false, "", unrestricted);
+				if (!constant.valid) {
+					TypeValidator.fail("Array designator index must be an integer constant expression", part);
+				} else if (!constant.known) {
+					TypeValidator.fail("Array designator index is a constant expression btrc cannot evaluate; write its integer value", part);
+				} else {
+					self.state.analyzed.recordDesignatorIndex(part, constant.value);
+				}
+			}
+		}
 	}
 
 	private bool knownNumericZero(Node expression) {
@@ -150,19 +171,14 @@ class ExpressionValidator {
 		}
 	}
 
-	public Node arrayElementType(Node arrayType) {
-		Node element = TypeShape.withoutOuterArray(arrayType);
-		element.isStatic = false;
-		element.isExtern = false;
-		return element;
-	}
+	public Node arrayElementType(Node arrayType) { return TypeShape.valueType(TypeShape.withoutOuterArray(arrayType)); }
 
 	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
 	/* Collection literal arguments take their parameter's element types. */
-	private void validateCollectionArguments(Map<string, Node> vars) {
-		if (!self.calls.hasCollectionArguments()) { return; }
-		for check in self.calls.takeCollectionArguments() { self.validateTypedInitializer(check.expected, check.argument, check.subject, vars); }
+	private void validateInitializerArguments(Map<string, Node> vars) {
+		if (!self.calls.hasInitializerArguments()) { return; }
+		for check in self.calls.takeInitializerArguments() { self.validateTypedInitializer(check.expected, check.argument, check.subject, vars); }
 	}
 
 	/* A collection literal whose type is inferred takes it from its first
@@ -307,22 +323,44 @@ class ExpressionValidator {
 		if (initializer.kind != NK_BRACE_INITIALIZER) {
 			TypeValidator.fail(subject + " requires a brace initializer for " + SemanticTypeSystem.recordKeyword(declaration) + " '" + name + "'", initializer);
 		}
+		self.validateRecordInitializer(declaration, initializer, subject, vars, declaration);
+	}
+
+	private void validateRecordInitializer(Node declaration, Node initializer, string subject, Map<string, Node> vars, Node enclosing) {
+		string name = enclosing.name;
 		/* The initializer-slot owner: each element's member path, recorded for
 		 * every later reader (SemanticTypeSystem.initializerSlots). */
 		SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(declaration, initializer, self.state.analyzed);
 		self.state.analyzed.initializerPlans.put(AstIdentity.key(initializer), plan);
+		for problem in plan.problems { TypeValidator.fail(problem.message, problem.site); }
 		if (plan.excess > 0 && declaration.isUnion) {
 			TypeValidator.fail("Union '" + name + "' initializer has " + Strings.fromInt(initializer.elements().len) + " elements; a positional union initializer sets only the first member (use a designator such as {.f = ...})", initializer);
 		}
 		if (plan.excess > 0) {
-			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but struct '" + name + "' has " + Strings.fromInt(plan.capacity) + " fields", initializer);
+			TypeValidator.fail(subject + " has " + Strings.fromInt(initializer.elements().len) + " initializer elements but " + SemanticTypeSystem.recordKeyword(enclosing) + " '" + name + "' has " + Strings.fromInt(plan.capacity) + " fields", initializer);
 		}
-		if (initializer.elements().len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
+		if (initializer.elements().len > 0 && self.state.analyzed.nativeRecordHasPrivateFields(declaration)) {
+			bool positional = initializer.entries().len != initializer.elements().len;
+			for entry in initializer.entries() { if (entry.parts().len == 0) { positional = true; } }
+			if (positional) { TypeValidator.fail("Native records with private fields cannot use positional initialization", initializer); }
+		}
 		for slot in plan.slots {
 			Node field = slot.member();
-			Node? fieldValueType = self.storage.arrayFieldValueType(field);
-			if (fieldValueType == null) { fieldValueType = field.type; }
-			self.validateInitializerValue(fieldValueType, slot.element, subject + " field '" + field.name + "'", vars);
+			if (field.kind == NK_ANONYMOUS_MEMBER) {
+				if (slot.element.kind != NK_BRACE_INITIALIZER) {
+					TypeValidator.fail("The anonymous " + SemanticTypeSystem.recordKeyword(field) + " member of " + SemanticTypeSystem.recordKeyword(enclosing) + " '" + enclosing.name + "' requires its own braces in a positional initializer", slot.element);
+				}
+				self.validateRecordInitializer(field, slot.element, subject, vars, enclosing);
+				continue;
+			}
+			Node? fieldValueType = slot.type;
+			string fieldName = "array element";
+			if (field.kind == NK_FIELD_DEF) {
+				fieldValueType = self.storage.arrayFieldValueType(field);
+				if (fieldValueType == null) { fieldValueType = slot.type; }
+				fieldName = field.name;
+			}
+			if (fieldValueType != null) { self.validateInitializerValue(fieldValueType, slot.element, subject + " field '" + fieldName + "'", vars); }
 		}
 	}
 
@@ -353,6 +391,10 @@ class ExpressionValidator {
 		self.contextualizeGenericConstructor(representedExpected, value, vars);
 		Node? canonical = self.types.resolveAliases(representedExpected);
 		if (canonical == null) { return; }
+		if (SemanticTypeSystem.hasDesignators(value) && self.state.typeParams.has(canonical.base)) { self.markContextualLiteral(value); return; }
+		if (SemanticTypeSystem.hasDesignators(value) && !canonical.isArray && SemanticTypeSystem.memberRecord(canonical, self.state.analyzed) == null) {
+			TypeValidator.fail("Designated initializers apply to structs, unions and arrays, not '" + self.types.formatWrittenType(canonical) + "'", value);
+		}
 		if (value.kind == NK_MAP_LITERAL) {
 			if (canonical.base == "Map" && canonical.genericArgs().len == 2) { self.markContextualLiteral(value); }
 			self.validateMapInitializer(canonical, value, subject, vars);
@@ -377,7 +419,16 @@ class ExpressionValidator {
 			if (value.elements().len == 0 && canonical.arraySize == null) {
 				TypeValidator.fail(subject + " cannot infer an array bound from an empty initializer", value);
 			}
-			self.validateInitializerElements(self.arrayElementType(canonical), value.elements(), subject, vars);
+			if (SemanticTypeSystem.hasDesignators(value)) {
+				SemanticInitializerPlan plan = SemanticTypeSystem.planInitializerSlots(canonical, value, self.state.analyzed);
+				self.state.analyzed.initializerPlans.put(AstIdentity.key(value), plan);
+				for problem in plan.problems { TypeValidator.fail(problem.message, problem.site); }
+				for slot in plan.slots {
+					if (slot.type != null) { self.validateInitializerValue(slot.type, slot.element, subject, vars); }
+				}
+			} else {
+				self.validateInitializerElements(self.arrayElementType(canonical), value.elements(), subject, vars);
+			}
 			return;
 		}
 		string structName = StorageValidator.structTypeName(canonical, self.state.analyzed);
@@ -685,6 +736,9 @@ class ExpressionValidator {
 
 	public void validateUnary(Node expression, Map<string, Node> vars) {
 		if (expression.op == "&") {
+			if (expression.operand.kind == NK_IDENTIFIER && vars.has(expression.operand.name) && vars.get(expression.operand.name).isRegister) {
+				TypeValidator.fail("Cannot take the address of register object '" + expression.operand.name + "'", expression);
+			}
 			string flexibleMember = self.storage.flexibleArrayTarget(expression.operand, vars);
 			if (flexibleMember != "") {
 				TypeValidator.fail("Cannot take the address of flexible array member '" + flexibleMember + "'; use the member itself or an element's address", expression);
@@ -829,7 +883,7 @@ class ExpressionValidator {
 			self.validateFlexibleArrayArguments(expression.args(), vars);
 			self.names.deferGeneratedSymbolCall(expression, vars);
 			self.calls.validateCall(expression,  vars);
-			self.validateCollectionArguments(vars);
+			self.validateInitializerArguments(vars);
 			self.rejectNonescapingMethodArguments(expression);
 		} else if (expression.kind == NK_INDEX_EXPR) {
 			self.validateExpr(expression.obj,  vars);
@@ -1044,6 +1098,7 @@ class ExpressionValidator {
 		while (captureIndex < names.len) {
 			string name = names.get(captureIndex);
 			if (vars.has(name) && self.state.localBindings.has(name)) {
+				if (vars.get(name).isRegister) { TypeValidator.fail("Cannot capture register object '" + name + "'", expression); }
 				/* Lifted environment fields are non-owning copies.  Model them as
                  * borrowed lexical proxies even when the enclosing local owns its
                  * slot, so rebind/release validation matches generated code. */
@@ -1140,6 +1195,7 @@ class ExpressionValidator {
 			string name = names.get(captureIndex);
 			if (vars.has(name) && (self.state.localBindings.has(name) || !self.state.analyzed.globalVarTypes.has(name))) {
 				Node captureType = vars.get(name);
+				if (captureType.isRegister) { TypeValidator.fail("Cannot capture register object '" + name + "'", expression); }
 				Node? canonical = self.types.resolveAliases(captureType);
 				if (canonical != null && (canonical.base == "Span" || canonical.base == "Atomic") && canonical.pointerDepth == 0 && !canonical.isArray) {
 					TypeValidator.fail("spawn cannot capture " + canonical.base + " value '" + name + "' by value", expression);
@@ -1224,7 +1280,7 @@ class ExpressionValidator {
 		}
 		self.calls.validateConstructorAccess(className, constructor, expression);
 		self.calls.validateSignature(className, constructor.params(), expression, substitutions, false, vars);
-		self.validateCollectionArguments(vars);
+		self.validateInitializerArguments(vars);
 		if (className == "CallbackRegistration") {
 			self.calls.validateDirectRealtimeCallback(className, constructor, expression, vars, "invoke");
 		} else if (className == "RealtimeAudioProgram") {
@@ -1308,6 +1364,7 @@ class ExpressionValidator {
 				TypeValidator.fail("'super' used in a class without a parent", expression);
 			}
 		} else if (expression.kind == NK_CAST_EXPR) {
+			self.types.validateTypeNameStorage(expression.targetType);
 			self.types.validateTagKeyword(expression.targetType, expression);
 			self.types.rejectRuntimeInterfaceType(expression.targetType, expression);
 			self.validateExpr(expression.expr,  vars);
@@ -1337,6 +1394,7 @@ class ExpressionValidator {
 					TypeValidator.fail("sizeof cannot be applied to flexible array member '" + flexibleMember + "'", expression);
 				}
 			} else if (expression.operand != null && expression.operand.kind == NK_SIZEOF_TYPE) {
+				self.types.validateTypeNameStorage(expression.operand.type);
 				/* sizeof(x) names the object when x is a binding in scope (C11
 				 * 6.5.3.4), as the reference's sizeof_value_operand reads it. */
 				string name = TypeIdentity.ordinaryIdentifier(expression.operand.type);
@@ -1353,6 +1411,7 @@ class ExpressionValidator {
 			}
 			self.validateFlexibleArraySizeof(expression, vars);
 		} else if (expression.kind == NK_LIST_LITERAL || expression.kind == NK_BRACE_INITIALIZER || expression.kind == NK_TUPLE_LITERAL) {
+			if (expression.kind == NK_BRACE_INITIALIZER) { self.validateDesignatorIndexes(expression, vars); }
 			self.validateExprList(expression.elements(),  vars);
 			if (expression.kind == NK_LIST_LITERAL) {
 				for element in expression.elements() {
@@ -1370,6 +1429,7 @@ class ExpressionValidator {
 		} else if (expression.kind == NK_F_STRING_LITERAL) {
 			self.validateFStringParts(expression.parts(),  vars);
 		} else if (expression.kind == NK_NEW_EXPR) {
+			self.types.validateTypeNameStorage(expression.type);
 			self.types.validateTagKeyword(expression.type, expression);
 			self.contextualizeNewGenericConstructors(expression,  vars);
 			self.validateExprList(expression.args(),  vars);

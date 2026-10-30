@@ -194,6 +194,63 @@ The environment must resolve metadata for the explicitly selected target, not an
 unrelated host installation. Nix pins the dependency; do not copy store paths into
 headers. Target and module selection apply before dependency resolution.
 
+### Auxiliary executable entries
+
+A Windows daemon companion is a separately compiled BTRC entry declared in its
+owning package:
+
+```toml
+[[native.auxiliary-executables]]
+path = "Windows/DaemonSupervisorMain.btrc"
+kind = "windows-daemon-supervisor"
+protocol = 1
+os = ["windows"]
+requires = ["__btrc_windows_supervisor_image_verify"]
+```
+
+`kind` currently accepts only `windows-daemon-supervisor`, and `protocol` must
+be integer `1`. The declaration must select Windows explicitly. `requires` is a
+nonempty array of distinct function names from the shared hosted runtime ABI.
+The usual `arch`, `env` and `modules` selectors apply. After target and module
+selection, either compiler emits the auxiliary only when at least one required
+runtime function survives optimization, including in module-unit builds. A
+consumer may select at most one companion.
+
+`path` must name an existing `.btrc` file owned by the declaring package;
+escaping paths and paths owned by nested packages are errors. The entry cannot
+be exported or imported, even within its own package. Root stdlib discovery,
+symbol indexing and the editor builtin catalog exclude executable entries.
+Compilers reserve the source against output overwrites, including file aliases.
+
+The optional schema-5 `auxiliary-executables` array contains one record with
+exactly `abi`, `kind`, `package`, `path`, `protocol` and `sha256`. `abi` is the
+canonical target label, and `path` is absolute. `sha256` covers the source's raw
+bytes, including its BOM and newline encoding; cached plans revalidate it.
+The final executable digest belongs to the native build step described in
+[the Windows daemon design](../../docs/design/windows-os-services.md).
+
+The native builder requires the consumer's frontend command from its caller
+(`frontend` in the Python API, `--frontend-command` in the CLI). Package plans
+cannot supply commands. It builds the leaf through that frontend with strict
+imports and the consumer's target, rejects recursion and the consumer-only image
+runtime in the leaf, and checks the final PE ABI, loader configuration and DLL
+imports. A signing owner may finalize the leaf before hashing it, then finalize
+the linked consumer. The resulting data-only metadata object binds the final
+leaf bytes to `<complete-consumer-name>.btrc-supervisor.exe` and protocol 1.
+
+Publication rechecks the staged bytes and replaces the companion and consumer
+through the existing rollback/recovery transaction. A failed build or second
+replacement preserves the previous pair. Object-cache and debug builds retain
+serialized work directories beside the output, so unchanged source paths reuse
+objects and debug references survive publication. Final PE timestamp changes can
+still require rebuilding the digest metadata object.
+
+Target bundles record an optional `companion` object with exactly `artifact` and
+`sha256`. The Windows executor stages and holds the pair together, verifies both
+digests and PE machines, and rejects missing or renamed companions. Native
+Windows lifecycle, real Authenticode signing, MSVC qualification and MSIX
+packaging remain separate acceptance work; this does not complete Daemon.
+
 ## Experimental native header imports
 
 `native.bindings` describes a typed header request owned by one existing BTRC

@@ -1,0 +1,198 @@
+/* The companion's record, liveness and restart policy. Native process, job,
+ * pipe and file handles stay behind the runtime's opaque owners. */
+import Library.Daemon.DaemonControl;
+import Library.Daemon.Windows.DaemonControlStore;
+import Library.FileSystem;
+import Library.Platform;
+import Library.Timer;
+
+class WindowsDaemonSupervisor {
+	private __btrc_windows_supervisor_owner* native;
+	private __btrc_windows_launch_error_t error;
+	private WindowsDaemonControlStore files;
+	private __btrc_windows_daemon_directory_entry recordIdentity;
+	private string controlFile;
+	private string controlName;
+	private string token;
+	private string tokenLine;
+	private string record;
+	private string stopName;
+	private string probePrefix;
+	private bool autoRestart;
+	private bool published;
+	private bool restartEnumeration;
+
+	public WindowsDaemonSupervisor() {
+		self.native = NULL;
+		self.files = WindowsDaemonControlStore();
+		self.controlFile = "";
+		self.controlName = "";
+		self.token = "";
+		self.tokenLine = "";
+		self.record = "";
+		self.stopName = "";
+		self.probePrefix = "";
+		self.autoRestart = false;
+		self.published = false;
+		self.restartEnumeration = true;
+		memset(&self.error, 0, sizeof(self.error));
+		memset(&self.recordIdentity, 0, sizeof(self.recordIdentity));
+	}
+
+	private uint32_t integer(unsigned char* bytes) { return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24); }
+
+	/* accept already validated the complete canonical INIT payload. Policy
+	 * copies only its token, restart flag and control path. Other startup
+	 * fields remain owned and interpreted by the runtime. */
+	private bool readPolicy(unsigned char* bytes, size_t size) {
+		if (size < (size_t)40) { return false; }
+		uint32_t restart = self.integer(bytes + 28);
+		uint32_t nameSize = self.integer(bytes + 32);
+		if (restart > (uint32_t)1 || nameSize > (uint32_t)65536 || (size_t)nameSize > size - (size_t)40) { return false; }
+		size_t offset = (size_t)36 + (size_t)nameSize;
+		uint32_t pathSize = self.integer(bytes + offset);
+		offset = offset + (size_t)4;
+		if (pathSize == (uint32_t)0 || pathSize > (uint32_t)65536 || (size_t)pathSize > size - offset || memchr(bytes + offset, 0, (size_t)pathSize) != NULL) { return false; }
+		char* path = (char*)__btrc_safe_realloc(NULL, (size_t)pathSize + (size_t)1);
+		memcpy(path, bytes + offset, (size_t)pathSize);
+		path[pathSize] = '\0';
+		self.controlFile = __btrc_string_adopt(path);
+		const char* digits = "0123456789abcdef";
+		char* token = (char*)__btrc_safe_realloc(NULL, (size_t)33);
+		for (int i = 0; i < 16; i++) {
+			token[i * 2] = digits[(bytes[i] >> 4) & 15];
+			token[i * 2 + 1] = digits[bytes[i] & 15];
+		}
+		token[32] = '\0';
+		self.token = __btrc_string_adopt(token);
+		self.autoRestart = restart != (uint32_t)0;
+		return true;
+	}
+
+	private bool startup() {
+		if (__btrc_windows_supervisor_accept((uint64_t)3000, &self.native, &self.error) != 0) { return false; }
+		size_t required = (size_t)0;
+		if (__btrc_windows_supervisor_copy_startup(self.native, NULL, (size_t)0, &required, &self.error) != 0 || required < (size_t)40 || required > (size_t)1048576) { return false; }
+		size_t capacity = required;
+		unsigned char* bytes = (unsigned char*)__btrc_safe_realloc(NULL, capacity);
+		bool copied = __btrc_windows_supervisor_copy_startup(self.native, bytes, capacity, &required, &self.error) == 0;
+		bool parsed = copied && required <= capacity && self.readPolicy(bytes, required);
+		volatile unsigned char* secret = bytes;
+		for (size_t i = (size_t)0; i < capacity; i++) { secret[i] = 0; }
+		free(bytes);
+		if (!parsed) { return false; }
+		self.controlName = PathTools.basename(self.controlFile);
+		self.tokenLine = self.token + "\n";
+		self.stopName = self.controlName + "." + self.token + ".stop";
+		self.probePrefix = self.controlName + "." + self.token + ".probe.";
+		self.record = f"btrc-daemon-v1\n{self.token}\n{Platform.pid()}\n";
+		if (__btrc_windows_supervisor_prepare(self.native, &self.error) != 0 || !self.files.open(PathTools.dirname(self.controlFile))) { return false; }
+		if (__btrc_windows_supervisor_ready_wait_commit(self.native, &self.error) != 0) { return false; }
+		__btrc_windows_daemon_directory_entry created;
+		if (!self.files.create(self.controlName, self.record, &created)) { return false; }
+		self.recordIdentity = created;
+		self.published = true;
+		uint32_t delivered = (uint32_t)0;
+		/* A verified publication survives ACK loss. Runtime success, including
+		 * delivered=0, is the gate for managed execution. */
+		return __btrc_windows_supervisor_ack(self.native, &delivered, &self.error) == 0;
+	}
+
+	private bool probeName(string name, bool allowAcknowledgement) {
+		if (!name.startsWith(self.probePrefix)) { return false; }
+		string challenge = name.substring(self.probePrefix.len(), name.len() - self.probePrefix.len());
+		if (allowAcknowledgement && challenge.endsWith(".ack")) { challenge = challenge.substring(0, challenge.len() - 4); }
+		return DaemonControlRecord.validToken(challenge);
+	}
+
+	/* Poll the fixed stop name first. Keep the directory cursor across bounded
+	 * batches so unrelated entries cannot starve process polling or later probes. */
+	private int service() {
+		string stop = self.files.read(self.stopName, NULL);
+		if (!self.files.usable()) { return -1; }
+		if (stop.equals(self.tokenLine)) { return 1; }
+		for (int i = 0; i < 64; i++) {
+			__btrc_windows_daemon_directory_entry identity;
+			string name = self.files.next(self.restartEnumeration, &identity);
+			self.restartEnumeration = false;
+			if (name.isEmpty()) {
+				self.restartEnumeration = true;
+				return self.files.usable() && (self.files.error.stage == (uint32_t)0 || self.files.missing()) ? 0 : -1;
+			}
+			if (identity.kind != (uint32_t)0 || !self.probeName(name, false)) { continue; }
+			string content = self.files.read(name, &identity);
+			if (!self.files.usable()) { return -1; }
+			if (!content.equals(self.tokenLine)) { continue; }
+			string acknowledgement = name + ".ack";
+			__btrc_windows_daemon_directory_entry ackIdentity;
+			bool answered = self.files.create(acknowledgement, self.tokenLine, &ackIdentity);
+			if (!self.files.usable()) { return -1; }
+			if (!answered) { answered = self.files.read(acknowledgement, NULL).equals(self.tokenLine); }
+			if (!self.files.usable()) { return -1; }
+			if (answered) { self.files.remove(name, &identity, self.tokenLine); }
+			if (!self.files.usable()) { return -1; }
+		}
+		return 0;
+	}
+
+	private bool cleanupRecord() {
+		if (!self.published) { return true; }
+		if (!self.files.read(self.controlName, &self.recordIdentity).equals(self.record)) { return self.files.usable() && self.files.missing(); }
+		long long deadline = MonotonicClock.deadlineAfter(2500LL);
+		bool restart = true;
+		while (MonotonicClock.before(deadline)) {
+			__btrc_windows_daemon_directory_entry identity;
+			string name = self.files.next(restart, &identity);
+			restart = false;
+			if (name.isEmpty()) {
+				if (self.files.error.stage == (uint32_t)0) { return self.files.remove(self.controlName, &self.recordIdentity, self.record); }
+				if (!self.files.usable() || !self.files.missing()) { return false; }
+				restart = true;
+				continue;
+			}
+			if (identity.kind == (uint32_t)0 && (name.equals(self.stopName) || self.probeName(name, true))) {
+				string content = self.files.read(name, &identity);
+				if (!self.files.usable()) { return false; }
+				if (content.equals(self.tokenLine) && !self.files.remove(name, &identity, self.tokenLine) && !self.files.missing()) { return false; }
+			}
+		}
+		return false;
+	}
+
+	private int finish(int code) {
+		/* Release the runtime's record reader only after its managed tree is
+		 * gone, then reopen by the identity captured at publication for cleanup. */
+		if (self.error.ownership_state == (uint32_t)2 || __btrc_windows_supervisor_close(&self.native, (uint64_t)3000, &self.error) != 0) { return 125; }
+		bool removed = self.cleanupRecord();
+		bool closed = self.files.close();
+		return removed && closed ? code : 125;
+	}
+
+	public int run() {
+		if (!self.startup()) { return self.finish(125); }
+		bool started = false;
+		long long restartAt = -1LL;
+		int outcome = 125;
+		while (true) {
+			int request = self.service();
+			if (request < 0) { break; }
+			if (request > 0) { outcome = 0; break; }
+			if (!started) {
+				if (__btrc_windows_supervisor_spawn_managed(self.native, &self.error) != 0) { break; }
+				started = true;
+			}
+			uint32_t running = (uint32_t)0;
+			uint32_t code = (uint32_t)0;
+			if (__btrc_windows_supervisor_poll_managed(self.native, &running, &code, &self.error) != 0) { break; }
+			if (running == (uint32_t)0) {
+				if (!self.autoRestart) { outcome = (int)(int32_t)code; break; }
+				if (restartAt < 0LL) { restartAt = MonotonicClock.deadlineAfter(100LL); }
+				long long now = MonotonicClock.milliseconds();
+				if (restartAt < 0LL || now < 0LL) { break; }
+				if (now >= restartAt) { started = false; restartAt = -1LL; }
+			}
+			Timer.sleepMillis(20);
+		}
+		return self.finish(outcome);
+	}
+}

@@ -1431,3 +1431,73 @@ def test_the_gate_merges_the_host_environment_case_insensitively(tmp_path, monke
     monkeypatch.setattr(executor_module.os, "environ", {"PATH": "host", "SYSTEMROOT": "C:\\Windows"})
     executor_module.WindowsJob.gate("event", request)
     assert seen == {"PATH": "override", "SYSTEMROOT": "C:\\Windows"}
+
+
+def add_companion(bundle, *, machine=0x8664):
+    document = read_document(bundle)
+    name = "probe.exe.btrc-supervisor.exe"
+    data = pe_image(machine, tail=b"companion image")
+    (bundle / name).write_bytes(data)
+    document["programs"]["probe"]["companion"] = {"artifact": name, "sha256": digest(data)}
+    write_document(bundle, document)
+    return name, data
+
+
+def test_companion_is_staged_beside_consumer_held_and_closed(bundle):
+    name, data = add_companion(bundle)
+    host = executor(bundle, Transport())
+    held = host.companions["probe"]
+    staging = host.staging
+    assert held.path == host.programs["probe"].path.with_name(name)
+    assert held.read() == data
+    (bundle / name).write_bytes(b"replaced source")
+    assert held.read() == data
+    host.close()
+    host.close()
+    assert held.closed and host.companions == {} and not staging.exists()
+
+
+@pytest.mark.parametrize("failure", ["digest", "machine", "missing", "mapping", "fields", "link"])
+def test_companion_admission_failure_preserves_previous_bundle(bundle, tmp_path, failure):
+    host = executor(bundle, Transport())
+    previous = host.staging
+    rejected = write_bundle(tmp_path / "rejected")
+    name, _ = add_companion(rejected, machine=0xAA64 if failure == "machine" else 0x8664)
+    document = read_document(rejected)
+    record = document["programs"]["probe"]["companion"]
+    if failure == "digest":
+        record["sha256"] = "0" * 64
+    elif failure == "missing":
+        (rejected / name).unlink()
+    elif failure == "mapping":
+        record["artifact"] = "../outside.exe"
+    elif failure == "fields":
+        record["command"] = "anything"
+    elif failure == "link":
+        (rejected / name).unlink()
+        (rejected / name).symlink_to(rejected / "probe.exe")
+    write_document(rejected, document)
+    with pytest.raises((ValueError, OSError)):
+        host.prepare(rejected, LABEL)
+    assert host.staging == previous and host.companions == {}
+    assert host.run(ExecutionRequest("probe")).exit_status == 0
+    host.close()
+
+
+def test_companion_digest_is_checked_after_staging_hold(bundle):
+    add_companion(bundle)
+    opened = []
+
+    class ChangedCompanion(executor_module.HeldArtifact):
+        def __init__(self, path):
+            super().__init__(path)
+            opened.append(self)
+
+        def read(self):
+            return pe_image(tail=b"swapped") if self.path.name.endswith(".btrc-supervisor.exe") else super().read()
+
+    host = WindowsNativeExecutor(hold=ChangedCompanion)
+    with pytest.raises(ValueError, match="staged companion"):
+        host.prepare(bundle, LABEL)
+    assert len(opened) == 2 and all(held.closed for held in opened)
+    assert host.staging is None and host.programs == {} and host.companions == {}

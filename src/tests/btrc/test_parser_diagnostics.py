@@ -33,6 +33,10 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
 
 
 INVALID_PROGRAMS = [
+    ("void f() { goto; }", "error: Expected IDENT, got SEMICOLON ';' at 1:16\n"),
+    ("void f() { goto new; }", "error: 'new' is a reserved word and cannot be used as a name at 1:17\n"),
+    ("void f() { var: ; }", "error: 'var' is a reserved word and cannot be used as a name at 1:12\n"),
+    ("void f() { if (true) done: }", "error: Expected a statement after label 'done' at 1:28\n"),
     (
         "long long double invalid() { return 0; }",
         "error: Expected IDENT, got DOUBLE 'double' at 1:11\n",
@@ -194,6 +198,25 @@ def test_keyword_member_names_match_reference_ast(selfhost_drivers: dict[str, Pa
     assert parsed.returncode == 0, parsed.stderr
     assert reference.returncode == 0, reference.stderr
     assert parsed.stdout == reference.stdout
+
+
+def test_checked_override_matches_reference_ast(selfhost_drivers: dict[str, Path], tmp_path: Path) -> None:
+    program = tmp_path / "CheckedOverride.btrc"
+    program.write_text(
+        "abstract class Child extends Parent {\n"
+        " public override int value() { return 1; }\n"
+        " public abstract override keep Item make();\n"
+        " static override @realtime int tag() { return 2; }\n"
+        " public int ordinary() { return 3; }\n"
+        "}\n"
+    )
+    parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
+    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "dump-ast", str(program)], timeout=15)
+    assert parsed.returncode == 0, parsed.stderr
+    assert reference.returncode == 0, reference.stderr
+    assert parsed.stdout == reference.stdout
+    assert parsed.stdout.count("is_override=true") == 3
+    assert parsed.stdout.count("is_override=false") == 1
 
 
 def test_concatenation_opening_with_macro_pieces_matches_reference_ast(
@@ -394,3 +417,21 @@ def test_macro_replacement_rejects_language_callable_alias(
         "analysis and cannot be referenced from macro replacement "
         "'CALL_TARGET' at 1:1",
     )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "goto done; done: return 0;",
+        "first: second: int value = 1; last:",
+        "if (true) first: second: ;",
+        "switch (1) { case 1: goto done; done: default: break; }",
+    ],
+)
+def test_goto_ast_matches_reference(selfhost_drivers, tmp_path, body):
+    program = tmp_path / "Goto.btrc"
+    program.write_text("int main() { " + body + " }")
+    native = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
+    reference = _run([sys.executable, "-m", "tools.compiler_codegen.main", "dump-ast", str(program)], timeout=15)
+    assert native.returncode == reference.returncode == 0, native.stderr + reference.stderr
+    assert native.stdout == reference.stdout

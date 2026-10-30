@@ -142,6 +142,12 @@ class OwnershipOperandPlanner {
 		if (kind == NK_CAST_EXPR) {
 			return self.hasEffect(expression.expr, environment);
 		}
+		if (kind == NK_TUPLE_LITERAL) {
+			for element in expression.elements() {
+				if (self.hasEffect(element, environment)) { return true; }
+			}
+			return false;
+		}
 		if (kind == NK_FIELD_ACCESS_EXPR) {
 			if (self.richEnumVariantTag(expression, environment)) { return false; }
 			if (expression.optional || self.hasEffect(expression.obj, environment)) {
@@ -231,8 +237,9 @@ class OwnershipOperandPlanner {
 			 * C signature the temporary is assigned from. */
 			canonical = outer;
 		}
-		if (canonical != null && canonical.pointerDepth == 0 && !canonical.isArray) {
-			/* A copied scalar does not retain the source slot's constness. */
+		if (canonical != null && canonical.pointerDepth == 0 && !canonical.isArray && !self.cTypes.lower(canonical).endsWith("*")) {
+			/* A copied scalar drops the source slot's constness; implicit
+			 * pointers such as string retain their pointee's qualification. */
 			Node storage = TypeShape.copy(canonical);
 			storage.isConst = false;
 			storage.isStatic = false;

@@ -1106,10 +1106,7 @@ class IROptimizer {
 		m.structDefs = structs;
 	}
 
-	/* Number each generated adapter family's surviving members from 1, in
-	 * definition order, and rename every reference. Adapters are numbered when
-	 * lowering first needs them, so without this a family's names depended on
-	 * adapters only dead functions used. Mirrors IROptimizer._renumber_adapters. */
+	/* Recognize generated adapter names by their numeric family suffix. */
 	private bool adapterMember(string name, string prefix) {
 		if (!name.startsWith(prefix) || name.length() == prefix.length()) { return false; }
 		int index = prefix.length();
@@ -1167,11 +1164,9 @@ class IROptimizer {
 		}
 	}
 
-	/* Order and number each generated adapter family by first use: the first
-	 * surviving non-adapter function that names a member, ties keeping
-	 * creation order. Creation order followed the order functions were
-	 * lowered in, which differs between the compilers. The adapters'
-	 * positions are then filled family by family. Mirrors
+	/* Order and number each adapter family by its first structured reference
+	 * in surviving non-adapter function bodies. Ranking individual references
+	 * removes creation-order ties within one surviving function. Mirrors
 	 * IROptimizer._renumber_adapters in the Python owner. */
 	private void renumberAdapters(IRModule module) {
 		Vector<string> families = ["__btrc_arc_slot_access_", "__btrc_mutex_value_access_", "__btrc_store_", "__btrc_cleanup_take_"];
@@ -1183,10 +1178,8 @@ class IROptimizer {
 		}
 		if (members.len == 0) { return; }
 		Map<string, int> firstUse = {};
-		int position = 0;
 		for definition in module.functions {
-			if (!members.has(definition.name)) { self.collectAdapterUses(definition.body, members, position, firstUse); }
-			position = position + 1;
+			if (!members.has(definition.name)) { self.collectAdapterUses(definition.body, members, firstUse); }
 		}
 		int unused = module.functions.len;
 		Map<string, string> placeholders = {};
@@ -1240,33 +1233,66 @@ class IROptimizer {
 		self.renameModuleSymbols(module, finals);
 	}
 
-	private void collectAdapterUses(IRNode? node, Map<string, bool> members, int position, Map<string, int> firstUse) {
+	private void collectAdapterUses(IRNode? node, Map<string, bool> members, Map<string, int> firstUse) {
 		if (node == null) { return; }
 		int domain = node.payloadDomain();
-		if (node.kind == IRK_FUNCTION_REF && members.has(node.name) && !firstUse.has(node.name)) { firstUse.put(node.name, position); }
-		if ((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") != "" && members.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "")) && !firstUse.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""))) { firstUse.put((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""), position); }
+		if (node.kind == IRK_FUNCTION_REF && members.has(node.name) && !firstUse.has(node.name)) { firstUse.put(node.name, firstUse.len); }
+		if ((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "") != "" && members.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "")) && !firstUse.has((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""))) { firstUse.put((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""), firstUse.len); }
 		IRCleanupSlot? slot = (domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).cleanupSlot : domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cleanupSlot : null);
-		if (slot != null && members.has(slot.takeFunction) && !firstUse.has(slot.takeFunction)) { firstUse.put(slot.takeFunction, position); }
-		self.collectAdapterUses(node.left, members, position, firstUse);
-		self.collectAdapterUses(node.right, members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), members, position, firstUse);
-		self.collectAdapterUses(node.expr, members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), members, position, firstUse);
-		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), members, position, firstUse);
-		for argument in node.args() { self.collectAdapterUses(argument, members, position, firstUse); }
-		for statement in node.stmts() { self.collectAdapterUses(statement, members, position, firstUse); }
+		if (slot != null && members.has(slot.takeFunction) && !firstUse.has(slot.takeFunction)) { firstUse.put(slot.takeFunction, firstUse.len); }
+		/* Match the Python IR's field order where the tagged payload's generic
+		 * walk would visit children in a different sequence. */
+		if (node.kind == IRK_VAR_DECL) {
+			IRDeclarationPayload declaration = (IRDeclarationPayload)node.payload;
+			self.collectAdapterUses(declaration.init, members, firstUse);
+			self.collectAdapterUses(declaration.arraySize, members, firstUse);
+			return;
+		}
+		if (node.kind == IRK_ASSIGN) {
+			IRValuePayload assignment = (IRValuePayload)node.payload;
+			self.collectAdapterUses(assignment.target, members, firstUse);
+			self.collectAdapterUses(assignment.value, members, firstUse);
+			return;
+		}
+		if (node.kind == IRK_STMT_EXPR) {
+			for statement in node.stmts() { self.collectAdapterUses(statement, members, firstUse); }
+			self.collectAdapterUses(((IRControlPayload)node.payload).result, members, firstUse);
+			return;
+		}
+		if (node.kind == IRK_DO_WHILE) {
+			IRControlPayload loop = (IRControlPayload)node.payload;
+			self.collectAdapterUses(loop.body, members, firstUse);
+			self.collectAdapterUses(loop.condition, members, firstUse);
+			return;
+		}
+		if (node.kind == IRK_FOR) {
+			IRControlPayload loop = (IRControlPayload)node.payload;
+			self.collectAdapterUses(loop.init, members, firstUse);
+			self.collectAdapterUses(loop.condition, members, firstUse);
+			self.collectAdapterUses(loop.update, members, firstUse);
+			self.collectAdapterUses(loop.body, members, firstUse);
+			return;
+		}
+		self.collectAdapterUses(node.left, members, firstUse);
+		self.collectAdapterUses(node.right, members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_UNARY ? ((IRUnaryPayload)node.payload).operand : domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).operand : null), members, firstUse);
+		self.collectAdapterUses(node.expr, members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).obj : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).obj : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).index : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).condition : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).trueExpr : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).falseExpr : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).arraySize : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).init : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).init : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_PROJECTION_DESIGNATION ? ((IRProjectionPayload)node.payload).value : domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).value : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).value : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).value : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).target : domain == IR_PAYLOAD_VALUE_FLOW ? ((IRValuePayload)node.payload).target : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).thenBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).thenBlock : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).elseBlock : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).elseBlock : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).body : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).body : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).update : null), members, firstUse);
+		self.collectAdapterUses((domain == IR_PAYLOAD_CONTROL_SEQUENCE ? ((IRControlPayload)node.payload).result : null), members, firstUse);
+		for argument in node.args() { self.collectAdapterUses(argument, members, firstUse); }
+		for statement in node.stmts() { self.collectAdapterUses(statement, members, firstUse); }
 	}
 
 	/* Number each function's compiler temporaries from 1, in allocation
@@ -1393,24 +1419,26 @@ class IROptimizer {
 	}
 
 	/* Order prototypes independently of the lowering phase that declared
-	 * them: those with no definition in this module keep their relative order
-	 * and come first, the rest follow their definitions' order. Mirrors
+	 * them: those with no definition in this module come first, ordered by
+	 * name; the rest follow their definitions' order. Mirrors
 	 * IROptimizer._order_prototypes in the Python owner. */
 	private void orderPrototypes(IRModule module) {
 		Map<string, Vector<IRFunctionDecl>> byName = {};
 		Map<string, bool> defined = {};
 		for definition in module.functions { defined.put(definition.name, true); }
-		Vector<IRFunctionDecl> ordered = [];
+		Vector<string> externalNames = [];
 		for declaration in module.functionDecls {
-			if (!defined.has(declaration.name)) {
-				ordered.push(declaration);
-				continue;
-			}
 			if (!byName.has(declaration.name)) {
 				Vector<IRFunctionDecl> group = [];
 				byName.put(declaration.name, group);
+				if (!defined.has(declaration.name)) { externalNames.push(declaration.name); }
 			}
 			byName.get(declaration.name).push(declaration);
+		}
+		externalNames.sort();
+		Vector<IRFunctionDecl> ordered = [];
+		for name in externalNames {
+			for declaration in byName.get(name) { ordered.push(declaration); }
 		}
 		for definition in module.functions {
 			if (!byName.has(definition.name)) { continue; }
@@ -1544,7 +1572,18 @@ class IRTypeDeclarationPlanner {
 	class Vector<IRTypeDeclarationRef> plan(IRModule module) {
 		Vector<IRTypeDeclarationRef> declarations = [];
 		for (int index = 0; index < module.enumDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_ENUM, index)); }
-		for (int index = 0; index < module.functionPointerTypedefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_FUNCTION_POINTER, index)); }
+		Vector<string> callbackNames = [];
+		Map<string, Vector<int>> callbackIndices = {};
+		for (int index = 0; index < module.functionPointerTypedefs.len; index++) {
+			string name = module.functionPointerTypedefs.get(index).name;
+			if (!callbackIndices.has(name)) { callbackNames.push(name); callbackIndices.put(name, []); }
+			callbackIndices.get(name).push(index);
+		}
+		callbackNames.sort();
+		for name in callbackNames {
+			/* Retain duplicates for the common provider validation below. */
+			for index in callbackIndices.get(name) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_FUNCTION_POINTER, index)); }
+		}
 		for (int index = 0; index < module.typedefDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_TYPEDEF, index)); }
 		for (int index = 0; index < module.taggedUnionDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_TAGGED_UNION, index)); }
 		for (int index = 0; index < module.structDefs.len; index++) { declarations.push(IRTypeDeclarationRef(IR_TYPE_DECLARATION_STRUCT, index)); }
@@ -1758,6 +1797,11 @@ class IRTypeDeclarationPlanner {
 			bool requiresComplete = completeTypeContext && text.indexOf("*") < 0;
 			for provider in IRTypeDeclarationPlanner.typeReferences(text, providers) {
 				IRTypeDeclarationRef provided = declarations.get(provider);
+				if (provider == declarationIndex && declaration.group == IR_TYPE_DECLARATION_TYPEDEF) {
+					string name = IRTypeDeclarationPlanner.declarationName(module, declaration);
+					/* A foreign tag and its typedef live in separate C namespaces. */
+					if (text == "struct " + name || text == "union " + name) { continue; }
+				}
 				if (!IRTypeDeclarationPlanner.isAggregate(provided) || requiresComplete) { dependencies.push(provider); }
 				if (requiresComplete && provided.group == IR_TYPE_DECLARATION_TYPEDEF) {
 					for target in aliasTargets.get(provider) { dependencies.push(target); }

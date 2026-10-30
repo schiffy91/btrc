@@ -28,10 +28,14 @@ class BtrccResolvedCompilation {
 class BtrccModuleUnitPayload {
 	public string record;
 	public string text;
+	public string interfaceHeader;
+	public string linkPlanFragment;
 
-	public BtrccModuleUnitPayload(string record, string text) {
+	public BtrccModuleUnitPayload(string record, string text, string interfaceHeader = "", string linkPlanFragment = "") {
 		self.record = record;
 		self.text = text;
+		self.interfaceHeader = interfaceHeader;
+		self.linkPlanFragment = linkPlanFragment;
 	}
 }
 
@@ -47,6 +51,8 @@ class BtrccOptions {
 	public bool valid;
 	public bool includeStdlib;
 	public bool strictImports;
+	/* Validate imported stdlib bodies even when the program does not use them. */
+	public bool stdlibStrict = false;
 	public bool runDce;
 	public bool showHelp;
 	public bool showStdlibDirectory;

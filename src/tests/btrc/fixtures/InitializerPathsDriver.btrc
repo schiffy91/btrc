@@ -1,0 +1,91 @@
+import Library.IO;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+import ../../../compiler/btrc/analyzer/Analyzer.btrc;
+import ../../../compiler/btrc/analyzer/HostedAbi.btrc;
+import ../../../compiler/btrc/analyzer/Models.btrc;
+import ../../../compiler/btrc/analyzer/Types.btrc;
+import ../../../compiler/btrc/generated/ast/Node.btrc;
+import ../../../compiler/btrc/generated/hosted_abi/Tables.btrc;
+import ../../../compiler/btrc/generated/runtime/Catalog.btrc;
+import ../../../compiler/btrc/ir/lowering/Aggregates.btrc;
+import ../../../compiler/btrc/ir/lowering/Types.btrc;
+import ../../../compiler/btrc/ir/lowering/ownership/Operands.btrc;
+import ../../../compiler/btrc/lexer/Lexer.btrc;
+import ../../../compiler/btrc/parser/Parser.btrc;
+import ../../../compiler/btrc/parser/SourceMacros.btrc;
+import ../../../compiler/btrc/syntax/Grammar.btrc;
+import ../../../compiler/btrc/syntax/Tokens.btrc;
+#include <assert.h>
+
+/* Feed designators through the existing ASDL shape until r10's parser and
+ * lowering land together. Member/index expression parsing supplies the path. */
+class InitializerPathFixture {
+	class Node designation(GrammarInfo grammar, string path, int offset) {
+		Node result = Node();
+		result.kind = NK_DESIGNATION;
+		if (path == "pos") { return result; }
+		var parser = Parser(Lexer("value" + path, grammar).tokenize(), grammar);
+		Node? expression = parser.parseExpression();
+		assert(!parser.failed);
+		Vector<Node> reversed = [];
+		while (expression != null && (expression.kind == NK_FIELD_ACCESS_EXPR || expression.kind == NK_INDEX_EXPR)) {
+			Node part = Node();
+			if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+				part.kind = NK_FIELD_DESIGNATOR;
+				part.field = expression.field;
+			} else {
+				part.kind = NK_INDEX_DESIGNATOR;
+				part.index = expression.index;
+			}
+			part.line = 4;
+			part.col = 10 + offset * 10;
+			reversed.push(part);
+			expression = expression.obj;
+		}
+		for (int index = reversed.len - 1; index >= 0; index--) { result.partsMut().push(reversed.get(index)); }
+		return result;
+	}
+}
+
+int main(int argc, char** argv) {
+	assert(argc == 4);
+	var grammar = EbnfGrammarParser(Path.readAll(Strings.copy(argv[1]))).parse();
+	var parser = Parser(Lexer(Path.readAll(Strings.copy(argv[2])), grammar).tokenize(), grammar);
+	Node program = parser.parseProgram();
+	assert(!parser.failed);
+	Node brace = program.declarations().get(program.declarations().len - 1).bodyNode.statements().get(0).initializer;
+	Vector<string> paths = Strings.split(Strings.copy(argv[3]), "\n");
+	for (int index = 0; index < paths.len; index++) {
+		brace.entriesMut().push(InitializerPathFixture.designation(grammar, paths.get(index), index));
+	}
+	var tables = GeneratedHostedAbiData();
+	var abi = HostedAbiRepository(tables);
+	var runtime = GeneratedRuntimeCatalogData();
+	Map<string, bool> noNames = {};
+	var rules = SourceMacroRules(TokenVocabulary(), noNames, noNames, noNames);
+	var analyzer = SemanticAnalyzer(SourceRuntimeSymbols(runtime.rows, runtime.intrinsicEffects), rules, tables.targetRows().get(0));
+	Analyzed analyzed = analyzer.analyze(program, abi);
+	if (analyzed.structTable.has("B")) {
+		SemanticInitializerPlan plan = SemanticTypeSystem.initializerSlots(analyzed.structTable.get("B"), brace, analyzed);
+		assert(plan.slots.get(0).member().name == "y");
+		assert(plan.slots.get(0).type.base == "double");
+		var operands = OwnershipOperandPlanner(analyzed, analyzer.operatorSemantics(), analyzer.gpuSemantics(), analyzer.expressionTypes(), CTypeLowerer(analyzed, abi));
+		var aggregates = AggregateValueLowerer(analyzed, analyzer.managedValueSemantics(), operands);
+		Map<string, Node> empty = {};
+		var environment = OwnershipOperandEnvironment(empty, empty, false, false, false, "");
+		Node expected = Node();
+		expected.kind = NK_TYPE_EXPR;
+		expected.base = "B";
+		AggregateEvaluationPlan recordPlan = aggregates.plan(brace, expected, environment);
+		assert(recordPlan.operands.get(0).contextualType.base == "double");
+		expected.base = "double";
+		expected.isArray = true;
+		AggregateEvaluationPlan arrayPlan = aggregates.plan(brace, expected, environment);
+		assert(arrayPlan.operands.get(0).contextualType.base == "double");
+	}
+	printf("ok\n");
+	return 0;
+}

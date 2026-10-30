@@ -37,11 +37,13 @@ from ..ir.nodes import (
     IRFunctionPointerTypedef,
     IRFunctionRef,
     IRGlobalDecl,
+    IRGoto,
     IRGpuKernel,
     IRIf,
     IRInclude,
     IRIndex,
     IRInitializerList,
+    IRLabel,
     IRLineMarker,
     IRLiteral,
     IRMacroDef,
@@ -718,7 +720,7 @@ class CEmitter:
             body._emit_block_contents(expression.body)
             parameters = (
                 ", ".join(
-                    f"{CType.qualify_volatile_object(str(param.c_type), param.is_volatile)} {param.name}"
+                    f"{'register ' if param.is_register else ''}{CType.qualify_volatile_object(str(param.c_type), param.is_volatile)} {param.name}"
                     for param in expression.params
                 )
                 or "void"
@@ -809,7 +811,15 @@ class CEmitter:
 
         if declaration.is_static and declaration.is_extern:
             raise ValueError(f"IR variable {declaration.name!r} is both static and extern")
-        storage = "static " if declaration.is_static else "extern " if declaration.is_extern else ""
+        storage = (
+            "register "
+            if declaration.is_register
+            else "static "
+            if declaration.is_static
+            else "extern "
+            if declaration.is_extern
+            else ""
+        )
         return storage + CType.qualify_volatile_object(
             str(declaration.c_type),
             declaration.is_volatile,
@@ -948,6 +958,12 @@ class CEmitter:
             self._line("}")
         elif isinstance(statement, IRExprStmt):
             self._line(f"{self._discarded_expr(statement.expr)};")
+        elif isinstance(statement, IRGoto):
+            self._line(f"goto {statement.name};")
+        elif isinstance(statement, IRLabel):
+            if statement.falls_through:
+                self._line("/* fall through */")
+            self._line(f"{statement.name}: ;")
         elif isinstance(statement, IRBreak):
             self._line("break;")
         elif isinstance(statement, IRContinue):
@@ -1005,7 +1021,7 @@ class CEmitter:
             raise TypeError(f"unsupported typed declaration {type(declaration).__name__}")
 
     def _emit_enum_def(self, enum: IREnumDef):
-        self._line("typedef enum {" if enum.name is not None else "enum {")
+        self._line(f"typedef enum {enum.name} {{" if enum.name is not None else "enum {")
         self._indent += 1
         for index, value in enumerate(enum.values):
             comma = "," if index < len(enum.values) - 1 else ""
@@ -1033,7 +1049,11 @@ class CEmitter:
                 " ".join(
                     filter(
                         None,
-                        (CType.qualify_volatile_object(str(parameter.c_type), parameter.is_volatile), parameter.name),
+                        (
+                            "register" if parameter.is_register else "",
+                            CType.qualify_volatile_object(str(parameter.c_type), parameter.is_volatile),
+                            parameter.name,
+                        ),
                     )
                 )
                 for parameter in declaration.params

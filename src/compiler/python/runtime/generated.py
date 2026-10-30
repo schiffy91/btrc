@@ -5088,23 +5088,23 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'CreateProcessW, 10 job assignment, 11 resume, 12 pipe I/O, 13 wait,\n * 1'
             '4 termination, 15 unsupported host, 16 environment, 17 working directory'
             ',\n * 18 buffer capacity. Error domain: 0 none, 1 validation, 2 Win32\n * '
-            '(native_code is the GetLastError value), 4 runtime refusal. Ownership\n *'
-            ' state: 0 none or released, 1 a live owner is retained, 2 poisoned. */\nt'
-            'ypedef struct __btrc_windows_launch_owner_t __btrc_windows_launch_owner_'
-            't;\ntypedef struct {\n    char *executable_utf8;\n    char **argv_utf8;\n   '
-            ' size_t argc;\n    char *cwd_utf8;\n    char **environment_overrides_utf8;'
-            '\n    size_t override_count;\n    char **environment_unsets_utf8;\n    size'
-            '_t unset_count;\n    unsigned char *stdin_bytes;\n    size_t stdin_size;\n '
-            '   uint32_t stdin_mode;\n    uint32_t stdout_mode;\n    uint32_t stderr_mo'
-            'de;\n    size_t stdout_limit;\n    size_t stderr_limit;\n} __btrc_windows_l'
-            'aunch_options_t;\ntypedef struct {\n    uint32_t stage;\n    uint32_t domai'
-            'n;\n    uint32_t native_code;\n    uint32_t ownership_state;\n} __btrc_wind'
-            'ows_launch_error_t;\ntypedef struct {\n    uint32_t state;\n    uint32_t na'
-            'tive_exit_code;\n    uint32_t has_exit_code;\n    uint32_t launch_failed;\n'
-            '    uint32_t timed_out;\n    uint32_t capture_exceeded;\n    uint32_t capt'
-            'ure_failed;\n    uint64_t stdout_bytes_seen;\n    uint64_t stderr_bytes_se'
-            'en;\n    size_t stdout_bytes_retained;\n    size_t stderr_bytes_retained;\n'
-            '} __btrc_windows_launch_result_t;'
+            '(native_code is the GetLastError value), 3 raw NTSTATUS, 4 runtime refus'
+            'al. Ownership\n * state: 0 none or released, 1 a live owner is retained, '
+            '2 poisoned. */\ntypedef struct __btrc_windows_launch_owner_t __btrc_windo'
+            'ws_launch_owner_t;\ntypedef struct {\n    char *executable_utf8;\n    char '
+            '**argv_utf8;\n    size_t argc;\n    char *cwd_utf8;\n    char **environment'
+            '_overrides_utf8;\n    size_t override_count;\n    char **environment_unset'
+            's_utf8;\n    size_t unset_count;\n    unsigned char *stdin_bytes;\n    size'
+            '_t stdin_size;\n    uint32_t stdin_mode;\n    uint32_t stdout_mode;\n    ui'
+            'nt32_t stderr_mode;\n    size_t stdout_limit;\n    size_t stderr_limit;\n} '
+            '__btrc_windows_launch_options_t;\ntypedef struct {\n    uint32_t stage;\n  '
+            '  uint32_t domain;\n    uint32_t native_code;\n    uint32_t ownership_stat'
+            'e;\n} __btrc_windows_launch_error_t;\ntypedef struct {\n    uint32_t state;'
+            '\n    uint32_t native_exit_code;\n    uint32_t has_exit_code;\n    uint32_t'
+            ' launch_failed;\n    uint32_t timed_out;\n    uint32_t capture_exceeded;\n '
+            '   uint32_t capture_failed;\n    uint64_t stdout_bytes_seen;\n    uint64_t'
+            ' stderr_bytes_seen;\n    size_t stdout_bytes_retained;\n    size_t stderr_'
+            'bytes_retained;\n} __btrc_windows_launch_result_t;'
         ),
         depends_on=(),
         required_headers=('stddef.h', 'stdint.h'),
@@ -5219,6 +5219,477 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_objects=(),
         source_visible=True,
         realtime_effect='safe',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_types',
+        c_source=(
+            'typedef struct __btrc_windows_supervisor_owner __btrc_windows_supervisor'
+            '_owner;'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=('__btrc_windows_supervisor_owner',),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_accept',
+        c_source=(
+            '/* Admit the inherited bootstrap handles and receive one complete INIT w'
+            'ithin\n * a positive finite budget. Failure releases acquired resources, '
+            'or retains\n * *out and reports live/poisoned ownership when cleanup cann'
+            'ot finish. */\nint __btrc_windows_supervisor_accept(uint64_t startup_time'
+            'out_ms,\n    __btrc_windows_supervisor_owner **out, __btrc_windows_launch'
+            '_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_copy_startup',
+        c_source=(
+            '/* Query/copy the canonical INIT payload, without its 16-byte frame head'
+            'er.\n * Includes the token; the caller must scrub its copy. Insufficient '
+            'capacity\n * reports the required byte count and makes no partial copy. *'
+            '/\nint __btrc_windows_supervisor_copy_startup(__btrc_windows_supervisor_o'
+            'wner *owner,\n    unsigned char *buffer, size_t capacity, size_t *require'
+            'd_bytes,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_prepare',
+        c_source=(
+            '/* Validate and retain the command/environment snapshot, create an unnam'
+            'ed\n * kill-on-close job, hold the private append log, and redirect CRT/n'
+            'ative\n * diagnostics to it. No managed command runs during preparation. '
+            '*/\nint __btrc_windows_supervisor_prepare(__btrc_windows_supervisor_owner'
+            ' *owner,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_ready_wait_commit',
+        c_source=(
+            "/* READY and the complete authenticated COMMIT share accept's deadline. "
+            'A\n * failed exchange aborts preparation; no managed command has started.'
+            ' */\nint __btrc_windows_supervisor_ready_wait_commit(__btrc_windows_super'
+            'visor_owner *owner,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_ack',
+        c_source=(
+            '/* Verify the protected record before ACK. After verification, ordinary '
+            'ACK\n * loss succeeds with delivered=0. Failed cleanup poisons the retain'
+            'ed owner.\n * Success scrubs startup storage, so copy_startup must preced'
+            'e this call. */\nint __btrc_windows_supervisor_ack(__btrc_windows_supervi'
+            'sor_owner *owner,\n    uint32_t *ack_delivered, __btrc_windows_launch_err'
+            'or_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_spawn_managed',
+        c_source=(
+            '/* Start only after COMMIT, protected publication and completed bootstra'
+            'p\n * cleanup. An active generation cannot be replaced. A restart gets a '
+            'new job\n * and the exact retained command/environment snapshot. */\nint _'
+            '_btrc_windows_supervisor_spawn_managed(__btrc_windows_supervisor_owner *'
+            'owner,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_poll_managed',
+        c_source=(
+            '/* Poll never waits. running stays true until the root and all descendan'
+            "ts\n * have exited; only then is native_exit_code the root's complete DWO"
+            'RD code. */\nint __btrc_windows_supervisor_poll_managed(__btrc_windows_su'
+            'pervisor_owner *owner,\n    uint32_t *running, uint32_t *native_exit_code'
+            ', __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_terminate_managed',
+        c_source=(
+            '/* Idempotent termination of the current tree; poll or close reaps it. *'
+            '/\nint __btrc_windows_supervisor_terminate_managed(__btrc_windows_supervi'
+            'sor_owner *owner,\n    uint32_t exit_code, __btrc_windows_launch_error_t '
+            '*error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_close',
+        c_source=(
+            '/* Terminate/reap the managed tree, cancel/drain bootstrap operations, r'
+            'elease\n * preparation and scrub storage within one timeout. Only complet'
+            'e release\n * nulls *owner; live state is never freed on timeout. A retai'
+            'ned\n * poisoned owner must be left to process teardown, not retried. */\n'
+            'int __btrc_windows_supervisor_close(__btrc_windows_supervisor_owner **ow'
+            'ner,\n    uint64_t timeout_ms, __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_image_types',
+        c_source=(
+            'typedef struct __btrc_windows_image_owner __btrc_windows_image_owner;\nty'
+            'pedef struct {\n    unsigned char sha256[32];\n    uint32_t protocol;\n    '
+            'const char *abi_utf8;\n    const char *basename_utf8;\n} __btrc_windows_da'
+            'emon_metadata_t;\nextern const __btrc_windows_daemon_metadata_t __btrc_wi'
+            'ndows_daemon_metadata;\n\ntypedef struct {\n    __btrc_windows_launch_optio'
+            'ns_t command;\n    const char *name_utf8, *control_path_utf8, *log_path_u'
+            'tf8;\n    uint32_t auto_restart;\n} __btrc_windows_daemon_startup;\ntypedef'
+            ' struct {\n    uint32_t state; /* 0 confirmed, 1 failed before COMMIT, 2 '
+            'indeterminate */\n    uint32_t supervisor_pid, lifetime; /* lifetime: 0 i'
+            'ndependent, 1 contained */\n} __btrc_windows_transfer_result;'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=('__btrc_windows_image_owner', '__btrc_windows_daemon_metadata_t', '__btrc_windows_daemon_startup', '__btrc_windows_transfer_result'),
+        provided_objects=('__btrc_windows_daemon_metadata',),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_image_verify',
+        c_source=(
+            '/* out initializes to null. Failure retains an owner only if cleanup is\n'
+            ' * uncertain; ownership_state=2 forbids retry and leaves release to proc'
+            'ess\n * teardown. Successful admission holds the image and every ancestor'
+            ' against\n * replacement until close. After transfer, pending cleanup ret'
+            'ains a live\n * owner (ownership_state=1); image_close polls cleanup with'
+            'out adding a wait\n * budget and may be retried. Uncertain release poison'
+            's it (state=2). Calls on\n * one owner, including transfer and close, mus'
+            't not overlap. */\nint __btrc_windows_supervisor_image_verify(__btrc_wind'
+            'ows_image_owner **out,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_image_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_image_close',
+        c_source=(
+            'int __btrc_windows_supervisor_image_close(__btrc_windows_image_owner **i'
+            'mage,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_image_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_supervisor_transfer',
+        c_source=(
+            '/* Strings/token are copied for this call. Daemon policy fixes stdio: co'
+            'mmand\n * input/output options do not create extra mappings. One positive'
+            ' finite\n * budget covers snapshot, launch, handshake, record verificatio'
+            'n and cleanup.\n * State 2 never authorizes an automatic retry; the contr'
+            'oller reconciles the\n * token-bound record and liveness separately. Pend'
+            'ing cleanup stays reachable\n * through image; image_close never terminat'
+            'es after COMMIT was attempted. */\nint __btrc_windows_supervisor_transfer'
+            '(const __btrc_windows_image_owner *image,\n    const __btrc_windows_daemo'
+            'n_startup *startup, const unsigned char token[16],\n    uint64_t startup_'
+            'timeout_ms, __btrc_windows_transfer_result *result,\n    __btrc_windows_l'
+            'aunch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_supervisor_image_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_types',
+        c_source=(
+            '/* Private daemon files retain verified ancestry and current-user ACLs.\n'
+            ' * The opaque owner holds native handles; no SDK type escapes this inter'
+            'face.\n * Paths/names are strict UTF-8 byte spans. Buffers are borrowed o'
+            'nly during\n * synchronous calls. A failed acquisition can retain a poiso'
+            'ned output owner\n * when native cleanup is uncertain; never discard or r'
+            'etry that owner. */\ntypedef struct __btrc_windows_daemon_file_owner __bt'
+            'rc_windows_daemon_file_owner;\ntypedef struct {\n    uint32_t present, kin'
+            'd; /* kind: regular=0, directory=1, surrogate=2, other=3 */\n    uint64_t'
+            ' volume;\n    unsigned char file_id[16];\n} __btrc_windows_daemon_director'
+            'y_entry;\nenum {\n    BTRC_WOS_CONTROL_READ = 0,\n    BTRC_WOS_CONTROL_CREA'
+            'TE = 1,\n    BTRC_WOS_CONTROL_REMOVE = 2\n};'
+        ),
+        depends_on=('__btrc_windows_launch_types',),
+        required_headers=(),
+        provided_types=('__btrc_windows_daemon_file_owner', '__btrc_windows_daemon_directory_entry'),
+        provided_objects=(),
+        source_visible=False,
+        realtime_effect='unknown',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_directory_open',
+        c_source=(
+            'int __btrc_windows_daemon_directory_open(const unsigned char *path, size'
+            '_t size,\n    uint32_t create, __btrc_windows_daemon_file_owner **out, __'
+            'btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_directory_path',
+        c_source=(
+            'int __btrc_windows_daemon_directory_path(__btrc_windows_daemon_file_owne'
+            'r *directory,\n    unsigned char *buffer, size_t capacity, size_t *requir'
+            'ed_bytes,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_directory_next',
+        c_source=(
+            'int __btrc_windows_daemon_directory_next(__btrc_windows_daemon_file_owne'
+            'r *directory, uint32_t restart,\n    unsigned char *buffer, size_t capaci'
+            'ty, size_t *required_bytes,\n    __btrc_windows_daemon_directory_entry *e'
+            'ntry, __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_control_open',
+        c_source=(
+            'int __btrc_windows_daemon_control_open(const unsigned char *path, size_t'
+            ' size,\n    uint32_t access, __btrc_windows_daemon_file_owner **out, __bt'
+            'rc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_control_open_at',
+        c_source=(
+            'int __btrc_windows_daemon_control_open_at(__btrc_windows_daemon_file_own'
+            'er *directory,\n    const unsigned char *name, size_t size, uint32_t acce'
+            'ss,\n    const __btrc_windows_daemon_directory_entry *expected,\n    __btr'
+            'c_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *error)'
+            ';'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_read',
+        c_source=(
+            'int __btrc_windows_daemon_file_read(__btrc_windows_daemon_file_owner *fi'
+            'le, uint64_t offset,\n    unsigned char *buffer, size_t capacity, size_t '
+            '*transferred,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_write',
+        c_source=(
+            'int __btrc_windows_daemon_file_write(__btrc_windows_daemon_file_owner *f'
+            'ile, uint64_t offset,\n    const unsigned char *buffer, size_t size, size'
+            '_t *transferred,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_flush',
+        c_source=(
+            'int __btrc_windows_daemon_file_flush(__btrc_windows_daemon_file_owner *f'
+            'ile,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_dispose',
+        c_source=(
+            'int __btrc_windows_daemon_file_dispose(__btrc_windows_daemon_file_owner '
+            '*file, uint32_t *state,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_log_open',
+        c_source=(
+            'int __btrc_windows_daemon_log_open(const unsigned char *path, size_t siz'
+            'e,\n    __btrc_windows_daemon_file_owner **out, __btrc_windows_launch_err'
+            'or_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_record_open',
+        c_source=(
+            'int __btrc_windows_daemon_record_open(const unsigned char *path, size_t '
+            'size,\n    const unsigned char token[16], uint32_t supervisor_pid,\n    __'
+            'btrc_windows_daemon_file_owner **out, __btrc_windows_launch_error_t *err'
+            'or);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_close',
+        c_source=(
+            'int __btrc_windows_daemon_file_close(__btrc_windows_daemon_file_owner **'
+            'file,\n    __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_windows_daemon_file_identity',
+        c_source=(
+            "/* Snapshot the checked held object's full identity. It grants no author"
+            'ity;\n * pass it to a later relative control open to reject replacements.'
+            ' Failure\n * clears the snapshot and preserves the owner. No pathname is '
+            'reopened. */\nint __btrc_windows_daemon_file_identity(__btrc_windows_daem'
+            'on_file_owner *file,\n    __btrc_windows_daemon_directory_entry *identity'
+            ', __btrc_windows_launch_error_t *error);'
+        ),
+        depends_on=('__btrc_windows_daemon_file_types',),
+        required_headers=(),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+        realtime_effect='blocking',
     ),
 )
 

@@ -716,11 +716,19 @@ CL-P1-11/CL-P2-02 own its builder, runtime and runner prerequisites.
 
 CL-P1-11 adds a target-filtered auxiliary-executable declaration, selected only
 by retained Windows Daemon-start capability. Both frontends emit the source,
-consumer-derived sibling basename, ABI and protocol identically. Build the leaf
+raw source digest, ABI and protocol identically. The native builder derives the
+sibling basename from the final consumer output name, which is not known when
+the frontends emit C. Build the leaf
 supervisor with the consumer's frontend, ABI and runtime revision; suppress
-auxiliary emission for this leaf and reject recursive declarations. Link it with
-`/DEPENDENTLOADFLAG:0x800` (GNU linker equivalent `--dependent-load-flag=0x800`),
-allowing dependent DLL resolution only in System32. Statically link non-system
+auxiliary emission for this leaf and reject recursive declarations. Its PE
+load configuration must set `DependentLoadFlags` to exactly `0x800`, allowing
+dependent DLL resolution only in System32. Use `/DEPENDENTLOADFLAG:0x800` where
+the driver supports it. The pinned Zig 0.16 GNU driver rejects both that spelling
+and `--dependent-load-flag=0x800`; its build instead supplies a data-only
+`_load_config_used` object with that field. The builder checks the finished PE
+again after optional signing. This emits the loader's required data without
+post-link patching or changing the search policy. The MSVC path retains the
+CRT's load configuration and uses the linker option. Statically link non-system
 runtime dependencies, including winpthreads; inability to provide this loader
 policy is a build failure, not a search-path fallback. Test planted DLLs next to
 the image and in cwd/PATH. No additional app-directory delay-loaded dependency

@@ -12,6 +12,7 @@ import ../Declarations.btrc;
 import ../Expressions.btrc;
 import ../Generics.btrc;
 import ../GPU.btrc;
+import ../HostedAbi.btrc;
 import ../Models.btrc;
 import ../Operators.btrc;
 import ../Types.btrc;
@@ -90,14 +91,16 @@ class TypeValidator {
 	private OperatorSemantics operators;
 	private GpuSemantics gpu;
 	private SemanticTypeSystem semanticTypes;
+	private HostedAbiRepository hostedAbi;
 	private DeclarationRegistry declarationRegistry;
 	private ExpressionTypeResolver expressionTypes;
 
-	public TypeValidator(SemanticValidationState state, OperatorSemantics operators, GpuSemantics gpu, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes) {
+	public TypeValidator(SemanticValidationState state, OperatorSemantics operators, GpuSemantics gpu, SemanticTypeSystem semanticTypes, DeclarationRegistry declarationRegistry, ExpressionTypeResolver expressionTypes, HostedAbiRepository hostedAbi) {
 		self.state = state;
 		self.operators = operators;
 		self.gpu = gpu;
 		self.semanticTypes = semanticTypes;
+		self.hostedAbi = hostedAbi;
 		self.declarationRegistry = declarationRegistry;
 		self.expressionTypes = expressionTypes;
 	}
@@ -214,7 +217,7 @@ class TypeValidator {
 			}
 			result = result + ">";
 		}
-		int stars = typeExpr.pointerDepth - (typeExpr.isNullable ? 1 : 0);
+		int stars = self.state.analyzed.writtenPointerDepth(typeExpr) - (typeExpr.isNullable ? 1 : 0);
 		while (stars > 0) { result = result + "*"; stars = stars - 1; }
 		if (typeExpr.isNullable) { result = result + "?"; }
 		if (typeExpr.isArray) { result = result + "[]"; }
@@ -655,12 +658,7 @@ class TypeValidator {
 		return !typeExpr.isArray && typeExpr.pointerDepth <= 1 && (SemanticTypeSystem.isString(typeExpr) || (typeExpr.base == "Mutex" && typeExpr.genericArgs().len == 1 && typeExpr.pointerDepth == 0) || self.state.analyzed.isClass(typeExpr.base) || self.state.analyzed.isGenericClass(typeExpr.base));
 	}
 
-	public Node arrayElementType(Node arrayType) {
-		Node element = TypeShape.withoutOuterArray(arrayType);
-		element.isStatic = false;
-		element.isExtern = false;
-		return element;
-	}
+	public Node arrayElementType(Node arrayType) { return TypeShape.valueType(TypeShape.withoutOuterArray(arrayType)); }
 
 	public bool contextualAggregateInitializer(Node? initializer) { return initializer != null && (initializer.kind == NK_BRACE_INITIALIZER || initializer.kind == NK_LIST_LITERAL || initializer.kind == NK_MAP_LITERAL); }
 
@@ -1126,6 +1124,21 @@ class TypeValidator {
 		}
 	}
 
+	public void validateAnonymousMembers(Node declaration) {
+		for member in SemanticTypeSystem.recordMembers(declaration) {
+			if (member.kind != NK_ANONYMOUS_MEMBER) { continue; }
+			for field in SemanticTypeSystem.recordFields(member) {
+				Map<string, bool> visiting = {};
+				Vector<string> reason = self.unionMemberBlocker(field.type, visiting);
+				if (reason.len == 0) { continue; }
+				string held = "a RealtimeFunction";
+				if (reason.get(0) == "managed") { held = "managed type '" + reason.get(1) + "'"; }
+				if (reason.get(0) == "contains") { held = "'" + reason.get(1) + "', which contains managed field '" + reason.get(2) + "'"; }
+				TypeValidator.fail("Member '" + field.name + "' of an anonymous " + SemanticTypeSystem.recordKeyword(member) + " in " + SemanticTypeSystem.recordKeyword(declaration) + " '" + declaration.name + "' cannot hold " + held + "; anonymous members must be plain C values", field);
+			}
+		}
+	}
+
 	public bool realtimePod(Node? typeExpr) { return RealtimePayloadRules.pod(typeExpr, self.state.analyzed); }
 
 	/* The struct with a flexible array member that typeExpr stores by value
@@ -1188,7 +1201,7 @@ class TypeValidator {
 			return true;
 		}
 		string base = typeExpr.base;
-		return self.state.typeParams.has(base) || NumericSemantics.isIntegralBase(base) || NumericSemantics.isStandardTypedef(base) || base == "float" || base == "double" || base == "long double" || base == "bool" || base == "string" || base == "void" || self.runtimeTypeBase(base) || self.state.analyzed.isClass(base) || self.state.analyzed.isGenericClass(base) || self.state.interfaces.has(base) || self.state.analyzed.isEnum(base) || self.state.analyzed.isRichEnum(base) || self.state.analyzed.structTable.has(base) || self.state.analyzed.typedefTable.has(base) || base.endsWith("_t") || self.explicitCTag(base);
+		return self.state.typeParams.has(base) || NumericSemantics.isIntegralBase(base) || NumericSemantics.isStandardTypedef(base) || base == "float" || base == "double" || base == "long double" || base == "bool" || base == "string" || base == "void" || self.runtimeTypeBase(base) || self.hostedAbi.typeName(base) || self.state.analyzed.isClass(base) || self.state.analyzed.isGenericClass(base) || self.state.interfaces.has(base) || self.state.analyzed.isEnum(base) || self.state.analyzed.isRichEnum(base) || self.state.analyzed.structTable.has(base) || self.state.analyzed.typedefTable.has(base) || base.endsWith("_t") || self.explicitCTag(base);
 	}
 
 	private int declaredGenericArity(string base) {
@@ -1208,6 +1221,90 @@ class TypeValidator {
 		return -1;
 	}
 
+	public bool variablyModified(Node? typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		return canonical != null && canonical.arraySize != null && !self.state.analyzed.constantArrayBoundKeys.has(AstIdentity.key(canonical.arraySize));
+	}
+
+	/* Validation owns this policy beside registerStorageType: it needs the
+	 * numeric domain, lexical type parameters and proven array bounds. */
+	public bool plainCObject(Node? typeExpr) {
+		Map<string, bool> visiting = {};
+		return self.plainCObjectVisiting(typeExpr, visiting);
+	}
+
+	private bool plainCObjectVisiting(Node? typeExpr, Map<string, bool> visiting) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null) { return false; }
+		string base = canonical.base;
+		if (canonical.isNullable || self.state.typeParams.has(base) || canonical.genericArgs().len > 0) { return false; }
+		if (base == "string" || base == "Mutex" || base == "Thread" || base == "Tuple" || base == "Span" || base == "Atomic" || base == "__fn_ptr" || base == "__realtime_fn_ptr") { return false; }
+		if (self.state.analyzed.isClass(base) || self.state.analyzed.isGenericClass(base) || self.state.analyzed.isInterface(base) || self.state.analyzed.isRichEnum(base)) { return false; }
+		if (canonical.isArray) {
+			if (canonical.arraySize == null || self.variablyModified(canonical)) { return false; }
+			for extent in canonical.elements() {
+				if (extent.arraySize == null || self.variablyModified(extent)) { return false; }
+			}
+			Node element = TypeShape.copyWithoutArraySize(canonical, canonical.genericArgs());
+			element.isArray = false;
+			return self.plainCObjectVisiting(element, visiting);
+		}
+		if (canonical.pointerDepth > 0) { return true; }
+		if (NumericSemantics.isType(canonical, self.state.analyzed)) { return true; }
+		string name = SemanticTypeSystem.recordTagName(base);
+		if (self.state.analyzed.structTable.has(name)) {
+			if (visiting.has(name)) { return false; }
+			Map<string, bool> nested = self.cloneFlags(visiting);
+			nested.put(name, true);
+			for field in SemanticTypeSystem.recordFields(self.state.analyzed.structTable.get(name)) {
+				if (!self.plainCObjectVisiting(field.type, nested)) { return false; }
+			}
+			return true;
+		}
+		return self.hostedAbi.typeName(base) || self.hostedAbi.typedefName(base) || base.startsWith("struct ") || base.startsWith("union ");
+	}
+
+	public bool plainDeclaration(Node? declared, Node? initializer, bool initializerManaged) {
+		Node? actual = self.resolveAliases(initializer);
+		return self.plainCObject(declared) && !initializerManaged && (actual == null || !self.state.typeParams.has(actual.base));
+	}
+
+	public bool registerStorageType(Node typeExpr) {
+		Node? canonical = self.resolveAliases(typeExpr);
+		if (canonical == null || canonical.isArray) { return false; }
+		bool managed = canonical.pointerDepth <= 1 && (canonical.base == "string" || canonical.base == "Mutex" || self.state.analyzed.isClass(canonical.base) || self.state.analyzed.isGenericClass(canonical.base) || self.state.analyzed.isInterface(canonical.base));
+		return !managed && (canonical.pointerDepth > 0 || NumericSemantics.isType(canonical, self.state.analyzed) || canonical.base == "__fn_ptr");
+	}
+
+	public void validateDeclarationSpecifiers(Node? typeExpr, string subject, string role, Node site) {
+		if (typeExpr == null) { return; }
+		if (typeExpr.isStatic && typeExpr.isExtern) {
+			TypeValidator.fail(subject + " cannot be both static and extern", site);
+		}
+		if ((role == "parameter" || role == "field" || role == "stable_field") && (typeExpr.isStatic || typeExpr.isExtern)) {
+			TypeValidator.fail(subject + " cannot carry static/extern storage qualifiers", site);
+		}
+		if (typeExpr.isRegister) {
+			if (typeExpr.isStatic || typeExpr.isExtern || typeExpr.isAuto) { TypeValidator.fail(subject + " has more than one storage class", site); }
+			if (role != "object" && role != "parameter") { TypeValidator.fail("'register' is allowed only on block-scope objects and parameters", site); }
+			if (!self.registerStorageType(typeExpr)) { TypeValidator.fail("'register' requires a scalar plain C value or raw pointer", site); }
+		}
+		if (typeExpr.isAuto && (typeExpr.isStatic || typeExpr.isExtern || typeExpr.isRegister)) {
+			TypeValidator.fail(subject + " has more than one storage class", site);
+		}
+		if (typeExpr.isAuto && role != "object") {
+			if (role == "type-name") { TypeValidator.fail("'auto' is a storage class; it cannot appear in a type name", site); }
+			string position = role == "global" ? "at file scope" : role == "alias" ? "in a typedef" : "on " + subject.substring(0, 1).toLower() + subject.substring(1, subject.length() - 1);
+			TypeValidator.fail("'auto' is not allowed " + position + "; C11 auto declares a block-scope object", site);
+		}
+	}
+
+	public void validateTypeNameStorage(Node? typeExpr) {
+		if (typeExpr == null) { return; }
+		self.validateDeclarationSpecifiers(typeExpr, "Type name", "type-name", typeExpr);
+		for argument in typeExpr.genericArgs() { self.validateTypeNameStorage(argument); }
+	}
+
 	public void validateDeclaredType(Node? typeExpr, string subject, string role, Node site) {
 		if (typeExpr == null) { return; }
 		self.validateTagKeyword(typeExpr, site);
@@ -1215,12 +1312,7 @@ class TypeValidator {
 		if (expectedArguments >= 0 && !self.state.typeParams.has(typeExpr.base) && typeExpr.genericArgs().len != expectedArguments) {
 			TypeValidator.fail("Type '" + typeExpr.base + "' expects " + Strings.fromInt(expectedArguments) + " generic argument(s) but got " + Strings.fromInt(typeExpr.genericArgs().len), site);
 		}
-		if (typeExpr.isStatic && typeExpr.isExtern) {
-			TypeValidator.fail(subject + " cannot be both static and extern", site);
-		}
-		if ((role == "parameter" || role == "field" || role == "stable_field") && (typeExpr.isStatic || typeExpr.isExtern)) {
-			TypeValidator.fail(subject + " cannot carry static/extern storage qualifiers", site);
-		}
+		self.validateDeclarationSpecifiers(typeExpr, subject, role, site);
 		if (role == "return" && (SemanticTypeSystem.typeEffectiveOuterConst(typeExpr, self.state.analyzed.typedefTable) || SemanticTypeSystem.typeEffectiveOuterVolatile(typeExpr, self.state.analyzed.typedefTable))) {
 			TypeValidator.fail(subject + " cannot carry an outer const/volatile qualifier; " + "C discards qualifiers on returned values", site);
 		}
@@ -1327,7 +1419,7 @@ class TypeValidator {
 		}
 		int index = 0;
 		while (index < typeExpr.genericArgs().len) {
-			string argumentRole = "object";
+			string argumentRole = "type-name";
 			if ((typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr" || typeExpr.base == "Thread") && index == 0) {
 				argumentRole = "return";
 			} else if (typeExpr.base == "__fn_ptr" || typeExpr.base == "__realtime_fn_ptr") {
@@ -1352,6 +1444,7 @@ class TypeValidator {
 					fieldIndex = fieldIndex + 1;
 				}
 				if (declaration.isUnion) { self.validateUnionMembers(declaration); }
+				self.validateAnonymousMembers(declaration);
 			} else if (declaration.kind == NK_TYPEDEF_DECL) {
 				self.validateDeclaredType(declaration.original, "Typedef '" + declaration.alias + "'", "alias", declaration);
 			} else if (declaration.kind == NK_INTERFACE_DECL) {

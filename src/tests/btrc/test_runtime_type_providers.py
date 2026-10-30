@@ -160,6 +160,47 @@ def test_enum_value_irvar_roots_only_surviving_object_provider(
         )
 
 
+def test_runtime_identifier_scan_excludes_quoted_and_commented_names(semantic_btrcc, tmp_path):
+    references = json.dumps(str(SELFHOST / "ir/runtime/References.btrc"))
+    cases = (
+        ("first /* hidden */ second // ignored\nlast", ("first", "second", "last")),
+        ('"escaped \\" hidden" after \'x\' end', ("after", "end")),
+        ("a 7suffix a_7 _lead a", ("a", "a_7", "_lead")),
+        ('before "unterminated\\', ("before",)),
+        ("before 'unterminated", ("before",)),
+        ("before /* unterminated", ("before",)),
+        ("before // trailing", ("before",)),
+        ("/", ()),
+        ("", ()),
+    )
+    checks = []
+    for text, names in cases:
+        assertions = "\n".join(f"assert(found.has({json.dumps(name)}));" for name in names)
+        checks.append(f"""{{
+            Map<string, bool> found = {{}};
+            RuntimeReferenceCollector.collectIdentifiers({json.dumps(text)}, found);
+            assert(found.len == {len(names)});
+            {assertions}
+        }}""")
+    source = f"""
+        import Library.Map;
+        import {references};
+        int main() {{
+            {"".join(checks)}
+            Map<string, bool> candidates = {{"keep": true, "hidden": true}};
+            Map<string, bool> selected = {{"prior": true}};
+            RuntimeReferenceCollector.collectIdentifiers(
+                "keep discard /* hidden */", selected, candidates);
+            assert(selected.len == 2 && selected.has("keep") && selected.has("prior"));
+            return 0;
+        }}
+    """
+    result, emitted = compile_source(semantic_btrcc, tmp_path, source, no_stdlib=False)
+    assert result.returncode == 0, result.stderr
+    for compiler in HOST_C_COMPILERS:
+        _strict_build_and_run(emitted, tmp_path / f"identifier-scan-{Path(compiler).name}", compiler)
+
+
 @pytest.mark.parametrize(("base", "c_type"), TYPE_CASES)
 def test_live_type_only_sizeof_retains_catalog_provider(
     semantic_btrcc: Path,

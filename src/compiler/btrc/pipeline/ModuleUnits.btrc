@@ -2,6 +2,7 @@
 
 import Library.BackgroundJobs.WorkerPools;
 import Library.Timer;
+import Library.Bytes;
 import Library.Digest.SHA256;
 import Library.JSON;
 import Library.Map;
@@ -10,8 +11,10 @@ import Library.Strings;
 import Library.Vector;
 
 import ../frontend/Models.btrc;
+import ../frontend/Packages.btrc;
 import ../frontend/SourceIo.btrc;
 import ../frontend/Timing.btrc;
+import ../syntax/Literals.btrc;
 import ../ir/Stage.btrc;
 import ./Models.btrc;
 
@@ -112,6 +115,7 @@ class ModuleUnitGraph {
 
 	class ModuleUnitGraph fromUnit(IRModule unit, Map<string, bool> instanceNames) {
 		ModuleUnitGraph graph = ModuleUnitGraph();
+		Map<string, bool> roots = {};
 		for definition in unit.functions {
 			Map<string, bool> refs = {};
 			ModuleUnitGraph.references(definition.body, refs);
@@ -119,13 +123,14 @@ class ModuleUnitGraph {
 			names.sort();
 			graph.edges.put(definition.name, names);
 			if (instanceNames.has(definition.name) && !definition.isStatic) { graph.instances.put(definition.name, true); }
-			else if (!definition.isStatic || definition.name == "main" || definition.name == "btrc_main") { graph.roots.push(definition.name); }
+			else if (!definition.isStatic || definition.name == "main" || definition.name == "btrc_main") { roots.put(definition.name, true); }
 		}
 		Map<string, bool> globalRefs = {};
 		for global in unit.globalDecls {
 			if (!global.isExtern) { ModuleUnitGraph.references(global.init, globalRefs); }
 		}
-		for name in globalRefs.keys() { graph.roots.push(name); }
+		for name in globalRefs.keys() { roots.put(name, true); }
+		graph.roots = roots.keys();
 		graph.roots.sort();
 		return graph;
 	}
@@ -138,6 +143,7 @@ class ModuleUnitSummaries {
 	class string parameters(Vector<SetjmpParameterEffect> effects) {
 		Vector<string> items = [];
 		for effect in effects { items.push(Strings.fromInt(effect.index) + ":" + Strings.fromInt(effect.depth)); }
+		items.sort();
 		return Strings.join(items, ",");
 	}
 
@@ -152,12 +158,29 @@ class ModuleUnitSummaries {
 		return Strings.join(lines, "\n");
 	}
 
+	/* Canonical nonnegative int, or -1. Check before multiplying so malformed
+	 * cache data cannot overflow the count or parameter representation. */
+	class int decimal(string text) {
+		if (text.isEmpty() || (text.length() > 1 && text[0] == '0')) { return -1; }
+		int value = 0;
+		for (int index = 0; index < text.length(); index++) {
+			char digit = text[index];
+			if (digit < '0' || digit > '9' || value > 214748364 || (value == 214748364 && digit > '7')) { return -1; }
+			value = value * 10 + (int)digit - (int)'0';
+		}
+		return value;
+	}
+
 	class bool parametersFrom(string text, Vector<SetjmpParameterEffect> out) {
 		if (text.isEmpty()) { return true; }
 		for item in Strings.split(text, ",") {
 			int separator = item.indexOf(":");
 			if (separator <= 0 || separator >= item.length() - 1) { return false; }
-			out.push(SetjmpParameterEffect(Strings.toInt(item.substring(0, separator)), Strings.toInt(item.substring(separator + 1, item.length() - separator - 1))));
+			int index = ModuleUnitSummaries.decimal(item.substring(0, separator));
+			int depth = ModuleUnitSummaries.decimal(item.substring(separator + 1, item.length() - separator - 1));
+			if (index < 0 || depth < 0) { return false; }
+			for existing in out { if (existing.index == index && existing.depth == depth) { return false; } }
+			out.push(SetjmpParameterEffect(index, depth));
 		}
 		return true;
 	}
@@ -174,6 +197,7 @@ class ModuleUnitSummaries {
 	class bool decodeLine(string line, Map<string, SetjmpFunctionEffect> out) {
 		int tab = line.indexOf("\t");
 		if (tab <= 0) { return false; }
+		if (out.has(line.substring(0, tab))) { return false; }
 		Vector<string> fields = Strings.split(line.substring(tab + 1, line.length() - tab - 1), "|");
 		if (fields.len != 4 || !(fields.get(3).equals("0") || fields.get(3).equals("1"))) { return false; }
 		SetjmpFunctionEffect effect = SetjmpFunctionEffect();
@@ -214,6 +238,8 @@ class ModuleUnitRecord {
 	 * WGSL, an inherited `__del__`, a `#line`, `__LINE__` or `__FILE__`
 	 * position. None of them is in the program interface. */
 	public Map<string, string> consultedSources = {};
+	public Vector<string> declarationRoots = [];
+	public string declarationDigest = "";
 
 	public ModuleUnitRecord() {}
 
@@ -242,7 +268,10 @@ class ModuleUnitRecord {
 		Vector<string> row = Strings.split(line, "\t");
 		if (row.get(0).isEmpty() || out.has(row.get(0))) { return false; }
 		Vector<string> callees = [];
-		for (int index = 1; index < row.len; index++) { callees.push(row.get(index)); }
+		for (int index = 1; index < row.len; index++) {
+			if (row.get(index).isEmpty()) { return false; }
+			callees.push(row.get(index));
+		}
 		out.put(row.get(0), callees);
 		return true;
 	}
@@ -252,14 +281,14 @@ class ModuleUnitRecord {
 	 * Empty when a value cannot be carried in the format, and then nothing
 	 * is stored. */
 	public string toText() {
-		Vector<string> lines = ["btrc-module-unit-record\t5", "group\t" + self.group];
+		Vector<string> lines = ["btrc-module-unit-record\t6", "group\t" + self.group];
 		Vector<string> flags = ["flags"];
 		for flag in [self.kept, self.hasSetjmp, self.effectsSolved, self.releasesCyclable, self.definesEntry, self.programRelease] { flags.push(flag ? "1" : "0"); }
 		lines.push(Strings.join(flags, "\t"));
 		lines.push(ModuleUnitRecord.listLine("exports", self.exports));
 		lines.push(ModuleUnitRecord.listLine("helpers", self.helpers));
 		lines.push(ModuleUnitRecord.listLine("realtime-roots", self.realtimeRoots));
-		lines.push(ModuleUnitRecord.listLine("kept-instances", self.keptInstances));
+		lines.push(ModuleUnitRecord.listLine("kept-instances", self.keptInstances.sorted()));
 		lines.push(ModuleUnitRecord.listLine("graph-roots", self.graph.roots));
 		Vector<string> instances = self.graph.instances.keys();
 		instances.sort();
@@ -284,6 +313,8 @@ class ModuleUnitRecord {
 			consulted.push(group + "\t" + self.consultedSources.get(group));
 		}
 		ModuleUnitRecord.section(lines, "consulted-sources", Strings.join(consulted, "\n"));
+		lines.push(ModuleUnitRecord.listLine("declaration-roots", self.declarationRoots));
+		lines.push("declaration-digest\t" + self.declarationDigest);
 		if (self.group.indexOf("\t") >= 0 || self.group.indexOf("\n") >= 0) { return ""; }
 		return Strings.join(lines, "\n");
 	}
@@ -316,8 +347,8 @@ class ModuleUnitRecord {
 	class int sectionRows(Vector<string> lines, string name, Vector<int> cursor) {
 		int at = cursor.get(0);
 		if (at >= lines.len || !lines.get(at).startsWith("@" + name + "\t")) { return -1; }
-		int count = Strings.toInt(lines.get(at).substring(name.length() + 2, lines.get(at).length() - name.length() - 2));
-		if (count < 0 || at + 1 + count > lines.len) { return -1; }
+		int count = ModuleUnitSummaries.decimal(lines.get(at).substring(name.length() + 2, lines.get(at).length() - name.length() - 2));
+		if (count < 0 || count > lines.len - at - 1) { return -1; }
 		cursor.set(0, at + 1);
 		return count;
 	}
@@ -335,7 +366,7 @@ class ModuleUnitRecord {
 	class ModuleUnitRecord? fromPayload(BtrccModuleUnitPayload? payload, string group) {
 		if (payload == null) { return null; }
 		Vector<string> lines = Strings.split(payload.record, "\n");
-		if (lines.len < 9 || !lines.get(0).equals("btrc-module-unit-record\t5") || !lines.get(1).equals("group\t" + group)) { return null; }
+		if (lines.len < 9 || !lines.get(0).equals("btrc-module-unit-record\t6") || !lines.get(1).equals("group\t" + group)) { return null; }
 		Vector<string> flags = Strings.split(lines.get(2), "\t");
 		if (flags.len != 7 || !flags.get(0).equals("flags")) { return null; }
 		for (int index = 1; index < 7; index++) {
@@ -352,7 +383,15 @@ class ModuleUnitRecord {
 		record.programRelease = flags.get(6).equals("1");
 		Vector<string> instances = [];
 		if (!ModuleUnitRecord.listFrom(lines.get(3), "exports", record.exports) || !ModuleUnitRecord.listFrom(lines.get(4), "helpers", record.helpers) || !ModuleUnitRecord.listFrom(lines.get(5), "realtime-roots", record.realtimeRoots) || !ModuleUnitRecord.listFrom(lines.get(6), "kept-instances", record.keptInstances) || !ModuleUnitRecord.listFrom(lines.get(7), "graph-roots", record.graph.roots) || !ModuleUnitRecord.listFrom(lines.get(8), "graph-instances", instances)) { return null; }
-		for name in instances { record.graph.instances.put(name, true); }
+		for name in instances {
+			if (record.graph.instances.has(name)) { return null; }
+			record.graph.instances.put(name, true);
+		}
+		Map<string, bool> kept = {};
+		for name in record.keptInstances {
+			if (kept.has(name) || !record.graph.instances.has(name)) { return null; }
+			kept.put(name, true);
+		}
 		Vector<int> cursor = [9];
 		int count = ModuleUnitRecord.sectionRows(lines, "exported-effects", cursor);
 		if (count < 0) { return null; }
@@ -373,7 +412,10 @@ class ModuleUnitRecord {
 			string name = row.get(0);
 			if (name.isEmpty() || record.graph.edges.has(name)) { return null; }
 			Vector<string> targets = [];
-			for (int target = 1; target < row.len; target++) { targets.push(row.get(target)); }
+			for (int target = 1; target < row.len; target++) {
+				if (row.get(target).isEmpty()) { return null; }
+				targets.push(row.get(target));
+			}
 			record.graph.edges.put(name, targets);
 		}
 		cursor.set(0, cursor.get(0) + count);
@@ -381,10 +423,27 @@ class ModuleUnitRecord {
 		if (count < 0) { return null; }
 		for (int index = 0; index < count; index++) {
 			Vector<string> row = Strings.split(lines.get(cursor.get(0) + index), "\t");
-			if (row.len != 2 || row.get(0).isEmpty() || record.consultedSources.has(row.get(0))) { return null; }
+			if (row.len != 2 || row.get(0).isEmpty() || row.get(1).isEmpty() || record.consultedSources.has(row.get(0))) { return null; }
 			record.consultedSources.put(row.get(0), row.get(1));
 		}
-		if (cursor.get(0) + count != lines.len) { return null; }
+		int tail = cursor.get(0) + count;
+		if (tail + 2 != lines.len || !ModuleUnitRecord.listFrom(lines.get(tail), "declaration-roots", record.declarationRoots)) { return null; }
+		Map<string, bool> declarationNames = {};
+		for name in record.declarationRoots {
+			if (declarationNames.has(name)) { return null; }
+			declarationNames.put(name, true);
+		}
+		Vector<string> digestRow = Strings.split(lines.get(tail + 1), "\t");
+		if (digestRow.len != 2 || !digestRow.get(0).equals("declaration-digest")) { return null; }
+		record.declarationDigest = digestRow.get(1);
+		if (!record.declarationDigest.isEmpty()) {
+			if (record.declarationDigest.length() != 64) { return null; }
+			for (int index = 0; index < 64; index++) {
+				char value = record.declarationDigest[index];
+				if (!(value >= '0' && value <= '9') && !(value >= 'a' && value <= 'f')) { return null; }
+			}
+		}
+		for name in instances { if (!record.graph.edges.has(name)) { return null; } }
 		return record;
 	}
 }
@@ -490,17 +549,6 @@ class ModuleUnitDeclarations {
 		self.addNames(kind, position, names, resolved);
 	}
 
-	/* A digest of every entry's kind and names, in the shared order. */
-	public string orderDigest() {
-		SHA256 digest = SHA256();
-		for (int entry = 0; entry < self.kinds.len; entry++) {
-			Vector<string> names = self.provides.get(entry).keys();
-			names.sort();
-			digest.appendText(Strings.fromInt(self.kinds.get(entry)) + "\t" + Strings.join(names, ",") + "\n");
-		}
-		return digest.finish();
-	}
-
 	private void addNames(int kind, int position, Map<string, bool> names, Map<string, bool> refs) {
 		int entry = self.kinds.len;
 		self.kinds.push(kind);
@@ -539,15 +587,14 @@ class ModuleUnitDeclarations {
 		}
 	}
 
-	/* Every name and C type an IR subtree mentions. */
+	/* Referenced symbols and C types in an IR subtree. */
 	class void collectNode(IRNode? node, Map<string, bool> out) {
 		if (node == null) { return; }
 		int domain = node.payloadDomain();
-		if (!node.name.isEmpty()) { out.put(node.name, true); }
+		if ((node.kind == IRK_VAR || node.kind == IRK_FUNCTION_REF) && !node.name.isEmpty()) { out.put(node.name, true); }
 		if (!(domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : "").isEmpty()) { out.put((domain == IR_PAYLOAD_CALL ? ((IRCallPayload)node.payload).callee : ""), true); }
 		ModuleUnitDeclarations.collectText((domain == IR_PAYLOAD_CONVERSION_AGGREGATE ? ((IRConversionPayload)node.payload).targetType : domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).targetType : ""), out);
 		ModuleUnitDeclarations.collectText((domain == IR_PAYLOAD_DECLARATION ? ((IRDeclarationPayload)node.payload).cType : ""), out);
-		ModuleUnitDeclarations.collectText(node.text, out);
 		Vector<IRParam>? parameters = (domain == IR_PAYLOAD_NATIVE ? ((IRNativePayload)node.payload).params : null);
 		if (parameters != null) { for parameter in parameters { ModuleUnitDeclarations.collectText(parameter.cType, out); } }
 		ModuleUnitDeclarations.collectNode(node.left, out);
@@ -640,7 +687,7 @@ class ModuleUnitDeclarations {
 		if (others.len == all.len) { return; }
 		unit.preprocessorDecls = others;
 		Map<string, bool> used = {};
-		ModuleUnitDeclarations.collectText(CEmitter().emitModuleUnit(unit), used);
+		RuntimeReferenceCollector.collectIdentifiers(CEmitter().emitModuleUnit(unit), used);
 		Vector<IRPreprocessorDecl> kept = [];
 		for declaration in all {
 			if (self.nativeInclude(declaration)) {
@@ -654,7 +701,48 @@ class ModuleUnitDeclarations {
 		unit.preprocessorDecls = kept;
 	}
 
-	public void mergeInto(IRModule unit) {
+	public string dependencyDigest(Vector<string> roots) {
+		Map<int, bool> included = {};
+		Vector<string> pending = [];
+		pending.extend(roots);
+		Map<string, bool> seen = {};
+		for name in roots { seen.put(name, true); }
+		while (pending.len > 0) {
+			string name = pending.pop();
+			if (!self.providers.has(name)) { continue; }
+			for entry in self.providers.get(name) {
+				if (included.has(entry)) { continue; }
+				included.put(entry, true);
+				for reference in self.references.get(entry).keys() {
+					if (!seen.has(reference)) {
+						seen.put(reference, true);
+						pending.push(reference);
+					}
+				}
+			}
+		}
+		IRModule unit = IRModule();
+		unit.preprocessorDecls.extend(self.shared.preprocessorDecls);
+		Vector<int> entries = included.keys();
+		entries.sort();
+		for entry in entries { self.appendEntry(unit, entry); }
+		return SHA256.digest(CEmitter().emitModuleUnit(unit));
+	}
+
+	private void appendEntry(IRModule unit, int entry) {
+		int kind = self.kinds.get(entry);
+		int position = self.positions.get(entry);
+		if (kind == 0) { unit.structForwards.push(self.shared.structForwards.get(position)); }
+		else if (kind == 1) { unit.enumDefs.push(self.shared.enumDefs.get(position)); }
+		else if (kind == 2) { unit.functionPointerTypedefs.push(self.shared.functionPointerTypedefs.get(position)); }
+		else if (kind == 3) { unit.typedefDefs.push(self.shared.typedefDefs.get(position)); }
+		else if (kind == 4) { unit.taggedUnionDefs.push(self.shared.taggedUnionDefs.get(position)); }
+		else if (kind == 5) { unit.structDefs.push(self.shared.structDefs.get(position)); }
+		else if (kind == 6) { unit.functionDecls.push(self.shared.functionDecls.get(position)); }
+		else { unit.globalDecls.push(self.shared.globalDecls.get(position)); }
+	}
+
+	public Vector<string> mergeInto(IRModule unit) {
 		Vector<Map<string, bool>> provided = [];
 		for (int kind = 0; kind < 8; kind++) { provided.push(self.unitProvided(unit, kind)); }
 		Map<string, bool> roots = {};
@@ -720,18 +808,7 @@ class ModuleUnitDeclarations {
 		}
 		Vector<int> entries = included.keys();
 		entries.sort();
-		for entry in entries {
-			int kind = self.kinds.get(entry);
-			int position = self.positions.get(entry);
-			if (kind == 0) { unit.structForwards.push(self.shared.structForwards.get(position)); }
-			else if (kind == 1) { unit.enumDefs.push(self.shared.enumDefs.get(position)); }
-			else if (kind == 2) { unit.functionPointerTypedefs.push(self.shared.functionPointerTypedefs.get(position)); }
-			else if (kind == 3) { unit.typedefDefs.push(self.shared.typedefDefs.get(position)); }
-			else if (kind == 4) { unit.taggedUnionDefs.push(self.shared.taggedUnionDefs.get(position)); }
-			else if (kind == 5) { unit.structDefs.push(self.shared.structDefs.get(position)); }
-			else if (kind == 6) { unit.functionDecls.push(self.shared.functionDecls.get(position)); }
-			else { unit.globalDecls.push(self.shared.globalDecls.get(position)); }
-		}
+		for entry in entries { self.appendEntry(unit, entry); }
 		/* The unit already lowered the program's whole directive list in source
 		 * order. A runtime header the shared declarations need is added once;
 		 * only identical includes are deduplicated, and macros never are. */
@@ -743,6 +820,10 @@ class ModuleUnitDeclarations {
 			}
 			if (!present) { unit.preprocessorDecls.push(declaration); }
 		}
+		for names in provided { for name in names.keys() { if (!name.isEmpty()) { roots.put(name, true); } } }
+		Vector<string> result = roots.keys();
+		result.sort();
+		return result;
 	}
 }
 
@@ -814,6 +895,8 @@ class ModuleUnitProgram {
 	/* The program's pre-analysis interface digest when validation records
 	 * computed it (per-group, cached); empty otherwise. */
 	public string interfaceDigest = "";
+	public Map<string, string> scopedInterfaces = {};
+	public Map<string, string> interfaceHeaders = {};
 	/* Source digests of groups already taken, by module-unit group name; a
 	 * group's digest is of its lines, in order, as groupSourceDigests takes. */
 	public Map<string, string> knownSourceDigests = {};
@@ -883,10 +966,17 @@ class ModuleUnitCompiler {
 	 * unit is named for its path hash and so never takes this name. */
 	class string runtimeUnitName() { return "unit-runtime"; }
 
+	private string interfaceHeader(string group) {
+		string key = "group:" + group;
+		return self.input.interfaceHeaders.has(key) ? self.input.interfaceHeaders.get(key) : ModuleUnitInterfaces.headerPrefix();
+	}
+
 	/* A stable output name for a group's unit: its file stem and path hash. */
 	class string unitName(string group) {
 		string stem = group;
 		int slash = stem.lastIndexOf("/");
+		int backslash = stem.lastIndexOf("\\");
+		if (backslash > slash) { slash = backslash; }
 		if (slash >= 0) { stem = stem.substring(slash + 1, stem.length() - slash - 1); }
 		if (stem.endsWith(".btrc")) { stem = stem.substring(0, stem.length() - 5); }
 		string slug = "";
@@ -895,8 +985,50 @@ class ModuleUnitCompiler {
 			bool alphanumeric = (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9');
 			slug = slug + (alphanumeric ? stem.substring(index, 1) : "-");
 		}
-		if (slug.isEmpty() || slug.startsWith("-")) { slug = "group" + slug; }
+		int start = 0;
+		int end = slug.length();
+		while (start < end && slug[start] == '-') { start++; }
+		while (end > start && slug[end - 1] == '-') { end--; }
+		slug = start == end ? "group" : slug.substring(start, end - start);
 		return "unit-" + slug + "-" + SHA256.digest(group).substring(0, 12);
+	}
+
+	/* Lengths count UTF-8 bytes, matching the reference cache protocol. */
+	class void appendKeyField(SHA256 digest, string value) {
+		digest.appendText(Strings.fromInt(value.length()) + ":");
+		digest.appendText(value);
+	}
+
+	class void appendSourceLine(SHA256 digest, string path, int line, string text) {
+		ModuleUnitCompiler.appendKeyField(digest, path);
+		ModuleUnitCompiler.appendKeyField(digest, Strings.fromInt(line));
+		ModuleUnitCompiler.appendKeyField(digest, text);
+	}
+
+	class string cacheContext(BtrccOptions options, string target, Map<string, string> nativeDefines) {
+		SHA256 digest = SHA256();
+		digest.appendText("btrc-module-context-v1\n");
+		for flag in [options.debug, options.runDce, options.strictImports, options.includeStdlib, options.stdlibStrict] {
+			ModuleUnitCompiler.appendKeyField(digest, flag ? "1" : "0");
+		}
+		ModuleUnitCompiler.appendKeyField(digest, target);
+		ModuleUnitCompiler.appendKeyField(digest, options.debug ? options.unitsPrefix : "");
+		ModuleUnitCompiler.appendKeyField(digest, options.debug ? options.outputPath : "");
+		Vector<string> names = nativeDefines.keys();
+		names.sort();
+		ModuleUnitCompiler.appendKeyField(digest, Strings.fromInt(names.len));
+		for name in names {
+			ModuleUnitCompiler.appendKeyField(digest, name);
+			ModuleUnitCompiler.appendKeyField(digest, nativeDefines.get(name));
+		}
+		return digest.finish();
+	}
+
+	class string cacheKey(string context, string group, string source, string program) {
+		SHA256 digest = SHA256();
+		digest.appendText("btrc-module-unit-v8\n");
+		for value in [context, group, source, program] { ModuleUnitCompiler.appendKeyField(digest, value); }
+		return digest.finish();
 	}
 
 	private IRLowerer lowerer(string ownedGroup, bool declarationsElsewhere) {
@@ -913,6 +1045,7 @@ class ModuleUnitCompiler {
 
 	private Map<string, bool> lastInstances = {};
 	private Map<string, bool> lastConsulted = {};
+	public Vector<string> lastDeclarationRoots = [];
 
 	/* The generic-instance members the last lowered group defines. */
 	public Map<string, bool> lastInstanceNames() { return self.lastInstances; }
@@ -957,7 +1090,7 @@ class ModuleUnitCompiler {
 		self.lastInstances = lowerer.instanceDefinitions();
 		self.lastConsulted = lowerer.consultedSources();
 		unit.debug = self.options.debug;
-		shared.mergeInto(unit);
+		self.lastDeclarationRoots = shared.mergeInto(unit);
 		self.addNativeRealtimeExternals(unit);
 		BtrccPhaseTimer.mark("u-merge");
 		/* As in whole-program compiles, a session's object graph lives until the
@@ -1067,60 +1200,113 @@ class ModuleUnitCompiler {
 
 	/* The context, the group's resolved lines with their original positions,
 	 * and the program interface and facts digests. */
-	private string programDigest(ModuleUnitDeclarations shared) {
-		ModuleUnitProgram input = self.input;
-		SHA256 digest = SHA256();
-		/* Analysis changes interfaces only as a function of the whole
-		 * program's pre-analysis source (generic-argument upgrades, merged
-		 * defaults), and the facts below follow it, so the pre-analysis
-		 * interface digest identifies the program as well as a rendering after
-		 * analysis does. */
-		if (!input.interfaceDigest.isEmpty()) {
-			digest.appendText("interface:" + input.interfaceDigest);
-		} else {
-			AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
-			for declaration in input.program.declarations() { digest.appendText(SHA256.digest(renderer.render(declaration))); }
-		}
-		AstCanonicalRenderer positionFree = AstCanonicalRenderer.positionFreeRenderer();
-		/* The order of the program's files, as imports and includes place
-		 * them, orders every unit's directives and prototypes; it is not in
-		 * the interface digest, which sorts groups by name. */
-		digest.appendText("\nfiles\n");
-		string previousFile = "";
-		bool started = false;
-		for line in input.resolved.userLines {
-			if (started && line.sourceFile.equals(previousFile)) { continue; }
-			started = true;
-			previousFile = line.sourceFile;
-			digest.appendText("file:" + line.sourceFile + "\n");
-		}
-		digest.appendText("\nfacts\n");
-		digest.appendText(self.facts.usesTrycatch ? "trycatch" : "no-trycatch");
-		/* A unit takes the shared declarations it uses in their program
-		 * order, which other groups' bodies can move: tuple shapes are
-		 * declared in discovery order. */
-		digest.appendText("shared:" + shared.orderDigest() + "\n");
-		GenericLowerer generics = GenericLowerer(input.analyzed);
-		for instance in generics.classInstances() { digest.appendText("class:" + instance.mangled + "\n"); }
-		for instance in generics.methodInstances() {
-			digest.appendText("method:" + instance.classBase + "." + instance.methodName + "<");
-			for argument in instance.classArgs { digest.appendText(positionFree.render(argument) + ","); }
-			digest.appendText(";");
-			for argument in instance.methodArgs { digest.appendText(positionFree.render(argument) + ","); }
-			digest.appendText(">\n");
-		}
-		StdlibReachability? reachability = self.facts.reachability;
-		if (reachability != null) {
-			for declaration in input.program.declarations() {
-				if (reachability.isStdlibDeclaration(declaration) && reachability.reaches(declaration)) {
-					digest.appendText("reached:" + self.fileOfLine(declaration.line) + ":" + Strings.fromInt((int)declaration.kind) + ":" + declaration.name + "\n");
-				}
-			}
-			Vector<string> names = reachability.mentionedNameList();
-			names.sort();
-			for name in names { digest.appendText("name:" + name + "\n"); }
+	class string factRow(Vector<string> values) {
+		string row = "";
+		for value in values { row = row + Strings.fromInt(value.length()) + ":" + value; }
+		return row;
+	}
+
+	class Vector<string> factArguments(Vector<Node> arguments, AstCanonicalRenderer renderer) {
+		Vector<string> values = [Strings.fromInt(arguments.len)];
+		for argument in arguments { values.push(renderer.render(argument)); }
+		return values;
+	}
+
+	class string programFactsDigest(Map<string, Vector<string>> sections) {
+		var digest = SHA256();
+		digest.appendText("btrc-module-program-v1\n");
+		for name in ["files", "trycatch", "realtime", "class-views", "method-views", "classes", "methods", "callable-policy", "callables", "stdlib", "method-names", "unreached", "reached"] {
+			Vector<string> values = sections.get(name);
+			ModuleUnitCompiler.appendKeyField(digest, name);
+			ModuleUnitCompiler.appendKeyField(digest, Strings.fromInt(values.len));
+			for value in values { ModuleUnitCompiler.appendKeyField(digest, value); }
 		}
 		return digest.finish();
+	}
+
+	class string scopedProgramIdentity(string interfaceDigest, string program) {
+		var digest = SHA256();
+		digest.appendText("btrc-module-program-scope-v1\n");
+		ModuleUnitCompiler.appendKeyField(digest, interfaceDigest);
+		ModuleUnitCompiler.appendKeyField(digest, program);
+		return digest.finish();
+	}
+
+	private string programDigest() {
+		ModuleUnitProgram input = self.input;
+		if (input.interfaceDigest.isEmpty()) { throw "module units require a pre-analysis interface snapshot"; }
+		var renderer = AstCanonicalRenderer.positionFreeRenderer();
+		Map<string, Vector<string>> sections = {};
+		Vector<string> files = [];
+		for line in input.resolved.userLines {
+			if (files.len == 0 || !files.get(files.len - 1).equals(line.sourceFile)) { files.push(line.sourceFile); }
+		}
+		sections.put("files", files);
+		sections.put("trycatch", [self.facts.usesTrycatch ? "1" : "0"]);
+		sections.put("realtime", [input.analyzed.hasRealtimeSafeCallable ? "1" : "0"]);
+		var generics = GenericLowerer(input.analyzed);
+		Vector<string> classViews = [];
+		for plan in generics.classPlans() { classViews.push(plan.instance.mangled); }
+		sections.put("class-views", classViews);
+		Vector<string> methodViews = [];
+		for plan in generics.methodPlans() {
+			var instance = plan.instance;
+			methodViews.push(TypeIdentity.mangleMethodInstanceSymbol(instance.classBase, instance.classArgs, instance.methodName, instance.methodArgs));
+		}
+		sections.put("method-views", methodViews);
+		Vector<string> classes = [];
+		for instance in input.analyzed.genericInstances {
+			Vector<string> values = [instance.base];
+			values.extend(ModuleUnitCompiler.factArguments(instance.args, renderer));
+			classes.push(ModuleUnitCompiler.factRow(values));
+		}
+		classes.sort();
+		sections.put("classes", classes);
+		Vector<string> methods = [];
+		for instance in input.analyzed.methodGenInstances {
+			Vector<string> values = [instance.classBase, instance.methodName];
+			values.extend(ModuleUnitCompiler.factArguments(instance.classArgs, renderer));
+			values.extend(ModuleUnitCompiler.factArguments(instance.methodArgs, renderer));
+			methods.push(ModuleUnitCompiler.factRow(values));
+		}
+		methods.sort();
+		sections.put("methods", methods);
+		Vector<string> policy = [];
+		if (classes.len > 0) { policy.push("demanded"); }
+		sections.put("callable-policy", policy);
+		Vector<string> callables = [];
+		for instance in input.analyzed.classCallableInstances {
+			Vector<string> values = [instance.receiver.base, instance.kind, instance.name];
+			values.extend(ModuleUnitCompiler.factArguments(instance.receiver.genericArgs(), renderer));
+			callables.push(ModuleUnitCompiler.factRow(values));
+		}
+		callables.sort();
+		sections.put("callables", callables);
+		StdlibReachability? reachability = self.facts.reachability;
+		sections.put("stdlib", [reachability != null ? "1" : "0"]);
+		Vector<string> names = [];
+		Vector<string> unreached = [];
+		Vector<string> reached = [];
+		if (reachability != null) {
+			Map<string, bool> methodNames = {};
+			for declaration in input.program.declarations() {
+				for member in declaration.members() { if (member.kind == NK_METHOD_DECL) { methodNames.put(member.name, true); } }
+				if (reachability.isStdlibDeclaration(declaration) && reachability.reaches(declaration)) {
+					/* sourceFile authenticates stdlib membership; resolved lines
+					 * carry the imported file's actual path. */
+					string path = self.fileOfLine(declaration.line);
+					if (path.isEmpty()) { path = "<stdlib>"; }
+					reached.push(ModuleUnitCompiler.factRow([path, declaration.name, renderer.constructorName(declaration)]));
+				}
+			}
+			for name in reachability.mentionedNameList() { if (methodNames.has(name)) { names.push(name); } }
+			names.sort();
+			unreached = reachability.unreachedNameList();
+		}
+		sections.put("method-names", names);
+		sections.put("unreached", unreached);
+		sections.put("reached", reached);
+		return ModuleUnitCompiler.programFactsDigest(sections);
 	}
 
 	/* The source file a combined line belongs to, or "". */
@@ -1143,7 +1329,7 @@ class ModuleUnitCompiler {
 			self.groupLines.put(group, self.groupLines.get(group) + 1);
 			if (known.has(group)) { continue; }
 			if (!digests.has(group)) { digests.put(group, SHA256()); }
-			digests.get(group).appendText(line.sourceFile + "\t" + Strings.fromInt(line.lineNumber) + "\t" + line.text + "\n");
+			ModuleUnitCompiler.appendSourceLine(digests.get(group), line.sourceFile, line.lineNumber, line.text);
 		}
 		Map<string, string> result = {};
 		for group in self.groupLines.keys() {
@@ -1893,17 +2079,17 @@ class ModuleUnitCompiler {
 		CycleReturnBoundaryLowerer programBoundaries = CycleReturnBoundaryLowerer();
 		bool programReleases = programBoundaries.releasesCyclableValues(programUnit);
 		BtrccPhaseTimer.mark("u-program-unit");
-		string programIdentity = self.programDigest(shared);
+		string programIdentity = self.programDigest();
 		BtrccPhaseTimer.mark("u-digest");
 		Map<string, string> sources = self.groupSourceDigests();
 		BtrccPhaseTimer.mark("u-sources");
-		string context = f"debug={self.options.debug};dce={self.options.runDce};target={input.target};prefix={self.options.debug ? self.options.unitsPrefix : ""};output={self.options.debug ? self.options.outputPath : ""}";
-		Vector<string> defineNames = input.nativeDefines.keys(); defineNames.sort();
-		for name in defineNames { string value = input.nativeDefines.get(name); context += f";define={name.len()}:{name}{value.len()}:{value}"; }
+		string context = ModuleUnitCompiler.cacheContext(self.options, input.target, input.nativeDefines);
 		Vector<ModuleUnitGroupState> states = [];
 		for name in self.groups.names() {
 			string source = sources.has(name) ? sources.get(name) : "";
-			string identity = SHA256.digest("module-unit-v6\n" + context + "\n" + name + "\n" + source + "\n" + programIdentity);
+			if (!input.scopedInterfaces.has(name)) { throw "module group lacks an interface snapshot"; }
+			string scopedIdentity = ModuleUnitCompiler.scopedProgramIdentity(input.scopedInterfaces.get(name), programIdentity);
+			string identity = ModuleUnitCompiler.cacheKey(context, name, source, scopedIdentity);
 			ModuleUnitGroupState state = ModuleUnitGroupState(name, identity);
 			if (self.groupLines.has(name)) { state.lines = self.groupLines.get(name); }
 			IBtrccArtifactCache? store = self.store;
@@ -1912,10 +2098,18 @@ class ModuleUnitCompiler {
 				BtrccModuleUnitPayload? payload = store.loadModuleUnit(identity);
 				BtrccPhaseTimer.mark("u-record-load");
 				state.record = ModuleUnitRecord.fromPayload(payload, name);
+				ModuleUnitRecord? cached = state.record;
+				if (cached != null && payload != null && (!payload.interfaceHeader.equals(self.interfaceHeader(name)) || !payload.linkPlanFragment.equals(FeNativeLinkPlan.moduleFragment(ModuleUnitCompiler.unitName(name), cached.text, cached.kept)))) {
+					state.record = null;
+				}
 				state.stored = state.record != null;
 				/* A unit that copied another group's bodies or positions is
 				 * exact only while that group's source is unchanged. */
 				ModuleUnitRecord? loaded = state.record;
+				if (loaded != null && !loaded.declarationDigest.equals(shared.dependencyDigest(loaded.declarationRoots))) {
+					state.record = null;
+					state.stored = false;
+				}
 				if (loaded != null) {
 					for group in loaded.consultedSources.keys() {
 						if (!sources.has(group) || !sources.get(group).equals(loaded.consultedSources.get(group))) {
@@ -2079,10 +2273,15 @@ class ModuleUnitCompiler {
 				exit(1);
 			}
 			record.kept = header.get("kept").asBool();
+			if (!ModuleUnitRecord.stringsFrom(header.get("declarationRoots"), record.declarationRoots)) { throw "module unit lacks declaration roots"; }
+			record.declarationDigest = shared.dependencyDigest(record.declarationRoots);
 			record.text = reply.substring(newline + 1 + headerLength, reply.length() - newline - 1 - headerLength);
 			record.hasSetjmp = state.hasSetjmp;
 			record.effectsSolved = needsSolve;
-			for name in record.exports { if (solved.has(name)) { record.exportedEffects.put(name, solved.get(name)); } }
+			/* Other units solved against every lowered export, including generic
+			 * members whose code demand pruning removed. Keep those summaries
+			 * so an unchanged build can reproduce the same solve. */
+			for name in state.exports { if (solved.has(name)) { record.exportedEffects.put(name, solved.get(name)); } }
 			for name in state.consulted.keys() { if (solved.has(name)) { record.consultedEffects.put(name, solved.get(name)); } }
 			record.releasesCyclable = header.get("releases").asBool();
 			record.definesEntry = header.get("entry").asBool();
@@ -2112,7 +2311,9 @@ class ModuleUnitCompiler {
 			hostedReferences.extend(hosted);
 			IBtrccArtifactCache? store = self.store;
 			string recordText = hosted.len == 0 ? record.toText() : "";
-			if (store != null && !recordText.isEmpty()) { store.storeModuleUnit(state.key, BtrccModuleUnitPayload(recordText, record.text)); }
+			if (store != null && !recordText.isEmpty()) {
+				store.storeModuleUnit(state.key, BtrccModuleUnitPayload(recordText, record.text, self.interfaceHeader(state.name), FeNativeLinkPlan.moduleFragment(ModuleUnitCompiler.unitName(state.name), record.text, record.kept)));
+			}
 			state.stored = store != null && !recordText.isEmpty();
 			state.record = record;
 		}
@@ -2133,7 +2334,7 @@ class ModuleUnitCompiler {
 			ModuleUnitRecord? record = state.record;
 			if (!state.stale && record != null) { for helper in record.helpers { helperNames.put(helper, true); } }
 		}
-		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(input.hostedAbi)), input.runtimeHelpers);
+		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(input.hostedAbi), input.hostedAbi), input.runtimeHelpers);
 		Map<string, bool> programUnneeded = {};
 		optimizer.optimizeModuleUnit(programUnit, self.options.runDce, programEffects, releases, programUnneeded);
 		/* Only this owner refuses, over every unit's surviving references. */
@@ -2182,6 +2383,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 	private ModuleUnitCompiler compiler;
 	private ModuleUnitDeclarations shared;
 	private Map<string, IRModule> units = {};
+	private Map<string, Vector<string>> declarationRoots = {};
 	/* Per group, the files whose bodies or positions its lowering copied. */
 	private Map<string, Map<string, bool>> consulted = {};
 	private Map<string, Map<string, SetjmpCallEffects>> effects = {};
@@ -2293,6 +2495,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		self.compiler.addHostedRealtimeExternals(unit);
 		self.units.put(group, unit);
 		self.consulted.put(group, self.compiler.lastConsultedSources());
+		self.declarationRoots.put(group, self.compiler.lastDeclarationRoots);
 		JSONValue reply = JSONValue.makeObject();
 		Vector<string> exports = [];
 		Vector<string> roots = [];
@@ -2380,7 +2583,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		for name in reached { unit.realtimeSafeExternals.put(name, true); }
 		Map<string, SetjmpCallEffects> unitEffects = {};
 		if (self.effects.has(group)) { unitEffects = self.effects.get(group); }
-		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(self.compiler.hostedAbi())), self.compiler.runtimeHelpers());
+		IROptimizer optimizer = IROptimizer(SetjmpSafetyPlanner(SetjmpEffectAnalysis(self.compiler.hostedAbi()), self.compiler.hostedAbi()), self.compiler.runtimeHelpers());
 		optimizer.optimizeModuleUnit(unit, self.compiler.runsDce(), unitEffects, message.get("releases").asBool(), unneeded);
 		/* The owner refuses these over the whole program; a worker only reports. */
 		Vector<string> hosted = optimizer.unavailableHostedReferences(unit, self.compiler.unavailableHosted());
@@ -2399,6 +2602,10 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 			if (definition.name == "main" || definition.name == "btrc_main") { definesEntry = true; }
 		}
 		for global in unit.globalDecls { if (!global.isExtern) { kept = true; } }
+		/* Imported C implementations define symbols outside the btrc AST. */
+		for declaration in unit.preprocessorDecls {
+			if (declaration.kind == IR_PREPROCESSOR_INCLUDE && declaration.header.endsWith(".c")) { kept = true; }
+		}
 		exports.sort();
 		string text = "";
 		if (kept) {
@@ -2423,6 +2630,7 @@ class ModuleUnitWorker implements IWorkerRequestHandler {
 		Vector<string> sources = files.keys();
 		sources.sort();
 		header.set("sources", ModuleUnitRecord.stringsJson(sources));
+		header.set("declarationRoots", ModuleUnitRecord.stringsJson(self.declarationRoots.get(group)));
 		JSONValue invalid = JSONValue.makeObject();
 		for name in dropped.keys() { invalid.set(name, JSONValue.makeString(dropped.get(name))); }
 		header.set("dropped", invalid);
@@ -2585,7 +2793,13 @@ class ValidationRecordCodec {
 		StringBuilder out = StringBuilder();
 		for fact in journal.facts {
 			string line = Strings.fromInt(fact.kind);
-			if (fact.kind == VALIDATION_GENERIC_CLASS) {
+			if (fact.kind == VALIDATION_CLASS_CALLABLE) {
+				Node? value = fact.value;
+				if (value == null || !ValidationRecordCodec.plain(fact.name) || !ValidationRecordCodec.plain(fact.member) || !ValidationRecordCodec.plain(fact.detail)) { return null; }
+				string? receiver = self.typeText(value, ownSlot, own, foreign);
+				if (receiver == null) { return null; }
+				line = line + "\t" + fact.name + "\t" + fact.member + "\t" + fact.detail + "\t" + receiver;
+			} else if (fact.kind == VALIDATION_GENERIC_CLASS) {
 				string? arguments = self.typesText(fact.arguments, ownSlot, own, foreign);
 				if (arguments == null) { return null; }
 				line = line + "\t" + fact.name + "\t" + arguments;
@@ -2600,12 +2814,18 @@ class ValidationRecordCodec {
 				string? at = self.position(node, ownSlot, own, foreign);
 				if (at == null) { return null; }
 				line = line + "\t" + at;
-				if (fact.kind == VALIDATION_GENERIC_CONSTRUCTOR) {
+				if (fact.kind == VALIDATION_JUMP_BODY) {
+					if (node.kind != NK_BLOCK) { return null; }
+				} else if (fact.kind == VALIDATION_GENERIC_CONSTRUCTOR) {
 					Node? value = fact.value;
 					if (value == null) { return null; }
 					string? valueText = self.typeText(value, ownSlot, own, foreign);
 					if (valueText == null) { return null; }
 					line = line + "\t" + valueText;
+				} else if (fact.kind == VALIDATION_DESIGNATOR_INDEX || fact.kind == VALIDATION_ARRAY_BOUND_VALUE) {
+					if (fact.kind == VALIDATION_DESIGNATOR_INDEX && node.kind != NK_INDEX_DESIGNATOR) { return null; }
+					if (fact.kind == VALIDATION_ARRAY_BOUND_VALUE && fact.integerValue <= 0LL) { return null; }
+					line = line + f"\t{fact.integerValue}";
 				} else if (fact.kind == VALIDATION_GENERATED_REFERENCE) {
 					line = line + "\t" + (fact.directCall ? "1" : "0") + "\t" + (fact.sourceKnown ? "1" : "0");
 				} else if (fact.kind == VALIDATION_RAW_BORROW) {
@@ -2698,6 +2918,16 @@ class ValidationRecordCodec {
 			Vector<string> fields = Strings.split(line, "\t");
 			int kind = Strings.toInt(fields.get(0));
 			Vector<int> cursor = [1];
+			if (kind == VALIDATION_CLASS_CALLABLE) {
+				if (fields.len < 6 || (fields.get(3) != "method" && fields.get(3) != "get" && fields.get(3) != "set")) { return null; }
+				ValidationFact demand = ValidationFact(kind, null);
+				demand.name = fields.get(1); demand.member = fields.get(2); demand.detail = fields.get(3);
+				cursor.set(0, 4);
+				demand.value = self.typeAt(fields, cursor);
+				if (demand.value == null || cursor.get(0) != fields.len) { return null; }
+				facts.push(demand);
+				continue;
+			}
 			if (kind == VALIDATION_GENERIC_CLASS || kind == VALIDATION_GENERIC_METHOD) {
 				if (fields.len < 3) { return null; }
 				ValidationFact demand = ValidationFact(kind, null);
@@ -2727,6 +2957,15 @@ class ValidationRecordCodec {
 				Node? value = self.typeAt(fields, cursor);
 				if (value == null || cursor.get(0) != fields.len) { return null; }
 				fact.value = value;
+			} else if (kind == VALIDATION_DESIGNATOR_INDEX || kind == VALIDATION_ARRAY_BOUND_VALUE) {
+				if (fields.len != 6 || (kind == VALIDATION_DESIGNATOR_INDEX && node.kind != NK_INDEX_DESIGNATOR)) { return null; }
+				string raw = fields.get(5);
+				bool negative = raw.startsWith("-");
+				IntegerLiteralInfo number = IntegerLiteral(negative ? raw.substring(1, raw.length() - 1) : raw).details();
+				unsigned long long maximum = (unsigned long long)LLONG_MAX + (negative ? 1ULL : 0ULL);
+				if (!number.valid || number.magnitude > maximum) { return null; }
+				fact.integerValue = negative && number.magnitude > 0ULL ? -((long long)(number.magnitude - 1ULL)) - 1LL : (long long)number.magnitude;
+				if (f"{fact.integerValue}" != raw || (kind == VALIDATION_ARRAY_BOUND_VALUE && fact.integerValue <= 0LL)) { return null; }
 			} else if (kind == VALIDATION_GENERATED_REFERENCE) {
 				if (fields.len != 7) { return null; }
 				fact.directCall = fields.get(5).equals("1");
@@ -2747,6 +2986,8 @@ class ValidationRecordCodec {
 				if (fields.len != 7) { return null; }
 				fact.name = fields.get(5);
 				fact.member = fields.get(6);
+			} else if (kind == VALIDATION_JUMP_BODY) {
+				if (fields.len != 5 || node.kind != NK_BLOCK) { return null; }
 			} else if (kind == VALIDATION_BOUNDED_LOOP) {
 				if (fields.len != 5) { return null; }
 			} else if (kind == VALIDATION_WARNING) {
@@ -2769,6 +3010,217 @@ class ValidationRecordCodec {
 	}
 }
 
+/* Pre-analysis interfaces shared by module lowering and validation replay. */
+class ModuleUnitInterfaces {
+	public Map<string, string> fileOfDeclaration = {};
+	public Map<string, string> groupOfFile = {};
+	public Map<string, string> sourceDigests = {};
+	public Map<string, string> groupSourceDigests = {};
+	public string contextValue;
+	public string digest;
+	public Map<string, string> scopedDigests = {};
+	public Map<string, string> groupHeaders = {};
+	private Map<string, string> groupDigests = {};
+	private string nativesDigest = "";
+	private string othersDigest = "";
+	private IBtrccArtifactCache? store;
+
+	public ModuleUnitInterfaces(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache? store, string nativeIdentity, string target) {
+		self.store = options.useCache ? store : null;
+		FeSourcePathPolicy paths = FeSourcePathPolicy();
+		FeCompilationGroups groups = resolved.dependencies.compilationGroups(paths.identity(resolved.rootSourcePath));
+		Map<string, SHA256> digests = {};
+		for line in resolved.userLines {
+			if (!self.groupOfFile.has(line.sourceFile)) {
+				string group = groups.groupOfIdentity(paths.identity(line.sourceFile));
+				self.groupOfFile.put(line.sourceFile, group.isEmpty() ? "" : "group:" + group);
+			}
+			string group = self.groupOfFile.get(line.sourceFile);
+			if (group.isEmpty()) { continue; }
+			if (!digests.has(group)) { digests.put(group, SHA256()); }
+			ModuleUnitCompiler.appendSourceLine(digests.get(group), line.sourceFile, line.lineNumber, line.text);
+		}
+		self.groupOfFile.put("<stdlib>", "<stdlib>");
+		for declaration in sourceDeclarations {
+			string file = "<other>";
+			if (resolved.stdlibLineCount > 0 && declaration.line >= 1 && declaration.line <= resolved.stdlibLineCount) {
+				file = "<stdlib>";
+			} else {
+				int userLine = declaration.line - resolved.stdlibLineCount;
+				if (userLine >= 1 && userLine <= resolved.userLines.len) { file = resolved.userLines.get(userLine - 1).sourceFile; }
+			}
+			self.fileOfDeclaration.put(AstIdentity.key(declaration), file);
+		}
+		for declaration in program.declarations() {
+			string key = AstIdentity.key(declaration);
+			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
+		}
+		self.contextValue = ModuleUnitInterfaces.context(options, target);
+		for group in digests.keys() { self.sourceDigests.put(group, digests.get(group).finish()); }
+		if (resolved.stdlibLineCount > 0) { self.sourceDigests.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }
+		for group in self.sourceDigests.keys() {
+			if (group.startsWith("group:")) { self.groupSourceDigests.put(group.substring(6, group.length() - 6), self.sourceDigests.get(group)); }
+		}
+		self.digest = self.programInterface(program, nativeIdentity);
+		Map<string, Map<string, bool>> outgoing = {};
+		for group in groups.names() { Map<string, bool> empty = {}; outgoing.put(group, empty); }
+		for file in resolved.dependencies.sourceIdentities() {
+			string owner = groups.groupOfIdentity(file);
+			if (!outgoing.has(owner)) { continue; }
+			for edge in resolved.dependencies.outgoingFrom(file) {
+				string targetGroup = groups.groupOfIdentity(edge.target);
+				if (outgoing.has(targetGroup)) { outgoing.get(owner).put(targetGroup, true); }
+			}
+		}
+		for group in groups.names() {
+			Map<string, bool> reached = {};
+			reached.put(group, true);
+			Vector<string> pending = [group];
+			while (pending.len > 0) {
+				for dependency in outgoing.get(pending.pop()).keys() {
+					if (!reached.has(dependency)) { reached.put(dependency, true); pending.push(dependency); }
+				}
+			}
+			Map<string, string> selected = {};
+			for name in self.groupDigests.keys() {
+				if (!name.startsWith("group:") || reached.has(name.substring(6, name.length() - 6))) { selected.put(name, self.groupDigests.get(name)); }
+			}
+			self.scopedDigests.put(group, ModuleUnitInterfaces.compose(selected, self.nativesDigest, self.othersDigest));
+		}
+	}
+
+	class string context(BtrccOptions options, string target) { return f"validation-record-v12;target={target};strict={options.strictImports};stdlib={options.includeStdlib};stdlib-strict={options.stdlibStrict}"; }
+
+	class string headerPrefix() { return "btrc-module-interface-v1\n"; }
+
+	class string headerDigest(string header) {
+		string prefix = ModuleUnitInterfaces.headerPrefix();
+		if (!header.startsWith(prefix) || !Bytes.fromString(header).isNulFreeUtf8()) { return ""; }
+		int offset = prefix.length();
+		var digest = SHA256();
+		while (offset < header.length()) {
+			int colon = offset;
+			while (colon < header.length() && header[colon] != ':') { colon++; }
+			if (colon == header.length()) { return ""; }
+			int size = ModuleUnitSummaries.decimal(header.substring(offset, colon - offset));
+			offset = colon + 1;
+			if (size <= 0 || size > header.length() - offset) { return ""; }
+			string declaration = header.substring(offset, size);
+			if (!Bytes.fromString(declaration).isNulFreeUtf8()) { return ""; }
+			digest.appendText(SHA256.digest(declaration));
+			offset = offset + size;
+		}
+		return digest.finish();
+	}
+
+	class string cacheKey(string context, string group, string source) {
+		var digest = SHA256();
+		digest.appendText("validation-interface-v3\n");
+		ModuleUnitCompiler.appendKeyField(digest, context);
+		ModuleUnitCompiler.appendKeyField(digest, group);
+		ModuleUnitCompiler.appendKeyField(digest, source);
+		return digest.finish();
+	}
+
+	class string nativeKey(string context, string identity) {
+		var digest = SHA256();
+		digest.appendText("validation-natives-v2\n");
+		ModuleUnitCompiler.appendKeyField(digest, context);
+		ModuleUnitCompiler.appendKeyField(digest, identity);
+		return digest.finish();
+	}
+
+	class string compose(Map<string, string> groups, string natives, string others) {
+		Vector<string> names = groups.keys();
+		names.sort();
+		var result = SHA256();
+		result.appendText("btrc-program-interface-v1\n");
+		for name in names {
+			ModuleUnitCompiler.appendKeyField(result, name);
+			ModuleUnitCompiler.appendKeyField(result, groups.get(name));
+		}
+		ModuleUnitCompiler.appendKeyField(result, "<native>");
+		ModuleUnitCompiler.appendKeyField(result, natives);
+		ModuleUnitCompiler.appendKeyField(result, "<other>");
+		ModuleUnitCompiler.appendKeyField(result, others);
+		return result.finish();
+	}
+
+	private string cachedDigest(BtrccModuleUnitPayload? payload, string kind) {
+		if (payload == null || !payload.record.equals(kind) || payload.text.length() != 64) { return ""; }
+		for (int index = 0; index < 64; index++) {
+			char value = payload.text[index];
+			if (!(value >= '0' && value <= '9') && !(value >= 'a' && value <= 'f')) { return ""; }
+		}
+		return payload.text;
+	}
+
+	private string programInterface(Node program, string nativeIdentity) {
+		IBtrccArtifactCache? store = self.store;
+		string context = self.contextValue;
+		Map<string, string> sources = self.sourceDigests;
+		var renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
+		Map<string, StringBuilder> rendered = {};
+		Map<string, string> cached = {};
+		if (store != null) {
+			for group in sources.keys() {
+				var payload = store.loadModuleUnit(ModuleUnitInterfaces.cacheKey(context, group, sources.get(group)));
+				if (payload != null && payload.record.equals("validation-interface-v3")) {
+					string digest = ModuleUnitInterfaces.headerDigest(payload.text);
+					if (!digest.isEmpty()) { cached.put(group, digest); self.groupHeaders.put(group, payload.text); }
+				}
+			}
+		}
+		string nativesKey = nativeIdentity.isEmpty() ? "" : ModuleUnitInterfaces.nativeKey(context, nativeIdentity);
+		string nativesDigest = "";
+		if (store != null && !nativesKey.isEmpty()) { nativesDigest = self.cachedDigest(store.loadModuleUnit(nativesKey), "validation-natives-v2"); }
+		var natives = SHA256();
+		var others = SHA256();
+		for declaration in program.declarations() {
+			string group = self.groupAmong(declaration, sources);
+			if (group.isEmpty()) {
+				string key = AstIdentity.key(declaration);
+				bool native = self.fileOfDeclaration.has(key) && self.fileOfDeclaration.get(key).equals("<native>");
+				if (!native) { others.appendText(SHA256.digest(renderer.render(declaration))); }
+				else if (nativesDigest.isEmpty()) { natives.appendText(SHA256.digest(renderer.render(declaration))); }
+			} else if (!cached.has(group)) {
+				if (!rendered.has(group)) {
+					var header = StringBuilder();
+					header.append(ModuleUnitInterfaces.headerPrefix());
+					rendered.put(group, header);
+				}
+				string text = renderer.render(declaration);
+				rendered.get(group).append(Strings.fromInt(text.length()) + ":" + text);
+			}
+		}
+		for group in rendered.keys() {
+			string header = rendered.get(group).toString();
+			string digest = ModuleUnitInterfaces.headerDigest(header);
+			cached.put(group, digest);
+			self.groupHeaders.put(group, header);
+			if (store != null) { store.storeModuleUnit(ModuleUnitInterfaces.cacheKey(context, group, sources.get(group)), BtrccModuleUnitPayload("validation-interface-v3", header)); }
+		}
+		if (nativesDigest.isEmpty()) {
+			nativesDigest = natives.finish();
+			if (store != null && !nativesKey.isEmpty()) { store.storeModuleUnit(nativesKey, BtrccModuleUnitPayload("validation-natives-v2", nativesDigest)); }
+		}
+		self.groupDigests = cached;
+		self.nativesDigest = nativesDigest;
+		self.othersDigest = others.finish();
+		return ModuleUnitInterfaces.compose(cached, nativesDigest, self.othersDigest);
+	}
+
+	/* The recordable group a declaration was read from, among `groups`, or "". */
+	private string groupAmong(Node declaration, Map<string, string> groups) {
+		string key = AstIdentity.key(declaration);
+		if (!self.fileOfDeclaration.has(key)) { return ""; }
+		string file = self.fileOfDeclaration.get(key);
+		if (!self.groupOfFile.has(file)) { return ""; }
+		string group = self.groupOfFile.get(file);
+		return groups.has(group) ? group : "";
+	}
+}
+
 /* Stage B validation records: one per compilation group, keyed by the
  * group's source, the whole program's interface and the options that shape
  * validation. The inline standard library is one durable group; native
@@ -2784,7 +3236,10 @@ class ValidationRecords implements IValidationRecords {
 	private Map<string, string> groupOfFile = {};
 	private Map<string, string> keys = {};
 	private Map<string, Map<string, string>> loaded = {};
-	private Map<string, StringBuilder> writing = {};
+	private Map<string, Map<string, string>> writing = {};
+	private Map<string, string> loadedDependencies = {};
+	private Map<Node, bool> unreachedBodies = {};
+	private Map<Node, string> bodyCoverage = {};
 	private Map<string, Map<string, bool>> foreign = {};
 	private Map<string, bool> unwritable = {};
 	private Map<string, bool> abandoned = {};
@@ -2806,129 +3261,19 @@ class ValidationRecords implements IValidationRecords {
 	private Map<string, bool> instancesUnwritable = {};
 	public int instancesReplayed = 0;
 
-	/* `nativeIdentity` identifies the imported native declarations (as the
-	 * artifact cache keys them), or is empty when they are not cacheable.
-	 * `target` is the resolved row's canonical label, never the option's
-	 * spelling. */
-	public ValidationRecords(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache store, string nativeIdentity, string target) {
+	/* A prepared snapshot lets the pipeline share pre-analysis provenance and
+	 * digests with lowering, including when persistent caching is disabled. */
+	public ValidationRecords(Node program, Vector<Node> sourceDeclarations, FeResolvedSource resolved, BtrccOptions options, IBtrccArtifactCache store, string nativeIdentity, string target, ModuleUnitInterfaces? prepared = null) {
 		self.store = store;
 		self.verify = getenv("BTRC_VERIFY_VALIDATION_RECORDS") != null;
-		FeSourcePathPolicy paths = FeSourcePathPolicy();
-		FeCompilationGroups groups = resolved.dependencies.compilationGroups(paths.identity(resolved.rootSourcePath));
-		Map<string, SHA256> digests = {};
-		for line in resolved.userLines {
-			if (!self.groupOfFile.has(line.sourceFile)) {
-				string group = groups.groupOfIdentity(paths.identity(line.sourceFile));
-				self.groupOfFile.put(line.sourceFile, group.isEmpty() ? "" : "group:" + group);
-			}
-			string group = self.groupOfFile.get(line.sourceFile);
-			if (group.isEmpty()) { continue; }
-			if (!digests.has(group)) { digests.put(group, SHA256()); }
-			/* The same digest as of the joined line, without building it. */
-			SHA256 digest = digests.get(group);
-			digest.appendText(line.sourceFile);
-			digest.appendText("\t");
-			digest.appendText(Strings.fromInt(line.lineNumber));
-			digest.appendText("\t");
-			digest.appendText(line.text);
-			digest.appendText("\n");
-		}
-		self.groupOfFile.put("<stdlib>", "<stdlib>");
-		for declaration in sourceDeclarations {
-			string file = "<other>";
-			if (resolved.stdlibLineCount > 0 && declaration.line >= 1 && declaration.line <= resolved.stdlibLineCount) {
-				file = "<stdlib>";
-			} else {
-				int userLine = declaration.line - resolved.stdlibLineCount;
-				if (userLine >= 1 && userLine <= resolved.userLines.len) { file = resolved.userLines.get(userLine - 1).sourceFile; }
-			}
-			self.fileOfDeclaration.put(AstIdentity.key(declaration), file);
-		}
-		for declaration in program.declarations() {
-			string key = AstIdentity.key(declaration);
-			if (!self.fileOfDeclaration.has(key)) { self.fileOfDeclaration.put(key, "<native>"); }
-		}
+		ModuleUnitInterfaces interfaces = prepared != null ? prepared : ModuleUnitInterfaces(program, sourceDeclarations, resolved, options, store, nativeIdentity, target);
+		self.fileOfDeclaration = interfaces.fileOfDeclaration;
+		self.groupOfFile = interfaces.groupOfFile;
 		self.codec = ValidationRecordCodec(program.declarations(), self.fileOfDeclaration);
-		string context = f"validation-record-v5;target={target};strict={options.strictImports};stdlib={options.includeStdlib}";
-		Map<string, string> sources = {};
-		for group in digests.keys() { sources.put(group, digests.get(group).finish()); }
-		if (resolved.stdlibLineCount > 0) { sources.put("<stdlib>", SHA256.digest(resolved.stdlibSource)); }
-		string interfaceDigest = self.programInterface(program, context, sources, nativeIdentity);
-		self.interfaceDigest = interfaceDigest;
-		for group in sources.keys() {
-			if (group.startsWith("group:")) { self.groupSourceDigests.put(group.substring(6, group.length() - 6), sources.get(group)); }
-		}
-		for group in sources.keys() { self.keys.put(group, SHA256.digest(context + "\n" + group + "\n" + sources.get(group) + "\n" + interfaceDigest)); }
+		self.interfaceDigest = interfaces.digest;
+		self.groupSourceDigests = interfaces.groupSourceDigests;
+		for group in interfaces.sourceDigests.keys() { self.keys.put(group, SHA256.digest(interfaces.contextValue + "\n" + group + "\n" + interfaces.sourceDigests.get(group) + "\n" + interfaces.digest)); }
 		for group in self.keys.keys() { self.load(group); }
-	}
-
-	/* The position-free interface of every declaration. A group's interface
-	 * is a function of its source alone, so its digest is cached under the
-	 * group's source digest and only changed groups are rendered again;
-	 * native declarations have no source of their own and are rendered each
-	 * time. */
-	private string programInterface(Node program, string context, Map<string, string> sources, string nativeIdentity) {
-		AstCanonicalRenderer renderer = AstCanonicalRenderer.interfaceRenderer(ModuleUnitInterfaceSummary());
-		Map<string, SHA256> rendered = {};
-		Map<string, string> cached = {};
-		for group in sources.keys() {
-			BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.interfaceKey(context, group, sources.get(group)));
-			if (payload != null && payload.record.equals("validation-interface-v1")) { cached.put(group, payload.text); }
-		}
-		/* Native declarations are a function of the native imports, whose
-		 * identity keys their digest when it is known. */
-		string nativesKey = nativeIdentity.isEmpty() ? "" : SHA256.digest("validation-natives-v1\n" + context + "\n" + nativeIdentity);
-		string nativesDigest = "";
-		if (!nativesKey.isEmpty()) {
-			BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(nativesKey);
-			if (payload != null && payload.record.equals("validation-natives-v1")) { nativesDigest = payload.text; }
-		}
-		SHA256 natives = SHA256();
-		SHA256 others = SHA256();
-		for declaration in program.declarations() {
-			string group = self.groupAmong(declaration, sources);
-			if (group.isEmpty()) {
-				string key = AstIdentity.key(declaration);
-				bool native = self.fileOfDeclaration.has(key) && self.fileOfDeclaration.get(key).equals("<native>");
-				if (!native) {
-					others.appendText(SHA256.digest(renderer.render(declaration)));
-				} else if (nativesDigest.isEmpty()) {
-					natives.appendText(SHA256.digest(renderer.render(declaration)));
-				}
-			} else if (!cached.has(group)) {
-				if (!rendered.has(group)) { rendered.put(group, SHA256()); }
-				rendered.get(group).appendText(SHA256.digest(renderer.render(declaration)));
-			}
-		}
-		for group in rendered.keys() {
-			string digest = rendered.get(group).finish();
-			cached.put(group, digest);
-			self.store.storeModuleUnit(self.interfaceKey(context, group, sources.get(group)), BtrccModuleUnitPayload("validation-interface-v1", digest));
-		}
-		Vector<string> names = [];
-		for group in cached.keys() { names.push(group); }
-		names.sort();
-		SHA256 result = SHA256();
-		for group in names { result.appendText(group + "\t" + cached.get(group) + "\n"); }
-		if (nativesDigest.isEmpty()) {
-			nativesDigest = natives.finish();
-			if (!nativesKey.isEmpty()) { self.store.storeModuleUnit(nativesKey, BtrccModuleUnitPayload("validation-natives-v1", nativesDigest)); }
-		}
-		result.appendText("<native>\t" + nativesDigest + "\n");
-		result.appendText("<other>\t" + others.finish() + "\n");
-		return result.finish();
-	}
-
-	private string interfaceKey(string context, string group, string source) { return SHA256.digest("validation-interface-v1\n" + context + "\n" + group + "\n" + source); }
-
-	/* The recordable group a declaration was read from, among `groups`, or "". */
-	private string groupAmong(Node declaration, Map<string, string> groups) {
-		string key = AstIdentity.key(declaration);
-		if (!self.fileOfDeclaration.has(key)) { return ""; }
-		string file = self.fileOfDeclaration.get(key);
-		if (!self.groupOfFile.has(file)) { return ""; }
-		string group = self.groupOfFile.get(file);
-		return groups.has(group) ? group : "";
 	}
 
 	/* The group a declaration's record belongs to, or "" when none can. */
@@ -2943,8 +3288,9 @@ class ValidationRecords implements IValidationRecords {
 
 	private void load(string group) {
 		BtrccModuleUnitPayload? payload = self.store.loadModuleUnit(self.keys.get(group));
-		if (payload == null || !payload.record.equals("validation-record-v5")) { return; }
+		if (payload == null || !payload.record.equals("validation-record-v7")) { return; }
 		Map<string, string> declarations = {};
+		StringBuilder dependencies = StringBuilder();
 		string slot = "";
 		StringBuilder facts = StringBuilder();
 		bool open = false;
@@ -2952,6 +3298,7 @@ class ValidationRecords implements IValidationRecords {
 			if (line.startsWith("dep\t")) {
 				Vector<string> fields = Strings.split(line, "\t");
 				if (fields.len != 3 || !self.keys.has(fields.get(1)) || !self.keys.get(fields.get(1)).equals(fields.get(2))) { return; }
+				dependencies.append(line + "\n");
 			} else if (line.startsWith("d\t")) {
 				if (open) { declarations.put(slot, facts.toString()); }
 				slot = line.substring(2, line.length() - 2);
@@ -2964,10 +3311,35 @@ class ValidationRecords implements IValidationRecords {
 		}
 		if (open) { declarations.put(slot, facts.toString()); }
 		self.loaded.put(group, declarations);
+		self.loadedDependencies.put(group, dependencies.toString());
 	}
 
-	/* A declaration's section of its group's record: phase, then slot. */
-	private string section(int phase, Node declaration) { return Strings.fromInt(phase) + "\t" + self.codec.slot(declaration); }
+	public void selectBodies(Map<Node, bool> unreached) {
+		self.unreachedBodies = unreached;
+		self.bodyCoverage = {};
+	}
+
+	/* Source order is stable under a group's source key. Pointer identities
+	 * only answer membership here; no pointer enters the persisted mask. */
+	private string coverage(Node declaration) {
+		if (self.bodyCoverage.has(declaration)) { return self.bodyCoverage.get(declaration); }
+		StringBuilder mask = StringBuilder();
+		Vector<Node> callables = declaration.kind == NK_CLASS_DECL ? declaration.members() : [declaration];
+		for callable in callables {
+			if (callable.kind == NK_FUNCTION_DECL || callable.kind == NK_METHOD_DECL) {
+				if (callable.bodyNode != null) { mask.append(self.unreachedBodies.has(callable.bodyNode) ? "0" : "1"); }
+			} else if (callable.kind == NK_PROPERTY_DECL) {
+				if (callable.getterBody != null) { mask.append(self.unreachedBodies.has(callable.getterBody) ? "0" : "1"); }
+				if (callable.setterBody != null) { mask.append(self.unreachedBodies.has(callable.setterBody) ? "0" : "1"); }
+			}
+		}
+		string value = mask.toString();
+		self.bodyCoverage.put(declaration, value);
+		return value;
+	}
+
+	/* Phase, structural declaration slot, then the selected body mask. */
+	private string section(int phase, Node declaration) { return Strings.fromInt(phase) + "\t" + self.codec.slot(declaration) + "\t" + self.coverage(declaration); }
 
 	public Vector<ValidationFact>? recorded(int phase, Node declaration) {
 		if (self.verify) { return null; }
@@ -2990,7 +3362,7 @@ class ValidationRecords implements IValidationRecords {
 			fprintf(stderr, "records: live %s (group %s, loaded %d)\n", self.codec.slot(declaration), group, self.loaded.has(group) ? 1 : 0);
 		}
 		if (group.isEmpty() || self.unwritable.has(group)) { return false; }
-		return self.verify || !self.loaded.has(group);
+		return self.verify || !self.loaded.has(group) || !self.loaded.get(group).has(self.section(phase, declaration));
 	}
 
 	public bool finish(int phase, Node declaration, ValidationJournal journal) {
@@ -2999,7 +3371,7 @@ class ValidationRecords implements IValidationRecords {
 		string? text = self.codec.encode(declaration, journal, self.foreign.get(group));
 		if (phase == RECORD_PHASE_VALIDATE) { self.journaled = self.journaled + 1; }
 		string slot = self.section(phase, declaration);
-		if (self.loaded.has(group)) {
+		if (self.loaded.has(group) && self.loaded.get(group).has(slot)) {
 			/* Verifying: the record must equal the live journal, and must
 			 * resolve to nodes that encode back to the same text. */
 			Map<string, string> declarations = self.loaded.get(group);
@@ -3018,10 +3390,8 @@ class ValidationRecords implements IValidationRecords {
 			self.unwritable.put(group, true);
 			return true;
 		}
-		if (!self.writing.has(group)) { self.writing.put(group, StringBuilder()); }
-		StringBuilder out = self.writing.get(group);
-		out.append("d\t" + slot + "\n");
-		out.append(text);
+		if (!self.writing.has(group)) { self.writing.put(group, {}); }
+		self.writing.get(group).put(slot, text);
 		return true;
 	}
 
@@ -3044,7 +3414,7 @@ class ValidationRecords implements IValidationRecords {
 	public bool reusable(Node declaration) {
 		if (self.verify) { return false; }
 		string group = self.groupOf(declaration);
-		return !group.isEmpty() && self.loaded.has(group) && !self.abandoned.has(group);
+		return !group.isEmpty() && self.loaded.has(group) && !self.abandoned.has(group) && self.loaded.get(group).has(self.section(RECORD_PHASE_VALIDATE, declaration));
 	}
 
 	private string instanceKey(string group) { return SHA256.digest("validation-instances-v2\n" + self.keys.get(group)); }
@@ -3089,13 +3459,14 @@ class ValidationRecords implements IValidationRecords {
 	}
 
 	public Vector<ValidationFact>? recordedInstance(Node template, string section) {
+		string coveredSection = section + "\t" + self.coverage(template);
 		if (self.verify) { return null; }
 		string group = self.groupOf(template);
 		/* After validation, an instance scan reads validation's facts. */
 		if (group.isEmpty() || (section.startsWith("after\t") && self.abandoned.has(group))) { return null; }
 		Map<string, string> sections = self.instances(group);
-		if (!sections.has(section)) { return null; }
-		Vector<ValidationFact>? facts = self.codec.decode(sections.get(section));
+		if (!sections.has(coveredSection)) { return null; }
+		Vector<ValidationFact>? facts = self.codec.decode(sections.get(coveredSection));
 		if (facts != null) { self.instancesReplayed = self.instancesReplayed + 1; }
 		return facts;
 	}
@@ -3106,12 +3477,13 @@ class ValidationRecords implements IValidationRecords {
 	}
 
 	public bool finishInstance(Node template, string section, ValidationJournal journal) {
+		string coveredSection = section + "\t" + self.coverage(template);
 		string group = self.groupOf(template);
 		Map<string, bool> files = {};
 		string? text = self.codec.encode(template, journal, files);
 		if (self.verify) {
 			Map<string, string> sections = self.instances(group);
-			if (sections.has(section)) { return text != null && sections.get(section).equals(text); }
+			if (sections.has(coveredSection)) { return text != null && sections.get(coveredSection).equals(text); }
 		}
 		if (text == null) {
 			self.instancesUnwritable.put(group, true);
@@ -3122,7 +3494,7 @@ class ValidationRecords implements IValidationRecords {
 		string? dependencies = self.dependencyLines(group, files);
 		if (dependencies == null) { return true; }
 		if (!self.instancesWritten.has(group)) { self.instancesWritten.put(group, {}); }
-		self.instancesWritten.get(group).put(section, dependencies + text);
+		self.instancesWritten.get(group).put(coveredSection, dependencies + text);
 		return true;
 	}
 
@@ -3155,8 +3527,9 @@ class ValidationRecords implements IValidationRecords {
 	public void persist() {
 		for group in self.abandoned.keys() { self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-void", "")); }
 		for group in self.writing.keys() {
-			if (self.unwritable.has(group) || self.loaded.has(group)) { continue; }
+			if (self.unwritable.has(group) || self.abandoned.has(group) || self.verify) { continue; }
 			StringBuilder text = StringBuilder();
+			if (self.loadedDependencies.has(group)) { text.append(self.loadedDependencies.get(group)); }
 			bool complete = true;
 			Map<string, bool> files = {};
 			if (self.foreign.has(group)) { files = self.foreign.get(group); }
@@ -3175,8 +3548,15 @@ class ValidationRecords implements IValidationRecords {
 				}
 			}
 			if (!complete) { continue; }
-			text.append(self.writing.get(group).toString());
-			self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-v5", text.toString()));
+			Map<string, string> written = self.writing.get(group);
+			if (self.loaded.has(group)) {
+				Map<string, string> previous = self.loaded.get(group);
+				for slot in previous.keys() {
+					if (!written.has(slot)) { text.append("d\t" + slot + "\n" + previous.get(slot)); }
+				}
+			}
+			for slot in written.keys() { text.append("d\t" + slot + "\n" + written.get(slot)); }
+			self.store.storeModuleUnit(self.keys.get(group), BtrccModuleUnitPayload("validation-record-v7", text.toString()));
 		}
 		for group in self.instancesWritten.keys() {
 			if (self.instancesUnwritable.has(group) || self.verify) { continue; }

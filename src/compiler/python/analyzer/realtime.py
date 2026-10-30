@@ -10,6 +10,7 @@ from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.compiler.python.syntax.ast import generated as ast
 
+from .flow import JumpScopeIndex
 from .program import AnalysisSession, DeclarationIndex
 from .types import TypeSystem
 
@@ -114,6 +115,8 @@ class RealtimeAnalyzer:
         self._declaration_keys: dict[int, str] = {}
         self._property_keys: dict[tuple[str, str, str], str] = {}
         self._loop_guards: list[RealtimeLoopGuard] = []
+        self._jump_root: ast.Block | None = None
+        self._jump_indexes: dict[int, JumpScopeIndex] = {}
 
     def analyze(self, program: ast.Program) -> frozenset[str]:
         """Return the callable keys proven free of every forbidden effect."""
@@ -147,6 +150,8 @@ class RealtimeAnalyzer:
         for declaration in program.declarations:
             source_file = getattr(declaration, "source_file", None)
             if isinstance(declaration, ast.FunctionDecl):
+                if id(declaration.body) in self.session.unreached_stdlib_bodies:
+                    continue
                 self._add_callable(
                     f"function:{declaration.name}",
                     declaration.name,
@@ -157,14 +162,16 @@ class RealtimeAnalyzer:
             elif isinstance(declaration, ast.ClassDecl):
                 for member in declaration.members:
                     if isinstance(member, ast.MethodDecl):
+                        if id(member.body) in self.session.unreached_stdlib_bodies:
+                            continue
                         label = f"{declaration.name}.{member.name}"
                         self._add_callable(f"method:{label}", label, member, member.body, source_file)
                     elif isinstance(member, ast.PropertyDecl):
-                        if member.has_getter:
+                        if member.has_getter and id(member.getter_body) not in self.session.unreached_stdlib_bodies:
                             self._add_property_callable(
                                 declaration.name, member, "get", member.getter_body, source_file
                             )
-                        if member.has_setter:
+                        if member.has_setter and id(member.setter_body) not in self.session.unreached_stdlib_bodies:
                             self._add_property_callable(
                                 declaration.name, member, "set", member.setter_body, source_file
                             )
@@ -227,7 +234,9 @@ class RealtimeAnalyzer:
         if return_type is not None and self._managed_type(return_type):
             self._effect(callable_, "ARC", "managed return type", return_type)
         if callable_.body is not None:
+            self._jump_root = callable_.body
             self._visit(callable_, callable_.body)
+            self._jump_root = None
 
     def _visit(self, callable_: RealtimeCallable, node, *, callee=False, assignment_target=False) -> None:
         if node is None or isinstance(node, (str, int, float, bool)):
@@ -239,6 +248,14 @@ class RealtimeAnalyzer:
         if isinstance(node, ast.TypeExpr):
             return
 
+        if isinstance(node, ast.GotoStmt):
+            if self._jump_root is not None:
+                key = id(self._jump_root)
+                if key not in self._jump_indexes:
+                    self._jump_indexes[key] = JumpScopeIndex.build(self._jump_root)
+                if self._jump_indexes[key].is_backward(node):
+                    self._effect(callable_, "blocking", f"backward goto '{node.name}'", node)
+            return
         if isinstance(node, ast.WhileStmt):
             self._effect(callable_, "blocking", "unproven while loop", node)
             self._visit(callable_, node.condition)
@@ -383,6 +400,13 @@ class RealtimeAnalyzer:
             self._effect(callable_, "collections", type(node).__name__, node)
         elif isinstance(node, ast.LambdaExpr):
             self._effect(callable_, "allocation", "closure construction", node)
+            previous = self._jump_root
+            self._jump_root = node.body.body if isinstance(node.body, ast.LambdaBlock) else None
+            try:
+                self._visit_children(callable_, node)
+            finally:
+                self._jump_root = previous
+            return
         elif isinstance(node, ast.SpawnExpr):
             self._effect(callable_, "blocking", "thread spawn", node)
         elif isinstance(node, (ast.TryCatchStmt, ast.ThrowStmt)):
@@ -416,6 +440,9 @@ class RealtimeAnalyzer:
             self._index_event(callable_, node, "set" if assignment_target else "get")
             return
 
+        self._visit_children(callable_, node)
+
+    def _visit_children(self, callable_, node) -> None:
         if dataclasses.is_dataclass(node):
             for node_field in dataclasses.fields(node):
                 if node_field.name in {"line", "col", "source_file"}:

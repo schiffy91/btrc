@@ -98,6 +98,7 @@ class EnumRegistrar:
             return
         if declaration.name:
             self.index.enum_table[key] = values
+            self.names.alias_tag(declaration)
         else:
             self.index.enum_table.setdefault("", []).extend(values)
 
@@ -367,23 +368,25 @@ class TopLevelRegistrar:
                 self.index.struct_table[declaration.name] = declaration
         elif declaration.name not in self.index.struct_table:
             self.index.struct_table[declaration.name] = declaration
-        self._alias_native_tag(declaration)
+        self.alias_tag(declaration)
 
-    def _alias_native_tag(self, declaration) -> None:
-        """Let a tagged native record's C spelling name the imported record.
+    def alias_tag(self, declaration) -> None:
+        """Register enum and native record tags in the canonical alias index.
 
-        An SDK record imports under its tag (`pollfd`, `sockaddr`), and C code
-        names that same type `struct pollfd`. The alias row maps the written
-        tag to the import in the typedef alias index, so every canonicalization
-        resolves it in one place; the key holds a space and can never collide
-        with a source name. An unknown tag stays a trusted foreign C tag.
+        Source record tags are normalized before registration. Enum tags
+        retain their spelling, and native records retain the SDK spelling.
+        A key containing a space cannot claim a source name.
         """
         source = declaration.source_file
-        if not isinstance(source, NativeHeaderSource):
+        if isinstance(declaration, EnumDecl) and not isinstance(source, NativeHeaderSource):
+            spelling = f"enum {declaration.name}"
+        elif isinstance(source, NativeHeaderSource):
+            spelling = source.type_spelling
+            if spelling not in (f"struct {declaration.name}", f"union {declaration.name}"):
+                return
+        else:
             return
-        spelling = source.type_spelling
-        if spelling in (f"struct {declaration.name}", f"union {declaration.name}"):
-            self.index.typedef_table.setdefault(spelling, TypeExpr(base=declaration.name))
+        self.index.typedef_table.setdefault(spelling, TypeExpr(base=declaration.name))
 
     def register_function(self, declaration) -> None:
         registry = self.registry
@@ -617,15 +620,21 @@ class HierarchyValidator:
 
     def _validate_overrides(self, program: Program) -> None:
         for declaration in self.context.declarations(program):
-            if not isinstance(declaration, ClassDecl) or not declaration.parent:
+            if not isinstance(declaration, ClassDecl):
                 continue
             parent = self.index.class_table.get(declaration.parent)
-            if parent is None:
-                continue
             for member in declaration.members:
                 if not isinstance(member, MethodDecl) or member.is_constructor:
                     continue
-                parent_method = parent.methods.get(member.name)
+                parent_method = parent.methods.get(member.name) if parent is not None else None
+                if parent_method is not None and parent_method.is_constructor:
+                    parent_method = None
+                if member.is_override and parent_method is None:
+                    self.context.error(
+                        f"Method '{declaration.name}.{member.name}' is marked override but no inherited method exists",
+                        member.line,
+                        member.col,
+                    )
                 if parent_method is not None:
                     self._validate_signature(
                         declaration.name, member, parent_method, f"parent class '{declaration.parent}'"
@@ -671,6 +680,10 @@ class HierarchyValidator:
             )
         if bool(getattr(implementation, "is_gpu", False)) != bool(getattr(expected, "is_gpu", False)):
             self.context.error(f"Override '{name}' in '{class_name}' changes @gpu execution from {source}", line, col)
+        if isinstance(expected, MethodDecl) and implementation.is_realtime != expected.is_realtime:
+            self.context.error(
+                f"Override '{name}' in '{class_name}' changes @realtime execution from {source}", line, col
+            )
         expected_return = getattr(expected, "return_type", None)
         if substitutions:
             expected_return = self._signature_types.substitute(expected_return, substitutions)
@@ -1038,7 +1051,7 @@ class DeclarationRegistry:
         return all(
             (first.name == second.name or not first.name or not second.name)
             and first.keep == second.keep
-            and self._type_identity.shape_key(first.type) == self._type_identity.shape_key(second.type)
+            and self._function_type_key(first.type) == self._function_type_key(second.type)
             and self._compatible_defaults(first.default, second.default)
             for first, second in zip(left.params, right.params)
         )
@@ -1251,6 +1264,16 @@ class DeclarationRegistry:
         self.index.global_definitions = {}
         self.index.struct_definitions = {}
         self.normalize_record_tags(program)
+        records = {
+            declaration.name: declaration
+            for declaration in self.session.declarations(program)
+            if isinstance(declaration, StructDecl)
+        }
+        enums = {
+            declaration.name
+            for declaration in self.session.declarations(program)
+            if isinstance(declaration, EnumDecl) and not isinstance(declaration.source_file, NativeHeaderSource)
+        }
         for declaration in self.session.declarations(program):
             if isinstance(declaration, InterfaceDecl):
                 self._register_interface(declaration, top_level)
@@ -1267,6 +1290,8 @@ class DeclarationRegistry:
             elif isinstance(declaration, RichEnumDecl):
                 enum_registrar.register_rich(declaration)
             elif isinstance(declaration, TypedefDecl):
+                if TypeSystem.is_identity_typedef(declaration, records, enums):
+                    continue
                 top_level.claim_name(
                     declaration.alias,
                     "typedef",
@@ -1293,7 +1318,7 @@ class DeclarationRegistry:
         instance, one assignability rule and one lowering. A tag of another
         kind stays for the wrong-keyword refusal, an SDK record keeps its
         written spelling, and a typedef named for its own tag (``typedef struct
-        P P;``) keeps its original for the name-claim diagnostic. It runs
+        P P;``) keeps its original for identity-typedef classification. It runs
         before registration, so prototype and global compatibility compare
         one spelling.
 
@@ -1353,12 +1378,13 @@ class DeclarationRegistry:
     @staticmethod
     def _names_its_own_tag(declaration: TypedefDecl) -> bool:
         """``typedef struct P P;`` or ``typedef struct P* P;``: the alias
-        reuses the tag's name, a name claim the registry reports."""
+        reuses the tag's name, which registration must classify unchanged."""
         original = declaration.original
         return (
             original is not None
             and original.base != declaration.alias
-            and TypeSystem.record_tag_name(original.base) == declaration.alias
+            and original.base
+            in (f"struct {declaration.alias}", f"union {declaration.alias}", f"enum {declaration.alias}")
         )
 
     @staticmethod

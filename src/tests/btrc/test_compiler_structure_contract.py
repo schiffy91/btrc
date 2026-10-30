@@ -79,7 +79,7 @@ EXPECTED_BTRC_FILES = frozenset(
     ir/lowering/Expressions.btrc
     ir/lowering/Functions.btrc
     ir/lowering/Generics.btrc
-    ir/lowering/Reachability.btrc
+    analyzer/Reachability.btrc
     ir/lowering/Lowerer.btrc
     ir/lowering/ownership/Calls.btrc
     ir/lowering/ownership/CycleBoundaries.btrc
@@ -150,9 +150,6 @@ INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
         ("TypeIdentity", "symbolComponent"),
         # Called by the stdlib worker pool through IWorkerRequestHandler.
         ("ModuleUnitWorker", "handle"),
-        # The C2 schema commit (CL-C-07) defines IRK_DESIGNATION's constructor;
-        # the r10 designated-initializer lowering is its first caller. Remove then.
-        ("IRNode", "designation"),
     }
 )
 
@@ -1073,6 +1070,8 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
         "analyzer/validation/Declarations.btrc",
         "analyzer/validation/Names.btrc",
         "analyzer/validation/Ownership.btrc",
+        # Goto's plain-C-object policy queries the generated hosted type names.
+        "analyzer/validation/Types.btrc",
         "ir/gpu/Pipeline.btrc",
         "ir/lowering/Callables.btrc",
         "ir/lowering/Calls.btrc",
@@ -1085,6 +1084,7 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
         "ir/lowering/Strings.btrc",
         "ir/lowering/Types.btrc",
         "ir/optimization/setjmp/Analysis.btrc",
+        "ir/optimization/setjmp/Safety.btrc",
         "pipeline/Pipeline.btrc",
     }
     actual_owners = {
@@ -1106,11 +1106,15 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
     assert pipeline.count("HostedAbiRepository(") == 1
     assert "self.hostedAbi = HostedAbiRepository(" in pipeline
     assert "HostedAbiRepository" not in models
-    assert "hostedAbi" not in validation_state
+    # The state transports semantic facts; the following TypeValidator owns
+    # ABI queries and receives the pipeline's repository through its constructor.
+    state_declaration = validation_state.split("class SemanticValidationState", 1)[1].split("class TypeValidator", 1)[0]
+    assert "hostedAbi" not in state_declaration
+    assert "HostedAbiRepository(" not in validation_state
     assert "HostedAbiRepository" not in analyzer.split("public SemanticAnalyzer(", 1)[0]
     assert "HostedAbiRepository" not in lowerer.split("public IRLowerer(", 1)[0]
     assert "HostedAbiRepository" not in _path("ir/optimization/Optimizer.btrc").read_text()
-    assert "HostedAbiRepository" not in _path("ir/optimization/setjmp/Safety.btrc").read_text()
+    assert "SetjmpSafetyPlanner(setjmpEffects, self.hostedAbi)" in pipeline
     assert "lexicalBindingCName" not in models
     assert "string name, bool typeConflict" in hosted_abi
     assert "public string sourceFunctionSymbol(string name)" in declarations
@@ -1218,6 +1222,8 @@ def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
 
     assert "GeneratedHostedAbiData" not in setjmp_analysis
     assert "HostedAbiRepository hostedAbi" in setjmp_analysis
-    assert "HostedAbiRepository" not in setjmp_safety
+    assert "GeneratedHostedAbiData" not in setjmp_safety
+    assert "HostedAbiRepository hostedAbi" in setjmp_safety
+    assert "self.hostedAbi.arithmeticTypes()" in setjmp_safety
     assert "private SetjmpEffectAnalysis effectAnalysis;" in setjmp_safety
     assert "self.effectAnalysis.analyze(module, roots)" in setjmp_safety

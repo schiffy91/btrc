@@ -84,8 +84,8 @@ def test_message_containing_at_survives(tmp_path, monkeypatch, capsys, workdir):
     msg = "variable shadows a parameter declared at 3:1"
     real = SemanticAnalyzer.analyze
 
-    def fake(self, program):
-        result = real(self, program)
+    def fake(self, program, *, prune_stdlib=False):
+        result = real(self, program, prune_stdlib=prune_stdlib)
         result.errors.append(msg)  # raw, the way string-parsing used to corrupt
         result.diags.append(Diag(msg, 1, 5, "error", None))
         return result
@@ -100,8 +100,8 @@ def test_warning_diag_native_position(tmp_path, monkeypatch, capsys, workdir):
     src = write(tmp_path / "w.btrc", 'int main() { print("OK"); return 0; }\n')
     real = SemanticAnalyzer.analyze
 
-    def fake(self, program):
-        result = real(self, program)
+    def fake(self, program, *, prune_stdlib=False):
+        result = real(self, program, prune_stdlib=prune_stdlib)
         result.warnings.append("suspicious cast at 1:14")
         result.diags.append(Diag("suspicious cast", 1, 14, "warning", None))
         return result

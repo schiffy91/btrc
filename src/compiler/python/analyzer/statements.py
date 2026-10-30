@@ -44,11 +44,13 @@ from src.compiler.python.syntax.ast.generated import (
     ForInStmt,
     FStringLiteral,
     FunctionDecl,
+    GotoStmt,
     Identifier,
     IfStmt,
     IndexExpr,
     InterfaceDecl,
     KeepStmt,
+    LabelStmt,
     LambdaBlock,
     LambdaExpr,
     LambdaExprBody,
@@ -123,6 +125,13 @@ class StatementAnalyzer:
         self.ownership = ownership
         self.storage = storage
         self.types = types
+        self._analyzed_root_blocks: set[int] = set()
+        self._prepared_callables: set[int] = set()
+
+    def begin(self) -> None:
+        self._analyzed_root_blocks.clear()
+        self._prepared_callables.clear()
+        self.flow.reset_jump_scopes()
 
     def _inferred_array_binding_type(self, inferred, initializer):
         """Represent `var alias = arrayValue` as a pointer-valued binding."""
@@ -460,6 +469,10 @@ class StatementAnalyzer:
         if type_expr is None:
             return
         subject = f"Global '{declaration.name}'" if is_global else f"Variable '{declaration.name}'"
+        if is_global:
+            self.types.validate_declaration_specifiers(
+                type_expr, subject, "global", type_expr.line or declaration.line, type_expr.col or declaration.col
+            )
         self.types.validate_declared_type(
             type_expr,
             subject,
@@ -1122,7 +1135,7 @@ class StatementAnalyzer:
                 )
         expr.captures = [Capture(name=name, type=captures[name]) for name in sorted(captures)]
         self.session.lambda_body_facts[id(expr)] = LambdaBodyFacts(
-            terminates=bool(isinstance(expr.body, LambdaBlock) and self.flow.block_must_terminate(expr.body.body))
+            terminates=bool(isinstance(expr.body, LambdaBlock) and self.flow.callable_must_terminate(expr.body.body))
         )
 
     def _analyze_lambda_body(self, expr) -> None:
@@ -1170,11 +1183,11 @@ class StatementAnalyzer:
         else:
             self.session.current_return_type = None
         if isinstance(expr.body, LambdaBlock):
-            self._analyze_root_block(expr.body.body)
+            self._analyze_callable_root(expr.body.body)
             if (
                 expr.return_type
                 and (not self.types.is_nonpointer_void_object(expr.return_type))
-                and (not self.flow.block_must_terminate(expr.body.body))
+                and (not self.flow.callable_must_terminate(expr.body.body))
             ):
                 self.session.error("Non-void lambda does not return a value on every path", expr.line, expr.col)
         elif isinstance(expr.body, LambdaExprBody):
@@ -1258,6 +1271,11 @@ class StatementAnalyzer:
 
         The binding or loop takes the literal's own type, so the mismatch comes
         before anything that type implies, as the self-hosted validator does."""
+        if self.types.has_designators(expression):
+            self.session.error(
+                "A designated initializer needs a declared struct, union or array type", expression.line, expression.col
+            )
+            return True
         mismatches = self.session.inferred_literal_mismatches
         for index, (literal, message, line, col) in enumerate(mismatches):
             if literal is expression and id(literal) not in self.session.contextual_literal_ids:
@@ -1790,6 +1808,22 @@ class StatementAnalyzer:
             param.name, value_type, "param", param.name_line or param.line, param.name_col or param.col
         )
 
+    def analyze_pending_bodies(self, program) -> None:
+        """Check bodies newly reached through inferred generic instances."""
+        for declaration in self.session.declarations(program):
+            with self.session.nonnull_frame((), reachable=True), self._inferred_literal_checks():
+                if isinstance(declaration, ClassDecl):
+                    self._analyze_class(declaration, pending_only=True)
+                elif isinstance(declaration, FunctionDecl) and self._pending_body(declaration.body):
+                    self._analyze_function(declaration)
+
+    def _pending_body(self, body) -> bool:
+        return (
+            body is not None
+            and id(body) not in self.session.unreached_stdlib_bodies
+            and id(body) not in self._analyzed_root_blocks
+        )
+
     def analyze_declaration(self, decl):
         # Each declaration's bodies start reachable and know no non-null facts.
         with self.session.nonnull_frame((), reachable=True), self._inferred_literal_checks():
@@ -1805,12 +1839,20 @@ class StatementAnalyzer:
         elif isinstance(decl, (EnumDecl, RichEnumDecl)):
             return
 
-    def _analyze_class(self, decl):
+    def _analyze_class(self, decl, *, pending_only=False):
         prev_class = self.session.current_class
         prev_class_callable = self.session.current_class_callable
         self.session.current_class = self.index.class_table[decl.name]
         self.session.current_class_callable = None
         for member in decl.members:
+            if pending_only and not (
+                (isinstance(member, MethodDecl) and self._pending_body(member.body))
+                or (
+                    isinstance(member, PropertyDecl)
+                    and (self._pending_body(member.getter_body) or self._pending_body(member.setter_body))
+                )
+            ):
+                continue
             if isinstance(member, FieldDecl):
                 member.type = self.types.upgrade_class_type(member.type)
                 self.generics.collect_type_instances(member.type)
@@ -1889,13 +1931,15 @@ class StatementAnalyzer:
         self.session.current_return_type = prev_return_type
 
     def _analyze_method_body(self, method, is_constructor: bool) -> None:
-        self.declarations.validate_default_parameters(method.params, method.line, method.col)
+        prepare = id(method) not in self._prepared_callables
+        if prepare:
+            self.declarations.validate_default_parameters(method.params, method.line, method.col)
         if method.access != "class":
             self_type = self.types.current_self_type()
             self.session.scope.define("self", SymbolInfo("self", self_type, "param"))
         for param in method.params:
             self.generics.collect_type_instances(param.type)
-            if param.default is not None:
+            if prepare and param.default is not None:
                 parameter_value_type = self.aggregates.array_parameter_value_type(param.type)
                 self.aggregates.validate_array_parameter_default(
                     param.type,
@@ -1938,13 +1982,16 @@ class StatementAnalyzer:
                 self.session.scope.define(param.name, self._param_symbol(param))
         if not is_constructor:
             self.generics.collect_type_instances(method.return_type)
-        self._analyze_root_block(method.body)
+        self._prepared_callables.add(id(method))
+        if id(method.body) in self.session.unreached_stdlib_bodies:
+            return
+        self._analyze_callable_root(method.body)
         if (
             not is_constructor
             and method.return_type
             and (not self.types.is_nonpointer_void_object(method.return_type))
             and method.body
-            and (not self.flow.block_must_terminate(method.body))
+            and (not self.flow.callable_must_terminate(method.body))
         ):
             class_name = self.session.current_class.name if self.session.current_class else ""
             self.session.error(
@@ -1961,7 +2008,7 @@ class StatementAnalyzer:
         prev_class_callable = self.session.current_class_callable
         prev_return_type = self.session.current_return_type
         owner = self.session.current_class.name if self.session.current_class is not None else ""
-        if prop.getter_body:
+        if prop.getter_body and id(prop.getter_body) not in self.session.unreached_stdlib_bodies:
             self.session.current_class_callable = ClassCallableIdentity.getter(owner, prop.name)
             self.session.current_method = MethodDecl(
                 access=prop.access,
@@ -1972,14 +2019,14 @@ class StatementAnalyzer:
             with self.session.scope_frame(), self.session.nonnull_frame((), reachable=True):
                 self_type = self.types.current_self_type()
                 self.session.scope.define("self", SymbolInfo("self", self_type, "param"))
-                self._analyze_root_block(prop.getter_body)
-                if not self.flow.block_must_terminate(prop.getter_body):
+                self._analyze_callable_root(prop.getter_body)
+                if not self.flow.callable_must_terminate(prop.getter_body):
                     self.session.error(
                         f"Property getter '{self.session.current_class.name}.{prop.name}' does not return a value on every path",
                         prop.line,
                         prop.col,
                     )
-        if prop.setter_body:
+        if prop.setter_body and id(prop.setter_body) not in self.session.unreached_stdlib_bodies:
             self.session.current_class_callable = ClassCallableIdentity.setter(owner, prop.name)
             self.session.current_method = MethodDecl(
                 access=prop.access,
@@ -1995,7 +2042,7 @@ class StatementAnalyzer:
                 self.session.scope.define(
                     "value", SymbolInfo("value", self.aggregates.array_parameter_value_type(prop.type), "param")
                 )
-                self._analyze_root_block(prop.setter_body)
+                self._analyze_callable_root(prop.setter_body)
             self.session.in_virtual_setter = previous_virtual_setter
         self.session.current_method = prev_method
         self.session.current_class_callable = prev_class_callable
@@ -2020,7 +2067,9 @@ class StatementAnalyzer:
         self.session.current_return_type = prev_return_type
 
     def _analyze_function_body(self, func) -> None:
-        self.declarations.validate_default_parameters(func.params, func.line, func.col)
+        prepare = id(func) not in self._prepared_callables
+        if prepare:
+            self.declarations.validate_default_parameters(func.params, func.line, func.col)
         self.session.scope.define(
             func.name,
             self.session.local_symbol(
@@ -2029,7 +2078,7 @@ class StatementAnalyzer:
         )
         for param in func.params:
             self.generics.collect_type_instances(param.type)
-            if param.default is not None:
+            if prepare and param.default is not None:
                 parameter_value_type = self.aggregates.array_parameter_value_type(param.type)
                 self.aggregates.validate_array_parameter_default(
                     param.type,
@@ -2072,14 +2121,17 @@ class StatementAnalyzer:
             ):
                 self.session.scope.define(param.name, self._param_symbol(param))
         self.generics.collect_type_instances(func.return_type)
-        self._analyze_root_block(func.body)
+        self._prepared_callables.add(id(func))
+        if id(func.body) in self.session.unreached_stdlib_bodies:
+            return
+        self._analyze_callable_root(func.body)
         if func.is_gpu:
             self.gpu.validate_kernel(func)
         if (
             func.return_type
             and (not self.types.is_nonpointer_void_object(func.return_type))
             and func.body
-            and (not self.flow.block_must_terminate(func.body))
+            and (not self.flow.callable_must_terminate(func.body))
         ):
             self.session.error(
                 f"Function '{func.name}' has non-void return type but no return statement", func.line, func.col
@@ -2175,6 +2227,7 @@ class StatementAnalyzer:
         with self.session.scope_frame():
             catch_type = statement.catch_type
             if catch_type is not None:
+                self.types.validate_type_name_storage(catch_type)
                 catch_type = self.types.upgrade_class_type(catch_type)
                 self.generics.collect_type_instances(catch_type)
                 self.session.record_node_type(statement, catch_type)
@@ -2206,9 +2259,15 @@ class StatementAnalyzer:
         with self.session.scope_frame():
             self._analyze_statement_sequence(block)
 
+    def _analyze_callable_root(self, block):
+        if block is not None:
+            with self.flow.callable_jump_scope(block):
+                self._analyze_root_block(block)
+
     def _analyze_root_block(self, block):
         """Analyze a callable body in the same scope as its parameters."""
         if block is not None:
+            self._analyzed_root_blocks.add(id(block))
             self._analyze_statement_sequence(block)
 
     def _analyze_statement_sequence(self, block):
@@ -2218,10 +2277,11 @@ class StatementAnalyzer:
         found_terminal = False
         with self.session.statement_sequence():
             for stmt in statements:
-                if found_terminal:
+                targeted_label = self.flow.targeted_label(stmt)
+                if found_terminal and not targeted_label:
                     line = getattr(stmt, "line", 0)
                     col = getattr(stmt, "col", 0)
-                    self.session.error("Unreachable code after return/throw/break/continue", line, col)
+                    self.session.error("Unreachable code after return/throw/break/continue/goto", line, col)
                     break
                 reached = not self.session.flow_unreachable
                 with self._inferred_literal_checks():
@@ -2229,13 +2289,69 @@ class StatementAnalyzer:
                 self.session.advance_statement(stmt)
                 # Code after a return, a throw or a call that never returns is
                 # unreachable, and so is everything after unreachable code.
-                if not reached or self.flow.statement_ends_flow(stmt):
+                if (not reached and not targeted_label) or self.flow.statement_ends_flow(stmt):
                     self.session.mark_flow_unreachable()
-                if isinstance(stmt, (ReturnStmt, BreakStmt, ContinueStmt, ThrowStmt)):
-                    found_terminal = True
+                found_terminal = isinstance(stmt, (ReturnStmt, BreakStmt, ContinueStmt, ThrowStmt)) or (
+                    isinstance(stmt, GotoStmt) and self.flow.goto_is_valid(stmt)
+                )
+
+    @classmethod
+    def _names_after_jump(cls, node, name: str) -> bool:
+        if isinstance(node, Identifier):
+            return node.name == name
+        if not dataclasses.is_dataclass(node):
+            return False
+        for field in dataclasses.fields(node):
+            value = getattr(node, field.name)
+            children = value if isinstance(value, list) else (value,)
+            if any(cls._names_after_jump(child, name) for child in children):
+                return True
+        return False
+
+    def _validate_jump_declarations(self, label):
+        index = self.flow.jump_index()
+        for site in self.flow.valid_forward_gotos(label):
+            jump = site.node
+            enclosing = index.enclosing(jump)
+            if enclosing is None:
+                continue
+            scope, _, label_index = enclosing
+            direct = {id(statement): position for position, statement in enumerate(scope.statements)}
+            for declaration in index.entered_declarations(jump):
+                name = declaration.name
+                position = f"{declaration.line}:{declaration.col}"
+                declared = self.types.canonical_type(declaration.type)
+                message = None
+                if self.types.is_variably_modified(declared):
+                    message = f"goto '{jump.name}' jumps into the scope of variable-length array '{name}' declared at {position}"
+                elif (
+                    id(declaration) in direct
+                    and declared is not None
+                    and not (declared.is_static or declared.is_extern)
+                ):
+                    initializer = self.storage.type_of(declaration.initializer)
+                    if not self.types.declaration_is_plain(
+                        declared, initializer, initializer_managed=self.storage.is_managed_value_type(initializer)
+                    ):
+                        message = f"goto '{jump.name}' skips the declaration of '{name}' ({position}), which is not a plain C value; declare it before the goto or inside a nested block"
+                    else:
+                        start = index.reach_start(scope, direct[id(declaration)], label_index)
+                        if any(self._names_after_jump(statement, name) for statement in scope.statements[start:]):
+                            message = f"goto '{jump.name}' skips the declaration of '{name}' ({position}), which is used after the label; declare it before the goto"
+                if message is not None:
+                    self.session.error(message, jump.line, jump.col)
+                    break
 
     def _analyze_stmt(self, stmt):
-        if isinstance(stmt, VarDeclStmt):
+        if isinstance(stmt, GotoStmt):
+            self.flow.validate_goto(stmt)
+            self.flow.record_goto_flow(stmt)
+        elif isinstance(stmt, LabelStmt):
+            if self.declarations.validate_name(stmt.name, "Label", stmt.line, stmt.col, c_name_generated=True):
+                if self.flow.validate_label_identity(stmt):
+                    self._validate_jump_declarations(stmt)
+                    self.flow.enter_label_flow(stmt)
+        elif isinstance(stmt, VarDeclStmt):
             self._analyze_var_decl(stmt)
         elif isinstance(stmt, ReturnStmt):
             if stmt.value:
@@ -2454,6 +2570,10 @@ class StatementAnalyzer:
             # A wrong tag anywhere in the declared type is reported before the
             # initializer is checked against it, as btrcc does.
             self.types.validate_tag_keyword(stmt.type, stmt.line, stmt.col)
+            if stmt.type.is_array and self.types.has_designators(stmt.initializer):
+                subject = ("Global" if is_global else "Variable") + f" '{stmt.name}'"
+                context = "global" if is_global else "static" if stmt.type.is_static else "local"
+                self._validate_array_bound(stmt.type, subject, context)
             self.expressions.contextualize_ternary_literals(stmt.initializer, stmt.type)
             boundary = self.gpu.array_initializer_boundary(stmt.initializer, stmt.type)
             with self.session.gpu_result_context(boundary):

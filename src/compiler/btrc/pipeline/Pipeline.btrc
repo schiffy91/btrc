@@ -17,7 +17,7 @@ import ./Models.btrc;
 import ./ModuleUnits.btrc;
 import ../frontend/SourceIo.btrc;
 import ../frontend/Timing.btrc;
-import ../ir/lowering/Reachability.btrc;
+import ../analyzer/Reachability.btrc;
 
 class CompilerPipeline {
 	private GrammarInfo grammar;
@@ -231,11 +231,16 @@ class CompilerPipeline {
 		 * their body-validation records instead of validating again. */
 		ValidationRecords? records = null;
 		IBtrccArtifactCache? store = self.moduleUnitStore;
+		ModuleUnitInterfaces? interfaces = null;
+		if (options.moduleUnits && !options.unitsPrefix.isEmpty() && resolved.strictImports) {
+			interfaces = ModuleUnitInterfaces(program, sourceDeclarations, resolved, options, store, input.nativeIdentity, packages.linkPlan.target.label());
+		}
 		if (options.moduleUnits && !options.unitsPrefix.isEmpty() && options.useCache && store != null && resolved.strictImports) {
-			records = ValidationRecords(program, sourceDeclarations, resolved, options, store, input.nativeIdentity, packages.linkPlan.target.label());
+			records = ValidationRecords(program, sourceDeclarations, resolved, options, store, input.nativeIdentity, packages.linkPlan.target.label(), interfaces);
 			analyzer.configureValidationRecords(records);
 			BtrccPhaseTimer.mark("a-records");
 		}
+		if (options.runDce && !options.stdlibStrict) { analyzer.configureStdlibBodies(StdlibReachability.classify(program.declarations(), self.hostedAbi)); }
 		Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);
 		BtrccPhaseTimer.mark("analyze");
 		if (records != null) {
@@ -248,9 +253,11 @@ class CompilerPipeline {
 			Map<string, bool>? stdlibKeys = options.runDce ? StdlibReachability.classify(program.declarations(), self.hostedAbi) : null;
 			ModuleUnitProgram unitProgram = ModuleUnitProgram(program, analyzed, analyzer, self.hostedAbi, runtimeHelpers, resolved, sourcePath, stdlibKeys, packages.linkPlan.target.label());
 			unitProgram.nativeDefines = packages.linkPlan.preprocessorDefinitions();
-			if (records != null) {
-				unitProgram.interfaceDigest = records.interfaceDigest;
-				unitProgram.knownSourceDigests = records.groupSourceDigests;
+			if (interfaces != null) {
+				unitProgram.interfaceDigest = interfaces.digest;
+				unitProgram.scopedInterfaces = interfaces.scopedDigests;
+				unitProgram.interfaceHeaders = interfaces.groupHeaders;
+				unitProgram.knownSourceDigests = interfaces.groupSourceDigests;
 			}
 			ModuleUnitBuild build = ModuleUnitCompiler(unitProgram, options, options.useCache ? self.moduleUnitStore : null, self.workerPools).compile();
 			if (!build.failure.isEmpty()) {
@@ -263,6 +270,7 @@ class CompilerPipeline {
 			}
 			IRModule? programModule = build.program;
 			if (programModule != null) {
+				packages.linkPlan.retainedRuntimeHelpers = programModule.runtimeHelperNames;
 				for name in programModule.nativeUnits.keys() {
 					IRModule unit = programModule.nativeUnits.get(name);
 					if ((unit.language != "objective-c" && unit.language != "c++") || unit.nativeUnits.len > 0) { throw "native adapter must be a standalone Objective-C or C++ unit"; }
@@ -338,7 +346,7 @@ class CompilerPipeline {
 			}
 		}
 		BtrccPhaseTimer.mark("setjmp-analysis");
-		SetjmpSafetyPlanner setjmpSafety = SetjmpSafetyPlanner(setjmpEffects);
+		SetjmpSafetyPlanner setjmpSafety = SetjmpSafetyPlanner(setjmpEffects, self.hostedAbi);
 		IROptimizer optimizer = IROptimizer(setjmpSafety, runtimeHelpers);
 		optimizer.optimize(module, options.runDce);
 		/* The surviving code may name only hosted names its row declares. */
@@ -364,6 +372,7 @@ class CompilerPipeline {
 			keep lowerer;
 			return self.irDump(module, analyzed, resolved, input, packages);
 		}
+		packages.linkPlan.retainedRuntimeHelpers = module.runtimeHelperNames;
 		CEmitter emitter = CEmitter();
 		for name in module.nativeUnits.keys() {
 			IRModule unit = module.nativeUnits.get(name);

@@ -15,6 +15,7 @@ PROGRAM = "int main() { Vector<int> values = [1, 2]; return values.len == 2 ? 0 
 def _stdlib_copy(home: Path) -> Path:
     """A BTRC_HOME holding the grammar and a private copy of the stdlib."""
     shutil.copytree(REPO / "src/language", home / "language")
+    shutil.copytree(REPO / "src/runtime", home / "runtime")
     root = home / "stdlib"
     shutil.copytree(STDLIB, root)
     return root

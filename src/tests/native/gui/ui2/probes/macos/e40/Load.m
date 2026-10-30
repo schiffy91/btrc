@@ -3,6 +3,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #include "Load.h"
+#import "KeyTimestamp.h"
 #include "Presentation.h"
 #include <math.h>
 #import "Tracking.h"
@@ -23,9 +24,10 @@
 #define CLOSE_SUBTYPE ((short)0x4541)
 /* Retain every submitted identity until trial cleanup. Receipt slots recycle,
  * but a late duplicate must remain distinguishable from foreign native input. */
-struct InputIdentity { double timestamp; long long sequence; NSInteger window; unsigned short keyCode; bool delivered, rejected; };
+struct InputIdentity { double timestamp; uint64_t nativeTimestamp; long long sequence; NSInteger window; unsigned short keyCode; bool delivered, rejected; };
 static struct InputIdentity *inputIdentities;
 static size_t inputIdentityCount, inputIdentityCapacity;
+static unsigned inputIdentityMisses;
 struct Receipt { long long sequence; uint64_t admitted, due; int bytes; };
 struct Metrics {
     struct Receipt receipts[SLOTS];
@@ -71,6 +73,10 @@ static int activitySecond(uint64_t now) {
 static void delivered(int kind, long long sequence, uint64_t now) {
     struct Metrics *m = &metrics[kind];
     struct Receipt *r = &m->receipts[(uint64_t)sequence % SLOTS];
+    if (r->sequence != sequence || sequence != m->lastSequence + 1) {
+        fprintf(stderr, "E40 delivery order: kind=%d sequence=%lld receipt=%lld previous=%lld pending=%d accepted=%lld delivered=%lld rejected=%lld\n",
+            kind, sequence, r->sequence, m->lastSequence, m->pending, m->accepted, m->delivered, m->rejected);
+    }
     assert(r->sequence == sequence && sequence == m->lastSequence + 1);
     assert(now >= r->admitted && now >= r->due);
     uint64_t latency = now - r->admitted;
@@ -287,8 +293,9 @@ void e40LoadPushInput(int window) {
             else {
                 assert(isfinite(event.timestamp) && event.timestamp >= 0.0 && event.timestamp <= NSProcessInfo.processInfo.systemUptime);
                 assert(event.type == NSEventTypeKeyDown && event.keyCode == 124 && event.windowNumber == windowNumbers[window]);
+                uint64_t nativeTimestamp = e40KeyTimestamp(event);
                 pthread_mutex_lock(&mutex);
-                assert(inputIdentityCount == 0 || inputIdentities[inputIdentityCount - 1].timestamp < event.timestamp);
+                assert(inputIdentityCount == 0 || inputIdentities[inputIdentityCount - 1].nativeTimestamp < nativeTimestamp);
                 if (inputIdentityCount == inputIdentityCapacity) {
                     assert(inputIdentityCapacity <= SIZE_MAX / 2 / sizeof(*inputIdentities));
                     size_t capacity = inputIdentityCapacity ? inputIdentityCapacity * 2 : 256;
@@ -296,7 +303,7 @@ void e40LoadPushInput(int window) {
                     inputIdentities = grown; inputIdentityCapacity = capacity;
                 }
                 identityIndex = inputIdentityCount++;
-                inputIdentities[identityIndex] = (struct InputIdentity){event.timestamp, sequence, event.windowNumber, event.keyCode, false, false};
+                inputIdentities[identityIndex] = (struct InputIdentity){event.timestamp, nativeTimestamp, sequence, event.windowNumber, event.keyCode, false, false};
                 pthread_mutex_unlock(&mutex);
                 [NSApp postEvent:event atStart:NO]; inputSequence = sequence;
             }
@@ -311,18 +318,27 @@ void e40LoadPushInput(int window) {
 bool e40LoadInputDelivery(void) {
     NSEvent *event = NSApp.currentEvent;
     if (!event || event.type != NSEventTypeKeyDown) { return false; }
+    uint64_t nativeTimestamp = e40KeyTimestamp(event);
     long long sequence = 0;
     pthread_mutex_lock(&mutex);
     size_t first = 0, end = inputIdentityCount;
     while (first < end) {
         size_t middle = first + (end - first) / 2;
-        if (inputIdentities[middle].timestamp < event.timestamp) { first = middle + 1; }
+        if (inputIdentities[middle].nativeTimestamp < nativeTimestamp) { first = middle + 1; }
         else { end = middle; }
     }
-    if (first < inputIdentityCount && inputIdentities[first].timestamp == event.timestamp) {
+    if (first < inputIdentityCount && inputIdentities[first].nativeTimestamp == nativeTimestamp) {
         struct InputIdentity *identity = &inputIdentities[first];
         assert(!identity->delivered && !identity->rejected && identity->window == event.windowNumber && identity->keyCode == event.keyCode);
         sequence = identity->sequence; identity->delivered = true;
+    } else if (inputIdentityCount && inputIdentityMisses++ < 32) {
+        size_t nearest = first < inputIdentityCount ? first : inputIdentityCount - 1;
+        if (first > 0 && fabs(inputIdentities[first - 1].timestamp - event.timestamp) < fabs(inputIdentities[nearest].timestamp - event.timestamp)) { nearest = first - 1; }
+        struct InputIdentity *identity = &inputIdentities[nearest];
+        fprintf(stderr, "E40 load identity miss: observed=%.17g key=%u window=%ld nearest=%lld submitted=%.17g key=%u window=%ld delivered=%d rejected=%d delta_ns=%.9f native_observed=%llu native_submitted=%llu\n",
+            event.timestamp, event.keyCode, (long)event.windowNumber, identity->sequence, identity->timestamp,
+            identity->keyCode, (long)identity->window, identity->delivered, identity->rejected, (event.timestamp - identity->timestamp) * 1e9,
+            (unsigned long long)nativeTimestamp, (unsigned long long)identity->nativeTimestamp);
     }
     pthread_mutex_unlock(&mutex);
     if (sequence == 0) { return false; }
@@ -365,6 +381,7 @@ static void exposureRecord(int window, const char *reason) {
     }
     NSRect viewOnScreen = view ? [native convertRectToScreen:[view convertRect:view.bounds toView:nil]] : NSZeroRect;
     CALayer *presented = layer.presentationLayer;
+    NSString *deviceName = layer.device.name;
     NSDictionary *surface = @{@"view_found":@((BOOL)(view != nil)), @"view_window_matches":@((BOOL)(view && view.window == native)),
         @"view_ancestors":ancestors, @"view_ancestors_complete":@((BOOL)(ancestor == nil)),
         @"view_screen_frame":NSStringFromRect(viewOnScreen),
@@ -373,7 +390,7 @@ static void exposureRecord(int window, const char *reason) {
         @"layer_hidden":@(layer.hidden), @"layer_opacity":@(layer.opacity), @"layer_has_superlayer":@((BOOL)(layer.superlayer != nil)),
         @"drawable_size":NSStringFromSize(layer.drawableSize), @"contents_scale":@(layer.contentsScale),
         @"presents_with_transaction":@(layer.presentsWithTransaction), @"display_sync_enabled":@(layer.displaySyncEnabled),
-        @"device_name":layer.device.name ?: @"unavailable", @"pixel_format":@(layer.pixelFormat),
+        @"device_name":deviceName ? deviceName : @"unavailable", @"pixel_format":@(layer.pixelFormat),
         @"presentation_layer_frame":presented ? NSStringFromRect(presented.frame) : @"unavailable",
         @"presentation_layer_bounds":presented ? NSStringFromRect(presented.bounds) : @"unavailable",
         @"presentation_layer_opacity":presented ? @(presented.opacity) : NSNull.null};

@@ -1,0 +1,24 @@
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+/* The caller supplies space for one 128-bit capability. */
+class DaemonRandomProvider {
+	class bool fill(unsigned char* bytes) {
+		int descriptor = open("/dev/urandom", (int)O_RDONLY | (int)O_CLOEXEC);
+		if (descriptor < 0) { return false; }
+		int offset = 0;
+		while (offset < 16) {
+			ssize_t count = read(descriptor, bytes + offset, (size_t)(16 - offset));
+			if (count > (ssize_t)0) {
+				offset = offset + (int)count;
+			} else if (count < (ssize_t)0 && errno == EINTR) {
+				continue;
+			} else {
+				break;
+			}
+		}
+		close(descriptor);
+		return offset == 16;
+	}
+}

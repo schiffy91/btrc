@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
-from src.compiler.python.analyzer.program import AnalyzedProgram
+from src.compiler.python.analyzer.program import AnalyzedProgram, InitializerSlot
 from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
 from src.compiler.python.ir.nodes import (
     CType,
@@ -19,6 +19,7 @@ from src.compiler.python.ir.nodes import (
     IRCommaExpr,
     IRCompoundLiteral,
     IRDeref,
+    IRDesignation,
     IRDoWhile,
     IRExpr,
     IRExprStmt,
@@ -41,7 +42,15 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
     IRWhile,
 )
-from src.compiler.python.syntax.ast.generated import BraceInitializer, ListLiteral, MapLiteral, TupleLiteral, TypeExpr
+from src.compiler.python.syntax.ast.generated import (
+    AnonymousMember,
+    BraceInitializer,
+    FieldDef,
+    ListLiteral,
+    MapLiteral,
+    TupleLiteral,
+    TypeExpr,
+)
 
 from .types import CodegenError, CTypeLowerer
 
@@ -66,6 +75,9 @@ class AggregatePlan:
     c_type: str | None
     field_names: tuple[str, ...]
     constructor: str | None = None
+    elements: tuple[object, ...] | None = None
+    path_slots: tuple[InitializerSlot, ...] | None = None
+    path_type: TypeExpr | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +91,10 @@ class StaticAggregatePlan:
 
     element_types: tuple[TypeExpr | None, ...] | None
     padding: tuple[TypeExpr, ...] = ()
+    elements: tuple[object, ...] | None = None
+    path_slots: tuple[InitializerSlot, ...] | None = None
+    path_type: TypeExpr | None = None
+    field_names: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,17 +392,35 @@ class CollectionLowerer:
                     "cannot use a non-empty brace initializer for heap class "
                     f"'{canonical.base}'; use an explicit constructor call"
                 )
+        declaration = self._static_record(canonical)
+        if canonical is not None and (
+            TypeSystem.has_designators(node)
+            or (declaration is not None and TypeSystem.record_has_anonymous_members(declaration))
+        ):
+            target = canonical if canonical.is_array else declaration
+            if target is None:
+                raise CodegenError(
+                    f"Designated initializers apply to structs, unions and arrays, not '{canonical.base}'"
+                )
+            slots = self._initializer_slots(target, node)
+            return AggregatePlan(
+                source=node,
+                c_type=None if canonical.is_array else self._types.render(node_type),
+                field_names=(),
+                elements=tuple(slot.element for slot in slots),
+                path_slots=slots,
+                path_type=canonical,
+            )
         if canonical and canonical.pointer_depth == 0:
             struct_name = TypeSystem.record_tag_name(canonical.base)
             declaration = self._analyzed.struct_table.get(struct_name)
             if declaration is not None and not declaration.is_forward:
-                slots = TypeSystem.initializer_slots(
-                    self._analyzed.initializer_slot_plans, self._analyzed, declaration, node
-                )
+                slots = self._initializer_slots(declaration, node)
                 return AggregatePlan(
                     source=node,
                     c_type=self._types.render(node_type),
-                    field_names=tuple(slot.member.name for slot in slots.slots),
+                    field_names=tuple(slot.member.name for slot in slots),
+                    elements=tuple(slot.element for slot in slots),
                 )
             if canonical.base == "Tuple":
                 return AggregatePlan(
@@ -411,9 +445,15 @@ class CollectionLowerer:
             field_names=tuple(f"_{index}" for index in range(len(node.elements))),
         )
 
-    @staticmethod
-    def materialize_aggregate(plan: AggregatePlan, lowered_elements: list[IRExpr]) -> IRExpr:
+    def materialize_aggregate(self, plan: AggregatePlan, lowered_elements: list[IRExpr]) -> IRExpr:
         """Build structured aggregate IR from explicitly lowered operands."""
+        if plan.path_slots is not None:
+            tree = self._materialize_initializer_paths(plan.path_slots, lowered_elements, plan.path_type, runtime=True)
+            return (
+                IRCompoundLiteral(c_type=CType(text=plan.c_type), fields=[("", entry) for entry in tree.elements])
+                if plan.c_type is not None
+                else tree
+            )
         if plan.constructor is not None:
             return IRCall(callee=f"{plan.constructor}_new", args=[])
         if plan.c_type is not None:
@@ -425,18 +465,35 @@ class CollectionLowerer:
             return IRInitializerList(elements=lowered_elements)
         return IRLiteral(text="NULL")
 
-    def plan_static(self, node, provenance: CallableProvenance) -> StaticAggregatePlan | None:
+    def plan_static(self, node, provenance: CallableProvenance, target_type=None) -> StaticAggregatePlan | None:
         """Describe a static aggregate without traversing its expressions."""
         if not isinstance(node, (BraceInitializer, ListLiteral)):
             return None
-        node_type = self._session.type_of(node)
+        node_type = target_type if target_type is not None else self._session.type_of(node)
         self._reject_shallow_initializer(node, node_type, provenance)
         canonical = self._types.canonical_type(node_type)
         declaration = self._static_record(canonical)
+        if canonical is not None and (
+            TypeSystem.has_designators(node)
+            or (declaration is not None and TypeSystem.record_has_anonymous_members(declaration))
+        ):
+            target = canonical if canonical.is_array else declaration
+            if target is None:
+                raise CodegenError(
+                    f"Designated initializers apply to structs, unions and arrays, not '{canonical.base}'"
+                )
+            slots = self._initializer_slots(target, node)
+            return StaticAggregatePlan(
+                element_types=tuple(slot.type for slot in slots),
+                elements=tuple(slot.element for slot in slots),
+                path_slots=slots,
+                path_type=canonical,
+            )
         if declaration is not None and isinstance(node, BraceInitializer):
             plan = TypeSystem.initializer_slots(
                 self._analyzed.initializer_slot_plans, self._analyzed, declaration, node
             )
+            self._initializer_slots(declaration, node)
             slot_types = {id(slot.element): slot.type for slot in plan.slots}
             return StaticAggregatePlan(
                 element_types=tuple(slot_types.get(id(element)) for element in node.elements),
@@ -458,9 +515,77 @@ class CollectionLowerer:
         elements: list[IRExpr],
     ) -> IRInitializerList:
         """Materialize a static aggregate from already lowered elements."""
+        if plan.path_slots is not None:
+            return self._materialize_initializer_paths(plan.path_slots, elements, plan.path_type, runtime=False)
+        if plan.field_names is not None:
+            return IRInitializerList(
+                elements=[IRDesignation(field=name, value=value) for name, value in zip(plan.field_names, elements)]
+            )
         if plan.element_types is not None and elements:
             elements.extend(self._zero_static_initializer(member_type) for member_type in plan.padding)
         return IRInitializerList(elements=elements)
+
+    def _initializer_slots(self, target, node):
+        problems = []
+        slots = TypeSystem.initializer_leaf_slots(
+            self._analyzed.initializer_slot_plans, self._analyzed, target, node, problems
+        )
+        if problems:
+            message, site = problems[0]
+            raise CodegenError(f"{message} at {site.line}:{site.col}")
+        return slots
+
+    def array_initializer_extent(self, target, initializer) -> IRLiteral:
+        if not TypeSystem.has_designators(initializer):
+            return IRLiteral(text=str(len(initializer.elements)))
+        canonical = self._types.canonical_type(target)
+        self._initializer_slots(canonical, initializer)
+        plan = TypeSystem.initializer_slots(
+            self._analyzed.initializer_slot_plans, self._analyzed, canonical, initializer
+        )
+        return IRLiteral(text=str(plan.extent))
+
+    def _materialize_initializer_paths(self, slots, values, target, *, runtime):
+        paths = [
+            (tuple(step for step in slot.path if not isinstance(step, AnonymousMember)), value)
+            for slot, value in zip(slots, values)
+        ]
+        return self._materialize_initializer_children(paths, target, runtime=runtime)
+
+    def _materialize_initializer_children(self, paths, target, *, runtime):
+        groups = {}
+        for path, value in paths:
+            step = path[0]
+            key = (
+                ("field", step.name)
+                if isinstance(step, FieldDef)
+                else ("index", TypeSystem.initializer_index_value(step, self._analyzed.designator_index_values))
+            )
+            if key not in groups:
+                groups[key] = (step, [])
+            groups[key][1].append((path[1:], value))
+        entries = []
+        for (kind, key), (step, children) in groups.items():
+            child_type = step.type if isinstance(step, FieldDef) else TypeSystem.strip_outer_storage(target, array=True)
+            if not children[0][0]:
+                value = children[0][1]
+            else:
+                canonical = self._types.canonical_type(child_type)
+                nested = self._materialize_initializer_children(children, canonical, runtime=runtime)
+                value = (
+                    IRCompoundLiteral(
+                        c_type=CType(text=self._types.render(child_type)),
+                        fields=[("", entry) for entry in nested.elements],
+                    )
+                    if runtime and canonical is not None and not canonical.is_array
+                    else nested
+                )
+            entries.append(
+                IRDesignation(field=key, value=value)
+                if kind == "field"
+                else IRDesignation(index=IRLiteral(text=str(key)), value=value)
+            )
+        return IRInitializerList(elements=entries)
 
     def _static_record(self, type_expr):
         """The complete record a by-value static initializer target names."""
@@ -647,7 +772,7 @@ class CollectionLowerer:
         instead of storing the class pointer.
         """
 
-        collection_type = self._session.type_of(plan.source)
+        collection_type = self._types.canonical_type(self._session.type_of(plan.source))
         arguments = collection_type.generic_args if collection_type is not None else []
         if plan.entry_width == 1:
             element = arguments[0] if arguments else None
@@ -679,7 +804,7 @@ class CollectionLowerer:
         lowered_elements: list[IRExpr],
     ):
         """Build a typed list/vector and consume caller-owned elements."""
-        list_type = self._session.type_of(node)
+        list_type = self._types.canonical_type(self._session.type_of(node))
         element_type = (
             list_type.generic_args[0]
             if list_type is not None and list_type.generic_args
@@ -711,7 +836,7 @@ class CollectionLowerer:
         lowered_entries: list[tuple[IRExpr, IRExpr]],
     ):
         """Build a typed map and consume caller-owned keys and values."""
-        map_type = self._session.type_of(node)
+        map_type = self._types.canonical_type(self._session.type_of(node))
         if map_type is not None and len(map_type.generic_args) == 2:
             key_type, value_type = map_type.generic_args
         elif node.entries:
@@ -743,13 +868,12 @@ class CollectionLowerer:
         sequence = [IRBinOp(left=collection, op="=", right=IRCall(callee=f"{mangled}_new", args=[]))]
         result = collection
         if self._cleanup_scope.exception_cleanup_active():
-            cleanup_decls, cleanup_exprs = self._lifetime.cleanup_registration(
-                temporary, type_expr, "__btrc_collection_cleanup"
-            )
-            declarations.extend(cleanup_decls)
-            sequence.extend(cleanup_exprs)
+            temporary.init = IRLiteral(text="NULL")
+            sequence.insert(0, self._lifetime.register_cleanup_slot(temporary, type_expr))
             result_decl = IRVarDecl(
-                c_type=CType(text=f"{mangled}*"), name=self._session.fresh_temp("__btrc_collection_result")
+                c_type=CType(text=f"{mangled}*"),
+                name=self._session.fresh_temp("__btrc_construction_handoff"),
+                init=IRLiteral(text="NULL"),
             )
             self._session.function_declarations.append(result_decl)
             declarations.append(result_decl)

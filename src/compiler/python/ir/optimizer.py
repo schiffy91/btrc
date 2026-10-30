@@ -113,12 +113,14 @@ class IROptimizer:
         freestanding_runtime: FreestandingRuntime | None = None,
         module_unit: bool = False,
         program_cyclable_release: bool | None = None,
+        unneeded_instances: frozenset[str] = frozenset(),
     ) -> None:
         self._module = module
         self._dce = dce
         # A module unit's external definitions are reachable from other units,
         # and whether any unit releases a cyclable value is a program fact.
         self._module_unit = module_unit
+        self._unneeded_instances = unneeded_instances
         self._program_cyclable_release = program_cyclable_release
         self._runtime_catalog = runtime_catalog or RuntimeHelperCatalog()
         self._freestanding_runtime = freestanding_runtime or FreestandingRuntime()
@@ -308,7 +310,7 @@ class IROptimizer:
 
         declarations: tuple[TypeDeclaration, ...] = (
             *module.enum_defs,
-            *module.function_pointer_typedefs,
+            *sorted(module.function_pointer_typedefs, key=lambda declaration: declaration.name),
             *module.typedef_defs,
             *module.tagged_union_defs,
             *module.struct_defs,
@@ -462,6 +464,14 @@ class IROptimizer:
             for name in cls._ctype_references(node, pattern):
                 provider = providers[name]
                 provided = declarations[provider]
+                if (
+                    provider == declaration_index
+                    and isinstance(declaration, IRTypedefDef)
+                    and node.text in (f"struct {name}", f"union {name}")
+                ):
+                    # The foreign tag belongs to C's tag namespace; this
+                    # declaration introduces the separate typedef name.
+                    continue
                 if not isinstance(provided, _AGGREGATE_TYPES) or requires_complete:
                     dependencies.add(provider)
                 if requires_complete and isinstance(provided, IRTypedefDef):
@@ -508,7 +518,11 @@ class IROptimizer:
         self._global_names = set(self._globals_by_name)
         live_functions = self._function_names & _ENTRY_POINTS
         if self._module_unit:
-            live_functions |= {function.name for function in self._module.function_defs if not function.is_static}
+            live_functions |= {
+                function.name
+                for function in self._module.function_defs
+                if not function.is_static and function.name not in self._unneeded_instances
+            }
         live_globals = {
             name
             for name, declarations in self._globals_by_name.items()
@@ -563,9 +577,13 @@ class IROptimizer:
 
     @classmethod
     def _is_global_root(cls, declaration: IRGlobalDecl) -> bool:
+        # Module partitioning exports ARC descriptors, but their linkage does
+        # not make them roots. Live constructors and other references do.
         return bool(
-            not declaration.is_static
-            or declaration.is_extern
+            (
+                (not declaration.is_static or declaration.is_extern)
+                and declaration.c_type.text != "const __btrc_arc_type"
+            )
             or cls._initializer_has_side_effects(declaration.init)
             or cls._initializer_has_side_effects(declaration.array_size)
         )
@@ -684,6 +702,12 @@ class IROptimizer:
             self._collect_callable_references(root, names, referenced)
         self._scan_macro_replacements(pattern, self._module.preprocessor_decls, referenced)
         for helper in self._module.helper_decls:
+            # Canonical runtime assets own their dependencies in the catalog;
+            # their local names do not reference application declarations.
+            if self._runtime_catalog.contains(helper.name):
+                definition = self._runtime_catalog.definition(helper.name)
+                if helper.c_source == definition.c_source:
+                    continue
             self._scan_identifiers(pattern, helper.c_source, referenced)
         dead = names - referenced
         self._module.function_decls = [
@@ -783,11 +807,11 @@ class IROptimizer:
         Adapters are created when lowering first needs them, so creation
         order followed the order functions were lowered in, and a family's
         names depended on adapters that only dead functions used. After
-        dead-code elimination each family is ordered by the first surviving
-        non-adapter function that names a member, ties keeping creation
-        order, and numbered from 1. The adapters' positions are then filled
-        family by family in that order; btrcc's optimizer applies the same
-        rule.
+        dead-code elimination each family is ordered by its first structured
+        reference in surviving non-adapter function bodies and numbered from 1.
+        This also removes creation-order ties within one surviving function.
+        The adapters' positions are filled family by family; btrcc's optimizer
+        applies the same rule.
         """
         definitions = self._module.function_defs
         families = {
@@ -802,13 +826,13 @@ class IROptimizer:
         if not members:
             return
         first_use: dict[str, int] = {}
-        for position, function in enumerate(definitions):
+        for function in definitions:
             if function.name in members:
                 continue
             for node in IRNode.walk_value(function):
                 for name in IROptimizer._adapter_references(node):
                     if name in members:
-                        first_use.setdefault(name, position)
+                        first_use.setdefault(name, len(first_use))
         placeholders: dict[str, str] = {}
         finals: dict[str, str] = {}
         ordered: list[int] = []
@@ -931,13 +955,16 @@ class IROptimizer:
     def _order_prototypes(self) -> None:
         """Order prototypes independently of the lowering phase that declared them.
 
-        Prototypes with no definition in this module keep their relative order
-        and come first; the rest follow their definitions' order. btrcc's
+        Prototypes with no definition in this module come first, ordered by
+        name; the rest follow their definitions' order. btrcc's
         optimizer applies the same rule, so both compilers emit one prototype
         block for one set of definitions.
         """
         positions = {function.name: index for index, function in enumerate(self._module.function_defs)}
-        external = [declaration for declaration in self._module.function_decls if declaration.name not in positions]
+        external = sorted(
+            (declaration for declaration in self._module.function_decls if declaration.name not in positions),
+            key=lambda declaration: declaration.name,
+        )
         defined = sorted(
             (declaration for declaration in self._module.function_decls if declaration.name in positions),
             key=lambda declaration: positions[declaration.name],

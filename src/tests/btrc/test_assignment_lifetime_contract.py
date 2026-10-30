@@ -88,12 +88,13 @@ def test_managed_compound_updates_have_one_physical_storage_transaction() -> Non
     ]
     plan = managed_types[
         managed_types.index("public ManagedCompoundStorePlan? planCompoundStore(") : managed_types.index(
-            "/* Evaluate receiver and replacement once", managed_types.index("public ManagedCompoundStorePlan?")
+            "public ManagedInstanceFieldStore prepareInstanceFieldStore(",
+            managed_types.index("public ManagedCompoundStorePlan?"),
         )
     ]
 
-    assert core.index("self.managedTypes.planCompoundStore(") < core.index("self.materializePhysicalUpdate(")
-    assert core.index("self.managedTypes.requiresManagedCompoundStore(") < core.index("self.materializePhysicalUpdate(")
+    assert core.index("self.managedTypes.planCompoundStore(") < core.index("self.materializeStorageUpdate(")
+    assert core.index("self.managedTypes.requiresManagedCompoundStore(") < core.index("self.materializeStorageUpdate(")
     assert core.count("self.managedTypes.materializeCompoundStore(") == 1
     assert "enum ManagedCompoundStoreKind" in managed_types
     assert "MANAGED_COMPOUND_OWNED_SLOT" in plan
@@ -249,9 +250,15 @@ def test_compound_overload_signature_must_fit_the_concrete_slot(
         assert reference_diagnostic in (reference.stdout + reference.stderr).lower(), name
 
 
+@pytest.mark.parametrize(
+    "update", ["self.value += value;", "self.value = self.value + value;"], ids=["compound", "binary"]
+)
+@pytest.mark.parametrize("argument_type", ["string", "Rhs"], ids=["declared-string", "bound-string"])
 def test_generic_compound_rhs_conversion_materializes_concrete_to_string(
     semantic_btrcc: Path,
     tmp_path: Path,
+    update: str,
+    argument_type: str,
 ) -> None:
     source = r"""
         #include <assert.h>
@@ -260,31 +267,31 @@ def test_generic_compound_rhs_conversion_materializes_concrete_to_string(
         int conversions = 0;
         int additions = 0;
 
-        class Value<T> {
+        class Value<T, Rhs> {
             public Value() { liveValues++; }
             public void __del__() { liveValues--; }
             public string toString() {
                 conversions++;
                 return "converted";
             }
-            public Value<T> __add__(string text) {
+            public Value<T, Rhs> __add__(RHS_TYPE text) {
                 additions++;
                 assert(text.equals("converted"));
-                return new Value<T>();
+                return new Value<T, Rhs>();
             }
         }
 
         class Box<T> {
             public T value;
             public Box(T value) { self.value = value; }
-            public void add(T value) { self.value += value; }
+            public void add(T value) { UPDATE }
         }
 
         int main() {
             {
-                Value<int> left = new Value<int>();
-                Value<int> right = new Value<int>();
-                Box<Value<int>> box = new Box<Value<int>>(left);
+                Value<int, string> left = new Value<int, string>();
+                Value<int, string> right = new Value<int, string>();
+                Box<Value<int, string>> box = new Box<Value<int, string>>(left);
                 box.add(right);
                 assert(conversions == 1 && additions == 1);
                 assert(liveValues == 3);
@@ -295,7 +302,7 @@ def test_generic_compound_rhs_conversion_materializes_concrete_to_string(
             assert(liveValues == 0);
             return 0;
         }
-    """
+    """.replace("RHS_TYPE", argument_type).replace("UPDATE", update)
     selfhost, selfhost_c = compile_source(
         semantic_btrcc,
         tmp_path,
@@ -1246,3 +1253,170 @@ def test_compound_update_loads_before_mutating_rhs(
         tmp_path / "reference-compound-order",
         toolchain,
     )
+
+
+@pytest.mark.parametrize(
+    ("declaration", "inheritance", "field"),
+    [
+        ("interface Value { int read(); }", "implements", "public int number;"),
+        ("class Value { public int number; public int read() { return self.number; } }", "extends", ""),
+    ],
+    ids=["interface", "class"],
+)
+@pytest.mark.parametrize("aliases", ["none", "source", "target", "both"])
+@pytest.mark.parametrize("slot", ["holder.value", "Holder.shared"], ids=["instance", "static"])
+def test_managed_field_upcasts_preserve_prepared_value_type(
+    semantic_btrcc, tmp_path, declaration, inheritance, field, slot, aliases
+):
+    source = (
+        """
+        int liveValues = 0;
+        int factoryCalls = 0;
+        TARGET_DECLARATION
+        class Concrete INHERITANCE Value {
+            CONCRETE_FIELD
+            public Concrete(int number) { self.number = number; liveValues++; }
+            public void __del__() { liveValues--; }
+            public int read() { return self.number; }
+        }
+        class Holder {
+            public Value? value = null;
+            class Value? shared = null;
+        }
+        int readValue(Value? value) {
+            assert(value != null);
+            return value.read();
+        }
+        Concrete makeValue(bool fail) {
+            factoryCalls++;
+            var value = Concrete(9);
+            if (fail) { throw "replacement failed"; }
+            return value;
+        }
+        Value? assignBorrowed(Holder holder, Concrete? value) {
+            return SLOT = value;
+        }
+        Value? assignOwned(Holder holder, bool fail) {
+            return SLOT = makeValue(fail);
+        }
+        int main() {
+            var holder = Holder();
+            for (int index = 0; index < 5; index++) {
+                Concrete? value = Concrete(7);
+                Value? assigned = assignBorrowed(holder, value);
+                assert(assigned == SLOT && readValue(assigned) == 7);
+                assigned = null;
+                value = null;
+                assert(liveValues == 1 && readValue(SLOT) == 7);
+                assigned = assignOwned(holder, false);
+                assert(assigned == SLOT && readValue(assigned) == 9);
+                assigned = null;
+                assert(liveValues == 1 && factoryCalls == index * 2 + 1);
+                bool caught = false;
+                try { assignOwned(holder, true); }
+                catch (string error) { caught = error == "replacement failed"; }
+                assert(caught && liveValues == 1 && factoryCalls == (index + 1) * 2);
+                assert(readValue(SLOT) == 9);
+                assert(assignBorrowed(holder, null) == null);
+                assert(SLOT == null && liveValues == 0);
+            }
+            return 0;
+        }
+    """.replace("TARGET_DECLARATION", declaration)
+        .replace("INHERITANCE", inheritance)
+        .replace("CONCRETE_FIELD", field)
+        .replace("SLOT", slot)
+    )
+    if aliases != "none":
+        source = source.replace(
+            "class Holder {", "typedef Value ValueAlias; typedef Concrete ConcreteAlias; class Holder {"
+        )
+    if aliases in {"source", "both"}:
+        source = source.replace("Concrete?", "ConcreteAlias?").replace("Concrete makeValue", "ConcreteAlias makeValue")
+    if aliases in {"target", "both"}:
+        source = source.replace("Value?", "ValueAlias?")
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    toolchain = require_sanitizers(tmp_path)
+    for name, generated in (("selfhost", selfhost_c), ("reference", reference_c)):
+        strict_build_and_run(generated, tmp_path / name, optimization="-O2")
+        sanitized_build_and_run(generated, tmp_path / f"{name}-sanitized", toolchain)
+    assert selfhost_c.read_bytes() == reference_c.read_bytes()
+
+
+def test_borrowed_storage_upcasts_preserve_prepared_value_type(semantic_btrcc, tmp_path):
+    source = """
+        int liveValues = 0;
+        int targetEvaluations = 0;
+        interface Value { int read(); }
+        class Concrete implements Value {
+            public int number;
+            public Concrete(int number) { self.number = number; liveValues++; }
+            public void __del__() { liveValues--; }
+            public int read() { return self.number; }
+        }
+        struct Borrowed { Value value; };
+        int nextIndex() { targetEvaluations++; return 0; }
+        int main() {
+            {
+                var owner = Concrete(7);
+                struct Borrowed borrowed = {null};
+                Value values[1] = {null};
+                borrowed.value = owner;
+                Value? assigned = (values[nextIndex()] = owner);
+                assert(targetEvaluations == 1 && assigned == values[0]);
+                assert(borrowed.value.read() == 7 && values[0].read() == 7);
+                assigned = null;
+                borrowed.value = null;
+                values[nextIndex()] = null;
+                assert(targetEvaluations == 2 && liveValues == 1);
+            }
+            assert(liveValues == 0);
+            return 0;
+        }
+    """
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    toolchain = require_sanitizers(tmp_path)
+    for name, generated in (("selfhost", selfhost_c), ("reference", reference_c)):
+        strict_build_and_run(generated, tmp_path / name, optimization="-O2")
+        sanitized_build_and_run(generated, tmp_path / f"{name}-sanitized", toolchain)
+    assert selfhost_c.read_bytes() == reference_c.read_bytes()
+
+
+def test_managed_field_target_precedes_conditional_value_lowering(semantic_btrcc: Path, tmp_path: Path) -> None:
+    sanitizer = require_sanitizers(tmp_path)
+    source = """
+        #include <assert.h>
+        int receiverCalls = 0;
+        class Failure {
+            public string message;
+            public Failure(string message) { self.message = message; }
+        }
+        Failure choose(Failure value) { receiverCalls++; return value; }
+        string fail() { throw "rhs"; }
+        int main() {
+            Failure target = new Failure("old");
+            string input = "";
+            string assigned = (choose(target).message = input == null || input.isEmpty() ? "fallback" : input);
+            assert(receiverCalls == 1);
+            assert(assigned == "fallback" && target.message == "fallback");
+            try { choose(target).message = fail(); assert(false); }
+            catch (string error) { assert(error == "rhs"); }
+            assert(receiverCalls == 2 && target.message == "fallback");
+            print("PASS");
+            return 0;
+        }
+    """
+    selfhost, selfhost_c = compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_c = compile_ownership_reference(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    for frontend, generated in (("selfhost", selfhost_c), ("reference", reference_c)):
+        strict_build_and_run(generated, tmp_path / f"{frontend}-field-target", optimization="-O2")
+        sanitized_build_and_run(generated, tmp_path / f"{frontend}-field-target-sanitized", sanitizer)
+    assert selfhost_c.read_bytes() == reference_c.read_bytes()

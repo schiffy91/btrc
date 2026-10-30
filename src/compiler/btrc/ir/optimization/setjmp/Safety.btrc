@@ -4,19 +4,22 @@ import Library.Map;
 import Library.Strings;
 import Library.Vector;
 
+import ../../../analyzer/HostedAbi.btrc;
 import ../../Model.btrc;
 import ./Analysis.btrc;
 
 class SetjmpSafetyPlanner {
 	private SetjmpEffectAnalysis effectAnalysis;
+	private HostedAbiRepository hostedAbi;
 	private Map<string, SetjmpCallEffects> effectsByFunction;
 	private Map<string, bool> setjmpBodies = {};  /* function name -> body contains setjmp */
 	private Map<string, bool> scalarAliases = {};  /* enumeration and arithmetic typedef names */
 	private Map<string, bool> registerAddressed = {};  /* names whose address the scanned function takes */
 	private bool registerCandidates = false;  /* the scanned function calls setjmp */
 
-	public SetjmpSafetyPlanner(SetjmpEffectAnalysis effectAnalysis) {
+	public SetjmpSafetyPlanner(SetjmpEffectAnalysis effectAnalysis, HostedAbiRepository hostedAbi) {
 		self.effectAnalysis = effectAnalysis;
+		self.hostedAbi = hostedAbi;
 		self.effectsByFunction = {};
 	}
 
@@ -136,6 +139,7 @@ class SetjmpSafetyPlanner {
 	}
 
 	private void validateStatement(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params) {
+		if (statement.kind == IRK_GOTO || statement.kind == IRK_LABEL) { return; }
 		if (statement.kind == IRK_VAR_DECL) {
 			self.validateExpression(((IRDeclarationPayload)statement.payload).arraySize, visible, params, statement.kind, "array_size");
 			self.addVisible(visible, statement);
@@ -280,6 +284,7 @@ class SetjmpSafetyPlanner {
 	}
 
 	private void collectStatementMutations(IRNode statement, Map<string, bool> bound, Map<string, bool> modified, SetjmpCallEffects effects) {
+		if (statement.kind == IRK_GOTO || statement.kind == IRK_LABEL) { return; }
 		self.recordNodeWrites(statement, bound, modified, effects);
 		if (statement.kind == IRK_VAR_DECL) {
 			self.collectExpressionMutations(((IRDeclarationPayload)statement.payload).arraySize, bound, modified, effects);
@@ -534,9 +539,11 @@ class SetjmpSafetyPlanner {
 		return count > 0 && (arithmetic || (count == 1 && aliases.has(single)));
 	}
 
-	/* Resolve the module's enumeration names and arithmetic typedef chains. */
+	/* Resolve hosted arithmetic types, module enums and local typedef chains. */
 	private Map<string, bool> scalarTypeAliases(IRModule module) {
 		Map<string, bool> aliases = {};
+		for name in self.hostedAbi.arithmeticTypes() { aliases.put(name, true); }
+		for definition in module.typedefDefs { aliases.remove(definition.name); }
 		for definition in module.enumDefs {
 			if (definition.name != "") { aliases.put(definition.name, true); }
 		}
@@ -742,7 +749,7 @@ class SetjmpSafetyPlanner {
 		while (index < block.stmts().len) {
 			IRNode statement = block.stmts().get(index);
 			if (self.containsSetjmp(statement)) {
-				Map<string, bool> continuation = self.mutatedSequenceAfter(block.stmts(), index + 1, effects);
+				Map<string, bool> continuation = self.mutatedSequenceAfter(block.stmts(), SetjmpJumpSequence(block.stmts()).continuationStart(index), effects);
 				self.markVisible(visible, params, continuation, true, effects);
 			}
 			self.scanStatement(statement, visible, params, effects);
@@ -811,6 +818,7 @@ class SetjmpSafetyPlanner {
 	}
 
 	private void scanStatement(IRNode statement, Vector<IRNode> visible, Vector<IRParam> params, SetjmpCallEffects effects) {
+		if (statement.kind == IRK_GOTO || statement.kind == IRK_LABEL) { return; }
 		Map<string, bool> all = {};
 		if (statement.kind == IRK_VAR_DECL) {
 			self.prepareDeclaration(statement, visible, params, all, false, effects);
@@ -886,6 +894,30 @@ class SetjmpSafetyPlanner {
 		self.scanBlock(((IRControlPayload)statement.payload).body, loopVisible, params, effects);
 	}
 
+	/* GCC 15 IPA constant propagation can replace a volatile parameter's
+	 * post-longjmp value with its incoming constant. A volatile local retains
+	 * the writes. Mutation identities distinguish parameters from shadows;
+	 * qualifier validation runs before moving their storage. */
+	private void materializeParameters(IRFunction definition, SetjmpCallEffects effects) {
+		IRNode? body = definition.body;
+		if (body == null) { return; }
+		Map<string, bool> modified = self.mutatedNames(body, effects);
+		Vector<IRNode> statements = [];
+		for parameter in definition.params {
+			if (!parameter.isVolatile || !modified.has(self.visibleParameterKey(parameter, effects))) { continue; }
+			string name = parameter.name;
+			parameter.name = "__btrc_setjmp_parameter_" + name;
+			IRNode local = IRNode.variableDeclaration(parameter.cType, name, IRNode.variable(parameter.name));
+			((IRDeclarationPayload)local.payload).isVolatile = true;
+			((IRDeclarationPayload)local.payload).effectiveIsVolatile = true;
+			((IRDeclarationPayload)local.payload).setjmpInferredVolatile = parameter.setjmpInferredVolatile;
+			statements.push(local);
+		}
+		for statement in body.stmts() { statements.push(statement); }
+		body.stmtsMut().clear();
+		for statement in statements { body.stmtsMut().push(statement); }
+	}
+
 	public void apply(IRModule module) {
 		Map<string, SetjmpCallEffects> none = {};
 		self.applySolved(module, none);
@@ -928,6 +960,9 @@ class SetjmpSafetyPlanner {
 				self.qualifyGeneratedLocals(body, effects);
 			}
 			self.validateFunction(definition);
+			if (body != null && self.bodyContainsSetjmp(definition)) {
+				self.materializeParameters(definition, self.effectsByFunction.get(definition.name));
+			}
 			index = index + 1;
 		}
 	}

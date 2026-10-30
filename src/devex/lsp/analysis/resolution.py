@@ -8,6 +8,7 @@ from pathlib import Path
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.program import ClassInfo
+from src.compiler.python.analyzer.types import TypeSystem
 from src.compiler.python.syntax.ast.generated import (
     Block,
     CallExpr,
@@ -31,6 +32,7 @@ from src.compiler.python.syntax.ast.generated import (
     PropertyDecl,
     SwitchStmt,
     TryCatchStmt,
+    TypeExpr,
     VarDeclStmt,
     WhileStmt,
 )
@@ -63,9 +65,6 @@ class ChainResolution:
 
     type_name: str
     direct_type_reference: bool = False
-
-
-_PRIMITIVE_TYPES = frozenset({"int", "float", "double", "long", "short", "char", "bool", "void", "unsigned"})
 
 
 class LexicalScopeIndex:
@@ -686,15 +685,35 @@ class SemanticResolver:
         current_type = root_resolution.type_name
         receiver_is_type = root_resolution.direct_type_reference
         for member, called in chain[1:]:
-            current_type = self.resolve_member_type(
-                current_type, member, class_table, prefer_method=called, static_access=receiver_is_type
-            )
+            record = self._record_declaration(result, current_type)
+            if record is not None and not receiver_is_type:
+                field = TypeSystem.record_member(record, member)
+                member_type = field.type if field is not None else None
+                if called:
+                    signature = TypeSystem.declaration_callable_signature(member_type, result.analyzed.typedef_table)
+                    member_type = signature[0] if signature else None
+                current_type = member_type.base if member_type is not None else None
+            else:
+                current_type = self.resolve_member_type(
+                    current_type, member, class_table, prefer_method=called, static_access=receiver_is_type
+                )
             if current_type is None:
                 return None
             receiver_is_type = False
+        record = self._record_declaration(result, current_type)
+        if record is not None:
+            current_type = record.name
         return ChainResolution(
             current_type, direct_type_reference=len(chain) == 1 and root_resolution.direct_type_reference
         )
+
+    def _record_declaration(self, result: DocumentAnalysis, type_name: str):
+        if result.analyzed is None:
+            return None
+        canonical = TypeSystem.canonical_declaration_type(TypeExpr(base=type_name), result.analyzed.typedef_table)
+        if canonical is None:
+            return None
+        return result.analyzed.struct_table.get(TypeSystem.record_tag_name(canonical.base))
 
     def _resolve_root(
         self,
@@ -848,15 +867,12 @@ class SemanticResolver:
         if isinstance(node, VarDeclStmt):
             return self._var_decl_type(node, class_table)
         if isinstance(node, Param):
-            if node.type and self._known_type(node.type.base, class_table):
+            if node.type and node.type.base != "var":
                 return node.type.base
             return None
         if definition.kind == "catch":
             return "string"
         return None
-
-    def _known_type(self, type_name: str, class_table: dict[str, ClassInfo]) -> bool:
-        return type_name in class_table or type_name in _PRIMITIVE_TYPES or type_name in self.catalog.type_names
 
     def _scan_for_var_types(
         self, var_name: str, node, class_table: dict[str, ClassInfo], candidates: list[tuple[int, str]]
@@ -873,7 +889,7 @@ class SemanticResolver:
             return
         if isinstance(node, (FunctionDecl, MethodDecl)):
             for param in node.params:
-                if param.name == var_name and param.type and self._known_type(param.type.base, class_table):
+                if param.name == var_name and param.type and param.type.base != "var":
                     candidates.append((param.line, param.type.base))
             if node.body:
                 for statement in node.body.statements:
@@ -892,7 +908,7 @@ class SemanticResolver:
                 self._scan_for_var_types(var_name, statement, class_table, candidates)
 
     def _var_decl_type(self, node: VarDeclStmt, class_table: dict[str, ClassInfo]) -> str | None:
-        if node.type and self._known_type(node.type.base, class_table):
+        if node.type and node.type.base != "var":
             return node.type.base
         if isinstance(node.initializer, CallExpr):
             callee = node.initializer.callee
@@ -900,6 +916,6 @@ class SemanticResolver:
                 return callee.name
         if isinstance(node.initializer, NewExpr):
             type_expr = node.initializer.type
-            if type_expr and self._known_type(type_expr.base, class_table):
+            if type_expr and type_expr.base != "var":
                 return type_expr.base
         return None

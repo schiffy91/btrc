@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,6 +19,40 @@ def diagnostic(tmp_path: Path) -> MemoryDiagnostic:
     return MemoryDiagnostic(tmp_path, tmp_path / "evidence", tmp_path / "trees", "a" * 40, ["cc"])
 
 
+def test_direct_container_entry_loads_native_tools_once_without_interpreting_arguments(tmp_path, monkeypatch):
+    shell = tmp_path / "shell environment.sh"
+    shell.write_text('export BTRC_NATIVE_HEADER_READER="/image/reader"\nexport PKG_CONFIG_PATH="/image/packages"\n')
+    monkeypatch.setenv("DEVCONTAINER", "true")
+    monkeypatch.setenv("BASH_ENV", str(shell))
+    monkeypatch.delenv("BTRC_BENCH_DIAGNOSTIC_SHELL", raising=False)
+    arguments = ["--candidate", "literal $(exit 9); value", "--output", "directory with spaces"]
+    command = MemoryDiagnostic.container_command(arguments)
+    assert command[4:] == [sys.executable, "-m", "tools.bench.diagnostic", *arguments]
+    # Exercise the actual bootstrap shell with a harmless observer replacing
+    # the benchmark module. The image environment must reach direct Python.
+    observed = subprocess.run(
+        [
+            *command[:4],
+            sys.executable,
+            "-c",
+            "import json,os,sys; print(json.dumps([os.environ['BTRC_NATIVE_HEADER_READER'], "
+            "os.environ['PKG_CONFIG_PATH'], os.environ['BTRC_BENCH_DIAGNOSTIC_SHELL'], sys.argv[1:]]))",
+            *arguments,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+        env=dict(os.environ),
+    )
+    assert json.loads(observed.stdout) == ["/image/reader", "/image/packages", "1", arguments]
+    monkeypatch.setenv("BTRC_BENCH_DIAGNOSTIC_SHELL", "1")
+    assert MemoryDiagnostic.container_command(arguments) is None
+    monkeypatch.delenv("BTRC_BENCH_DIAGNOSTIC_SHELL")
+    monkeypatch.setenv("DEVCONTAINER", "false")
+    assert MemoryDiagnostic.container_command(arguments) is None
+
+
 def test_environment_is_per_tree_and_receipt_does_not_dump_secrets(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("BTRC_HOME", "/wrong/home")
     monkeypatch.setenv("BTRC_TIMING", "1")
@@ -25,6 +61,8 @@ def test_environment_is_per_tree_and_receipt_does_not_dump_secrets(tmp_path: Pat
     monkeypatch.setenv("LANG", "C.UTF-8")
     monkeypatch.setenv("LC_ALL", "C")
     monkeypatch.setenv("LC_CTYPE", "C.UTF-8")
+    monkeypatch.setenv("BTRC_NATIVE_HEADER_READER", "/image/reader")
+    monkeypatch.setenv("PKG_CONFIG_PATH", "/image/packages")
     env = MemoryDiagnostic.environment(tmp_path)
     assert env["BTRC_HOME"] == str(tmp_path / "src")
     assert "BTRC_TIMING" not in env and "PYTHONPATH" not in env
@@ -36,6 +74,18 @@ def test_environment_is_per_tree_and_receipt_does_not_dump_secrets(tmp_path: Pat
     }
     assert "GH_TOKEN" not in recorded
     assert "must-not-appear" not in json.dumps(recorded)
+    assert recorded["BTRC_NATIVE_HEADER_READER"] == "/image/reader"
+    assert recorded["PKG_CONFIG_PATH"] == "/image/packages"
+
+
+def test_missing_native_reader_fails_before_starting_expensive_builds(monkeypatch, capsys):
+    monkeypatch.setenv("BTRC_BENCH_DIAGNOSTIC_SHELL", "1")
+    monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)
+    monkeypatch.setattr(MemoryDiagnostic, "execute", lambda self: pytest.fail("must not start compiler builds"))
+    with pytest.raises(SystemExit) as failure:
+        MemoryDiagnostic.main(["--candidate", "a" * 40])
+    assert failure.value.code == 2
+    assert "native header reader is unavailable" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("status", [0, 3])
@@ -135,13 +185,33 @@ def test_matched_guard_uses_own_tools_and_original_strict_three_sample_check(tmp
     assert "--strict" in argv and argv[argv.index("--timings") + 1] == "report"
     assert "--programs" not in argv and "--no-peaks" not in argv and "--no-reference" not in argv
     assert not any("tolerance" in argument or "budget" in argument for argument in argv)
+    scratch = Path(argv[argv.index("--out-dir") + 1])
+    assert scratch.is_relative_to(owner.scratch) and not scratch.is_relative_to(owner.output)
+    assert Path(argv[argv.index("--json") + 1]).is_relative_to(owner.output)
     assert cwd == tree and env["BTRC_HOME"] == str(tree / "src")
     assert owner.receipt["guards"]["main"] == 1
+
+
+def test_failed_diagnostic_keeps_bounded_evidence_in_logs_without_environment(tmp_path, capsys):
+    owner = diagnostic(tmp_path)
+    owner.output.mkdir()
+    owner.receipt.update(status="diagnostic completed with failures", guards={"main": 0, "candidate": 1})
+    owner.receipt["commands"].append(
+        {"label": "guard-candidate", "returncode": 1, "stderr": "guard.stderr", "environment": {"SECRET": "hidden"}}
+    )
+    (owner.output / "guard.stderr").write_bytes(b"discarded-prefix" + b"x" * 15000 + b"budget failure\n")
+    owner.print_summary()
+    output = capsys.readouterr().out
+    assert '"candidate": 1' in output and "budget failure" in output
+    assert "discarded-prefix" not in output and "hidden" not in output and len(output) < 13000
 
 
 def test_fresh_builds_use_matching_home_and_retain_partial_failed_build(tmp_path: Path, monkeypatch) -> None:
     owner = diagnostic(tmp_path)
     builds = []
+    cc = tmp_path / "fixture-cc"
+    cc.write_bytes(b"fixture compiler identity\n")
+    monkeypatch.setattr("tools.bench.diagnostic.shutil.which", lambda name: str(cc))
 
     def git(*args):
         if args == ("rev-parse", "HEAD"):

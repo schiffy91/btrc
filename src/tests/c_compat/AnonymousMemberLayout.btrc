@@ -1,0 +1,46 @@
+import ./layout/anonymous_member_layout.c
+#include <assert.h>
+
+extern size_t anonymousEnvelopeSize(void);
+extern size_t anonymousEnvelopeAlignment(void);
+extern size_t anonymousEnvelopeCountOffset(void);
+extern size_t anonymousEnvelopeValuesOffset(void);
+extern size_t anonymousEnvelopeRealOffset(void);
+extern size_t anonymousEnvelopeTailOffset(void);
+extern size_t anonymousAlignedEnvelopeOffset(void);
+
+struct Envelope {
+	char tag;
+	union {
+		struct {
+			int count;
+			short values[3];
+		};
+		double real;
+	};
+	char tail;
+};
+
+struct AlignedEnvelope {
+	char prefix;
+	Envelope value;
+};
+
+int main() {
+	Envelope envelope = {'e', {{3, {4, 5, 6}}}, 'z'};
+	AlignedEnvelope aligned;
+	Envelope pair[2];
+	char* start = (char*)&envelope;
+	assert(sizeof(Envelope) == anonymousEnvelopeSize());
+	assert((size_t)((char*)&envelope.count - start) == anonymousEnvelopeCountOffset());
+	assert((size_t)((char*)&envelope.values - start) == anonymousEnvelopeValuesOffset());
+	assert((size_t)((char*)&envelope.real - start) == anonymousEnvelopeRealOffset());
+	assert((size_t)((char*)&envelope.tail - start) == anonymousEnvelopeTailOffset());
+	assert((size_t)((char*)&aligned.value - (char*)&aligned) == anonymousAlignedEnvelopeOffset());
+	assert((size_t)((char*)&pair[1] - (char*)&pair[0]) == anonymousEnvelopeSize());
+	size_t zero = 0;
+	assert(sizeof(Envelope) % anonymousEnvelopeAlignment() == zero);
+	assert(envelope.count == 3 && envelope.values[2] == 6 && envelope.tail == 'z');
+	print("PASS: anonymous member layout matches C");
+	return 0;
+}

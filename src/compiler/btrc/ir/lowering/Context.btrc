@@ -6,7 +6,7 @@ import ../../generated/ast/Node.btrc;
 import ../../syntax/Identity.btrc;
 import ../Model.btrc;
 import ./ownership/Operands.btrc;
-import ./Reachability.btrc;
+import ../../analyzer/Reachability.btrc;
 
 /* Mutable state shared by one structured-IR lowering run.
  *
@@ -53,12 +53,23 @@ class LoweringProgramFacts {
 	public LoweringProgramFacts() {}
 }
 
+/* A substituted expression and the type of its already prepared value. */
+class ExpressionOverride {
+	public IRNode value;
+	public Node? effectiveType;
+
+	public ExpressionOverride(IRNode value, Node? effectiveType = null) {
+		self.value = value;
+		self.effectiveType = effectiveType;
+	}
+}
+
 class LoweringContext {
 	private IRTemporaryNames temporaryNameState;
 	private Map<string, bool> helperReferences;
 	private Map<string, bool> sourceVisibleHelpers;
 	private Vector<IRNode> localDeclarations;
-	private Map<string, IRNode> expressionOverrides;
+	private Map<string, ExpressionOverride> expressionOverrides;
 	private Map<string, string> hostedConversions;
 	private bool exceptionsEnabled;
 
@@ -98,6 +109,7 @@ class LoweringContext {
 	public bool currentReturnOwned;
 	public bool genericBody;
 	public bool batchExplicitReleases;
+	public bool hasBatchedCycleRelease;
 	public bool collectionEdgeKeeps;
 	public Map<string, Node> activeTypeMap;
 	public int callDefaultTypeDepth;
@@ -150,6 +162,7 @@ class LoweringContext {
 		self.currentReturnOwned = true;
 		self.genericBody = false;
 		self.batchExplicitReleases = false;
+		self.hasBatchedCycleRelease = false;
 		self.collectionEdgeKeeps = false;
 		self.activeTypeMap = {};
 		self.callDefaultTypeDepth = 0;
@@ -428,13 +441,22 @@ class LoweringContext {
 
 	public bool hasExpressionOverrideKey(string key) { return self.expressionOverrides.has(key); }
 
-	public IRNode expressionOverride(Node expression) { return self.expressionOverrides.get(AstIdentity.key(expression)); }
+	public IRNode expressionOverride(Node expression) { return self.expressionOverrides.get(AstIdentity.key(expression)).value; }
 
-	public IRNode expressionOverrideForKey(string key) { return self.expressionOverrides.get(key); }
+	public IRNode expressionOverrideForKey(string key) { return self.expressionOverrides.get(key).value; }
 
 	public int expressionOverrideCount() { return self.expressionOverrides.len; }
 
-	public void setExpressionOverrideKey(string key, IRNode value) { self.expressionOverrides.put(key, value); }
+	public void setExpressionOverrideKey(string key, IRNode value, Node? effectiveType = null) { self.expressionOverrides.put(key, ExpressionOverride(value, effectiveType)); }
+
+	public Node? expressionOverrideType(Node expression) {
+		string key = AstIdentity.key(expression);
+		return self.expressionOverrides.has(key) ? self.expressionOverrides.get(key).effectiveType : null;
+	}
+
+	public ExpressionOverride expressionOverrideStateForKey(string key) { return self.expressionOverrides.get(key); }
+
+	public void restoreExpressionOverrideKey(string key, ExpressionOverride previous) { self.expressionOverrides.put(key, previous); }
 
 	public void removeExpressionOverrideKey(string key) { self.expressionOverrides.remove(key); }
 

@@ -12,7 +12,7 @@ class Animal {
 class Dog extends Animal {
 	public Dog() {}
 
-	public string speak() { return "woof"; }
+	public override string speak() { return "woof"; }
 }
 
 int main() {

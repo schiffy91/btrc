@@ -410,7 +410,7 @@ class DeclarationIndex:
 
 @dataclass(frozen=True)
 class InitializerSlot:
-    """Where one brace element of a record initializer lands (C11 6.7.9p17).
+    """Where one brace element of an aggregate initializer lands (C11 6.7.9p17).
 
     ``path`` is the member path from a direct member of the current record,
     through any anonymous members, to the initialized member; a designator
@@ -423,16 +423,17 @@ class InitializerSlot:
     element: object
     path: tuple
     type: TypeExpr | None
+    site: object | None = None
 
     @property
     def member(self):
-        """The initialized member: a ``FieldDef`` or an ``AnonymousMember``."""
+        """The leaf storage step: a field, anonymous member or array index."""
         return self.path[-1]
 
 
 @dataclass(frozen=True)
 class InitializerSlotPlan:
-    """Every brace element of one record initializer mapped to its slot.
+    """Every brace element of one record or array initializer mapped to its slot.
 
     ``slots`` follow source order. ``capacity`` is the number of positional
     slots the record offers, and ``excess`` counts elements that found no
@@ -444,6 +445,9 @@ class InitializerSlotPlan:
     slots: tuple[InitializerSlot, ...]
     capacity: int
     excess: int
+    target: object | None = None
+    problems: tuple[tuple[str, object], ...] = ()
+    extent: int = 0
 
 
 @dataclass
@@ -451,6 +455,7 @@ class AnalyzedProgram:
     program: Program
     generic_instances: dict[str, list[tuple[TypeExpr, ...]]]
     class_table: dict[str, ClassInfo]
+    unreached_stdlib_bodies: frozenset[int] = frozenset()
     generic_class_callable_instances: dict[ClassCallableIdentity, list[tuple[TypeExpr, ...]]] = field(
         default_factory=dict
     )
@@ -482,7 +487,10 @@ class AnalyzedProgram:
     rich_enum_unsafe_default_ids: set[int] = field(default_factory=set)
     array_iteration_capacity_ids: set[int] = field(default_factory=set)
     constant_array_bound_ids: set[int] = field(default_factory=set)
+    jump_body_ids: set[int] = field(default_factory=set)
+    array_bound_values: dict[int, int] = field(default_factory=dict)
     initializer_slot_plans: dict[int, InitializerSlotPlan] = field(default_factory=dict)
+    designator_index_values: dict[int, int] = field(default_factory=dict)
     source_macros: SourceMacroNamespace = field(default_factory=SourceMacroNamespace.empty)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -521,6 +529,9 @@ class AnalysisSession(AnalysisContext):
 
     def __init__(self) -> None:
         super().__init__()
+        # Only stdlib callable roots are excluded. Nested lambdas follow their enclosing body.
+        self.unreached_stdlib_bodies: frozenset[int] = frozenset()
+        self.callable_owner_demands: set[str] = set()
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.generic_class_callable_instances: dict[ClassCallableIdentity, list[tuple[TypeExpr, ...]]] = {}
         self.generic_class_callable_dependencies: dict[ClassCallableIdentity, list[GenericTemplateDependency]] = {}
@@ -550,7 +561,9 @@ class AnalysisSession(AnalysisContext):
         self._analyzed_array_bounds: set[int] = set()
         self._array_bound_values: dict[int, int] = {}
         self.constant_array_bound_ids: set[int] = set()
+        self.jump_body_ids: set[int] = set()
         self.initializer_slot_plans: dict[int, InitializerSlotPlan] = {}
+        self.designator_index_values: dict[int, int] = {}
         self.array_iteration_capacity_ids: set[int] = set()
         self.realtime_bounded_loop_ids: set[int] = set()
         self._nonnull_paths: set = set()
@@ -580,6 +593,8 @@ class AnalysisSession(AnalysisContext):
         self.warnings = []
         self.diagnostics = []
         self.current_source_file = None
+        self.unreached_stdlib_bodies = frozenset()
+        self.callable_owner_demands = set()
         self._hosted_call_ids = set()
         self._unresolved_direct_callee_ids = set()
         self._unresolved_c_symbol_reference_ids = set()
@@ -588,7 +603,9 @@ class AnalysisSession(AnalysisContext):
         self._analyzed_array_bounds = set()
         self._array_bound_values = {}
         self.constant_array_bound_ids = set()
+        self.jump_body_ids = set()
         self.initializer_slot_plans = {}
+        self.designator_index_values = {}
         self.rich_enum_unsafe_default_ids = set()
         self.spawned_lambda_ids = set()
         self.generic_resolved_type_facts = []
@@ -769,6 +786,10 @@ class AnalysisSession(AnalysisContext):
 
     def array_bound_value(self, bound) -> int | None:
         return self._array_bound_values.get(id(bound))
+
+    @property
+    def array_bound_values(self) -> Mapping[int, int]:
+        return MappingProxyType(self._array_bound_values)
 
     def record_hosted_call(self, call) -> None:
         self._hosted_call_ids.add(id(call))

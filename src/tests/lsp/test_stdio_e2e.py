@@ -236,3 +236,135 @@ def test_target_changes_reanalyze_open_buffers_over_stdio(tmp_path):
         client.send("exit", {}, request=False)
     finally:
         client.close()
+
+
+@pytest.mark.parametrize(
+    ("keyword", "body", "kind"), [("struct", "int x;", 23), ("union", "int x;", 23), ("enum", "READY", 10)]
+)
+def test_identity_typedef_symbols_and_definition_over_stdio(tmp_path, keyword, body, kind):
+    path = tmp_path / "Record.btrc"
+    source = (
+        f"typedef {keyword} Record Record;\n"
+        f"{keyword} Record {{ {body} }};\n"
+        "typedef Record Alias;\n"
+        "int main() { Record* value = null; return value == null ? 0 : 1; }\n"
+    )
+    path.write_text(source)
+    uri = path.as_uri()
+    client = LspClient(env={"BTRC_LSP_DEBOUNCE": "0"})
+    try:
+        initialize = client.send("initialize", {"processId": None, "rootUri": tmp_path.as_uri(), "capabilities": {}})
+        assert "error" not in client.wait_response(initialize)
+        client.send("initialized", {}, request=False)
+        client.send(
+            "textDocument/didOpen",
+            {"textDocument": {"uri": uri, "languageId": "btrc", "version": 1, "text": source}},
+            request=False,
+        )
+        published = client.wait_notification("textDocument/publishDiagnostics")
+        assert published["params"]["uri"] == uri
+        assert published["params"]["diagnostics"] == []
+        document = client.wait_response(client.send("textDocument/documentSymbol", {"textDocument": {"uri": uri}}))
+        records = [symbol for symbol in document["result"] if symbol["name"] == "Record"]
+        assert len(records) == 1
+        assert records[0]["kind"] == kind
+        assert records[0]["selectionRange"]["start"] == {"line": 1, "character": len(keyword) + 1}
+        assert any(symbol["name"] == "Alias" for symbol in document["result"])
+        workspace = client.wait_response(client.send("workspace/symbol", {"query": "Record"}))
+        records = [
+            symbol for symbol in workspace["result"] if symbol["name"] == "Record" and symbol["location"]["uri"] == uri
+        ]
+        assert len(records) == 1
+        assert records[0]["kind"] == kind
+        assert records[0]["location"]["range"]["start"]["line"] == 1
+        definition = client.wait_response(
+            client.send(
+                "textDocument/definition",
+                {"textDocument": {"uri": uri}, "position": {"line": 3, "character": 14}},
+            )
+        )
+        assert definition["result"]["uri"] == uri
+        assert definition["result"]["range"]["start"] == {"line": 1, "character": len(keyword) + 1}
+        shutdown = client.send("shutdown", {})
+        client.wait_response(shutdown)
+        client.send("exit", {}, request=False)
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize(
+    ("declaration", "access"),
+    [
+        ("Record value;", "value.count"),
+        ("Record value; Record* pointer = &value;", "pointer->count"),
+        ("Alias value;", "value.count"),
+        ("Holder value;", "value.record.count"),
+        ("Callable value;", "value.callback()->count"),
+        ("AliasedCallable value;", "value.callback()->count"),
+    ],
+)
+@pytest.mark.parametrize("imported", [False, True])
+def test_anonymous_member_symbols_and_definition_over_stdio(tmp_path, declaration, access, imported):
+    path = tmp_path / "Record.btrc"
+    source = (
+        "struct Record {\n"
+        "    int kind;\n"
+        "    union {\n"
+        "        int count;\n"
+        "        float real;\n"
+        "    };\n"
+        "};\n"
+        "typedef Record Alias;\n"
+        "struct Holder { Record record; };\n"
+        "struct Callable { union { CFunction<Record*> callback; void* pointer; }; };\n"
+        "typedef CFunction<Record*> RecordCallback;\n"
+        "struct AliasedCallable { union { RecordCallback callback; void* pointer; }; };\n"
+        f"int main() {{ {declaration} {access} = 7; return {access}; }}\n"
+    )
+    definition_path = path
+    access_line = 12
+    if imported:
+        definition_path = tmp_path / "Records.btrc"
+        definition_path.write_text("\n".join(source.splitlines()[:12]) + "\n")
+        source = "import ./Records.btrc;\n" + source.splitlines()[12] + "\n"
+        access_line = 1
+    path.write_text(source)
+    uri = path.as_uri()
+    client = LspClient(env={"BTRC_LSP_DEBOUNCE": "0"})
+    try:
+        initialize = client.send("initialize", {"processId": None, "rootUri": tmp_path.as_uri(), "capabilities": {}})
+        assert "error" not in client.wait_response(initialize)
+        client.send("initialized", {}, request=False)
+        client.send(
+            "textDocument/didOpen",
+            {"textDocument": {"uri": uri, "languageId": "btrc", "version": 1, "text": source}},
+            request=False,
+        )
+        published = client.wait_notification("textDocument/publishDiagnostics")
+        assert published["params"]["uri"] == uri
+        assert published["params"]["diagnostics"] == []
+        document = client.wait_response(client.send("textDocument/documentSymbol", {"textDocument": {"uri": uri}}))
+        if not imported:
+            record = next(symbol for symbol in document["result"] if symbol["name"] == "Record")
+            assert [symbol["name"] for symbol in record["children"]] == ["kind", "count", "real"]
+            field = next(symbol for symbol in record["children"] if symbol["name"] == "count")
+            assert field["selectionRange"]["start"] == {"line": 3, "character": 12}
+        definition = client.wait_response(
+            client.send(
+                "textDocument/definition",
+                {
+                    "textDocument": {"uri": uri},
+                    "position": {
+                        "line": access_line,
+                        "character": source.splitlines()[access_line].rindex("count") + 1,
+                    },
+                },
+            )
+        )
+        assert definition["result"]["uri"] == definition_path.as_uri()
+        assert definition["result"]["range"]["start"] == {"line": 3, "character": 12}
+        shutdown = client.send("shutdown", {})
+        client.wait_response(shutdown)
+        client.send("exit", {}, request=False)
+    finally:
+        client.close()

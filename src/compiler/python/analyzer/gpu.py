@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from src.compiler.python.abi.hosted import HOSTED_ABI
 from src.compiler.python.analyzer.aggregates import AggregateAnalyzer
 from src.compiler.python.analyzer.program import AnalysisContext, AnalysisSession, DeclarationIndex, Scope
@@ -33,11 +31,13 @@ from src.compiler.python.syntax.ast.generated import (
     ForInStmt,
     FStringLiteral,
     FunctionDecl,
+    GotoStmt,
     Identifier,
     IfStmt,
     IndexExpr,
     IntLiteral,
     KeepStmt,
+    LabelStmt,
     LambdaExpr,
     ListLiteral,
     MapLiteral,
@@ -362,7 +362,7 @@ class GpuDispatchValidator:
             return None
         if element is None:
             return None
-        return replace(element, is_static=False, is_extern=False)
+        return self._types.value_type(element)
 
     def _buffer_elements_exact(self, expected: TypeExpr, actual: TypeExpr) -> bool:
         expected_element = self._buffer_element_type(expected)
@@ -768,6 +768,8 @@ class GpuIntrinsicResolver:
 
 
 _STATEMENT_LABELS = {
+    GotoStmt: "goto",
+    LabelStmt: "labeled",
     Block: "nested block",
     DoWhileStmt: "do-while",
     ForInStmt: "for-in",

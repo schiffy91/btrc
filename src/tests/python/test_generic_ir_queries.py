@@ -118,6 +118,25 @@ def test_generic_methods_are_lowered_into_the_same_structured_module() -> None:
     assert any(name.startswith("btrc_Box_int") for name in function_names)
 
 
+def test_borrowed_string_argument_selects_generic_conversion_method() -> None:
+    analyzed = _analyze(
+        """
+        class Box<T> {
+            public Box() {}
+            public string toString() { return "box"; }
+        }
+        int length(string value) { return value.len(); }
+        int main() {
+            Box<int> value = new Box<int>();
+            return length(value) - 3;
+        }
+        """
+    )
+
+    assert ("Box", "method", "toString") in _selected_callables(analyzed)
+    _assert_call_abi_is_materialized(IRLowerer(analyzed).lower(), "btrc_Box_int_toString")
+
+
 def test_generic_class_callable_selection_covers_properties_and_body_dependencies() -> None:
     analyzed = _analyze(
         """

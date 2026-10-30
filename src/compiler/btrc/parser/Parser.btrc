@@ -19,6 +19,16 @@ import ../syntax/Literals.btrc;
 import ../syntax/Tokens.btrc;
 import ../lexer/Lexer.btrc;
 
+/* A typedef may name its record after the body. Keep its first contextual
+ * refusal until that name is available. */
+class RecordParseContext {
+	public string keyword;
+	public string diagnostic = "";
+	public Token? token = null;
+
+	public RecordParseContext(string keyword) { self.keyword = keyword; }
+}
+
 class Parser {
 	public Vector<Token> tokens;
 	public int pos;
@@ -93,6 +103,10 @@ class Parser {
 	}
 
 	public void refuseDeferredCSpecifier(Token token) {
+		if (token.type == "AUTO" && self.peekAt(1).type == "IDENT" && self.peekAt(2).type == "EQ") {
+			self.failAt("'auto' is C11's storage class, not type inference; write 'var x = ...' or give a type", token);
+			return;
+		}
 		if (token.type != "IDENT") { return; }
 		string message = self.deferredCSpecifierMessage(token.value);
 		if (message != "") { self.failAt(message, token); }
@@ -184,7 +198,7 @@ class Parser {
 		return tok;
 	}
 
-	public bool isTypeKeyword(string t) { return t == "VOID" || t == "INT" || t == "FLOAT" || t == "DOUBLE" || t == "CHAR" || t == "SHORT" || t == "LONG" || t == "UNSIGNED" || t == "SIGNED" || t == "STRING" || t == "BOOL" || t == "STRUCT" || t == "ENUM" || t == "UNION" || t == "CONST" || t == "STATIC" || t == "EXTERN" || t == "VOLATILE"; }
+	public bool isTypeKeyword(string t) { return t == "VOID" || t == "INT" || t == "FLOAT" || t == "DOUBLE" || t == "CHAR" || t == "SHORT" || t == "LONG" || t == "UNSIGNED" || t == "SIGNED" || t == "STRING" || t == "BOOL" || t == "STRUCT" || t == "ENUM" || t == "UNION" || t == "CONST" || t == "STATIC" || t == "EXTERN" || t == "VOLATILE" || t == "AUTO" || t == "REGISTER"; }
 
 	/* ---- Top level ---- */
 
@@ -261,11 +275,11 @@ class Parser {
 			if (nt == "IDENT") {
 				string after2 = self.peekAt(2).type;
 				if (after2 == "LBRACE" || after2 == "SEMICOLON") {
-					declarations.push(self.parseStructDecl());
+					self.parseStructDeclsInto(declarations);
 					return;
 				}
 			} else if (nt == "LBRACE") {
-				declarations.push(self.parseStructDecl());
+				self.parseStructDeclsInto(declarations);
 				return;
 			}
 		}
@@ -275,8 +289,10 @@ class Parser {
 				declarations.push(self.parseRichEnumDecl());
 				return;
 			}
-			declarations.push(self.parseEnumDecl());
-			return;
+			if (self.peekAt(1).type != "IDENT" || self.peekAt(2).type == "LBRACE" || self.peekAt(2).type == "SEMICOLON") {
+				declarations.push(self.parseEnumDecl());
+				return;
+			}
 		}
 
 		if (tok.type == "TYPEDEF" && !isGpu && !isRealtime && !keepReturn) {
@@ -427,6 +443,10 @@ class Parser {
 	/* One class member declaration; a field declaration adds one per declarator. */
 	public void parseClassMemberInto(Vector<Node> members, bool allowAbstract) {
 		Token tok = self.peek();
+		if (self.startsRecordBody()) {
+			self.failAt("Anonymous struct and union members are only allowed in struct and union declarations", tok);
+			return;
+		}
 		string access = "";
 		if (tok.type == "PUBLIC") {
 			access = "public";
@@ -442,12 +462,17 @@ class Parser {
 			return;
 		}
 
+		if (self.startsRecordBody()) {
+			self.failAt("Anonymous struct and union members are only allowed in struct and union declarations", self.peek());
+			return;
+		}
 		bool isAbstractMethod = false;
 		if (allowAbstract && self.check("ABSTRACT")) {
 			isAbstractMethod = true;
 			self.advance();
 		}
 
+		bool isOverride = self.matchTok("OVERRIDE");
 		bool isGpu = false;
 		if (self.check("AT_GPU")) {
 			isGpu = true;
@@ -472,6 +497,7 @@ class Parser {
 		Node typeExpr = self.parseType();
 
 		if (self.isFunctionPointerDeclarator(self.pos)) {
+			if (isOverride) { self.failAt("override can only be applied to non-constructor methods", self.peek()); }
 			if (isRealtime) {
 				self.failAt("@realtime cannot be applied to fields or properties", self.peek());
 			}
@@ -482,7 +508,8 @@ class Parser {
 		}
 		// Constructor: next is '(' -> the "type" is the name.
 		if (self.check("LPAREN")) {
-			Node constructor = self.parseMethodRest(access, typeExpr, typeExpr.base, isGpu, isRealtime, tok.line, tok.col, typeExpr.line, typeExpr.col, isAbstractMethod, keepReturn);
+			if (isOverride) { self.failAt("override can only be applied to non-constructor methods", self.peek()); }
+			Node constructor = self.parseMethodRest(access, typeExpr, typeExpr.base, isGpu, isRealtime, tok.line, tok.col, typeExpr.line, typeExpr.col, isAbstractMethod, isOverride, keepReturn);
 			constructor.isConstructor = true;
 			members.push(constructor);
 			return;
@@ -492,9 +519,10 @@ class Parser {
 		string name = nameTok.value;
 
 		if (self.check("LT") || self.check("LPAREN")) {
-			members.push(self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, keepReturn));
+			members.push(self.parseMethodRest(access, typeExpr, name, isGpu, isRealtime, tok.line, tok.col, nameTok.line, nameTok.col, isAbstractMethod, isOverride, keepReturn));
 			return;
 		}
+		if (isOverride) { self.failAt("override can only be applied to non-constructor methods", nameTok); }
 		if (isRealtime) {
 			self.failAt("@realtime cannot be applied to fields or properties", nameTok);
 		}
@@ -522,7 +550,7 @@ class Parser {
 		}
 	}
 
-	public Node parseMethodRest(string access, Node returnType, string name, bool isGpu, bool isRealtime, int line, int col, int nameLine, int nameCol, bool isAbstract, bool keepReturn) {
+	public Node parseMethodRest(string access, Node returnType, string name, bool isGpu, bool isRealtime, int line, int col, int nameLine, int nameCol, bool isAbstract, bool isOverride, bool keepReturn) {
 		Node n = Node();
 		n.kind = NK_METHOD_DECL;
 		n.access = access;
@@ -531,6 +559,7 @@ class Parser {
 		n.isGpu = isGpu;
 		n.isRealtime = isRealtime;
 		n.isAbstract = isAbstract;
+		n.isOverride = isOverride;
 		n.keepReturn = keepReturn;
 		n.line = line;
 		n.col = col;
@@ -617,7 +646,7 @@ class Parser {
 	/* ---- Struct declaration ---- */
 
 	/* `struct S { ... };`, `union U { ... };` or a tag forward. */
-	public Node parseStructDecl() {
+	public void parseStructDeclsInto(Vector<Node> declarations) {
 		Token tok = self.advance();
 		Node n = Node();
 		n.kind = NK_STRUCT_DECL;
@@ -635,38 +664,102 @@ class Parser {
 		}
 		if (self.check("LBRACE")) {
 			n.isForward = false;
-			Node? flexible = self.parseRecordMembersInto(n.fieldsMut(), n.isUnion);
-			if (flexible != null) { self.failUnionFlexibleArray(n.name, flexible); }
-			self.expect("SEMICOLON");
+			RecordParseContext context = RecordParseContext(tok.value);
+			self.parseRecordMembersInto(n.fieldsMut(), n.isUnion, context);
+			self.finishRecordMembers(context, n.name);
 		} else {
 			n.isForward = true;
-			self.expect("SEMICOLON");
 		}
-		return n;
+		declarations.push(n);
+		if (!n.isForward && !self.check("SEMICOLON")) {
+			Node specifier = Node();
+			specifier.kind = NK_TYPE_EXPR;
+			specifier.base = tok.value + " " + n.name;
+			specifier.line = tok.line;
+			specifier.col = tok.col;
+			Node firstType = Parser.copySpecifier(specifier);
+			while (self.matchTok("STAR")) { firstType.pointerDepth++; }
+			Node objectDecl = self.parseDeclaratorName(firstType);
+			Token objectTok = Parser.declaratorNameToken(objectDecl);
+			if (n.name == "") {
+				self.failAt(f"An untagged {tok.value} definition needs a tag to declare '{objectTok.value}'; write '{tok.value} Name {{ ... }} {objectTok.value};'", tok);
+				return;
+			}
+			self.parseDeclarators(declarations, objectDecl.type, objectTok, tok, specifier, true, true);
+		}
+		self.expect("SEMICOLON");
 	}
 
-	/* A record's `{ member; ... }`, returning a union's first member of
-	 * unknown size. A union member is a plain C value, so neither unsized
-	 * spelling has a meaning there: `T[] name` is btrc's pointer-valued array,
-	 * refused here, and `T name[]` a flexible array member (C11 6.7.2.1p18
-	 * allows one only in a struct), refused by the caller once the union's
-	 * name is known. */
-	public Node? parseRecordMembersInto(Vector<Node> fields, bool isUnion) {
+	public void deferRecordError(RecordParseContext context, string message, Token token) {
+		if (context.diagnostic == "") {
+			context.diagnostic = message;
+			context.token = token;
+		}
+	}
+
+	public void finishRecordMembers(RecordParseContext context, string name) {
+		Token? token = context.token;
+		if (token == null) { return; }
+		string message = context.diagnostic.replace("{record}", name).replace("{keyword}", context.keyword);
+		message = message.replace("{title}", context.keyword == "union" ? "Union" : "Struct");
+		self.failAt(message, token);
+	}
+
+	public bool startsRecordBody() { return (self.check("STRUCT") || self.check("UNION")) && (self.peekAt(1).type == "LBRACE" || (self.peekAt(1).type == "IDENT" && self.peekAt(2).type == "LBRACE")); }
+
+	/* Inline anonymous records retain their own member lists and have no tag. */
+	public void parseRecordMembersInto(Vector<Node> fields, bool isUnion, RecordParseContext context) {
 		self.expect("LBRACE");
-		Node? flexible = null;
 		while (!self.check("RBRACE") && !self.atEnd()) {
-			Node? memberFlexible = self.parseStructFieldsInto(fields, isUnion);
-			if (flexible == null) { flexible = memberFlexible; }
+			if (self.startsRecordBody()) {
+				Node anonymous = self.parseAnonymousMember(context);
+				fields.push(anonymous);
+				continue;
+			}
+			Node? flexible = self.parseStructFieldsInto(fields, isUnion, context);
+			if (flexible != null) {
+				self.deferRecordError(context, "Union member '{record}." + flexible.name + "' cannot be a flexible array member", Token("IDENT", flexible.name, flexible.line, flexible.col));
+			}
 		}
 		self.expect("RBRACE");
-		return flexible;
 	}
 
-	public void failUnionFlexibleArray(string unionName, Node member) { self.failAt(f"Union member '{unionName}.{member.name}' cannot be a flexible array member", Token("IDENT", member.name, member.line, member.col)); }
+	public Node parseAnonymousMember(RecordParseContext context) {
+		Token keyword = self.advance();
+		if (self.check("IDENT")) {
+			self.advance();
+			self.deferRecordError(context, "A " + keyword.value + " defined inside {keyword} '{record}' must be declared at file scope", keyword);
+		}
+		Node member = Node();
+		member.kind = NK_ANONYMOUS_MEMBER;
+		member.isUnion = keyword.type == "UNION";
+		member.line = keyword.line;
+		member.col = keyword.col;
+		self.parseRecordMembersInto(member.fieldsMut(), member.isUnion, context);
+		if (!self.check("SEMICOLON")) {
+			Node specifier = Node();
+			specifier.kind = NK_TYPE_EXPR;
+			specifier.base = "";
+			specifier.line = keyword.line;
+			specifier.col = keyword.col;
+			Node firstType = Parser.copySpecifier(specifier);
+			while (self.matchTok("STAR")) { firstType.pointerDepth++; }
+			Token name = self.expect("IDENT");
+			self.deferRecordError(context, "Member '" + name.value + "' of {keyword} '{record}' has an untagged " + keyword.value + " type; declare '" + keyword.value + " Name' at file scope or make the member anonymous", name);
+			Vector<Node> declarators = [];
+			self.parseDeclarators(declarators, firstType, name, keyword, specifier, false, true);
+		}
+		self.expect("SEMICOLON");
+		return member;
+	}
 
-	public Node? parseStructFieldsInto(Vector<Node> fields, bool isUnion) {
+	public Node? parseStructFieldsInto(Vector<Node> fields, bool isUnion, RecordParseContext context) {
 		Token start = self.peek();
 		Node ftype = self.parseType();
+		if (self.matchTok("SEMICOLON")) {
+			self.deferRecordError(context, "{title} '{record}' declares an unnamed member that is neither a bit-field nor an anonymous struct or union", start);
+			return null;
+		}
 		Node specifier = Parser.declaratorSpecifier(ftype);
 		Node declarator = self.parseDeclaratorName(ftype);
 		if (!isUnion && specifier.isArray) {
@@ -697,16 +790,15 @@ class Parser {
 		return flexible;
 	}
 
-	/* `typedef union [Tag] { ... } D1, *D2;` splices into one record and one
-	 * typedef per declarator (C row 9; r08 extends this to `struct` and
-	 * `enum`). An untagged record takes its first plain declarator's name as
+	/* A typedef definition splices into one record or enum and one typedef
+	 * per declarator. An untagged record takes its first plain declarator's name as
 	 * its tag, and a plain declarator equal to the tag is dropped: it would
 	 * only repeat the record's own name. */
 	public void parseTypedefRecordInto(Vector<Node> declarations, Token typedefTok) {
 		Token keywordTok = self.advance();
 		Node record = Node();
-		record.kind = NK_STRUCT_DECL;
-		record.isUnion = true;
+		record.kind = keywordTok.type == "ENUM" ? NK_ENUM_DECL : NK_STRUCT_DECL;
+		record.isUnion = keywordTok.type == "UNION";
 		record.isForward = false;
 		record.line = keywordTok.line;
 		record.col = keywordTok.col;
@@ -719,7 +811,12 @@ class Parser {
 			record.nameLine = tagTok.line;
 			record.nameCol = tagTok.col;
 		}
-		Node? flexible = self.parseRecordMembersInto(record.fieldsMut(), true);
+		RecordParseContext context = RecordParseContext(keywordTok.value);
+		if (record.kind == NK_ENUM_DECL) {
+			self.parseEnumValuesInto(record.valuesMut());
+		} else {
+			self.parseRecordMembersInto(record.fieldsMut(), record.isUnion, context);
+		}
 		Node specifier = Node();
 		specifier.kind = NK_TYPE_EXPR;
 		specifier.base = "";
@@ -747,10 +844,8 @@ class Parser {
 			record.nameLine = namingDeclarator.nameLine;
 			record.nameCol = namingDeclarator.nameCol;
 		}
-		if (flexible != null) {
-			self.failUnionFlexibleArray(record.name, flexible);
-			return;
-		}
+		self.finishRecordMembers(context, record.name);
+		if (self.failed) { return; }
 		declarations.push(record);
 		for declarator in declarators {
 			declarator.type.base = keywordTok.value + " " + record.name;
@@ -842,15 +937,19 @@ class Parser {
 			n.nameLine = nameTok.line;
 			n.nameCol = nameTok.col;
 		}
+		self.parseEnumValuesInto(n.valuesMut());
+		self.expect("SEMICOLON");
+		return n;
+	}
+
+	public void parseEnumValuesInto(Vector<Node> values) {
 		self.expect("LBRACE");
 		while (!self.check("RBRACE") && !self.atEnd()) {
 			Node ev = self.parseEnumValue();
-			n.valuesMut().push(ev);
+			values.push(ev);
 			if (!self.matchTok("COMMA")) { break; }
 		}
 		self.expect("RBRACE");
-		self.expect("SEMICOLON");
-		return n;
 	}
 
 	public Node parseEnumValue() {
@@ -910,7 +1009,7 @@ class Parser {
 	/* `typedef int A, *B;` declares one alias per declarator, `*` bound to each. */
 	public void parseTypedefDeclsInto(Vector<Node> declarations) {
 		Token tok = self.expect("TYPEDEF");
-		if (self.check("UNION") && (self.peekAt(1).type == "LBRACE" || (self.peekAt(1).type == "IDENT" && self.peekAt(2).type == "LBRACE"))) {
+		if ((self.check("STRUCT") || self.check("UNION") || self.check("ENUM")) && (self.peekAt(1).type == "LBRACE" || (self.peekAt(1).type == "IDENT" && self.peekAt(2).type == "LBRACE"))) {
 			self.parseTypedefRecordInto(declarations, tok);
 			return;
 		}
@@ -1045,7 +1144,7 @@ class Parser {
 		return self.tokens.get(p).type;
 	}
 
-	public bool isTypeQualifier(string tt) { return tt == "CONST" || tt == "STATIC" || tt == "EXTERN" || tt == "VOLATILE"; }
+	public bool isTypeQualifier(string tt) { return tt == "CONST" || tt == "STATIC" || tt == "EXTERN" || tt == "VOLATILE" || tt == "AUTO" || tt == "REGISTER"; }
 
 	public bool isSimpleTypeBase(string tt) { return tt == "VOID" || tt == "INT" || tt == "FLOAT" || tt == "DOUBLE" || tt == "CHAR" || tt == "BOOL" || tt == "STRING" || tt == "IDENT"; }
 
@@ -1155,6 +1254,7 @@ class Parser {
 
 	public Node parseType() {
 		Token tok = self.peek();
+		self.refuseDeferredCSpecifier(tok);
 		int line = tok.line;
 		int col = tok.col;
 
@@ -1162,12 +1262,21 @@ class Parser {
 		bool hasStatic = false;
 		bool hasExtern = false;
 		bool hasVolatile = false;
-		while (self.check("CONST") || self.check("STATIC") || self.check("EXTERN") || self.check("VOLATILE")) {
+		bool hasAuto = false;
+		bool hasRegister = false;
+		while (self.isTypeQualifier(self.peek().type)) {
 			string qt = self.peek().type;
 			if (qt == "CONST") { hasConst = true; }
 			else if (qt == "STATIC") { hasStatic = true; }
 			else if (qt == "EXTERN") { hasExtern = true; }
 			else if (qt == "VOLATILE") { hasVolatile = true; }
+			else if (qt == "AUTO") {
+				if (hasAuto) { self.failAt("Duplicate storage class 'auto'", self.peek()); }
+				hasAuto = true;
+			} else if (qt == "REGISTER") {
+				if (hasRegister) { self.failAt("Duplicate storage class 'register'", self.peek()); }
+				hasRegister = true;
+			}
 			self.advance();
 		}
 
@@ -1253,6 +1362,8 @@ class Parser {
 		ty.isConst = hasConst;
 		ty.isStatic = hasStatic;
 		ty.isExtern = hasExtern;
+		ty.isAuto = hasAuto;
+		ty.isRegister = hasRegister;
 		ty.isVolatile = hasVolatile;
 		ty.genericArgsStorage = genericArgs;
 
@@ -1436,8 +1547,12 @@ class Parser {
 		functionType.col = result.col;
 		functionType.isStatic = result.isStatic;
 		functionType.isExtern = result.isExtern;
+		functionType.isRegister = result.isRegister;
+		functionType.isAuto = result.isAuto;
 		result.isStatic = false;
 		result.isExtern = false;
+		result.isRegister = false;
+		result.isAuto = false;
 		functionType.genericArgsMut().push(result);
 		declarator.type = functionType;
 		if (self.check("LPAREN")) {
@@ -1663,6 +1778,8 @@ class Parser {
 		duplicate.nullableOuterDepth = source.nullableOuterDepth;
 		duplicate.isStatic = source.isStatic;
 		duplicate.isExtern = source.isExtern;
+		duplicate.isRegister = source.isRegister;
+		duplicate.isAuto = source.isAuto;
 		duplicate.isVolatile = source.isVolatile;
 		duplicate.arrayPointerDepth = source.arrayPointerDepth;
 		duplicate.line = source.line;
@@ -1796,7 +1913,7 @@ class Parser {
 
 	/* One block item; a declaration splices one statement per declarator. */
 	public void parseBlockItemInto(Vector<Node> statements) {
-		if (self.isVarDeclStart()) {
+		if (self.peekAt(1).type != "COLON" && self.isVarDeclStart()) {
 			self.parseVarDeclStmtsInto(statements);
 			self.expect("SEMICOLON");
 			return;
@@ -1818,9 +1935,17 @@ class Parser {
 		blk.kind = NK_BLOCK;
 		blk.line = tok.line;
 		blk.col = tok.col;
+		while (self.peek().type == "IDENT" && self.peekAt(1).type == "COLON") {
+			blk.statementsMut().push(self.parseStatement());
+		}
 		if (self.matchTok("SEMICOLON")) { return blk; }
-		if (self.isVarDeclStart()) {
-			self.failAt("A declaration cannot be the body of a control statement; enclose it in braces", tok);
+		if (blk.statements().len > 0 && (self.check("RBRACE") || self.atEnd())) {
+			string label = blk.statements().get(blk.statements().len - 1).name;
+			self.failAt(f"Expected a statement after label '{label}'", self.peek());
+			return blk;
+		}
+		if (self.peekAt(1).type != "COLON" && self.isVarDeclStart()) {
+			self.failAt("A declaration cannot be the body of a control statement; enclose it in braces", self.peek());
 			return blk;
 		}
 		Node s = self.parseStatement();
@@ -1830,6 +1955,35 @@ class Parser {
 
 	public Node parseStatement() {
 		Token tok = self.peek();
+		if (self.peekAt(1).type == "COLON") {
+			if (tok.type != "CASE" && tok.type != "DEFAULT" && self.grammar.vocabulary.keywordToken(tok.value) == tok.type) {
+				self.failAt(f"'{tok.value}' is a reserved word and cannot be used as a name", tok);
+				return Node();
+			}
+			if (tok.type == "IDENT") {
+				Token name = self.expect("IDENT");
+				self.expect("COLON");
+				Node label = Node();
+				label.kind = NK_LABEL_STMT;
+				label.name = name.value;
+				label.line = name.line;
+				label.col = name.col;
+				return label;
+			}
+		}
+		if (tok.type == "GOTO") {
+			self.advance();
+			Token name = self.expect("IDENT");
+			self.expect("SEMICOLON");
+			Node jump = Node();
+			jump.kind = NK_GOTO_STMT;
+			jump.name = name.value;
+			jump.nameLine = name.line;
+			jump.nameCol = name.col;
+			jump.line = tok.line;
+			jump.col = tok.col;
+			return jump;
+		}
 
 		if (tok.type == "LBRACE") { return self.parseBlock(); }
 		if (tok.type == "RETURN") { return self.parseReturnStmt(); }
@@ -2714,6 +2868,7 @@ class Parser {
 
 	public Node parsePrimary() {
 		Token tok = self.peek();
+		self.refuseDeferredCSpecifier(tok);
 		string tt = tok.type;
 
 		if (tt == "INT_LIT") {
@@ -2985,45 +3140,103 @@ class Parser {
 		return n;
 	}
 
+	private bool startsDesignation() {
+		if (self.check("DOT")) { return true; }
+		if (!self.check("LBRACKET")) { return false; }
+		int offset = 0;
+		while (true) {
+			if (self.peekAt(offset).type == "LBRACKET") {
+				int depth = 1;
+				offset++;
+				while (depth > 0 && self.peekAt(offset).type != "EOF") {
+					string kind = self.peekAt(offset).type;
+					if (kind == "LBRACKET") { depth++; }
+					if (kind == "RBRACKET") { depth--; }
+					offset++;
+				}
+				if (depth != 0) { return false; }
+			} else if (self.peekAt(offset).type == "DOT" && self.peekAt(offset + 1).type == "IDENT") {
+				offset = offset + 2;
+			} else {
+				return self.peekAt(offset).type == "EQ";
+			}
+		}
+		return false;
+	}
+
+	private Node parseDesignation() {
+		Node designation = Node();
+		designation.kind = NK_DESIGNATION;
+		while (self.check("DOT") || self.check("LBRACKET")) {
+			Token tok = self.advance();
+			Node part = Node();
+			part.line = tok.line;
+			part.col = tok.col;
+			if (tok.type == "DOT") {
+				part.kind = NK_FIELD_DESIGNATOR;
+				part.field = self.expect("IDENT").value;
+			} else {
+				int offset = 0;
+				int depth = 1;
+				while (depth > 0 && self.peekAt(offset).type != "EOF") {
+					string kind = self.peekAt(offset).type;
+					if (kind == "LBRACKET") { depth++; }
+					if (kind == "RBRACKET") { depth--; }
+					if (depth == 1 && kind == "DOT" && self.peekAt(offset + 1).type == "DOT" && self.peekAt(offset + 2).type == "DOT") {
+						self.failAt("Range designators ('[a ... b]') are a GNU extension, not C11; designate each index", self.peekAt(offset));
+						return designation;
+					}
+					offset++;
+				}
+				part.kind = NK_INDEX_DESIGNATOR;
+				part.index = self.parseExpression();
+				self.expect("RBRACKET");
+			}
+			designation.partsMut().push(part);
+		}
+		self.expect("EQ");
+		return designation;
+	}
+
 	public Node parseMapOrBraceInitializer() {
 		Token tok = self.expect("LBRACE");
-		if (self.matchTok("RBRACE")) {
-			Node empty = Node();
-			empty.kind = NK_BRACE_INITIALIZER;
-			empty.line = tok.line;
-			empty.col = tok.col;
-			return empty;
-		}
-
+		Node brace = Node();
+		brace.kind = NK_BRACE_INITIALIZER;
+		brace.line = tok.line;
+		brace.col = tok.col;
+		if (self.matchTok("RBRACE")) { return brace; }
+		Node designation = Node();
+		designation.kind = NK_DESIGNATION;
+		if (self.startsDesignation()) { designation = self.parseDesignation(); }
 		Node first = self.parseExpression();
-		if (self.matchTok("COLON")) {
+		if (designation.parts().len == 0 && self.matchTok("COLON")) {
 			Node map = Node();
 			map.kind = NK_MAP_LITERAL;
 			map.line = tok.line;
 			map.col = tok.col;
 			Node firstValue = self.parseExpression();
-			Node firstEntry = self.makeMapEntry(first, firstValue);
-			map.entriesMut().push(firstEntry);
+			map.entriesMut().push(self.makeMapEntry(first, firstValue));
 			while (self.matchTok("COMMA")) {
 				if (self.check("RBRACE")) { break; }
-				Node entN = self.parseMapEntry();
-				map.entriesMut().push(entN);
+				map.entriesMut().push(self.parseMapEntry());
 			}
 			self.expect("RBRACE");
 			return map;
 		}
-
-		Node brace = Node();
-		brace.kind = NK_BRACE_INITIALIZER;
-		brace.line = tok.line;
-		brace.col = tok.col;
+		Vector<Node> entries = [designation];
+		bool designated = designation.parts().len > 0;
 		brace.elementsMut().push(first);
 		while (self.matchTok("COMMA")) {
 			if (self.check("RBRACE")) { break; }
-			Node eN = self.parseExpression();
-			brace.elementsMut().push(eN);
+			Node entry = Node();
+			entry.kind = NK_DESIGNATION;
+			if (self.startsDesignation()) { entry = self.parseDesignation(); }
+			if (entry.parts().len > 0) { designated = true; }
+			entries.push(entry);
+			brace.elementsMut().push(self.parseExpression());
 		}
 		self.expect("RBRACE");
+		if (designated) { brace.entriesStorage = entries; }
 		return brace;
 	}
 

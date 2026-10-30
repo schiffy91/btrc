@@ -86,6 +86,8 @@ class CompilerOptions:
     output: CompilerOutput = CompilerOutput.C
     include_stdlib: bool = True
     strict_imports: bool = True
+    # Validate all imported stdlib bodies, including callables the program does not use.
+    stdlib_strict: bool = False
     use_ast_cache: bool = True
     use_cache: bool = True
     map_stdlib_positions: bool = False

@@ -8,23 +8,19 @@ from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING
 
+from src.compiler.python.analyzer.reachability import StdlibReachability
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeIdentity, TypeSystem
 from src.compiler.python.frontend.native_imports import NativeHeaderSource
 from src.compiler.python.frontend.sources import CompilationGroups, SourceConditionals, SourceMacroRules
-from src.compiler.python.ir.lowering.reachability import StdlibReachability
 from src.compiler.python.ir.nodes import (
     CType,
-    IRBinOp,
     IRCall,
-    IREnumDef,
-    IREnumValue,
     IRFunctionDecl,
     IRFunctionRef,
     IRGlobalDecl,
     IRHelperDecl,
     IRInclude,
-    IRLiteral,
     IRMacroDef,
     IRMacroUndef,
     IRParam,
@@ -32,7 +28,6 @@ from src.compiler.python.ir.nodes import (
     IRStructField,
     IRStructForward,
     IRTypedefDef,
-    IRVar,
 )
 from src.compiler.python.syntax.ast.generated import (
     BraceInitializer,
@@ -142,7 +137,6 @@ class TranslationUnitLowerer:
         self._cleanup_slots = cleanup_slots
         self._preprocessor_prefix_end = 0
         self._span_types: dict[str, TypeExpr] = {}
-        self._atomic_types: dict[str, TypeExpr] = {}
 
     def lower(self):
         """Run the ordered translation-unit phase cascade."""
@@ -164,6 +158,12 @@ class TranslationUnitLowerer:
                 if self._prune_stdlib
                 else None
             )
+            if self._analyzed.unreached_stdlib_bodies:
+                plan = self._facts.stdlib_reachability
+                if plan is None or not self._analyzed.unreached_stdlib_bodies.issubset(
+                    plan.unreached_bodies(self._analyzed.program.declarations)
+                ):
+                    raise CodegenError("Stdlib lowering selected a body that semantic analysis did not check")
             self._facts.stdlib_reachability_computed = True
         self._session.stdlib_reachability = self._facts.stdlib_reachability
         self._classes.configure_pack_alignments(self.declaration_pack_alignments(self._analyzed.program))
@@ -178,7 +178,7 @@ class TranslationUnitLowerer:
         if not shared:
             self._emit_forward_decls()
             self._emit_tuple_structs(class_views, method_views)
-        self._emit_realtime_types()
+        self._emit_span_types()
         self._emit_fn_ptr_typedefs()
         if not shared:
             self._emit_structs()
@@ -203,6 +203,7 @@ class TranslationUnitLowerer:
         if self._session.declarations_elsewhere:
             self._emit_referenced_interfaces()
         self._emit_fn_ptr_typedefs()
+        self._session.module.enum_defs = self._types.atomic_lock_free_proofs() + self._session.module.enum_defs
         self._cleanup_slots.finalize()
         if self._session.owned_group is None:
             self._exceptions.apply_setjmp_volatility(self._session.module)
@@ -381,11 +382,15 @@ class TranslationUnitLowerer:
                 )
 
     def _emit_enums(self):
-        """Emit every enum. In module-unit lowering an enum's group owns its
-        `_toString` and rich-enum functions, whose names are program-wide, so
-        that group defines them once with external linkage."""
+        """Emit this group's enums; the shared unit supplies foreign declarations.
+
+        The owning group defines `_toString` and rich-enum functions once
+        with external linkage because their names are program-wide.
+        """
         for decl in self._analyzed.program.declarations:
             if isinstance(decl, EnumDecl | RichEnumDecl):
+                if self._session.declarations_elsewhere and self._foreign(decl):
+                    continue
                 with self._owning(decl):
                     self._declarations.emit_enum_decl(decl)
 
@@ -418,6 +423,8 @@ class TranslationUnitLowerer:
             if owner is not None:
                 for function in functions[before:]:
                     self._session.definition_owners.setdefault(function.name, owner)
+                    if self._session.active_specialization is not None and self._session.unit_facts is not None:
+                        self._session.unit_facts.instance_functions.add(function.name)
                 for global_declaration in globals_[globals_before:]:
                     self._session.definition_owners.setdefault(global_declaration.name, owner)
 
@@ -525,6 +532,8 @@ class TranslationUnitLowerer:
                         decl,
                     )
                 elif isinstance(decl, TypedefDecl):
+                    if TypeSystem.is_identity_typedef(decl, self._analyzed.struct_table, self._analyzed.enum_table):
+                        continue
                     self._session.module.typedef_defs.append(
                         IRTypedefDef(
                             target_type=CType(text=self._types.render(decl.original)),
@@ -801,7 +810,7 @@ class TranslationUnitLowerer:
         )
 
     def emit_global_var(self, declaration, *, force_external=False) -> None:
-        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures, self._expressions)
         if declaration.initializer is not None:
             self._callable_boundaries.reject_persistent_escape(
                 declaration.type,
@@ -860,7 +869,7 @@ class TranslationUnitLowerer:
         if type_expr.array_size is not None:
             array_size = self._expressions.lower_expr(type_expr.array_size, provenance)
         elif isinstance(initializer, (BraceInitializer, ListLiteral)):
-            array_size = IRLiteral(text=str(len(initializer.elements)))
+            array_size = self._expressions.array_initializer_extent(type_expr, initializer)
         else:
             array_size = self._expressions.string_array_extent(initializer)
         self._session.module.global_decls.append(
@@ -1052,9 +1061,6 @@ class TranslationUnitLowerer:
         if type_expr.base == "Span" and len(type_expr.generic_args) == 1:
             symbol = self._type_identity.generic_symbol("Span", type_expr.generic_args)
             self._span_types.setdefault(symbol, type_expr.generic_args[0])
-        if type_expr.base == "Atomic" and len(type_expr.generic_args) == 1:
-            symbol = self._type_identity.generic_symbol("Atomic", type_expr.generic_args)
-            self._atomic_types.setdefault(symbol, type_expr.generic_args[0])
         if (
             type_expr.base == "Tuple"
             and type_expr.generic_args
@@ -1064,9 +1070,10 @@ class TranslationUnitLowerer:
                 self._type_identity.generic_symbol("Tuple", type_expr.generic_args), list(type_expr.generic_args)
             )
 
-    def _emit_realtime_types(self) -> None:
-        """Emit concrete borrowed-view layouts and target lock-free proofs."""
-        for symbol, element in self._span_types.items():
+    def _emit_span_types(self) -> None:
+        """Emit concrete borrowed-view layouts."""
+        for symbol in sorted(self._span_types):
+            element = self._span_types[symbol]
             definition = IRStructDef(
                 name=symbol,
                 fields=[
@@ -1081,39 +1088,3 @@ class TranslationUnitLowerer:
             forward = IRStructForward(name=symbol)
             if forward not in self._session.module.struct_forwards:
                 self._session.module.struct_forwards.append(forward)
-        for symbol, payload in self._atomic_types.items():
-            macro = self._atomic_lock_free_macro(payload)
-            if macro is None:
-                raise CodegenError(f"Atomic payload '{self._types.render(payload)}' has no lock-free proof")
-            self._session.require_runtime_header("stdatomic.h")
-            self._session.module.enum_defs.append(
-                IREnumDef(
-                    name=None,
-                    values=[
-                        IREnumValue(
-                            name=f"__btrc_atomic_lock_free_{symbol}",
-                            value=IRBinOp(
-                                left=IRLiteral(text="1"),
-                                op="/",
-                                right=IRBinOp(
-                                    left=IRVar(name=macro),
-                                    op="==",
-                                    right=IRLiteral(text="2"),
-                                ),
-                            ),
-                        )
-                    ],
-                )
-            )
-
-    def _atomic_lock_free_macro(self, payload: TypeExpr) -> str | None:
-        payload = self._types.canonical_type(payload)
-        if payload is None:
-            return None
-        if payload.pointer_depth > 0:
-            return "ATOMIC_POINTER_LOCK_FREE"
-        if payload.base == "bool":
-            return "ATOMIC_BOOL_LOCK_FREE"
-        if payload.base in {"int", "signed", "signed int", "uint", "unsigned", "unsigned int"}:
-            return "ATOMIC_INT_LOCK_FREE"
-        return None

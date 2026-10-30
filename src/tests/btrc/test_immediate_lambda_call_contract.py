@@ -34,7 +34,7 @@ def test_immediate_lambda_transaction_has_typed_domain_owners() -> None:
     assert "return IRNode.indirectCall(lambda.value, arguments);" not in callables
 
     assert "public IRNode stageValue(" in ownership
-    assert "self.rememberOverride(expression, value);" in ownership
+    assert "self.rememberOverride(expression, value, resolvedType);" in ownership
     immediate = expressions.split("private IRNode lowerImmediateLambdaCallWithOwnership(", 1)[1].split(
         "public IRNode lowerCallWithOwnership(", 1
     )[0]

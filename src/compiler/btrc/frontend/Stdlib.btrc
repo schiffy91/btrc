@@ -6,6 +6,7 @@ import Library.Strings;
 import Library.Vector;
 
 import ./Models.btrc;
+import ./Packages.btrc;
 import ./SourceIo.btrc;
 
 class FeStdlibLookup {
@@ -66,6 +67,7 @@ class FeStdlibRepository {
 	}
 
 	private Vector<string> discoverFiles() {
+		var entryPolicy = FePackageImportPolicy();
 		Vector<string> ordered = [];
 		if (!FileSystem.isDir(self.directoryPath)) { return ordered; }
 		Vector<string> files = self.sourceDirectories.sortedNamesWithSuffix(self.directoryPath, ".btrc");
@@ -79,13 +81,13 @@ class FeStdlibRepository {
 		int priorityIndex = 0;
 		while (priorityIndex < priority.len) {
 			string name = priority.get(priorityIndex);
-			if (self.containsPath(files, name)) { ordered.push(name); }
+			if (self.containsPath(files, name) && !entryPolicy.executableEntry(self.sourcePaths.join(self.directoryPath, name))) { ordered.push(name); }
 			priorityIndex++;
 		}
 		int index = 0;
 		while (index < files.len) {
 			string name = files.get(index);
-			if (!self.containsPath(priority, name)) { ordered.push(name); }
+			if (!self.containsPath(priority, name) && !entryPolicy.executableEntry(self.sourcePaths.join(self.directoryPath, name))) { ordered.push(name); }
 			index++;
 		}
 		return ordered;

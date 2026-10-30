@@ -7,6 +7,8 @@ import json
 import os
 import re
 import stat
+import subprocess
+import sys
 import tempfile
 import tomllib
 from contextlib import contextmanager
@@ -23,6 +25,7 @@ from .archive import (
     TargetCatalog,
     TargetSpec,
 )
+from .cache import AtomicFileStore, CompilerBuildIdentity, ToolchainSourceInventory
 from .publication import (
     ArtifactPublisher,
     ArtifactStorage,
@@ -32,6 +35,113 @@ from .publication import (
 )
 
 _CHUNK_SIZE = 1024 * 1024
+
+
+class SelfhostCompilerBuild:
+    """Build-bound provenance from source snapshot through generated C to executable."""
+
+    def __init__(self, runner=None) -> None:
+        self._run = runner or subprocess.run
+        self._files = AtomicFileStore()
+        self._publisher = ArtifactPublisher()
+
+    @staticmethod
+    def _source_state(inventory: ToolchainSourceInventory) -> dict:
+        return {
+            str(path): (data.st_dev, data.st_ino, data.st_size, data.st_mtime_ns, data.st_ctime_ns)
+            for path in inventory.compiler_files()
+            for data in (path.stat(),)
+        }
+
+    @staticmethod
+    def _receipt_path(path: Path) -> Path:
+        return path.with_name(path.name + CompilerBuildIdentity.SUFFIX)
+
+    def _publish(self, staged: Path, output: Path, fields: dict[str, str]) -> None:
+        receipt = self._receipt_path(staged)
+        self._files.write_text(str(receipt), CompilerBuildIdentity.receipt_text(fields))
+        self._publisher.publish(
+            "compiler-build-" + hashlib.sha256(str(output).encode()).hexdigest()[:16],
+            [PublishedArtifact(staged, output), PublishedArtifact(receipt, self._receipt_path(output))],
+        )
+
+    def transpile(self, source_root: Path, entry: str, target: str, output: Path) -> None:
+        source_root, output = source_root.resolve(), output.absolute()
+        if entry not in CompilerBuildIdentity.ENTRIES:
+            raise ValueError("compiler build requires a supported compiler entry point")
+        inventory = ToolchainSourceInventory(str(source_root / "src/compiler/python"), str(source_root / "src"))
+        state = self._source_state(inventory)
+        snapshot = CompilerBuildIdentity.snapshot(inventory)
+        resources = CompilerBuildIdentity.resources(source_root / "src")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".compiler-source-", dir=output.parent) as temporary:
+            staged = Path(temporary) / output.name
+            self._run(
+                [
+                    sys.executable,
+                    "-m",
+                    "src.compiler.python.main",
+                    entry,
+                    "--strict-imports",
+                    "--no-cache",
+                    "--target",
+                    target,
+                    "-o",
+                    str(staged),
+                ],
+                cwd=source_root,
+                env={**os.environ, "BTRC_HOME": str(source_root / "src"), "PYTHONPATH": str(source_root)},
+                check=True,
+            )
+            if state != self._source_state(inventory) or snapshot != CompilerBuildIdentity.snapshot(inventory):
+                raise ValueError("compiler sources changed during transpilation")
+            fields = {
+                "source": snapshot,
+                "c": CompilerBuildIdentity.file_digest(staged),
+                "binary": "",
+                "entry": entry,
+                "target": target,
+                **resources,
+            }
+            if CompilerBuildIdentity.parse_receipt(CompilerBuildIdentity.receipt_text(fields), binary=False) is None:
+                raise ValueError("invalid compiler source receipt")
+            self._publish(staged, output, fields)
+
+    def compile(self, generated_c: Path, output: Path, command: list[str]) -> None:
+        generated_c, output = generated_c.absolute(), output.absolute()
+        if command.count("{input}") != 1 or command.count("{output}") != 1:
+            raise ValueError("native compiler command requires one {input} and one {output} argument")
+        try:
+            stream = self._files.open_regular_binary(str(self._receipt_path(generated_c)))
+        except FileNotFoundError:
+            raise ValueError("compiler source receipt is missing; regenerate the C") from None
+        if stream is None:
+            raise ValueError("compiler source receipt is missing or is not a regular file; regenerate the C")
+        with stream:
+            text = stream.read(16385)
+        if len(text) > 16384:
+            raise ValueError("compiler source receipt is too large")
+        fields = CompilerBuildIdentity.parse_receipt(text.decode("utf-8"), binary=False)
+        if fields is None or fields["c"] != CompilerBuildIdentity.file_digest(generated_c):
+            raise ValueError("generated C does not match its compiler source receipt")
+        before = self._file_state(generated_c)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".compiler-native-", dir=output.parent) as temporary:
+            staged = Path(temporary) / output.name
+            arguments = [
+                str(generated_c) if arg == "{input}" else str(staged) if arg == "{output}" else arg for arg in command
+            ]
+            self._run(arguments, check=True)
+            after = self._file_state(generated_c)
+            if before != after or fields["c"] != CompilerBuildIdentity.file_digest(generated_c):
+                raise ValueError("generated C changed during native compilation")
+            fields["binary"] = CompilerBuildIdentity.file_digest(staged)
+            self._publish(staged, output, fields)
+
+    @staticmethod
+    def _file_state(path: Path) -> tuple:
+        data = path.stat()
+        return data.st_dev, data.st_ino, data.st_size, data.st_mtime_ns, data.st_ctime_ns
 
 
 class SelfhostBundleCopier:
@@ -612,6 +722,7 @@ class SelfhostBundleBuilder:
         self._storage.require_real_directory(source_root, "bundle source root")
         grammar = source_root / "src" / "language" / "grammar.ebnf"
         stdlib = source_root / "src" / "stdlib"
+        runtime = source_root / "src" / "runtime" / "c"
         license_file = source_root / "LICENSE"
         try:
             self._storage.require_real_regular(grammar, "required grammar")
@@ -631,7 +742,8 @@ class SelfhostBundleBuilder:
             raise ValueError(
                 f"required license is missing or not a regular file: {license_file}",
             ) from None
-        runtime_sources = self._source_files(stdlib)
+        stdlib_sources = self._source_files(stdlib)
+        runtime_sources = self._source_files(runtime, subject="C runtime", required=("btrc_rt.h", "manifest.toml"))
         bundle_name = f"btrcc-{target}"
         output_dir.mkdir(parents=True, exist_ok=True)
         self._storage.require_real_directory(output_dir, "bundle output directory")
@@ -642,6 +754,20 @@ class SelfhostBundleBuilder:
             staged = Path(temporary) / bundle_name
             executable_name = Path(spec.executable).name
             self._copier.copy(binary, staged / "bin" / executable_name, 0o755, epoch)
+            receipt = binary.with_name(binary.name + CompilerBuildIdentity.SUFFIX)
+            if receipt.exists():
+                # Bundling never stamps the current checkout onto an old binary.
+                # Carry only the receipt already bound by its build owner.
+                staged_receipt = staged / "bin" / (executable_name + CompilerBuildIdentity.SUFFIX)
+                self._copier.copy(receipt, staged_receipt, 0o644, epoch)
+                stream = AtomicFileStore().open_regular_binary(str(staged_receipt))
+                if stream is None:
+                    raise ValueError("compiler build receipt is not a regular file")
+                with stream:
+                    text = stream.read(16385).decode("utf-8")
+                fields = CompilerBuildIdentity.parse_receipt(text, binary=True)
+                if fields is None or fields["binary"] != CompilerBuildIdentity.file_digest(staged / spec.executable):
+                    raise ValueError("compiler binary does not match its build receipt")
             self._binary_validator.validate_path(
                 staged / spec.executable,
                 target,
@@ -653,10 +779,10 @@ class SelfhostBundleBuilder:
                 0o644,
                 epoch,
             )
-            for source in runtime_sources:
+            for source in (*stdlib_sources, *runtime_sources):
                 self._copier.copy(
                     source,
-                    staged / "share" / "btrc" / "stdlib" / source.relative_to(stdlib),
+                    staged / "share" / "btrc" / source.relative_to(source_root / "src"),
                     0o644,
                     epoch,
                 )
@@ -703,25 +829,35 @@ class SelfhostBundleBuilder:
             raise ValueError(f"project.version in {pyproject} must be a non-empty string")
         return version
 
-    def _source_files(self, stdlib: Path) -> list[Path]:
+    def _source_files(
+        self,
+        root: Path,
+        *,
+        subject: str = "stdlib runtime",
+        required: tuple[str, ...] = ("Vector.btrc", "Strings.btrc"),
+    ) -> list[Path]:
+        try:
+            self._storage.require_real_directory(root, f"required {subject} directory")
+        except (FileNotFoundError, ValueError):
+            raise ValueError(f"required {subject} directory is missing or invalid: {root}") from None
         files: list[Path] = []
 
         def excluded(path: Path) -> bool:
-            relative = path.relative_to(stdlib)
+            relative = path.relative_to(root)
             return any(part in EXCLUDED_DIRECTORIES for part in relative.parts)
 
-        for path, metadata in self._storage.real_tree_entries(stdlib, exclude=excluded):
-            if path == stdlib or stat.S_ISDIR(metadata.st_mode):
+        for path, metadata in self._storage.real_tree_entries(root, exclude=excluded):
+            if path == root or stat.S_ISDIR(metadata.st_mode):
                 continue
             if not stat.S_ISREG(metadata.st_mode):
                 raise ValueError(f"runtime source must be a regular file: {path}")
             if path.suffix not in RUNTIME_SUFFIXES:
-                raise ValueError(f"unknown stdlib runtime source type: {path}")
+                raise ValueError(f"unknown {subject} source type: {path}")
             files.append(path)
-        for required in ("Vector.btrc", "Strings.btrc"):
-            if (stdlib / required) not in files:
+        for name in required:
+            if (root / name) not in files:
                 raise ValueError(
-                    f"required stdlib runtime source is missing: {stdlib / required}",
+                    f"required {subject} source is missing: {root / name}",
                 )
         return files
 
@@ -788,8 +924,9 @@ executable path, so it can be launched through an absolute PATH entry or a
 symlink and from any working directory.
 
 Run `{executable} --stdlib-dir` to inspect the active standard-library path.
-Set BTRC_HOME to an alternate data root containing language/grammar.ebnf and
-stdlib/. An invalid BTRC_HOME is an error and never falls back silently.
+Set BTRC_HOME to an alternate data root containing language/grammar.ebnf,
+stdlib/ and runtime/c/. An invalid BTRC_HOME is an error and never falls back
+silently.
 
 Generated C that imports a native module must be compiled with the bundle's
 headers. Add the printed stdlib directory and the imported module directory to

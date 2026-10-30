@@ -110,6 +110,143 @@ immutable file snapshot in 64 KiB reads. The self-host writer revalidates resolv
 outputs after waiting for the generation owner, before persisting recovery intent;
 outputs redirected into private state are rejected without creating that intent.
 
+## Module record interchange
+
+Compiler builds capture a source snapshot before transpilation and publish it
+beside generated C in a `.compiler-build` receipt. Native compilation verifies
+that C and binds the receipt to the resulting executable. Source edits between
+those steps never restamp old C. Bundles preserve the receipt and verify it
+against the copied binary.
+
+The snapshot covers both compiler implementations, language specifications,
+runtime assets, stdlib sources and manifests, and compiler build/generator code.
+It hashes sorted repository-relative paths and file contents, so relocation does
+not change identity. A complete reference source installation uses this identity.
+The self-host compiler accepts it only when its binary, grammar and stdlib
+manifest/lock/symbol files match the receipt; otherwise it uses the executable's
+digest together with the current resource digests. Missing receipts remain
+compatible with existing binaries without allowing resource edits to reuse stale
+entries.
+
+Both owners wrap module identities with the same `btrc-module-cache-v1\n`
+domain and length framing. They share `modules-v1/<key>/` under `BTRC_CACHE_DIR`,
+or under the nearest source package's `build/btrc/` by default. Without a package
+manifest, the default is the input file's directory plus `build/btrc/`.
+Program fact differences below still prevent general cross-frontend cache reuse.
+
+A module bundle contains `unit.c`, `interface.header`, `link-plan.json` and
+`record.txt`. The record starts with `btrc-module-cache-entry-v2`, the key,
+then SHA-256 digests of metadata, C, interface and fragment separated by spaces.
+Each of those three rows ends with a newline; module metadata follows.
+Analysis records retain the v1 receipt with metadata/C digests and two files.
+Both readers and writers hold `.btrc-publications.lock` in that entry. Directories
+are private (0700 on POSIX), and files are regular, owner-only files (0600).
+Writers replace payloads first and the receipt last. Missing, corrupt, mismatched
+or interrupted entries are misses. The combined payload limit is 512 MiB.
+Whole-generation caches remain separate; the self-host generation reader verifies
+every component of each module bundle it references.
+
+The language interface starts with `btrc-module-interface-v1\n`, followed by
+canonical declaration text framed with decimal UTF-8 byte lengths and colons.
+It preserves generic bodies and omits ordinary bodies and source positions as
+described below. It is a language declaration snapshot, not a generated C include.
+The link fragment is compact, newline-terminated JSON with sorted keys: `kept`,
+`name`, `schema` (1) and `sha256` (the C digest). Its stable unit name has no output
+path. The enclosing freshly resolved native plan binds paths and supplies package
+requirements. Replay also checks that the header matches the current interface
+and that the fragment matches the record's unit name, C and kept state.
+
+Both module owners encode metadata as `btrc-module-unit-record\t6`, with
+generated C carried separately. The record contains the group, six boolean
+flags, export/helper/root/instance lists, and counted sections for exported and
+consulted setjmp effects, realtime proofs, reference edges and consulted source
+digests. Section names and order are fixed. Counts and parameter coordinates
+are canonical nonnegative 32-bit decimal integers. Duplicate table keys,
+duplicate instances, missing instance bodies and kept instances outside the
+graph invalidate the record. Effect sets and map keys have a stable order.
+Paths containing tabs or newlines cannot be represented and forgo reuse.
+
+The final two rows contain declaration roots and their dependency digest.
+Before reuse, each compiler resolves those names through the current shared
+IR declaration inventory and checks its emitted content and relative order,
+including global preprocessor directives. Unknown names stay in the root set
+so a new provider invalidates an old record. Interface keys include the group's
+transitive imports and its include component; unrelated interfaces are excluded.
+Generic demand and standard-library reachability remain conservative global facts.
+
+Both owners frame module-key fields as a decimal UTF-8 byte length, a colon,
+then the bytes. A source digest hashes successive triples of canonical path,
+decimal source line and line text. The self-host validation-record owner uses
+that same source digest when supplying it to module lowering.
+
+The context digest starts with `btrc-module-context-v1\n`, then frames debug,
+DCE, strict imports, stdlib inclusion and strict stdlib analysis as `0`/`1`,
+followed by the canonical target, debug output prefix and primary path, and
+the number of native defines. Define name/value pairs follow in name order.
+Release contexts use empty output paths. The outer digest starts with
+`btrc-module-unit-v8\n` and frames context digest, group, source digest and
+program identity.
+
+The program-facts digest starts with `btrc-module-program-v1\n`. Its sections,
+in order, are `files`, `trycatch`, `realtime`, `class-views`, `method-views`,
+`classes`, `methods`, `callable-policy`, `callables`, `stdlib`, `method-names`,
+`unreached` and `reached`. Each section frames its name, decimal value count
+and values. Nested rows use the same byte-length framing. Type arguments use
+the position-free canonical AST rendering. Instance rows and name sets are
+sorted; source traversal, specialization emission and reached declaration
+order are preserved. Boolean values are `0` or `1`.
+
+The scoped program identity starts with `btrc-module-program-scope-v1\n` and
+frames the group's transitive interface digest followed by the program-facts
+digest. Generic callable selection remains different: the reference compiler
+records `demanded` plus its per-specialization callable matrix; the self-host
+compiler records `all`. This keeps those entries separate until lowering
+agrees. Neither owner supplies a policy value when there are no class instances.
+
+Unit filenames use ASCII alphanumeric bytes from the UTF-8 stem, replacing
+other bytes with hyphens, trimming edge hyphens and using `group` if empty;
+the group path's SHA-256 suffix keeps different paths distinct.
+
+Declaration interfaces use the canonical AST field order and quoting, omitting
+line, column, name-position and source-file fields. Non-template function,
+method and property bodies render as `nil` when absent or as
+`(ElidedBody defined consumed=<indices>)` when present. Consumed parameter
+indices are sorted decimal integers separated by commas; properties have none.
+Generic class and method bodies remain in the interface. Each declaration's
+UTF-8 text is hashed with SHA-256; a declaration-sequence digest hashes those
+lowercase hexadecimal digests in order.
+
+Position-free identities encode floating values as `binary64:` followed by
+16 lowercase hexadecimal digits for their IEEE binary64 bits, preserving
+signed zero and full precision. Wide source integers retain their full
+unsigned magnitude. Ordinary AST inspection output keeps its display format.
+Both pipelines capture these interfaces before semantic analysis. Source
+declarations belong to `group:<canonical-group>`, inline standard-library
+declarations to `<stdlib>`, imported native declarations to `<native>`, and
+unmapped source declarations to `<other>`. The frontend retains inline-stdlib
+membership across combined and split parse coordinates. Within each group,
+declaration order is preserved.
+
+The program-interface digest starts with `btrc-program-interface-v1\n`, then
+frames each source/stdlib group name and digest in sorted group order, followed
+by the `<native>` and `<other>` name/digest pairs. Source-file traversal order
+remains a separate program fact, since it controls directive/prototype order.
+Neither lowering pipeline falls back to hashing an analyzed declaration tree.
+
+Per-source interface records contain `validation-interface-v3` and the complete
+language interface header. Their keys start with `validation-interface-v3\n` and frame
+validation context, group and source digest. The context includes canonical
+target, strict imports, stdlib inclusion and strict stdlib analysis. Native
+records use `validation-natives-v2`, with keys framing context and native input
+identity after `validation-natives-v2\n`; absent native identity disables native
+reuse. Malformed framing, invalid UTF-8 and NUL bytes are misses. Native digest
+records require lowercase SHA-256 text. A private body edit rerenders only its
+source group's interface and keeps the program-interface digest unchanged.
+
+Generic callable selection still prevents general interchange. Issue #8 still
+requires complete invalidation coverage, stamped-output integration and the real
+application's warm-build budget.
+
 ## Source identity
 
 Source text read by the CLI/reference import resolver and the POSIX self-host

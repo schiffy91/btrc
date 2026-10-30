@@ -153,6 +153,8 @@ class TypeExpr:
     generic_args: list[TypeExpr] = _dc_field(default_factory=list)
     pointer_depth: int = 0
     is_array: bool = False
+    is_register: bool = False
+    is_auto: bool = False
     array_size: Optional[expr] = None
     elements: list[expr] = _dc_field(default_factory=list)
     is_const: bool = False
@@ -202,6 +204,7 @@ class MethodDecl:
     is_gpu: bool = False
     is_realtime: bool = False
     is_abstract: bool = False
+    is_override: bool = False
     keep_return: bool = False
     name_line: int = _dc_field(default=0, compare=False)
     name_col: int = _dc_field(default=0, compare=False)
@@ -410,6 +413,22 @@ class KeepStmt:
 @dataclass(kw_only=True)
 class ReleaseStmt:
     expr: expr
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
+@dataclass(kw_only=True)
+class GotoStmt:
+    name: str = ""
+    name_line: int = _dc_field(default=0, compare=False)
+    name_col: int = _dc_field(default=0, compare=False)
+    line: int = _dc_field(default=0, compare=False)
+    col: int = _dc_field(default=0, compare=False)
+
+
+@dataclass(kw_only=True)
+class LabelStmt:
+    name: str = ""
     line: int = _dc_field(default=0, compare=False)
     col: int = _dc_field(default=0, compare=False)
 
@@ -733,7 +752,7 @@ decl = Union[PreprocessorDirective, ImportDecl, ClassDecl, InterfaceDecl, Functi
 import_spec = Union[LibraryGlob, LibraryModules, PackagePath, RelativePath, QuotedPath]
 class_member = Union[FieldDecl, MethodDecl, PropertyDecl]
 field_def = Union[FieldDef, AnonymousMember]
-stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt]
+stmt = Union[VarDeclStmt, ReturnStmt, IfStmt, WhileStmt, DoWhileStmt, ForInStmt, CForStmt, ParallelForStmt, SwitchStmt, BreakStmt, ContinueStmt, ExprStmt, DeleteStmt, TryCatchStmt, ThrowStmt, KeepStmt, ReleaseStmt, GotoStmt, LabelStmt]
 if_else = Union[ElseBlock, ElseIf]
 for_init = Union[ForInitVar, ForInitExpr]
 expr = Union[IntLiteral, FloatLiteral, StringLiteral, CharLiteral, BoolLiteral, NullLiteral, Identifier, SelfExpr, SuperExpr, BinaryExpr, UnaryExpr, CallExpr, IndexExpr, FieldAccessExpr, CastExpr, SizeofExpr, TernaryExpr, AssignExpr, ListLiteral, MapLiteral, BraceInitializer, FStringLiteral, NewExpr, TupleLiteral, LambdaExpr, SpawnExpr, StringConcat, CommaExpr, CompoundLiteral]

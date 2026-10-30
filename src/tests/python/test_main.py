@@ -301,8 +301,8 @@ def test_analyzer_error_fallback_format(tmp_path, monkeypatch, capsys):
 
     real = SemanticAnalyzer.analyze
 
-    def fake(self, program):
-        result = real(self, program)
+    def fake(self, program, *, prune_stdlib=False):
+        result = real(self, program, prune_stdlib=prune_stdlib)
         result.errors.append("a bare error with no location")
         return result
 
@@ -318,8 +318,8 @@ def test_analyzer_error_bad_location(tmp_path, monkeypatch, capsys):
     src = write(tmp_path / "ab.btrc", BARE)
     real = SemanticAnalyzer.analyze
 
-    def fake(self, program):
-        result = real(self, program)
+    def fake(self, program, *, prune_stdlib=False):
+        result = real(self, program, prune_stdlib=prune_stdlib)
         result.errors.append("bad loc at foo:bar")
         return result
 
@@ -335,8 +335,8 @@ def test_analyzer_warning(tmp_path, monkeypatch, capsys):
     src = write(tmp_path / "w.btrc", HELLO)
     real = SemanticAnalyzer.analyze
 
-    def fake(self, program):
-        result = real(self, program)
+    def fake(self, program, *, prune_stdlib=False):
+        result = real(self, program, prune_stdlib=prune_stdlib)
         result.warnings.append("located warning at 1:1")
         result.warnings.append("plain warning no loc")
         result.warnings.append("bad warning at x:y")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from src.compiler.python.abi.hosted import HOSTED_ABI
@@ -15,6 +16,7 @@ from src.compiler.python.syntax.ast.generated import (
     BoolLiteral,
     BreakStmt,
     CallExpr,
+    CaseClause,
     CForStmt,
     ClassDecl,
     ContinueStmt,
@@ -25,9 +27,11 @@ from src.compiler.python.syntax.ast.generated import (
     FieldAccessExpr,
     ForInStmt,
     FunctionDecl,
+    GotoStmt,
     Identifier,
     IfStmt,
     IndexExpr,
+    LabelStmt,
     LambdaExpr,
     MethodDecl,
     NullLiteral,
@@ -62,6 +66,174 @@ class AccessPath:
         return self.root is other.root and other.fields[: len(self.fields)] == self.fields
 
 
+@dataclass(frozen=True, eq=False)
+class JumpList:
+    """One lexical statement list in a callable's jump scope."""
+
+    node: Block | CaseClause
+    kind: str
+    parent: JumpList | None
+    parent_index: int
+
+    @property
+    def statements(self) -> list:
+        return self.node.body if isinstance(self.node, CaseClause) else self.node.statements
+
+
+@dataclass(frozen=True)
+class JumpSite:
+    node: GotoStmt | LabelStmt
+    path: tuple[tuple[JumpList, int], ...]
+    ordinal: int
+
+
+class JumpScopeIndex:
+    """Lexical jump relationships, independent of semantic and lowering state."""
+
+    def __init__(self) -> None:
+        self.lists: dict[int, JumpList] = {}
+        self.sites: dict[int, JumpSite] = {}
+        self.labels: dict[str, JumpSite] = {}
+        self.gotos: list[JumpSite] = []
+        self.targeted_names: set[str] = set()
+        self._nested_labels: dict[str, LabelStmt] = {}
+
+    @classmethod
+    def build(cls, root: Block) -> JumpScopeIndex:
+        result = cls()
+        result._walk_list(root, "body", ())
+        result._collect_nested(root, False)
+        return result
+
+    def target(self, jump: GotoStmt) -> JumpSite | None:
+        return self.labels.get(jump.name)
+
+    def targeted(self, name: str) -> bool:
+        return name in self.targeted_names
+
+    def is_backward(self, jump: GotoStmt) -> bool:
+        target = self.target(jump)
+        return target is not None and target.ordinal < self.sites[id(jump)].ordinal
+
+    def enclosing(self, jump: GotoStmt) -> tuple[JumpList, int, int] | None:
+        target = self.target(jump)
+        if target is not None:
+            target_list, target_index = target.path[-1]
+            for source_list, source_index in self.sites[id(jump)].path:
+                if source_list is target_list:
+                    return target_list, source_index, target_index
+        return None
+
+    def _common_depth(self, jump: GotoStmt) -> int:
+        target = self.target(jump)
+        if target is None:
+            return 0
+        depth = 0
+        for source, destination in zip(self.sites[id(jump)].path, target.path):
+            if source[0] is not destination[0]:
+                break
+            depth += 1
+        return depth
+
+    def left_lists(self, jump: GotoStmt) -> tuple[JumpList, ...]:
+        if self.target(jump) is None:
+            return ()
+        return tuple(item[0] for item in reversed(self.sites[id(jump)].path[self._common_depth(jump) :]))
+
+    def entered_lists(self, jump: GotoStmt) -> tuple[JumpList, ...]:
+        target = self.target(jump)
+        if target is None:
+            return ()
+        return tuple(item[0] for item in target.path[self._common_depth(jump) :])
+
+    def entered_declarations(self, jump: GotoStmt) -> list[VarDeclStmt]:
+        enclosing = self.enclosing(jump)
+        if enclosing is None:
+            return []
+        scope, start, end = enclosing
+        result: list[VarDeclStmt] = []
+        if start < end:
+            self._collect_declarations(scope.statements[start + 1 : end], result)
+        return result
+
+    @classmethod
+    def _collect_declarations(cls, statements: list, result: list[VarDeclStmt]) -> None:
+        for statement in statements:
+            if isinstance(statement, VarDeclStmt):
+                result.append(statement)
+            elif isinstance(statement, TryCatchStmt) and statement.finally_block is not None:
+                cls._collect_declarations(statement.finally_block.statements, result)
+
+    def nested_lambda_label(self, name: str) -> LabelStmt | None:
+        return self._nested_labels.get(name)
+
+    def reach_start(self, scope: JumpList, declaration_index: int, label_index: int) -> int:
+        """Earliest direct label reachable from the suffix, stopping at the declaration."""
+        start = label_index
+        while True:
+            previous = start
+            for jump in self.gotos:
+                if not any(item is scope and index >= start for item, index in jump.path):
+                    continue
+                target = self.target(jump.node)
+                if target is not None:
+                    target_list, target_index = target.path[-1]
+                    if target_list is scope and declaration_index < target_index < start:
+                        start = target_index
+            if start == previous:
+                return start
+
+    def _walk_list(self, node: Block | CaseClause, kind: str, path: tuple) -> None:
+        parent, parent_index = path[-1] if path else (None, -1)
+        scope = JumpList(node, kind, parent, parent_index)
+        self.lists[id(node)] = scope
+        for index, statement in enumerate(scope.statements):
+            self._walk_statement(statement, (*path, (scope, index)))
+
+    def _walk_statement(self, statement, path: tuple) -> None:
+        if isinstance(statement, (GotoStmt, LabelStmt)):
+            site = JumpSite(statement, path, len(self.sites))
+            self.sites[id(statement)] = site
+            if isinstance(statement, GotoStmt):
+                self.gotos.append(site)
+                self.targeted_names.add(statement.name)
+            else:
+                self.labels.setdefault(statement.name, site)
+        elif isinstance(statement, Block):
+            self._walk_list(statement, "block", path)
+        elif isinstance(statement, IfStmt):
+            self._walk_list(statement.then_block, "if", path)
+            if isinstance(statement.else_block, ElseBlock):
+                self._walk_list(statement.else_block.body, "else", path)
+            elif isinstance(statement.else_block, ElseIf):
+                self._walk_statement(statement.else_block.if_stmt, path)
+        elif isinstance(statement, (WhileStmt, DoWhileStmt, CForStmt, ForInStmt, ParallelForStmt)):
+            self._walk_list(statement.body, "parallel" if isinstance(statement, ParallelForStmt) else "loop", path)
+        elif isinstance(statement, SwitchStmt):
+            for case in statement.cases:
+                self._walk_list(case, "case", path)
+        elif isinstance(statement, TryCatchStmt):
+            self._walk_list(statement.try_block, "try", path)
+            if statement.catch_block is not None:
+                self._walk_list(statement.catch_block, "catch", path)
+            if statement.finally_block is not None:
+                self._walk_list(statement.finally_block, "finally", path)
+
+    def _collect_nested(self, node, nested: bool) -> None:
+        if not dataclasses.is_dataclass(node):
+            return
+        nested = nested or isinstance(node, LambdaExpr)
+        if nested and isinstance(node, LabelStmt):
+            self._nested_labels.setdefault(node.name, node)
+        for field in dataclasses.fields(node):
+            value = getattr(node, field.name)
+            if isinstance(value, list):
+                for child in value:
+                    self._collect_nested(child, nested)
+            else:
+                self._collect_nested(value, nested)
+
+
 class ControlFlowAnalyzer:
     """Control-flow, termination, and nullable-flow analysis."""
 
@@ -73,6 +245,143 @@ class ControlFlowAnalyzer:
         self._nonreturning_callables: set[int] = set()
         # One root per class whose static fields a path names, global like a global variable.
         self._class_roots: dict[str, SymbolInfo] = {}
+        self._jump_roots: list[Block] = []
+        self._jump_indexes: dict[int, JumpScopeIndex] = {}
+        self._valid_gotos: set[int] = set()
+        self._jump_flows: dict[int, list[frozenset | None]] = {}
+
+    def reset_jump_scopes(self) -> None:
+        self._jump_roots.clear()
+        self._jump_indexes.clear()
+        self._valid_gotos.clear()
+        self._jump_flows.clear()
+
+    @contextmanager
+    def callable_jump_scope(self, body):
+        self._jump_roots.append(body)
+        try:
+            yield
+        finally:
+            self._jump_roots.pop()
+
+    def jump_index(self, body=None) -> JumpScopeIndex:
+        root = body if body is not None else self._jump_roots[-1]
+        key = id(root)
+        if key not in self._jump_indexes:
+            self._jump_indexes[key] = JumpScopeIndex.build(root)
+        return self._jump_indexes[key]
+
+    def goto_is_valid(self, jump) -> bool:
+        return id(jump) in self._valid_gotos
+
+    def targeted_label(self, statement) -> bool:
+        return isinstance(statement, LabelStmt) and self.jump_index().targeted(statement.name)
+
+    def active_jump_targets(self) -> set[str] | frozenset[str]:
+        index = self._jump_indexes.get(id(self._jump_roots[-1])) if self._jump_roots else None
+        return index.targeted_names if index is not None else frozenset()
+
+    def callable_must_terminate(self, body) -> bool:
+        index = self._jump_indexes.get(id(body))
+        return self.block_must_terminate(body, index.targeted_names if index is not None else frozenset())
+
+    def record_goto_flow(self, jump) -> None:
+        target = self.jump_index().target(jump)
+        if target is not None and not self.jump_index().is_backward(jump):
+            self._jump_flows.setdefault(id(target.node), []).append(self.session.nonnull_flow)
+
+    def enter_label_flow(self, label) -> None:
+        index = self.jump_index()
+        if not index.targeted(label.name):
+            return
+        if any(site.node.name == label.name and index.is_backward(site.node) for site in index.gotos):
+            self.session.replace_nonnull_flow(set())
+            return
+        flows = [self.session.nonnull_flow, *self._jump_flows.get(id(label), ())]
+        joined = self.join_nonnull_flows(flows)
+        if joined is not None:
+            joined = {
+                fact
+                for fact in joined
+                if self.session.scope.lookup(fact.root.name) is fact.root
+                or self._class_roots.get(fact.root.name) is fact.root
+            }
+        self.session.replace_nonnull_flow(joined)
+
+    @staticmethod
+    def decisive_suffix(statements, targeted_names):
+        if not targeted_names:
+            return statements
+        start = 0
+        for position, statement in enumerate(statements):
+            if isinstance(statement, LabelStmt) and statement.name in targeted_names:
+                start = position + 1
+        return statements[start:] if start else statements
+
+    def mark_jump_body(self) -> None:
+        self.session.jump_body_ids.add(id(self._jump_roots[-1]))
+
+    def validate_goto(self, jump: GotoStmt) -> None:
+        self.mark_jump_body()
+        index = self.jump_index()
+        target = index.target(jump)
+        message = None
+        if target is None:
+            for root in reversed(self._jump_roots[:-1]):
+                outer = self.jump_index(root).labels.get(jump.name)
+                if outer is not None:
+                    message = (
+                        f"goto '{jump.name}' cannot leave a lambda body (label at {outer.node.line}:{outer.node.col})"
+                    )
+                    break
+            if message is None:
+                nested = index.nested_lambda_label(jump.name)
+                message = (
+                    f"goto '{jump.name}' cannot enter a lambda body (label at {nested.line}:{nested.col})"
+                    if nested is not None
+                    else f"Label '{jump.name}' is not defined in this function"
+                )
+        else:
+            for scope in index.left_lists(jump):
+                if scope.kind in {"try", "catch", "finally"}:
+                    message = f"goto '{jump.name}' cannot leave a {scope.kind} block; set a flag and test it after the try statement"
+                    break
+                if scope.kind == "parallel":
+                    message = f"goto '{jump.name}' cannot leave a parallel for body"
+                    break
+            entered = index.entered_lists(jump)
+            if message is None:
+                for scope in entered:
+                    if scope.kind in {"try", "catch", "finally"}:
+                        message = f"goto '{jump.name}' cannot enter a {scope.kind} block"
+                        break
+                if message is None and entered:
+                    message = f"goto '{jump.name}' cannot jump into a nested block; jump only to a label in the same block or an enclosing one"
+        if message is not None:
+            self.session.error(message, jump.line, jump.col)
+        else:
+            self._valid_gotos.add(id(jump))
+
+    def valid_forward_gotos(self, label: LabelStmt) -> list[JumpSite]:
+        index = self.jump_index()
+        target = index.sites[id(label)]
+        return [
+            site
+            for site in index.gotos
+            if id(site.node) in self._valid_gotos and site.node.name == label.name and site.ordinal < target.ordinal
+        ]
+
+    def validate_label_identity(self, label: LabelStmt) -> bool:
+        self.mark_jump_body()
+        first = self.jump_index().labels[label.name].node
+        if first is not label:
+            self.session.error(
+                f"Duplicate label '{label.name}' in this function (first at {first.line}:{first.col})",
+                label.line,
+                label.col,
+            )
+            return False
+        return True
 
     def compute_nonreturning_callables(self, program) -> None:
         """Find every function and method that cannot return to its caller.
@@ -122,7 +431,7 @@ class ControlFlowAnalyzer:
 
     def statement_ends_flow(self, statement) -> bool:
         """Whether no statement after this one in its sequence can run."""
-        if isinstance(statement, (ReturnStmt, ThrowStmt)):
+        if self.statement_must_terminate(statement, self.active_jump_targets()):
             return True
         return (
             isinstance(statement, ExprStmt)
@@ -201,7 +510,7 @@ class ControlFlowAnalyzer:
         for statement in statements:
             if self._statement_diverges(statement, owner, local_names):
                 return True
-            if self._contains_return(statement):
+            if self._contains_return_or_jump(statement):
                 return False
         return False
 
@@ -251,11 +560,11 @@ class ControlFlowAnalyzer:
             and self._statements_diverge(statement.body.statements, owner, local_names)
         )
 
-    def _contains_return(self, statement) -> bool:
-        """Whether a return statement (outside any lambda) is nested in a statement."""
-        if isinstance(statement, ReturnStmt):
+    def _contains_return_or_jump(self, statement) -> bool:
+        """Whether a return or jump (outside any lambda) can bypass a later statement."""
+        if isinstance(statement, (ReturnStmt, GotoStmt)):
             return True
-        return any(self._contains_return(child) for child in self._child_statements(statement))
+        return any(self._contains_return_or_jump(child) for child in self._child_statements(statement))
 
     @staticmethod
     def _child_statements(statement) -> list:
@@ -308,10 +617,13 @@ class ControlFlowAnalyzer:
     def block_stops_fallthrough(self, block) -> bool:
         if block is None:
             return False
-        return any(self.statement_stops_fallthrough(statement) for statement in block.statements)
+        return any(
+            self.statement_stops_fallthrough(statement)
+            for statement in self.decisive_suffix(block.statements, self.active_jump_targets())
+        )
 
     def statement_stops_fallthrough(self, statement) -> bool:
-        if isinstance(statement, (ReturnStmt, ThrowStmt, BreakStmt, ContinueStmt)):
+        if isinstance(statement, (ReturnStmt, ThrowStmt, BreakStmt, ContinueStmt, GotoStmt)):
             return True
         if isinstance(statement, Block):
             return self.block_stops_fallthrough(statement)
@@ -535,63 +847,70 @@ class ControlFlowAnalyzer:
         )
 
     @staticmethod
-    def block_must_terminate(block) -> bool:
-        """Whether every path through a block returns or throws."""
+    def block_must_terminate(block, targeted_names=frozenset()) -> bool:
+        """Whether the decisive suffix leaves the block on every path."""
         return block is not None and any(
-            ControlFlowAnalyzer.statement_must_terminate(statement) for statement in block.statements
+            ControlFlowAnalyzer.statement_must_terminate(statement, targeted_names)
+            for statement in ControlFlowAnalyzer.decisive_suffix(block.statements, targeted_names)
         )
 
     @staticmethod
-    def statement_must_terminate(statement) -> bool:
-        if isinstance(statement, (ReturnStmt, ThrowStmt)):
+    def statement_must_terminate(statement, targeted_names=frozenset()) -> bool:
+        if isinstance(statement, (ReturnStmt, ThrowStmt, GotoStmt)):
             return True
         if isinstance(statement, Block):
-            return ControlFlowAnalyzer.block_must_terminate(statement)
+            return ControlFlowAnalyzer.block_must_terminate(statement, targeted_names)
         if isinstance(statement, IfStmt):
-            if not ControlFlowAnalyzer.block_must_terminate(statement.then_block):
+            if not ControlFlowAnalyzer.block_must_terminate(statement.then_block, targeted_names):
                 return False
             if isinstance(statement.else_block, ElseBlock):
-                return ControlFlowAnalyzer.block_must_terminate(statement.else_block.body)
+                return ControlFlowAnalyzer.block_must_terminate(statement.else_block.body, targeted_names)
             if isinstance(statement.else_block, ElseIf):
-                return ControlFlowAnalyzer.statement_must_terminate(statement.else_block.if_stmt)
+                return ControlFlowAnalyzer.statement_must_terminate(statement.else_block.if_stmt, targeted_names)
             return False
         if isinstance(statement, SwitchStmt):
             return (
                 bool(statement.cases)
                 and any(case.value is None for case in statement.cases)
-                and all(ControlFlowAnalyzer.statement_sequence_must_terminate(case.body) for case in statement.cases)
+                and all(
+                    ControlFlowAnalyzer.statement_sequence_must_terminate(case.body, targeted_names)
+                    for case in statement.cases
+                )
             )
         if isinstance(statement, TryCatchStmt):
-            if ControlFlowAnalyzer.block_must_terminate(statement.finally_block):
+            if ControlFlowAnalyzer.block_must_terminate(statement.finally_block, targeted_names):
                 return True
-            try_terminates = ControlFlowAnalyzer.block_must_terminate(statement.try_block)
+            try_terminates = ControlFlowAnalyzer.block_must_terminate(statement.try_block, targeted_names)
             return (
                 try_terminates
                 if statement.catch_block is None
-                else try_terminates and ControlFlowAnalyzer.block_must_terminate(statement.catch_block)
+                else try_terminates and ControlFlowAnalyzer.block_must_terminate(statement.catch_block, targeted_names)
             )
         if isinstance(statement, WhileStmt):
             return (
                 isinstance(statement.condition, BoolLiteral)
                 and statement.condition.value
                 and (not ControlFlowAnalyzer.contains_loop_break(statement.body))
-                and ControlFlowAnalyzer.block_must_terminate(statement.body)
+                and ControlFlowAnalyzer.block_must_terminate(statement.body, targeted_names)
             )
         if isinstance(statement, DoWhileStmt):
             return not ControlFlowAnalyzer.contains_loop_break(
                 statement.body
-            ) and ControlFlowAnalyzer.block_must_terminate(statement.body)
+            ) and ControlFlowAnalyzer.block_must_terminate(statement.body, targeted_names)
         if isinstance(statement, CForStmt):
             return (
                 statement.condition is None
                 and (not ControlFlowAnalyzer.contains_loop_break(statement.body))
-                and ControlFlowAnalyzer.block_must_terminate(statement.body)
+                and ControlFlowAnalyzer.block_must_terminate(statement.body, targeted_names)
             )
         return False
 
     @staticmethod
-    def statement_sequence_must_terminate(statements) -> bool:
-        return any(ControlFlowAnalyzer.statement_must_terminate(statement) for statement in statements)
+    def statement_sequence_must_terminate(statements, targeted_names=frozenset()) -> bool:
+        return any(
+            ControlFlowAnalyzer.statement_must_terminate(statement, targeted_names)
+            for statement in ControlFlowAnalyzer.decisive_suffix(statements, targeted_names)
+        )
 
     @staticmethod
     def contains_loop_break(node) -> bool:

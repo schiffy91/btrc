@@ -170,6 +170,11 @@ class GenericSpecializer {
 	/* Whether validation's facts exist yet: instance scans that run before and
 	 * after validation are recorded apart. */
 	private bool validated = false;
+	private string callableScope = "root";
+	private Node? callableReturnType = null;
+	private Map<string, Vector<ClassCallableInstance>> callableDependencies = {};
+	private Map<string, bool> callableDependencySeen = {};
+	private Map<string, Vector<string>> interfaceCallableNamesByClass = {};
 	/* hosted_abi.toml's limits.generic_argument_nesting. */
 	private int nestingLimit;
 	/* The declaration whose specialization is being scanned ("" for none),
@@ -266,6 +271,20 @@ class GenericSpecializer {
 		self.validateRealtimeChecks();
 	}
 
+	public void reopenInstances() {
+		self.closedClassInstances = {};
+		self.closedMethodInstances = {};
+	}
+
+	/* After validation, newly reached bodies need template discovery, but
+	 * must not write a pre-validation discovery record using later facts. */
+	public void discoverExpanded(Node program) {
+		IValidationRecords? previous = self.records;
+		self.records = null;
+		self.discover(program);
+		self.records = previous;
+	}
+
 	public void useRecords(IValidationRecords? records) { self.records = records; }
 
 	/* Stage B: a function's or class's recorded generic demand for `phase`,
@@ -299,6 +318,8 @@ class GenericSpecializer {
 					a.methodGenSeen.put(key, true);
 					a.methodGenInstances.push(MethodGenInstance(fact.name, fact.member, fact.arguments, fact.moreArguments));
 				}
+			} else if (fact.kind == VALIDATION_CLASS_CALLABLE) {
+				if (fact.value != null) { self.addCallableDependency(fact.name, fact.value, fact.detail, fact.member); }
 			} else if (fact.kind == VALIDATION_CALL_ARGUMENTS) {
 				Node? call = fact.node;
 				if (call != null) { a.recordMethodCallArguments(call, fact.arguments); }
@@ -358,10 +379,12 @@ class GenericSpecializer {
 	}
 
 	public void closeExpressionGraph(Node program, HostedAbiRepository hostedAbi) {
+		if (!self.validated) { self.reopenInstances(); }
 		self.validated = true;
 		self.collectNativeCallbackInstances(hostedAbi);
 		BtrccPhaseTimer.mark("c-native");
 		self.closeProgramGenericExpressionGraph(program, self.analyzed, self.operators);
+		self.closeCallableDemand();
 		self.reportGrowth();
 		self.validateRealtimeChecks();
 	}
@@ -375,6 +398,7 @@ class GenericSpecializer {
 				if (member.kind != NK_FUNCTION_DECL) { contract = imported.methods.has(member.name) ? imported.methods.get(member.name) : null; }
 				if (contract == null) { continue; }
 				if ((contract.copiedResult != null && contract.copiedResult.kind == "bytes") || (contract.recordSnapshot != null && !contract.recordSnapshot.byteField.isEmpty())) {
+					self.analyzed.callableOwnerDemands.put("Bytes", true);
 					Node? constructor = self.analyzed.classConstructor("Bytes");
 					Node? fromRaw = self.analyzed.classMethod("Bytes", "fromRaw");
 					if (constructor == null || fromRaw == null || !hostedAbi.compilerStdlibNode(constructor) || !hostedAbi.compilerStdlibNode(fromRaw)) { throw "Copied native bytes require authenticated import Library.Bytes"; }
@@ -389,10 +413,12 @@ class GenericSpecializer {
 					}
 					for name in ["activate", "publish", "abortActivation", "enter", "leave", "close", "cancel", "pollCompletion"] {
 						Node? method = self.analyzed.genericClassMethod(context.base, name);
+						self.demandCallable(context, "method", name, {});
 						if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
 					}
 					for name in ["unregister", "close"] {
 						Node? method = self.analyzed.genericClassMethod(token.base, name);
+						self.demandCallable(token, "method", name, {});
 						if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
 					}
 					self.registerGenericInstanceWithUnresolved(token, self.analyzed, {});
@@ -404,9 +430,11 @@ class GenericSpecializer {
 						Node token = Node(); token.kind = NK_TYPE_EXPR; token.base = "void"; token.pointerDepth = 1;
 						Node context = Node(); context.kind = NK_TYPE_EXPR; context.base = "CallbackContext"; context.pointerDepth = 1;
 						context.genericArgsStorage = [member.params().get(0).type, token];
+						SemanticTypeSystem.upgradeConcreteTypeGenericArgs(context, self.analyzed);
 						if (!self.analyzed.genericClassTable.has(context.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(context.base))) { throw "Stored native callbacks require import Library.Callback"; }
 						for name in ["activate", "publish", "abortActivation", "enter", "leave", "close", "cancel", "pollCompletion", "isOpen"] {
 							Node? method = self.analyzed.genericClassMethod(context.base, name);
+							self.demandCallable(context, "method", name, {});
 							if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
 						}
 						self.registerGenericInstanceWithUnresolved(context, self.analyzed, {});
@@ -436,12 +464,15 @@ class GenericSpecializer {
 							root.base = "CallbackRoot";
 							root.genericArgsStorage = [receiver];
 							root.pointerDepth = 1;
+							SemanticTypeSystem.upgradeConcreteTypeGenericArgs(root, self.analyzed);
 							self.registerGenericInstanceWithUnresolved(root, self.analyzed, {});
+							for name in ["isOpen", "enter", "leave"] { self.demandCallable(root, "method", name, {}); }
 						}
 						continue;
 					}
 					if (callback.unregister == null && !callback.oneShot) { continue; }
 					if (callback.realtime != null) {
+						self.analyzed.callableOwnerDemands.put("CallbackState", true);
 						Node? constructor = self.analyzed.classConstructor("CallbackState");
 						if (constructor == null || !hostedAbi.compilerStdlibNode(constructor)) { throw "Stored native callbacks require import Library.Callback"; }
 						continue;
@@ -457,6 +488,7 @@ class GenericSpecializer {
 					if (callback.oneShot) { methods.push("complete"); }
 					for name in methods {
 						Node? method = self.analyzed.genericClassMethod(context.base, name);
+						self.demandCallable(context, "method", name, {});
 						if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
 					}
 					var unregister = callback.unregister;
@@ -466,6 +498,7 @@ class GenericSpecializer {
 						if (!self.analyzed.genericClassTable.has(token.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(token.base))) { throw "Stored native callbacks require import Library.Callback"; }
 						for name in ["unregister", "close"] {
 							Node? method = self.analyzed.genericClassMethod(token.base, name);
+							self.demandCallable(token, "method", name, {});
 							if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
 						}
 						self.registerGenericInstanceWithUnresolved(token, self.analyzed, {});
@@ -474,6 +507,7 @@ class GenericSpecializer {
 						if (!self.analyzed.genericClassTable.has(token.base) || !hostedAbi.compilerStdlibNode(self.analyzed.genericClassTable.get(token.base))) { throw "Stored native callbacks require import Library.Callback"; }
 						for name in ["publish", "source", "value"] {
 							Node? method = self.analyzed.genericClassMethod(token.base, name);
+							self.demandCallable(token, "method", name, {});
 							if (method == null || !hostedAbi.compilerStdlibNode(method)) { throw "Stored native callbacks require import Library.Callback"; }
 						}
 						self.registerGenericInstanceWithUnresolved(token, self.analyzed, {});
@@ -568,6 +602,7 @@ class GenericSpecializer {
 	}
 
 	private void collectMethodGenericsBlock(Node block, Analyzed a, OperatorSemantics operators, Map<string, Node> vt) {
+		if (!a.bodyReached(block)) { return; }
 		if (block == null) { return; }
 		int i = 0;
 		while (i < block.statements().len) {
@@ -1237,7 +1272,13 @@ class GenericSpecializer {
 			for parameter in member.genericParams() {
 				if (!substitutions.has(parameter)) { unresolved.put(parameter, true); }
 			}
-			for node in AstStructure.preorder(member) {
+			Vector<Node> pending = [member];
+			Map<Node, bool> visited = {};
+			while (pending.len > 0) {
+				Node node = pending.pop();
+				if (visited.has(node) || !a.bodyReached(node)) { continue; }
+				visited.put(node, true);
+				AstStructure.children(node, pending);
 				/* A type no argument reaches was checked where it is declared. */
 				if (node.kind != NK_TYPE_EXPR || !TypeIdentity.referencesNames(node, substituted)) { continue; }
 				self.realtimeTypeProblems(SemanticTypeSystem.resolveGenericType(node, substitutions, a), unresolved, visiting, problems, a);
@@ -1434,6 +1475,12 @@ class GenericSpecializer {
 				}
 				i = i + 1;
 			}
+		} else if (d.kind == NK_TYPEDEF_DECL) {
+			SemanticTypeSystem.upgradeConcreteTypeGenericArgs(d.original, a);
+		} else if (d.kind == NK_STRUCT_DECL) {
+			for field in SemanticTypeSystem.recordFields(d) {
+				SemanticTypeSystem.upgradeConcreteTypeGenericArgs(field.type, a);
+			}
 		} else if (d.kind == NK_VAR_DECL_STMT) {
 			Map<string, bool> unresolved = {};
 			SemanticTypeSystem.upgradeTypeGenericArgs(d.type, a, unresolved);
@@ -1453,6 +1500,7 @@ class GenericSpecializer {
 	}
 
 	private void upgradeBlockGenericArgs(Node block, Analyzed a, Map<string, bool> unresolved) {
+		if (!a.bodyReached(block)) { return; }
 		if (block == null) { return; }
 		int i = 0;
 		while (i < block.statements().len) {
@@ -1641,6 +1689,12 @@ class GenericSpecializer {
 					self.realtimeChecks.push(RealtimePayloadCheck(GenericSpecializer.specializationSpelling(base, t.genericArgs(), a), declaration.members(), GenericSpecializer.templateSubstitutions(declaration, t.genericArgs()), t));
 				}
 			}
+			/* The dispatch directory refers to each implementation even when no
+			 * source call names it. Record these edges in the current callable
+			 * scope so their bodies and dependencies survive cached replay. */
+			if (self.validated) {
+				for name in self.interfaceCallableNames(base) { self.demandCallable(t, "method", name, unresolved); }
+			}
 		}
 		/* Even when the outer shape is unresolved, a concrete nested argument is
          * independently registerable and must not be lost. */
@@ -1704,6 +1758,7 @@ class GenericSpecializer {
 
 	/* Walk a block's statements for generic-instance-bearing types/exprs. */
 	private void collectGenericsBlock(Node block, Analyzed a, Map<string, bool> unresolved) {
+		if (!a.bodyReached(block)) { return; }
 		if (block == null) { return; }
 		int i = 0;
 		while (i < block.statements().len) {
@@ -1806,6 +1861,178 @@ class GenericSpecializer {
 		}
 	}
 
+	private void addCallableDependency(string scope, Node receiver, string kind, string name) {
+		string key = TypeIdentity.classCallableKey(receiver, kind, name);
+		string edge = scope + " " + key;
+		if (self.callableDependencySeen.has(edge)) { return; }
+		self.callableDependencySeen.put(edge, true);
+		if (!self.callableDependencies.has(scope)) { self.callableDependencies.put(scope, []); }
+		self.callableDependencies.get(scope).push(ClassCallableInstance(receiver, kind, name));
+	}
+
+	private Vector<string> interfaceCallableNames(string base) {
+		if (self.interfaceCallableNamesByClass.has(base)) { return self.interfaceCallableNamesByClass.get(base); }
+		Vector<string> names = [];
+		Map<string, bool> seen = {};
+		for name in self.analyzed.interfaceTable.keys().sorted() {
+			if (self.analyzed.interfaceTable.get(name).genericParams().len > 0 || !self.analyzed.isSubclass(base, name)) { continue; }
+			for method in self.analyzed.interfaceMethods(name) {
+				if (!seen.has(method.name)) {
+					seen.put(method.name, true);
+					names.push(method.name);
+				}
+			}
+		}
+		self.interfaceCallableNamesByClass.put(base, names);
+		return names;
+	}
+
+	private void demandCallable(Node? receiver, string kind, string name, Map<string, bool> unresolved) {
+		if (!self.validated || receiver == null || receiver.isArray || receiver.genericArgs().len == 0 || !self.analyzed.isGenericClass(receiver.base) || TypeIdentity.referencesNames(receiver, unresolved)) { return; }
+		Node? member = kind == "method" ? self.analyzed.genericClassMethod(receiver.base, name) : SemanticTypeSystem.genericMember(self.analyzed, receiver.base, name);
+		if (member == null) { return; }
+		if (kind == "method" && (member.kind != NK_METHOD_DECL || member.genericParams().len > 0)) { return; }
+		if (kind == "get" && (member.kind != NK_PROPERTY_DECL || !member.hasGetter)) { return; }
+		if (kind == "set" && (member.kind != NK_PROPERTY_DECL || !member.hasSetter)) { return; }
+		ValidationFact? fact = self.analyzed.journalFact(VALIDATION_CLASS_CALLABLE, null, receiver);
+		if (fact != null) { fact.name = self.callableScope; fact.member = name; fact.detail = kind; }
+		self.addCallableDependency(self.callableScope, receiver, kind, name);
+	}
+
+	private void closeCallableDemand() {
+		Vector<string> pending = ["root"];
+		Map<string, bool> visited = {};
+		int index = 0;
+		while (index < pending.len) {
+			string scope = pending.get(index++);
+			if (visited.has(scope)) { continue; }
+			visited.put(scope, true);
+			if (!self.callableDependencies.has(scope)) { continue; }
+			for dependency in self.callableDependencies.get(scope) {
+				string key = TypeIdentity.classCallableKey(dependency.receiver, dependency.kind, dependency.name);
+				if (!self.analyzed.classCallableSeen.has(key)) {
+					self.analyzed.classCallableSeen.put(key, true);
+					self.analyzed.classCallableInstances.push(dependency);
+				}
+				pending.push(key);
+			}
+		}
+	}
+
+	private string memberCallableScope(Map<string, Node> variables, string kind, string name) {
+		if (!variables.has("self")) { return "root"; }
+		Node receiver = variables.get("self");
+		if (!self.analyzed.isGenericClass(receiver.base) || receiver.genericArgs().len == 0) { return "root"; }
+		return TypeIdentity.classCallableKey(receiver, kind, name);
+	}
+
+	private void demandConversion(Node? expected, Node? value, Map<string, Node> substitutions, Map<string, bool> unresolved, Map<string, Node> variables) {
+		if (!self.validated || expected == null || value == null) { return; }
+		Node? canonical = SemanticTypeSystem.resolveTypedefType(SemanticTypeSystem.resolveGenericType(expected, substitutions, self.analyzed), self.analyzed.typedefTable);
+		if (canonical == null) { return; }
+		Node target = canonical;
+		if (value.kind == NK_TERNARY_EXPR) {
+			self.demandConversion(target, value.trueExpr, substitutions, unresolved, variables);
+			self.demandConversion(target, value.falseExpr, substitutions, unresolved, variables);
+			return;
+		}
+		if (TypeComposition.isSemanticScalarString(target)) {
+			self.demandCallable(self.genericClosureExpressionType(value, substitutions, self.analyzed, self.operators, variables), "method", "toString", unresolved);
+			return;
+		}
+		if (value.kind == NK_MAP_LITERAL && target.base == "Map" && target.genericArgs().len == 2) {
+			self.genericClosureRegisterType(target, substitutions, unresolved, self.analyzed);
+			if (value.entries().len > 0) { self.demandCallable(target, "method", "put", unresolved); }
+			for entry in value.entries() {
+				self.demandConversion(target.genericArgs().get(0), entry.key, substitutions, unresolved, variables);
+				self.demandConversion(target.genericArgs().get(1), entry.valueNode, substitutions, unresolved, variables);
+			}
+			return;
+		}
+		if (value.kind != NK_LIST_LITERAL && value.kind != NK_BRACE_INITIALIZER && value.kind != NK_TUPLE_LITERAL) { return; }
+		if (target.isArray) {
+			Node elementType = TypeShape.withoutOuterArray(target);
+			for element in value.elements() { self.demandConversion(elementType, element, substitutions, unresolved, variables); }
+		} else if (target.base == "Tuple") {
+			for (int index = 0; index < value.elements().len && index < target.genericArgs().len; index++) {
+				self.demandConversion(target.genericArgs().get(index), value.elements().get(index), substitutions, unresolved, variables);
+			}
+		} else if (target.genericArgs().len == 1 && (target.base == "Array" || target.base == "List" || target.base == "Set" || target.base == "Vector")) {
+			self.genericClosureRegisterType(target, substitutions, unresolved, self.analyzed);
+			if (value.elements().len > 0) { self.demandCallable(target, "method", "push", unresolved); }
+			for element in value.elements() { self.demandConversion(target.genericArgs().get(0), element, substitutions, unresolved, variables); }
+		} else if (self.analyzed.structTable.has(target.base)) {
+			for slot in SemanticTypeSystem.initializerSlots(self.analyzed.structTable.get(target.base), value, self.analyzed).slots {
+				self.demandConversion(slot.type, slot.element, substitutions, unresolved, variables);
+			}
+		}
+	}
+
+	private void demandOperatorConversion(Node? receiver, string name, Node? value, Map<string, Node> substitutions, Map<string, bool> unresolved, Map<string, Node> variables) {
+		Node? expected = receiver;
+		Node? method = null;
+		Map<string, Node> bindings = substitutions;
+		if (receiver != null && self.analyzed.isGenericClass(receiver.base)) {
+			method = self.analyzed.genericClassMethod(receiver.base, name);
+			bindings = SemanticTypeSystem.genericTypeMap(self.analyzed, receiver);
+		} else if (receiver != null && self.analyzed.isClass(receiver.base)) {
+			method = self.analyzed.classMethod(receiver.base, name);
+		}
+		if (method != null && method.params().len > 0) { expected = SemanticTypeSystem.resolveGenericType(method.params().get(0).type, bindings, self.analyzed); }
+		self.demandConversion(expected, value, substitutions, unresolved, variables);
+	}
+
+	private void demandCallConversions(Node call, Map<string, Node> substitutions, Map<string, bool> unresolved, Map<string, Node> variables) {
+		Node? callee = call.callee;
+		Node? declaration = null;
+		Map<string, Node> bindings = {};
+		if (callee != null && callee.kind == NK_IDENTIFIER && !variables.has(callee.name) && self.analyzed.funcTable.has(callee.name)) {
+			declaration = self.analyzed.funcTable.get(callee.name);
+		} else if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR) {
+			Node? receiver = self.genericClosureExpressionType(callee.obj, substitutions, self.analyzed, self.operators, variables);
+			if (receiver != null && self.analyzed.isGenericClass(receiver.base)) {
+				declaration = self.analyzed.genericClassMethod(receiver.base, callee.field);
+				bindings = SemanticTypeSystem.genericTypeMap(self.analyzed, receiver);
+			} else if (receiver != null && self.analyzed.isClass(receiver.base)) { declaration = self.analyzed.classMethod(receiver.base, callee.field); }
+		}
+		if (declaration == null && (call.kind == NK_NEW_EXPR || (callee != null && (callee.kind == NK_IDENTIFIER && (self.analyzed.isGenericClass(callee.name) || self.analyzed.isClass(callee.name)))))) {
+			Node? receiver = self.genericClosureExpressionType(call, substitutions, self.analyzed, self.operators, variables);
+			if (receiver != null && self.analyzed.isGenericClass(receiver.base)) {
+				declaration = self.analyzed.genericClassConstructor(receiver.base);
+				bindings = SemanticTypeSystem.genericTypeMap(self.analyzed, receiver);
+			} else if (receiver != null && self.analyzed.isClass(receiver.base)) { declaration = self.analyzed.classConstructor(receiver.base); }
+		}
+		if (declaration == null) { return; }
+		bindings = SemanticTypeSystem.methodCallTypeMap(self.analyzed, call, declaration, bindings);
+		for (int index = 0; index < call.args().len; index++) {
+			int parameter = index;
+			if (index < call.argNames().len && !call.argNames().get(index).isEmpty()) {
+				parameter = -1;
+				for (int candidate = 0; candidate < declaration.params().len; candidate++) {
+					if (declaration.params().get(candidate).name == call.argNames().get(index)) { parameter = candidate; break; }
+				}
+			}
+			if (parameter >= 0 && parameter < declaration.params().len) {
+				Node expected = SemanticTypeSystem.resolveGenericType(declaration.params().get(parameter).type, bindings, self.analyzed);
+				self.demandConversion(expected, call.args().get(index), substitutions, unresolved, variables);
+			}
+		}
+	}
+
+	private void demandExpressionCallable(Node node, Map<string, Node> substitutions, Map<string, bool> unresolved, Map<string, Node> variables, bool write, bool read) {
+		Node? receiver = self.genericClosureExpressionType(node.obj, substitutions, self.analyzed, self.operators, variables);
+		if (node.kind == NK_FIELD_ACCESS_EXPR) {
+			if (write) { self.demandCallable(receiver, "set", node.field, unresolved); }
+			if (read) {
+				self.demandCallable(receiver, "get", node.field, unresolved);
+				self.demandCallable(receiver, "method", node.field, unresolved);
+			}
+		} else if (node.kind == NK_INDEX_EXPR) {
+			if (write) { self.demandCallable(receiver, "method", "set", unresolved); }
+			if (read) { self.demandCallable(receiver, "method", "get", unresolved); }
+		}
+	}
+
 	/* Substitution-aware AST walk used by generic-instance closure. */
 
 	private Map<string, Node> genericClosureCopyTypes(Map<string, Node> source) {
@@ -1858,6 +2085,8 @@ class GenericSpecializer {
 
 	private void genericClosureWalkLambda(Node lambda, Map<string, Node> substitutions, Map<string, bool> unresolved, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> variables) {
 		Map<string, Node> nested = self.genericClosureCopyTypes(variables);
+		Node? previousReturn = self.callableReturnType;
+		self.callableReturnType = lambda.returnType;
 		self.genericClosureRegisterType(lambda.returnType, substitutions, unresolved, analyzed);
 		int parameter = 0;
 		while (parameter < lambda.params().len) {
@@ -1865,6 +2094,7 @@ class GenericSpecializer {
 			Node resolved = SemanticTypeSystem.resolveGenericType(value.type, substitutions, analyzed);
 			self.genericClosureRegisterType(value.type, substitutions, unresolved, analyzed);
 			nested.put(value.name, resolved);
+			self.demandConversion(resolved, value.default_, substitutions, unresolved, nested);
 			self.genericClosureWalkNode(value.default_, substitutions, unresolved, analyzed, operators, nested);
 			parameter = parameter + 1;
 		}
@@ -1877,10 +2107,13 @@ class GenericSpecializer {
 			capture = capture + 1;
 		}
 		self.genericClosureWalkNode(lambda.bodyNode, substitutions, unresolved, analyzed, operators, nested);
+		self.demandConversion(lambda.returnType, lambda.expression, substitutions, unresolved, nested);
 		self.genericClosureWalkNode(lambda.expression, substitutions, unresolved, analyzed, operators, nested);
+		self.callableReturnType = previousReturn;
 	}
 
 	private void genericClosureWalkNode(Node? node, Map<string, Node> substitutions, Map<string, bool> unresolved, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> variables) {
+		if (!analyzed.bodyReached(node)) { return; }
 		if (node == null) { return; }
 		if (node.kind == NK_TYPE_EXPR) {
 			self.genericClosureRegisterType(node, substitutions, unresolved, analyzed);
@@ -1894,6 +2127,39 @@ class GenericSpecializer {
 				self.collectMethodGenericCall(node, analyzed, operators, variables);
 			}
 		}
+		if (self.validated) {
+			if (node.kind == NK_CALL_EXPR || node.kind == NK_NEW_EXPR) { self.demandCallConversions(node, substitutions, unresolved, variables); }
+			if (node.kind == NK_RETURN_STMT) { self.demandConversion(self.callableReturnType, node.valueNode, substitutions, unresolved, variables); }
+			if (node.kind == NK_FIELD_ACCESS_EXPR || node.kind == NK_INDEX_EXPR) { self.demandExpressionCallable(node, substitutions, unresolved, variables, false, true); }
+			if (node.kind == NK_BINARY_EXPR || node.kind == NK_UNARY_EXPR) {
+				Node? receiver = self.genericClosureExpressionType(node.kind == NK_BINARY_EXPR ? node.left : node.operand, substitutions, analyzed, operators, variables);
+				string name = node.kind == NK_UNARY_EXPR && node.op == "-" ? "__neg__" : operators.binaryMethodName(node.op);
+				self.demandCallable(receiver, "method", name, unresolved);
+				if (node.kind == NK_BINARY_EXPR) { self.demandOperatorConversion(receiver, name, node.right, substitutions, unresolved, variables); }
+			}
+			if (node.kind == NK_LIST_LITERAL || node.kind == NK_MAP_LITERAL) {
+				Node? receiver = self.genericClosureExpressionType(node, substitutions, analyzed, operators, variables);
+				if (node.elements().len > 0 || node.entries().len > 0) { self.demandCallable(receiver, "method", node.kind == NK_LIST_LITERAL ? "push" : "put", unresolved); }
+			}
+			if (node.kind == NK_F_STRING_EXPR) { self.demandCallable(self.genericClosureExpressionType(node.expression, substitutions, analyzed, operators, variables), "method", "toString", unresolved); }
+		}
+		if (node.kind == NK_ASSIGN_EXPR || (node.kind == NK_UNARY_EXPR && (node.op == "++" || node.op == "--"))) {
+			Node? target = node.kind == NK_ASSIGN_EXPR ? node.target : node.operand;
+			bool read = node.kind == NK_UNARY_EXPR || node.op != "=";
+			if (target != null && (target.kind == NK_FIELD_ACCESS_EXPR || target.kind == NK_INDEX_EXPR)) {
+				self.demandExpressionCallable(target, substitutions, unresolved, variables, true, read);
+				self.genericClosureWalkNode(target.obj, substitutions, unresolved, analyzed, operators, variables);
+				self.genericClosureWalkNode(target.index, substitutions, unresolved, analyzed, operators, variables);
+			} else { self.genericClosureWalkNode(target, substitutions, unresolved, analyzed, operators, variables); }
+			Node? receiver = self.genericClosureExpressionType(target, substitutions, analyzed, operators, variables);
+			if (read && node.kind == NK_ASSIGN_EXPR) {
+				string name = operators.binaryMethodName(node.op.substring(0, node.op.length() - 1));
+				self.demandCallable(receiver, "method", name, unresolved);
+				self.demandOperatorConversion(receiver, name, node.valueNode, substitutions, unresolved, variables);
+			} else { self.demandConversion(receiver, node.valueNode, substitutions, unresolved, variables); }
+			self.genericClosureWalkNode(node.valueNode, substitutions, unresolved, analyzed, operators, variables);
+			return;
+		}
 		if (node.kind == NK_VAR_DECL_STMT) {
 			self.genericClosureWalkNode(node.initializer, substitutions, unresolved, analyzed, operators, variables);
 			Node? declared = null;
@@ -1902,6 +2168,7 @@ class GenericSpecializer {
 			} else {
 				declared = self.genericClosureExpressionType(node.initializer, substitutions, analyzed, operators, variables);
 			}
+			self.demandConversion(declared, node.initializer, substitutions, unresolved, variables);
 			self.genericClosureRegisterType(node.type != null ? node.type : declared, substitutions, unresolved, analyzed);
 			if (declared != null) { variables.put(node.name, declared); }
 			return;
@@ -1909,6 +2176,9 @@ class GenericSpecializer {
 		if (node.kind == NK_FOR_IN_STMT || node.kind == NK_PARALLEL_FOR_STMT) {
 			self.genericClosureWalkNode(node.iterable, substitutions, unresolved, analyzed, operators, variables);
 			Node? iterableType = self.genericClosureExpressionType(node.iterable, substitutions, analyzed, operators, variables);
+			self.demandCallable(iterableType, "method", "iterLen", unresolved);
+			self.demandCallable(iterableType, "method", "iterGet", unresolved);
+			if (node.varName2 != null) { self.demandCallable(iterableType, "method", "iterValueAt", unresolved); }
 			Node? elementType = self.genericClosureIterationType(iterableType, analyzed);
 			Map<string, Node> nested = self.genericClosureCopyTypes(variables);
 			if (elementType != null) { nested.put(node.varName, elementType); }
@@ -2005,6 +2275,7 @@ class GenericSpecializer {
 	}
 
 	private void genericClosureSeedParameters(Node method, Map<string, Node> substitutions, Map<string, bool> unresolved, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> variables) {
+		self.callableReturnType = method.returnType == null ? null : SemanticTypeSystem.resolveGenericType(method.returnType, substitutions, analyzed);
 		self.genericClosureRegisterType(method.returnType, substitutions, unresolved, analyzed);
 		int index = 0;
 		while (index < method.params().len) {
@@ -2012,6 +2283,7 @@ class GenericSpecializer {
 			Node resolved = SemanticTypeSystem.resolveGenericType(parameter.type, substitutions, analyzed);
 			self.genericClosureRegisterType(parameter.type, substitutions, unresolved, analyzed);
 			variables.put(parameter.name, resolved);
+			self.demandConversion(resolved, parameter.default_, substitutions, unresolved, variables);
 			self.genericClosureWalkNode(parameter.default_, substitutions, unresolved, analyzed, operators, variables);
 			index = index + 1;
 		}
@@ -2020,11 +2292,17 @@ class GenericSpecializer {
 	private void genericClosureScanProperty(Node property, Map<string, Node> substitutions, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> baseVariables) {
 		Map<string, bool> unresolved = {};
 		self.genericClosureRegisterType(property.type, substitutions, unresolved, analyzed);
+		string previousScope = self.callableScope;
+		self.callableReturnType = SemanticTypeSystem.resolveGenericType(property.type, substitutions, analyzed);
+		self.callableScope = self.memberCallableScope(baseVariables, "get", property.name);
 		Map<string, Node> getterVariables = self.genericClosureCopyTypes(baseVariables);
 		self.genericClosureWalkNode(property.getterBody, substitutions, unresolved, analyzed, operators, getterVariables);
+		self.callableReturnType = null;
+		self.callableScope = self.memberCallableScope(baseVariables, "set", property.name);
 		Map<string, Node> setterVariables = self.genericClosureCopyTypes(baseVariables);
 		setterVariables.put("value", SemanticTypeSystem.resolveGenericType(property.type, substitutions, analyzed));
 		self.genericClosureWalkNode(property.setterBody, substitutions, unresolved, analyzed, operators, setterVariables);
+		self.callableScope = previousScope;
 	}
 
 	private void genericClosureScanMembers(Node declaration, Map<string, Node> substitutions, Analyzed analyzed, OperatorSemantics operators, Map<string, Node> baseVariables, bool includeConstructor) {
@@ -2034,6 +2312,7 @@ class GenericSpecializer {
 			if (member.kind == NK_FIELD_DECL) {
 				Map<string, bool> unresolved = {};
 				self.genericClosureRegisterType(member.type, substitutions, unresolved, analyzed);
+				self.demandConversion(member.type, member.initializer, substitutions, unresolved, baseVariables);
 				self.genericClosureWalkNode(member.initializer, substitutions, unresolved, analyzed, operators, baseVariables);
 			} else if (member.kind == NK_PROPERTY_DECL) {
 				self.genericClosureScanProperty(member, substitutions, analyzed, operators, baseVariables);
@@ -2045,8 +2324,11 @@ class GenericSpecializer {
 					string previousMember = self.memberMethod;
 					self.memberOwner = self.scopeOwner;
 					self.memberMethod = member.genericParams().len > 0 ? member.name : "";
+					string previousScope = self.callableScope;
+					self.callableScope = member.isConstructor || member.name == "__del__" ? "root" : self.memberCallableScope(baseVariables, "method", member.name);
 					self.genericClosureSeedParameters(member, substitutions, unresolved, analyzed, operators, variables);
 					self.genericClosureWalkNode(member.bodyNode, substitutions, unresolved, analyzed, operators, variables);
+					self.callableScope = previousScope;
 					self.memberOwner = previousOwner;
 					self.memberMethod = previousMember;
 				}

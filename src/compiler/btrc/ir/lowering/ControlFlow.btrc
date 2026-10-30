@@ -1,6 +1,12 @@
+import Library.Map;
 import Library.Vector;
 
+import ../../analyzer/validation/ControlFlow.btrc;
+import ../../generated/ast/Node.btrc;
+import ../../syntax/Identity.btrc;
 import ../Model.btrc;
+import ./CallableFlow.btrc;
+import ./ownership/Lifetime.btrc;
 
 /* Sequence-level control-flow facts for structured IR statements. */
 
@@ -52,7 +58,7 @@ class IRStatementSequence {
 
 	private bool statementMayFallThrough(IRNode? statement) {
 		if (statement == null) { return true; }
-		if (statement.kind == IRK_RETURN || statement.kind == IRK_BREAK || statement.kind == IRK_CONTINUE) {
+		if (statement.kind == IRK_RETURN || statement.kind == IRK_BREAK || statement.kind == IRK_CONTINUE || statement.kind == IRK_GOTO) {
 			return false;
 		}
 		if (statement.kind == IRK_EXPR_STMT) {
@@ -76,14 +82,12 @@ class IRStatementSequence {
 	}
 
 	public bool mayFallThrough() {
-		int index = 0;
-		while (index < self.statements.len) {
-			if (!self.statementMayFallThrough(self.statements.get(index))) {
-				return false;
-			}
-			index = index + 1;
+		bool fallsThrough = true;
+		for statement in self.statements {
+			if (statement.kind == IRK_LABEL) { fallsThrough = true; }
+			else if (fallsThrough) { fallsThrough = self.statementMayFallThrough(statement); }
 		}
-		return true;
+		return fallsThrough;
 	}
 
 	private bool nodeReferencesVariable(IRNode? node, string name) {
@@ -178,8 +182,238 @@ class SwitchPlan {
 }
 
 
+class LoweredLabel {
+	public int ownerPrefix;
+	public Vector<string> declared;
+	public CallableFlowSnapshot entry;
+	public int irIndex;
+	public LoweredLabel(int ownerPrefix, Vector<string> declared, CallableFlowSnapshot entry, int irIndex) {
+		self.ownerPrefix = ownerPrefix;
+		self.declared = declared;
+		self.entry = entry;
+		self.irIndex = irIndex;
+	}
+}
+
+class JumpLoweringFrame {
+	public Node source;
+	public int managedStart;
+	public int markerPosition;
+	public string marker;
+	public int tryDepth;
+	public int callableDepth;
+	public Vector<IRNode> statements;
+	public int statementStart = 0;
+	public int statementIRStart = 0;
+	public bool root;
+	public Map<string, LoweredLabel> labels = {};
+	public Map<string, Vector<CallableFlowSnapshot>> pending = {};
+	public Vector<string> forwardNames = [];
+	public Vector<int> forwardStarts = [];
+	public JumpLoweringFrame(Node source, int managedStart, int markerPosition, string marker, int tryDepth, int callableDepth, Vector<IRNode> statements, bool root) {
+		self.source = source;
+		self.managedStart = managedStart;
+		self.markerPosition = markerPosition;
+		self.marker = marker;
+		self.tryDepth = tryDepth;
+		self.callableDepth = callableDepth;
+		self.statements = statements;
+		self.root = root;
+	}
+}
+
+class JumpLoweringState {
+	public JumpScopeIndex? index = null;
+	public Vector<JumpLoweringFrame> frames = [];
+	public Vector<IRNode> variableLengthDeclarations = [];
+	public JumpLoweringState() {}
+}
+
+class LoweredJump {
+	public Vector<Managed> released;
+	public string marker;
+	public Vector<CleanupRegistration> registrations = [];
+	public IRNode statement;
+	public LoweredJump(Vector<Managed> released, string marker, IRNode statement) {
+		self.released = released;
+		self.marker = marker;
+		self.statement = statement;
+	}
+}
+
 class ControlFlowLowerer {
+	private JumpLoweringState jumpState = JumpLoweringState();
 	public ControlFlowLowerer() {}
+
+	private void fail(string message) {
+		print("internal compiler error: " + message);
+		exit(1);
+	}
+
+	public JumpLoweringState isolateJumps() {
+		JumpLoweringState saved = JumpLoweringState();
+		saved.index = self.jumpState.index;
+		for frame in self.jumpState.frames { saved.frames.push(frame); }
+		for declaration in self.jumpState.variableLengthDeclarations { saved.variableLengthDeclarations.push(declaration); }
+		self.jumpState.index = null;
+		while (self.jumpState.frames.len > 0) { self.jumpState.frames.pop(); }
+		while (self.jumpState.variableLengthDeclarations.len > 0) { self.jumpState.variableLengthDeclarations.pop(); }
+		return saved;
+	}
+
+	public void restoreJumps(JumpLoweringState saved) { self.jumpState = saved; }
+
+	public Map<string, bool>? targetedNames() {
+		if (self.jumpState.index == null) { return null; }
+		return self.jumpState.index.targetedNames;
+	}
+
+	public void recordVariableLengthDeclaration(IRNode declaration) {
+		if (self.jumpState.index != null) { self.jumpState.variableLengthDeclarations.push(declaration); }
+	}
+
+	public JumpLoweringFrame? beginJumpFrame(Node? source, bool root, Vector<IRNode> statements, string marker, int tryDepth, ManagedLifetimeLowerer lifetime, CallableFlowState flow) {
+		if (source == null) { return null; }
+		if (root) { self.jumpState.index = JumpScopeIndex.build(source); }
+		JumpScopeIndex? index = self.jumpState.index;
+		if (index == null || !index.lists.has(AstIdentity.key(source))) { return null; }
+		JumpLoweringFrame frame = JumpLoweringFrame(source, lifetime.managedScopeStart(), lifetime.cleanupDepth() - 1, marker, tryDepth, flow.scopeDepth(), statements, root);
+		self.jumpState.frames.push(frame);
+		return frame;
+	}
+
+	public void finishJumpFrame(JumpLoweringFrame? frame, ManagedLifetimeLowerer lifetime) {
+		if (frame == null) { return; }
+		self.validateForwardEntries(frame, lifetime);
+		if (self.jumpState.frames.pop() != frame) { self.fail("jump lowering frames must be nested"); }
+		if (frame.root) {
+			self.jumpState.index = null;
+			while (self.jumpState.variableLengthDeclarations.len > 0) { self.jumpState.variableLengthDeclarations.pop(); }
+		}
+	}
+
+	public JumpLoweringFrame? beginJumpStatement(ManagedLifetimeLowerer lifetime) {
+		if (self.jumpState.frames.len == 0) { return null; }
+		JumpLoweringFrame frame = self.jumpState.frames.get(self.jumpState.frames.len - 1);
+		frame.statementStart = lifetime.managedCount();
+		frame.statementIRStart = frame.statements.len;
+		return frame;
+	}
+
+	public void finishJumpStatement(JumpLoweringFrame? frame, Node source, ManagedLifetimeLowerer lifetime) {
+		if (frame == null) { return; }
+		int difference = lifetime.managedCount() - frame.statementStart;
+		if (difference < 0 || difference > (source.kind == NK_VAR_DECL_STMT ? 1 : 0)) {
+			self.fail("statement lowering left a managed owner registered in its enclosing scope");
+		}
+	}
+
+	public LoweredJump planGoto(Node source, string cName, int tryDepth, ManagedLifetimeLowerer lifetime, CallableFlowState flow) {
+		JumpScopeIndex? index = self.jumpState.index;
+		if (index == null) { self.fail("goto has no active jump index"); }
+		JumpSite? target = index.target(source);
+		if (target == null) { self.fail("goto has no target"); }
+		Node targetList = target.path.get(target.path.len - 1).scope.node;
+		JumpLoweringFrame? frame = null;
+		for candidate in self.jumpState.frames { if (candidate.source == targetList) { frame = candidate; } }
+		if (frame == null) { self.fail("goto target has no active lowering frame"); }
+		if (frame.tryDepth != tryDepth) { self.fail("goto crosses an exception region during lowering"); }
+		bool backward = index.isBackward(source);
+		int prefix = frame.statementStart;
+		Vector<string>? declared = null;
+		Vector<string> entered = [];
+		if (backward) {
+			if (!frame.labels.has(source.name)) { self.fail("backward goto target has not been lowered"); }
+			LoweredLabel label = frame.labels.get(source.name);
+			prefix = label.ownerPrefix;
+			declared = label.declared;
+		} else {
+			for declaration in index.enteredDeclarations(source) { entered.push(declaration.name); }
+		}
+		CallableFlowSnapshot incoming = flow.projectGoto(frame.callableDepth, declared, entered);
+		if (backward) {
+			flow.requireGotoBackEdge(source.name, frame.labels.get(source.name).entry, incoming);
+		} else {
+			if (!frame.pending.has(source.name)) { Vector<CallableFlowSnapshot> pending = []; frame.pending.put(source.name, pending); }
+			frame.pending.get(source.name).push(incoming);
+			frame.forwardNames.push(source.name);
+			frame.forwardStarts.push(frame.statementIRStart);
+		}
+		string marker = lifetime.cleanupMarkerFrom(frame.markerPosition + (backward ? 0 : 1));
+		LoweredJump result = LoweredJump(lifetime.managedRange(prefix, lifetime.managedCount()), marker, IRNode.gotoStatement(cName));
+		if (backward && marker != "" && marker == frame.marker) {
+			for owner in lifetime.managedRange(frame.managedStart, prefix) {
+				if (owner.cleanupRegistration == null) { self.fail("backward goto preserves an owner without a cleanup registration"); }
+				result.registrations.push(owner.cleanupRegistration);
+			}
+		}
+		return result;
+	}
+
+	public void lowerLabel(Node source, string cName, ManagedLifetimeLowerer lifetime, CallableFlowState flow, Vector<IRNode> out) {
+		JumpScopeIndex? index = self.jumpState.index;
+		if (index == null) { self.fail("label has no active jump index"); }
+		if (!index.targeted(source.name)) { return; }
+		JumpLoweringFrame frame = self.jumpState.frames.get(self.jumpState.frames.len - 1);
+		Vector<CallableFlowSnapshot> pending = [];
+		if (frame.pending.has(source.name)) { pending = frame.pending.get(source.name); }
+		CallableFlowSnapshot entry = flow.enterLabel(pending, IRStatementSequence(frame.statements).mayFallThrough());
+		frame.labels.put(source.name, LoweredLabel(lifetime.managedCount(), flow.declaredNames(frame.callableDepth), entry, out.len));
+		out.push(IRNode.labelStatement(cName, false));
+	}
+
+	private void validateForwardEntries(JumpLoweringFrame frame, ManagedLifetimeLowerer lifetime) {
+		Map<string, bool> owners = {};
+		for owner in lifetime.managedRange(frame.managedStart, lifetime.managedCount()) { owners.put(owner.cName, true); }
+		int forward = 0;
+		while (forward < frame.forwardNames.len) {
+			string name = frame.forwardNames.get(forward);
+			if (!frame.labels.has(name)) { self.fail("forward goto target has not been lowered"); }
+			int end = frame.labels.get(name).irIndex;
+			Vector<IRNode> suffix = [];
+			int cursor = end;
+			while (cursor < frame.statements.len) { suffix.push(frame.statements.get(cursor)); cursor++; }
+			IRStatementSequence continuation = IRStatementSequence(suffix);
+			cursor = frame.forwardStarts.get(forward);
+			while (cursor < end) {
+				IRNode statement = frame.statements.get(cursor);
+				if (statement.kind == IRK_VAR_DECL) {
+					for declaration in self.jumpState.variableLengthDeclarations {
+						if (declaration == statement) { self.fail("goto enters variable-length storage during lowering"); }
+					}
+					IRDeclarationPayload storage = (IRDeclarationPayload)statement.payload;
+					if (!storage.isStatic && !storage.isExtern && (owners.has(statement.name) || continuation.referencesVariable(statement.name))) {
+						self.fail("goto bypasses live automatic storage during lowering");
+					}
+				}
+				cursor++;
+			}
+			forward++;
+		}
+	}
+
+	public void markTailLabels(Vector<IRNode> statements) {
+		int index = statements.len - 1;
+		while (index >= 0 && statements.get(index).kind == IRK_LINE_MARKER) { index--; }
+		if (index < 0) { return; }
+		IRNode last = statements.get(index);
+		if (last.kind == IRK_LABEL) {
+			index--;
+			while (index >= 0) {
+				IRNode previous = statements.get(index);
+				if (previous.kind == IRK_LABEL) { last = previous; }
+				else if (previous.kind != IRK_LINE_MARKER) { break; }
+				index--;
+			}
+			((IRControlPayload)last.payload).fallsThrough = true;
+		} else if (last.kind == IRK_BLOCK) {
+			self.markTailLabels(last.stmts());
+		} else if (last.kind == IRK_IF) {
+			IRControlPayload branch = (IRControlPayload)last.payload;
+			self.markTailLabels(branch.thenBlock.stmts());
+			if (branch.elseBlock != null) { self.markTailLabels(branch.elseBlock.stmts()); }
+		}
+	}
 
 	public IRNode materializeConditional(ConditionalPlan plan) { return IRNode.ifStatement(plan.condition, plan.thenBranch, plan.elseBranch); }
 

@@ -522,6 +522,7 @@ def test_make_entry_drives_btrsmiths_product_make(workspace, tmp_path, btrcc, fr
     assert assignments["BUILD"] == "release"
     assert assignments["BTRC_FRONTEND"] == frontend
     assert assignments["BTRC_BUILD_FLAGS"] == "--module-units"
+    assert assignments["BTRC_UNITS"] == "1"
     assert assignments["BUILD_DIR"] == str(state.build)
     assert assignments["BTRC_OBJECT_CACHE"] == str(state.objects)
     assert assignments["CODESIGN_IDENTITY"] == "-"
@@ -539,6 +540,7 @@ def test_make_entry_drives_btrsmiths_product_make(workspace, tmp_path, btrcc, fr
     dev = commands.make(state, bench.Flavor("dev", "whole"), "btrsmith-source")
     dev_assignments = dict(item.split("=", 1) for item in dev[4:])
     assert dev_assignments["BTRC_BUILD_FLAGS"] == "--debug"
+    assert dev_assignments["BTRC_UNITS"] == "1"
     assert shlex.split(dev_assignments["NATIVE_PLAN_FLAGS"])[:3] == ["--optimization", "0", "--debug-info"]
     paths = bench.ProductPaths.make(state.build, frontend)
     assert paths.executable == state.build / "bin" / f"btrsmith.{frontend}"
