@@ -1,0 +1,186 @@
+# Held daemon file operations; native qualification remains pending.
+schema = "btrc.qualification.ledger/1"
+
+provenance = { recorded_at = "2026-10-29T00:00:00+00:00", btrc_revision = "038baabed8147b45848aadd55482cf8004395ea4" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_file_types"
+group = "runtime/process"
+title = "__btrc_windows_daemon_file_types (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C has no Windows SDK headers" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C has no Windows SDK headers" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C has no Windows SDK headers" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C has no Windows SDK headers" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C has no Windows SDK headers" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "SDK-free type declarations; emitted C has no Windows SDK headers" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_directory_open"
+group = "runtime/process"
+title = "__btrc_windows_daemon_directory_open (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_directory_path"
+group = "runtime/process"
+title = "__btrc_windows_daemon_directory_path (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_directory_next"
+group = "runtime/process"
+title = "__btrc_windows_daemon_directory_next (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_control_open"
+group = "runtime/process"
+title = "__btrc_windows_daemon_control_open (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_control_open_at"
+group = "runtime/process"
+title = "__btrc_windows_daemon_control_open_at (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_file_read"
+group = "runtime/process"
+title = "__btrc_windows_daemon_file_read (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_file_write"
+group = "runtime/process"
+title = "__btrc_windows_daemon_file_write (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_file_flush"
+group = "runtime/process"
+title = "__btrc_windows_daemon_file_flush (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_file_dispose"
+group = "runtime/process"
+title = "__btrc_windows_daemon_file_dispose (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_log_open"
+group = "runtime/process"
+title = "__btrc_windows_daemon_log_open (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_record_open"
+group = "runtime/process"
+title = "__btrc_windows_daemon_record_open (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_file_close"
+group = "runtime/process"
+title = "__btrc_windows_daemon_file_close (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
