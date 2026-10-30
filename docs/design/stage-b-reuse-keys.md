@@ -181,8 +181,10 @@ asserts how many groups relowered.
   This answers the `body` and `subtree` namespaces of 5.2 per group, not per
   declaration. Any edit to the copied-from group relowers the copier, which is
   sound but coarser than a body digest. The relowered sets match SB-01, SB-02,
-  SB-03 and SB-27. btrcpy positions its default helpers at
-  `<btrc-generated>`, so SB-03 relowers only `Lib` there (Q3).
+  SB-03 and SB-27. Both compilers now position default helpers at the
+  default expression, so SB-03 relowers `Lib` and its caller `Use`. The
+  earlier btrcpy behavior placed helpers at `<btrc-generated>` and relowered
+  only `Lib` (Q3).
 - **A tenth case, release mode.** A `__LINE__` default is frozen at the
   callee's line, in a release build too. Lines added above `int where(int
   line = __LINE__)` left a caller's unit stale in both compilers. The

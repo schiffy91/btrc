@@ -8403,7 +8403,15 @@ class FunctionLowerer:
                     ),
                 ):
                     body = self._statements.lower_block(
-                        Block(statements=[ReturnStmt(value=parameter.default)]),
+                        Block(
+                            statements=[
+                                ReturnStmt(
+                                    value=parameter.default,
+                                    line=parameter.default.line,
+                                    col=parameter.default.col,
+                                )
+                            ]
+                        ),
                         provenance,
                         local_bindings=[
                             *(["self"] if target.self_type is not None else []),

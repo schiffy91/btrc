@@ -266,9 +266,8 @@ int main() {
 
 
 def test_debug_lines_above_a_default_argument_relower_its_callers(compiler: str, tmp_path, request):
-    """SB-D3: btrcc positions a caller's default helper at the callee's default;
-    btrcpy's helper is at `<btrc-generated>`, so its callers do not move."""
-    _, incremental, _ = _incremental_matches_clean(
+    """Default evaluators retain the callee's locations, including after cache reuse."""
+    cold, incremental, clean = _incremental_matches_clean(
         compiler,
         request,
         tmp_path,
@@ -276,7 +275,28 @@ def test_debug_lines_above_a_default_argument_relower_its_callers(compiler: str,
         {"Lib.btrc": ("int scale(", "// one\n// two\nint scale(")},
         "--debug",
     )
-    _lowered(incremental, 1 if compiler == "python" else 2)
+    _lowered(incremental, 2)
+    source = str(tmp_path.resolve() / "program/Lib.btrc")
+    for build, offset in ((cold, 0), (incremental, 2), (clean, 2)):
+        locations = {}
+        for text in build.units.values():
+            file, line, helper = "", 1, ""
+            for value in text.splitlines():
+                if value.startswith("#line "):
+                    number, _, name = value[6:].partition(" ")
+                    line = int(number)
+                    if name:
+                        file = name[1:-1]
+                    continue
+                if value.startswith("static int __btrc_default_") and value.endswith(" {"):
+                    helper = value.split("(", 1)[0].split()[-1]
+                elif value == "}":
+                    helper = ""
+                elif helper and value.strip().startswith("return "):
+                    locations[helper] = (file, line)
+                line += 1
+        assert locations["__btrc_default_scale_2"] == (source, 1 + offset)
+        assert locations["__btrc_default_Meter_read_1"] == (source, 10 + offset)
 
 
 _PREDEFINED_DEFAULT_PROGRAM = {
