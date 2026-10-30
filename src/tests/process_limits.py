@@ -52,5 +52,9 @@ RUN_TIMEOUT = ProcessLimits.positive_seconds(
 # One C compile and link of generated or fixture C.
 C_COMPILE_TIMEOUT = 120.0
 
+# A Zig cross link also builds the target CRT and runtime libraries on a cold
+# cache. This is the existing Windows compatibility suite's bootstrap budget.
+ZIG_CROSS_COMPILE_TIMEOUT = 900.0
+
 # A quick host probe: git, pkg-config, xcrun, ps, a compiler's --version.
 TOOL_TIMEOUT = 60.0

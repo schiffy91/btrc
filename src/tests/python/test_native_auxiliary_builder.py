@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
+from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT, ZIG_CROSS_COMPILE_TIMEOUT
 from tools.daemon_supervisor import SupervisorImage
 from tools.native_plan import NativePlanBuilder, NativePlanError, NativePlanReader
 
@@ -21,7 +21,10 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 def run(command, **kwargs):
-    kwargs.setdefault("timeout", C_COMPILE_TIMEOUT)
+    zig_link = (
+        Path(command[0]).stem == "zig" and len(command) > 1 and command[1] in {"cc", "c++"} and "-c" not in command
+    )
+    kwargs.setdefault("timeout", ZIG_CROSS_COMPILE_TIMEOUT if zig_link else C_COMPILE_TIMEOUT)
     kwargs["env"] = {**os.environ, "BTRC_HOME": str(REPO / "src")}
     return subprocess.run(command, **kwargs)
 

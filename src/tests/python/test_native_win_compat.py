@@ -5,13 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.process_limits import RUN_TIMEOUT
+from src.tests.process_limits import RUN_TIMEOUT, ZIG_CROSS_COMPILE_TIMEOUT
 
 ROOT = Path(__file__).resolve().parents[3]
 WIN = ROOT / "src" / "runtime" / "windows"
 NATIVE_TESTS = ROOT / "src" / "tests" / "native"
-# zig builds its Windows libc on a cold cache before the first cross compile.
-ZIG_CROSS_COMPILE_TIMEOUT = 900
 # A cold wine prefix initializes before the first program runs.
 WINE_RUN_TIMEOUT = 300
 
