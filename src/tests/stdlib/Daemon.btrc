@@ -58,6 +58,14 @@ int childProbe(int argc, char** argv) {
 		assert(count != NULL && fputc('x', count) != EOF && fclose(count) == 0);
 		return 0;
 	}
+	if (mode.equals("--once")) {
+		assert(argc == 3);
+		string root = Strings.copy(argv[2]);
+		FILE* count = fopen(PathTools.join(root, "once-count"), "ab");
+		assert(count != NULL && fputc('x', count) != EOF && fclose(count) == 0);
+		assert(waitForTextLength(PathTools.join(root, "once-exit"), 1, 2000));
+		return 23;
+	}
 	return 64;
 }
 
@@ -146,6 +154,18 @@ int main(int argc, char** argv) {
 	assert(!FileSystem.exists(controlFile));
 	assert(!controller.status(live).ok());
 	assert(live.controlFile.equals(controlFile) && live.logFile.equals(logFile) && live.workingDirectory.equals(dir));
+
+	// Let the child exit itself after start has returned. Its nonzero exit
+	// must retire the supervisor and record without restarting the command.
+	DaemonSpec once = DaemonSpec("once", Command(executable).arg("--once").arg(dir)).control(PathTools.join(dir, "once.control")).log(PathTools.join(dir, "once.log"));
+	assert(controller.start(once).ok());
+	assert(waitForTextLength(PathTools.join(dir, "once-count"), 1, 2000));
+	assert(Path.writeAll(PathTools.join(dir, "once-exit"), "exit"));
+	int exitAttempts = 100;
+	while (FileSystem.exists(once.controlFile) && exitAttempts > 0) { Timer.sleepMillis(20); exitAttempts--; }
+	assert(!FileSystem.exists(once.controlFile));
+	assert(controller.status(once).code == 1);
+	assert(Path.readAll(PathTools.join(dir, "once-count")).equals("x"));
 
 	string restartCount = PathTools.join(dir, "restart-count");
 	DaemonSpec restarting = DaemonSpec("restart", Command(executable).arg("--restart").arg(restartCount)).control(PathTools.join(dir, "restart.control")).log(PathTools.join(dir, "restart.log")).restart(true);
