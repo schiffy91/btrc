@@ -19,7 +19,7 @@ from tools.bench.suite import COMMAND_TIMEOUT, MAXRSS_REPORTER, Peak
 from tools.host_c_compiler import HostCCompiler
 
 MAIN_REVISION = "dc97d1f23610a7135d8471cbc0450e39ac196452"
-PROGRAMS = ("BenchArc", "RunStrings")
+PROGRAMS = ("BenchArc", "BenchStrings", "RunStrings")
 ENVIRONMENT_KEYS = (
     "PATH",
     "BTRC_HOME",
@@ -36,10 +36,90 @@ ENVIRONMENT_KEYS = (
     "NIX_CFLAGS_COMPILE",
     "NIX_LDFLAGS",
     "LD_LIBRARY_PATH",
+    "LD_PRELOAD",
+    "MALLOC_TRACE",
     "LANG",
     "LC_ALL",
     "LC_CTYPE",
 )
+
+
+class AllocationTrace:
+    """Replay glibc mtrace events; requested bytes are neither RSS nor allocator overhead."""
+
+    # Format and realloc semantics: glibc malloc/mtrace-impl.c.
+    # https://sourceware.org/glibc/manual/latest/html_node/Tracing-malloc.html
+    EVENT = re.compile(
+        r"^(?:@ (?P<site>.*?) )?(?P<operation>[+<>!\-]) "
+        r"(?P<address>0x[0-9a-fA-F]+|\(nil\))(?: (?P<size>0x[0-9a-fA-F]+|[0-9]+))?$"
+    )
+
+    @classmethod
+    def events(cls, path: Path):
+        started = ended = False
+        with path.open() as source:
+            for line in source:
+                line = line.rstrip("\n")
+                if line == "= Start" and not started:
+                    started = True
+                    continue
+                if line == "= End" and started and not ended:
+                    ended = True
+                    continue
+                match = cls.EVENT.fullmatch(line)
+                if not started or ended or match is None:
+                    raise ValueError("invalid or incomplete allocation trace")
+                operation, address, size, site = match.group("operation", "address", "size", "site")
+                if (operation in "+>!") != (size is not None):
+                    raise ValueError("allocation trace event has the wrong fields")
+                yield operation, address, int(size, 0) if size is not None else 0, site or "unknown"
+        if not started or not ended:
+            raise ValueError("allocation trace is missing its start or end marker")
+
+    @staticmethod
+    def apply(live: dict, event: tuple) -> tuple[int, bool]:
+        operation, address, size, site = event
+        if address == "(nil)" or int(address, 16) == 0 or operation == "!":
+            return 0, False
+        if operation in "-<":
+            previous = live.pop(address, None)
+            return (-previous[0], False) if previous is not None else (0, True)
+        if address in live:
+            raise ValueError("allocation trace reuses an address before releasing it")
+        live[address] = size, site
+        return size, False
+
+    @classmethod
+    def summarize(cls, path: Path) -> dict:
+        live = {}
+        total = peak = peak_event = events = unknown_releases = 0
+        for events, event in enumerate(cls.events(path), 1):
+            delta, unknown = cls.apply(live, event)
+            total += delta
+            unknown_releases += unknown
+            if total > peak:
+                peak, peak_event = total, events
+        # Replay once to the high-water event rather than copying a growing
+        # allocation table on every allocation (which would be quadratic).
+        live = {}
+        for index, event in enumerate(cls.events(path), 1):
+            if index > peak_event:
+                break
+            cls.apply(live, event)
+        sites = {}
+        for size, site in live.values():
+            row = sites.setdefault(site, {"bytes": 0, "allocations": 0})
+            row["bytes"] += size
+            row["allocations"] += 1
+        return {
+            "scope": "requested bytes for traced allocations only; not RSS, allocator overhead, or budget evidence",
+            "events": events,
+            "peak_requested_bytes": peak,
+            "peak_event": peak_event,
+            "final_requested_bytes": total,
+            "untracked_releases": unknown_releases,
+            "peak_sites": sites,
+        }
 
 
 class MemoryDiagnostic:
@@ -95,6 +175,7 @@ class MemoryDiagnostic:
             "builds": {},
             "guards": {},
             "emissions": {},
+            "allocation_traces": {},
         }
 
     @staticmethod
@@ -112,6 +193,8 @@ class MemoryDiagnostic:
         # Each normal guard imports its own tree's tools; an inherited path must
         # not silently replace those owners with the diagnostic checkout.
         env.pop("PYTHONPATH", None)
+        env.pop("LD_PRELOAD", None)
+        env.pop("MALLOC_TRACE", None)
         env["BTRC_HOME"] = str(tree / "src")
         return env
 
@@ -222,6 +305,89 @@ class MemoryDiagnostic:
         shutil.copy2(source, destination)
         self.receipt["artifacts"][relative] = {"sha256": self.digest(destination), "bytes": destination.stat().st_size}
         self.save()
+
+    def trace_environment(self, tree: Path, trace: Path) -> dict[str, str]:
+        env = self.environment(tree)
+        env.update(LD_PRELOAD=self.trace_preload, MALLOC_TRACE=str(trace))
+        return env
+
+    def prepare_allocation_trace(self) -> None:
+        """Prove the glibc tracer with a tiny native control before building compilers."""
+        if sys.platform != "linux":
+            raise ValueError("allocation tracing requires hosted Linux glibc")
+        source = Path(__file__).with_name("trace_malloc.c")
+        control = self.output / "trace-control"
+        sidecar = self.output / "trace-malloc.so"
+        env = self.environment(self.repository)
+        for label, flags, destination in (
+            ("build-trace-control", ["-DBTRC_TRACE_CONTROL", "-O0"], control),
+            (
+                "build-trace-sidecar",
+                ["-shared", "-fPIC", "-Wl,-init,btrcTraceMallocStart", "-Wl,-fini,btrcTraceMallocStop"],
+                sidecar,
+            ),
+        ):
+            result = self.command(
+                label,
+                [*self.cc, "-std=c11", "-pedantic-errors", *flags, str(source), "-o", str(destination)],
+                self.repository,
+                env,
+            )
+            if result["returncode"] != 0:
+                raise RuntimeError(f"allocation trace capability failed: {label}")
+        libraries = self.command("trace-control-libraries", ["ldd", str(control)], self.repository, env)
+        if libraries["returncode"] != 0:
+            raise RuntimeError("could not identify the control's glibc")
+        listing = (self.output / libraries["stdout"]).read_text()
+        match = re.search(r"^\s*libc\.so\.6 => (.+?) \(0x[0-9a-fA-F]+\)$", listing, re.MULTILINE)
+        if match is None:
+            raise RuntimeError("control has no resolved glibc dependency")
+        debug = Path(match[1]).resolve().with_name("libc_malloc_debug.so.0")
+        if not debug.is_file():
+            raise RuntimeError(f"glibc allocation tracer is unavailable: {debug}")
+        if any(re.search(r"[\s:]", str(path)) for path in (debug, sidecar)):
+            raise ValueError("allocation tracer preload paths cannot contain whitespace or colons")
+        self.trace_preload = f"{debug}:{sidecar}"
+        trace = self.output / "trace-control.mtrace"
+        result = self.command(
+            "trace-control", [str(control)], self.repository, self.trace_environment(self.repository, trace)
+        )
+        if result["returncode"] != 0:
+            raise RuntimeError("allocation trace native control failed")
+        summary = AllocationTrace.summarize(trace)
+        operations = {event[0] for event in AllocationTrace.events(trace)}
+        if summary["peak_requested_bytes"] < 131072 or not {"+", "<", ">", "-"}.issubset(operations):
+            raise RuntimeError("allocation trace control did not observe malloc/realloc/free")
+        self.receipt["allocation_trace_control"] = {
+            "summary": summary,
+            "debug_library": str(debug),
+            "debug_sha256": self.digest(debug),
+            "trace_sha256": self.digest(trace),
+            "sidecar_sha256": self.digest(sidecar),
+            "source_sha256": self.digest(source),
+        }
+        self.save()
+
+    def trace_allocations(self, label: str, argv: list[str], tree: Path, source: Path) -> None:
+        """Run separately from all peak samples; retain failed and incomplete traces."""
+        trace = self.output / f"{label}.mtrace"
+        record = self.command(label, argv, tree, self.trace_environment(tree, trace))
+        evidence = {"returncode": record["returncode"], "complete": False, "trace": trace.name}
+        self.receipt["allocation_traces"][label] = evidence
+        try:
+            if trace.is_file():
+                evidence.update(sha256=self.digest(trace), bytes=trace.stat().st_size)
+            if record["returncode"] != 0:
+                raise ValueError("traced compiler failed")
+            evidence["summary"] = AllocationTrace.summarize(trace)
+            evidence["same_emitted_c"] = self.digest(self.output / record["stdout"]) == self.digest(source)
+            if not evidence["same_emitted_c"]:
+                raise ValueError("tracing changed emitted C")
+            evidence["complete"] = True
+        except (OSError, ValueError) as error:
+            evidence["error"] = str(error)
+        finally:
+            self.save()
 
     def prepare(self) -> dict[str, Path]:
         if sys.platform != "linux":
@@ -417,6 +583,8 @@ class MemoryDiagnostic:
         source = self.output / f"{label}.c"
         shutil.copy2(self.output / result["stdout"], source)
         self.receipt["artifacts"][source.name] = {"sha256": self.digest(source), "bytes": source.stat().st_size}
+        if compiler_name == tree_name:
+            self.trace_allocations(f"heap-{compiler_name}-{program}", argv, tree, source)
         for optimization in ("-O0", "-O2"):
             binary = self.output / f"{label}{optimization}"
             built = self.command(
@@ -444,6 +612,7 @@ class MemoryDiagnostic:
             raise ValueError("diagnostic evidence already exists; choose a new output directory")
         self.output.mkdir(parents=True, exist_ok=True)
         try:
+            self.prepare_allocation_trace()
             trees = self.prepare()
             floor_source = self.output / "floor.c"
             floor_source.write_text("int main(void) { return 0; }\n", encoding="utf-8")
@@ -478,6 +647,8 @@ class MemoryDiagnostic:
                     self.guard(name, tree)
             success = all(build["returncode"] == 0 for build in self.receipt["builds"].values())
             success = success and self.receipt["guards"] == {"main": 0, "candidate": 0}
+            success = success and len(self.receipt["allocation_traces"]) == 2 * len(PROGRAMS)
+            success = success and all(row["complete"] for row in self.receipt["allocation_traces"].values())
             success = success and all(
                 row["transpile_returncode"] == 0 and row["cc_returncodes"] == {"-O0": 0, "-O2": 0}
                 for row in self.receipt["emissions"].values()

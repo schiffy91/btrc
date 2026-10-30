@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from tools.bench import suite
-from tools.bench.diagnostic import MAIN_REVISION, MemoryDiagnostic
+from tools.bench.diagnostic import MAIN_REVISION, PROGRAMS, AllocationTrace, MemoryDiagnostic
 from tools.bench.suite import MAXRSS_REPORTER, Peak
 
 
@@ -57,6 +57,8 @@ def test_environment_is_per_tree_and_receipt_does_not_dump_secrets(tmp_path: Pat
     monkeypatch.setenv("BTRC_HOME", "/wrong/home")
     monkeypatch.setenv("BTRC_TIMING", "1")
     monkeypatch.setenv("PYTHONPATH", "/wrong/tools")
+    monkeypatch.setenv("LD_PRELOAD", "/wrong/tracer")
+    monkeypatch.setenv("MALLOC_TRACE", "/wrong/trace")
     monkeypatch.setenv("GH_TOKEN", "must-not-appear")
     monkeypatch.setenv("LANG", "C.UTF-8")
     monkeypatch.setenv("LC_ALL", "C")
@@ -66,6 +68,7 @@ def test_environment_is_per_tree_and_receipt_does_not_dump_secrets(tmp_path: Pat
     env = MemoryDiagnostic.environment(tmp_path)
     assert env["BTRC_HOME"] == str(tmp_path / "src")
     assert "BTRC_TIMING" not in env and "PYTHONPATH" not in env
+    assert "LD_PRELOAD" not in env and "MALLOC_TRACE" not in env
     recorded = MemoryDiagnostic.recorded_environment(env)
     assert {key: recorded[key] for key in ("LANG", "LC_ALL", "LC_CTYPE")} == {
         "LANG": "C.UTF-8",
@@ -223,7 +226,7 @@ def test_fresh_builds_use_matching_home_and_retain_partial_failed_build(tmp_path
             (tree / "dist").mkdir(parents=True)
             (tree / "dist/btrcc.c").write_text("partial C")
             (tree / "src/tests/benchmarks").mkdir(parents=True)
-            for program in ("BenchArc", "RunStrings"):
+            for program in PROGRAMS:
                 (tree / f"src/tests/benchmarks/{program}.btrc").write_text(f"// {program} from {tree.name}\n")
             return ""
         return "tree-identity"
@@ -250,7 +253,7 @@ def test_fresh_builds_use_matching_home_and_retain_partial_failed_build(tmp_path
     assert (owner.output / "maxrss-reporter.py").read_text() == MAXRSS_REPORTER
     assert "tools/measurement-suite.py" in owner.receipt["artifacts"]
     for name in trees:
-        for program in ("BenchArc", "RunStrings"):
+        for program in PROGRAMS:
             path = f"builds/{name}/src/tests/benchmarks/{program}.btrc"
             assert (owner.output / path).read_text() == f"// {program} from {name}\n"
             assert owner.receipt["artifacts"][path]["sha256"] == owner.digest(owner.output / path)
@@ -267,6 +270,7 @@ def test_block_order_and_guard_failure_do_not_lose_later_evidence(tmp_path: Path
     calls = []
     emitted = []
     monkeypatch.setattr(owner, "prepare", lambda: trees)
+    monkeypatch.setattr(owner, "prepare_allocation_trace", lambda: None)
     monkeypatch.setattr(owner, "command", lambda *args: {"returncode": 0})
     monkeypatch.setattr(owner, "retain", lambda *args: None)
     monkeypatch.setattr(owner, "samples", lambda label, *args, **kwargs: calls.append(label))
@@ -276,23 +280,27 @@ def test_block_order_and_guard_failure_do_not_lose_later_evidence(tmp_path: Path
     assert calls == [
         "floor-before-main",
         "main-main-BenchArc",
+        "main-main-BenchStrings",
         "main-main-RunStrings",
         "candidate-main-BenchArc",
+        "candidate-main-BenchStrings",
         "candidate-main-RunStrings",
         "floor-after-main",
         "floor-before-candidate",
         "candidate-candidate-BenchArc",
+        "candidate-candidate-BenchStrings",
         "candidate-candidate-RunStrings",
         "main-candidate-BenchArc",
+        "main-candidate-BenchStrings",
         "main-candidate-RunStrings",
         "floor-after-candidate",
     ]
     assert (
         emitted
-        == [("main", "main")] * 2
-        + [("candidate", "main")] * 2
-        + [("candidate", "candidate")] * 2
-        + [("main", "candidate")] * 2
+        == [("main", "main")] * 3
+        + [("candidate", "main")] * 3
+        + [("candidate", "candidate")] * 3
+        + [("main", "candidate")] * 3
     )
     assert owner.receipt["guards"] == {"main": 1, "candidate": 1}
     assert json.loads((owner.output / "receipt.json").read_text())["status"] == "diagnostic completed with failures"
@@ -320,9 +328,12 @@ def test_emitted_c_capture_is_unmeasured_and_keeps_the_same_compiler_argv(tmp_pa
 
     monkeypatch.setattr(owner, "command", command)
     monkeypatch.setattr(Peak, "measure", unexpected_measure)
+    traced = []
+    monkeypatch.setattr(owner, "trace_allocations", lambda *args: traced.append(args))
     owner.emitted("main", "main", tree, compiler, "BenchArc")
     assert calls[0] == [str(compiler), str(tree / "src/tests/benchmarks/BenchArc.btrc")]
     assert len(calls) == 3 and "-O0" in calls[1] and "-O2" in calls[2]
+    assert traced == [("heap-main-BenchArc", calls[0], tree, owner.output / "emitted-main-main-BenchArc.c")]
     assert len(owner.receipt["artifacts"]) == 3
     assert owner.receipt["emissions"]["emitted-main-main-BenchArc"]["cc_returncodes"] == {"-O0": 0, "-O2": 0}
 
@@ -428,3 +439,100 @@ def test_residency_timeout_reaps_the_observed_process(tmp_path, monkeypatch):
     )
     assert result["returncode"] is None and "timed out" in result["error"]
     assert len(processes) == 1 and processes[0].poll() is not None
+
+
+def test_allocation_trace_replays_realloc_failures_and_peak_ownership(tmp_path):
+    trace = tmp_path / "allocations"
+    trace.write_text(
+        "= Start\n"
+        "@ /compiler with spaces:(first)[0x10] + 0xa 0x10\n"
+        "@ /compiler:(second)[0x20] + 0xb 0x20\n"
+        "! 0xa 0x1000\n"  # Failed realloc leaves the original allocation live.
+        "+ (nil) 0x1000\n"  # Failed malloc adds no bytes.
+        "< 0xa\n"
+        "@ /compiler:(grown)[0x30] > 0xa 0x40\n"  # In-place growth.
+        "- 0xb\n"
+        "< 0xa\n"
+        "@ /compiler:(moved)[0x40] > 0xc 0x8\n"  # Moved and shrunk.
+        "- 0xc\n"
+        "- 0xd\n"  # Allocated before tracing began.
+        "= End\n"
+    )
+    summary = AllocationTrace.summarize(trace)
+    assert summary["peak_requested_bytes"] == 96
+    assert summary["peak_event"] == 6 and summary["events"] == 11
+    assert summary["final_requested_bytes"] == 0 and summary["untracked_releases"] == 1
+    assert summary["peak_sites"] == {
+        "/compiler:(second)[0x20]": {"bytes": 32, "allocations": 1},
+        "/compiler:(grown)[0x30]": {"bytes": 64, "allocations": 1},
+    }
+    assert next(AllocationTrace.events(trace))[3] == "/compiler with spaces:(first)[0x10]"
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        "+ 0xa 0x10\n= End\n",
+        "= Start\n+ 0xa 0x10\n",
+        "= Start\n= End\n- 0xa\n",
+        "= Start\n- 0xa 0x10\n= End\n",
+        "= Start\n+ 0xa\n= End\n",
+        "= Start\n+ 0xa 0x10\n+ 0xa 0x20\n= End\n",
+        "= Start\ncorrupt\n= End\n",
+    ],
+)
+def test_allocation_trace_rejects_incomplete_or_inconsistent_evidence(tmp_path, contents):
+    trace = tmp_path / "allocations"
+    trace.write_text(contents)
+    with pytest.raises(ValueError):
+        AllocationTrace.summarize(trace)
+
+
+@pytest.mark.parametrize(
+    "status,complete,same_output", [(0, True, True), (3, False, True), (0, False, True), (0, True, False)]
+)
+def test_allocation_trace_is_separate_and_preserves_failures(tmp_path, monkeypatch, status, complete, same_output):
+    owner = diagnostic(tmp_path)
+    owner.output.mkdir()
+    owner.trace_preload = "/lib/debug.so:/trace.so"
+    source = owner.output / "original.c"
+    source.write_text("original C\n")
+    argv = ["/compiler", "/BenchStrings.btrc"]
+
+    def command(label, command, cwd, env):
+        assert command == argv and cwd == tmp_path
+        assert env["LD_PRELOAD"] == owner.trace_preload
+        assert env["MALLOC_TRACE"] == str(owner.output / "heap.mtrace")
+        Path(env["MALLOC_TRACE"]).write_text("= Start\n+ 0xa 0x10\n" + ("= End\n" if complete else ""))
+        (owner.output / "heap.stdout").write_text("original C\n" if same_output else "changed C\n")
+        return {"returncode": status, "stdout": "heap.stdout"}
+
+    monkeypatch.setattr(owner, "command", command)
+    monkeypatch.setattr(Peak, "measure", lambda *args, **kwargs: pytest.fail("trace must never be a peak sample"))
+    owner.trace_allocations("heap", argv, tmp_path, source)
+    evidence = owner.receipt["allocation_traces"]["heap"]
+    assert evidence["returncode"] == status
+    assert evidence["complete"] == (status == 0 and complete and same_output)
+    assert evidence["sha256"] == owner.digest(owner.output / "heap.mtrace")
+    assert "LD_PRELOAD" not in owner.environment(tmp_path)
+    assert "MALLOC_TRACE" not in owner.environment(tmp_path)
+
+
+def test_trace_capability_failure_precedes_compiler_builds(tmp_path, monkeypatch):
+    owner = diagnostic(tmp_path)
+
+    def fail():
+        raise RuntimeError("no glibc tracer")
+
+    monkeypatch.setattr(owner, "prepare_allocation_trace", fail)
+    monkeypatch.setattr(owner, "prepare", lambda: pytest.fail("must not build compilers"))
+    assert owner.execute() == 1
+    assert owner.receipt["error"] == "RuntimeError: no glibc tracer"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="glibc allocation tracing requires native Linux")
+def test_native_glibc_trace_control(tmp_path):
+    owner = diagnostic(tmp_path)
+    owner.output.mkdir()
+    owner.prepare_allocation_trace()
+    assert owner.receipt["allocation_trace_control"]["summary"]["peak_requested_bytes"] >= 131072
