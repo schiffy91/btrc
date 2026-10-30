@@ -20,6 +20,20 @@ int btrc_wos_daemon_directory_open(const unsigned char *path, size_t size,
 int btrc_wos_daemon_directory_path(btrc_wos_daemon_file *directory,
     unsigned char *buffer, size_t capacity, size_t *required_bytes,
     __btrc_windows_launch_error_t *error);
+typedef struct {
+    uint32_t present, kind; /* kind: regular=0, directory=1, surrogate=2, other=3 */
+    uint64_t volume;
+    unsigned char file_id[16];
+} btrc_wos_daemon_directory_entry;
+/* Enumeration owns a bounded cursor. Query/short-copy retains the same entry;
+ * a complete copy advances. End succeeds with present=0 and required_bytes=0.
+ * Restart discards the pending entry. Each observation reopens relative to the
+ * held directory and compares the full identity before returning metadata.
+ * Names and snapshots grant no file authority; control opens still check ACLs.
+ * All metadata initializes to zero on failure, even for a short name buffer. */
+int btrc_wos_daemon_directory_next(btrc_wos_daemon_file *directory, uint32_t restart,
+    unsigned char *buffer, size_t capacity, size_t *required_bytes,
+    btrc_wos_daemon_directory_entry *entry, __btrc_windows_launch_error_t *error);
 
 /* Control files use the same held ancestry and private ACL as verified
  * records. Creation is exclusive and never truncates an existing name.
@@ -32,6 +46,14 @@ enum {
 };
 int btrc_wos_daemon_control_open(const unsigned char *path, size_t size,
     uint32_t access, btrc_wos_daemon_file **out, __btrc_windows_launch_error_t *error);
+/* One validated component below a borrowed directory. The new owner retains
+ * independent ancestor handles. Optional expected is an enumerated regular
+ * file identity and must match all bits after open; creation requires NULL.
+ * No absolute/pathname retry is permitted. Parent ownership is unchanged. */
+int btrc_wos_daemon_control_open_at(btrc_wos_daemon_file *directory,
+    const unsigned char *name, size_t size, uint32_t access,
+    const btrc_wos_daemon_directory_entry *expected,
+    btrc_wos_daemon_file **out, __btrc_windows_launch_error_t *error);
 /* Synchronous, offset-based caller-buffer I/O, at most INT_MAX bytes per
  * call. A failed call still reports any bytes transferred. Zero capacity
  * permits a null buffer. Only a newly created control owner permits writes.

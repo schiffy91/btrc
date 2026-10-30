@@ -475,7 +475,8 @@ static inline int btrcWinOpenRoot(char* path, void** handle, int* consumed) {
     return status;
 }
 
-/* One directory read over a held handle, FileIdBothDirectoryInfo at a time. */
+/* Held-directory enumeration with full file IDs, including ReFS's high half.
+ * https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_extd_dir_info */
 typedef struct BtrcWinDirectoryCursor {
     HANDLE directory;
     unsigned char* buffer;
@@ -509,16 +510,28 @@ static inline void btrcWinDirectoryClose(void* cursor) {
     free(owned);
 }
 
+static inline void btrcWinDirectoryRestart(void* cursor) {
+    BtrcWinDirectoryCursor* state = (BtrcWinDirectoryCursor*)cursor;
+    if (state == NULL) { return; }
+    state->offset = 0;
+    state->loaded = 0;
+    state->started = 0;
+    state->finished = 0;
+}
+
 /* The next entry's name, skipping "." and ".."; *name stays NULL at the end.
- * The cursor never opens an entry: callers open it relative to the directory. */
-static inline int btrcWinDirectoryNext(void* cursor, char** name) {
+ * A requested ID is copied only with a complete name. The cursor never opens
+ * an entry: callers reopen relative to the directory and compare identities. */
+static inline int btrcWinDirectoryNextIdentified(void* cursor, char** name, unsigned char* fileId) {
     *name = NULL;
+    if (fileId != NULL) { memset(fileId, 0, 16); }
     BtrcWinDirectoryCursor* state = (BtrcWinDirectoryCursor*)cursor;
     if (state == NULL) { return ERROR_INVALID_HANDLE; }
     for (;;) {
         if (state->finished) { return 0; }
         if (!state->loaded) {
-            FILE_INFO_BY_HANDLE_CLASS kind = state->started ? FileIdBothDirectoryInfo : FileIdBothDirectoryRestartInfo;
+            FILE_INFO_BY_HANDLE_CLASS kind = state->started ? FileIdExtdDirectoryInfo : FileIdExtdDirectoryRestartInfo;
+            memset(state->buffer, 0, state->capacity);
             if (!GetFileInformationByHandleEx(state->directory, kind, state->buffer, state->capacity)) {
                 DWORD error = GetLastError();
                 if (error == ERROR_NO_MORE_FILES) {
@@ -531,16 +544,39 @@ static inline int btrcWinDirectoryNext(void* cursor, char** name) {
             state->loaded = 1;
             state->offset = 0;
         }
-        FILE_ID_BOTH_DIR_INFO* entry = (FILE_ID_BOTH_DIR_INFO*)(void*)(state->buffer + state->offset);
+        size_t header = offsetof(FILE_ID_EXTD_DIR_INFO, FileName);
+        if (state->offset > state->capacity || state->capacity - state->offset < header
+                || state->offset % _Alignof(FILE_ID_EXTD_DIR_INFO) != 0) { return ERROR_BAD_LENGTH; }
+        FILE_ID_EXTD_DIR_INFO* entry = (FILE_ID_EXTD_DIR_INFO*)(void*)(state->buffer + state->offset);
+        size_t remaining = state->capacity - state->offset;
+        if (entry->FileNameLength == 0 || entry->FileNameLength % sizeof(WCHAR) != 0
+                || entry->FileNameLength > remaining - header
+                || (entry->NextEntryOffset != 0 && (entry->NextEntryOffset < header + entry->FileNameLength
+                    || entry->NextEntryOffset > remaining - header
+                    || entry->NextEntryOffset % _Alignof(FILE_ID_EXTD_DIR_INFO) != 0))) { return ERROR_BAD_LENGTH; }
+        int units = (int)(entry->FileNameLength / sizeof(WCHAR));
+        for (int index = 0; index < units; index++) {
+            if (entry->FileName[index] == 0) { return ERROR_INVALID_NAME; }
+        }
+        int dot = (units == 1 && entry->FileName[0] == L'.')
+            || (units == 2 && entry->FileName[0] == L'.' && entry->FileName[1] == L'.');
+        if (!dot) {
+            int status = btrcWinNarrow(entry->FileName, units, name);
+            if (status != 0) { return status; }
+            if (fileId != NULL) { memcpy(fileId, entry->FileId.Identifier, 16); }
+        }
         if (entry->NextEntryOffset == 0) {
             state->loaded = 0;
         } else {
             state->offset += entry->NextEntryOffset;
         }
-        int units = (int)(entry->FileNameLength / sizeof(WCHAR));
-        if ((units == 1 && entry->FileName[0] == L'.') || (units == 2 && entry->FileName[0] == L'.' && entry->FileName[1] == L'.')) { continue; }
-        return btrcWinNarrow(entry->FileName, units, name);
+        if (dot) { continue; }
+        return 0;
     }
+}
+
+static inline int btrcWinDirectoryNext(void* cursor, char** name) {
+    return btrcWinDirectoryNextIdentified(cursor, name, NULL);
 }
 
 /* Read up to `count` bytes at `offset`; *received is 0 at end of file. The

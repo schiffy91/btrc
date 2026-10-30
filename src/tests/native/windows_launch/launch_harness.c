@@ -28,6 +28,7 @@
 #include "windows_bootstrap.h"
 #include "windows_daemon_transfer.h"
 #include "windows_security.h"
+#include "windows_filesystem.h"
 #include "windows_daemon_files.h"
 
 static int checks = 0;
@@ -1895,6 +1896,183 @@ static int daemon_fixture_file(const wchar_t *path, const char *contents, void *
     return ok && written == size && closed ? 0 : -1;
 }
 
+static void check_directory_record_bounds(void) {
+    BtrcWinDirectoryCursor *cursor = (BtrcWinDirectoryCursor *)btrcWinDirectoryOpen(GetCurrentProcess());
+    if (cursor == NULL) ExitProcess(3);
+    for (int scenario = 0; scenario < 7; scenario++) {
+        memset(cursor->buffer, 0, cursor->capacity);
+        btrcWinDirectoryRestart(cursor);
+        cursor->loaded = 1;
+        FILE_ID_EXTD_DIR_INFO *record = (FILE_ID_EXTD_DIR_INFO *)(void *)cursor->buffer;
+        record->FileNameLength = 2;
+        record->FileName[0] = L'a';
+        if (scenario == 0) cursor->offset = cursor->capacity - 1;
+        if (scenario == 1) record->FileNameLength = cursor->capacity;
+        if (scenario == 2) record->FileNameLength = 3;
+        if (scenario == 3) record->NextEntryOffset = 1;
+        if (scenario == 4) record->NextEntryOffset = cursor->capacity;
+        if (scenario == 5) record->FileName[0] = 0xD800;
+        if (scenario == 6) { record->FileNameLength = 6; record->FileName[2] = L'b'; }
+        char *name = NULL;
+        unsigned char identity[16], empty[16] = { 0 };
+        memset(identity, 0xA5, sizeof(identity));
+        CHECK("malformed directory record returns no name or identity",
+            btrcWinDirectoryNextIdentified(cursor, &name, identity) != 0 && name == NULL
+            && memcmp(identity, empty, sizeof(identity)) == 0);
+        free(name);
+    }
+    btrcWinDirectoryRestart(cursor);
+    memset(cursor->buffer, 0, cursor->capacity);
+    cursor->loaded = 1;
+    size_t alignment = _Alignof(FILE_ID_EXTD_DIR_INFO);
+    size_t second = (offsetof(FILE_ID_EXTD_DIR_INFO, FileName) + sizeof(WCHAR) + alignment - 1) / alignment * alignment;
+    FILE_ID_EXTD_DIR_INFO *first = (FILE_ID_EXTD_DIR_INFO *)(void *)cursor->buffer;
+    FILE_ID_EXTD_DIR_INFO *last = (FILE_ID_EXTD_DIR_INFO *)(void *)(cursor->buffer + second);
+    first->FileNameLength = last->FileNameLength = sizeof(WCHAR);
+    first->NextEntryOffset = (DWORD)second;
+    first->FileName[0] = L'a'; last->FileName[0] = L'\u00e9';
+    first->FileId.Identifier[15] = 0xA5; last->FileId.Identifier[15] = 0x5A;
+    char *name = NULL;
+    unsigned char identity[16];
+    CHECK("directory parser retains the high file ID byte",
+        btrcWinDirectoryNextIdentified(cursor, &name, identity) == 0 && name != NULL
+        && strcmp(name, "a") == 0 && identity[15] == 0xA5);
+    free(name); name = NULL;
+    CHECK("directory parser follows a bounded next record and converts Unicode",
+        btrcWinDirectoryNextIdentified(cursor, &name, identity) == 0 && name != NULL
+        && strcmp(name, "\xc3\xa9") == 0 && identity[15] == 0x5A && !cursor->loaded);
+    free(name);
+    btrcWinDirectoryClose(cursor);
+}
+
+static void check_daemon_directory_entries(const wchar_t *parent, void *descriptor) {
+    wchar_t path[1400], original[1500], additional[1500];
+    swprintf(path, 1400, L"%ls\\enumeration", parent);
+    swprintf(original, 1500, L"%ls\\probe-\u00e9", path);
+    swprintf(additional, 1500, L"%ls\\another", path);
+    char path_utf8[5600];
+    if (to_utf8(path, path_utf8, sizeof(path_utf8)) != 0) ExitProcess(3);
+    btrc_wos_daemon_file *directory = NULL;
+    __btrc_windows_launch_error_t error;
+    CHECK("enumeration fixture creates a private held directory",
+        btrc_wos_daemon_directory_open((const unsigned char *)path_utf8, strlen(path_utf8), 1, &directory, &error) == 0);
+    if (directory == NULL) ExitProcess(3);
+    btrc_wos_daemon_directory_entry entry, zero, queried;
+    memset(&zero, 0, sizeof(zero));
+    unsigned char name[128]; memset(name, 0xA5, sizeof(name));
+    size_t required = 99;
+    CHECK("empty directory returns an explicit end without modifying the buffer",
+        btrc_wos_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) == 0
+        && required == 0 && memcmp(&entry, &zero, sizeof(entry)) == 0 && name[0] == 0xA5);
+    CHECK("enumeration fixture creates a Unicode entry", daemon_fixture_file(original, "first", descriptor) == 0);
+    HANDLE reader = CreateFileW(original, FILE_READ_DATA | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+    FILE_ID_INFO expected = { 0 };
+    CHECK("enumeration fixture reads full native identity", reader != INVALID_HANDLE_VALUE
+        && GetFileInformationByHandleEx(reader, FileIdInfo, &expected, sizeof(expected)));
+    CHECK("restart discovers a new entry and query retains its full identity",
+        btrc_wos_daemon_directory_next(directory, 1, NULL, 0, &required, &queried, &error) == 0
+        && required == strlen("probe-\xc3\xa9") + 1 && queried.present == 1 && queried.kind == 0
+        && queried.volume == expected.VolumeSerialNumber
+        && memcmp(queried.file_id, expected.FileId.Identifier, 16) == 0);
+    size_t sized = required;
+    btrc_wos_daemon_file *relative = NULL;
+    btrc_wos_daemon_directory_entry wrong = queried;
+    wrong.file_id[15] ^= 1;
+    const unsigned char *unicode_name = (const unsigned char *)"probe-\xc3\xa9";
+    size_t unicode_size = strlen((const char *)unicode_name);
+    CHECK("relative open compares the high half of the enumerated identity",
+        btrc_wos_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
+            &wrong, &relative, &error) != 0 && relative == NULL && error.ownership_state == 0);
+    CHECK("relative open accepts the exact enumerated identity",
+        btrc_wos_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
+            &queried, &relative, &error) == 0 && relative != NULL);
+    CHECK("relative file owner closes independently", btrc_wos_daemon_file_close(&relative, &error) == 0);
+    const char *invalid_names[] = { "..", "../escape", "child\\escape", "data:stream", "CON", "trailing." };
+    for (size_t index = 0; index < sizeof(invalid_names) / sizeof(invalid_names[0]); index++) {
+        CHECK("relative open accepts only one safe component",
+            btrc_wos_daemon_control_open_at(directory, (const unsigned char *)invalid_names[index], strlen(invalid_names[index]),
+                BTRC_WOS_CONTROL_CREATE, NULL, &relative, &error) != 0 && relative == NULL);
+    }
+    CHECK("short enumeration copy retains the entry and clears metadata",
+        btrc_wos_daemon_directory_next(directory, 0, name, 1, &required, &entry, &error) != 0
+        && required == sized && memcmp(&entry, &zero, sizeof(entry)) == 0 && name[0] == 0xA5);
+    CHECK("complete enumeration copy returns the queried entry",
+        btrc_wos_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) == 0
+        && required == sized && strcmp((const char *)name, "probe-\xc3\xa9") == 0
+        && memcmp(&entry, &queried, sizeof(entry)) == 0);
+    CHECK("complete copy consumes exactly one entry",
+        btrc_wos_daemon_directory_next(directory, 0, NULL, 0, &required, &entry, &error) == 0
+        && required == 0 && entry.present == 0);
+    CHECK("restart retains the old identity for a replacement race",
+        btrc_wos_daemon_directory_next(directory, 1, NULL, 0, &required, &entry, &error) == 0 && entry.present == 1);
+    HANDLE remover = CreateFileW(original, DELETE | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+    CHECK("fixture opens the enumerated name for POSIX disposition", remover != INVALID_HANDLE_VALUE);
+    CHECK("fixture marks only the original object for removal", btrcWinDeletePosix(remover, 0) == 0);
+    CHECK("fixture unlinks the name while another reader retains the old object", CloseHandle(remover));
+    CHECK("fixture replaces the enumerated name", daemon_fixture_file(original, "replacement", descriptor) == 0);
+    memset(name, 0xA5, sizeof(name));
+    CHECK("pending enumeration refuses a replaced object with the same name",
+        btrc_wos_daemon_directory_next(directory, 0, name, sizeof(name), &required, &entry, &error) != 0
+        && required == 0 && memcmp(&entry, &zero, sizeof(entry)) == 0 && name[0] == 0xA5
+        && error.ownership_state == 1);
+    CHECK("restart observes the replacement as a new snapshot",
+        btrc_wos_daemon_directory_next(directory, 1, name, sizeof(name), &required, &entry, &error) == 0
+        && entry.present == 1 && strcmp((const char *)name, "probe-\xc3\xa9") == 0
+        && memcmp(entry.file_id, expected.FileId.Identifier, 16) != 0);
+    CHECK("relative open refuses a stale identity after replacement",
+        btrc_wos_daemon_control_open_at(directory, unicode_name, unicode_size, BTRC_WOS_CONTROL_READ,
+            &queried, &relative, &error) != 0 && relative == NULL);
+    CHECK("fixture releases original identity", CloseHandle(reader));
+    CHECK("fixture creates a second directory entry", daemon_fixture_file(additional, "second", descriptor) == 0);
+    int seen = 0, count = 0;
+    for (int index = 0; index < 3; index++) {
+        int status = btrc_wos_daemon_directory_next(directory, index == 0, name, sizeof(name), &required, &entry, &error);
+        CHECK("multi-entry directory enumeration succeeds", status == 0);
+        if (status != 0 || !entry.present) break;
+        count++;
+        if (strcmp((const char *)name, "probe-\xc3\xa9") == 0) seen |= 1;
+        if (strcmp((const char *)name, "another") == 0) seen |= 2;
+    }
+    CHECK("enumeration visits each name once without promising order", count == 2 && seen == 3 && entry.present == 0);
+    CHECK("restart obtains a name for a relative read owner",
+        btrc_wos_daemon_directory_next(directory, 1, name, sizeof(name), &required, &entry, &error) == 0 && entry.present == 1);
+    const char *expected_text = strcmp((const char *)name, "another") == 0 ? "second" : "replacement";
+    CHECK("relative read owner retains its own directory claims",
+        btrc_wos_daemon_control_open_at(directory, name, strlen((const char *)name), BTRC_WOS_CONTROL_READ,
+            &entry, &relative, &error) == 0 && relative != NULL);
+    CHECK("query leaves a pending entry for close",
+        btrc_wos_daemon_directory_next(directory, 1, NULL, 0, &required, &entry, &error) == 0 && entry.present == 1);
+    btrc_wos_daemon_file *created = NULL;
+    CHECK("relative creation does not accept an existing identity claim",
+        btrc_wos_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_CREATE,
+            &entry, &created, &error) != 0 && created == NULL);
+    CHECK("relative creation uses the protected held directory",
+        btrc_wos_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_CREATE,
+            NULL, &created, &error) == 0 && created != NULL);
+    size_t transferred = 0;
+    CHECK("relative created file supports checked writes",
+        btrc_wos_daemon_file_write(created, 0, (const unsigned char *)"relative", 8, &transferred, &error) == 0
+        && transferred == 8 && btrc_wos_daemon_file_flush(created, &error) == 0);
+    uint32_t disposed = 0;
+    CHECK("relative created file supports held removal",
+        btrc_wos_daemon_file_dispose(created, &disposed, &error) == 0 && disposed == 1);
+    CHECK("relative created file closes", btrc_wos_daemon_file_close(&created, &error) == 0);
+    CHECK("directory close releases its pending cursor", btrc_wos_daemon_file_close(&directory, &error) == 0 && directory == NULL);
+    CHECK("relative read owner survives its caller's directory close",
+        btrc_wos_daemon_file_read(relative, 0, name, sizeof(name), &transferred, &error) == 0
+        && transferred == strlen(expected_text) && memcmp(name, expected_text, transferred) == 0);
+    wchar_t moved[1500];
+    swprintf(moved, 1500, L"%ls-moved", path);
+    CHECK("relative child retains ancestor rename exclusion", !MoveFileW(path, moved));
+    CHECK("relative child finally releases its claims", btrc_wos_daemon_file_close(&relative, &error) == 0);
+    CHECK("directory rename succeeds after the last relative owner closes", MoveFileW(path, moved));
+    CHECK("fixture restores enumeration directory", MoveFileW(moved, path));
+    CHECK("fixture removes enumeration files", DeleteFileW(original) && DeleteFileW(additional));
+    CHECK("fixture removes enumeration directory", RemoveDirectoryW(path));
+}
+
 static void check_daemon_files(void) {
     DWORD before = 0, after = 0;
     CHECK("daemon files initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
@@ -1986,6 +2164,8 @@ static void check_daemon_files(void) {
             1, &held, &error) != 0 && held == NULL && error.ownership_state == 0);
     CHECK("refusal leaves existing directory in place", GetFileAttributesW(nested) != INVALID_FILE_ATTRIBUTES);
     CHECK("fixture removes unprotected directory", RemoveDirectoryW(nested));
+    check_directory_record_bounds();
+    check_daemon_directory_entries(directory, file_descriptor);
     CHECK("daemon log creates a private empty append file",
         btrc_wos_daemon_log_open((const unsigned char *)log_utf8, strlen(log_utf8), &held, &error) == 0 && held != NULL);
     CHECK("held daemon directory cannot be renamed", !MoveFileW(directory, moved));
