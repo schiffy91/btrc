@@ -168,7 +168,6 @@ class GeneratedHostedAbiData {
 	private Map<string, string>? architectureAliasesMemo = null;
 	private Map<string, string>? defaultEnvironmentsMemo = null;
 	private Vector<GeneratedPredefinedMacroRow>? predefinedMacroRowsMemo = null;
-	private Vector<GeneratedHostedFunctionRow>? functionRows = null;
 	private Map<string, int>? functionSlots = null;
 	private Map<string, GeneratedHostedFunctionRow>? functionMemo = null;
 	private Map<string, GeneratedPlatformTargetRow>? platformTargetMemo = null;
@@ -180,6 +179,7 @@ class GeneratedHostedAbiData {
 	private Vector<string>? ownedNamesMemo = null;
 	private Vector<string>? runtimeAdoptingHelpersMemo = null;
 	private Vector<string>? noreturnFunctionsMemo = null;
+	private Vector<string>? realtimeSafeFunctionNamesMemo = null;
 	private Vector<string>? undefinedMacroNamesMemo = null;
 	private Vector<string>? foreignMacroNamesMemo = null;
 	private Vector<string>? predefinedMacroNamesMemo = null;
@@ -211,19 +211,6 @@ class GeneratedHostedAbiData {
      * name set or a function row never pays for it; building all of them
      * eagerly cost twelve thousand string pushes and map inserts on every
      * start of the compiler. Rows keep their manifest order. */
-	public Vector<GeneratedHostedFunctionRow> functions() {
-		Vector<GeneratedHostedFunctionRow>? rows = self.functionRows;
-		if (rows != null) { return rows; }
-		Vector<GeneratedHostedFunctionRow> built = [];
-		int index = 0;
-		while (index < 395) {
-			built.push(self.functionAt(index));
-			index = index + 1;
-		}
-		self.functionRows = built;
-		return built;
-	}
-
 	private Map<string, GeneratedHostedFunctionRow> memoTable() {
 		Map<string, GeneratedHostedFunctionRow>? existing = self.functionMemo;
 		if (existing != null) { return existing; }
@@ -17810,6 +17797,23 @@ class GeneratedHostedAbiData {
 		values.push("longjmp");
 		values.push("pthread_exit");
 		values.push("quick_exit");
+	}
+
+	public Vector<string> realtimeSafeFunctionNames() {
+		Vector<string>? memo = self.realtimeSafeFunctionNamesMemo;
+		if (memo != null) { return memo; }
+		Vector<string> built = [];
+		self.pushRealtimeSafeFunctionNames0(built);
+		self.realtimeSafeFunctionNamesMemo = built;
+		return built;
+	}
+
+	private void pushRealtimeSafeFunctionNames0(Vector<string> values) {
+		values.push("__btrc_target_architecture");
+		values.push("__btrc_target_platform");
+		values.push("__btrc_windows_launch_copy_output");
+		values.push("__btrc_windows_quote_argv_utf8");
+		values.push("abs");
 	}
 
 	public Vector<string> undefinedMacroNames() {
