@@ -90,7 +90,7 @@ release = "p0-windows-daemon-files-2026-10-29"
 platforms = ["windows", "ios", "android"]
 slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
 frontends = []
-ids = 13
-slots = 78
-sha256 = "c8a28cd861c6778c64979a7d7f4fb6deb23d9910f1484deed7484cb36fbe1367"
+ids = 14
+slots = 84
+sha256 = "0883aed8d00a6cb2bd8505336545522640f1ff40109f66ae29ed34929d7152d5"
 source = { ledger = "docs/design/platform-inventory/windows-daemon-files.toml" }

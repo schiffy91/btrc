@@ -184,3 +184,17 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "I
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+
+[[rows]]
+kind = "operation"
+id = "runtime.__btrc_windows_daemon_file_identity"
+group = "runtime/process"
+title = "__btrc_windows_daemon_file_identity (windows_os.c)"
+regression = ["src/tests/python/test_windows_launch_seam.py::test_the_windows_harness_exercises_every_seam_section"]
+note = "corpus-unreached (target-only): protected daemon file operations are covered by the native harness and SDK-free link checks; public Daemon integration is unfinished"
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Strict x64 and ARM64 cross-builds pass; native Windows execution is pending" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Unsupported-host implementation preserves borrowed buffers and retained owners; native execution on this target is pending" }
