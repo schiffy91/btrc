@@ -51,6 +51,27 @@ def test_inventory_selects_private_providers_and_follows_imports(inventory):
     assert linux["Caller.btrc"]["excluded"] is None
 
 
+def test_inventory_classifies_auxiliary_entries_from_manifests(inventory):
+    (inventory.root / "Worker.btrc").write_text("int main() { return 0; }\n")
+    (inventory.root / "DaemonSupervisorMain.btrc").write_text("class OrdinaryModule {}\n")
+    with (inventory.root / "btrc.toml").open("a") as manifest:
+        manifest.write("""
+[[native.auxiliary-executables]]
+path = "Worker.btrc"
+kind = "windows-daemon-supervisor"
+protocol = 1
+requires = ["__btrc_windows_supervisor_image_verify"]
+os = ["windows"]
+arch = ["aarch64"]
+""")
+    current = StdlibInventory(inventory.root)
+    for target, applicable in (("windows-aarch64", True), ("windows-x86_64", False), ("linux-x64", False)):
+        rows = {row["module"]: row for row in current.rows(PackageTarget.parse(target))}
+        assert rows["Worker.btrc"]["kind"] == "executable"
+        assert (rows["Worker.btrc"]["excluded"] is None) == applicable
+        assert rows["DaemonSupervisorMain.btrc"]["kind"] == "module"
+
+
 def test_native_owner_restriction_reaches_callers_after_conditioning(inventory):
     root = inventory.root
     (root / "Native.btrc").write_text("class Native {}")
@@ -106,7 +127,9 @@ def test_coverage_requires_every_module_with_both_frontends(inventory):
         StdlibCoverage(inventory).validate(reports[:2], targets[:1])
 
 
-@pytest.mark.parametrize("defect", ["partial", "incomplete", "failed", "omitted", "duplicate", "stale", "exclusion"])
+@pytest.mark.parametrize(
+    "defect", ["partial", "incomplete", "failed", "omitted", "duplicate", "stale", "exclusion", "kind"]
+)
 def test_coverage_refuses_incomplete_or_changed_evidence(inventory, defect):
     targets = (PackageTarget.parse("linux-x64"), PackageTarget.parse("windows-x64"))
     reports = copy.deepcopy(reports_for(inventory, targets))
@@ -123,6 +146,8 @@ def test_coverage_refuses_incomplete_or_changed_evidence(inventory, defect):
         report["modules"][-1] = report["modules"][0]
     elif defect == "stale":
         report["inventory_sha256"] = "old"
+    elif defect == "kind":
+        report["modules"][0]["kind"] = "executable"
     else:
         report["modules"][0]["excluded"] = "invented exclusion"
     with pytest.raises(ValueError):
@@ -254,6 +279,42 @@ def test_strict_check_catches_unused_imported_body_without_writing_sources(tmp_p
     assert "missingValue" in (output / row["log"]).read_text()
     assert json.loads((output / "report.json").read_text())["complete"]
     assert before == {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("broken", [False, True])
+def test_strict_check_analyzes_executable_entry_and_unused_bodies(tmp_path, request, frontend, broken):
+    root = tmp_path / "stdlib"
+    shutil.copytree(REPO / "src/stdlib", root)
+    package = root / "Qualification"
+    package.mkdir()
+    source = package / "Worker.btrc"
+    source.write_text(
+        "int unused() { return " + ("missingValue" if broken else "7") + "; }\nint main() { return 0; }\n"
+    )
+    (package / "btrc.toml").write_text("""manifest-version = 1
+[package]
+name = "qualification_entry"
+exports = []
+[[native.auxiliary-executables]]
+path = "Worker.btrc"
+kind = "windows-daemon-supervisor"
+protocol = 1
+requires = ["__btrc_windows_supervisor_image_verify"]
+os = ["windows"]
+""")
+    before = source.read_bytes()
+    binary = request.getfixturevalue("semantic_btrcc") if frontend == "selfhost" else None
+    checker = StdlibCheck(StdlibInventory(root), PackageTarget.parse("windows-x64"), frontend, binary)
+    output = tmp_path / "result"
+    report = checker.run(output, modules=("Qualification/Worker.btrc",))
+    row = next(row for row in report["modules"] if row["module"] == "Qualification/Worker.btrc")
+    diagnostic = (output / row["log"]).read_text()
+    assert row["kind"] == "executable"
+    assert row["status"] == ("failed" if broken else "passed"), diagnostic
+    assert ("missingValue" in diagnostic) == broken
+    assert "cannot be imported" not in diagnostic
+    assert source.read_bytes() == before
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])

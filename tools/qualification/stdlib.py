@@ -52,6 +52,7 @@ class StdlibInventory:
             raise ValueError(f"no stdlib modules in {self.root}")
         self.sha256 = self.fingerprint(self.root, self.runtime_root)
         self.constraints: dict[Path, list[tuple[str, tuple[TargetSelector, ...]]]] = defaultdict(list)
+        self.executables: set[Path] = set()
         reader = PackageManifestReader()
         validator = PackageManifestValidator()
         for path in sorted(self.root.rglob("btrc.toml")):
@@ -63,6 +64,10 @@ class StdlibInventory:
                 groups[Path(provider.implementation), "provider implementation"].append(provider.selector)
             for binding in validator.bindings(manifest, str(path.parent), package, str(path)):
                 groups[Path(binding.module), "native bindings"].append(binding.selector)
+            for entry in validator.auxiliary_entries(manifest, str(path)):
+                module = Path(entry.value).resolve()
+                self.executables.add(module)
+                groups[module, "auxiliary executable"].append(entry.selector)
             for (module, kind), selectors in groups.items():
                 self.constraints[module.resolve()].append((kind, tuple(selectors)))
         self.operating_systems = frozenset(row.operating_system for row in TARGET_ROWS)
@@ -143,6 +148,7 @@ class StdlibInventory:
             {
                 "module": module.relative_to(self.root).as_posix(),
                 "sha256": hashlib.sha256(module.read_bytes()).hexdigest(),
+                "kind": "executable" if module in self.executables else "module",
                 "excluded": self.exclusion(module, target),
             }
             for module in self.modules
@@ -261,10 +267,12 @@ class StdlibCheck:
                     source = data / "stdlib" / module
                     if hashlib.sha256(source.read_bytes()).hexdigest() != row["sha256"]:
                         raise ValueError(f"stdlib source changed while preparing qualification: {module}")
-                    probe = source.with_name("StdlibQualificationProbe.btrc")
-                    if probe.exists():
-                        raise ValueError(f"qualification probe would replace an existing module: {probe}")
-                    probe.write_text(f"import ./{source.name};\nint main() {{ return 0; }}\n")
+                    probe = source
+                    if row["kind"] == "module":
+                        probe = source.with_name("StdlibQualificationProbe.btrc")
+                        if probe.exists():
+                            raise ValueError(f"qualification probe would replace an existing module: {probe}")
+                        probe.write_text(f"import ./{source.name};\nint main() {{ return 0; }}\n")
                     row["status"] = "running"
                     report_path.write_text(json.dumps(report, indent=2) + "\n")
                     if self.frontend == "python":
@@ -310,7 +318,8 @@ class StdlibCheck:
                             diagnostic = diagnostic.decode(errors="replace")
                         diagnostic += f"\nCompiler exceeded {timeout} seconds.\n"
                     finally:
-                        probe.unlink()
+                        if probe != source:
+                            probe.unlink()
                     log = output / "logs" / Path(module).with_suffix(".stderr")
                     log.parent.mkdir(parents=True, exist_ok=True)
                     log.write_text(diagnostic)
@@ -354,7 +363,11 @@ class StdlibCoverage:
             for row in rows:
                 module = row["module"]
                 expected_row = expected_rows[module]
-                if row.get("sha256") != expected_row["sha256"] or row.get("excluded") != expected_row["excluded"]:
+                if (
+                    row.get("sha256") != expected_row["sha256"]
+                    or row.get("excluded") != expected_row["excluded"]
+                    or row.get("kind") != expected_row["kind"]
+                ):
                     raise ValueError(f"stdlib source or applicability changed: {identity} {module}")
                 if expected_row["excluded"] is None:
                     if row.get("status") != "passed":
