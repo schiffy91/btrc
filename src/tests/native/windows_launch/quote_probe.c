@@ -47,6 +47,9 @@ static int daemon_files_off_windows(void) {
         && required == 0 && file_unsupported(&error, 1));
     __btrc_windows_daemon_directory_entry entry, zero;
     memset(&entry, 0xA5, sizeof(entry)); memset(&zero, 0, sizeof(zero));
+    FILE_REQUIRE(__btrc_windows_daemon_file_identity(sentinel, &entry, &error) != 0
+        && memcmp(&entry, &zero, sizeof(entry)) == 0 && file_unsupported(&error, 1));
+    memset(&entry, 0xA5, sizeof(entry));
     required = 99;
     FILE_REQUIRE(__btrc_windows_daemon_directory_next(sentinel, 0, buffer, sizeof(buffer), &required, &entry, &error) != 0
         && required == 0 && memcmp(&entry, &zero, sizeof(entry)) == 0 && file_unsupported(&error, 1));

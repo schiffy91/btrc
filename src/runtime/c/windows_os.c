@@ -1471,6 +1471,27 @@ done:
     return status;
 }
 
+int __btrc_windows_daemon_file_identity(__btrc_windows_daemon_file_owner *file,
+        __btrc_windows_daemon_directory_entry *identity, __btrc_windows_launch_error_t *error) {
+    btrc_wos_clear(error);
+    if (identity != NULL) memset(identity, 0, sizeof(*identity));
+    if (identity == NULL) {
+        if (error != NULL && file != NULL) error->ownership_state = file->poisoned ? 2 : 1;
+        return btrc_wos_daemon_file_error(error, BTRC_WIN_STATUS_INVALID, 0);
+    }
+    if (btrc_wos_daemon_file_check(file, error) != 0) return -1;
+    FILE_ID_INFO native;
+    if (!GetFileInformationByHandleEx(file->handle, FileIdInfo, &native, sizeof(native))) {
+        if (error != NULL) error->ownership_state = 1;
+        return btrc_wos_win32(error, BTRC_WOS_STAGE_DIRECTORY);
+    }
+    identity->present = 1;
+    identity->kind = (uint32_t)file->identity[BTRC_WIN_FIELD_KIND];
+    identity->volume = native.VolumeSerialNumber;
+    memcpy(identity->file_id, native.FileId.Identifier, 16);
+    return 0;
+}
+
 static int btrc_wos_daemon_file_io_check(__btrc_windows_daemon_file_owner *file, uint64_t offset,
         const void *buffer, size_t size, size_t *transferred, int write,
         __btrc_windows_launch_error_t *error) {
@@ -3915,6 +3936,12 @@ int __btrc_windows_daemon_file_read(__btrc_windows_daemon_file_owner *file, uint
         __btrc_windows_launch_error_t *error) {
     (void)offset; (void)buffer; (void)capacity;
     if (transferred != NULL) *transferred = 0;
+    return btrc_wos_daemon_unsupported(file, error);
+}
+
+int __btrc_windows_daemon_file_identity(__btrc_windows_daemon_file_owner *file,
+        __btrc_windows_daemon_directory_entry *identity, __btrc_windows_launch_error_t *error) {
+    if (identity != NULL) memset(identity, 0, sizeof(*identity));
     return btrc_wos_daemon_unsupported(file, error);
 }
 

@@ -297,3 +297,11 @@ int __btrc_windows_daemon_record_open(const unsigned char *path, size_t size,
 int __btrc_windows_daemon_file_close(__btrc_windows_daemon_file_owner **file,
     __btrc_windows_launch_error_t *error);
 /* btrc-runtime-helper:end __btrc_windows_daemon_file_close */
+
+/* btrc-runtime-helper:begin __btrc_windows_daemon_file_identity */
+/* Snapshot the checked held object's full identity. It grants no authority;
+ * pass it to a later relative control open to reject replacements. Failure
+ * clears the snapshot and preserves the owner. No pathname is reopened. */
+int __btrc_windows_daemon_file_identity(__btrc_windows_daemon_file_owner *file,
+    __btrc_windows_daemon_directory_entry *identity, __btrc_windows_launch_error_t *error);
+/* btrc-runtime-helper:end __btrc_windows_daemon_file_identity */

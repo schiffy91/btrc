@@ -113,6 +113,7 @@ functions = [
   "__btrc_windows_daemon_file_close",
   "__btrc_windows_daemon_file_dispose",
   "__btrc_windows_daemon_file_flush",
+  "__btrc_windows_daemon_file_identity",
   "__btrc_windows_daemon_file_read",
   "__btrc_windows_daemon_file_write",
   "__btrc_windows_daemon_log_open",
@@ -6733,6 +6734,7 @@ owned = [
   "__btrc_windows_daemon_file_close",
   "__btrc_windows_daemon_file_dispose",
   "__btrc_windows_daemon_file_flush",
+  "__btrc_windows_daemon_file_identity",
   "__btrc_windows_daemon_file_owner",
   "__btrc_windows_daemon_file_read",
   "__btrc_windows_daemon_file_write",
@@ -12120,6 +12122,21 @@ result = { base = "int", pointer_depth = 0, is_const = false }
 parameters_known = true
 parameters = [
   { base = "__btrc_windows_daemon_file_owner", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+realtime_effect = "blocking"
+
+[[functions]]
+name = "__btrc_windows_daemon_file_identity"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "__btrc_windows_daemon_file_owner", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "__btrc_windows_daemon_directory_entry", pointer_depth = 1, is_const = false, effect = "mutate" },
   { base = "__btrc_windows_launch_error_t", pointer_depth = 1, is_const = false, effect = "mutate" },
 ]
 variadic = false

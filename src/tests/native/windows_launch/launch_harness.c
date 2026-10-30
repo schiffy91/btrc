@@ -2050,13 +2050,27 @@ static void check_daemon_directory_entries(const wchar_t *parent, void *descript
     CHECK("relative creation uses the protected held directory",
         __btrc_windows_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_CREATE,
             NULL, &created, &error) == 0 && created != NULL);
+    __btrc_windows_daemon_directory_entry created_identity, cleared_identity = { 0 };
+    CHECK("new file identity is captured while its exclusive writer is held",
+        __btrc_windows_daemon_file_identity(created, &created_identity, &error) == 0
+        && created_identity.present == 1 && created_identity.kind == 0);
+    CHECK("identity requires an output and retains its owner on failure",
+        __btrc_windows_daemon_file_identity(created, NULL, &error) != 0 && error.ownership_state == 1);
     size_t transferred = 0;
     CHECK("relative created file supports checked writes",
         __btrc_windows_daemon_file_write(created, 0, (const unsigned char *)"relative", 8, &transferred, &error) == 0
         && transferred == 8 && __btrc_windows_daemon_file_flush(created, &error) == 0);
+    CHECK("publication releases its writer", __btrc_windows_daemon_file_close(&created, &error) == 0);
+    CHECK("published identity admits only the same relative file",
+        __btrc_windows_daemon_control_open_at(directory, (const unsigned char *)"fresh", 5, BTRC_WOS_CONTROL_REMOVE,
+            &created_identity, &created, &error) == 0 && created != NULL);
     uint32_t disposed = 0;
     CHECK("relative created file supports held removal",
         __btrc_windows_daemon_file_dispose(created, &disposed, &error) == 0 && disposed == 1);
+    CHECK("disposed owners refuse identity queries and clear the snapshot",
+        __btrc_windows_daemon_file_identity(created, &created_identity, &error) != 0
+        && memcmp(&created_identity, &cleared_identity, sizeof(created_identity)) == 0
+        && error.ownership_state == 1);
     CHECK("relative created file closes", __btrc_windows_daemon_file_close(&created, &error) == 0);
     CHECK("directory close releases its pending cursor", __btrc_windows_daemon_file_close(&directory, &error) == 0 && directory == NULL);
     CHECK("relative read owner survives its caller's directory close",

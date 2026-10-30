@@ -1,0 +1,6 @@
+import Library.Daemon.Windows.DaemonSupervisor;
+
+int main() {
+	WindowsDaemonSupervisor supervisor = WindowsDaemonSupervisor();
+	return supervisor.run();
+}

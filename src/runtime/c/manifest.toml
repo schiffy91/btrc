@@ -2787,3 +2787,13 @@ headers = []
 source_visible = true
 realtime_effect = "blocking"
 order = { python = 256, btrc = 242 }
+
+[[helpers]]
+name = "__btrc_windows_daemon_file_identity"
+category = "process"
+asset = "windows_os.h"
+dependencies = ["__btrc_windows_daemon_file_types"]
+headers = []
+source_visible = true
+realtime_effect = "blocking"
+order = { python = 257, btrc = 243 }

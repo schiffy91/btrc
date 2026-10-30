@@ -1,0 +1,100 @@
+import "./DaemonControlStore.btrc";
+
+extern void daemonPolicyFailure(int point);
+extern int daemonPolicyExists();
+extern int daemonPolicyCloses();
+extern int daemonPolicyDisposals();
+extern int daemonPolicyWrites();
+extern int daemonPolicyReads();
+extern void daemonPolicyReplace();
+extern void daemonPolicyContent(int mode);
+
+int main(int argc, char** argv) {
+	assert(argc == 2);
+	int scenario = atoi(argv[1]);
+	WindowsDaemonControlStore store = WindowsDaemonControlStore();
+	assert(store.open("/state"));
+	__btrc_windows_daemon_directory_entry identity;
+	memset(&identity, 0, sizeof(identity));
+	if (scenario == 11) {
+		assert(store.read("control", NULL).isEmpty());
+		assert(store.missing());
+		daemonPolicyFailure(11);
+		assert(store.read("control", NULL).isEmpty());
+		assert(!store.missing() && store.error.native_code == (uint32_t)5);
+		assert(store.close());
+		return 0;
+	}
+	if (scenario == 2 || scenario == 3 || scenario == 4 || scenario == 13) {
+		daemonPolicyFailure(scenario);
+		assert(!store.create("control", "token\n", &identity));
+		assert(identity.present == (uint32_t)0);
+		assert(store.error.native_code == (uint32_t)(700 + scenario));
+		if (scenario == 4) {
+			assert(!store.usable() && daemonPolicyExists() == 1);
+			int closes = daemonPolicyCloses();
+			assert(!store.create("control", "other\n", &identity));
+			assert(!store.close() && daemonPolicyCloses() == closes);
+		} else {
+			assert(daemonPolicyExists() == 0 && daemonPolicyDisposals() == 1);
+			assert(store.close());
+		}
+		return 0;
+	}
+	assert(store.create("control", "token\n", &identity));
+	assert(identity.present == (uint32_t)1 && identity.kind == (uint32_t)0);
+	assert(identity.volume == (uint64_t)0xfedcba9876543210ULL);
+	assert(identity.file_id[15] != 0 && daemonPolicyWrites() == 3);
+	if (scenario == 5) {
+		__btrc_windows_daemon_directory_entry collision;
+		assert(!store.create("control", "other\n", &collision));
+		assert(daemonPolicyDisposals() == 0);
+		assert(store.read("control", &identity).equals("token\n"));
+	} else if (scenario == 6) {
+		daemonPolicyReplace();
+		assert(!store.remove("control", &identity, "token\n"));
+		assert(daemonPolicyDisposals() == 0 && daemonPolicyExists() == 1);
+		assert(store.error.native_code == (uint32_t)1234);
+	} else if (scenario == 7) {
+		assert(!store.remove("control", &identity, "other\n"));
+		assert(daemonPolicyDisposals() == 0 && daemonPolicyExists() == 1);
+	} else if (scenario == 8 || scenario == 9) {
+		daemonPolicyContent(scenario == 8 ? 1 : 2);
+		assert(store.read("control", &identity).isEmpty());
+		assert(store.error.stage == (uint32_t)1);
+		assert(daemonPolicyExists() == 1);
+	} else if (scenario == 10) {
+		__btrc_windows_daemon_directory_entry listed;
+		assert(store.next(true, &listed).equals("control"));
+		assert(memcmp(listed.file_id, identity.file_id, (size_t)16) == 0);
+		assert(store.next(false, &listed).isEmpty() && listed.present == (uint32_t)0);
+		assert(store.error.stage == (uint32_t)0);
+	} else if (scenario == 12) {
+		daemonPolicyFailure(12);
+		assert(store.read("control", &identity).isEmpty());
+		assert(!store.usable());
+		int closes = daemonPolicyCloses();
+		int reads = daemonPolicyReads();
+		assert(store.read("control", &identity).isEmpty());
+		assert(!store.close() && daemonPolicyCloses() == closes && daemonPolicyReads() == reads);
+		return 0;
+	} else if (scenario == 14) {
+		daemonPolicyFailure(14);
+		assert(!store.remove("control", &identity, "token\n"));
+		assert(store.error.native_code == (uint32_t)714 && daemonPolicyExists() == 1);
+	} else if (scenario == 15) {
+		daemonPolicyFailure(15);
+		assert(!store.close() && !store.usable());
+		int closes = daemonPolicyCloses();
+		assert(!store.close() && daemonPolicyCloses() == closes);
+		return 0;
+	} else {
+		assert(scenario == 1);
+		assert(store.read("control", &identity).equals("token\n"));
+		assert(daemonPolicyReads() == 3);
+		assert(store.remove("control", &identity, "token\n"));
+		assert(daemonPolicyExists() == 0);
+	}
+	assert(store.close());
+	return 0;
+}

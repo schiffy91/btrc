@@ -255,3 +255,4 @@ __btrc_windows_daemon_file_dispose
 __btrc_windows_daemon_log_open
 __btrc_windows_daemon_record_open
 __btrc_windows_daemon_file_close
+__btrc_windows_daemon_file_identity

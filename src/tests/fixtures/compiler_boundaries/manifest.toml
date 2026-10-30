@@ -465,6 +465,7 @@ channels = [
     "helper.__btrc_windows_daemon_log_open",
     "helper.__btrc_windows_daemon_record_open",
     "helper.__btrc_windows_daemon_file_close",
+    "helper.__btrc_windows_daemon_file_identity",
 ]
 
 [[capabilities]]
@@ -4711,8 +4712,8 @@ channel = "python"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
 baseline_sha256 = "37e2442001713cb436302de380466e70ae4d1c6123368fbd0b4e30f5021b422a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
-accepted_sha256 = "fe692ccb53d4e06fcd715e3e43775f6db071aa76390a8e8c6d60e25263572cf8"
-reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+accepted_sha256 = "c8593833a82191daf74f8a9060eef28999764f80c07dfc86c632369084f5b324"
+reason = "Issue 113: capture full file identity while the exclusive publication writer is held, so cleanup cannot remove a replacement. Native Windows execution remains pending."
 regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
@@ -4725,8 +4726,8 @@ channel = "btrc"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
 baseline_sha256 = "213371cc7e12185e6643930ec91b4a3016d51ab6add711a63cd7d41b6c85dea2"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
-accepted_sha256 = "1686209c053d876e4117a1643d0ed3b60c7b204fc2c5ad2caab8a822a8d004d3"
-reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+accepted_sha256 = "fc9790c96c3951886a12f07202d941c3f53ac0d39582695ef7ee99c88b8f4783"
+reason = "Issue 113: capture full file identity while the exclusive publication writer is held, so cleanup cannot remove a replacement. Native Windows execution remains pending."
 regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[equalities]]
@@ -4993,8 +4994,8 @@ channel = "asset.windows_os_h"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.windows_os_h.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.windows_os_h.bin"
-accepted_sha256 = "62fa9e60af13036f23d75a27783abc33f110383655161fcaad5225272ae09983"
-reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+accepted_sha256 = "36d2fd08220c923a9ef129570e35ea1d37fed230036b3848b1afd947dd9c8cb2"
+reason = "Issue 113: capture full file identity while the exclusive publication writer is held, so cleanup cannot remove a replacement. Native Windows execution remains pending."
 regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
@@ -5485,4 +5486,18 @@ baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0268.bin"
 accepted_sha256 = "37a90010492ec12d14d751bba9840abae4a8747b44a39af315855c719f582c88"
 reason = "Issue 113: expose the held daemon file owner through SDK-free declarations, with relative opens, full file identities and explicit cleanup. Native Windows execution and public Daemon integration remain pending."
+regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0269"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_windows_daemon_file_identity"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0269.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0269.bin"
+accepted_sha256 = "39ccc0b8bc27cde6234d55f413da619d5d3eb0429d916bd3696ae1d1aa2fc6c3"
+reason = "Issue 113: capture full file identity while the exclusive publication writer is held, so cleanup cannot remove a replacement. Native Windows execution remains pending."
 regressions = ["src/tests/python/test_windows_launch_seam.py", "src/tests/python/test_windows_process.py", "src/tests/python/test_boundary_manifest.py"]

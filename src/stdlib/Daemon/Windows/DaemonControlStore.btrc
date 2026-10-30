@@ -1,0 +1,160 @@
+/* Control-file policy over the runtime's held Windows file owners.
+ * The caller retains this store until close succeeds. A failed native close
+ * leaves its owner here and forbids further use; the supervisor then exits so
+ * process teardown releases it. No destructor retries an uncertain close. */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+class WindowsDaemonControlStore {
+	private __btrc_windows_daemon_file_owner* directory;
+	private __btrc_windows_daemon_file_owner* active;
+	private bool failedClose;
+	public __btrc_windows_launch_error_t error;
+
+	public WindowsDaemonControlStore() {
+		self.directory = NULL;
+		self.active = NULL;
+		self.failedClose = false;
+		memset(&self.error, 0, sizeof(self.error));
+	}
+
+	public bool usable() { return !self.failedClose && self.error.ownership_state != (uint32_t)2; }
+
+	private bool ready() { return self.directory != NULL && self.active == NULL && self.usable(); }
+
+	private bool invalid() {
+		memset(&self.error, 0, sizeof(self.error));
+		self.error.stage = (uint32_t)1;
+		self.error.domain = (uint32_t)1;
+		self.error.native_code = (uint32_t)1;
+		self.error.ownership_state = self.active != NULL || self.directory != NULL ? (uint32_t)1 : (uint32_t)0;
+		return false;
+	}
+
+	/* Win32 FILE/PATH_NOT_FOUND and NT OBJECT_NAME/PATH_NOT_FOUND, preserved
+	 * in their original error domains. Refusal and access denial are not absence. */
+	public bool missing() { return self.error.stage == (uint32_t)17 && ((self.error.domain == (uint32_t)2 && (self.error.native_code == (uint32_t)2 || self.error.native_code == (uint32_t)3)) || (self.error.domain == (uint32_t)3 && (self.error.native_code == (uint32_t)0xc0000034U || self.error.native_code == (uint32_t)0xc000003aU))); }
+
+	public bool open(string path, bool create = false) {
+		if (self.directory != NULL || self.active != NULL || !self.usable()) { return false; }
+		if (path == null || path.isEmpty()) { return self.invalid(); }
+		return __btrc_windows_daemon_directory_open((unsigned char*)path, strlen(path), create ? (uint32_t)1 : (uint32_t)0, &self.directory, &self.error) == 0;
+	}
+
+	/* Preserve the operation error after successful cleanup. A close failure
+	 * instead reports cleanup and retains the opaque owner, without a retry. */
+	private bool finish(bool succeeded) {
+		if (self.active == NULL) { return succeeded; }
+		if (!self.usable()) { return false; }
+		__btrc_windows_launch_error_t prior = self.error;
+		if (__btrc_windows_daemon_file_close(&self.active, &self.error) != 0) {
+			self.failedClose = true;
+			return false;
+		}
+		self.error = prior;
+		return succeeded;
+	}
+
+	public bool close() {
+		if (!self.usable() || !self.finish(true)) { return false; }
+		__btrc_windows_launch_error_t prior = self.error;
+		if (__btrc_windows_daemon_file_close(&self.directory, &self.error) != 0) {
+			self.failedClose = true;
+			return false;
+		}
+		self.error = prior;
+		return true;
+	}
+
+	public string next(bool restart, __btrc_windows_daemon_directory_entry* identity) {
+		if (!self.ready()) { return ""; }
+		size_t required = (size_t)0;
+		if (__btrc_windows_daemon_directory_next(self.directory, restart ? (uint32_t)1 : (uint32_t)0, NULL, (size_t)0, &required, identity, &self.error) != 0) { return ""; }
+		if (identity->present == (uint32_t)0) { return ""; }
+		if (required < (size_t)2 || required > (size_t)1048576) {
+			self.invalid();
+			return "";
+		}
+		char* name = (char*)__btrc_safe_realloc(NULL, required);
+		if (__btrc_windows_daemon_directory_next(self.directory, (uint32_t)0, (unsigned char*)name, required, &required, identity, &self.error) != 0) {
+			free(name);
+			return "";
+		}
+		return __btrc_string_adopt(name);
+	}
+
+	private string readActive() {
+		unsigned char bytes[129];
+		size_t used = (size_t)0;
+		while (used < (size_t)129) {
+			size_t count = (size_t)0;
+			if (__btrc_windows_daemon_file_read(self.active, (uint64_t)used, bytes + used, (size_t)129 - used, &count, &self.error) != 0) { return ""; }
+			if (count == (size_t)0) { break; }
+			used = used + count;
+		}
+		if (used == (size_t)0 || used > (size_t)128 || memchr(bytes, 0, used) != NULL) {
+			self.invalid();
+			return "";
+		}
+		char* text = (char*)__btrc_safe_realloc(NULL, used + (size_t)1);
+		memcpy(text, bytes, used);
+		text[used] = '\0';
+		return __btrc_string_adopt(text);
+	}
+
+	public string read(string name, __btrc_windows_daemon_directory_entry* expected) {
+		if (!self.ready()) { return ""; }
+		if (name == null || name.isEmpty()) {
+			self.invalid();
+			return "";
+		}
+		if (__btrc_windows_daemon_control_open_at(self.directory, (unsigned char*)name, strlen(name), (uint32_t)0, expected, &self.active, &self.error) != 0) {
+			self.finish(false);
+			return "";
+		}
+		string content = self.readActive();
+		return self.finish(self.error.stage == (uint32_t)0) ? content : "";
+	}
+
+	public bool create(string name, string content, __btrc_windows_daemon_directory_entry* identity) {
+		if (!self.ready()) { return false; }
+		if (identity != NULL) { memset(identity, 0, sizeof(*identity)); }
+		if (name == null || name.isEmpty() || content == null || content.isEmpty() || content.len() > 128 || identity == NULL) { return self.invalid(); }
+		if (__btrc_windows_daemon_control_open_at(self.directory, (unsigned char*)name, strlen(name), (uint32_t)1, NULL, &self.active, &self.error) != 0) { return self.finish(false); }
+		__btrc_windows_daemon_directory_entry created;
+		bool complete = __btrc_windows_daemon_file_identity(self.active, &created, &self.error) == 0;
+		size_t size = strlen(content);
+		size_t offset = (size_t)0;
+		while (complete && offset < size) {
+			size_t count = (size_t)0;
+			complete = __btrc_windows_daemon_file_write(self.active, (uint64_t)offset, (unsigned char*)content + offset, size - offset, &count, &self.error) == 0;
+			if (complete && count == (size_t)0) { complete = self.invalid(); }
+			offset = offset + count;
+		}
+		if (complete) { complete = __btrc_windows_daemon_file_flush(self.active, &self.error) == 0; }
+		if (!complete && self.usable()) {
+			__btrc_windows_launch_error_t prior = self.error;
+			uint32_t disposition = (uint32_t)0;
+			if (__btrc_windows_daemon_file_dispose(self.active, &disposition, &self.error) == 0) { self.error = prior; }
+		}
+		if (!self.finish(complete)) { return false; }
+		*identity = created;
+		return true;
+	}
+
+	/* A remove holds read/delete authority throughout content comparison and
+	 * disposition. It never turns a snapshot or an old path into authority. */
+	public bool remove(string name, __btrc_windows_daemon_directory_entry* expected, string content) {
+		if (!self.ready()) { return false; }
+		if (name == null || name.isEmpty() || expected == NULL || content == null) { return self.invalid(); }
+		if (__btrc_windows_daemon_control_open_at(self.directory, (unsigned char*)name, strlen(name), (uint32_t)2, expected, &self.active, &self.error) != 0) { return self.finish(false); }
+		string current = self.readActive();
+		if (self.error.stage != (uint32_t)0) { return self.finish(false); }
+		if (!current.equals(content)) { return self.finish(self.invalid()); }
+		uint32_t disposition = (uint32_t)0;
+		bool disposed = __btrc_windows_daemon_file_dispose(self.active, &disposition, &self.error) == 0;
+		return self.finish(disposed);
+	}
+}

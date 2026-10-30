@@ -104,6 +104,7 @@ int main() {
     status += __btrc_windows_daemon_directory_next(directory, 0, buffer, 32, &count, &entry, &error);
     status += __btrc_windows_daemon_control_open(NULL, 0, 0, &file, &error);
     status += __btrc_windows_daemon_control_open_at(directory, buffer, count, 0, &entry, &file, &error);
+    status += __btrc_windows_daemon_file_identity(file, &entry, &error);
     status += __btrc_windows_daemon_file_read(file, 0, buffer, 32, &count, &error);
     status += __btrc_windows_daemon_file_write(file, 0, buffer, count, &count, &error);
     status += __btrc_windows_daemon_file_flush(file, &error);

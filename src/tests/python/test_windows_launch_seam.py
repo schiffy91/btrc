@@ -386,6 +386,7 @@ def test_the_windows_harness_exercises_every_seam_section():
             "__btrc_windows_launch_result_t",
         ),
         "__btrc_windows_launch": ("__btrc_windows_launch(",),
+        "__btrc_windows_daemon_file_identity": ("__btrc_windows_daemon_file_identity(",),
         "__btrc_windows_launch_wait": ("__btrc_windows_launch_wait(",),
         "__btrc_windows_launch_copy_output": ("__btrc_windows_launch_copy_output(",),
         "__btrc_windows_launch_terminate": ("__btrc_windows_launch_terminate(",),
