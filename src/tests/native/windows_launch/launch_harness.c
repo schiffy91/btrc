@@ -64,6 +64,16 @@ static void report(const char *format, ...) {
     }
 }
 
+/* Setup failures must reach the uncaptured stream even before a CHECK fails.
+ * last_error is captured at the call site; it is diagnostic state, not a claim
+ * that every failed predicate was a Win32 call. */
+static void fixture_failure(const char *function, int line, DWORD last_error) {
+    fprintf(stderr, "FAIL fixture %s:%d checks=%d failures=%d last-win32-error=%lu\n",
+        function, line, checks, failures, (unsigned long)last_error);
+    fflush(stderr);
+    ExitProcess(3);
+}
+
 /* Test-only handle-table diagnostics. ProcessHandleInformation (51) and its
  * layout follow https://github.com/winsiderss/phnt/blob/master/ntpsapi.h.
  * Query only this process and object types; object-name queries can block on
@@ -1134,7 +1144,7 @@ static void check_bootstrap_pipes(void) {
         DWORD joined = WaitForSingleObject(thread, 3000);
         CHECK("bootstrap writer completes", joined == WAIT_OBJECT_0 && fragments.status == 0);
         /* Never release thread-borrowed owner/stack storage while it is live. */
-        if (joined != WAIT_OBJECT_0) ExitProcess(3);
+        if (joined != WAIT_OBJECT_0) fixture_failure(__func__, __LINE__, GetLastError());
         CloseHandle(thread);
         bootstrap_close(&reader);
         bootstrap_close(&writer);
@@ -1603,11 +1613,11 @@ static int admission_read(HANDLE pipe, unsigned char *bytes, DWORD size) {
     OVERLAPPED operation;
     memset(&operation, 0, sizeof(operation));
     operation.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
-    if (operation.hEvent == NULL) ExitProcess(3);
+    if (operation.hEvent == NULL) fixture_failure(__func__, __LINE__, GetLastError());
     DWORD received = 0;
     BOOL read = ReadFile(pipe, bytes, size, &received, &operation);
     if (!read && GetLastError() == ERROR_IO_PENDING) {
-        if (WaitForSingleObject(operation.hEvent, 3000) != WAIT_OBJECT_0) ExitProcess(3);
+        if (WaitForSingleObject(operation.hEvent, 3000) != WAIT_OBJECT_0) fixture_failure(__func__, __LINE__, GetLastError());
         read = GetOverlappedResult(pipe, &operation, &received, FALSE);
     }
     CloseHandle(operation.hEvent);
@@ -1632,7 +1642,7 @@ static void check_bootstrap_admission(void) {
         char directory_text[4096] = { 0 }, log_text[4096] = { 0 }, control_text[4096] = { 0 }, marker_text[4096] = { 0 };
         if (scenario >= 13) {
             wchar_t temporary[1024];
-            if (!GetTempPathW(1024, temporary)) ExitProcess(3);
+            if (!GetTempPathW(1024, temporary)) fixture_failure(__func__, __LINE__, GetLastError());
             swprintf(prepared_directory, 1200, L"%lsbtrc-prepare-%lu-%d", temporary, (unsigned long)GetCurrentProcessId(), scenario);
             swprintf(prepared_log, 1300, L"%ls\\worker.log", prepared_directory);
             swprintf(prepared_control, 1300, L"%ls\\worker.control", prepared_directory);
@@ -1640,7 +1650,7 @@ static void check_bootstrap_admission(void) {
                     || daemon_fixture_file(prepared_log, "preserved\n", descriptor) != 0
                     || to_utf8(prepared_directory, directory_text, 4096) != 0
                     || to_utf8(prepared_log, log_text, 4096) != 0
-                    || to_utf8(prepared_control, control_text, 4096) != 0) ExitProcess(3);
+                    || to_utf8(prepared_control, control_text, 4096) != 0) fixture_failure(__func__, __LINE__, GetLastError());
             snprintf(marker_text, sizeof(marker_text), "%s\\managed", directory_text);
         }
         HANDLE handles[7] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL };
@@ -1666,7 +1676,7 @@ static void check_bootstrap_admission(void) {
         for (size_t index = 0; index < 7; index++)
             if (handles[index] == NULL || handles[index] == INVALID_HANDLE_VALUE) valid = 0;
         CHECK("admission fixture opens all handles", valid);
-        if (!valid) ExitProcess(3);
+        if (!valid) fixture_failure(__func__, __LINE__, GetLastError());
         CHECK("admission fixture marks request inheritable", SetHandleInformation(handles[0], HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT));
         CHECK("admission fixture marks reply inheritable", SetHandleInformation(handles[3], HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT));
         HANDLE inherited[5] = { handles[0], handles[3], handles[4], handles[5], handles[6] };
@@ -1675,16 +1685,16 @@ static void check_bootstrap_admission(void) {
         if (scenario == 2) reply = request;
         if (scenario == 3) request = (uintptr_t)handles[4];
         wchar_t self[1024], command[2048];
-        if (to_wide(self_utf8, self, 1024) != 0) ExitProcess(3);
+        if (to_wide(self_utf8, self, 1024) != 0) fixture_failure(__func__, __LINE__, GetLastError());
         swprintf(command, 2048, L"\"%ls\" --btrc-daemon-bootstrap-v1 %ls%llu %llu%ls",
             scenario == 8 ? L"C:\\wrong-image.exe" : self, scenario == 6 ? L"0" : L"",
             (unsigned long long)request, (unsigned long long)reply, scenario == 7 ? L" extra" : L"");
         SIZE_T size = 0;
         InitializeProcThreadAttributeList(NULL, 1, 0, &size);
         LPPROC_THREAD_ATTRIBUTE_LIST attributes = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(size);
-        if (attributes == NULL || !InitializeProcThreadAttributeList(attributes, 1, 0, &size)) ExitProcess(3);
+        if (attributes == NULL || !InitializeProcThreadAttributeList(attributes, 1, 0, &size)) fixture_failure(__func__, __LINE__, GetLastError());
         if (!UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-                inherited, sizeof(inherited), NULL, NULL)) ExitProcess(3);
+                inherited, sizeof(inherited), NULL, NULL)) fixture_failure(__func__, __LINE__, GetLastError());
         STARTUPINFOEXW startup;
         memset(&startup, 0, sizeof(startup));
         startup.StartupInfo.cb = sizeof(startup);
@@ -1700,7 +1710,7 @@ static void check_bootstrap_admission(void) {
         CHECK("admission fixture starts isolated supervisor", launched);
         DeleteProcThreadAttributeList(attributes);
         free(attributes);
-        if (!launched) ExitProcess(3);
+        if (!launched) fixture_failure(__func__, __LINE__, GetLastError());
         CloseHandle(process.hThread);
         /* Parent keeps only its own request writer and reply reader. */
         for (size_t index = 0; index < 7; index++) {
@@ -1807,7 +1817,7 @@ static void check_bootstrap_admission(void) {
         CHECK("admission or refusal completes within deadline", waited == WAIT_OBJECT_0);
         if (waited != WAIT_OBJECT_0) {
             TerminateProcess(process.hProcess, 90);
-            if (WaitForSingleObject(process.hProcess, 1000) != WAIT_OBJECT_0) ExitProcess(3);
+            if (WaitForSingleObject(process.hProcess, 1000) != WAIT_OBJECT_0) fixture_failure(__func__, __LINE__, GetLastError());
         }
         DWORD exit_code = 0;
         GetExitCodeProcess(process.hProcess, &exit_code);
@@ -1823,7 +1833,7 @@ static void check_bootstrap_admission(void) {
             unsigned char byte = 0;
             BOOL read = ReadFile(handles[2], &byte, 1, &got, &operation);
             if (!read && GetLastError() == ERROR_IO_PENDING) {
-                if (WaitForSingleObject(operation.hEvent, 1000) != WAIT_OBJECT_0) ExitProcess(3);
+                if (WaitForSingleObject(operation.hEvent, 1000) != WAIT_OBJECT_0) fixture_failure(__func__, __LINE__, GetLastError());
                 read = GetOverlappedResult(handles[2], &operation, &got, FALSE);
             }
             CHECK("supervisor close releases the sole reply writer", !read && got == 0 && GetLastError() == ERROR_BROKEN_PIPE);
@@ -1897,7 +1907,7 @@ static int daemon_fixture_file(const wchar_t *path, const char *contents, void *
 
 static void check_directory_record_bounds(void) {
     BtrcWinDirectoryCursor *cursor = (BtrcWinDirectoryCursor *)btrcWinDirectoryOpen(GetCurrentProcess());
-    if (cursor == NULL) ExitProcess(3);
+    if (cursor == NULL) fixture_failure(__func__, __LINE__, GetLastError());
     for (int scenario = 0; scenario < 7; scenario++) {
         memset(cursor->buffer, 0, cursor->capacity);
         btrcWinDirectoryRestart(cursor);
@@ -1950,12 +1960,12 @@ static void check_daemon_directory_entries(const wchar_t *parent, void *descript
     swprintf(original, 1500, L"%ls\\probe-\u00e9", path);
     swprintf(additional, 1500, L"%ls\\another", path);
     char path_utf8[5600];
-    if (to_utf8(path, path_utf8, sizeof(path_utf8)) != 0) ExitProcess(3);
+    if (to_utf8(path, path_utf8, sizeof(path_utf8)) != 0) fixture_failure(__func__, __LINE__, GetLastError());
     __btrc_windows_daemon_file_owner *directory = NULL;
     __btrc_windows_launch_error_t error;
     CHECK("enumeration fixture creates a private held directory",
         __btrc_windows_daemon_directory_open((const unsigned char *)path_utf8, strlen(path_utf8), 1, &directory, &error) == 0);
-    if (directory == NULL) ExitProcess(3);
+    if (directory == NULL) fixture_failure(__func__, __LINE__, GetLastError());
     __btrc_windows_daemon_directory_entry entry, zero, queried;
     memset(&zero, 0, sizeof(zero));
     unsigned char name[128]; memset(name, 0xA5, sizeof(name));
@@ -2091,7 +2101,7 @@ static void check_daemon_files(void) {
     CHECK("daemon files initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
     wchar_t temporary[1024], directory[1200], moved[1220], log[1300], record[1300], alias[1300];
     DWORD length = GetTempPathW(1024, temporary);
-    if (length == 0 || length >= 1024) ExitProcess(3);
+    if (length == 0 || length >= 1024) fixture_failure(__func__, __LINE__, GetLastError());
     swprintf(directory, 1200, L"%lsbtrc-daemon-files-%lu", temporary, (unsigned long)GetCurrentProcessId());
     swprintf(moved, 1220, L"%ls-moved", directory);
     swprintf(log, 1300, L"%ls\\test.log", directory);
@@ -2099,12 +2109,12 @@ static void check_daemon_files(void) {
     swprintf(alias, 1300, L"%ls\\alias", directory);
     void *directory_descriptor = NULL, *file_descriptor = NULL;
     if (btrcWinPrivateDescriptor(1, &directory_descriptor) != 0
-            || btrcWinPrivateDescriptor(0, &file_descriptor) != 0) ExitProcess(3);
+            || btrcWinPrivateDescriptor(0, &file_descriptor) != 0) fixture_failure(__func__, __LINE__, GetLastError());
     SECURITY_ATTRIBUTES attributes = { sizeof(attributes), directory_descriptor, FALSE };
     char directory_utf8[5200], log_utf8[5200], record_utf8[5200];
     if (to_utf8(directory, directory_utf8, sizeof(directory_utf8)) != 0
             || to_utf8(log, log_utf8, sizeof(log_utf8)) != 0
-            || to_utf8(record, record_utf8, sizeof(record_utf8)) != 0) ExitProcess(3);
+            || to_utf8(record, record_utf8, sizeof(record_utf8)) != 0) fixture_failure(__func__, __LINE__, GetLastError());
     __btrc_windows_daemon_file_owner *held = NULL;
     __btrc_windows_launch_error_t error;
     CHECK("directory inspection never creates a missing leaf",
@@ -2118,7 +2128,7 @@ static void check_daemon_files(void) {
     CHECK("private leaf creation works beneath an ordinary temporary root",
         __btrc_windows_daemon_directory_open((const unsigned char *)directory_utf8, strlen(directory_utf8),
             1, &held, &error) == 0 && held != NULL);
-    if (held == NULL) ExitProcess(3);
+    if (held == NULL) fixture_failure(__func__, __LINE__, GetLastError());
     CHECK("held private directory cannot be renamed", !MoveFileW(directory, moved));
     size_t path_size = 0, repeated_size = 0, directory_io = 99;
     unsigned char canonical[5400] = { 0 }, too_small[2] = { 0xA5, 0xA5 };
@@ -2162,7 +2172,7 @@ static void check_daemon_files(void) {
     wchar_t nested[1300];
     swprintf(nested, 1300, L"%ls\\namespace-\u00e9", directory);
     char nested_utf8[5400];
-    if (to_utf8(nested, nested_utf8, sizeof(nested_utf8)) != 0) ExitProcess(3);
+    if (to_utf8(nested, nested_utf8, sizeof(nested_utf8)) != 0) fixture_failure(__func__, __LINE__, GetLastError());
     CHECK("private directory creation preserves Unicode names",
         __btrc_windows_daemon_directory_open((const unsigned char *)nested_utf8, strlen(nested_utf8),
             1, &held, &error) == 0 && held != NULL);
@@ -2342,12 +2352,12 @@ static void check_transfer_launch(int parent_contained) {
     CHECK("transfer initial handle census", GetProcessHandleCount(GetCurrentProcess(), &before));
     wchar_t self[1024], temporary[1024], other_path[MAX_PATH];
     if (to_wide(self_utf8, self, 1024) != 0 || !GetTempPathW(1024, temporary)
-            || !GetTempFileNameW(temporary, L"btr", 0, other_path)) ExitProcess(3);
+            || !GetTempFileNameW(temporary, L"btr", 0, other_path)) fixture_failure(__func__, __LINE__, GetLastError());
     HANDLE image = CreateFileW(self, FILE_READ_DATA | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
         NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
     HANDLE other = CreateFileW(other_path, FILE_READ_DATA | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
         NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-    if (image == INVALID_HANDLE_VALUE || other == INVALID_HANDLE_VALUE) ExitProcess(3);
+    if (image == INVALID_HANDLE_VALUE || other == INVALID_HANDLE_VALUE) fixture_failure(__func__, __LINE__, GetLastError());
     for (int scenario = 0; scenario < 8; scenario++) {
         unsigned char nonces[32] = { 0 };
         DWORD caller = GetCurrentProcessId();
@@ -2372,10 +2382,10 @@ static void check_transfer_launch(int parent_contained) {
         CHECK("transfer creates a suspended, verified supervisor", opened == 0 && owner != NULL
             && pid > 1 && lifetime <= 1 && btrc_wos_transfer_request(owner) != NULL
             && btrc_wos_transfer_reply(owner) != NULL);
-        if (opened != 0) ExitProcess(3);
+        if (opened != 0) fixture_failure(__func__, __LINE__, GetLastError());
         if (parent_contained) CHECK("restrictive parent job forces contained lifetime", lifetime == 1);
         HANDLE observer = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, FALSE, pid);
-        if (observer == NULL) ExitProcess(3);
+        if (observer == NULL) fixture_failure(__func__, __LINE__, GetLastError());
         CHECK("suspended supervisor is alive", WaitForSingleObject(observer, 0) == WAIT_TIMEOUT);
         CHECK("COMMIT cannot precede resume", btrc_wos_transfer_begin_commit(owner, deadline, &error) != 0
             && error.ownership_state == 1);
@@ -2392,14 +2402,14 @@ static void check_transfer_launch(int parent_contained) {
         char directory_text[4096], log_text[4096], control_text[4096];
         if (scenario == 4 || scenario == 5 || scenario == 7) {
             void *descriptor = NULL;
-            if (btrcWinPrivateDescriptor(0, &descriptor) != 0) ExitProcess(3);
+            if (btrcWinPrivateDescriptor(0, &descriptor) != 0) fixture_failure(__func__, __LINE__, GetLastError());
             SECURITY_ATTRIBUTES security = { sizeof(security), descriptor, FALSE };
             swprintf(directory, 1200, L"%lsbtrc-transfer-%lu-%d", temporary, (unsigned long)caller, scenario);
             swprintf(log, 1300, L"%ls\\worker.log", directory);
             swprintf(control, 1300, L"%ls\\worker.control", directory);
             if (!CreateDirectoryW(directory, &security) || daemon_fixture_file(log, "", descriptor) != 0
                     || to_utf8(directory, directory_text, 4096) != 0
-                    || to_utf8(log, log_text, 4096) != 0 || to_utf8(control, control_text, 4096) != 0) ExitProcess(3);
+                    || to_utf8(log, log_text, 4096) != 0 || to_utf8(control, control_text, 4096) != 0) fixture_failure(__func__, __LINE__, GetLastError());
             free(descriptor);
             btrc_daemon_init init;
             memset(&init, 0, sizeof(init));
@@ -2423,7 +2433,7 @@ static void check_transfer_launch(int parent_contained) {
             btrc_wos_startup_snapshot *snapshot = NULL;
             int copied = btrc_wos_startup_snapshot_open(&command, &init, &snapshot, &error);
             CHECK("real transfer copies complete command snapshot", copied == 0);
-            if (copied != 0) ExitProcess(3);
+            if (copied != 0) fixture_failure(__func__, __LINE__, GetLastError());
             CHECK("production transfer delivers INIT", btrc_wos_bootstrap_send_init(btrc_wos_transfer_request(owner),
                 &state, btrc_wos_startup_snapshot_get(snapshot), deadline, &error) == 0);
             btrc_wos_startup_snapshot_close(&snapshot);
@@ -2437,7 +2447,7 @@ static void check_transfer_launch(int parent_contained) {
                 CHECK("real transfer authenticates READY", ready == 0 && message.frame.type == BTRC_DAEMON_READY
                     && message.frame.supervisor_pid == pid && message.frame.lifetime == lifetime);
                 btrc_wos_bootstrap_message_release(&message);
-                if (ready != 0) ExitProcess(3);
+                if (ready != 0) fixture_failure(__func__, __LINE__, GetLastError());
                 if (scenario == 7) {
                     CHECK("expired COMMIT leaves rollback enabled", btrc_wos_transfer_begin_commit(owner,
                         GetTickCount64(), &error) != 0 && error.native_code == ERROR_TIMEOUT && error.ownership_state == 1);
@@ -2502,7 +2512,7 @@ static void check_transfer_snapshot(void) {
     swprintf(removed, 100, L"BTRC_REMOVED_%lu", (unsigned long)GetCurrentProcessId());
     if (GetEnvironmentVariableW(key, NULL, 0) != 0 || GetEnvironmentVariableW(removed, NULL, 0) != 0
             || to_utf8(key, key_text, 100) != 0 || to_utf8(removed, removed_text, 100) != 0
-            || !SetEnvironmentVariableW(key, L"inherited") || !SetEnvironmentVariableW(removed, L"remove-me")) ExitProcess(3);
+            || !SetEnvironmentVariableW(key, L"inherited") || !SetEnvironmentVariableW(removed, L"remove-me")) fixture_failure(__func__, __LINE__, GetLastError());
     snprintf(original, sizeof(original), "%s=inherited", key_text);
     snprintf(replacement, sizeof(replacement), "%s=override", key_text);
     char name[] = "snapshot", argument[] = "two words", cwd[] = ".";
@@ -2521,7 +2531,7 @@ static void check_transfer_snapshot(void) {
     __btrc_windows_launch_error_t error;
     CHECK("snapshot merges overrides and unsets", btrc_wos_startup_snapshot_open(&command, &startup, &owner, &error) == 0);
     const btrc_daemon_init *snapshot = btrc_wos_startup_snapshot_get(owner);
-    if (snapshot == NULL) ExitProcess(3);
+    if (snapshot == NULL) fixture_failure(__func__, __LINE__, GetLastError());
     CHECK("snapshot retains effective override", snapshot_entry(snapshot, replacement) && !snapshot_entry(snapshot, original));
     snprintf(original, sizeof(original), "%s=remove-me", removed_text);
     CHECK("snapshot removes requested environment entry", !snapshot_entry(snapshot, original));
@@ -2530,11 +2540,11 @@ static void check_transfer_snapshot(void) {
         && wcscmp(retained, L"inherited") == 0 && GetEnvironmentVariableW(removed, retained, 32) != 0
         && wcscmp(retained, L"remove-me") == 0);
     wchar_t current[4096]; char current_text[16384];
-    if (!GetCurrentDirectoryW(4096, current) || to_utf8(current, current_text, 16384) != 0) ExitProcess(3);
+    if (!GetCurrentDirectoryW(4096, current) || to_utf8(current, current_text, 16384) != 0) fixture_failure(__func__, __LINE__, GetLastError());
     CHECK("snapshot resolves relative cwd before launch", snapshot->cwd.size == strlen(current_text)
         && memcmp(snapshot->cwd.data, current_text, snapshot->cwd.size) == 0);
     name[0] = 'X'; argument[0] = 'X'; replacement[0] = 'X'; startup.token[0] = 0;
-    if (!SetEnvironmentVariableW(key, L"changed-after-snapshot")) ExitProcess(3);
+    if (!SetEnvironmentVariableW(key, L"changed-after-snapshot")) fixture_failure(__func__, __LINE__, GetLastError());
     snprintf(original, sizeof(original), "%s=override", key_text);
     CHECK("snapshot owns strings, token and environment", snapshot->token[0] == 0xA3
         && snapshot->name.size == 8 && memcmp(snapshot->name.data, "snapshot", 8) == 0
@@ -2547,7 +2557,7 @@ static void check_transfer_snapshot(void) {
     argument[0] = (char)0xFF;
     CHECK("snapshot rejects invalid argv bytes", btrc_wos_startup_snapshot_open(&command, &startup, &owner, &error) != 0
         && owner == NULL && error.ownership_state == 0);
-    if (!SetEnvironmentVariableW(key, NULL) || !SetEnvironmentVariableW(removed, NULL)) ExitProcess(3);
+    if (!SetEnvironmentVariableW(key, NULL) || !SetEnvironmentVariableW(removed, NULL)) fixture_failure(__func__, __LINE__, GetLastError());
     SecureZeroMemory(&startup, sizeof(startup));
 }
 
@@ -2597,7 +2607,7 @@ int main(int argc, char **argv) {
     }
     if (argc >= 2) return child(argc, argv);
     DWORD temp_length = GetTempPathW(1024, temp_root);
-    if (temp_length == 0 || temp_length >= 1000) return 3;
+    if (temp_length == 0 || temp_length >= 1000) fixture_failure(__func__, __LINE__, GetLastError());
     check_bootstrap_pipes();
     check_bootstrap_exchange();
     check_bootstrap_admission();
