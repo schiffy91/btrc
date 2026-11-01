@@ -2601,3 +2601,25 @@ plan in both frontends. Keep the original IR lists, nested callback discovery,
 named-alias dependencies and duplicate-provider validation intact. Dependencies
 still determine which declarations can be emitted. Require paired strict and
 sanitized native output, the full application comparison, and final gates.
+
+
+### 2026-10-24: collection literal evaluation order (Codex follow-up)
+
+Owned paths: `src/compiler/btrc/ir/lowering/Expressions.btrc`,
+`src/compiler/btrc/ir/lowering/ownership/Calls.btrc` if its typed API needs
+extending, and `src/tests/python/test_module_units.py`. Base: `3887a8be`.
+
+A portable reduction exposes different constructor, element and insertion
+orders for Vector and Map literals. All twelve whole-program/module cases
+compile and run through both frontends in strict and sanitizer modes, but their
+traces differ. Throwing elements and constructors also expose different work
+before the exception. Python stages the literal's leaves before construction;
+the self-hosted compiler constructs first and evaluates each insertion's
+operands separately.
+
+Use the existing typed operand and ownership boundary owners to preserve
+source-order leaf evaluation before collection construction. Keep prepared
+storage types, borrowed-value protection, owned-result cleanup and exception
+unwinding. Add tracked baseline cases before production edits, then check
+managed elements, throwing leaves, constructor failures, whole/module C parity,
+and the remaining application differences. Final integration gates still apply.
