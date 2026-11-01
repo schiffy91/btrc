@@ -4799,3 +4799,13 @@ it does not change the ordinary E40 matrix or establish an ARM runtime fix.
 All 123 workflow contracts pass after adapting the prerequisite comparison to
 the selected host. The first contract run caught that comparison's old fixed
 architecture assumption; it was corrected before dispatch.
+
+Intel E40 diagnostic `41352946168` stopped before any compiler build or native
+trial: Determinate Nix 3.21.5 explicitly rejects Intel macOS and its installer
+URL returned 404. The diagnostic now selects Cachix install-nix-action
+`13d8dd58da0234aa297dedd986986ccb8e7f3e24` (v31.11.1) on Intel only, with the
+official Nix 2.35.2 installer. That action tests `macos-15-intel`; the pinned
+installer contains the Intel archive digest and the archive URL returned 200.
+ARM diagnostics retain their existing installer. The repository flake already
+exports `x86_64-darwin`. Workflow contracts passed 123 tests; Ruff, formatting
+and diff checks pass. No E40 result is attributed to the failed setup run.

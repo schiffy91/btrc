@@ -2274,6 +2274,14 @@ def test_mac_loop_diagnostic_is_opt_in_and_preserves_exact_native_trials() -> No
     assert "needs" not in job and "strategy" not in job
     assert job["runs-on"] == "${{ inputs.diagnostic_runner || 'macos-15' }}"
     assert job["timeout-minutes"] == "30"
+    installers = {step["uses"].split("@")[0]: step for step in job["steps"] if "nix-action@" in step.get("uses", "")}
+    assert installers["DeterminateSystems/determinate-nix-action"]["if"] == (
+        "inputs.diagnostic_runner != 'macos-15-intel'"
+    )
+    assert installers["cachix/install-nix-action"]["if"] == "inputs.diagnostic_runner == 'macos-15-intel'"
+    assert installers["cachix/install-nix-action"]["with"]["install_url"] == (
+        "https://releases.nixos.org/nix/nix-2.35.2/install"
+    )
     reader = next(step["run"] for step in job["steps"] if step.get("name") == "Build the native header reader")
     assert "inputs.diagnostic_runner == 'macos-15-intel' && 'x86_64' || 'arm64'" in reader
     run = next(
