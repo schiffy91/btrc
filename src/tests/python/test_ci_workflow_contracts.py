@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.abi.generated import TARGET_ROWS
 from tools.qualification.tiers import MANIFEST as TIER_MANIFEST
 from tools.qualification.tiers import TierManifest
 
@@ -1849,13 +1850,19 @@ def test_windows_runtime_dispatch_requires_native_execution_without_compiler_bui
         "github.event_name == 'workflow_dispatch' && "
         "(inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime')"
     )
+    windows_targets = {
+        row.zig_target: row.label
+        for row in TARGET_ROWS
+        if row.operating_system == "windows" and row.environment == "gnu"
+    }
+    assert {row["target"]: row["label"] for row in runtime["strategy"]["matrix"]["include"]} == windows_targets
     assert runtime["strategy"]["matrix"]["include"] == [
         {
             "runner": "windows-latest",
             "architecture": "X64",
             "target": "x86_64-windows-gnu",
             "python": "x64",
-            "label": "windows-x64",
+            "label": "windows-x86_64",
         },
         {
             "runner": "windows-11-arm",
