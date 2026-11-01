@@ -2331,12 +2331,23 @@ def test_windows_user_census_diagnostic_is_manual_and_separate():
     }
     cache = cache_steps["user-census-build"]
     assert cache["uses"] == "DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d"
-    assert cache["with"] == {"use-flakehub": "false", "use-gha-cache": "false"}
-    assert all("use-gha-cache" not in step["with"] for name, step in cache_steps.items() if name != "user-census-build")
+    assert cache["with"] == {"use-flakehub": "false"}
+    assert cache["timeout-minutes"] == "2" and cache["continue-on-error"] == "true"
+    assert all("use-gha-cache" not in step["with"] for step in cache_steps.values())
+    assert all(
+        "timeout-minutes" not in step and "continue-on-error" not in step
+        for name, step in cache_steps.items()
+        if name != "user-census-build"
+    )
     for name, stage in (("user-census-build", "build"), ("user-census-diagnostic", "run")):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         assert f"tools.ui.windows_user_diagnostic {stage}" in commands
         assert "--repeat" not in commands
+        assert all(
+            "continue-on-error" not in step
+            for step in jobs[name]["steps"]
+            if "tools.ui.windows_user_diagnostic" in step.get("run", "")
+        )
         uploads = [step for step in jobs[name]["steps"] if "actions/upload-artifact@" in step.get("uses", "")]
         assert uploads and all(step.get("if") == "always()" for step in uploads)
 
