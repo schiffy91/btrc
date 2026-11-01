@@ -1839,6 +1839,47 @@ def test_windows_arm64_lane_keeps_cross_and_native_qualification_separate() -> N
     assert set(evidence["with"]["path"].splitlines()) == {"build/windows-arm64-native", "build/windows-arm64-msvc"}
 
 
+def test_windows_runtime_dispatch_requires_native_execution_without_compiler_builds() -> None:
+    workflow = _parsed("windows-arm64.yml")
+    jobs = workflow["jobs"]
+    runtime = jobs["daemon-runtime"]
+    assert jobs["cross"]["if"] == "github.event_name != 'workflow_dispatch' || inputs.focus == 'full'"
+    assert "needs" not in runtime
+    assert runtime["if"] == (
+        "github.event_name == 'workflow_dispatch' && "
+        "(inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime')"
+    )
+    assert runtime["strategy"]["matrix"]["include"] == [
+        {
+            "runner": "windows-latest",
+            "architecture": "X64",
+            "target": "x86_64-windows-gnu",
+            "python": "x64",
+            "label": "windows-x64",
+        },
+        {
+            "runner": "windows-11-arm",
+            "architecture": "Arm64",
+            "target": "aarch64-windows-gnu",
+            "python": "arm64",
+            "label": "windows-aarch64",
+        },
+    ]
+    commands = "\n".join(step.get("run", "") for step in runtime["steps"])
+    assert "ProcessArchitecture.ToString() -ne '${{ matrix.architecture }}'" in commands
+    assert "Get-FileHash zig.zip -Algorithm SHA256" in commands
+    assert "-std=c11 -pedantic-errors -Wall -Wextra -Werror" in commands
+    assert "& ./build/windows-runtime/harness.exe @arguments" in commands
+    assert "windows-launch-seam PASS" in commands and "windows-bootstrap-io PASS" in commands
+    assert "src/tests/python/test_windows_daemon_image.py src/tests/python/test_windows_daemon_transfer.py" in commands
+    assert "-k '${{ matrix.label }} and native'" in commands
+    assert "len(t)==7" in commands and "('skipped','failure','error')" in commands
+    assert "btrcc" not in commands and "nix develop" not in commands
+    evidence = runtime["steps"][-2]
+    assert evidence["if"] == "always()" and evidence["uses"] == UPLOAD_ARTIFACT
+    assert evidence["with"]["path"] == "build/windows-runtime"
+
+
 def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     """CL-UIA-11: the GUI and audio suites under X11 and Wayland, on every push."""
 
