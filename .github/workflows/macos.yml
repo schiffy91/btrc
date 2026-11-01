@@ -20,6 +20,11 @@ on:
         type: choice
         options: [slider, resize]
         default: slider
+      diagnostic_runner:
+        description: Native host for the E40 diagnostic
+        type: choice
+        options: [macos-15, macos-15-intel]
+        default: macos-15
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
     inputs:
@@ -642,7 +647,7 @@ jobs:
   # It cannot qualify the 48-case matrix or replace its required jobs.
   macos-e40-diagnostic:
     if: github.event_name == 'workflow_dispatch' && inputs.focus == 'e40-diagnostic'
-    runs-on: macos-15
+    runs-on: ${{ inputs.diagnostic_runner || 'macos-15' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -656,7 +661,7 @@ jobs:
       - name: Build the native header reader
         run: |
           test "$(uname -s)" = Darwin
-          test "$(uname -m)" = arm64
+          test "$(uname -m)" = "${{ inputs.diagnostic_runner == 'macos-15-intel' && 'x86_64' || 'arm64' }}"
           reader="$(nix build .#btrc-native-header --out-link "$RUNNER_TEMP/btrc-native-header-root" --print-out-paths --print-build-logs)/bin/btrc-native-header"
           test -x "$reader"
           exported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)
