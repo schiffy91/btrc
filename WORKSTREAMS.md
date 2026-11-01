@@ -3,12 +3,10 @@
 **2026-10-07 consolidation (D29).** [PLAN.md](PLAN.md) is the sole active
 roadmap and queue for both roles. CLAUDE.md and CODEX.md are compatibility entry
 points. This file retains claims and protocol; historical split-file statements
-below are superseded by D29. The current session is authorized to implement and
-integrate after the required review and gates. No qualification bar is waived.
-Live post-consolidation blockers and queues are tracked in GitHub Issues
-[#108](https://github.com/schiffy91/btrc/issues/108) through
-[#113](https://github.com/schiffy91/btrc/issues/113), and historical October 7
-to 19 execution records live in
+below are superseded by D29. The owner’s 2026-11-01 direction in PLAN.md authorizes immediate consolidation
+into `main`, with pending qualification recorded separately. Architecture and
+acceptance criteria remain unchanged. Current work lives in
+[independently scoped GitHub issues](https://github.com/schiffy91/btrc/issues?q=is%3Aissue+is%3Aopen). Historical execution records live in
 [docs/design/claude-integration-record.md](docs/design/claude-integration-record.md).
 
 **Historical protocol status:** in force, 2026-10-03 (D27, §2); amended 2026-10-06 by D28. **Roadmap and decisions:** [PLAN.md](PLAN.md). **Rules every agent follows:** [AGENTS.md](AGENTS.md). **Provider queue:** [PLAN.md](PLAN.md#provider-implementation-queue).
@@ -4910,3 +4908,30 @@ preserves the failed outcome while allowing the optional step to conclude
 successfully. This bounds both cache setup and post-processing. The initially
 proposed `use-gha-cache: false` was replaced because it also disables restores.
 Both focused workflow contracts pass; Ruff, format and diff checks pass.
+
+
+### 2026-11-01 collection qualification and branch retirement
+
+The collection release and return-ownership repairs at `125668ea` are included
+in main `88a6736a`. All 127 focused checks passed without failures or skips:
+16 paired collection cases and 111 cache, ownership and architecture checks.
+The paired cases include 64 strict-C11 and ASan/UBSan executions, with exact C
+equality in whole-program and module modes. Coverage includes throwing and
+reentrant destructors, Vector and List returns, nullable returns, local try
+exits, returns without topology mutation, output identity, generic-demand
+invalidation and shared-store interchange.
+
+The Clang 21.1.8 O0 compiler's source receipt is
+`4872a0de706c334c2136c56d42715e3723e4d3c1e0e207dc95c8dc5334a363ea`;
+its binary SHA-256 is
+`ae376a8940fe93a5b8fd90661252ef1aaca4ccd3fb9763f74c3a06bad7575400`.
+Both were rechecked after testing. Evidence remains in the checked-override
+clone's `build/qualification/collection-return-final/`. Application parity and
+performance have separate, nonblocking qualification issues.
+
+All pre-consolidation branch claims are retired. GitHub and the 30 BTRC local
+repositories retain only `main` branches. Other worktrees were detached at their
+saved commits without changing source files. Recovery tags under
+`archive/2026-11-01/` retain all inventoried branch heads, four newly committed
+checkpoints and both stashes. Unrelated research and metadata repositories were
+excluded. New work follows the owner's direction in PLAN.md.

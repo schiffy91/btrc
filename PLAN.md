@@ -124,18 +124,13 @@ qualification still pending.
 
 ### Live issue tracker and 2026-10-21 repair batch
 
-Open post-consolidation blockers and queues are tracked in GitHub Issues on
-`schiffy91/btrc` so status updates, CI run links and agent handoffs use `gh issue`
-without dirtying the working tree or triggering markdown-gated CI runs. Historical
-October 7 to 19 execution records live in
-[docs/design/claude-integration-record.md](docs/design/claude-integration-record.md).
-
-- [#108](https://github.com/schiffy91/btrc/issues/108): `[G01/G04] Hosted Linux and macOS unit shard timeouts and macOS unit failures`
-- [#109](https://github.com/schiffy91/btrc/issues/109): `[G02] Hosted Linux GUI eight-partition qualification`
-- [#110](https://github.com/schiffy91/btrc/issues/110): `[G03] Hosted macOS E40 slider tracking and observation serialization`
-- [#111](https://github.com/schiffy91/btrc/issues/111): `[G06] Hosted iOS simulator and Android emulator two-compiler corpus qualification`
-- [#112](https://github.com/schiffy91/btrc/issues/112): `[G07] Final post-consolidation verification matrix across all platforms` (`G05` and `G09` closed)
-- [#113](https://github.com/schiffy91/btrc/issues/113): `[G08] Implement Windows service supervision and process containment (CX-P2-01-R2)`
+The old backlog was closed on 2026-11-01. Current work lives in
+[independently scoped GitHub issues](https://github.com/schiffy91/btrc/issues?q=is%3Aissue+is%3Aopen).
+Each bug has an observed failure and its own acceptance criteria. Measurement
+and physical-device tasks carry the `qualification` label; missing evidence is
+not a product defect. None of these issues is an integration-wide blocker.
+The previous #108 through #113 issues retain their historical evidence and
+replacement links.
 
 The 2026-10-21 repair batch lands the G01 through G04 code and test repairs
 together with this document cleanup:
@@ -524,11 +519,11 @@ the document's author will return to execute it.
 
 ## Execution record (Claude integrator, from 2026-10-12)
 
-Detailed October 7 to 19 batch logs, diagnostics and provider handoff records moved to [docs/design/claude-integration-record.md](docs/design/claude-integration-record.md). Live post-consolidation blockers and queues are tracked in GitHub Issues [#108](https://github.com/schiffy91/btrc/issues/108) through [#113](https://github.com/schiffy91/btrc/issues/113).
+Detailed October 7 to 19 batch logs, diagnostics and provider handoff records moved to [docs/design/claude-integration-record.md](docs/design/claude-integration-record.md). Live post-consolidation blockers and queues are tracked in [independently scoped GitHub issues](https://github.com/schiffy91/btrc/issues?q=is%3Aissue+is%3Aopen).
 
 ## Provider implementation queue
 
-Active provider and qualification blockers are tracked in GitHub Issues [#108](https://github.com/schiffy91/btrc/issues/108) through [#113](https://github.com/schiffy91/btrc/issues/113). Historical queue records live in [docs/design/claude-integration-record.md](docs/design/claude-integration-record.md#provider-implementation-queue).
+Active provider and qualification blockers are tracked in [independently scoped GitHub issues](https://github.com/schiffy91/btrc/issues?q=is%3Aissue+is%3Aopen). Historical queue records live in [docs/design/claude-integration-record.md](docs/design/claude-integration-record.md#provider-implementation-queue).
 
 ## Goal and ownership
 
@@ -560,7 +555,7 @@ See [docs/design/claude-integration-record.md](docs/design/claude-integration-re
 
 ## Active assignments carried from WORKSTREAMS (D28)
 
-See [docs/design/claude-integration-record.md](docs/design/claude-integration-record.md#active-assignments-carried-from-workstreams-d28) and GitHub Issues [#108](https://github.com/schiffy91/btrc/issues/108) through [#113](https://github.com/schiffy91/btrc/issues/113).
+See [docs/design/claude-integration-record.md](docs/design/claude-integration-record.md#active-assignments-carried-from-workstreams-d28) and [independently scoped GitHub issues](https://github.com/schiffy91/btrc/issues?q=is%3Aissue+is%3Aopen).
 
 
 ## Owner update: separate Claude and Codex plans (2026-10-06)

@@ -12,6 +12,13 @@ below for this session only. Architecture and evidence requirements remain.
 Mac host capacity rules apply when working on the Mac; the container exemption
 below applies only in a cloud container.
 
+**2026-11-01 owner update:** integrate the accumulated branch work into `main`
+now, preserve recovery history, and retire all other local and remote branches.
+Track remaining defects and specific qualification tasks independently. Pending
+checks remain explicit and do not block unrelated integration. PLAN.md records
+this instruction and supersedes conflicting qualification-before-landing rules
+for this consolidation.
+
 
 OpenAI Codex builds in this repository beside Claude under D27 as amended by
 D28 and D29 (PLAN.md). Both active queues are in [PLAN.md](PLAN.md).
@@ -58,10 +65,8 @@ This project is too large for a single context window. You WILL run out of memor
 ### Current roadmap and historical baseline
 
 The integrator lands reviewed work on `main`. [`PLAN.md`](PLAN.md) is the
-single roadmap and provider queue, consolidated on 2026-10-07. Live
-post-consolidation blockers are tracked in GitHub Issues
-[#108](https://github.com/schiffy91/btrc/issues/108) through
-[#113](https://github.com/schiffy91/btrc/issues/113), and dated execution logs
+single roadmap and provider queue, consolidated on 2026-10-07. Current work is tracked in
+[independently scoped GitHub issues](https://github.com/schiffy91/btrc/issues?q=is%3Aissue+is%3Aopen), and dated execution logs
 live in [`docs/design/claude-integration-record.md`](docs/design/claude-integration-record.md).
 Its current status distinguishes integrated work, open reviews and missing
 qualification; the previous plan is frozen verbatim in

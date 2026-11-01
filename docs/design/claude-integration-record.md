@@ -4627,3 +4627,37 @@ owner, the exact prerequisite and the next acceptance.
   - `CX-UIA-07`: unclaimed. Stage 30; it gates nothing under D28.
 
 
+
+
+## 2026-11-01 main integration and backlog reset
+
+The owner directed immediate integration, retirement of every other BTRC branch,
+and replacement of the old backlog with independently scoped issues. Main moved
+from `b800bb07` to `23d1e1a4`, then `88a6736a` preserved the reconciled published
+branch histories. All open pull requests merged through those main updates.
+Landing does not claim that the remaining platform or performance checks passed.
+
+GitHub's 18 non-main branches were deleted after verifying their main ancestry
+and published recovery tags. Across 30 local BTRC repositories, 2,590 branch and
+remote-tracking refs were removed; 84 worktrees were detached without changing
+files. The Drive checkout was fast-forwarded to main. Six unrelated research
+repositories and the campaign metadata repository were left alone.
+
+Before retirement, four dirty checkouts were committed: Windows HTTP
+`e69bc3db`, Linux GUI admission `d45106b2`, collection module demand `637e0068`,
+and the macOS button probe `768a360d`. Independent comparison found their work
+already integrated or superseded. The native-adapter stash `3181c99b` is covered
+by the later parity implementation; `b92056b4` preserves an older plan and
+generated outputs. No saved implementation was discarded or used to overwrite
+newer source.
+
+Recovery tags under `archive/2026-11-01/remote/`, `local/`, `checkpoint/` and
+`stash/` are published on GitHub. The local consolidation record is in
+`build/branch-consolidation-20261101/`, including source hashes, ref inventories,
+checkpoint audits and deletion receipts.
+
+The old issues retain their bodies and links to the replacement issues. Bugs
+#126–#130 and #147 describe observed failures; #131–#146 are specific parity,
+cache, performance or physical-device qualification tasks. There is no replacement
+for the former all-platform integration blocker. Main CI reports new failures
+against the actual integrated revision.
