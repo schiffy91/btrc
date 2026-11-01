@@ -176,6 +176,16 @@ jobs:
             build/windows-daemon/linux
             build/windows-daemon/*.compiler-build
           retention-days: 30
+      - name: Retain the compiler and its source receipts for later focused checks
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daemon-compiler-linux
+          path: |
+            build/windows-daemon/btrcc
+            build/windows-daemon/btrcc.c
+            build/windows-daemon/*.compiler-build
+          retention-days: 30
       - name: Retain x64 corpus and compiler provenance
         if: ${{ always() && inputs.focus == 'daemon-corpus' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
