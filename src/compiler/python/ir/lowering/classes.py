@@ -710,6 +710,13 @@ class ClassLowerer:
         for p in method.params:
             params.append(provenance.lower_source_param(p))
         ret_type = self._types.render(method.return_type) if method.return_type else "void"
+        function = IRFunctionDef(
+            name=f"{name}_{method.name}",
+            return_type=CType(text=ret_type),
+            params=params,
+            is_static=self._specialized_linkage(),
+            is_realtime=method.is_realtime,
+        )
         body = IRBlock()
         if method.body:
             self._session.function_declarations = []
@@ -721,7 +728,12 @@ class ClassLowerer:
             self._session.current_return_owned = True
             try:
                 edge_owner = "self" if collection_instance_method else None
-                with self._session.persistent_edge_scope(edge_owner):
+                with (
+                    self._session.persistent_edge_scope(edge_owner),
+                    self._session.explicit_release_scope(
+                        function if collection_instance_method and method.access == "public" else None
+                    ),
+                ):
                     body = self._statements.lower_block(
                         method.body,
                         provenance,
@@ -732,14 +744,7 @@ class ClassLowerer:
                 self._session.current_return_type = previous_return_type
                 self._session.current_return_c_type = previous_return_c_type
                 self._session.current_return_owned = previous_return_owned
-        function = IRFunctionDef(
-            name=f"{name}_{method.name}",
-            return_type=CType(text=ret_type),
-            params=params,
-            body=body,
-            is_static=self._specialized_linkage(),
-            is_realtime=method.is_realtime,
-        )
+        function.body = body
         if collection_type is not None:
             self._collections.protect_topology_mutation(function, collection_type)
         self._session.module.function_defs.append(function)

@@ -5214,3 +5214,105 @@ int main() {
         assert f"volatile {scalar_type} window =" in emitted
         assert "volatile size_t attempts =" in emitted
         assert "volatile uint64_t stamp =" in emitted
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+def test_collection_release_boundaries_preserve_reentrant_throwing_destructors(tmp_path, immutable_btrcc, module_units):
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "Main.btrc").write_text("""import Library.Vector;
+int phase = 0;
+int destroyed = 0;
+int expectedLength = 0;
+int expectedFirst = 0;
+bool shouldThrow = false;
+bool reentered = false;
+Vector<ReleaseNode>? observed = null;
+class ReleaseNode {
+    public int id;
+    public ReleaseNode? next = null;
+    public ReleaseNode(int id) { self.id = id; }
+    public void __del__() {
+        destroyed++;
+        if (phase == 1 && self.id < 10) {
+            Vector<ReleaseNode> values = current();
+            assert(values.len == expectedLength + (reentered ? 1 : 0));
+            if (expectedLength > 0) { assert(values.get(0).id == expectedFirst); }
+            if (!reentered) {
+                reentered = true;
+                values.push(new ReleaseNode(99));
+            }
+            if (shouldThrow) { shouldThrow = false; throw "destructor"; }
+        }
+    }
+}
+Vector<ReleaseNode> current() {
+    if (observed != null) { return observed; }
+    throw "missing collection";
+}
+void populate(Vector<ReleaseNode> values, bool cyclic) {
+    for (int index = 0; index < 3; index++) {
+        ReleaseNode value = new ReleaseNode(index);
+        if (cyclic) { value.next = value; }
+        values.push(value);
+    }
+}
+void exercise(int operation, bool cyclic, bool throwing) {
+    phase = 0;
+    Vector<ReleaseNode> values = [];
+    observed = values;
+    destroyed = 0;
+    populate(values, cyclic);
+    assert(destroyed == 0);
+    expectedLength = operation < 2 ? 0 : (operation == 2 ? 2 : 3);
+    expectedFirst = operation == 2 ? 1 : 3;
+    shouldThrow = throwing;
+    reentered = false;
+    phase = 1;
+    bool caught = false;
+    try {
+        if (operation == 0) { values.clear(); }
+        else if (operation == 1) { values.free(); }
+        else if (operation == 2) { values.remove(0); }
+        else { values.set(0, new ReleaseNode(3)); }
+    } catch (string error) { assert(error == "destructor"); caught = true; }
+    assert(caught == throwing);
+    assert(reentered && !shouldThrow);
+    assert(destroyed == (operation < 2 ? 3 : 1));
+    assert(values.len == expectedLength + 1);
+    assert(values.get(values.len - 1).id == 99);
+    phase = 0;
+    values.free();
+    assert(values.len == 0);
+    assert(destroyed == (operation == 3 ? 5 : 4));
+}
+void exercisePop(bool cyclic) {
+    phase = 0;
+    Vector<ReleaseNode> values = [];
+    observed = values;
+    destroyed = 0;
+    populate(values, cyclic);
+    ReleaseNode result = values.pop();
+    assert(result.id == 2 && values.len == 2 && destroyed == 0);
+    release result;
+    assert(destroyed == 1);
+    values.free();
+    assert(destroyed == 3);
+}
+int main() {
+    for (int operation = 0; operation < 4; operation++) {
+        exercise(operation, false, false);
+        exercise(operation, true, false);
+        exercise(operation, false, true);
+        exercise(operation, true, true);
+    }
+    exercisePop(false);
+    exercisePop(true);
+    print("PASS");
+    return 0;
+}
+""")
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
+    )
+    assert generated["reference"] == generated["selfhost"]

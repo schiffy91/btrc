@@ -8321,10 +8321,19 @@ class FunctionLowerer:
             if collection_instance_method
             else None
         )
+        function = IRFunctionDef(
+            name=declaration.name,
+            return_type=declaration.return_type,
+            params=list(declaration.params),
+            is_static=True,
+        )
         try:
             with (
                 self.isolated_function_context(return_c_type, return_type),
                 self._session.persistent_edge_scope("self" if collection_instance_method else None),
+                self._session.explicit_release_scope(
+                    function if collection_instance_method and method.access == "public" else None
+                ),
             ):
                 body = self._statements.lower_block(
                     method.body,
@@ -8335,13 +8344,7 @@ class FunctionLowerer:
                     ],
                     callable_bindings=method.params,
                 )
-                function = IRFunctionDef(
-                    name=declaration.name,
-                    return_type=declaration.return_type,
-                    params=list(declaration.params),
-                    body=body,
-                    is_static=True,
-                )
+                function.body = body
                 if collection_type is not None:
                     self._collections.protect_topology_mutation(function, collection_type)
         finally:

@@ -756,6 +756,7 @@ class IRFunctionDef(IRNode):
     is_realtime: bool = False
     c_linkage: bool = False
     source_file: str = ""  # the .btrc module this came from; "" for synthesized code
+    requires_cycle_boundary: bool = False
 
 
 @dataclass

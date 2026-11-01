@@ -4701,3 +4701,33 @@ split through `--emit-units`; module-mode integration and the required warm
 transpile measurement remain outstanding. Broader parity and final-tree gates
 also remain necessary before claiming the whole issue or goal complete. The
 read-only build-rule audit is recorded beside the test evidence.
+
+## 2026-11-01 collection release parity and return ownership
+
+Codex owns `codex/collection-release-parity-20261101` under the current
+owner-directed issue closeout. The Python collection method, ownership and
+session lowerers, structured IR model and optimizer are owned for parity with
+the existing self-host release policy. Paired collection and module regressions
+remain with this packet. The related return-cleanup repair also owns the shared
+statement-sequence and topology/cycle boundary owners in both compilers.
+
+Public collection methods poll after explicit cyclable releases and drain before
+returning. Private methods and ordinary releases retain their prior policy.
+The Python lowerer marks the required boundary; the optimizer installs it after
+the topology transaction. This repairs the remaining Vector unit mismatch
+without claiming a performance improvement or changing benchmark allowances.
+
+The baseline ran sixteen clear/free/remove/set scenarios with cyclic and acyclic
+payloads and throwing and nonthrowing destructors. Destructors inspect the final
+collection state and append another element. All eight strict-C11 and sanitizer
+executions passed; both complete-C comparisons failed. Eight focused cycle and
+topology checks pass on the parity draft, including public/private, primitive
+and generic-method controls. A fresh compiler and combined qualification remain
+required.
+
+Independent review then reproduced a pre-existing leak in both compilers:
+an unrelated pending cycle destructor throws during `Vector.pop` completion
+after the popped value's cleanup was discarded. That value never reaches its
+caller and is not destroyed. The return ownership repair must keep cleanup
+active through topology completion and final cycle drains. Its behavior test
+must cover both Vector and List returns before this packet is qualified.

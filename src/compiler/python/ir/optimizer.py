@@ -134,6 +134,9 @@ class IROptimizer:
             self._prune_externs()
         if self._dce:
             self._prune_program_reachability()
+        for function in self._module.function_defs:
+            if function.requires_cycle_boundary:
+                self.install_function_cycle_boundary(function, force=True)
         self._install_program_cycle_boundary()
         self._rematerialize_runtime_helpers()
         if self._dce:

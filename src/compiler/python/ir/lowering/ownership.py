@@ -1535,8 +1535,17 @@ class OwnershipLowerer:
         else:
             statements.extend(self._take_clear_release(slot, resolved, managed=managed))
 
-        flush = self._lifetime.flush_released_values(resolved) if managed else None
+        boundary = self._session.explicit_release_function
+        flush = None
+        if managed:
+            flush = (
+                self._lifetime.poll_released_values(resolved)
+                if boundary is not None
+                else self._lifetime.flush_released_values(resolved)
+            )
         if flush is not None:
+            if boundary is not None:
+                boundary.requires_cycle_boundary = True
             statements.append(IRExprStmt(expr=flush))
         return statements
 
@@ -1988,7 +1997,7 @@ class OwnershipLowerer:
         self._session.jump_index = None
         self._session.variable_length_declarations = set()
         try:
-            with self._cleanup_scope.isolated():
+            with self._cleanup_scope.isolated(), self._session.explicit_release_scope(None):
                 yield
         finally:
             (
