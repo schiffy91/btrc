@@ -21,7 +21,7 @@ class UserCensusDiagnostic:
         f"{DRIVER}::test_windows_native_shell_builds[python-windows-x64-ubsan]",
     )
     RUN = f"{DRIVER}::test_windows_native_shell_runs[python-windows-x64-ubsan]"
-    MODES = ("count-only", "query-bracket")
+    MODES = ("count-only", "dispatch-bracket")
 
     def __init__(self, stage: str, output: Path):
         self.stage = stage
@@ -77,6 +77,7 @@ class UserCensusDiagnostic:
         environment.pop("PYTEST_ADDOPTS", None)
         environment.pop("BTRC_UI_SHELL_USER_DIAGNOSTIC", None)
         environment["BTRC_UI_SHELL_CYCLES"] = "100"
+        environment["BTRC_UI_SHELL_MESSAGE_TRACE_BUILD"] = "1"
         environment["BTRC_WIN32_EVIDENCE_DIR"] = str(self.evidence)
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         (self.output / "provenance.json").write_text(

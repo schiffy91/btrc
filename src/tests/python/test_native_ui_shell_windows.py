@@ -306,7 +306,7 @@ def compile_probe_units(target, directory, units, includes=(), flags=()):
     return objects
 
 
-def link(plan, generated, output, objects, flags=()):
+def link(plan, generated, output, objects, flags=(), native_flags=()):
     """Link through the emitted plan, adding the probe objects to its final link
     and the sanitizer flags to every zig compile and link it runs."""
 
@@ -314,6 +314,10 @@ def link(plan, generated, output, objects, flags=()):
         command = list(command)
         if command[1:2] == ["cc"]:
             command[2:2] = flags
+        if "-c" in command and Path(command[command.index("-o") + 1]).name.startswith("native-"):
+            # Only native plan adapters see Windows declarations. Generated
+            # application and runtime units keep their original header surface.
+            command[2:2] = native_flags
         if "-o" in command and "-c" not in command:
             command.extend(objects)
         return subprocess.run(command, **kwargs)
@@ -342,7 +346,12 @@ def build_shell(tmp_path, frontend, target, request, monkeypatch, sanitized):
     flags = UBSAN if sanitized else []
     units = [PROBE / "ShellProbe.c", SHELL / "ShellState.c"]
     objects = compile_probe_units(target, tmp_path, units, [webgpu], flags)
-    executable = link(plan, generated, tmp_path / shell_name(frontend, target, sanitized), objects, flags)
+    trace_flags = (
+        ["-include", str(PROBE / "MessageTrace.h")]
+        if os.environ.get("BTRC_UI_SHELL_MESSAGE_TRACE_BUILD") == "1"
+        else []
+    )
+    executable = link(plan, generated, tmp_path / shell_name(frontend, target, sanitized), objects, flags, trace_flags)
     return executable, dll
 
 
@@ -531,7 +540,7 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     assert executable.is_file(), sorted(path.name for path in directory.iterdir()) if directory.is_dir() else directory
     diagnostic_mode = os.environ.get("BTRC_UI_SHELL_USER_DIAGNOSTIC", "")
     if diagnostic_mode:
-        assert diagnostic_mode in {"count-only", "query-bracket"}
+        assert diagnostic_mode in {"count-only", "query-bracket", "dispatch-bracket"}
         assert (frontend, target, sanitized) == ("python", "windows-x64", True)
     measured_cycles = int(os.environ.get("BTRC_UI_SHELL_CYCLES", "100"))
     if diagnostic_mode:
@@ -558,6 +567,8 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     (artifacts / "observer.stderr").write_text(observed.stderr, encoding="utf-8")
     assert observed.returncode == 0, observed.stderr + observed.stdout
     assert "OBSERVER passed" in observed.stdout.splitlines(), observed.stdout
+    if diagnostic_mode == "dispatch-bracket":
+        assert "MESSAGE TRACE passed" in observed.stdout.splitlines(), observed.stdout
     assert re.search(
         r"SHELL resource-window cycle=0 thread=\d+ handle=\S+ message-only=0 class=BtrcObserverForeignAnsi",
         observed.stderr,
@@ -567,6 +578,10 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     (artifacts / "shell.stderr").write_text(result.stderr, encoding="utf-8")
     message = f"Shell returncode={result.returncode}\n{result.stderr[-6000:]}\n{result.stdout[-6000:]}"
     assert result.returncode == 0, message
+    if diagnostic_mode == "dispatch-bracket":
+        assert re.search(
+            r"^SHELL message .*operation=DispatchMessageW .*message=0x0201 ", result.stderr, re.MULTILINE
+        ), message
     summary = re.search(
         r"SHELL cycles=(\d+) frames=(\d+) native=(\d+) private=(\d+) registrations=(\d+) dirty-close=missing",
         result.stdout,

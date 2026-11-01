@@ -4809,3 +4809,26 @@ installer contains the Intel archive digest and the archive URL returned 200.
 ARM diagnostics retain their existing installer. The repository flake already
 exports `x86_64-darwin`. Workflow contracts passed 123 tests; Ruff, formatting
 and diff checks pass. No E40 result is attributed to the failed setup run.
+
+The PR #118 native-factory check passed all four reference/self-host and
+plain/sanitized cases with no skips. It compiles and runs NSObject lifetimes
+without launching a GUI. The returned source-owner commit `55799894` preserves
+the original PR's header de-duplication change and regression coverage.
+
+The same agent owns a test-only Windows USER diagnostic in
+`src/tests/native/gui/shell/probes/windows/{MessageTrace.h,ShellProbe.c,Observer.c}`,
+`src/tests/python/test_native_ui_shell_windows.py`,
+`src/tests/python/test_windows_user_diagnostic.py` and
+`tools/ui/windows_user_diagnostic.py`. An opt-in native adapter include wraps
+PeekMessageW, TranslateMessage and DispatchMessageW. Each retained record keeps
+the raw USER counts around the API separately from the count after cursor and
+GUI-thread queries, plus the message, HWND, thread, caret and timestamps.
+No production provider or acceptance threshold changes. The native observer
+control creates and destroys one menu inside dispatch and checks the count,
+return value and last-error state. It still requires execution on Windows.
+
+The diagnostic's nine Python tests pass. ShellProbe.c and Observer.c compile
+as strict C11 with warnings as errors and UBSan for Windows x64. The reference
+x64 UBSan shell and observer cross-build also passed with no skips in 15.31
+seconds. Ruff, format and diff checks pass. Hosted execution is still needed;
+these diagnostic checks do not close the remaining Windows USER-count failure.

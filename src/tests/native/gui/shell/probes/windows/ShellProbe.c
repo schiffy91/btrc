@@ -21,6 +21,8 @@
 #include <string.h>
 #include <wchar.h>
 #include <webgpu.h>
+#define BTRC_SHELL_MESSAGE_TRACE_IMPLEMENTATION
+#include "MessageTrace.h"
 
 static int drains;
 static int dumps;
@@ -33,6 +35,7 @@ static int observationMode(void) {
     if (!value || !*value) return 0;
     if (strcmp(value, "count-only") == 0) return 1;
     if (strcmp(value, "query-bracket") == 0) return 2;
+    if (strcmp(value, "dispatch-bracket") == 0) return 3;
     assert(!"Unknown USER diagnostic mode"); return 0;
 }
 typedef struct QueryObservation {
@@ -80,6 +83,130 @@ static void observationFlush(void) {
             (unsigned long long)r->began, (unsigned long long)r->ended);
     }
     queryCount = 0; fflush(stderr);
+}
+
+typedef struct MessageObservation {
+    const char *operation;
+    MSG message;
+    LONG call;
+    unsigned depth;
+    int cycle;
+    DWORD thread, before, after, observed, beforeError, afterError, observedError, nativeError, guiError;
+    uintptr_t result;
+    ULONGLONG began, ended, inspected;
+    HCURSOR cursor;
+    GUITHREADINFO gui;
+    BOOL guiAvailable;
+} MessageObservation;
+static MessageObservation messageObservations[8192];
+static unsigned messageCount;
+static SRWLOCK messageLock = SRWLOCK_INIT;
+static volatile LONG messageCalls;
+static _Thread_local unsigned messageDepth;
+static int messageCycle;
+
+static void messageFlush(void) {
+    AcquireSRWLockExclusive(&messageLock);
+    for (unsigned index = 0; index < messageCount; index++) {
+        MessageObservation *r = &messageObservations[index];
+        fprintf(stderr, "SHELL message cycle=%d call=%ld depth=%u operation=%s hwnd=%p message=0x%04x wparam=%p lparam=%p thread=%lu result=%p before=%lu after=%lu observed=%lu before-error=%lu after-error=%lu observed-error=%lu native-error=%lu began-ms=%llu ended-ms=%llu inspected-ms=%llu cursor=%p gui=%d gui-error=%lu active=%p focus=%p capture=%p caret=%p caret-rect=%ld,%ld,%ld,%ld\n",
+            r->cycle, r->call, r->depth, r->operation, (void *)r->message.hwnd, r->message.message,
+            (void *)(uintptr_t)r->message.wParam, (void *)(uintptr_t)r->message.lParam,
+            (unsigned long)r->thread, (void *)r->result, (unsigned long)r->before,
+            (unsigned long)r->after, (unsigned long)r->observed, (unsigned long)r->beforeError,
+            (unsigned long)r->afterError, (unsigned long)r->observedError, (unsigned long)r->nativeError,
+            (unsigned long long)r->began, (unsigned long long)r->ended, (unsigned long long)r->inspected,
+            (void *)r->cursor, r->guiAvailable != 0, (unsigned long)r->guiError,
+            (void *)r->gui.hwndActive, (void *)r->gui.hwndFocus, (void *)r->gui.hwndCapture,
+            (void *)r->gui.hwndCaret, r->gui.rcCaret.left, r->gui.rcCaret.top,
+            r->gui.rcCaret.right, r->gui.rcCaret.bottom);
+    }
+    messageCount = 0;
+    ReleaseSRWLockExclusive(&messageLock);
+    fflush(stderr);
+}
+
+static int traceMessages(void) {
+    DWORD error = GetLastError();
+    int enabled = observationMode() == 3;
+    SetLastError(error);
+    return enabled;
+}
+
+static MessageObservation messageBegin(const char *operation) {
+    DWORD error = GetLastError();
+    MessageObservation record = {0};
+    record.operation = operation;
+    record.cycle = messageCycle;
+    record.thread = GetCurrentThreadId();
+    record.call = InterlockedIncrement(&messageCalls);
+    record.depth = messageDepth++;
+    SetLastError(ERROR_SUCCESS);
+    record.before = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    record.beforeError = GetLastError();
+    record.began = GetTickCount64();
+    SetLastError(error);
+    return record;
+}
+
+static void messageEnd(MessageObservation *record, const MSG *message, uintptr_t result, DWORD error) {
+    record->ended = GetTickCount64();
+    record->nativeError = error;
+    record->result = result;
+    if (message != NULL) record->message = *message;
+    SetLastError(ERROR_SUCCESS);
+    record->after = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    record->afterError = GetLastError();
+    messageDepth--;
+    UINT kind = record->message.message;
+    int input = kind == WM_MOUSEMOVE || kind == WM_LBUTTONDOWN || kind == WM_LBUTTONUP
+        || kind == WM_KEYDOWN || kind == WM_KEYUP || kind == WM_CHAR || kind == WM_MOUSEWHEEL
+        || kind == WM_SETFOCUS || kind == WM_KILLFOCUS || kind == WM_TIMER;
+    if (record->before != record->after || input) {
+        /* Query state only after preserving the raw API interval. A separate
+         * count after these getters exposes observer-created USER objects. */
+        record->gui.cbSize = sizeof record->gui;
+        SetLastError(ERROR_SUCCESS);
+        record->guiAvailable = GetGUIThreadInfo(record->thread, &record->gui);
+        record->guiError = GetLastError();
+        record->cursor = GetCursor();
+        SetLastError(ERROR_SUCCESS);
+        record->observed = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+        record->observedError = GetLastError();
+        record->inspected = GetTickCount64();
+        AcquireSRWLockExclusive(&messageLock);
+        assert(messageCount < sizeof messageObservations / sizeof messageObservations[0]);
+        messageObservations[messageCount++] = *record;
+        ReleaseSRWLockExclusive(&messageLock);
+    }
+    SetLastError(error);
+}
+
+BOOL WINAPI btrcShellPeekMessageW(LPMSG message, HWND target, UINT first, UINT last, UINT remove) {
+    if (!traceMessages()) return PeekMessageW(message, target, first, last, remove);
+    MessageObservation record = messageBegin("PeekMessageW");
+    BOOL result = PeekMessageW(message, target, first, last, remove);
+    DWORD error = GetLastError();
+    messageEnd(&record, result ? message : NULL, (uintptr_t)result, error);
+    return result;
+}
+
+BOOL WINAPI btrcShellTranslateMessage(const MSG *message) {
+    if (!traceMessages()) return TranslateMessage(message);
+    MessageObservation record = messageBegin("TranslateMessage");
+    BOOL result = TranslateMessage(message);
+    DWORD error = GetLastError();
+    messageEnd(&record, message, (uintptr_t)result, error);
+    return result;
+}
+
+LRESULT WINAPI btrcShellDispatchMessageW(const MSG *message) {
+    if (!traceMessages()) return DispatchMessageW(message);
+    MessageObservation record = messageBegin("DispatchMessageW");
+    LRESULT result = DispatchMessageW(message);
+    DWORD error = GetLastError();
+    messageEnd(&record, message, (uintptr_t)result, error);
+    return result;
 }
 
 static int isClass(HWND window, const WCHAR *name) {
@@ -312,7 +439,7 @@ static void resourceWindows(DWORD gdi, DWORD user) {
         drains, (unsigned long)gdi, (unsigned long)user, (unsigned long)previousGdi, (unsigned long)previousUser);
     int wasObserving = observeQueries;
     observationCycle = drains;
-    observeQueries = observationMode() != 0 && drains > 1;
+    observeQueries = observationMode() == 2 && drains > 1;
     previousGdi = gdi;
     previousUser = user;
     EnumWindows(resourceTop, 0);
@@ -386,6 +513,8 @@ static void resourceThreads(void) {
 static void resourcePhase(const char *phase, int cycle) {
     int mode = observationMode();
     if (!mode) return;
+    messageCycle = cycle;
+    if (mode == 3) messageFlush();
     static int firstSnapshot;
     SetLastError(ERROR_SUCCESS);
     DWORD gdi = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
@@ -395,7 +524,8 @@ static void resourcePhase(const char *phase, int cycle) {
     DWORD userError = GetLastError();
     fprintf(stderr, "SHELL resource-phase cycle=%d phase=%s tick-ms=%llu gdi=%lu user=%lu gdi-error=%lu user-error=%lu mode=%s\n",
         cycle, phase, (unsigned long long)GetTickCount64(), (unsigned long)gdi, (unsigned long)user,
-        (unsigned long)gdiError, (unsigned long)userError, mode == 1 ? "count-only" : "query-bracket");
+        (unsigned long)gdiError, (unsigned long)userError,
+        mode == 1 ? "count-only" : mode == 2 ? "query-bracket" : "dispatch-bracket");
     if (mode == 2 && !firstSnapshot) {
         firstSnapshot = 1; observationCycle = cycle; observeQueries = 1;
         if (!EnumWindows(resourceTop, 0)) observationError("EnumWindows", GetLastError());
@@ -414,13 +544,19 @@ void shellProbeDrain(void) {
     MSG message;
     drains++;
     resourcePhase("drain-before", drains);
+    int tracing = traceMessages();
     ULONGLONG started = GetTickCount64();
     trackWglWorkers();
     for (;;) {
         for (unsigned dispatched = 0; dispatched < 256 && GetTickCount64() - started < 2000
-                && PeekMessageW(&message, NULL, 0, 0, PM_REMOVE); dispatched++) {
-            TranslateMessage(&message);
-            DispatchMessageW(&message);
+                && (tracing ? btrcShellPeekMessageW : PeekMessageW)(&message, NULL, 0, 0, PM_REMOVE); dispatched++) {
+            if (tracing) {
+                btrcShellTranslateMessage(&message);
+                btrcShellDispatchMessageW(&message);
+            } else {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
         }
         trackWglWorkers();
         unsigned pending = pendingWglWorkers();
@@ -496,11 +632,17 @@ static void accessibility(HWND top) {
     ULONGLONG started = GetTickCount64();
     DWORD waited = WAIT_TIMEOUT;
     MSG message;
+    int tracing = traceMessages();
     while (waited != WAIT_OBJECT_0 && GetTickCount64() - started < 30000) {
         waited = MsgWaitForMultipleObjectsEx(1, &process.hProcess, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-        while (PeekMessageW(&message, NULL, 0, 0, PM_REMOVE)) {
-            TranslateMessage(&message);
-            DispatchMessageW(&message);
+        while ((tracing ? btrcShellPeekMessageW : PeekMessageW)(&message, NULL, 0, 0, PM_REMOVE)) {
+            if (tracing) {
+                btrcShellTranslateMessage(&message);
+                btrcShellDispatchMessageW(&message);
+            } else {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
         }
     }
     DWORD code = 0;

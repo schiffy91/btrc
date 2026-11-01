@@ -6,6 +6,60 @@ static LRESULT CALLBACK observerWindowProcedure(HWND target, UINT message, WPARA
     return DefWindowProcA(target, message, word, value);
 }
 
+static HMENU observedMenu;
+static LRESULT CALLBACK messageWindowProcedure(HWND target, UINT message, WPARAM word, LPARAM value) {
+    if (message == WM_APP + 1) {
+        observedMenu = CreatePopupMenu();
+        assert(observedMenu);
+        SetLastError(0x1234);
+        return 0x5678;
+    }
+    if (message == WM_APP + 2) {
+        assert(observedMenu && DestroyMenu(observedMenu));
+        observedMenu = NULL;
+        SetLastError(0x2345);
+        return 0x6789;
+    }
+    return DefWindowProcW(target, message, word, value);
+}
+
+static void checkMessageTrace(void) {
+    const WCHAR *name = L"BtrcObserverMessageTrace";
+    HINSTANCE instance = GetModuleHandleW(NULL);
+    WNDCLASSEXW definition = {0};
+    definition.cbSize = sizeof definition;
+    definition.lpfnWndProc = messageWindowProcedure;
+    definition.hInstance = instance;
+    definition.lpszClassName = name;
+    assert(RegisterClassExW(&definition));
+    HWND target = CreateWindowExW(0, name, L"message trace", WS_OVERLAPPED, 0, 0, 16, 16,
+        NULL, NULL, instance, NULL);
+    assert(target && !IsWindowVisible(target) && IsWindowUnicode(target));
+    DWORD before = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    MSG message = {0};
+    message.hwnd = target;
+    message.message = WM_APP + 1;
+    assert(btrcShellDispatchMessageW(&message) == 0x5678);
+    assert(GetLastError() == 0x1234);
+    message.message = WM_APP + 2;
+    assert(btrcShellDispatchMessageW(&message) == 0x6789);
+    assert(GetLastError() == 0x2345);
+    DWORD after = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+    assert(DestroyWindow(target) && UnregisterClassW(name, instance));
+    assert(messageCount == 2 && before == after);
+    for (unsigned index = 0; index < messageCount; index++) {
+        const MessageObservation *record = &messageObservations[index];
+        assert(strcmp(record->operation, "DispatchMessageW") == 0);
+        assert(record->message.hwnd == target && record->message.message == WM_APP + index + 1);
+        assert(record->thread == GetCurrentThreadId() && record->depth == 0);
+        assert(record->before == before + index && record->after == before + 1 - index);
+        assert(record->observed == record->after && record->guiAvailable);
+        assert(record->began <= record->ended && record->ended <= record->inspected);
+    }
+    messageFlush();
+    puts("MESSAGE TRACE passed");
+}
+
 int main(void) {
     const char *name = "BtrcObserverForeignAnsi";
     HINSTANCE instance = GetModuleHandleW(NULL);
@@ -35,5 +89,6 @@ int main(void) {
     assert(observed && destroyed && unregistered);
     assert(beforeUser > 0 && beforeUser == afterUser && beforeGdi == afterGdi);
     puts("OBSERVER passed");
+    if (traceMessages()) checkMessageTrace();
     return 0;
 }
