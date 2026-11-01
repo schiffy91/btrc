@@ -13,7 +13,7 @@ on:
       focus:
         description: Which jobs to run
         type: choice
-        options: [full, native-gui, extended, e40-diagnostic, collection-release-diagnostic]
+        options: [full, native-gui, extended, e40-diagnostic, collection-release-diagnostic, host-controls]
         default: full
       diagnostic_trial:
         description: Native tracking route for the E40 diagnostic
@@ -74,7 +74,7 @@ jobs:
   # so "Re-run all jobs" sees a label added after the push ("Re-run failed
   # jobs" keeps this job's earlier result).
   scope:
-    if: github.event_name != 'workflow_dispatch' || (inputs.focus != 'e40-diagnostic' && inputs.focus != 'collection-release-diagnostic')
+    if: github.event_name != 'workflow_dispatch' || (inputs.focus != 'e40-diagnostic' && inputs.focus != 'collection-release-diagnostic' && inputs.focus != 'host-controls')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -500,7 +500,7 @@ jobs:
 
   native-gui-coverage:
     needs: [scope, native-gui]
-    if: ${{ always() && contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui-coverage') }}
+    if: ${{ always() && needs.scope.result == 'success' && contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui-coverage') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -766,3 +766,73 @@ jobs:
           path: build/skip-report*.json
           if-no-files-found: warn
           retention-days: 14
+
+  macos-host-controls:
+    if: github.event_name == 'workflow_dispatch' && inputs.focus == 'host-controls'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - name: Install the existing native-control driver dependencies
+        run: python -m pip install '.[dev]'
+      - name: Observe native presentation and resize without a compiler build
+        env:
+          BTRC_CONTROL_RUNNER: ${{ matrix.runner }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+          from src.tests.python.test_native_ui2_macos_e40 import E40NativeControl, apple_environment
+
+          assert platform.system() == "Darwin" and os.environ["GITHUB_ACTIONS"] == "true"
+          root = Path("build/macos-host-controls").resolve()
+          root.mkdir(parents=True)
+          (root / "provenance.json").write_text(json.dumps({
+              "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "runner": os.environ["BTRC_CONTROL_RUNNER"],
+              "platform": platform.platform(),
+              "machine": platform.machine(),
+              "clang": subprocess.check_output(["/usr/bin/clang", "--version"], text=True),
+              "scope": "Native host controls only; not E40 acceptance",
+          }, indent=2) + "\n")
+          metal = E40NativeControl.build(root, "metal", "MetalPresentation", ("AppKit", "Metal", "QuartzCore"))
+          synchronized = E40NativeControl(
+              "metal-vsync", [*metal.command, "--vsync"], metal.build_command, metal.source_sha256
+          )
+          resize = E40NativeControl.build(root, "resize", "NativeResize", ("AppKit", "CoreGraphics", "QuartzCore"))
+          summary = {}
+          for control in (metal, synchronized, resize):
+              control.record(root, apple_environment())
+              directory = root / f"{control.name}-control"
+              execution = json.loads((directory / "execution.json").read_text())
+              report = directory / "observations.json"
+              summary[control.name] = {
+                  "execution": execution,
+                  "observations": json.loads(report.read_text()) if report.is_file() else None,
+              }
+          (root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+          assert all(
+              row["execution"].get("returncode") == 0 and row["observations"] is not None
+              for row in summary.values()
+          ), "A native control failed to produce observations; inspect retained evidence"
+          PY
+      - name: Retain native host controls
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-host-controls-${{ matrix.runner }}
+          path: build/macos-host-controls/
+          if-no-files-found: error
+          retention-days: 30

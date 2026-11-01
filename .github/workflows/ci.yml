@@ -619,7 +619,7 @@ jobs:
   # fail this check; Wayland keeps its existing report-only policy.
   linux-gui-coverage:
     needs: [scope, linux-gui]
-    if: ${{ always() && contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui-coverage') }}
+    if: ${{ always() && needs.scope.result == 'success' && contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui-coverage') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
