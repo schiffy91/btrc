@@ -4701,3 +4701,46 @@ split through `--emit-units`; module-mode integration and the required warm
 transpile measurement remain outstanding. Broader parity and final-tree gates
 also remain necessary before claiming the whole issue or goal complete. The
 read-only build-rule audit is recorded beside the test evidence.
+
+
+### 2026-11-01 Language branch closeout and current-source review
+
+Agent `language_branches` owns the closeout of PRs #116, #120, #122 and
+#124 on `codex/language-closeout-20261101`, based on `9f33904d`. PR #120's
+published claim `95793e0a` and implementation `c10a3f83`, and PR #122's
+claim `79e24315` and implementation `b264a7bc`, are ancestors of the
+published PR #125 head `3181272b`. PR #124 is a WORKSTREAMS-only transfer
+record (`35e40b5c`) assigning its source to PR #120. The integrator closed
+#120, #122 and #124 as superseded; their related issues remain open.
+
+PR #116's complete `7118ec76` head and the four-keyword checkpoint
+`265dc644` are also ancestors of PR #125, but are not on main. Its PR body
+now distinguishes that packet's checked-override implementation from the
+`auto`, `register` and `goto` implementations carried by the combined tree.
+
+On `9f33904d`, the independent refresh passed 367 focused checks and twelve
+strict-C11 O2 corpus cases through both frontends, with no failures, errors
+or skips. Coverage includes override signatures, C storage classes, goto
+syntax and scope safety, setjmp flow, native jump IR and validation-record
+replay, plus actual goto/exception cleanup programs. The functional compiler
+was the existing Clang 21 O0 binary, verified against source receipt
+`bf0fba76f14023fecd73c2a7671acd3b588392fbe22fca1c06704036ea2ae339`
+and binary SHA-256
+`1b8b6c72a0e85bda7eb14b4dfea0b8cd15d613281a9c420411798be089b65998`.
+The dedicated jump test drivers were built by their existing fixtures.
+
+Independent review of `3181272b..9f33904d` covered hosted ABI safe-name
+lookup, both catalog generators and generated changes, runtime metadata
+consumers, and Python default/switch debug locations. No defect was found.
+The runtime generated delta preserves every source chunk and nonempty
+metadata value; exactly 737 empty-vector expressions become null. All
+nullable consumers were checked. Eight focused runtime-metadata, ABI and
+paired debug-location regressions passed without skips. This establishes
+functional preservation; it does not establish a memory or speed target.
+
+Evidence: `build/qualification/language-closeout/` in the
+`stdlib-analysis-20261023` clone, including `proof.json` and the three
+JUnit/skip reports. Source and binary identities were rechecked afterward.
+Host: Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0. No local GUI, application,
+guest or performance measurement ran. Issue #17 still requires reviewed
+integration and final combined-tree gates.
