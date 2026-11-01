@@ -1845,10 +1845,12 @@ def test_windows_runtime_dispatch_requires_native_execution_without_compiler_bui
     jobs = workflow["jobs"]
     runtime = jobs["daemon-runtime"]
     assert jobs["cross"]["if"] == "github.event_name != 'workflow_dispatch' || inputs.focus == 'full'"
-    assert "needs" not in runtime
+    assert runtime["needs"] == "daemon-build"
+    assert jobs["daemon-build"]["if"] == "github.event_name == 'workflow_dispatch' && inputs.focus == 'daemon-corpus'"
     assert runtime["if"] == (
-        "github.event_name == 'workflow_dispatch' && "
-        "(inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime' || inputs.focus == 'daemon-corpus')"
+        "${{ !cancelled() && github.event_name == 'workflow_dispatch' && "
+        "(inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime' || "
+        "(inputs.focus == 'daemon-corpus' && needs.daemon-build.result == 'success')) }}"
     )
     windows_targets = {
         row.zig_target: row.label
@@ -1900,16 +1902,23 @@ def test_windows_daemon_corpus_runs_both_frontends_with_build_receipts() -> None
     assert companion["if"] == "${{ !cancelled() && inputs.focus == 'daemon-runtime' }}"
     identity = next(step for step in steps if "compiler_digest or owned_unchanged_generation" in step.get("run", ""))
     assert identity["if"] == "${{ inputs.focus == 'daemon-corpus' }}"
-    build = next(step for step in steps if "tools.compiler_build transpile" in step.get("run", ""))
-    assert build["if"] == "${{ inputs.focus == 'daemon-corpus' }}"
-    assert "--entry src/compiler/btrc/cli/WindowsMain.btrc --target '${{ matrix.label }}'" in build["run"]
+    producer = workflow["jobs"]["daemon-build"]
+    assert producer["runs-on"] == "ubuntu-latest"
+    build = next(step for step in producer["steps"] if "tools.compiler_build transpile" in step.get("run", ""))
+    assert "--entry src/compiler/btrc/BtrccMain.btrc --target linux-x86_64" in build["run"]
     assert "tools.compiler_build compile" in build["run"] and "-O0" in build["run"]
-    assert "-target '${{ matrix.target }}'" in build["run"]
     assert "-std=c11 -pedantic-errors -Wall -Wextra -Werror" in build["run"]
+    bundle = next(step for step in producer["steps"] if "src.tests.target_runner" in step.get("run", ""))
+    assert "for label in windows-x86_64 windows-aarch64" in bundle["run"]
+    assert "--frontend both" in bundle["run"] and "--compile-only" in bundle["run"]
+    assert "--program stdlib/Daemon.btrc --program stdlib/DaemonToken.btrc" in bundle["run"]
+    downloads = [step for step in steps if step.get("uses", "").startswith("actions/download-artifact@")]
+    assert len(downloads) == 1 and downloads[0]["with"]["name"] == "daemon-corpus-${{ matrix.label }}"
+    assert downloads[0]["with"]["path"] == "build/windows-runtime/input"
     execute = next(step for step in steps if "src.tests.target_runner" in step.get("run", ""))
     assert execute["if"] == "${{ inputs.focus == 'daemon-corpus' }}"
     assert "--frontend both" in execute["run"] and "--executor windows-native" in execute["run"]
-    assert "--program stdlib/Daemon.btrc --program stdlib/DaemonToken.btrc" in execute["run"]
+    assert "--execute-bundle 'build/windows-runtime/input/${{ matrix.label }}/bundle'" in execute["run"]
     assert "len(r['results']) == 4" in execute["run"]
     assert "all(x['status'] == 'passed' for x in r['results'])" in execute["run"]
     assert "{'reference', 'selfhost'}" in execute["run"]
