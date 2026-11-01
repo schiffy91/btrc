@@ -12,6 +12,29 @@ class StateButtonAction implements IButtonAction {
 	public int calls = 0;
 	public void invoke() { self.calls++; }
 }
+/* Refusing another native press must precede AppKit's toggle mutation.
+ * The first accepted click keeps its receipt until cancellation or delivery. */
+class PressureButtonChecks {
+	class void run() {
+		var signal = MacOSRunLoopSignal(); var actions = MacOSActionQueue(1, signal);
+		var context = MacOSViewContext(MacOSSemanticWake(signal), 1); var events = context.createQueue();
+		var button = MacOSButton("Pressure", actions); button.stateNode().configure(context);
+		button.stateNode().attachWindow(events, true, WINDOW_EXPOSURE_EXPOSED);
+		var receiver = StateButtonAction(); var owner = CallbackScope(); button.onAction(receiver, owner);
+		button.setSelected(false);
+		assert(button.activate() && button.isSelected() && actions.pendingCount() == 1);
+		button.activate();
+		assert(button.isSelected());
+		assert(actions.pendingCount() == 1 && receiver.calls == 0);
+		string failure = context.nativeFailure(); assert(failure != "");
+		bool reported = false;
+		try { context.checkNativeFailure(); } catch (string error) { reported = error == failure; }
+		assert(reported);
+		button.stateNode().detachWindow(); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		assert(button.close() == CALLBACK_CANCELLATION_COMPLETE);
+		actions.close(); context.close(); assert(signal.close());
+	}
+}
 int main() {
 	NSApplication.sharedApplication();
 	var signal = MacOSRunLoopSignal(); var actions = MacOSActionQueue(8, signal);
@@ -32,5 +55,6 @@ int main() {
 	button.stateNode().windowChanged(false, WINDOW_EXPOSURE_NOT_EXPOSED); assert(actions.pendingCount() == 0 && receiver.calls == 1);
 	button.stateNode().detachWindow(); assert(owner.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	assert(button.close() == CALLBACK_CANCELLATION_COMPLETE); actions.close(); context.close(); assert(signal.close());
+	PressureButtonChecks.run();
 	print("PASS: UI2 macOS eligibility loss retires pending native button actions"); return 0;
 }
