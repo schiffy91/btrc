@@ -4879,3 +4879,14 @@ mutation in whole-program and module compilation. Eight focused cycle checks,
 46 earlier cycle/architecture checks, Ruff and formatting pass. These are draft
 checks; the fresh compiler, paired native runs and exact generated-C comparisons
 remain pending at this commit.
+
+The first fresh compiler at `86267658` built under strict C11 with Clang 21.1.8
+at O0. All 64 strict/sanitized executions across the sixteen paired cases passed.
+Twelve exact-C comparisons passed; four local-try cases differed only in the
+volatile qualification of a redundant final return copy. The collection boundary
+now marks its already staged return with the existing IR return-temporary flag.
+The cycle pass reuses that exact flagged variable across cleanup registration
+and completion, retaining the final flush and cleanup transfer. It never infers
+ownership from a generated-name prefix. Nine focused sequencing, idempotence
+and collection tests pass; independent review cleared this follow-up before the
+next build. The earlier compiler and failing C diffs remain retained as evidence.

@@ -277,6 +277,7 @@ class CollectionLowerer:
                             c_type=function.return_type,
                             name=result_name,
                             init=statement.value,
+                            is_cycle_return_temp=True,
                         )
                     )
                     if return_runtime_name is not None:
