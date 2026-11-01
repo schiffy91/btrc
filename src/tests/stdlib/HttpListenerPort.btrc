@@ -1,0 +1,46 @@
+// BTRC_TEST_REQUIRES: loopback-listener
+/* An HTTPServer(0) listener on every row's HTTPSocket provider: the port the
+ * system chose, held exclusively while it listens (EADDRINUSE for a second
+ * listener), free again once it stops, and an accept that waits out its
+ * timeout. */
+import Library.HTTP.HTTPServer;
+import Library.HTTP.HTTPSocket;
+import Library.Timer;
+
+#include <assert.h>
+#include <errno.h>
+
+int main() {
+	HTTPServer first = HTTPServer(0);
+	assert(first.start());
+	assert(first.fd >= 0);
+	assert(!first.start());
+	int port = HTTPSocket.localPort(first.fd);
+	assert(port > 0 && port <= 65535);
+
+	HTTPServer rival = HTTPServer(port);
+	errno = 0;
+	assert(!rival.start());
+	assert(errno == EADDRINUSE);
+	assert(rival.fd == -1);
+
+	first.stop();
+	assert(first.fd == -1);
+	assert(HTTPSocket.localPort(-1) == -1);
+
+	HTTPServer again = HTTPServer(port);
+	assert(again.start());
+	assert(HTTPSocket.localPort(again.fd) == port);
+	again.timeoutSecs = 1;
+	Timer acceptTimer = Timer();
+	acceptTimer.start();
+	assert(again.acceptConn() == -1);
+	acceptTimer.stop();
+	assert(acceptTimer.elapsedMillis() >= 700.0f);
+	assert(acceptTimer.elapsedMillis() < 5000.0f);
+	again.stop();
+	assert(again.fd == -1);
+
+	print("PASS: test_stdlib_http_listener_port");
+	return 0;
+}

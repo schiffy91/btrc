@@ -9,7 +9,9 @@ import Library.HTTP.HTTPResponse;
 import Library.Strings;
 import Library.Vector;
 
+#if !defined(_WIN32)
 #include <sys/socket.h>
+#endif
 #include <string.h>
 
 class HTTPServer {
@@ -222,7 +224,11 @@ class HTTPServer {
 		} else if (sent && !body.isEmpty()) {
 			sent = HTTPSocket.sendAllUntil(c, body, deadline);
 		}
+#if defined(_WIN32)
+		HTTPSocket.shutdownSend(c);
+#else
 		shutdown(c, SHUT_WR);
+#endif
 		return sent;
 	}
 }

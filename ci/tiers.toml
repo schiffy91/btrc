@@ -452,9 +452,10 @@ reports = ["skip-report"]
 # registry-free server DLL with a BTRC sink, an ole32 stream), the overlay's
 # regex, fnmatch and glob, the console terminal, Library.Process's
 # CreateProcessW provider (the runtime seam's harness, the Process fixture and
-# the Process corpus bundle), and the Windows FileSystem provider's cases and
-# corpus bundle (test_windows_filesystem_handles.py, target_runner.py): a Linux
-# runner builds both
+# the Process corpus bundle), the Windows FileSystem provider's cases and
+# corpus bundle (test_windows_filesystem_handles.py, target_runner.py), and the
+# Winsock HTTPSocket provider's cases and the HTTP corpus bundle
+# (test_windows_http.py): a Linux runner builds both
 # compilers' executables and the server (win32-native-build), then each
 # Windows runner executes those of its architecture (win32-native). A job
 # that waits on another must run on exactly the same events
@@ -499,6 +500,10 @@ changed_paths = [
   "src/stdlib/IO.btrc",
   "src/tests/native/filesystem_windows/**",
   "src/tests/python/test_windows_filesystem_handles.py",
+  "src/stdlib/HTTP/**",
+  "src/tests/stdlib/Http*.btrc",
+  "src/tests/native/http_windows/**",
+  "src/tests/python/test_windows_http.py",
   "src/tests/target_runner.py",
   "tools/target_hosts/windows/**",
 ]
@@ -550,6 +555,10 @@ changed_paths = [
   "src/stdlib/IO.btrc",
   "src/tests/native/filesystem_windows/**",
   "src/tests/python/test_windows_filesystem_handles.py",
+  "src/stdlib/HTTP/**",
+  "src/tests/stdlib/Http*.btrc",
+  "src/tests/native/http_windows/**",
+  "src/tests/python/test_windows_http.py",
   "src/tests/target_runner.py",
   "tools/target_hosts/windows/**",
 ]
@@ -595,6 +604,10 @@ changed_paths = [
   "src/stdlib/IO.btrc",
   "src/tests/native/filesystem_windows/**",
   "src/tests/python/test_windows_filesystem_handles.py",
+  "src/stdlib/HTTP/**",
+  "src/tests/stdlib/Http*.btrc",
+  "src/tests/native/http_windows/**",
+  "src/tests/python/test_windows_http.py",
   "src/tests/target_runner.py",
   "tools/target_hosts/windows/**",
 ]

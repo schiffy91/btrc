@@ -3,3 +3,18 @@ manifest-version = 1
 [package]
 name = "btrc_stdlib_http"
 exports = ["HTTP", "HTTPClient", "HTTPFraming", "HTTPRequest", "HTTPResponse", "HTTPResponseHeaders", "HTTPServer", "HTTPSocket", "HTTPStatus", "HTTPUrl"]
+
+# HTTPSocket's native seam. POSIX rows keep their BSD-socket bodies inline in
+# HTTPSocket.btrc, so their provider only completes the selection; windows
+# rows get the Winsock provider, whose C (Windows/Win32Sockets.c) is spliced
+# into the program and resolves ws2_32 at run time, so no row needs the
+# native header reader or an import library to compile this package.
+[[package.providers]]
+module = "HTTPSocket"
+implementation = "Unix.HTTPSocketProvider"
+os = ["android", "ios", "linux", "macos"]
+
+[[package.providers]]
+module = "HTTPSocket"
+implementation = "Windows.HTTPSocketProvider"
+os = ["windows"]

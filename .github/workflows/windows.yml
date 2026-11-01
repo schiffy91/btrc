@@ -89,7 +89,7 @@ jobs:
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
           FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
-          TEST_READ_MARKDOWN: '^(PLAN|AGENTS|CLAUDE)\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|btrsmith-rename-table-w2|plan-reference|platform-toolchain-matrix)\.md$'
+          TEST_READ_MARKDOWN: '^(PLAN|AGENTS|CLAUDE)\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|btrsmith-rename-table-w2|plan-reference|platform-toolchain-matrix|platform-adaptations)\.md$'
         run: |
           set -euo pipefail
           shopt -s inherit_errexit
@@ -435,7 +435,10 @@ jobs:
   # and the FileSystem corpus programs, with the file I/O programs that reserve
   # temporary directories through it, bundled by src/tests/target_runner.py
   # through both compilers for each architecture and executed there by the
-  # windows-native executor. The header reader and zig run under Nix, which
+  # windows-native executor. The Winsock HTTPSocket provider: its own cases
+  # against Winsock loopback peers and HTTPClient's curl.exe
+  # (test_windows_http.py) and the HTTP corpus bundle, run the same way. The
+  # header reader and zig run under Nix, which
   # Windows lacks, so a Linux runner builds the executables and the server and
   # win32-native runs them on x64 and ARM64 Windows.
   win32-native-build:
@@ -451,8 +454,8 @@ jobs:
           use-flakehub: false
       - name: Build the self-hosted compiler once for every program below
         run: nix develop --command make NIX= btrcc
-      - name: Build the Win32, COM, matching, console, Process and FileSystem programs with both compilers for x64 and ARM64
-        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py src/tests/python/test_windows_filesystem_handles.py --skip-report=build/skip-report-windows-win32-native-build.json
+      - name: Build the Win32, COM, matching, console, Process, FileSystem and HTTP programs with both compilers for x64 and ARM64
+        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py src/tests/python/test_windows_filesystem_handles.py src/tests/python/test_windows_http.py --skip-report=build/skip-report-windows-win32-native-build.json
       - name: Bundle the FileSystem corpus programs with both compilers for x64 and ARM64
         run: |
           set -euo pipefail
@@ -481,6 +484,7 @@ jobs:
             build/win32/*.stdout
             build/win32/*.stderr
             build/win32/process-corpus-*/
+            build/win32/http-corpus-*/
           if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -662,6 +666,37 @@ jobs:
           path: build/windows-filesystem-run
           if-no-files-found: ignore
           retention-days: 7
+      # Each case runs against Winsock loopback peers of its own and HTTPClient
+      # against curl.exe; the only stderr line of a passing run is platform
+      # adaptations row 6's warning for its one all-interfaces listener.
+      - name: Run the Winsock HTTP provider cases through each compiler's program
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p build
+          failed=0
+          for frontend in reference selfhost; do
+            report="build/windows-http-cases-$frontend.stdout"
+            errors="build/windows-http-cases-$frontend.stderr"
+            status=0
+            "./win32/windows-http-cases-$frontend-${{ matrix.target }}.exe" > "$report" 2> "$errors" || status=$?
+            echo "$frontend ${{ matrix.target }} (exit $status):"
+            cat "$report" "$errors"
+            if [ "$status" -ne 0 ] || ! python -c 'import sys; from pathlib import Path; from src.tests.python.test_windows_http import check_output; check_output(*(Path(name).read_text(encoding="utf-8") for name in sys.argv[1:]))' "$report" "$errors"; then
+              failed=1
+            fi
+          done
+          test "$failed" -eq 0
+      - name: Run the HTTP corpus natively through both compilers against its goldens
+        if: ${{ !cancelled() }}
+        run: python -m src.tests.target_runner --execute-bundle "win32/http-corpus-${{ matrix.target }}" --executor windows-native --output "build/http-corpus-${{ matrix.target }}"
+      - name: Retain the HTTP corpus results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: http-corpus-${{ matrix.target }}-results
+          path: build/http-corpus-${{ matrix.target }}/
+          if-no-files-found: warn
+          retention-days: 14
 
   # The whole language and stdlib corpus on real Windows, x64 and ARM64,
   # through both compilers (CX-P1-07). Nix and the native header reader run

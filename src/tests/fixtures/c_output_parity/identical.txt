@@ -627,6 +627,7 @@ stdlib/DateTimeTime.btrc
 stdlib/DateTimeWideEpoch.btrc
 stdlib/Digest.btrc
 stdlib/Environment.btrc
+stdlib/HttpListenerPort.btrc
 stdlib/Math.btrc
 stdlib/MathAbs.btrc
 stdlib/MathBoundaries.btrc

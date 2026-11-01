@@ -1,0 +1,36 @@
+/* HTTPSocket's native seam on windows rows. The package manifest selects
+ * this provider for os = ["windows"]; every other row selects
+ * Unix/HTTPSocketProvider.btrc, because their BSD-socket bodies stay inline
+ * in HTTPSocket.btrc. On windows rows HTTPSocket.btrc compiles the Winsock
+ * twin of HTTPSocket instead (`#if defined(_WIN32)`), and its bodies call the
+ * declarations below.
+ *
+ * The C is spliced, not bound: Win32Sockets.c includes the SDK's base
+ * headers itself and resolves ws2_32 at run time, so compiling an HTTP
+ * program for a windows row, btrcc's own WindowsMain included, needs no
+ * native header reader and no import library. Each operation returns 0
+ * (done), 1 (would block) or -1 (failed, with errno set to the POSIX value
+ * of the Winsock error). The int descriptors are the provider's tokens for
+ * the SOCKETs it owns, never native handles. */
+import ./Win32Sockets.c
+
+extern int btrcWinSocketListen(void** registry, int port, int bindAny, int backlog, int* token);
+extern int btrcWinSocketAccept(void** registry, int listener, int* token);
+extern int btrcWinSocketWait(void** registry, int token, int events, int milliseconds);
+extern int btrcWinSocketReceive(void** registry, int token, char* buffer, int capacity, int* received);
+extern int btrcWinSocketSend(void** registry, int token, char* data, int length, int* sent);
+extern int btrcWinSocketShutdownSend(void** registry, int token);
+extern int btrcWinSocketClose(void** registry, int token);
+extern int btrcWinSocketLocalPort(void** registry, int token);
+extern int btrcWinSocketInheritable(void** registry, int token);
+extern int btrcWinSocketLive(void** registry);
+extern int btrcWinSocketStartups(void** registry);
+extern int btrcWinSocketCleanups(void** registry);
+
+/* The root of the program's one socket registry. Win32Sockets.c may be in
+ * every module unit of a program; this function, and so its static, is
+ * emitted once, so every unit resolves a token in the same registry. */
+void** httpWinsockRegistry() {
+	static void* registry;
+	return &registry;
+}
