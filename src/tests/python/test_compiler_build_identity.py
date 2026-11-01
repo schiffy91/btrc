@@ -47,11 +47,27 @@ def test_compiler_digest_accepts_distinct_path_and_handle_change_times(tmp_path,
 
 
 @pytest.mark.parametrize("mutation", ["rewrite-restored-mtime", "replace"])
-def test_compiler_digest_rejects_changes_during_hashing(tmp_path, monkeypatch, mutation):
+@pytest.mark.parametrize("unchanged_ctime", [False, True])
+def test_compiler_digest_rejects_changes_during_hashing(tmp_path, monkeypatch, mutation, unchanged_ctime):
     source = tmp_path / "input.c"
     source.write_bytes(b"compiler source")
     before = source.stat()
     file_digest = hashlib.file_digest
+    if unchanged_ctime:
+        fstat = os.fstat
+
+        def handle_metadata(fd):
+            metadata = fstat(fd)
+            return SimpleNamespace(
+                **{
+                    name: getattr(metadata, name)
+                    for name in dir(metadata)
+                    if name.startswith("st_") and name != "st_ctime_ns"
+                },
+                st_ctime_ns=before.st_ctime_ns,
+            )
+
+        monkeypatch.setattr(os, "fstat", handle_metadata)
 
     def mutate(stream, algorithm):
         digest = file_digest(stream, algorithm)

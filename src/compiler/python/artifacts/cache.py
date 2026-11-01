@@ -753,7 +753,13 @@ class CompilerBuildIdentity:
         # CPython on Windows gives path stat and fstat different ctime meanings.
         with os.fdopen(ArtifactStorage().open_regular(path), "rb") as stream:
             current = os.fstat(stream.fileno())
-        for item in (after, current):
+            # A same-length rewrite can preserve every reported timestamp.
+            # Confirm the bytes as well as the reopened file's identity.
+            confirmed = hashlib.file_digest(stream, "sha256").hexdigest()
+            verified = os.fstat(stream.fileno())
+        if confirmed != digest:
+            raise ValueError(f"compiler build input changed: {path}")
+        for item in (after, current, verified):
             if (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns) != (
                 before.st_dev,
                 before.st_ino,
