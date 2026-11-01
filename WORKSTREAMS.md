@@ -4701,3 +4701,24 @@ split through `--emit-units`; module-mode integration and the required warm
 transpile measurement remain outstanding. Broader parity and final-tree gates
 also remain necessary before claiming the whole issue or goal complete. The
 read-only build-rule audit is recorded beside the test evidence.
+
+### 2026-11-01 benchmark and platform branch closeout
+
+Codex's `benchmark_platform_branches` agent owns the closeout review for PRs
+#114, #117, #118 and #125 on `codex/benchmark-platform-closeout-20261101`,
+based on `9f33904d`. The root agent coordinates integration and issue closure.
+This packet updates `src/stdlib/Daemon/README.md` to describe the implemented
+Windows companion, build and distribution requirements, protected control
+files, process-tree termination and indeterminate startup result. No runtime
+contract or acceptance threshold changes.
+
+The review covers the Windows controller and supervisor policies, commit/ACK
+ordering, job lifecycle, companion image validation and pair publication.
+The previous native x64/ARM64 and portable Unix evidence remains the runtime
+qualification record. Focused checks reuse the source-matched functional
+compiler; they are not performance measurements or final-matrix acceptance.
+The benchmark, performance-tool and Daemon policy/protocol/handshake selection
+passed 285 tests with no skips in 135.24 seconds. It includes real incremental
+cache/link/output checks and four production companion cross-builds; four
+standalone supervisor-link cases were deselected. JUnit and skip receipts are
+in `build/closeout/`. Compiler source and binary receipts match the candidate.
