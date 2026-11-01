@@ -102,11 +102,13 @@ class CycleReturnBoundaryLowerer {
 	private bool endsWithFlush(Vector<IRNode> statements) { return statements.len > 0 && self.isForcedFlush(statements.get(statements.len - 1)); }
 
 	private bool isMaterializedReturn(Vector<IRNode> statements, IRNode statement) {
-		if (statements.len < 2 || !self.endsWithFlush(statements) || ((IRValuePayload)statement.payload).value == null || ((IRValuePayload)statement.payload).value.kind != IRK_VAR) {
+		if (((IRValuePayload)statement.payload).value == null || ((IRValuePayload)statement.payload).value.kind != IRK_VAR) {
 			return false;
 		}
-		IRNode declaration = statements.get(statements.len - 2);
-		return declaration.kind == IRK_VAR_DECL && ((IRDeclarationPayload)declaration.payload).isCycleReturnTemp && declaration.name == ((IRValuePayload)statement.payload).value.name;
+		for declaration in statements {
+			if (declaration.kind == IRK_VAR_DECL && ((IRDeclarationPayload)declaration.payload).isCycleReturnTemp && declaration.name == ((IRValuePayload)statement.payload).value.name) { return true; }
+		}
+		return false;
 	}
 
 	private void rewriteNestedReturns(IRFunction definition, IRNode node) {
@@ -621,6 +623,7 @@ class CycleBoundaryLowerer {
 				if (((IRValuePayload)statement.payload).value != null) {
 					string result = self.context.freshTemporary(token != "" ? "__btrc_topology_return" : "__btrc_cycle_owner");
 					IRNode declaration = IRNode.variableDeclaration(definition.returnType, result, ((IRValuePayload)statement.payload).value);
+					((IRDeclarationPayload)declaration.payload).isCycleReturnTemp = true;
 					rewritten.push(declaration);
 					/* The original return already left its try frames and transferred
 					 * its local owner. Protect it through completion and the final drain. */

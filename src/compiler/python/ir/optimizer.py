@@ -1165,7 +1165,7 @@ class IROptimizer:
             cls._rewrite_cycle_nested(function, statement, state)
             if isinstance(statement, IRReturn):
                 cleanup_exits = IRStatementSequence(rewritten).take_cleanup_exits()
-                materialized = cls._is_materialized_flush_return(rewritten, statement)
+                materialized = cls._is_materialized_return(rewritten, statement)
                 if statement.value is not None and not materialized:
                     result = cls._next_cycle_return_name(state)
                     rewritten.append(
@@ -1219,16 +1219,15 @@ class IROptimizer:
             for node in IRNode.walk_value(value)
         )
 
-    @classmethod
-    def _is_materialized_flush_return(cls, statements, statement: IRReturn) -> bool:
-        if len(statements) < 2 or not cls._ends_with_cycle_flush(statements):
+    @staticmethod
+    def _is_materialized_return(statements, statement: IRReturn) -> bool:
+        if not isinstance(statement.value, IRVar):
             return False
-        declaration = statements[-2]
-        return bool(
+        return any(
             isinstance(declaration, IRVarDecl)
             and declaration.is_cycle_return_temp
-            and isinstance(statement.value, IRVar)
             and declaration.name == statement.value.name
+            for declaration in statements
         )
 
     @staticmethod

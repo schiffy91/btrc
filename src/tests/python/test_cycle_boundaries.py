@@ -125,6 +125,41 @@ def test_explicit_flush_before_local_return_is_not_mistaken_for_pass_output() ->
     assert function.body.stmts == first_rewrite
 
 
+def test_protected_return_slot_is_reused_across_completion_and_final_flush() -> None:
+    owner = IRVarDecl(
+        c_type=CType(text="Node*"),
+        name="prepared_owner",
+        init=IRCall(callee="take", args=[]),
+        is_cycle_return_temp=True,
+    )
+    function = IRFunctionDef(
+        name="finish_collection",
+        return_type=owner.c_type,
+        body=IRBlock(
+            stmts=[
+                owner,
+                _call_statement("__btrc_register_cleanup"),
+                _call_statement("__btrc_arc_topology_complete"),
+                _call_statement("__btrc_discard_cleanups_to"),
+                IRReturn(value=IRVar(name=owner.name)),
+            ]
+        ),
+    )
+    assert IROptimizer.install_function_cycle_boundary(function, force=True)
+    assert [node for node in function.body.stmts if isinstance(node, IRVarDecl)] == [owner]
+    assert [_called_name(node) for node in function.body.stmts] == [
+        None,
+        "__btrc_register_cleanup",
+        "__btrc_arc_topology_complete",
+        "__btrc_flush_cycles",
+        "__btrc_discard_cleanups_to",
+        None,
+    ]
+    first_rewrite = deepcopy(function.body.stmts)
+    assert IROptimizer.install_function_cycle_boundary(function, force=True)
+    assert function.body.stmts == first_rewrite
+
+
 def test_edge_only_releases_receive_forced_cycle_boundaries() -> None:
     for helper in EDGE_RELEASE_HELPERS:
         function = IRFunctionDef(
