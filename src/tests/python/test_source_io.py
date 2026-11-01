@@ -837,7 +837,10 @@ def test_compiler_input_identity_is_independent_between_invocations(tmp_path):
         first[0].validate()
 
 
-def test_owned_unchanged_generation_avoids_staging_and_preserves_file_identity(tmp_path, monkeypatch):
+@pytest.mark.parametrize("distinct_handle_ctime", [False, True])
+def test_owned_unchanged_generation_avoids_staging_and_preserves_file_identity(
+    tmp_path, monkeypatch, distinct_handle_ctime
+):
     from src.compiler.python.artifacts.cache import CompilerOutputPublication
 
     monkeypatch.setenv("BTRC_STATE_DIR", str(tmp_path / "state"))
@@ -852,6 +855,23 @@ def test_owned_unchanged_generation_avoids_staging_and_preserves_file_identity(t
         pytest.fail("unchanged owned generation wrote a candidate")
 
     monkeypatch.setattr(io, "_stage_output", never_stage)
+    if distinct_handle_ctime:
+        from types import SimpleNamespace
+
+        fstat = os.fstat
+
+        def handle_metadata(fd):
+            metadata = fstat(fd)
+            return SimpleNamespace(
+                **{
+                    name: getattr(metadata, name)
+                    for name in dir(metadata)
+                    if name.startswith("st_") and name != "st_ctime_ns"
+                },
+                st_ctime_ns=metadata.st_ctime_ns + 1,
+            )
+
+        monkeypatch.setattr(os, "fstat", handle_metadata)
     io.write_outputs(outputs, roles=roles)
     assert {path: (path.stat().st_ino, path.stat().st_mtime_ns, path.read_bytes()) for path in paths} == before
 

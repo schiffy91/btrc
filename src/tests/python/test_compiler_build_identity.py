@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +24,49 @@ from src.tests.c_toolchains import host_c_compiler
 from src.tests.python.btrcc_binary_fixtures import bundle_fixture, bundle_manifest
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_compiler_digest_accepts_distinct_path_and_handle_change_times(tmp_path, monkeypatch):
+    source = tmp_path / "input.c"
+    source.write_bytes(b"compiler source")
+    fstat = os.fstat
+
+    def handle_metadata(fd):
+        metadata = fstat(fd)
+        return SimpleNamespace(
+            **{
+                name: getattr(metadata, name)
+                for name in dir(metadata)
+                if name.startswith("st_") and name != "st_ctime_ns"
+            },
+            st_ctime_ns=metadata.st_ctime_ns + 1,
+        )
+
+    monkeypatch.setattr(os, "fstat", handle_metadata)
+    assert CompilerBuildIdentity.file_digest(source) == hashlib.sha256(b"compiler source").hexdigest()
+
+
+@pytest.mark.parametrize("mutation", ["rewrite-restored-mtime", "replace"])
+def test_compiler_digest_rejects_changes_during_hashing(tmp_path, monkeypatch, mutation):
+    source = tmp_path / "input.c"
+    source.write_bytes(b"compiler source")
+    before = source.stat()
+    file_digest = hashlib.file_digest
+
+    def mutate(stream, algorithm):
+        digest = file_digest(stream, algorithm)
+        if mutation == "replace":
+            replacement = tmp_path / "replacement.c"
+            replacement.write_bytes(b"compiler source")
+            replacement.replace(source)
+        else:
+            source.write_bytes(b"modified source")
+            os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+        return digest
+
+    monkeypatch.setattr(hashlib, "file_digest", mutate)
+    with pytest.raises((ValueError, PermissionError)):
+        CompilerBuildIdentity.file_digest(source)
 
 
 def _tree(root):

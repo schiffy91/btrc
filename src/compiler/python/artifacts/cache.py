@@ -433,7 +433,10 @@ class CompilerGenerationPublisher:
         descriptor = self._storage.open_regular(output.destination)
         digest = hashlib.sha256()
         with os.fdopen(descriptor, "rb") as stream:
-            if self._revision(os.fstat(stream.fileno())) != self._revision(metadata):
+            opened = os.fstat(stream.fileno())
+            # Windows path ctime can mean creation time while handle ctime
+            # means change time. Keep each clock's before/after checks separate.
+            if self._revision(opened)[:-1] != self._revision(metadata)[:-1]:
                 raise ValueError(f"compiler output changed during retention: {output.destination}")
             for offset in range(0, len(output.content), 65536):
                 encoded = output.content[offset : offset + 65536].encode("utf-8")
@@ -442,7 +445,7 @@ class CompilerGenerationPublisher:
                 digest.update(encoded)
             if stream.read(1) or digest.hexdigest() != owned.sha256:
                 return None
-            if self._revision(os.fstat(stream.fileno())) != self._revision(metadata):
+            if self._revision(os.fstat(stream.fileno())) != self._revision(opened):
                 raise ValueError(f"compiler output changed during retention: {output.destination}")
         if self._revision(output.destination.lstat()) != self._revision(metadata):
             raise ValueError(f"compiler output changed during retention: {output.destination}")
@@ -746,7 +749,10 @@ class CompilerBuildIdentity:
             before = os.fstat(stream.fileno())
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
             after = os.fstat(stream.fileno())
-        current = path.lstat()
+        # Use the same metadata API for the original and current path handle:
+        # CPython on Windows gives path stat and fstat different ctime meanings.
+        with os.fdopen(ArtifactStorage().open_regular(path), "rb") as stream:
+            current = os.fstat(stream.fileno())
         for item in (after, current):
             if (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns) != (
                 before.st_dev,

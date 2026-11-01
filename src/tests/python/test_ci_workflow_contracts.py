@@ -1894,6 +1894,8 @@ def test_windows_daemon_corpus_runs_both_frontends_with_build_receipts() -> None
     workflow = _parsed("windows-arm64.yml")
     assert "daemon-corpus" in workflow["on"]["workflow_dispatch"]["inputs"]["focus"]["options"]
     steps = workflow["jobs"]["daemon-runtime"]["steps"]
+    identity = next(step for step in steps if "compiler_digest or owned_unchanged_generation" in step.get("run", ""))
+    assert identity["if"] == "${{ inputs.focus == 'daemon-corpus' }}"
     build = next(step for step in steps if "tools.compiler_build transpile" in step.get("run", ""))
     assert build["if"] == "${{ inputs.focus == 'daemon-corpus' }}"
     assert "--entry src/compiler/btrc/cli/WindowsMain.btrc --target '${{ matrix.label }}'" in build["run"]
