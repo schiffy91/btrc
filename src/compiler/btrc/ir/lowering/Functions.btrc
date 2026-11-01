@@ -305,8 +305,8 @@ class FunctionLowerer {
 			mbody.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable("self"))));
 		}
 		fn.body = IRNode.block(mbody);
-		if (topologyCollection) {
-			self.cycleBoundaries.installCollectionTopologyBoundary(fn);
+		if (topologyCollection || publicCollectionMethod) {
+			self.cycleBoundaries.installCollectionBoundary(fn, topologyCollection);
 		}
 		if (publicCollectionMethod) {
 			self.cycleReturns.installBatchedReleaseBoundary(fn, self.context.hasBatchedCycleRelease);

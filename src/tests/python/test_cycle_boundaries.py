@@ -56,6 +56,8 @@ def test_return_value_is_evaluated_before_its_forced_cycle_flush() -> None:
                 ),
                 _call_statement("__btrc_arc_release"),
                 _call_statement("__btrc_flush_cycles"),
+                _call_statement("__btrc_discard_cleanups"),
+                _call_statement("__btrc_discard_cleanups_to"),
                 IRReturn(value=IRCall(callee="finish", args=[])),
             ]
         ),
@@ -77,6 +79,9 @@ def test_return_value_is_evaluated_before_its_forced_cycle_flush() -> None:
 
     assert len(flush_indexes) == 2
     assert flush_indexes[0] < result_index < flush_indexes[1] < return_index
+    calls = [_called_name(statement) for statement in statements]
+    assert calls.index("__btrc_discard_cleanups") < result_index
+    assert flush_indexes[1] < calls.index("__btrc_discard_cleanups_to") < return_index
     assert result.name != collision
     assert statements[return_index].value == IRVar(name=result.name)
 

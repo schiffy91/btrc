@@ -4731,3 +4731,21 @@ after the popped value's cleanup was discarded. That value never reaches its
 caller and is not destroyed. The return ownership repair must keep cleanup
 active through topology completion and final cycle drains. Its behavior test
 must cover both Vector and List returns before this packet is qualified.
+
+The separate return fix stages each owned managed result after the original
+return has exited its try frames. Its typed cleanup remains registered through
+topology completion and any forced cycle drain, then transfers to the caller.
+The same collection boundary owner handles methods that release values without
+mutating collection storage. No exception is redirected into an exited local
+catch. The final boundary pass moves only trailing cleanup transfers and remains
+idempotent; it does not move try-frame exits.
+
+Independent review reproduced both the `pop` leak and a retained-return leak
+in a collection method without topology mutation on the unchanged self-hosted
+compiler. Reference probes now reclaim every owner and preserve caller-caught
+exceptions, including return from a local try. Paired regressions cover Vector,
+nullable Vector, both List pops, local try exits, and methods without topology
+mutation in whole-program and module compilation. Eight focused cycle checks,
+46 earlier cycle/architecture checks, Ruff and formatting pass. These are draft
+checks; the fresh compiler, paired native runs and exact generated-C comparisons
+remain pending at this commit.

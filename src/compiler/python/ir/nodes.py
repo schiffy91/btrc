@@ -1064,6 +1064,22 @@ class IRStatementSequence:
     def __init__(self, statements: list[IRStmt]) -> None:
         self.statements = statements
 
+    def take_cleanup_exits(self) -> list[IRStmt]:
+        """Detach trailing cleanup transfers while preserving try-frame exits."""
+        start = len(self.statements)
+        while start:
+            statement = self.statements[start - 1]
+            if not (
+                isinstance(statement, IRExprStmt)
+                and isinstance(statement.expr, IRCall)
+                and statement.expr.callee == "__btrc_discard_cleanups_to"
+            ):
+                break
+            start -= 1
+        exits = self.statements[start:]
+        del self.statements[start:]
+        return exits
+
     def lexical_block(self) -> IRBlock:
         """Keep each runtime array's storage from its declaration to block exit.
 

@@ -1164,6 +1164,7 @@ class IROptimizer:
         for statement in block.stmts:
             cls._rewrite_cycle_nested(function, statement, state)
             if isinstance(statement, IRReturn):
+                cleanup_exits = IRStatementSequence(rewritten).take_cleanup_exits()
                 materialized = cls._is_materialized_flush_return(rewritten, statement)
                 if statement.value is not None and not materialized:
                     result = cls._next_cycle_return_name(state)
@@ -1178,6 +1179,7 @@ class IROptimizer:
                     statement.value = IRVar(name=result)
                 if not cls._ends_with_cycle_flush(rewritten):
                     rewritten.append(cls._cycle_flush_statement())
+                rewritten.extend(cleanup_exits)
             rewritten.append(statement)
         block.stmts = rewritten
 

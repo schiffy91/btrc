@@ -15,6 +15,18 @@ class IRStatementSequence {
 
 	public IRStatementSequence(Vector<IRNode> statements) { self.statements = statements; }
 
+	/* Detach trailing cleanup transfers without moving try-frame exits. */
+	public Vector<IRNode> takeCleanupExits() {
+		Vector<IRNode> exits = [];
+		while (self.statements.len > 0) {
+			IRNode statement = self.statements.get(self.statements.len - 1);
+			if (statement.kind != IRK_EXPR_STMT || statement.expr.kind != IRK_CALL || ((IRCallPayload)statement.expr.payload).callee != "__btrc_discard_cleanups_to") { break; }
+			exits.push(self.statements.pop());
+		}
+		exits.reverse();
+		return exits;
+	}
+
 	/* Runtime arrays live from their declaration through the original block's
      * cleanup. A separate lexical block prevents GCC 15 from attaching an
      * array to a preceding inlined call's already-restored stack save.

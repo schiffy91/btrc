@@ -151,29 +151,32 @@ class CollectionLowerer:
         """Whether explicit keeps in this class publish collection-owned slots."""
         return class_name in cls._COLLECTION_CLASS_BASES
 
-    def protect_topology_mutation(
+    def protect_collection_boundary(
         self,
         function: IRFunctionDef,
         collection_type: TypeExpr,
+        return_type: TypeExpr | None,
     ) -> bool:
-        """Exclude one physical collection edit from concurrent ARC snapshots."""
+        """Protect collection mutations and owned returns through cycle drains."""
         concrete = self._types.canonical_type(collection_type) or collection_type
-        if (
-            concrete.base not in self._COLLECTION_CLASS_BASES
-            or not self._cycles.generic_instance_needs_visitor(
-                concrete.base,
-                list(concrete.generic_args),
-            )
-            or function.body is None
-            or not self._contains_self_storage_mutation(function.body)
+        if concrete.base not in self._COLLECTION_CLASS_BASES or function.body is None:
+            return False
+        topology = self._cycles.generic_instance_needs_visitor(
+            concrete.base, list(concrete.generic_args)
+        ) and self._contains_self_storage_mutation(function.body)
+        cleanup_enabled = self._cleanup_scope.exception_cleanup_active()
+        return_runtime_name = self._values.runtime_name(return_type) if self._values.is_managed(return_type) else None
+        if not topology and not (
+            function.requires_cycle_boundary and cleanup_enabled and return_runtime_name is not None
         ):
             return False
 
-        token_name = self._session.fresh_temp("__btrc_topology_scope")
-        cleanup_enabled = self._cleanup_scope.exception_cleanup_active()
-        marker_name = self._session.fresh_temp("__btrc_topology_cleanup") if cleanup_enabled else None
-        self._session.require_helper("__btrc_arc_topology_begin")
-        self._session.require_helper("__btrc_arc_topology_complete")
+        token_name = self._session.fresh_temp("__btrc_topology_scope") if topology else None
+        marker_prefix = "__btrc_topology_cleanup" if topology else "__btrc_cycle_cleanup"
+        marker_name = self._session.fresh_temp(marker_prefix) if cleanup_enabled else None
+        if topology:
+            self._session.require_helper("__btrc_arc_topology_begin")
+            self._session.require_helper("__btrc_arc_topology_complete")
 
         prologue: list[IRStmt] = []
         if marker_name is not None:
@@ -189,49 +192,51 @@ class CollectionLowerer:
                     ),
                 )
             )
-        token_declaration = IRVarDecl(
-            c_type=CType(text="void*"),
-            name=token_name,
-            init=IRCall(
-                callee="__btrc_arc_topology_begin",
-                args=[],
-                helper_ref="__btrc_arc_topology_begin",
-            ),
-        )
-        prologue.append(token_declaration)
-        if marker_name is not None:
-            self._session.require_helper("__btrc_arc_topology_cleanup")
-            prologue.append(
-                IRExprStmt(
-                    expr=self._cleanup_slots.register(
-                        token_declaration,
-                        IRFunctionRef(name="__btrc_arc_topology_cleanup"),
-                        direct=True,
+        if token_name is not None:
+            token_declaration = IRVarDecl(
+                c_type=CType(text="void*"),
+                name=token_name,
+                init=IRCall(
+                    callee="__btrc_arc_topology_begin",
+                    args=[],
+                    helper_ref="__btrc_arc_topology_begin",
+                ),
+            )
+            prologue.append(token_declaration)
+            if marker_name is not None:
+                self._session.require_helper("__btrc_arc_topology_cleanup")
+                prologue.append(
+                    IRExprStmt(
+                        expr=self._cleanup_slots.register(
+                            token_declaration,
+                            IRFunctionRef(name="__btrc_arc_topology_cleanup"),
+                            direct=True,
+                        )
                     )
                 )
-            )
 
-        self._rewrite_topology_block(function, function.body, token_name, marker_name)
+        self._rewrite_collection_block(function, function.body, token_name, marker_name, return_runtime_name)
         if IRStatementSequence(function.body.stmts).may_fall_through():
-            function.body.stmts.extend(self._topology_epilogue(token_name, marker_name))
+            function.body.stmts.extend(self._collection_epilogue(token_name, marker_name))
         function.body.stmts[0:0] = prologue
         return True
 
-    def _topology_epilogue(self, token_name: str, marker_name: str | None) -> list[IRStmt]:
-        statements: list[IRStmt] = [
-            IRExprStmt(
-                expr=IRCall(
-                    callee="__btrc_arc_topology_complete",
-                    args=[
-                        IRCast(
-                            target_type=CType(text="void* volatile*"),
-                            expr=IRAddressOf(expr=IRVar(name=token_name)),
-                        )
-                    ],
-                    helper_ref="__btrc_arc_topology_complete",
+    def _collection_epilogue(self, token_name: str | None, marker_name: str | None) -> list[IRStmt]:
+        statements: list[IRStmt] = []
+        if token_name is not None:
+            statements.append(
+                IRExprStmt(
+                    expr=IRCall(
+                        callee="__btrc_arc_topology_complete",
+                        args=[
+                            IRCast(
+                                target_type=CType(text="void* volatile*"), expr=IRAddressOf(expr=IRVar(name=token_name))
+                            )
+                        ],
+                        helper_ref="__btrc_arc_topology_complete",
+                    )
                 )
             )
-        ]
         if marker_name is not None:
             self._session.require_helper("__btrc_discard_cleanups_to")
             statements.append(
@@ -245,24 +250,28 @@ class CollectionLowerer:
             )
         return statements
 
-    def _rewrite_topology_block(
+    def _rewrite_collection_block(
         self,
         function: IRFunctionDef,
         block: IRBlock,
-        token_name: str,
+        token_name: str | None,
         marker_name: str | None,
+        return_runtime_name: str | None,
     ) -> None:
         rewritten: list[IRStmt] = []
         for statement in block.stmts:
-            self._rewrite_nested_topology_returns(
+            self._rewrite_nested_collection_returns(
                 function,
                 statement,
                 token_name,
                 marker_name,
+                return_runtime_name,
             )
             if isinstance(statement, IRReturn):
                 if statement.value is not None:
-                    result_name = self._session.fresh_temp("__btrc_topology_return")
+                    result_name = self._session.fresh_temp(
+                        "__btrc_topology_return" if token_name is not None else "__btrc_cycle_owner"
+                    )
                     rewritten.append(
                         IRVarDecl(
                             c_type=function.return_type,
@@ -270,39 +279,48 @@ class CollectionLowerer:
                             init=statement.value,
                         )
                     )
+                    if return_runtime_name is not None:
+                        # The original return already left its try frames and
+                        # transferred its local owner. Protect that owner again
+                        # until topology completion and the final cycle drain.
+                        self._lifetime.register_named_cleanup(result_name, return_runtime_name, rewritten)
                     statement.value = IRVar(name=result_name)
-                rewritten.extend(self._topology_epilogue(token_name, marker_name))
+                rewritten.extend(self._collection_epilogue(token_name, marker_name))
             rewritten.append(statement)
         block.stmts = rewritten
 
-    def _rewrite_nested_topology_returns(
+    def _rewrite_nested_collection_returns(
         self,
         function: IRFunctionDef,
         statement: IRStmt,
-        token_name: str,
+        token_name: str | None,
         marker_name: str | None,
+        return_runtime_name: str | None,
     ) -> None:
         if isinstance(statement, IRBlock):
-            self._rewrite_topology_block(function, statement, token_name, marker_name)
+            self._rewrite_collection_block(function, statement, token_name, marker_name, return_runtime_name)
         elif isinstance(statement, IRIf):
-            self._rewrite_topology_block(function, statement.then_block, token_name, marker_name)
+            self._rewrite_collection_block(function, statement.then_block, token_name, marker_name, return_runtime_name)
             if statement.else_block is not None:
-                self._rewrite_topology_block(function, statement.else_block, token_name, marker_name)
+                self._rewrite_collection_block(
+                    function, statement.else_block, token_name, marker_name, return_runtime_name
+                )
         elif isinstance(statement, (IRWhile, IRDoWhile, IRFor)):
-            self._rewrite_topology_block(function, statement.body, token_name, marker_name)
+            self._rewrite_collection_block(function, statement.body, token_name, marker_name, return_runtime_name)
         elif isinstance(statement, IRSwitch):
             for case in statement.cases:
-                self._rewrite_topology_case(function, case, token_name, marker_name)
+                self._rewrite_collection_case(function, case, token_name, marker_name, return_runtime_name)
 
-    def _rewrite_topology_case(
+    def _rewrite_collection_case(
         self,
         function: IRFunctionDef,
         case: IRCase,
-        token_name: str,
+        token_name: str | None,
         marker_name: str | None,
+        return_runtime_name: str | None,
     ) -> None:
         block = IRBlock(stmts=case.body)
-        self._rewrite_topology_block(function, block, token_name, marker_name)
+        self._rewrite_collection_block(function, block, token_name, marker_name, return_runtime_name)
         case.body = block.stmts
 
     def _contains_self_storage_mutation(self, value: object) -> bool:

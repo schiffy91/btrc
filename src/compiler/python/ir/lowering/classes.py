@@ -746,7 +746,9 @@ class ClassLowerer:
                 self._session.current_return_owned = previous_return_owned
         function.body = body
         if collection_type is not None:
-            self._collections.protect_topology_mutation(function, collection_type)
+            self._collections.protect_collection_boundary(
+                function, collection_type, self._types.resolve_active_type(method.return_type)
+            )
         self._session.module.function_defs.append(function)
 
     def emit_inherited_methods(

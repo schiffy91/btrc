@@ -8346,7 +8346,7 @@ class FunctionLowerer:
                 )
                 function.body = body
                 if collection_type is not None:
-                    self._collections.protect_topology_mutation(function, collection_type)
+                    self._collections.protect_collection_boundary(function, collection_type, return_type)
         finally:
             self._session.current_class = previous_class
             self._session.current_class_name = previous_class_name
