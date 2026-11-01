@@ -68,7 +68,7 @@ def test_user_diagnostic_runs_both_modes_after_first_failure(tmp_path, monkeypat
 
     monkeypatch.setattr(runner, "command", command)
     assert runner.run() == 1
-    assert observed == ["collection", "count-only", "query-bracket"]
+    assert observed == ["collection", "count-only", "dispatch-bracket"]
 
 
 def test_user_diagnostic_malformed_junit_is_not_a_pass(tmp_path):
@@ -108,7 +108,7 @@ def test_user_diagnostic_retains_separate_mode_and_normal_artifacts(tmp_path, mo
                 assert timeout == 60
                 return SimpleNamespace(
                     returncode=0,
-                    stdout="OBSERVER passed\n" + label,
+                    stdout="OBSERVER passed\nMESSAGE TRACE passed\n" + label,
                     stderr="SHELL resource-window cycle=0 thread=1 handle=0x1 "
                     "message-only=0 class=BtrcObserverForeignAnsi\n" + label,
                 )
@@ -122,7 +122,9 @@ def test_user_diagnostic_retains_separate_mode_and_normal_artifacts(tmp_path, mo
         directory = base / mode if mode else base
         assert (directory / "shell.stdout").read_text() == (mode or "normal")
         assert (directory / "shell.stderr").read_text() == (mode or "normal") + " failure evidence"
-        assert (directory / "observer.stdout").read_text() == "OBSERVER passed\n" + (mode or "normal")
+        assert (directory / "observer.stdout").read_text() == "OBSERVER passed\nMESSAGE TRACE passed\n" + (
+            mode or "normal"
+        )
         assert (directory / "observer.stderr").read_text() == (
             "SHELL resource-window cycle=0 thread=1 handle=0x1 "
             "message-only=0 class=BtrcObserverForeignAnsi\n" + (mode or "normal")
