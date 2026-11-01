@@ -1848,7 +1848,7 @@ def test_windows_runtime_dispatch_requires_native_execution_without_compiler_bui
     assert "needs" not in runtime
     assert runtime["if"] == (
         "github.event_name == 'workflow_dispatch' && "
-        "(inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime')"
+        "(inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime' || inputs.focus == 'daemon-corpus')"
     )
     windows_targets = {
         row.zig_target: row.label
@@ -1881,10 +1881,32 @@ def test_windows_runtime_dispatch_requires_native_execution_without_compiler_bui
     assert "src/tests/python/test_windows_daemon_image.py src/tests/python/test_windows_daemon_transfer.py" in commands
     assert "-k '${{ matrix.label }} and native'" in commands
     assert "len(t)==7" in commands and "('skipped','failure','error')" in commands
-    assert "btrcc" not in commands and "nix develop" not in commands
+    assert "nix develop" not in commands
+    for step in runtime["steps"]:
+        if "btrcc" in step.get("run", ""):
+            assert step["if"] == "${{ inputs.focus == 'daemon-corpus' }}"
     evidence = runtime["steps"][-2]
     assert evidence["if"] == "always()" and evidence["uses"] == UPLOAD_ARTIFACT
     assert evidence["with"]["path"] == "build/windows-runtime"
+
+
+def test_windows_daemon_corpus_runs_both_frontends_with_build_receipts() -> None:
+    workflow = _parsed("windows-arm64.yml")
+    assert "daemon-corpus" in workflow["on"]["workflow_dispatch"]["inputs"]["focus"]["options"]
+    steps = workflow["jobs"]["daemon-runtime"]["steps"]
+    build = next(step for step in steps if "tools.compiler_build transpile" in step.get("run", ""))
+    assert build["if"] == "${{ inputs.focus == 'daemon-corpus' }}"
+    assert "--entry src/compiler/btrc/cli/WindowsMain.btrc --target '${{ matrix.label }}'" in build["run"]
+    assert "tools.compiler_build compile" in build["run"] and "-O0" in build["run"]
+    assert "-target '${{ matrix.target }}'" in build["run"]
+    assert "-std=c11 -pedantic-errors -Wall -Wextra -Werror" in build["run"]
+    execute = next(step for step in steps if "src.tests.target_runner" in step.get("run", ""))
+    assert execute["if"] == "${{ inputs.focus == 'daemon-corpus' }}"
+    assert "--frontend both" in execute["run"] and "--executor windows-native" in execute["run"]
+    assert "--program stdlib/Daemon.btrc --program stdlib/DaemonToken.btrc" in execute["run"]
+    assert "len(r['results']) == 4" in execute["run"]
+    assert "all(x['status'] == 'passed' for x in r['results'])" in execute["run"]
+    assert "{'reference', 'selfhost'}" in execute["run"]
 
 
 def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
