@@ -4782,3 +4782,20 @@ Both affected coverage jobs now require a successful scope before parsing.
 The final workflow-contract selection passed 123 tests, with Ruff, format and
 diff checks passing. Evidence is `build/qualification/host-controls-workflow.xml`.
 No local native control or GUI was executed.
+
+The native-control comparison completed on `3282d649` in run `41352488496`.
+Both hosts acquired and completed 20 Metal commands per mode without errors.
+ARM64 reported zero presentations in both modes; Intel reported 19 without
+vsync and 20 with vsync. Both completed the expected native resize with 23
+submitted events and 20 notifications, without observation overflow. The two
+artifacts were downloaded and checked against their GitHub SHA-256 receipts.
+Raw evidence is retained in `build/qualification/macos-host-controls-3282/`.
+
+The existing two-case E40 diagnostic now accepts an explicit native runner
+selection, with a matching architecture check. Its original ARM default,
+case selection, deadlines, source/binary receipts and skip assertions remain.
+This enables a bounded Intel resize trial using the proven presentation host;
+it does not change the ordinary E40 matrix or establish an ARM runtime fix.
+All 123 workflow contracts pass after adapting the prerequisite comparison to
+the selected host. The first contract run caught that comparison's old fixed
+architecture assumption; it was corrected before dispatch.

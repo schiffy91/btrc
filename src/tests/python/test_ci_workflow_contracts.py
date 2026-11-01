@@ -1389,7 +1389,13 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                             "type": "choice",
                             "options": ["slider", "resize"],
                             "default": "slider",
-                        }
+                        },
+                        "diagnostic_runner": {
+                            "description": "Native host for the E40 diagnostic",
+                            "type": "choice",
+                            "options": ["macos-15", "macos-15-intel"],
+                            "default": "macos-15",
+                        },
                     }
                     if workflow == "macos.yml"
                     else {}
@@ -2266,8 +2272,10 @@ def test_mac_loop_diagnostic_is_opt_in_and_preserves_exact_native_trials() -> No
     job = document["jobs"]["macos-e40-diagnostic"]
     assert job["if"] == "github.event_name == 'workflow_dispatch' && inputs.focus == 'e40-diagnostic'"
     assert "needs" not in job and "strategy" not in job
-    assert job["runs-on"] == "macos-15"
+    assert job["runs-on"] == "${{ inputs.diagnostic_runner || 'macos-15' }}"
     assert job["timeout-minutes"] == "30"
+    reader = next(step["run"] for step in job["steps"] if step.get("name") == "Build the native header reader")
+    assert "inputs.diagnostic_runner == 'macos-15-intel' && 'x86_64' || 'arm64'" in reader
     run = next(
         step for step in job["steps"] if step.get("name") == "Observe exactly two existing native tracking cases"
     )
@@ -2312,7 +2320,12 @@ def test_mac_loop_diagnostic_is_opt_in_and_preserves_exact_native_trials() -> No
     reader = next(
         step for step in document["jobs"]["macos-e40"]["steps"] if step.get("name") == "Build the native header reader"
     )
-    assert reader in job["steps"]
+    diagnostic_reader = dict(reader)
+    diagnostic_reader["run"] = reader["run"].replace(
+        'test "$(uname -m)" = arm64',
+        'test "$(uname -m)" = "${{ inputs.diagnostic_runner == \'macos-15-intel\' && \'x86_64\' || \'arm64\' }}"',
+    )
+    assert diagnostic_reader in job["steps"]
     upload = next(
         step for step in job["steps"] if step.get("name") == "Retain diagnostic observations and generated symbols"
     )
