@@ -2323,7 +2323,7 @@ def test_mac_loop_diagnostic_is_opt_in_and_preserves_exact_native_trials() -> No
     diagnostic_reader = dict(reader)
     diagnostic_reader["run"] = reader["run"].replace(
         'test "$(uname -m)" = arm64',
-        'test "$(uname -m)" = "${{ inputs.diagnostic_runner == \'macos-15-intel\' && \'x86_64\' || \'arm64\' }}"',
+        "test \"$(uname -m)\" = \"${{ inputs.diagnostic_runner == 'macos-15-intel' && 'x86_64' || 'arm64' }}\"",
     )
     assert diagnostic_reader in job["steps"]
     upload = next(
