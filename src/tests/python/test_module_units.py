@@ -5316,3 +5316,111 @@ int main() {
         source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units
     )
     assert generated["reference"] == generated["selfhost"]
+
+
+@pytest.mark.parametrize("module_units", [False, True], ids=["whole", "modules"])
+@pytest.mark.parametrize(
+    "operation",
+    ["vector", "nullable-vector", "list-front", "list-back", "return-from-try", "no-mutation", "no-mutation-try"],
+)
+def test_collection_return_owner_survives_throwing_epilogue(tmp_path, immutable_btrcc, module_units, operation):
+    source = tmp_path / "src"
+    source.mkdir()
+    mutates = not operation.startswith("no-mutation")
+    custom = operation == "return-from-try" or not mutates
+    collection = "List" if operation.startswith("list-") else "Vector"
+    declaration = (
+        """
+class Vector<T> {
+    public T* data;
+    public int len;
+    public Vector() { self.data = (T*)malloc(sizeof(T) * (size_t)2); self.len = 0; }
+    public void push(T value) { keep value; self.data[self.len] = value; self.len++; }
+    public T popWithinTry() {
+        try {
+            self.len--;
+            T value = self.data[self.len];
+            release self.data[self.len];
+            return value;
+        } catch (string error) { methodCaught++; throw "method catch must stay exited"; }
+    }
+    public T firstAfterRelease() { release disposable; return self.data[0]; }
+    public T firstWithinTry() {
+        try { release disposable; return self.data[0]; }
+        catch (string error) { methodCaught++; throw "method catch must stay exited"; }
+    }
+    public void free() {
+        for (int index = 0; index < self.len; index++) { release self.data[index]; }
+        free(self.data); self.data = null; self.len = 0;
+    }
+    public void __del__() { self.free(); }
+}
+"""
+        if custom
+        else ""
+    )
+    value_type = "ReturnNode?" if operation == "nullable-vector" else "ReturnNode"
+    push = "pushBack" if collection == "List" else "push"
+    pop = {
+        "list-front": "popFront",
+        "list-back": "popBack",
+        "return-from-try": "popWithinTry",
+        "no-mutation": "firstAfterRelease",
+        "no-mutation-try": "firstWithinTry",
+    }.get(operation, "pop")
+    first, second = (2, 1) if operation == "list-front" else (1, 2)
+    program = (
+        ("" if custom else f"import Library.{collection};\n")
+        + """
+#include <assert.h>
+#include <stdlib.h>
+int methodCaught = 0;
+int destroyedFirst = 0;
+int destroyedPopped = 0;
+int destroyedBomb = 0;
+class ReturnNode {
+    public int id;
+    public ReturnNode? next = null;
+    public ReturnNode(int id) { self.id = id; }
+    public void __del__() {
+        if (self.id == 1) { destroyedFirst++; }
+        if (self.id == 2) { destroyedPopped++; }
+        if (self.id == 3) { destroyedBomb++; throw "pending cycle"; }
+    }
+}
+ReturnNode? disposable = null;
+"""
+        + declaration
+        + f"""
+int main() {{
+    {collection}<{value_type}> values = new {collection}<{value_type}>();
+    values.{push}(new ReturnNode({first}));
+    values.{push}(new ReturnNode({second}));
+    {"ReturnNode held = new ReturnNode(4); disposable = held;" if not mutates else ""}
+    ReturnNode? bomb = new ReturnNode(3);
+    bomb.next = bomb;
+    bomb = null;
+    assert(destroyedBomb == 0);
+    bool callerCaught = false;
+    try {{
+        {value_type} result = values.{pop}();
+        assert(result != null);
+        assert(false);
+    }} catch (string error) {{
+        assert(error == "pending cycle");
+        callerCaught = true;
+    }}
+    assert(callerCaught && methodCaught == 0 && values.len == {1 if mutates else 2});
+    assert(destroyedFirst == 0 && destroyedPopped == {1 if mutates else 0} && destroyedBomb == 1);
+    values.free();
+    assert(values.len == 0 && destroyedFirst == 1 && destroyedPopped == 1 && destroyedBomb == 1);
+    print("PASS");
+    return 0;
+}}
+"""
+    )
+    (source / "Main.btrc").write_text(program)
+    generated = _compile_and_run_native_frontends(
+        source, tmp_path, immutable_btrcc, "PASS\n", module_units=module_units, no_stdlib=custom
+    )
+    assert generated["reference"] == generated["selfhost"]
