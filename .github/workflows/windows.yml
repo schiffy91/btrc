@@ -935,9 +935,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        timeout-minutes: 2
+        continue-on-error: true
         with:
           use-flakehub: false
-          use-gha-cache: false
       - name: Build only the reference x64 shell pair and its UIA client
         run: nix develop --command python3 -m tools.ui.windows_user_diagnostic build --output build/user-census-build
       - if: always()
