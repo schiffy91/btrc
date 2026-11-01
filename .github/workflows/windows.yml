@@ -966,7 +966,7 @@ jobs:
         with:
           name: user-census-build
           path: build
-      - name: Compare count-only and individually bracketed queries with unchanged shell assertions
+      - name: Compare count-only and message dispatch with unchanged shell assertions
         run: python -m tools.ui.windows_user_diagnostic run --output build/user-census-run
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
