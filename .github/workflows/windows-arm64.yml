@@ -134,8 +134,51 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  daemon-build:
+    if: github.event_name == 'workflow_dispatch' && inputs.focus == 'daemon-corpus'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BTRC_TEST_RUNNER: linux-hosted
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - name: Build one compiler with the Unix SDK reader and source receipts
+        run: |
+          nix develop --command python -m tools.compiler_build transpile --entry src/compiler/btrc/BtrccMain.btrc --target linux-x86_64 --output build/windows-daemon/btrcc.c
+          nix develop --command python -m tools.compiler_build compile --input build/windows-daemon/btrcc.c --output build/windows-daemon/btrcc -- clang -std=c11 -pedantic-errors -Wall -Wextra -Werror -O0 '{input}' -o '{output}' -lm -lpthread
+      - name: Build the Daemon corpus through both compilers for both Windows architectures
+        run: |
+          for label in windows-x86_64 windows-aarch64; do
+            nix develop --command python -m src.tests.target_runner --target "$label" --frontend both --btrcc build/windows-daemon/btrcc --compile-only --program stdlib/Daemon.btrc --program stdlib/DaemonToken.btrc --output "build/windows-daemon/$label"
+          done
+      - name: Retain x64 corpus and compiler provenance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daemon-corpus-windows-x86_64
+          path: |
+            build/windows-daemon/windows-x86_64
+            build/windows-daemon/*.compiler-build
+          retention-days: 30
+      - name: Retain ARM64 corpus and compiler provenance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daemon-corpus-windows-aarch64
+          path: |
+            build/windows-daemon/windows-aarch64
+            build/windows-daemon/*.compiler-build
+          retention-days: 30
+
   daemon-runtime:
-    if: github.event_name == 'workflow_dispatch' && (inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime' || inputs.focus == 'daemon-corpus')
+    needs: daemon-build
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && (inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime' || (inputs.focus == 'daemon-corpus' && needs.daemon-build.result == 'success')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -160,6 +203,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install the pinned native Zig toolchain
+        if: ${{ inputs.focus != 'daemon-corpus' }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString() -ne '${{ matrix.architecture }}') {
@@ -190,9 +234,15 @@ jobs:
       - name: Record native toolchain and runner provenance
         run: |
           $ErrorActionPreference = 'Stop'
+          if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString() -ne '${{ matrix.architecture }}') {
+            throw 'The qualification process is not running on the requested native architecture'
+          }
           New-Item -ItemType Directory -Force build/windows-runtime | Out-Null
-          $version = zig version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = 'compiled by the Linux bundle producer'
+          if ('${{ inputs.focus }}' -ne 'daemon-corpus') {
+            $version = zig version
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           @{
             revision = '${{ github.sha }}'
             target = '${{ matrix.target }}'
@@ -232,20 +282,16 @@ jobs:
         run: |
           python -m pytest -q src/tests/python/test_compiler_build_identity.py src/tests/python/test_source_io.py -k 'compiler_digest or owned_unchanged_generation' --junitxml=build/windows-runtime/compiler-identity.xml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build one native qualification compiler with source receipts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         if: ${{ inputs.focus == 'daemon-corpus' }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          python -m tools.compiler_build transpile --entry src/compiler/btrc/cli/WindowsMain.btrc --target '${{ matrix.label }}' --output build/windows-runtime/btrcc.c
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m tools.compiler_build compile --input build/windows-runtime/btrcc.c --output build/windows-runtime/btrcc.exe -- zig cc -target '${{ matrix.target }}' -std=c11 -pedantic-errors -Wall -Wextra -Werror -O0 -I src/runtime/windows -include src/runtime/windows/btrc_win_compat.h '{input}' -o '{output}' -lm
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        with:
+          name: daemon-corpus-${{ matrix.label }}
+          path: build/windows-runtime/input
       - name: Execute the portable Daemon corpus through both compilers
         if: ${{ inputs.focus == 'daemon-corpus' }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:BTRC_HOME = "$env:GITHUB_WORKSPACE/src"
-          python -m src.tests.target_runner --target '${{ matrix.label }}' --frontend both --btrcc build/windows-runtime/btrcc.exe --executor windows-native --program stdlib/Daemon.btrc --program stdlib/DaemonToken.btrc --output build/windows-runtime/corpus
+          python -m src.tests.target_runner --execute-bundle 'build/windows-runtime/input/${{ matrix.label }}/bundle' --frontend both --executor windows-native --output build/windows-runtime/corpus
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -c "import json; r=json.load(open('build/windows-runtime/corpus/target-run.json')); assert set(r['frontends']) == {'reference', 'selfhost'} and len(r['results']) == 4 and all(x['status'] == 'passed' for x in r['results']), 'Both compilers must pass both native Daemon programs'"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
