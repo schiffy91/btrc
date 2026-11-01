@@ -223,6 +223,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -c "import xml.etree.ElementTree as E; r=E.parse('build/windows-runtime/daemon.xml').getroot(); t=list(r.iter('testcase')); assert len(t)==7 and not any(c.find(x) is not None for c in t for x in ('skipped','failure','error')), 'Native Daemon qualification requires all seven cases to pass'"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify native compiler file identity and unchanged output reuse
+        if: ${{ inputs.focus == 'daemon-corpus' }}
+        run: |
+          python -m pytest -q src/tests/python/test_compiler_build_identity.py src/tests/python/test_source_io.py -k 'compiler_digest or owned_unchanged_generation' --junitxml=build/windows-runtime/compiler-identity.xml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build one native qualification compiler with source receipts
         if: ${{ inputs.focus == 'daemon-corpus' }}
         run: |
