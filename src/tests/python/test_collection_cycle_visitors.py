@@ -13,6 +13,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import TypeExpr
@@ -36,6 +37,54 @@ def _visitor(module, base: str, arguments: list[TypeExpr]):
 
 def _field_names(value) -> set[str]:
     return {node.field for node in IRNode.walk_value(value) if isinstance(node, IRFieldAccess)}
+
+
+def test_public_collection_releases_drain_at_method_boundaries() -> None:
+    module = _generate("""
+        class Node { public Node? next = null; }
+        class Vector<T> {
+            public T* data;
+            public int len;
+            public void clear() { release self.data[0]; }
+            private void clearInner() { release self.data[0]; }
+            public void reset() { self.clearInner(); }
+            public T exchange<U>(T value, U unused) {
+                keep value;
+                release self.data[0];
+                self.data[0] = value;
+                return value;
+            }
+        }
+        void use(Vector<Node> values, Node value) {
+            values.clear();
+            values.reset();
+            Node previous = values.exchange(value, 3);
+        }
+        void primitive(Vector<int> values) { values.clear(); }
+        int main() { return 0; }
+    """)
+    vector = IDENTITY.specialization_symbol("Vector", [NODE_TYPE])
+    methods = {function.name: function for function in module.function_defs}
+    clear = methods[f"{vector}_clear"]
+    private = methods[f"{vector}_clearInner"]
+    exchange = next(function for function in module.function_defs if "_exchange_" in function.name)
+    primitive = methods[f"{IDENTITY.specialization_symbol('Vector', [TypeExpr(base='int')])}_clear"]
+
+    def calls(function):
+        return [node.helper_ref for node in IRNode.walk_value(function.body) if isinstance(node, IRCall)]
+
+    for function in (clear, exchange):
+        assert function.requires_cycle_boundary
+        assert "__btrc_poll_cycles" in calls(function)
+    assert not private.requires_cycle_boundary
+    assert "__btrc_flush_cycles" in calls(private)
+    assert not primitive.requires_cycle_boundary
+    assert "__btrc_poll_cycles" not in calls(primitive)
+
+    IROptimizer(module, dce=False).optimize()
+    for function in (clear, exchange):
+        assert calls(function)[-1] == "__btrc_flush_cycles"
+        assert calls(function).count("__btrc_flush_cycles") == 1
 
 
 def test_builtin_collection_visitors_walk_concrete_physical_slots() -> None:

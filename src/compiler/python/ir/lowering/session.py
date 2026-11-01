@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from src.compiler.python.runtime.catalog import RuntimeHelperSelection
 from src.compiler.python.syntax.ast.generated import ClassDecl, MethodDecl, TypeExpr
 
-from ..nodes import IRFunctionDecl, IRModule, IRVarDecl
+from ..nodes import IRFunctionDecl, IRFunctionDef, IRModule, IRVarDecl
 
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.flow import JumpScopeIndex
@@ -100,6 +100,7 @@ class LoweringSession:
     # Stdlib callables this program reaches (see analyzer.reachability); None lowers everything.
     stdlib_reachability: StdlibReachabilityPlan | None = None
     persistent_edge_owner_c_name: str | None = None
+    explicit_release_function: IRFunctionDef | None = None
     c_array_scopes: list[dict[str, bool]] = field(default_factory=list)
     control_context: list[object] = field(default_factory=list)
     jump_index: JumpScopeIndex | None = None
@@ -240,6 +241,16 @@ class LoweringSession:
             yield
         finally:
             self.persistent_edge_owner_c_name = previous
+
+    @contextmanager
+    def explicit_release_scope(self, function: IRFunctionDef | None) -> Iterator[None]:
+        """Bind batched explicit releases to their public collection method."""
+        previous = self.explicit_release_function
+        self.explicit_release_function = function
+        try:
+            yield
+        finally:
+            self.explicit_release_function = previous
 
     @contextmanager
     def enum_values(
