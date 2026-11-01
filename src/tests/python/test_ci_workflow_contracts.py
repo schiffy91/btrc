@@ -1846,7 +1846,9 @@ def test_windows_runtime_dispatch_requires_native_execution_without_compiler_bui
     runtime = jobs["daemon-runtime"]
     assert jobs["cross"]["if"] == "github.event_name != 'workflow_dispatch' || inputs.focus == 'full'"
     assert runtime["needs"] == "daemon-build"
-    assert jobs["daemon-build"]["if"] == "github.event_name == 'workflow_dispatch' && inputs.focus == 'daemon-corpus'"
+    assert jobs["daemon-build"]["if"] == (
+        "github.event_name == 'workflow_dispatch' && (inputs.focus == 'daemon-corpus' || inputs.focus == 'daemon-posix')"
+    )
     assert runtime["if"] == (
         "${{ !cancelled() && github.event_name == 'workflow_dispatch' && "
         "(inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime' || "
@@ -1895,6 +1897,7 @@ def test_windows_runtime_dispatch_requires_native_execution_without_compiler_bui
 def test_windows_daemon_corpus_runs_both_frontends_with_build_receipts() -> None:
     workflow = _parsed("windows-arm64.yml")
     assert "daemon-corpus" in workflow["on"]["workflow_dispatch"]["inputs"]["focus"]["options"]
+    assert "daemon-posix" in workflow["on"]["workflow_dispatch"]["inputs"]["focus"]["options"]
     steps = workflow["jobs"]["daemon-runtime"]["steps"]
     harness = next(step for step in steps if "zig cc -target" in step.get("run", "") and "harness.exe" in step["run"])
     assert harness["if"] == "${{ inputs.focus != 'daemon-corpus' }}"
@@ -1908,7 +1911,18 @@ def test_windows_daemon_corpus_runs_both_frontends_with_build_receipts() -> None
     assert "--entry src/compiler/btrc/BtrccMain.btrc --target linux-x86_64" in build["run"]
     assert "tools.compiler_build compile" in build["run"] and "-O0" in build["run"]
     assert "-std=c11 -pedantic-errors -Wall -Wextra -Werror" in build["run"]
+    portable = next(step for step in producer["steps"] if "src/tests/runner.py" in step.get("run", ""))
+    assert 'BTRC_TEST_BTRCC="$PWD/build/windows-daemon/btrcc"' in portable["run"]
+    assert "-k Daemon --compilers both" in portable["run"]
+    assert "len(cases) == 6" in portable["run"]
+    assert "('failure', 'error', 'skipped')" in portable["run"]
+    linux_evidence = next(
+        step for step in producer["steps"] if step.get("with", {}).get("name") == "daemon-corpus-linux"
+    )
+    assert linux_evidence["if"] == "always()" and linux_evidence["uses"] == UPLOAD_ARTIFACT
+    assert "build/windows-daemon/linux" in linux_evidence["with"]["path"]
     bundle = next(step for step in producer["steps"] if "src.tests.target_runner" in step.get("run", ""))
+    assert bundle["if"] == "inputs.focus == 'daemon-corpus'"
     assert "for label in windows-x86_64 windows-aarch64" in bundle["run"]
     assert "--frontend both" in bundle["run"] and "--compile-only" in bundle["run"]
     assert "--program stdlib/Daemon.btrc --program stdlib/DaemonToken.btrc" in bundle["run"]
