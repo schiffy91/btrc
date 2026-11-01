@@ -3,6 +3,18 @@
 # PLAN: unified btrc and BTRSmith roadmap
 
 Updated **2026-10-20** for the owner-directed consolidation and repair queue.
+
+
+**2026-11-01 owner direction:** commit and push the accumulated BTRC branch work
+to `main` immediately, then retire all other local and remote branches after
+preserving their history. This supersedes qualification-before-integration for
+this consolidation. Pending checks and known failures remain explicit; landing
+is not a claim that they passed.
+
+Replace the old issue backlog with independently actionable issues, each covering
+one demonstrated defect or one specific missing qualification. Integrate repairs
+as they are ready. An unrelated platform, performance target or omnibus gate must
+not hold up other work. Keep the architecture and acceptance criteria intact.
 The five-platform priorities and earlier execution handoff remain below. Read [AGENTS.md](AGENTS.md) first for architecture and
 development rules. Detailed evidence below retains its original dates; this
 planning update does not assert new implementation or qualification results.
