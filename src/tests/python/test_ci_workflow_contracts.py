@@ -630,7 +630,8 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         if workflow == "macos.yml":
             assert actual_scope.pop("if") == (
                 "github.event_name != 'workflow_dispatch' || "
-                "(inputs.focus != 'e40-diagnostic' && inputs.focus != 'collection-release-diagnostic')"
+                "(inputs.focus != 'e40-diagnostic' && inputs.focus != 'collection-release-diagnostic' "
+                "&& inputs.focus != 'host-controls')"
             )
         if workflow == "windows.yml":
             assert actual_scope.pop("if") == (
@@ -645,7 +646,7 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         if workflow == "ci.yml":
             untiered.update({"bench-diagnostic", "unit-diagnostic"})
         if workflow == "macos.yml":
-            untiered.update({"macos-e40-diagnostic", "collection-release-diagnostic"})
+            untiered.update({"macos-e40-diagnostic", "collection-release-diagnostic", "macos-host-controls"})
         if workflow == "windows.yml":
             untiered.update({"user-census-build", "user-census-diagnostic"})
         assert set(jobs) - untiered == listed, workflow
@@ -653,7 +654,7 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
             job = jobs[name]
             expected_condition = f"contains({PLAN}.jobs, '{name}')"
             if (workflow, name) in (("ci.yml", "linux-gui-coverage"), ("macos.yml", "native-gui-coverage")):
-                expected_condition = "${{ always() && " + expected_condition + " }}"
+                expected_condition = "${{ always() && needs.scope.result == 'success' && " + expected_condition + " }}"
             assert job["if"] == expected_condition, (workflow, name)
             tiered = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{name}")
             if job["needs"] != "scope":
@@ -1373,7 +1374,11 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                     "type": "choice",
                     "options": ["full", "native-gui", "extended"]
                     + (["bench-diagnostic", "unit-diagnostic"] if workflow == "ci.yml" else [])
-                    + (["e40-diagnostic", "collection-release-diagnostic"] if workflow == "macos.yml" else [])
+                    + (
+                        ["e40-diagnostic", "collection-release-diagnostic", "host-controls"]
+                        if workflow == "macos.yml"
+                        else []
+                    )
                     + (["user-census-diagnostic"] if workflow == "windows.yml" else []),
                     "default": "full",
                 },
