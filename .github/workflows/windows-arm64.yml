@@ -187,7 +187,7 @@ jobs:
           architecture: ${{ matrix.python }}
       - name: Install runtime-test dependencies
         run: python -m pip install '.[dev]'
-      - name: Build and execute the native process and bootstrap harness
+      - name: Record native toolchain and runner provenance
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force build/windows-runtime | Out-Null
@@ -200,6 +200,10 @@ jobs:
             os_architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
             zig_version = $version
           } | ConvertTo-Json | Set-Content build/windows-runtime/provenance.json
+      - name: Build and execute the native process and bootstrap harness
+        if: ${{ inputs.focus != 'daemon-corpus' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
           zig cc -target '${{ matrix.target }}' -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 -I src/runtime/c src/tests/native/windows_launch/launch_harness.c src/runtime/c/windows_os.c -lshell32 -ladvapi32 -o build/windows-runtime/harness.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $arguments = @()
@@ -216,7 +220,7 @@ jobs:
             throw 'Missing native harness success report'
           }
       - name: Verify native companion images and transfer failure paths
-        if: ${{ !cancelled() && (inputs.focus == 'daemon-runtime' || inputs.focus == 'daemon-corpus') }}
+        if: ${{ !cancelled() && inputs.focus == 'daemon-runtime' }}
         run: |
           $ErrorActionPreference = 'Stop'
           python -m pytest -q -rA src/tests/python/test_windows_daemon_image.py src/tests/python/test_windows_daemon_transfer.py -k '${{ matrix.label }} and native' --basetemp=build/windows-runtime/pytest --junitxml=build/windows-runtime/daemon.xml --skip-report=build/skip-report-windows-daemon-${{ matrix.label }}.json
