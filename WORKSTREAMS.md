@@ -4890,3 +4890,14 @@ and completion, retaining the final flush and cleanup transfer. It never infers
 ownership from a generated-name prefix. Nine focused sequencing, idempotence
 and collection tests pass; independent review cleared this follow-up before the
 next build. The earlier compiler and failing C diffs remain retained as evidence.
+
+Hosted diagnostic run `41353838773` built both reference x64 cases and uploaded
+its binaries at 21:52:37 UTC. Its cache action was still saving the Nix store
+at 22:01:33 UTC, delaying the dependent Windows execution after the required
+artifact was ready. The focused `user-census-build` job now sets
+`use-gha-cache: false` alongside `use-flakehub: false`; other jobs retain their
+cache settings. The workflow contract checks that scope and the action pin.
+The pinned action's [input declaration](https://github.com/DeterminateSystems/magic-nix-cache-action/blob/908b263ff629f4cc17666315b7fd3ec127c6244d/action.yml)
+documents `use-gha-cache: false` as disabling GitHub cache uploads. This change
+does not alter the running workflow, its source, binary hashes or test selection.
+Both focused workflow contracts pass; Ruff, format and diff checks pass.
