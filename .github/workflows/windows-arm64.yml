@@ -36,7 +36,7 @@ on:
       focus:
         description: Qualification to run
         type: choice
-        options: [full, bootstrap-io, daemon-runtime]
+        options: [full, bootstrap-io, daemon-runtime, daemon-corpus]
         default: full
 
 permissions:
@@ -135,7 +135,7 @@ jobs:
           retention-days: 30
 
   daemon-runtime:
-    if: github.event_name == 'workflow_dispatch' && (inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime')
+    if: github.event_name == 'workflow_dispatch' && (inputs.focus == 'bootstrap-io' || inputs.focus == 'daemon-runtime' || inputs.focus == 'daemon-corpus')
     strategy:
       fail-fast: false
       matrix:
@@ -216,12 +216,29 @@ jobs:
             throw 'Missing native harness success report'
           }
       - name: Verify native companion images and transfer failure paths
-        if: ${{ !cancelled() && inputs.focus == 'daemon-runtime' }}
+        if: ${{ !cancelled() && (inputs.focus == 'daemon-runtime' || inputs.focus == 'daemon-corpus') }}
         run: |
           $ErrorActionPreference = 'Stop'
           python -m pytest -q -rA src/tests/python/test_windows_daemon_image.py src/tests/python/test_windows_daemon_transfer.py -k '${{ matrix.label }} and native' --basetemp=build/windows-runtime/pytest --junitxml=build/windows-runtime/daemon.xml --skip-report=build/skip-report-windows-daemon-${{ matrix.label }}.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -c "import xml.etree.ElementTree as E; r=E.parse('build/windows-runtime/daemon.xml').getroot(); t=list(r.iter('testcase')); assert len(t)==7 and not any(c.find(x) is not None for c in t for x in ('skipped','failure','error')), 'Native Daemon qualification requires all seven cases to pass'"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build one native qualification compiler with source receipts
+        if: ${{ inputs.focus == 'daemon-corpus' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m tools.compiler_build transpile --entry src/compiler/btrc/cli/WindowsMain.btrc --target '${{ matrix.label }}' --output build/windows-runtime/btrcc.c
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m tools.compiler_build compile --input build/windows-runtime/btrcc.c --output build/windows-runtime/btrcc.exe -- zig cc -target '${{ matrix.target }}' -std=c11 -pedantic-errors -Wall -Wextra -Werror -O0 -I src/runtime/windows -include src/runtime/windows/btrc_win_compat.h '{input}' -o '{output}' -lm
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Execute the portable Daemon corpus through both compilers
+        if: ${{ inputs.focus == 'daemon-corpus' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:BTRC_HOME = "$env:GITHUB_WORKSPACE/src"
+          python -m src.tests.target_runner --target '${{ matrix.label }}' --frontend both --btrcc build/windows-runtime/btrcc.exe --executor windows-native --program stdlib/Daemon.btrc --program stdlib/DaemonToken.btrc --output build/windows-runtime/corpus
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "import json; r=json.load(open('build/windows-runtime/corpus/target-run.json')); assert set(r['frontends']) == {'reference', 'selfhost'} and len(r['results']) == 4 and all(x['status'] == 'passed' for x in r['results']), 'Both compilers must pass both native Daemon programs'"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Retain native runtime evidence
         if: always()
