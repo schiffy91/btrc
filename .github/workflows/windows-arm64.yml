@@ -144,7 +144,7 @@ jobs:
             architecture: X64
             target: x86_64-windows-gnu
             python: x64
-            label: windows-x64
+            label: windows-x86_64
           - runner: windows-11-arm
             architecture: Arm64
             target: aarch64-windows-gnu
