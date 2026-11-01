@@ -2323,6 +2323,16 @@ def test_windows_user_census_diagnostic_is_manual_and_separate():
     assert jobs["user-census-diagnostic"]["needs"] == "user-census-build"
     assert jobs["user-census-diagnostic"]["runs-on"] == "windows-latest"
     assert "inputs.focus != 'user-census-diagnostic'" in jobs["scope"]["if"]
+    cache_steps = {
+        name: step
+        for name, job in jobs.items()
+        for step in job.get("steps", [])
+        if "DeterminateSystems/magic-nix-cache-action@" in step.get("uses", "")
+    }
+    cache = cache_steps["user-census-build"]
+    assert cache["uses"] == "DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d"
+    assert cache["with"] == {"use-flakehub": "false", "use-gha-cache": "false"}
+    assert all("use-gha-cache" not in step["with"] for name, step in cache_steps.items() if name != "user-census-build")
     for name, stage in (("user-census-build", "build"), ("user-census-diagnostic", "run")):
         commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
         assert f"tools.ui.windows_user_diagnostic {stage}" in commands

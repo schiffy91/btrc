@@ -4745,3 +4745,14 @@ as strict C11 with warnings as errors and UBSan for Windows x64. The reference
 x64 UBSan shell and observer cross-build also passed with no skips in 15.31
 seconds. Ruff, format and diff checks pass. Hosted execution is still needed;
 these diagnostic checks do not close the remaining Windows USER-count failure.
+
+Hosted diagnostic run `41353838773` built both reference x64 cases and uploaded
+its binaries at 21:52:37 UTC. Its cache action was still saving the Nix store
+at 22:01:33 UTC, delaying the dependent Windows execution after the required
+artifact was ready. The focused `user-census-build` job now sets
+`use-gha-cache: false` alongside `use-flakehub: false`; other jobs retain their
+cache settings. The workflow contract checks that scope and the action pin.
+The pinned action's [input declaration](https://github.com/DeterminateSystems/magic-nix-cache-action/blob/908b263ff629f4cc17666315b7fd3ec127c6244d/action.yml)
+documents `use-gha-cache: false` as disabling GitHub cache uploads. This change
+does not alter the running workflow, its source, binary hashes or test selection.
+Both focused workflow contracts pass; Ruff, format and diff checks pass.
