@@ -36,7 +36,7 @@ on:
       focus:
         description: Qualification to run
         type: choice
-        options: [full, bootstrap-io, daemon-runtime, daemon-corpus]
+        options: [full, bootstrap-io, daemon-runtime, daemon-corpus, daemon-posix]
         default: full
 
 permissions:
@@ -135,7 +135,7 @@ jobs:
           retention-days: 30
 
   daemon-build:
-    if: github.event_name == 'workflow_dispatch' && inputs.focus == 'daemon-corpus'
+    if: github.event_name == 'workflow_dispatch' && (inputs.focus == 'daemon-corpus' || inputs.focus == 'daemon-posix')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -152,13 +152,32 @@ jobs:
         run: |
           nix develop --command python -m tools.compiler_build transpile --entry src/compiler/btrc/BtrccMain.btrc --target linux-x86_64 --output build/windows-daemon/btrcc.c
           nix develop --command python -m tools.compiler_build compile --input build/windows-daemon/btrcc.c --output build/windows-daemon/btrcc -- clang -std=c11 -pedantic-errors -Wall -Wextra -Werror -O0 '{input}' -o '{output}' -lm -lpthread
+      - name: Execute portable and POSIX Daemon cases with the same compiler on Linux
+        run: |
+          nix develop --command env BTRC_TEST_BTRCC="$PWD/build/windows-daemon/btrcc" python -m pytest -q src/tests/runner.py -k Daemon --compilers both --junitxml=build/windows-daemon/linux/corpus.xml --skip-report=build/skip-report-daemon-linux.json
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = ET.parse('build/windows-daemon/linux/corpus.xml').findall('.//testcase')
+          assert len(cases) == 6, len(cases)
+          assert all(case.find(tag) is None for case in cases for tag in ('failure', 'error', 'skipped'))
+          PY
       - name: Build the Daemon corpus through both compilers for both Windows architectures
+        if: inputs.focus == 'daemon-corpus'
         run: |
           for label in windows-x86_64 windows-aarch64; do
             nix develop --command python -m src.tests.target_runner --target "$label" --frontend both --btrcc build/windows-daemon/btrcc --compile-only --program stdlib/Daemon.btrc --program stdlib/DaemonToken.btrc --output "build/windows-daemon/$label"
           done
-      - name: Retain x64 corpus and compiler provenance
+      - name: Retain Linux portable and POSIX corpus evidence
         if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: daemon-corpus-linux
+          path: |
+            build/windows-daemon/linux
+            build/windows-daemon/*.compiler-build
+          retention-days: 30
+      - name: Retain x64 corpus and compiler provenance
+        if: ${{ always() && inputs.focus == 'daemon-corpus' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: daemon-corpus-windows-x86_64
@@ -167,7 +186,7 @@ jobs:
             build/windows-daemon/*.compiler-build
           retention-days: 30
       - name: Retain ARM64 corpus and compiler provenance
-        if: always()
+        if: ${{ always() && inputs.focus == 'daemon-corpus' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: daemon-corpus-windows-aarch64
@@ -175,6 +194,14 @@ jobs:
             build/windows-daemon/windows-aarch64
             build/windows-daemon/*.compiler-build
           retention-days: 30
+      - name: Retain the skip report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skip-report-windows-arm64-daemon-build
+          path: build/skip-report*.json
+          if-no-files-found: warn
+          retention-days: 14
 
   daemon-runtime:
     needs: daemon-build
