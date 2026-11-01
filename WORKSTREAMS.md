@@ -4764,3 +4764,21 @@ JUnit/skip reports. Source and binary identities were rechecked afterward.
 Host: Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0. No local GUI, application,
 guest or performance measurement ran. Issue #17 still requires reviewed
 integration and final combined-tree gates.
+
+### 2026-11-01 hosted Mac control comparison
+
+The root integrator owns `.github/workflows/macos.yml`, the corresponding
+coverage guard in `.github/workflows/ci.yml`, and the existing workflow
+contracts for this diagnostic. The manual `host-controls` selection runs the
+unchanged Metal, vsync and native-resize controls on `macos-15` and
+`macos-15-intel`, without building the compiler. Each control retains its
+source and executable digest, bounded execution receipt and native report.
+These observations are not E40 acceptance. The ordinary jobs and thresholds
+remain in force.
+
+Independent review by `language_branches` found that always-running coverage
+jobs could parse an empty plan when manual diagnostics skip the scope job.
+Both affected coverage jobs now require a successful scope before parsing.
+The final workflow-contract selection passed 123 tests, with Ruff, format and
+diff checks passing. Evidence is `build/qualification/host-controls-workflow.xml`.
+No local native control or GUI was executed.
