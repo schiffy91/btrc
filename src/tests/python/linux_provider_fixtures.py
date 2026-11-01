@@ -132,7 +132,27 @@ def build_observed_provider_program(
     require_linux_reader()
     if error := linux_display_error():
         pytest.skip(error)
-    # Request expensive fixtures only after the platform/reader/display guards.
+    if request.scope == "module":
+        # Module fixtures precede the function-scoped runtime lease. Admit their
+        # preparation through that same FIFO so grouped compiler variants do
+        # not compete outside it, then release before runtime reacquires it.
+        from src.tests.conftest import _gui_exclusive
+
+        lock = request.config.cache.mkdir("linux-gui") / "execution.lock"
+        with _gui_exclusive(lock, timeout=1800, owner=f"build {program} {frontend} sanitized={sanitized}"):
+            return _build_observed_provider_program(
+                tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers
+            )
+    return _build_observed_provider_program(
+        tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers
+    )
+
+
+def _build_observed_provider_program(
+    tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers
+):
+    # Function-scoped callers already own the runtime lease; module callers
+    # have acquired it above. All actual compile timeouts remain unchanged.
     data_root = request.getfixturevalue("gui_provider_root")
     root = Path(__file__).resolve().parents[3]
     directory = tmp_path_factory.mktemp(f"{Path(program).stem}-{frontend}-{'sanitized' if sanitized else 'plain'}")
