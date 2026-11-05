@@ -95,6 +95,7 @@ class Composition:
     program: Program
     import_errors: list[tuple[int, str]]  # (active-file 1-based line, message)
     graph: SourceDependencyGraph
+    native_symbols: frozenset[str] = frozenset()  # names a manifest declares for its module
 
     def units_with_tokens(self) -> list[FileUnit]:
         return [self.active] + [u for u in self.imported if u.tokens]
@@ -373,7 +374,24 @@ class Workspace:
             program=Program(declarations=decls),
             import_errors=import_errors,
             graph=graph,
+            native_symbols=self._manifest_symbols(packages),
         )
+
+    @staticmethod
+    def _manifest_symbols(packages: ResolvedPackages) -> frozenset[str]:
+        """Names a native manifest declares.
+
+        Typed header imports need BTRC_NATIVE_HEADER_READER, which the
+        compiler's shell has and an editor's need not. Without it the headers
+        cannot be read, so these names would read as unresolved here while the
+        compiler accepts them; the manifest declaring them is enough.
+        """
+
+        plan = getattr(packages, "native_plan", None)
+        names: set[str] = set()
+        for binding in getattr(plan, "bindings", ()) or ():
+            names.update(getattr(binding, "symbols", ()) or ())
+        return frozenset(names)
 
     def project_manifest(self, path: str) -> str | None:
         """Return the package-project boundary governing ``path``."""

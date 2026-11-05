@@ -175,3 +175,18 @@ def test_unlocated_analyzer_error_becomes_diagnostic(monkeypatch):
     assert any("no position" in d.message for d in r.diagnostics)
     bad = next(d for d in r.diagnostics if "no position" in d.message)
     assert (bad.range.start.line, bad.range.start.character) == (0, 0)
+
+
+def test_stdlib_errors_do_not_land_on_the_file_that_imports_them():
+    """A stdlib fault belongs to the stdlib.
+
+    Declaration checking ran outside the provenance of the declaration it was
+    checking, so its diagnostics carried no file and were published against
+    whichever document was open, at the stdlib's line numbers.
+    """
+
+    result = analyze("import Library.Terminal;\nint main() { return 0; }\n")
+
+    assert [d.message for d in result.diagnostics] == []
+    unattributed = [d for d in (result.analyzed.diags if result.analyzed else []) if d.file is None]
+    assert unattributed == [], f"diagnostics without a file will be blamed on the open document: {unattributed}"

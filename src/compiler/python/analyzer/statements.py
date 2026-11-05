@@ -1609,60 +1609,67 @@ class StatementAnalyzer:
         declarations = list(self.session.declarations(program))
         for declaration in declarations:
             if isinstance(declaration, EnumDecl):
-                self._validate_enum_declaration(declaration)
+                with self.session.source(getattr(declaration, "source_file", None)):
+                    self._validate_enum_declaration(declaration)
         for declaration in declarations:
-            if isinstance(declaration, FunctionDecl):
-                self._validate_function_signature_types(declaration)
-            elif isinstance(declaration, ClassDecl):
-                self._validate_class_declaration_types(declaration)
-            elif isinstance(declaration, InterfaceDecl):
-                self._validate_interface_declaration_types(declaration)
-            elif isinstance(declaration, StructDecl) and (not declaration.is_forward):
-                for field in self.types.record_fields(declaration):
+            with self.session.source(getattr(declaration, "source_file", None)):
+                self._validate_declaration_types(declaration)
+
+    def _validate_declaration_types(self, declaration) -> None:
+        """Check one declaration's types under its own file's provenance."""
+        if isinstance(declaration, FunctionDecl):
+            self._validate_function_signature_types(declaration)
+        elif isinstance(declaration, ClassDecl):
+            self._validate_class_declaration_types(declaration)
+        elif isinstance(declaration, InterfaceDecl):
+            self._validate_interface_declaration_types(declaration)
+        elif isinstance(declaration, StructDecl) and (not declaration.is_forward):
+            for field in self.types.record_fields(declaration):
+                self.types.validate_declared_type(
+                    field.type,
+                    f"{self.types.record_keyword(declaration).capitalize()} field '{declaration.name}.{field.name}'",
+                    field.line,
+                    field.col,
+                    role="field",
+                )
+                self._validate_array_bound(
+                    field.type,
+                    f"{self.types.record_keyword(declaration)} field '{declaration.name}.{field.name}'",
+                    "field",
+                )
+        elif isinstance(declaration, RichEnumDecl):
+            for variant in declaration.variants:
+                for parameter in variant.params:
                     self.types.validate_declared_type(
-                        field.type,
-                        f"{self.types.record_keyword(declaration).capitalize()} field '{declaration.name}.{field.name}'",
-                        field.line,
-                        field.col,
+                        parameter.type,
+                        f"Rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}'",
+                        parameter.line,
+                        parameter.col,
                         role="field",
                     )
-                    self._validate_array_bound(
-                        field.type,
-                        f"{self.types.record_keyword(declaration)} field '{declaration.name}.{field.name}'",
-                        "field",
-                    )
-            elif isinstance(declaration, RichEnumDecl):
-                for variant in declaration.variants:
-                    for parameter in variant.params:
-                        self.types.validate_declared_type(
-                            parameter.type,
-                            f"Rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}'",
+                    if self.storage.effective_outer_const(parameter.type, self.index.typedef_table):
+                        self.session.error(
+                            f"Rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}' cannot use const storage until rich-enum constructors use structured initialization",
                             parameter.line,
                             parameter.col,
-                            role="field",
                         )
-                        if self.storage.effective_outer_const(parameter.type, self.index.typedef_table):
-                            self.session.error(
-                                f"Rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}' cannot use const storage until rich-enum constructors use structured initialization",
-                                parameter.line,
-                                parameter.col,
-                            )
-                        self._validate_array_bound(
-                            parameter.type,
-                            f"rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}'",
-                            "field",
-                        )
-            elif isinstance(declaration, TypedefDecl):
-                self.types.validate_declared_type(
-                    declaration.original,
-                    f"Typedef '{declaration.alias}'",
-                    declaration.line,
-                    declaration.col,
-                    role="alias",
-                )
-                self._validate_array_bound(declaration.original, f"typedef '{declaration.alias}'", "global")
-            elif isinstance(declaration, VarDeclStmt) and declaration.type is not None:
-                self._validate_array_bound(declaration.type, f"Global '{declaration.name}'", "global")
+                    self._validate_array_bound(
+                        parameter.type,
+                        f"rich-enum payload '{declaration.name}.{variant.name}.{parameter.name}'",
+                        "field",
+                    )
+        elif isinstance(declaration, TypedefDecl):
+            self.types.validate_declared_type(
+                declaration.original,
+                f"Typedef '{declaration.alias}'",
+                declaration.line,
+                declaration.col,
+                role="alias",
+            )
+            self._validate_array_bound(declaration.original, f"typedef '{declaration.alias}'", "global")
+        elif isinstance(declaration, VarDeclStmt) and declaration.type is not None:
+            self._validate_array_bound(declaration.type, f"Global '{declaration.name}'", "global")
+
 
     def _validate_function_signature_types(self, function) -> None:
         self.declarations.validate_hosted_function(function)
