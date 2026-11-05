@@ -1,0 +1,77 @@
+name: cache
+
+# Keeps a Nix binary cache of ci/targets.nix fresh: one job per system and attribute,
+# so a runner's disk holds one closure. Pushes to Cachix when ci/targets.nix names a
+# cache and CACHIX_AUTH_TOKEN is set; otherwise every job leaves its slice as a
+# workflow artifact, which `nix copy --from file://...` consumes as it is.
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: "41 6 * * 1"  # Monday, before the consumers' own weekly cache jobs
+  workflow_dispatch:
+
+concurrency:
+  group: cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+      cachix: ${{ steps.read.outputs.cachix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - id: read
+        run: |
+          matrix=$(nix eval --json --file ci/targets.nix --apply 'c: builtins.concatMap (s: builtins.map (a: { inherit (s) system runner; attr = a; }) s.attrs) c.systems')
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+          printf 'cachix=%s\n' "$(nix eval --raw --file ci/targets.nix --apply 'c: c.cache.cachix')" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      NIX_CACHE_SECRET_KEY: ${{ secrets.NIX_CACHE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+        with:
+          extra-conf: |
+            extra-substituters = ${{ vars.BTRC_CACHE_URL }}
+            extra-trusted-public-keys = ${{ vars.BTRC_CACHE_PUBLIC_KEY }}
+      - uses: cachix/cachix-action@v15
+        if: needs.plan.outputs.cachix != ''
+        with:
+          name: ${{ needs.plan.outputs.cachix }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ secrets.CACHIX_AUTH_TOKEN == '' }}
+      - name: build
+        run: nix build --print-build-logs ".#${{ matrix.attr }}"
+      - name: sign and lay out a flat cache
+        run: |
+          if [ -z "$NIX_CACHE_SECRET_KEY" ]; then
+            echo "no NIX_CACHE_SECRET_KEY secret: built but not published"
+            exit 0
+          fi
+          umask 077
+          printf '%s' "$NIX_CACHE_SECRET_KEY" > "$RUNNER_TEMP/cache.key"
+          out=$(nix path-info ".#${{ matrix.attr }}")
+          # shellcheck disable=SC2086  # one word per output path, which both commands take
+          nix store sign --key-file "$RUNNER_TEMP/cache.key" --recursive $out
+          # shellcheck disable=SC2086
+          nix copy --to "file://$PWD/cache?compression=zstd" $out
+          rm -f "$RUNNER_TEMP/cache.key"
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('cache/nix-cache-info') != ''
+        with:
+          name: cache-${{ matrix.system }}-${{ matrix.attr }}
+          path: cache
+          retention-days: 14

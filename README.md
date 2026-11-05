@@ -2184,6 +2184,51 @@ make extension-install
 
 The extension auto-discovers the LSP server and Python interpreter. Configure `btrc.pythonPath` or `btrc.serverPath` in VS Code settings if needed.
 
+## Binary Cache
+
+This repository is the compiler, so nothing downstream builds until `btrcpy`,
+`btrcc` and `btrc-native-plan` exist. Publishing them once spares every consumer
+-- and every CI job of every consumer -- from building them again.
+
+[ci/targets.nix](ci/targets.nix) is the one list of what gets cached, for which
+systems, on which runners. Adding a system or an attribute there is the whole
+change: `make cache` and `.github/workflows/cache.yml` both read it.
+
+```sh
+make cache        # build this host's attrs, sign them, add them to the shared cache
+make cache-all    # the same for every attribute in ci/targets.nix `local`
+make cache-serve  # serve it over HTTP for the other machines (PORT=8080)
+```
+
+The secret key is generated on first use in `~/.config/nix/btrc-cache-1.key` and
+never leaves the machine that signs. Keep a copy; losing it means a new public
+key and an edit on every consumer. A consumer needs the URL and the public half
+and nothing else:
+
+```nix
+nix.settings.extra-substituters = [ "http://your-host.local:8080" ];
+nix.settings.extra-trusted-public-keys = [
+  "btrc-cache-1:eE3hjG2AwlKM9e1EBU1r6mOEuukrPIWHsuxz6n9sBR8="
+];
+```
+
+Nix refuses a path whose signature does not match, so an unsigned or
+wrongly-signed cache is ignored rather than trusted. The cache directory is
+shared with the other repositories on a host, so one `make cache-serve`
+publishes all of them at once.
+
+In CI, every job builds one attribute so a runner's disk holds one closure. It
+pushes to Cachix when `ci/targets.nix` names a cache and `CACHIX_AUTH_TOKEN`
+exists; otherwise it signs with `NIX_CACHE_SECRET_KEY` and leaves the slice as a
+workflow artifact, which `nix copy --from file://...` consumes as it is. With
+neither secret the job still builds, so the workflow is useful before any
+account exists.
+
+Only `btrc-native-header` is cached for macOS: it is the one attribute this
+repository's own macOS workflow proves builds there, and caching an attribute
+with no macOS evidence would only discover that in a cache job instead of in the
+job that needs it.
+
 ## Roadmap
 
 Planned but not yet implemented:

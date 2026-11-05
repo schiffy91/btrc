@@ -6,8 +6,11 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer linux-ci clean \
-	test-e40 test-e40-linux test-e40-macos test-shard-unit test-native-gui test-shard-gui test-shard-gui-macos test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self
+	test-e40 test-e40-linux test-e40-macos test-shard-unit test-native-gui test-shard-gui test-shard-gui-macos test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self \
+	cache cache-all cache-serve
 
+CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/nix-cache
+PORT ?= 8080
 SHELL       := $(if $(wildcard /bin/bash),/bin/bash,bash)  # NixOS has no /bin/bash; make searches PATH for a bare name
 NIX         := nix develop --command
 HOST_AR     := $(if $(filter Darwin,$(shell uname -s)),/usr/bin/ar,ar)
@@ -606,6 +609,16 @@ clean: ## Remove all build artifacts
 	find src examples tools -type d -name '*.dSYM' -prune -exec rm -rf {} +
 	find src examples tools -type f \( -name '*.pyc' -o -name '*.o' \) -delete
 	$(MAKE) -C examples clean 2>/dev/null || true
+
+cache: ## Build this host's ci/targets.nix attrs, sign them, and add them to the shared cache
+	sh tools/cache/publish.sh
+
+cache-all: ## The same for every attribute in ci/targets.nix `local`
+	sh tools/cache/publish.sh --all
+
+cache-serve: ## Serve the shared cache over HTTP for the other machines (PORT=8080)
+	@printf 'serving %s on port %s; substituter: http://%s.local:%s\n' "$(CACHE_DIR)" "$(PORT)" "$$(hostname)" "$(PORT)"
+	@python3 -m http.server "$(PORT)" --directory "$(CACHE_DIR)"
 
 help:
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
