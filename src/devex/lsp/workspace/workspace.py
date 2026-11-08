@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from src.compiler.python.abi.generated import GeneratedTargetRow
 from src.compiler.python.abi.hosted import TargetSelectionError
 from src.compiler.python.frontend.imports import ImportResolver
+from src.compiler.python.frontend.native_imports import NativeDeclarationImporter, NativeHeaderSource
 from src.compiler.python.frontend.packages import IncludeResolutionError, PackageTarget, ResolvedPackages
 from src.compiler.python.frontend.sources import (
     ConditionalEnvironment,
@@ -95,7 +96,8 @@ class Composition:
     program: Program
     import_errors: list[tuple[int, str]]  # (active-file 1-based line, message)
     graph: SourceDependencyGraph
-    native_symbols: frozenset[str] = frozenset()  # names a manifest declares for its module
+    native_declarations: tuple = ()
+    native_identity: str | None = None
 
     def units_with_tokens(self) -> list[FileUnit]:
         return [self.active] + [u for u in self.imported if u.tokens]
@@ -110,6 +112,7 @@ class Composition:
             tuple(unit.path for unit in self.stdlib),
             tuple(self.import_errors),
             self.graph.cache_records(),
+            self.native_identity,
         )
 
 
@@ -360,7 +363,13 @@ class Workspace:
             user_names |= unit.defined_names
         stdlib = [unit for unit in self.stdlib_units() if not (unit.defined_names & user_names)]
 
-        decls: list = []
+        # Use the compiler's native import plan, including typed declarations,
+        # ownership effects, and SDK identity. Symbol-name suppression hides real
+        # errors and cannot supply return types or read-only borrow contracts.
+        sources = graph.source_paths()
+        native_plan = packages.native_plan.for_sources(sources).with_stdlib(self._stdlib.directory(), sources)
+        native = NativeDeclarationImporter().resolve(native_plan, use_cache=True)
+        decls: list = list(native.declarations)
         for unit in stdlib:
             decls.extend(unit.decls)
         for unit in imported:
@@ -374,24 +383,9 @@ class Workspace:
             program=Program(declarations=decls),
             import_errors=import_errors,
             graph=graph,
-            native_symbols=self._manifest_symbols(packages),
+            native_declarations=native.declarations,
+            native_identity=native.cache_identity,
         )
-
-    @staticmethod
-    def _manifest_symbols(packages: ResolvedPackages) -> frozenset[str]:
-        """Names a native manifest declares.
-
-        Typed header imports need BTRC_NATIVE_HEADER_READER, which the
-        compiler's shell has and an editor's need not. Without it the headers
-        cannot be read, so these names would read as unresolved here while the
-        compiler accepts them; the manifest declaring them is enough.
-        """
-
-        plan = getattr(packages, "native_plan", None)
-        names: set[str] = set()
-        for binding in getattr(plan, "bindings", ()) or ():
-            names.update(getattr(binding, "symbols", ()) or ())
-        return frozenset(names)
 
     def project_manifest(self, path: str) -> str | None:
         """Return the package-project boundary governing ``path``."""
@@ -433,7 +427,14 @@ class Workspace:
         # base is analyzed separately (and cheaply) without recording.
         analyzer = SemanticAnalyzer(record_occurrences=True, seed=base, target=target)
 
-        user_decls: list = []
+        user_decls: list = [
+            declaration
+            for declaration in comp.native_declarations
+            if not (
+                isinstance(getattr(declaration, "source_file", None), NativeHeaderSource)
+                and declaration.source_file.coalesced
+            )
+        ]
         for u in comp.imported:
             user_decls.extend(u.decls)
         user_decls.extend(comp.active.decls)

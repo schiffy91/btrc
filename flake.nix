@@ -508,6 +508,9 @@
           runtimeInputs = [ lspPython pkgs.git ];
           text = ''
             export PYTHONPATH="${runtimeSource}''${PYTHONPATH:+:$PYTHONPATH}"
+            ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: value:
+              ''export ${name}="''${${name}-${value}}"''
+            ) (nativeHeaderEnvironment pkgs))}
             exec python3 -m src.devex.lsp "$@"
           '';
         };

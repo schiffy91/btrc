@@ -149,7 +149,6 @@ class DocumentAnalysis:
 
 
 # The wrong-keyword refusal, naming the declaration the tag collides with.
-_QUOTED_NAME = re.compile(r"'([A-Za-z_][A-Za-z0-9_]*)'")
 _TAG_MISMATCH = re.compile(r"'(?:struct|union|enum) (\w+)' does not name an? \w+: '\1' is ")
 
 
@@ -279,16 +278,12 @@ class DocumentAnalyzer:
             return result
 
         background_only = self._background_type_names(composition.stdlib, program_units)
-        manifest_names = composition.native_symbols
         for diagnostic in result.analyzed.diags:
             if diagnostic.file is not None and diagnostic.file != path:
                 continue
             tag = _TAG_MISMATCH.match(diagnostic.message)
             if tag is not None and tag.group(1) in background_only:
                 continue
-            if manifest_names and _QUOTED_NAME.findall(diagnostic.message):
-                if any(name in manifest_names for name in _QUOTED_NAME.findall(diagnostic.message)):
-                    continue
             severity = (
                 lsp.DiagnosticSeverity.Warning if diagnostic.severity == "warning" else lsp.DiagnosticSeverity.Error
             )

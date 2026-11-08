@@ -6,12 +6,18 @@ class TrayItem {
 	public string label;
 	public string command;
 	public bool enabled;
+	public int parentId;
+	public bool isSubmenu;
+	public bool isRadio;
 	public string stateCommand;  /* non-empty: exit 0 renders a checkmark */
 
 	public TrayItem(string label, string command) {
 		self.label = label;
 		self.command = command;
 		self.enabled = true;
+		self.parentId = 0;
+		self.isSubmenu = false;
+		self.isRadio = false;
 		self.stateCommand = "";
 	}
 
@@ -51,15 +57,36 @@ class Tray {
 
 	/* A checkable item: the mark mirrors stateCommand's exit status (0 = on),
      * probed when the menu is realized and again after each activation. */
-	public Tray checkItem(string label, string command, string stateCommand) {
+	public Tray checkItem(string label, string command, string stateCommand, bool radio = false) {
 		TrayItem entry = TrayItem(label, command);
 		entry.stateCommand = stateCommand;
+		entry.isRadio = radio;
 		self.items.push(entry);
 		return self;
 	}
 
+	/* Radio state is supplied by one mutually exclusive external setting. */
+	public Tray radioItem(string label, string command, string stateCommand) { return self.checkItem(label, command, stateCommand, radio=true); }
+
 	public Tray add(TrayItem item) {
 		self.items.push(item);
+		return self;
+	}
+
+	public Tray submenu(string label, Tray menu) {
+		int parentId = self.items.len + 1;
+		var parent = TrayItem(label, "");
+		parent.isSubmenu = true;
+		self.items.push(parent);
+		for entry in menu.items {
+			var child = TrayItem(entry.label, entry.command);
+			child.enabled = entry.enabled;
+			child.stateCommand = entry.stateCommand;
+			child.isSubmenu = entry.isSubmenu;
+			child.isRadio = entry.isRadio;
+			child.parentId = parentId + entry.parentId;
+			self.items.push(child);
+		}
 		return self;
 	}
 }

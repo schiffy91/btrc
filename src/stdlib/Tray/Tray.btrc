@@ -23,7 +23,11 @@ class SystemTray {
 
 	public SystemTray checkItem(string label, string command, string stateCommand) { self.model.checkItem(label, command, stateCommand); return self; }
 
+	public SystemTray radioItem(string label, string command, string stateCommand) { self.model.radioItem(label, command, stateCommand); return self; }
+
 	public SystemTray add(TrayItem item) { self.model.add(item); return self; }
+
+	public SystemTray submenu(string label, Tray menu) { self.model.submenu(label, menu); return self; }
 
 	public bool available() { return self._provider != null; }
 

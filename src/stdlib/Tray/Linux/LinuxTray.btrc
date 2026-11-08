@@ -398,48 +398,55 @@ class LinuxTray implements ITray {
 		DBusWriter.dictString(&properties, "label", entry.label);
 		DBusWriter.dictBool(&properties, "enabled", entry.enabled);
 		DBusWriter.dictBool(&properties, "visible", true);
+		if (entry.isSubmenu) { DBusWriter.dictString(&properties, "children-display", "submenu"); }
 		if (!entry.stateCommand.isEmpty()) {
-			DBusWriter.dictString(&properties, "toggle-type", "checkmark");
+			DBusWriter.dictString(&properties, "toggle-type", entry.isRadio ? "radio" : "checkmark");
 			DBusWriter.dictInt32(&properties, "toggle-state", self._checked.get(index) ? 1 : 0);
 		}
 		dbus_message_iter_close_container(node, &properties);
 	}
 
-	/* One layout node (ia{sv}av); the menu is flat so children stay empty. */
-	private void appendLayoutNode(DBusMessageIter* parent, int index) {
+	/* Root and nested nodes use the same stable, one-based model ids. */
+	private void appendLayoutNode(DBusMessageIter* parent, int id, int depth) {
 		DBusMessageIter node;
 		DBusMessageIter children;
 		dbus_message_iter_open_container(parent, DBUS_TYPE_STRUCT, null, &node);
-		btrcDBusAppendInt32(&node, index + 1);
-		self.appendItemProperties(&node, index);
+		btrcDBusAppendInt32(&node, id);
+		if (id == 0) {
+			DBusMessageIter properties;
+			dbus_message_iter_open_container(&node, DBUS_TYPE_ARRAY, "{sv}", &properties);
+			DBusWriter.dictString(&properties, "children-display", "submenu");
+			dbus_message_iter_close_container(&node, &properties);
+		} else { self.appendItemProperties(&node, id - 1); }
 		dbus_message_iter_open_container(&node, DBUS_TYPE_ARRAY, "v", &children);
+		if (depth != 0) {
+			for (int index = 0; index < self._model.items.len; index++) {
+				if (self._model.items.get(index).parentId != id) { continue; }
+				DBusMessageIter variant;
+				dbus_message_iter_open_container(&children, DBUS_TYPE_VARIANT, "(ia{sv}av)", &variant);
+				self.appendLayoutNode(&variant, index + 1, depth < 0 ? -1 : depth - 1);
+				dbus_message_iter_close_container(&children, &variant);
+			}
+		}
 		dbus_message_iter_close_container(&node, &children);
 		dbus_message_iter_close_container(parent, &node);
 	}
 
 	private DBusMessage* layoutReply(DBusMessage* message) {
+		DBusMessageIter request;
+		if (dbus_message_iter_init(message, &request) == 0u) { return null; }
+		int id = btrcDBusReadInt32(&request);
+		if (dbus_message_iter_next(&request) == 0u) { return null; }
+		int depth = btrcDBusReadInt32(&request);
+		if (id < 0 || id > self._model.items.len) {
+			return dbus_message_new_error(message, "com.canonical.dbusmenu.Error.InvalidMenuItem", "Unknown menu node");
+		}
 		DBusMessage* reply = dbus_message_new_method_return(message);
 		if (reply == null) { return null; }
 		DBusMessageIter arguments;
-		DBusMessageIter root;
-		DBusMessageIter properties;
-		DBusMessageIter children;
-		DBusMessageIter variant;
 		dbus_message_iter_init_append(reply, &arguments);
 		btrcDBusAppendUInt32(&arguments, self._revision);
-		dbus_message_iter_open_container(&arguments, DBUS_TYPE_STRUCT, null, &root);
-		btrcDBusAppendInt32(&root, 0);
-		dbus_message_iter_open_container(&root, DBUS_TYPE_ARRAY, "{sv}", &properties);
-		DBusWriter.dictString(&properties, "children-display", "submenu");
-		dbus_message_iter_close_container(&root, &properties);
-		dbus_message_iter_open_container(&root, DBUS_TYPE_ARRAY, "v", &children);
-		for (int index = 0; index < self._model.items.len; index++) {
-			dbus_message_iter_open_container(&children, DBUS_TYPE_VARIANT, "(ia{sv}av)", &variant);
-			self.appendLayoutNode(&variant, index);
-			dbus_message_iter_close_container(&children, &variant);
-		}
-		dbus_message_iter_close_container(&root, &children);
-		dbus_message_iter_close_container(&arguments, &root);
+		self.appendLayoutNode(&arguments, id, depth);
 		return reply;
 	}
 
@@ -468,7 +475,7 @@ class LinuxTray implements ITray {
 		int index = id - 1;
 		if (index < 0 || index >= self._model.items.len) { return false; }
 		TrayItem entry = self._model.items.get(index);
-		if (event.equals("clicked") && entry.enabled) { self._pendingCommands.push(entry.command); }
+		if (event.equals("clicked") && entry.enabled && !entry.isSubmenu) { self._pendingCommands.push(entry.command); }
 		return true;
 	}
 
@@ -540,7 +547,8 @@ class LinuxTray implements ITray {
 		if (name.equals("label")) { DBusWriter.variantString(arguments, entry.label); }
 		else if (name.equals("enabled")) { DBusWriter.variantBool(arguments, entry.enabled); }
 		else if (name.equals("visible")) { DBusWriter.variantBool(arguments, true); }
-		else if (name.equals("toggle-type") && checkable) { DBusWriter.variantString(arguments, "checkmark"); }
+		else if (name.equals("children-display") && entry.isSubmenu) { DBusWriter.variantString(arguments, "submenu"); }
+		else if (name.equals("toggle-type") && checkable) { DBusWriter.variantString(arguments, entry.isRadio ? "radio" : "checkmark"); }
 		else if (name.equals("toggle-state") && checkable) { DBusWriter.variantInt32(arguments, self._checked.get(index) ? 1 : 0); }
 		else { return false; }
 		return true;

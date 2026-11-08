@@ -368,3 +368,55 @@ def test_anonymous_member_symbols_and_definition_over_stdio(tmp_path, declaratio
         client.send("exit", {}, request=False)
     finally:
         client.close()
+
+
+def test_native_header_types_and_borrows_over_stdio(tmp_path):
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("requires the native header reader")
+    (tmp_path / "btrc.toml").write_text(
+        "manifest-version = 1\n"
+        '[package]\nname = "native_lsp_test"\nexports = ["Main"]\n'
+        '[[native.bindings]]\nmodule = "Main"\nheader = "native.h"\n'
+        'language = "c"\nstandard = "c11"\n'
+        'symbols = ["inspect_name", "PROBE_READY"]\n'
+        'read-only-borrows = ["inspect_name.name"]\n'
+    )
+    (tmp_path / "native.h").write_text(
+        "typedef enum ProbeState { PROBE_READY = 7 } ProbeState;\nProbeState inspect_name(const char *name);\n"
+    )
+    source = 'int main() { var state = inspect_name("example"); return state == PROBE_READY ? 0 : 1; }\n'
+    path = tmp_path / "Main.btrc"
+    path.write_text(source)
+    client = LspClient(env={"BTRC_LSP_DEBOUNCE": "0.01"})
+    try:
+        client.wait_response(
+            client.send("initialize", {"processId": None, "rootUri": tmp_path.as_uri(), "capabilities": {}})
+        )
+        client.send("initialized", {}, request=False)
+        client.send(
+            "textDocument/didOpen",
+            {
+                "textDocument": {
+                    "uri": path.as_uri(),
+                    "languageId": "btrc",
+                    "version": 1,
+                    "text": source,
+                }
+            },
+            request=False,
+        )
+        valid = client.wait_notification("textDocument/publishDiagnostics")["params"]
+        assert valid["uri"] == path.as_uri()
+        assert valid["diagnostics"] == []
+        client.send(
+            "textDocument/didChange",
+            {
+                "textDocument": {"uri": path.as_uri(), "version": 2},
+                "contentChanges": [{"text": source.replace('inspect_name("example")', "inspect_name(42)")}],
+            },
+            request=False,
+        )
+        invalid = client.wait_notification("textDocument/publishDiagnostics")["params"]
+        assert any(d["severity"] == 1 and "inspect_name" in d["message"] for d in invalid["diagnostics"])
+    finally:
+        client.close()
