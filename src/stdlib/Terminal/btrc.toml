@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_terminal"
-exports = ["Terminal", "TerminalPasswordInput"]
+exports = ["Terminal", "TerminalPasswordInput", "PTYProcess"]
 
 # Terminal's and TerminalPasswordInput's host seams: termios, ioctl and stdio
 # on the Unix rows, the Win32 console on Windows.
@@ -49,3 +49,43 @@ language = "c"
 standard = "c11"
 symbols = ["HANDLE", "DWORD", "BOOL", "SRWLOCK", "AcquireSRWLockExclusive", "ReleaseSRWLockExclusive", "GetConsoleMode", "SetConsoleMode", "SetConsoleCtrlHandler", "CancelSynchronousIo", "Sleep", "GetCurrentProcess", "GetCurrentThread", "DuplicateHandle", "DUPLICATE_SAME_ACCESS", "CloseHandle", "ENABLE_ECHO_INPUT", "ENABLE_LINE_INPUT", "ENABLE_PROCESSED_INPUT", "TRUE", "FALSE", "_lock_file", "_unlock_file"]
 os = ["windows"]
+
+# The PTY owner is separate from console input and imported only on demand.
+[[native.bindings]]
+module = "PTYProcess"
+header = "Unix/PTY.h"
+language = "c"
+standard = "c11"
+os = ["linux", "macos"]
+symbols = ["BtrcPTY", "ptyCreate", "ptyRelease", "ptyAppend", "ptyStart", "ptyRead", "ptyOutput", "ptyOutputLength", "ptyWrite", "ptyEchoDisabled", "ptyWait"]
+owned-results = ["ptyCreate"]
+read-only-borrows = ["ptyAppend.value", "ptyStart.executable", "ptyWrite.bytes"]
+borrowed-parameters = ["ptyAppend.session", "ptyStart.session", "ptyRead.session", "ptyOutput.session", "ptyOutputLength.session", "ptyWrite.session", "ptyEchoDisabled.session", "ptyWait.session"]
+
+[native.bindings.resources.BtrcPTY]
+ownership = "unique"
+release = "ptyRelease"
+
+[native.bindings.copied-results.ptyOutput]
+kind = "bytes"
+owner = "session"
+length-function = "ptyOutputLength"
+length-arguments = ["session"]
+length-preserves-result = true
+
+[[native.libraries]]
+name = "util"
+modules = ["PTYProcess"]
+os = ["linux"]
+
+[[native.defines]]
+name = "_GNU_SOURCE"
+value = "1"
+modules = ["PTYProcess"]
+os = ["linux"]
+
+[[native.defines]]
+name = "_DARWIN_C_SOURCE"
+value = "1"
+modules = ["PTYProcess"]
+os = ["macos"]

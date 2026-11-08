@@ -1,0 +1,82 @@
+import Library.Bytes;
+import Library.Timer;
+import Library.Vector;
+
+/* A Unix child with a controlling pseudo-terminal. The native handle is a
+ * compiler-managed unique resource: scope exit and exceptions kill/reap an
+ * unfinished child. Instances are used by one thread at a time. */
+class PTYProcess {
+	private BtrcPTY session;
+
+	private PTYProcess(BtrcPTY session) { self.session = session; }
+
+	/* arguments includes argv[0]; environment replaces the inherited environment. */
+	class PTYProcess? start(string executable, Vector<string> arguments, Vector<string> environment) {
+		if (executable == null || executable.isEmpty() || arguments == null || arguments.isEmpty() || environment == null) { return null; }
+		var session = ptyCreate();
+		if (session == null) { return null; }
+		for argument in arguments {
+			if (ptyAppend(session, argument, 0) == 0) { return null; }
+		}
+		for entry in environment {
+			if (ptyAppend(session, entry, 1) == 0) { return null; }
+		}
+		if (ptyStart(session, executable) == 0) { return null; }
+		return PTYProcess(session);
+	}
+
+	/* null is EOF/error/closed; empty Bytes is a timeout. Bytes preserve NULs.
+	 * A slice lets interactive callers check their own protocol between reads. */
+	public Bytes? readUntil(long long deadline, int sliceMilliseconds = 1000) {
+		if (!self.session.isOpen()) { return null; }
+		if (sliceMilliseconds <= 0) { return Bytes(); }
+		var sliceDeadline = MonotonicClock.deadlineAfter(sliceMilliseconds);
+		if (sliceDeadline > deadline) { sliceDeadline = deadline; }
+		while (MonotonicClock.before(sliceDeadline)) {
+			var remaining = MonotonicClock.remaining(sliceDeadline);
+			if (remaining <= 0LL) { break; }
+			var result = ptyRead(self.session, (int)remaining);
+			if (result == -2) { continue; }
+			if (result < 0) { return null; }
+			return ptyOutput(self.session);
+		}
+		return Bytes();
+	}
+
+	public bool writeUntil(Bytes bytes, long long deadline) {
+		if (!self.session.isOpen() || bytes == null) { return false; }
+		var offset = 0;
+		while (offset < bytes.length()) {
+			var remaining = MonotonicClock.remaining(deadline);
+			if (remaining <= 0LL) { return false; }
+			var wait = remaining > 1000LL ? 1000 : (int)remaining;
+			var count = ptyWrite(self.session, bytes.data, bytes.length(), offset, wait);
+			if (count < 0) { return false; }
+			offset += count;
+		}
+		return true;
+	}
+
+	public bool echoDisabled() { return self.session.isOpen() && ptyEchoDisabled(self.session) != 0; }
+
+	/* Explicit close and automatic destruction share the generated owner. */
+	public void close() { self.session.close(); }
+
+	/* Discard output while waiting so a full PTY cannot prevent exit. Each
+	 * iteration checks the deadline, including continuously noisy children. */
+	public int waitExitUntil(long long deadline) {
+		if (!self.session.isOpen()) { return -1; }
+		while (true) {
+			var status = ptyWait(self.session);
+			if (status != -2) {
+				self.close();
+				return status;
+			}
+			if (!MonotonicClock.before(deadline)) { break; }
+			var output = self.readUntil(deadline, 50);
+			if (output == null) { Timer.sleepMillis(1); }
+		}
+		self.close();
+		return -1;
+	}
+}

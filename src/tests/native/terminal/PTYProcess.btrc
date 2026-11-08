@@ -1,0 +1,122 @@
+import Library.Bytes;
+import Library.Strings;
+import Library.Terminal.PTYProcess;
+import Library.Timer;
+import Library.Vector;
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+PTYProcess shell(string script) {
+	var child = PTYProcess.start("/bin/sh", ["sh", "-c", script], ["PATH=/usr/bin:/bin:/run/current-system/sw/bin", "PTY_VALUE=selected"]);
+	if (child == null) { throw "Cannot start PTY test child"; }
+	return child;
+}
+
+Bytes receive(PTYProcess child, int length, long long deadline) {
+	var output = Bytes();
+	while (output.length() < length && MonotonicClock.before(deadline)) {
+		var chunk = child.readUntil(deadline);
+		if (chunk == null) { break; }
+		output.appendBytes(chunk);
+	}
+	return output;
+}
+
+int abandon(bool throwing) {
+	var process = 0;
+	try {
+		var child = shell("printf '%s\\n' $$; exec sleep 60");
+		var chunk = child.readUntil(MonotonicClock.deadlineAfter(3000));
+		if (chunk == null) { throw "Missing child pid"; }
+		process = Strings.toInt(chunk.toString().trim());
+		assert(process > 0);
+		if (throwing) { throw "exercise exception cleanup"; }
+	} catch (string error) {
+		assert(error == "exercise exception cleanup");
+	}
+	return process;
+}
+
+int main() {
+	assert(PTYProcess.start("", ["sh"], []) == null);
+	assert(PTYProcess.start("/bin/sh", [], []) == null);
+	var missing = PTYProcess.start("/no/such/pty-program", ["missing"], []);
+	if (missing == null) { throw "fork failed"; }
+	assert(missing.waitExitUntil(MonotonicClock.deadlineAfter(3000)) == 127);
+
+	var signaled = shell("kill -TERM $$");
+	assert(signaled.waitExitUntil(MonotonicClock.deadlineAfter(3000)) == 143);
+
+	var interactive = shell("stty -echo; printf ready; read line; printf '%s:%s' \"$PTY_VALUE\" \"$line\"; exit 7");
+	var deadline = MonotonicClock.deadlineAfter(5000);
+	assert(receive(interactive, 5, deadline).toString() == "ready");
+	assert(interactive.echoDisabled());
+	assert(interactive.writeUntil(Bytes.fromString("hello\n"), deadline));
+	assert(receive(interactive, 14, deadline).toString() == "selected:hello");
+	assert(interactive.waitExitUntil(deadline) == 7);
+	interactive.close();
+	assert(interactive.readUntil(deadline) == null);
+	assert(!interactive.writeUntil(Bytes.fromString("x"), deadline));
+
+	var binary = shell("stty raw -echo; printf 'a\\000b'; read ignored; printf c; exit 0");
+	var first = receive(binary, 3, MonotonicClock.deadlineAfter(3000));
+	assert(first.length() == 3 && first.get(0) == 97 && first.get(1) == 0 && first.get(2) == 98);
+	assert(binary.writeUntil(Bytes.fromString("go\n"), MonotonicClock.deadlineAfter(3000)));
+	assert(receive(binary, 1, MonotonicClock.deadlineAfter(3000)).get(0) == 99);
+	assert(first.get(0) == 97 && first.get(2) == 98);
+	assert(binary.waitExitUntil(MonotonicClock.deadlineAfter(3000)) == 0);
+
+	var silent = shell("sleep 60");
+	var timeout = silent.readUntil(MonotonicClock.deadlineAfter(100), 50);
+	if (timeout == null) { throw "Timeout was reported as EOF"; }
+	assert(timeout.isEmpty());
+	assert(!silent.echoDisabled());
+	var started = MonotonicClock.milliseconds();
+	assert(silent.waitExitUntil(MonotonicClock.deadlineAfter(100)) == -1);
+	assert(MonotonicClock.milliseconds() - started < 3000LL);
+	silent.close();
+
+	var noisy = shell("while :; do printf 'lots of output'; done");
+	started = MonotonicClock.milliseconds();
+	assert(noisy.waitExitUntil(MonotonicClock.deadlineAfter(200)) == -1);
+	assert(MonotonicClock.milliseconds() - started < 3000LL);
+
+	var transfer = shell("stty raw -echo; printf ready; head -c 65536 | wc -c");
+	assert(receive(transfer, 5, MonotonicClock.deadlineAfter(3000)).toString() == "ready");
+	var payload = Bytes();
+	for (int i = 0; i < 65536; i++) { payload.append(i); }
+	assert(transfer.writeUntil(payload, MonotonicClock.deadlineAfter(3000)));
+	assert(receive(transfer, 6, MonotonicClock.deadlineAfter(3000)).toString().trim() == "65536");
+	assert(transfer.waitExitUntil(MonotonicClock.deadlineAfter(3000)) == 0);
+
+	var blocked = shell("stty raw -echo; printf ready; sleep 60");
+	assert(receive(blocked, 5, MonotonicClock.deadlineAfter(3000)).toString() == "ready");
+	var large = Bytes();
+	for (int i = 0; i < 1048576; i++) { large.append(120); }
+	started = MonotonicClock.milliseconds();
+	assert(!blocked.writeUntil(large, MonotonicClock.deadlineAfter(200)));
+	assert(MonotonicClock.milliseconds() - started < 3000LL);
+	blocked.close();
+
+	for (int i = 0; i < 2; i++) {
+		var process = abandon(i == 1);
+		int status = 0;
+		assert(waitpid((pid_t)process, &status, WNOHANG) == (pid_t)(-1) && errno == ECHILD);
+		assert(kill((pid_t)process, 0) == -1 && errno == ESRCH);
+	}
+
+	var source = open("/dev/null", O_RDONLY);
+	assert(source >= 0);
+	var high = fcntl(source, F_DUPFD, 1500);
+	assert(high >= 1500);
+	var descriptors = shell(f"test ! -e /dev/fd/{high}");
+	assert(descriptors.waitExitUntil(MonotonicClock.deadlineAfter(3000)) == 0);
+	close(high);
+	close(source);
+	print("PASS: PTY process IO, deadlines, exit status and owned cleanup");
+	return 0;
+}
