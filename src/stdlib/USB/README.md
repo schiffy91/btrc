@@ -73,7 +73,9 @@ over `Library.Network`'s `TCPStream`, so it has rows for Linux and macOS.
 `USBHost` has a Linux provider: usbfs for devices (`Linux/USBFS.h` holds one
 adapter per request, because the typed importer cannot evaluate ioctl numbers
 built with `sizeof`) and sysfs for `vhci_hcd`. Opening a device needs access
-to its node; attaching needs root. `USBGadget` has a Linux provider too. The
+to its node; attaching needs root. `claim` detaches a kernel driver and takes
+the interface in one request, and fails rather than take an interface another
+program has claimed. `USBGadget` has a Linux provider too. The
 macOS providers report `USBHost.supported()` and `USBGadget.supported()`
 false and fail every operation. Windows has no rows.
 
@@ -94,7 +96,8 @@ ASCII strings are covered.
   `src/tests/native/usb/USBKernelHost.btrc`: a NixOS VM where `vhci_hcd`
   attaches the same emulated device, the kernel enumerates it, and
   `USBHostDevice` reads its descriptors, takes its interface from the HID
-  driver and exchanges reports. The test runners have neither `vhci_hcd` nor
+  driver and exchanges reports, and a second handle cannot take the
+  interface meanwhile. The test runners have neither `vhci_hcd` nor
   root, so they only build this program.
 - The flake's `usb-gadget-loopback` check with
   `src/tests/native/usb/USBGadgetLoopback.btrc`: NixOS VMs where `USBGadget`

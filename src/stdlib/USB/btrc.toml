@@ -52,7 +52,7 @@ module = "Linux.USBHostProvider"
 header = "Linux/USBFS.h"
 language = "c"
 standard = "c11"
-symbols = ["btrcUSBFSClaim", "btrcUSBFSUnclaim", "btrcUSBFSDriver", "btrcUSBFSControl", "btrcUSBFSTransfer", "O_CLOEXEC"]
+symbols = ["btrcUSBFSClaim", "btrcUSBFSUnclaim", "btrcUSBFSRebind", "btrcUSBFSControl", "btrcUSBFSTransfer", "O_CLOEXEC"]
 os = ["linux"]
 
 # glibc declares O_CLOEXEC only under a POSIX feature macro.

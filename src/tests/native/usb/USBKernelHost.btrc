@@ -61,7 +61,22 @@ class USBKernelHost {
 		assert(device.transferOut(1, Bytes.fromString("ab"), 2000) == 2);
 		Bytes echoed = Bytes();
 		assert(device.transferIn(1, 64, echoed, 2000) == 3 && echoed.get(0) == 1 && echoed.get(1) == 'a' && echoed.get(2) == 'b');
+
+		/* A second program cannot take the interface while this one holds
+		 * it, and its attempt does not disturb this one's transfers. */
+		USBHostDevice other = USBHostDevice.open(0x1209, 0x0001);
+		assert(!other.claim(0));
+		assert(device.transferOut(1, Bytes.fromString("cd"), 2000) == 2);
+		Bytes again = Bytes();
+		assert(device.transferIn(1, 64, again, 2000) == 3 && again.get(1) == 'c' && again.get(2) == 'd');
+		assert(!other.unclaim(0));
+		assert(device.transferOut(1, Bytes.fromString("ef"), 2000) == 2);
+		assert(device.transferIn(1, 64, Bytes(), 2000) == 3);
 		assert(device.unclaim(0));
+		/* Released, it is anyone's: the kernel's driver was let back, and
+		 * the second program takes it from that. */
+		assert(other.claim(0) && other.unclaim(0));
+		other.close();
 	}
 
 	class void run() {

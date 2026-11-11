@@ -47,7 +47,8 @@ class USBHostDevice {
 	/* Where the device is on the bus, such as "3-1". */
 	public string location() { return self.place; }
 
-	/* Take an interface for this handle, detaching its kernel driver. */
+	/* Take an interface for this handle, detaching its kernel driver. False
+	 * when another program has taken it: its claim stands. */
 	public bool claim(int number) { return self.handle >= 0 && USBHostProvider.claim(self.handle, number); }
 
 	/* Give an interface back; a kernel driver may bind to it again. */

@@ -62,16 +62,14 @@ class USBHostProvider {
 
 	class void close(int handle) { close(handle); }
 
-	/* Take an interface, detaching the kernel driver that holds it. */
-	class bool claim(int handle, int number) {
-		btrcUSBFSDriver(handle, number, 0);
-		return btrcUSBFSClaim(handle, (unsigned int)number) == 0;
-	}
+	/* Take an interface, detaching the kernel driver that holds it. False
+	 * when another program holds it; that claim is left alone. */
+	class bool claim(int handle, int number) { return btrcUSBFSClaim(handle, (unsigned int)number) == 0; }
 
 	/* Give an interface back and let a kernel driver bind to it again. */
 	class bool unclaim(int handle, int number) {
 		bool released = btrcUSBFSUnclaim(handle, (unsigned int)number) == 0;
-		btrcUSBFSDriver(handle, number, 1);
+		btrcUSBFSRebind(handle, number);
 		return released;
 	}
 
