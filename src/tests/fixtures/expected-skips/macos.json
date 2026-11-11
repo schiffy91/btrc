@@ -468,6 +468,18 @@
         "windows"
       ],
       "note": "Windows x64 and ARM64 CI execute the cross-built HTTP fixtures and retain native stdout, stderr and process status."
+    },
+    {
+      "id": "crypto-libsodium-linux-only",
+      "files": [
+        "src/tests/python/test_crypto_runtime.py"
+      ],
+      "reason": "^requires Linux: Library\\.Crypto's libsodium provider has a Linux row only$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "Sodium has a libsodium provider on Linux only; test_windows_builds_base64_but_no_keys runs on every host and pins what builds without one. The Linux shard runs the signatures, key files and the channel."
     }
   ]
 }

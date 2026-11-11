@@ -1,0 +1,211 @@
+/* Ed25519 identities.
+ *
+ * A PublicKey names a party; a SigningKey proves it is that party. Both read
+ * and write OpenSSH's formats, so a machine's SSH host key can be its identity
+ * and a peer can be trusted by the line already in `known_hosts`. */
+
+import Library.Bytes;
+import Library.Crypto.Base64;
+import Library.Crypto.Sodium;
+import Library.Strings;
+import Library.Vector;
+
+/* The length-prefixed fields OpenSSH's key formats are built from. */
+class SSHWire {
+	class string keyType() { return "ssh-ed25519"; }
+
+	class void putU32(Bytes out, int value) {
+		out.append((value >> 24) & 0xFF);
+		out.append((value >> 16) & 0xFF);
+		out.append((value >> 8) & 0xFF);
+		out.append(value & 0xFF);
+	}
+
+	class void putField(Bytes out, Bytes value) {
+		SSHWire.putU32(out, value.length());
+		out.appendBytes(value);
+	}
+
+	class void putText(Bytes out, string text) { SSHWire.putField(out, Bytes.fromString(text)); }
+
+	/* The 32-bit number at `offset`, or -1 past the end. */
+	class long long u32(Bytes data, int offset) {
+		if (offset < 0 || offset + 4 > data.length()) { return -1LL; }
+		long long value = 0LL;
+		for (int index = 0; index < 4; index++) { value = (value << 8) | (long long)data.get(offset + index); }
+		return value;
+	}
+
+	/* The field starting at `offset`; null when it runs past the end. The
+	 * next field starts at `offset + 4 + its length`. */
+	class Bytes? field(Bytes data, int offset) {
+		long long length = SSHWire.u32(data, offset);
+		if (length < 0LL || length > (long long)(data.length() - offset - 4)) { return null; }
+		return data.slice(offset + 4, offset + 4 + (int)length);
+	}
+}
+
+class PublicKey {
+	private Bytes key;
+
+	/* The 32 bytes of an Ed25519 public key. */
+	public PublicKey(Bytes key) {
+		if (key == null || key.length() != SODIUM_KEY) { throw "An Ed25519 public key is 32 bytes"; }
+		self.key = key.slice(0, SODIUM_KEY);
+	}
+
+	public Bytes bytes() { return self.key.slice(0, SODIUM_KEY); }
+
+	public bool equals(PublicKey other) { return other != null && self.key.equals(other.key); }
+
+	/* The key as SSH sends it: the type, then the key. */
+	private Bytes blob() {
+		Bytes out = Bytes();
+		SSHWire.putText(out, SSHWire.keyType());
+		SSHWire.putField(out, self.key);
+		return out;
+	}
+
+	/* The `authorized_keys` line: "ssh-ed25519 <base64>" and the comment. */
+	public string toOpenSSH(string comment = "") {
+		string line = f"{SSHWire.keyType()} {Base64.encode(self.blob())}";
+		return comment.isEmpty() ? line : f"{line} {comment}";
+	}
+
+	/* The fingerprint `ssh-keygen -l` prints: "SHA256:" and the unpadded
+	 * base64 of the key's SHA-256. */
+	public string fingerprint() {
+		Sodium.require();
+		Bytes blob = self.blob();
+		unsigned char digest[32];
+		Sodium.sha256(digest, (unsigned char*)blob.data, blob.length());
+		return "SHA256:" + Base64.encode(Bytes.fromRaw((char*)digest, 32), false);
+	}
+
+	/* The key in an `authorized_keys` or `known_hosts` line: whatever follows
+	 * the "ssh-ed25519" word. Null when the line holds no such key. */
+	class PublicKey? fromOpenSSH(string line) {
+		if (line == null) { return null; }
+		Vector<string> words = [];
+		for word in Strings.split(line.trim(), " ") {
+			if (!word.isEmpty()) { words.push(word); }
+		}
+		for (int index = 0; index + 1 < words.len; index++) {
+			if (!words.get(index).equals(SSHWire.keyType())) { continue; }
+			Bytes? blob = Base64.decode(words.get(index + 1));
+			if (blob == null) { return null; }
+			Bytes? kind = SSHWire.field(blob, 0);
+			if (kind == null || !kind.toString().equals(SSHWire.keyType())) { return null; }
+			Bytes? key = SSHWire.field(blob, 4 + kind.length());
+			if (key == null || key.length() != SODIUM_KEY || blob.length() != 8 + kind.length() + SODIUM_KEY) { return null; }
+			return PublicKey(key);
+		}
+		return null;
+	}
+
+	/* Whether `signature` is this key's signature of `message`. */
+	public bool verify(Bytes message, Bytes signature) {
+		if (message == null || signature == null || signature.length() != SODIUM_SIGNATURE || !Sodium.available()) { return false; }
+		unsigned char empty[1];
+		empty[0] = (unsigned char)0;
+		unsigned char* content = message.length() > 0 ? (unsigned char*)message.data : empty;
+		return Sodium.verify((unsigned char*)signature.data, content, message.length(), (unsigned char*)self.key.data);
+	}
+}
+
+class SigningKey {
+	private Bytes secret;
+	private PublicKey identity;
+
+	private SigningKey(Bytes secret, PublicKey identity) {
+		self.secret = secret;
+		self.identity = identity;
+	}
+
+	/* The key whose 32-byte seed this is. */
+	class SigningKey fromSeed(Bytes seed) {
+		Sodium.require();
+		if (seed == null || seed.length() != SODIUM_KEY) { throw "An Ed25519 seed is 32 bytes"; }
+		unsigned char publicKey[32];
+		unsigned char secretKey[64];
+		if (!Sodium.signingKeys((unsigned char*)seed.data, publicKey, secretKey)) { throw "Cannot derive the signing key"; }
+		Bytes secret = Bytes.fromRaw((char*)secretKey, SODIUM_SECRET_KEY);
+		Sodium.wipe(secretKey, SODIUM_SECRET_KEY);
+		return SigningKey(secret, PublicKey(Bytes.fromRaw((char*)publicKey, SODIUM_KEY)));
+	}
+
+	/* A new random key. */
+	class SigningKey generate() {
+		Sodium.require();
+		unsigned char seed[32];
+		Sodium.random(seed, SODIUM_KEY);
+		Bytes held = Bytes.fromRaw((char*)seed, SODIUM_KEY);
+		Sodium.wipe(seed, SODIUM_KEY);
+		return SigningKey.fromSeed(held);
+	}
+
+	/* The key in an unencrypted OpenSSH private key file, such as an SSH host
+	 * key. Null when the text is not one, or the key is passphrase-protected
+	 * or not Ed25519. */
+	class SigningKey? fromOpenSSH(string text) {
+		if (text == null) { return null; }
+		string opening = "-----BEGIN OPENSSH PRIVATE KEY-----";
+		string closing = "-----END OPENSSH PRIVATE KEY-----";
+		int start = text.indexOf(opening);
+		int end = text.indexOf(closing);
+		if (start < 0 || end < start) { return null; }
+		Bytes? decoded = Base64.decode(text.substring(start + opening.length(), end - start - opening.length()));
+		if (decoded == null) { return null; }
+		Bytes file = decoded;
+		string magic = "openssh-key-v1";
+		if (file.length() < 15 || !file.slice(0, 14).toString().equals(magic) || file.get(14) != 0) { return null; }
+		/* cipher, key derivation, its options, the key count, the public key. */
+		int offset = 15;
+		Bytes? cipher = SSHWire.field(file, offset);
+		if (cipher == null || !cipher.toString().equals("none")) { return null; }
+		offset += 4 + cipher.length();
+		Bytes? derivation = SSHWire.field(file, offset);
+		if (derivation == null) { return null; }
+		offset += 4 + derivation.length();
+		Bytes? options = SSHWire.field(file, offset);
+		if (options == null || SSHWire.u32(file, offset + 4 + options.length()) != 1LL) { return null; }
+		offset += 8 + options.length();
+		Bytes? published = SSHWire.field(file, offset);
+		if (published == null) { return null; }
+		Bytes? sealed = SSHWire.field(file, offset + 4 + published.length());
+		if (sealed == null) { return null; }
+		/* Two equal check numbers, the type, the public key, then the seed
+		 * followed by the public key again. */
+		Bytes inner = sealed;
+		if (SSHWire.u32(inner, 0) < 0LL || SSHWire.u32(inner, 0) != SSHWire.u32(inner, 4)) { return null; }
+		Bytes? kind = SSHWire.field(inner, 8);
+		if (kind == null || !kind.toString().equals(SSHWire.keyType())) { return null; }
+		Bytes? publicKey = SSHWire.field(inner, 12 + kind.length());
+		if (publicKey == null || publicKey.length() != SODIUM_KEY) { return null; }
+		Bytes? secretKey = SSHWire.field(inner, 16 + kind.length() + SODIUM_KEY);
+		if (secretKey == null || secretKey.length() != SODIUM_SECRET_KEY) { return null; }
+		SigningKey key = SigningKey.fromSeed(secretKey.slice(0, SODIUM_KEY));
+		if (!key.publicKey().bytes().equals(publicKey)) { return null; }
+		return key;
+	}
+
+	public PublicKey publicKey() { return self.identity; }
+
+	/* The 32 bytes the key can be rebuilt from. Treat them as the key. */
+	public Bytes seed() { return self.secret.slice(0, SODIUM_KEY); }
+
+	/* This key's 64-byte signature of `message`. */
+	public Bytes sign(Bytes message) {
+		if (message == null) { throw "Nothing to sign"; }
+		unsigned char signature[64];
+		unsigned char empty[1];
+		empty[0] = (unsigned char)0;
+		unsigned char* content = message.length() > 0 ? (unsigned char*)message.data : empty;
+		if (!Sodium.sign(signature, content, message.length(), (unsigned char*)self.secret.data)) { throw "Cannot sign"; }
+		return Bytes.fromRaw((char*)signature, SODIUM_SIGNATURE);
+	}
+
+	public void __del__() {
+		if (self.secret != null && self.secret.len > 0) { Sodium.wipe((unsigned char*)self.secret.data, self.secret.len); }
+	}
+}

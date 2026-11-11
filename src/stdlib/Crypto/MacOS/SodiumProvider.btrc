@@ -1,0 +1,32 @@
+/* Sodium on macOS: not written. Every operation fails, and
+ * `Sodium.available()` is false so programs can ask first. */
+
+class SodiumProvider {
+	class bool available() { return false; }
+
+	class void random(unsigned char* out, int length) {}
+
+	class void wipe(unsigned char* data, int length) {}
+
+	class bool signingKeys(unsigned char* seed, unsigned char* publicKey, unsigned char* secretKey) { return false; }
+
+	class bool sign(unsigned char* signature, unsigned char* message, int length, unsigned char* secretKey) { return false; }
+
+	class bool verify(unsigned char* signature, unsigned char* message, int length, unsigned char* publicKey) { return false; }
+
+	class void exchangeKeys(unsigned char* publicKey, unsigned char* secretKey) {}
+
+	class bool sessionKeys(bool initiator, unsigned char* receiving, unsigned char* sending, unsigned char* publicKey, unsigned char* secretKey, unsigned char* peerKey) { return false; }
+
+	class void hash(unsigned char* out, unsigned char* data, int length) {}
+
+	class void sha256(unsigned char* out, unsigned char* data, int length) {}
+
+	class bool beginSending(unsigned char* state, unsigned char* header, unsigned char* key) { return false; }
+
+	class bool beginReceiving(unsigned char* state, unsigned char* header, unsigned char* key) { return false; }
+
+	class int seal(unsigned char* state, unsigned char* sealed, unsigned char* message, int length) { return -1; }
+
+	class int open(unsigned char* state, unsigned char* message, unsigned char* sealed, int length) { return -1; }
+}

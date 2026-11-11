@@ -1,0 +1,113 @@
+/* The public keys a program trusts, each with a label, kept in a file of
+ * OpenSSH key lines ("ssh-ed25519 <base64> label"). Lines from
+ * `authorized_keys` or `known_hosts` can be added as they are. */
+
+import Library.Crypto.SigningKey;
+import Library.FileSystem;
+import Library.Strings;
+import Library.Vector;
+
+class TrustedKey {
+	public PublicKey key;
+	public string label;
+
+	public TrustedKey(PublicKey key, string label) {
+		self.key = key;
+		self.label = label;
+	}
+}
+
+class TrustedKeys {
+	private string path;
+	private Vector<TrustedKey> entries = [];
+
+	/* The keys in a file; an empty path keeps them in memory only. A missing
+	 * file is an empty list. */
+	public TrustedKeys(string path) {
+		self.path = path == null ? "" : path;
+		if (!self.path.isEmpty() && FileSystem.exists(self.path)) {
+			for line in Strings.split(Path.readAll(self.path), "\n") { self.include(line); }
+		}
+	}
+
+	/* Take one key line into the list without saving. The label is the
+	 * line's comment, or the host name of a `known_hosts` line. */
+	private bool include(string line) {
+		PublicKey? parsed = PublicKey.fromOpenSSH(line);
+		if (parsed == null) { return false; }
+		Vector<string> words = [];
+		for word in Strings.split(line.trim(), " ") {
+			if (!word.isEmpty()) { words.push(word); }
+		}
+		int at = 0;
+		while (at < words.len && !words.get(at).equals(SSHWire.keyType())) { at++; }
+		string label = "";
+		for (int index = at + 2; index < words.len; index++) { label = label.isEmpty() ? words.get(index) : f"{label} {words.get(index)}"; }
+		if (label.isEmpty() && at > 0) { label = words.get(0); }
+		self.put(parsed, label);
+		return true;
+	}
+
+	private void put(PublicKey key, string label) {
+		for entry in self.entries {
+			if (entry.key.equals(key)) {
+				entry.label = label;
+				return;
+			}
+		}
+		self.entries.push(TrustedKey(key, label));
+	}
+
+	private void save() {
+		if (self.path.isEmpty()) { return; }
+		string text = "";
+		for entry in self.entries { text = text + entry.key.toOpenSSH(entry.label) + "\n"; }
+		if (!Path.writeAll(self.path, text) || FileSystem.chmod(self.path, 384) != 0) { throw f"Cannot save the trusted keys to {self.path}"; }
+	}
+
+	public int count() { return self.entries.len; }
+
+	public Vector<TrustedKey> list() { return self.entries; }
+
+	public bool contains(PublicKey key) {
+		for entry in self.entries {
+			if (entry.key.equals(key)) { return true; }
+		}
+		return false;
+	}
+
+	/* The label a trusted key was given; empty when it is not trusted. */
+	public string labelOf(PublicKey key) {
+		for entry in self.entries {
+			if (entry.key.equals(key)) { return entry.label; }
+		}
+		return "";
+	}
+
+	/* Trust a key, or rename one already trusted, and save. */
+	public void add(PublicKey key, string label) {
+		if (key == null) { throw "No key to trust"; }
+		self.put(key, label == null ? "" : label.replace("\n", " "));
+		self.save();
+	}
+
+	/* Trust the key in an OpenSSH key line and save. False when the line
+	 * holds no Ed25519 key. */
+	public bool addLine(string line) {
+		if (line == null || !self.include(line)) { return false; }
+		self.save();
+		return true;
+	}
+
+	/* Stop trusting a key and save. False when it was not trusted. */
+	public bool remove(PublicKey key) {
+		Vector<TrustedKey> kept = [];
+		for entry in self.entries {
+			if (!entry.key.equals(key)) { kept.push(entry); }
+		}
+		if (kept.len == self.entries.len) { return false; }
+		self.entries = kept;
+		self.save();
+		return true;
+	}
+}

@@ -1,0 +1,3 @@
+/* Selection only: SigningKey, SecureChannel and TrustedKeys are portable btrc
+ * over the Sodium seam, and SecureChannel runs over a Library.Network
+ * TCPStream, so they have rows where both of those do. */

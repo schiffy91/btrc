@@ -1,0 +1,67 @@
+/* The primitives the group is built from, behind one seam: Ed25519
+ * signatures, X25519 key exchange, BLAKE2b and SHA-256 hashes, and an
+ * XChaCha20-Poly1305 message stream. Linux binds libsodium; a target without a
+ * provider reports `available()` false and every operation fails.
+ *
+ * Everything here works on raw buffers of the sizes SodiumSize names. The
+ * classes above this seam (SigningKey, SecureChannel) are what programs use. */
+
+enum SodiumSize {
+	SODIUM_KEY = 32,
+	SODIUM_SECRET_KEY = 64,
+	SODIUM_SIGNATURE = 64,
+	SODIUM_HASH = 32,
+	SODIUM_STREAM_HEADER = 24,
+	SODIUM_STREAM_OVERHEAD = 17,
+	SODIUM_STREAM_STATE = 64
+};
+
+class Sodium {
+	class bool available() { return SodiumProvider.available(); }
+
+	class void require() {
+		if (!SodiumProvider.available()) { throw "This target has no cryptography provider"; }
+	}
+
+	class void random(unsigned char* out, int length) { SodiumProvider.random(out, length); }
+
+	/* Overwrite secret bytes in a way the compiler cannot remove. */
+	class void wipe(unsigned char* data, int length) { SodiumProvider.wipe(data, length); }
+
+	/* A signing key pair from its 32-byte seed. The 64-byte secret is the
+	 * seed followed by the public key. */
+	class bool signingKeys(unsigned char* seed, unsigned char* publicKey, unsigned char* secretKey) { return SodiumProvider.signingKeys(seed, publicKey, secretKey); }
+
+	class bool sign(unsigned char* signature, unsigned char* message, int length, unsigned char* secretKey) { return SodiumProvider.sign(signature, message, length, secretKey); }
+
+	class bool verify(unsigned char* signature, unsigned char* message, int length, unsigned char* publicKey) { return SodiumProvider.verify(signature, message, length, publicKey); }
+
+	/* A fresh key-exchange pair, used once per connection. */
+	class void exchangeKeys(unsigned char* publicKey, unsigned char* secretKey) { SodiumProvider.exchangeKeys(publicKey, secretKey); }
+
+	/* The two directions' keys from both sides' exchange keys. The initiator's
+	 * `sending` is the responder's `receiving`. False for a peer key that
+	 * yields no usable secret. */
+	class bool sessionKeys(bool initiator, unsigned char* receiving, unsigned char* sending, unsigned char* publicKey, unsigned char* secretKey, unsigned char* peerKey) { return SodiumProvider.sessionKeys(initiator, receiving, sending, publicKey, secretKey, peerKey); }
+
+	/* BLAKE2b, 32 bytes. */
+	class void hash(unsigned char* out, unsigned char* data, int length) { SodiumProvider.hash(out, data, length); }
+
+	class void sha256(unsigned char* out, unsigned char* data, int length) { SodiumProvider.sha256(out, data, length); }
+
+	/* Start the sending half of a message stream: fills `state` and the
+	 * header the receiver needs. */
+	class bool beginSending(unsigned char* state, unsigned char* header, unsigned char* key) { return SodiumProvider.beginSending(state, header, key); }
+
+	/* Start the receiving half from the sender's header. */
+	class bool beginReceiving(unsigned char* state, unsigned char* header, unsigned char* key) { return SodiumProvider.beginReceiving(state, header, key); }
+
+	/* Encrypt one message; `sealed` needs `length + SODIUM_STREAM_OVERHEAD`
+	 * bytes. Returns the sealed length, or -1. */
+	class int seal(unsigned char* state, unsigned char* sealed, unsigned char* message, int length) { return SodiumProvider.seal(state, sealed, message, length); }
+
+	/* Decrypt the next message of the stream; `message` needs
+	 * `length - SODIUM_STREAM_OVERHEAD` bytes. Returns its length, or -1 when
+	 * it was altered, replayed or out of order. */
+	class int open(unsigned char* state, unsigned char* message, unsigned char* sealed, int length) { return SodiumProvider.open(state, message, sealed, length); }
+}

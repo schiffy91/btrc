@@ -1,0 +1,241 @@
+/* An encrypted, mutually authenticated message channel over a TCPStream.
+ *
+ * Opening one runs a handshake: both sides exchange fresh X25519 keys and
+ * derive a key for each direction, then each proves its Ed25519 identity by
+ * signing the hash of that exchange under its role. The proofs travel
+ * encrypted. Afterwards every message is one XChaCha20-Poly1305 frame, so an
+ * altered, replayed or reordered frame ends the channel.
+ *
+ * The channel authenticates the peer; it does not decide whether to trust it.
+ * `peer()` is who answered, for a TrustedKeys list to judge, and
+ * `pairingCode()` is a short number both sides can show a person, who checks
+ * that they match before a new key is trusted: an attacker in the middle
+ * holds different exchange keys, so the two codes differ.
+ *
+ * The construction follows SIGMA-I. It has not been audited. */
+
+import Library.Bytes;
+import Library.Crypto.SigningKey;
+import Library.Crypto.Sodium;
+import Library.Network.TCPStream;
+import Library.Timer;
+
+/* What a receive can report besides a message length. */
+enum SecureChannelResult {
+	SECURE_CHANNEL_CLOSED = 0,
+	SECURE_CHANNEL_TIMED_OUT = -1,
+	SECURE_CHANNEL_FAILED = -2
+};
+
+/* The largest message a frame carries. */
+enum SecureChannelLimit {
+	SECURE_CHANNEL_MESSAGE = 16384,
+	SECURE_CHANNEL_INPUT = 16403
+};
+
+struct SecureChannelState {
+	unsigned char sending[64];
+	unsigned char receiving[64];
+	unsigned char input[16403];
+	int buffered;
+};
+
+class SecureChannel {
+	private TCPStream stream;
+	private PublicKey remote;
+	private string code = "";
+	private struct SecureChannelState state;
+
+	private SecureChannel(TCPStream stream, PublicKey remote) {
+		self.stream = stream;
+		self.remote = remote;
+		self.state.buffered = 0;
+	}
+
+	class string magic() { return "BTRCSC01"; }
+
+	/* The hash both sides sign: the protocol name and both exchange keys. */
+	class void transcript(unsigned char* out, unsigned char* initiatorKey, unsigned char* responderKey) {
+		unsigned char material[72];
+		string magic = SecureChannel.magic();
+		for (int index = 0; index < 8; index++) { material[index] = (unsigned char)magic[index]; }
+		memcpy(material + 8, initiatorKey, (size_t)32);
+		memcpy(material + 40, responderKey, (size_t)32);
+		Sodium.hash(out, material, 72);
+	}
+
+	/* What one side signs: its role, then the transcript. */
+	class Bytes proofMessage(bool initiator, unsigned char* transcript) {
+		Bytes message = Bytes();
+		message.append(initiator ? (int)'I' : (int)'R');
+		message.appendRaw((char*)transcript, SODIUM_HASH);
+		return message;
+	}
+
+	/* Six digits from the transcript and both identities. */
+	class string codeFor(unsigned char* transcript, PublicKey initiator, PublicKey responder) {
+		Bytes material = Bytes();
+		material.appendRaw((char*)transcript, SODIUM_HASH);
+		material.appendBytes(initiator.bytes());
+		material.appendBytes(responder.bytes());
+		unsigned char digest[32];
+		Sodium.hash(digest, (unsigned char*)material.data, material.length());
+		long long number = 0LL;
+		for (int index = 0; index < 4; index++) { number = (number << 8) | (long long)digest[index]; }
+		string digits = f"{(int)(number % 1000000LL)}";
+		while (digits.length() < 6) { digits = "0" + digits; }
+		return digits;
+	}
+
+	private void begin(SigningKey identity, bool initiator, int timeoutMilliseconds) {
+		unsigned char ownKey[32];
+		unsigned char ownSecret[32];
+		unsigned char peerKey[32];
+		unsigned char receivingKey[32];
+		unsigned char sendingKey[32];
+		unsigned char hello[40];
+		unsigned char header[24];
+		unsigned char transcript[32];
+		string magic = SecureChannel.magic();
+		Sodium.exchangeKeys(ownKey, ownSecret);
+		for (int index = 0; index < 8; index++) { hello[index] = (unsigned char)magic[index]; }
+		if (initiator) {
+			memcpy(hello + 8, ownKey, (size_t)32);
+			if (!self.stream.write(hello, 40, timeoutMilliseconds) || !self.stream.readExactly(peerKey, 32, timeoutMilliseconds)) { throw "The peer did not answer the secure channel handshake"; }
+		} else {
+			if (!self.stream.readExactly(hello, 40, timeoutMilliseconds)) { throw "The peer did not start the secure channel handshake"; }
+			for (int index = 0; index < 8; index++) {
+				if (hello[index] != (unsigned char)magic[index]) { throw "The peer does not speak this secure channel protocol"; }
+			}
+			memcpy(peerKey, hello + 8, (size_t)32);
+			if (!self.stream.write(ownKey, 32, timeoutMilliseconds)) { throw "The peer left during the secure channel handshake"; }
+		}
+		bool keyed = Sodium.sessionKeys(initiator, receivingKey, sendingKey, ownKey, ownSecret, peerKey);
+		Sodium.wipe(ownSecret, 32);
+		if (!keyed) { throw "The peer sent an unusable exchange key"; }
+		bool started = Sodium.beginSending(self.state.sending, header, sendingKey) && self.stream.write(header, SODIUM_STREAM_HEADER, timeoutMilliseconds) && self.stream.readExactly(header, SODIUM_STREAM_HEADER, timeoutMilliseconds) && Sodium.beginReceiving(self.state.receiving, header, receivingKey);
+		Sodium.wipe(receivingKey, 32);
+		Sodium.wipe(sendingKey, 32);
+		if (!started) { throw "The secure channel could not be keyed"; }
+		if (initiator) { SecureChannel.transcript(transcript, ownKey, peerKey); }
+		else { SecureChannel.transcript(transcript, peerKey, ownKey); }
+
+		/* Each side proves its identity inside the encrypted channel. */
+		Bytes proof = identity.publicKey().bytes();
+		proof.appendBytes(identity.sign(SecureChannel.proofMessage(initiator, transcript)));
+		Bytes answer = Bytes();
+		if (!self.send(proof, timeoutMilliseconds) || self.receive(answer, timeoutMilliseconds) != SODIUM_KEY + SODIUM_SIGNATURE) { throw "The peer did not prove its identity"; }
+		PublicKey claimed = PublicKey(answer.slice(0, SODIUM_KEY));
+		if (!claimed.verify(SecureChannel.proofMessage(!initiator, transcript), answer.slice(SODIUM_KEY, SODIUM_KEY + SODIUM_SIGNATURE))) { throw "The peer's identity proof is not valid"; }
+		self.remote = claimed;
+		self.code = initiator ? SecureChannel.codeFor(transcript, identity.publicKey(), claimed) : SecureChannel.codeFor(transcript, claimed, identity.publicKey());
+	}
+
+	class SecureChannel open(TCPStream stream, SigningKey identity, bool initiator, int timeoutMilliseconds) {
+		Sodium.require();
+		if (stream == null || identity == null || !stream.isOpen()) { throw "A secure channel needs an open stream and an identity"; }
+		SecureChannel channel = SecureChannel(stream, identity.publicKey());
+		channel.begin(identity, initiator, timeoutMilliseconds);
+		return channel;
+	}
+
+	/* Open the channel as the side that connected. Throws when the peer does
+	 * not complete the handshake or its proof fails; the stream is then closed. */
+	class SecureChannel connect(TCPStream stream, SigningKey identity, int timeoutMilliseconds) {
+		try { return SecureChannel.open(stream, identity, true, timeoutMilliseconds); } catch (string error) {
+			if (stream != null) { stream.close(); }
+			throw error;
+		}
+	}
+
+	/* Open the channel as the side that was connected to. */
+	class SecureChannel accept(TCPStream stream, SigningKey identity, int timeoutMilliseconds) {
+		try { return SecureChannel.open(stream, identity, false, timeoutMilliseconds); } catch (string error) {
+			if (stream != null) { stream.close(); }
+			throw error;
+		}
+	}
+
+	/* The identity the peer proved. */
+	public PublicKey peer() { return self.remote; }
+
+	/* Six digits that are the same on both sides of an untampered handshake. */
+	public string pairingCode() { return self.code; }
+
+	public bool isOpen() { return self.stream.isOpen(); }
+
+	/* The stream's socket, to wait on. */
+	public int handle() { return self.stream.handle(); }
+
+	public void close() {
+		self.stream.close();
+		Sodium.wipe(self.state.sending, SODIUM_STREAM_STATE);
+		Sodium.wipe(self.state.receiving, SODIUM_STREAM_STATE);
+		self.state.buffered = 0;
+	}
+
+	/* Send one message of 1 to SECURE_CHANNEL_MESSAGE bytes. False when it
+	 * could not all be sent in time; the channel is then closed, because a
+	 * half-sent frame cannot be resumed. */
+	public bool sendRaw(unsigned char* data, int length, int timeoutMilliseconds) {
+		unsigned char frame[16403];
+		if (!self.stream.isOpen() || data == NULL || length < 1 || length > SECURE_CHANNEL_MESSAGE) { return false; }
+		int sealed = Sodium.seal(self.state.sending, frame + 2, data, length);
+		if (sealed < 0) {
+			self.close();
+			return false;
+		}
+		frame[0] = (unsigned char)((sealed >> 8) & 0xFF);
+		frame[1] = (unsigned char)(sealed & 0xFF);
+		if (!self.stream.write(frame, sealed + 2, timeoutMilliseconds)) {
+			self.close();
+			return false;
+		}
+		return true;
+	}
+
+	public bool send(Bytes message, int timeoutMilliseconds) { return message != null && self.sendRaw((unsigned char*)message.data, message.length(), timeoutMilliseconds); }
+
+	/* Append the next message to `out` and return its length, or a
+	 * SecureChannelResult. A frame that arrives in pieces is kept between
+	 * calls, so a short timeout never loses data. A frame that fails to
+	 * decrypt closes the channel. */
+	public int receive(Bytes out, int timeoutMilliseconds) {
+		unsigned char message[16384];
+		if (!self.stream.isOpen() || out == null) { return SECURE_CHANNEL_FAILED; }
+		long long deadline = TCPStream.deadlineAfter(timeoutMilliseconds);
+		while (true) {
+			if (self.state.buffered >= 2) {
+				int sealed = ((int)self.state.input[0] << 8) | (int)self.state.input[1];
+				if (sealed < SODIUM_STREAM_OVERHEAD + 1 || sealed > SECURE_CHANNEL_MESSAGE + SODIUM_STREAM_OVERHEAD) {
+					self.close();
+					return SECURE_CHANNEL_FAILED;
+				}
+				if (self.state.buffered >= sealed + 2) {
+					int length = Sodium.open(self.state.receiving, message, self.state.input + 2, sealed);
+					if (length < 1) {
+						self.close();
+						return SECURE_CHANNEL_FAILED;
+					}
+					memmove(self.state.input, self.state.input + sealed + 2, (size_t)(self.state.buffered - sealed - 2));
+					self.state.buffered -= sealed + 2;
+					out.appendRaw((char*)message, length);
+					return length;
+				}
+			}
+			long long remaining = MonotonicClock.remaining(deadline);
+			int count = self.stream.read(self.state.input + self.state.buffered, SECURE_CHANNEL_INPUT - self.state.buffered, remaining > 0LL ? (int)remaining : 0);
+			if (count == TCP_STREAM_READ_TIMED_OUT) { return SECURE_CHANNEL_TIMED_OUT; }
+			if (count == TCP_STREAM_READ_CLOSED) {
+				self.close();
+				return SECURE_CHANNEL_CLOSED;
+			}
+			if (count < 0) {
+				self.close();
+				return SECURE_CHANNEL_FAILED;
+			}
+			self.state.buffered += count;
+		}
+		return SECURE_CHANNEL_FAILED;
+	}
+}

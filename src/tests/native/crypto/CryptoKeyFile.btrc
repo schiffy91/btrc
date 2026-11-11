@@ -1,0 +1,19 @@
+/* Read the key pair `ssh-keygen` wrote: `CryptoKeyFile PRIVATE PUBLIC`. Prints
+ * the fingerprint, which the driver compares with ssh-keygen's own. */
+
+import Library.Bytes;
+import Library.Crypto;
+import Library.FileSystem;
+
+int main(int argc, char** argv) {
+	if (argc != 3) { return 2; }
+	SigningKey? loaded = SigningKey.fromOpenSSH(Path.readAll(argv[1]));
+	PublicKey? published = PublicKey.fromOpenSSH(Path.readAll(argv[2]));
+	if (loaded == null || published == null) { return 3; }
+	SigningKey key = loaded;
+	if (!key.publicKey().equals(published)) { return 4; }
+	Bytes message = Bytes.fromString("a message the loaded key signs");
+	if (!published.verify(message, key.sign(message))) { return 5; }
+	print(published.fingerprint());
+	return 0;
+}

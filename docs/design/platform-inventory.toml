@@ -289,6 +289,84 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.Crypto"
+group = "stdlib/Crypto"
+title = "Crypto facade: Base64, identity keys, trusted keys and the secure channel"
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports SecureChannel, which runs over Library.Network's TCPStream, which has no Winsock provider yet, and Sodium, which has no Windows libsodium row" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports SecureChannel, which runs over Library.Network's TCPStream, which has no Winsock provider yet, and Sodium, which has no Windows libsodium row" }
+ios-device = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "the facade imports Sodium, whose provider needs libsodium built for iOS, and SecureChannel over Library.Network, whose rows have no ios spelling" }
+ios-simulator = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "the facade imports Sodium, whose provider needs libsodium built for iOS, and SecureChannel over Library.Network, whose rows have no ios spelling" }
+android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "the facade imports Sodium, whose provider needs libsodium built for Android, and SecureChannel over Library.Network, whose rows have no android spelling" }
+android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "the facade imports Sodium, whose provider needs libsodium built for Android, and SecureChannel over Library.Network, whose rows have no android spelling" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Base64"
+group = "stdlib/Crypto"
+title = "Base64 encoding and decoding"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes; no I/O (Base64.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes; no I/O (Base64.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes; no I/O (Base64.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes; no I/O (Base64.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes; no I/O (Base64.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes; no I/O (Base64.btrc)" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.SecureChannel"
+group = "stdlib/Crypto"
+title = "Encrypted, mutually authenticated message channel over a TCPStream"
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "runs over Library.Network's TCPStream, which has no Winsock provider yet, and Sodium, which has no Windows libsodium row" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "runs over Library.Network's TCPStream, which has no Winsock provider yet, and Sodium, which has no Windows libsodium row" }
+ios-device = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over TCPStream and Sodium; needs Sodium's libsodium built for iOS and Library.Network's ios rows" }
+ios-simulator = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over TCPStream and Sodium; needs Sodium's libsodium built for iOS and Library.Network's ios rows" }
+android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over TCPStream and Sodium; needs Sodium's libsodium built for Android and Library.Network's android rows" }
+android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over TCPStream and Sodium; needs Sodium's libsodium built for Android and Library.Network's android rows" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.SigningKey"
+group = "stdlib/Crypto"
+title = "Ed25519 identities in OpenSSH's key formats"
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_reads_the_key_pair_ssh_keygen_writes", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys"]
+windows-x64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, which has no Windows libsodium row" }
+windows-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, which has no Windows libsodium row" }
+ios-device = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, whose provider needs libsodium built for iOS" }
+ios-simulator = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, whose provider needs libsodium built for iOS" }
+android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, whose provider needs libsodium built for Android" }
+android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, whose provider needs libsodium built for Android" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Sodium"
+group = "stdlib/Crypto"
+title = "Signature, key exchange, hash and stream primitives from libsodium"
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_both_frontends_plan_the_crypto_group_alike", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys"]
+windows-x64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on Windows; the provider row and a libsodium input for MinGW are missing" }
+windows-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on Windows; the provider row and a libsodium input for MinGW are missing" }
+ios-device = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on iOS; the provider row and a libsodium built for the iOS slices are missing" }
+ios-simulator = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on iOS; the provider row and a libsodium built for the iOS slices are missing" }
+android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on Android; the provider row and a libsodium built for the NDK slices are missing" }
+android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on Android; the provider row and a libsodium built for the NDK slices are missing" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.TrustedKeys"
+group = "stdlib/Crypto"
+title = "File of trusted public keys in OpenSSH key lines"
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys"]
+windows-x64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing Windows row" }
+windows-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing Windows row" }
+ios-device = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing iOS row" }
+ios-simulator = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing iOS row" }
+android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing Android row" }
+android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing Android row" }
+
+[[rows]]
+kind = "operation"
 id = "Library.Daemon"
 group = "stdlib/Daemon"
 title = "Daemon spec and Unix supervisor controller"
@@ -1183,6 +1261,19 @@ ios-device = { parity = "os-restricted", implementation = "implemented", owner =
 ios-simulator = { parity = "os-restricted", implementation = "implemented", owner = "I1", status = "source-only", reason = "iOS apps have no controlling terminal or interactive stdin; console prompts are not part of the app model" }
 android-arm64 = { parity = "os-restricted", implementation = "implemented", owner = "A1", status = "source-only", reason = "Android apps have no controlling terminal; stdin is /dev/null under zygote-launched app processes" }
 android-x86_64 = { parity = "os-restricted", implementation = "implemented", owner = "A1", status = "source-only", reason = "Android apps have no controlling terminal; stdin is /dev/null under zygote-launched app processes" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Terminal.PTYProcess"
+group = "stdlib/Terminal"
+title = "Child process on an owned pseudoterminal"
+regression = ["src/tests/python/test_pty_process.py::test_pty_process"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "PTY.h is posix_openpt and fork/exec with Linux and macOS rows only; Windows needs a ConPTY (CreatePseudoConsole) provider" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "PTY.h is posix_openpt and fork/exec with Linux and macOS rows only; Windows needs a ConPTY (CreatePseudoConsole) provider" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot fork or exec a child process, so there is nothing to attach a pseudoterminal to" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot fork or exec a child process, so there is nothing to attach a pseudoterminal to" }
+android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "bionic has posix_openpt and an app may spawn children of its own package, but PTY.h's binding has no android row" }
+android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "bionic has posix_openpt and an app may spawn children of its own package, but PTY.h's binding has no android row" }
 
 [[rows]]
 kind = "operation"

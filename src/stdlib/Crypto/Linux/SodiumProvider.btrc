@@ -1,0 +1,32 @@
+/* Sodium on Linux: libsodium, through the adapters in `Sodium.h`. The manifest
+ * names the pkg-config package for the header read and the link. */
+
+class SodiumProvider {
+	class bool available() { return btrcSodiumStart() != 0; }
+
+	class void random(unsigned char* out, int length) { btrcSodiumRandom(out, length); }
+
+	class void wipe(unsigned char* data, int length) { btrcSodiumWipe(data, length); }
+
+	class bool signingKeys(unsigned char* seed, unsigned char* publicKey, unsigned char* secretKey) { return btrcSodiumSigningKeys(seed, publicKey, secretKey) != 0; }
+
+	class bool sign(unsigned char* signature, unsigned char* message, int length, unsigned char* secretKey) { return btrcSodiumSign(signature, message, length, secretKey) != 0; }
+
+	class bool verify(unsigned char* signature, unsigned char* message, int length, unsigned char* publicKey) { return btrcSodiumVerify(signature, message, length, publicKey) != 0; }
+
+	class void exchangeKeys(unsigned char* publicKey, unsigned char* secretKey) { btrcSodiumExchangeKeys(publicKey, secretKey); }
+
+	class bool sessionKeys(bool initiator, unsigned char* receiving, unsigned char* sending, unsigned char* publicKey, unsigned char* secretKey, unsigned char* peerKey) { return btrcSodiumSessionKeys(initiator ? 1 : 0, receiving, sending, publicKey, secretKey, peerKey) != 0; }
+
+	class void hash(unsigned char* out, unsigned char* data, int length) { btrcSodiumHash(out, data, length); }
+
+	class void sha256(unsigned char* out, unsigned char* data, int length) { btrcSodiumSHA256(out, data, length); }
+
+	class bool beginSending(unsigned char* state, unsigned char* header, unsigned char* key) { return btrcSodiumBeginSending(state, header, key) != 0; }
+
+	class bool beginReceiving(unsigned char* state, unsigned char* header, unsigned char* key) { return btrcSodiumBeginReceiving(state, header, key) != 0; }
+
+	class int seal(unsigned char* state, unsigned char* sealed, unsigned char* message, int length) { return btrcSodiumSeal(state, sealed, message, length); }
+
+	class int open(unsigned char* state, unsigned char* message, unsigned char* sealed, int length) { return btrcSodiumOpen(state, message, sealed, length); }
+}

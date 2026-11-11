@@ -1,0 +1,9 @@
+/* Crypto: identities, trust and encrypted channels.
+ *
+ * `import Library.Crypto;` brings in the whole group. `Library.Crypto.Base64`
+ * is pure btrc and builds on every target. */
+
+import Library.Crypto.Base64;
+import Library.Crypto.SecureChannel;
+import Library.Crypto.SigningKey;
+import Library.Crypto.TrustedKeys;

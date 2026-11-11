@@ -1,0 +1,53 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_crypto"
+exports = ["Base64", "Crypto", "SecureChannel", "SigningKey", "Sodium", "TrustedKeys"]
+
+[[package.providers]]
+module = "Sodium"
+implementation = "Linux.SodiumProvider"
+os = ["linux"]
+
+[[package.providers]]
+module = "Sodium"
+implementation = "MacOS.SodiumProvider"
+os = ["macos"]
+
+[[package.providers]]
+module = "SigningKey"
+implementation = "Unix.CryptoProvider"
+os = ["linux", "macos"]
+
+[[package.providers]]
+module = "SecureChannel"
+implementation = "Unix.CryptoProvider"
+os = ["linux", "macos"]
+
+[[package.providers]]
+module = "TrustedKeys"
+implementation = "Unix.CryptoProvider"
+os = ["linux", "macos"]
+
+[[package.providers]]
+module = "Crypto"
+implementation = "Unix.CryptoProvider"
+os = ["linux", "macos"]
+
+[[native.pkg-config]]
+name = "libsodium"
+modules = ["Linux.SodiumProvider"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.SodiumProvider"
+header = "Linux/Sodium.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"btrcSodiumStart", "btrcSodiumRandom", "btrcSodiumWipe",
+	"btrcSodiumSigningKeys", "btrcSodiumSign", "btrcSodiumVerify",
+	"btrcSodiumExchangeKeys", "btrcSodiumSessionKeys", "btrcSodiumHash", "btrcSodiumSHA256",
+	"btrcSodiumBeginSending", "btrcSodiumBeginReceiving", "btrcSodiumSeal", "btrcSodiumOpen"
+]
+os = ["linux"]

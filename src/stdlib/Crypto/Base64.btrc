@@ -1,0 +1,67 @@
+/* Standard base64 (RFC 4648, the `+/` alphabet). Pure btrc, so it is the same
+ * on every target. */
+
+import Library.Bytes;
+
+class Base64 {
+	class string alphabet() { return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"; }
+
+	/* Encode bytes; `padded` appends the `=` that fills the last group. */
+	class string encode(Bytes data, bool padded = true) {
+		string letters = Base64.alphabet();
+		Bytes out = Bytes();
+		int length = data == null ? 0 : data.length();
+		for (int index = 0; index < length; index += 3) {
+			int first = data.get(index);
+			int second = index + 1 < length ? data.get(index + 1) : 0;
+			int third = index + 2 < length ? data.get(index + 2) : 0;
+			out.append((int)letters[first >> 2]);
+			out.append((int)letters[((first & 3) << 4) | (second >> 4)]);
+			if (index + 1 < length) { out.append((int)letters[((second & 15) << 2) | (third >> 6)]); }
+			else if (padded) { out.append((int)'='); }
+			if (index + 2 < length) { out.append((int)letters[third & 63]); }
+			else if (padded) { out.append((int)'='); }
+		}
+		return out.toString();
+	}
+
+	class int value(char letter) {
+		if (letter >= 'A' && letter <= 'Z') { return (int)letter - (int)'A'; }
+		if (letter >= 'a' && letter <= 'z') { return (int)letter - (int)'a' + 26; }
+		if (letter >= '0' && letter <= '9') { return (int)letter - (int)'0' + 52; }
+		if (letter == '+') { return 62; }
+		if (letter == '/') { return 63; }
+		return -1;
+	}
+
+	/* Decode text, ignoring spaces and line breaks; padding is optional.
+	 * Null when a character or the length is not base64. */
+	class Bytes? decode(string text) {
+		if (text == null) { return null; }
+		Bytes out = Bytes();
+		int bits = 0;
+		int held = 0;
+		int letters = 0;
+		bool padding = false;
+		for (int index = 0; index < text.length(); index++) {
+			char letter = text[index];
+			if (letter == ' ' || letter == '\n' || letter == '\r' || letter == '\t') { continue; }
+			if (letter == '=') {
+				padding = true;
+				continue;
+			}
+			int value = Base64.value(letter);
+			if (value < 0 || padding) { return null; }
+			held = (held << 6) | value;
+			bits += 6;
+			letters++;
+			if (bits >= 8) {
+				bits -= 8;
+				out.append((held >> bits) & 0xFF);
+				held = held & ((1 << bits) - 1);
+			}
+		}
+		if (letters % 4 == 1 || held != 0) { return null; }
+		return out;
+	}
+}

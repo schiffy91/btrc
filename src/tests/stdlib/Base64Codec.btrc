@@ -1,0 +1,41 @@
+/* Base64 against RFC 4648's vectors, binary data, and malformed input. Pure
+ * btrc, so every target runs it. */
+import Library.Bytes;
+import Library.Crypto.Base64;
+import Library.Vector;
+
+#include <assert.h>
+
+int main() {
+	Vector<string> plain = ["", "f", "fo", "foo", "foob", "fooba", "foobar"];
+	Vector<string> encoded = ["", "Zg==", "Zm8=", "Zm9v", "Zm9vYg==", "Zm9vYmE=", "Zm9vYmFy"];
+	Vector<string> bare = ["", "Zg", "Zm8", "Zm9v", "Zm9vYg", "Zm9vYmE", "Zm9vYmFy"];
+	for (int index = 0; index < plain.len; index++) {
+		Bytes data = Bytes.fromString(plain.get(index));
+		assert(Base64.encode(data).equals(encoded.get(index)));
+		assert(Base64.encode(data, false).equals(bare.get(index)));
+		Bytes? padded = Base64.decode(encoded.get(index));
+		Bytes? unpadded = Base64.decode(bare.get(index));
+		if (padded == null || unpadded == null) { return 2; }
+		assert(padded.equals(data) && unpadded.equals(data));
+	}
+
+	Bytes binary = Bytes();
+	for (int value = 0; value < 256; value++) { binary.append(value); }
+	string text = Base64.encode(binary);
+	assert(text.length() == 344 && text.startsWith("AAECAwQFBgcICQoLDA0ODxAR") && text.endsWith("/P3+/w=="));
+	Bytes? back = Base64.decode(text);
+	if (back == null) { return 3; }
+	assert(back.equals(binary));
+
+	/* Line breaks and spaces, as in a PEM body, are skipped. */
+	Bytes? wrapped = Base64.decode("Zm9v\nYmFy\r\n  Zm9v\t");
+	if (wrapped == null) { return 4; }
+	assert(wrapped.toString().equals("foobarfoo"));
+
+	Vector<string> malformed = ["Z", "Zm9vY", "Zm9v!", "Zg==Zg", "Zh==", "Zm9=", "Zm-_"];
+	for bad in malformed { assert(Base64.decode(bad) == null); }
+
+	print("PASS: test_stdlib_base64_codec");
+	return 0;
+}

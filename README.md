@@ -587,6 +587,7 @@ The current groups are:
 | `BackgroundJobs`, `Graph`, `LocalApplicationChannel` | Worker queues, graph utilities, local IPC between an app and its agent tools |
 | `Network` | IPv4 address values, TCP streams and listeners with deadlines (Linux and macOS) |
 | `USB` | Descriptors, emulated devices, USB/IP export and a user-space host; kernel-enumerated devices and USB/IP attachment on Linux |
+| `Crypto` | Base64; Ed25519 identities in OpenSSH's formats, a trusted-key file and an encrypted, mutually authenticated channel over a TCP stream (libsodium, Linux) |
 
 The everyday surfaces are intentionally practical:
 
@@ -1854,7 +1855,7 @@ src/
     JSON.btrc TOML.btrc Regex.btrc Pattern.btrc BitPattern.btrc
     IO.btrc Console.btrc CLI.btrc Process.btrc Platform.btrc
     Result.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
-    App/ Audio/ BackgroundJobs/ Daemon/ Digest/ FileSystem/ GPU/ GUI/
+    App/ Audio/ BackgroundJobs/ Crypto/ Daemon/ Digest/ FileSystem/ GPU/ GUI/
     Graph/ HTTP/ Image/ LocalApplicationChannel/ Network/ Realtime/ Terminal/ Tray/ UI/ USB/
 
   tests/                       # One framework for both compilers

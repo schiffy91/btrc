@@ -34,6 +34,7 @@ App = { path = "App" }
 Audio = { path = "Audio" }
 BackgroundJobs = { path = "BackgroundJobs" }
 COM = { path = "COM" }
+Crypto = { path = "Crypto" }
 Daemon = { path = "Daemon" }
 Digest = { path = "Digest" }
 FileSystem = { path = "FileSystem" }

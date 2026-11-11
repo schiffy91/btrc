@@ -1,0 +1,296 @@
+/* Library.Crypto against known answers and between two processes: Ed25519
+ * signatures (RFC 8032), OpenSSH key formats (a key and fingerprint from
+ * ssh-keygen), the trusted-key file, and SecureChannel over a socket pair and
+ * over TCP, including a tampered frame, an unexpected identity and a peer
+ * that speaks another protocol. */
+
+import Library.Bytes;
+import Library.Crypto;
+import Library.FileSystem;
+import Library.Network.IPv4Address;
+import Library.Network.TCPListener;
+import Library.Network.TCPStream;
+import Library.Strings;
+
+#include <assert.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+class CryptoConformance {
+	class Bytes hex(string text) {
+		Bytes out = Bytes();
+		string digits = "0123456789abcdef";
+		for (int index = 0; index + 1 < text.length(); index += 2) { out.append(digits.indexOf(text.substring(index, 1)) * 16 + digits.indexOf(text.substring(index + 1, 1))); }
+		return out;
+	}
+
+	class bool refusesSeed(Bytes seed) {
+		try { SigningKey.fromSeed(seed); } catch (string error) { return true; }
+		return false;
+	}
+
+	/* RFC 8032 section 7.1, tests 1 and 2. */
+	class void signatures() {
+		SigningKey first = SigningKey.fromSeed(CryptoConformance.hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"));
+		assert(first.publicKey().bytes().equals(CryptoConformance.hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")));
+		Bytes empty = Bytes();
+		Bytes signature = first.sign(empty);
+		assert(signature.equals(CryptoConformance.hex("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b")));
+		assert(first.publicKey().verify(empty, signature));
+
+		SigningKey second = SigningKey.fromSeed(CryptoConformance.hex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"));
+		assert(second.publicKey().bytes().equals(CryptoConformance.hex("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c")));
+		Bytes message = CryptoConformance.hex("72");
+		Bytes signedOnce = second.sign(message);
+		assert(signedOnce.equals(CryptoConformance.hex("92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00")));
+		assert(second.publicKey().verify(message, signedOnce));
+
+		/* A changed message, a changed signature, another key, a short signature. */
+		assert(!second.publicKey().verify(CryptoConformance.hex("73"), signedOnce));
+		Bytes altered = signedOnce.slice(0, 64);
+		altered.set(10, altered.get(10) ^ 1);
+		assert(!second.publicKey().verify(message, altered));
+		assert(!first.publicKey().verify(message, signedOnce) && !second.publicKey().verify(message, signedOnce.slice(0, 63)));
+		assert(second.seed().equals(CryptoConformance.hex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb")));
+		assert(CryptoConformance.refusesSeed(CryptoConformance.hex("00")));
+
+		SigningKey fresh = SigningKey.generate();
+		SigningKey other = SigningKey.generate();
+		assert(!fresh.publicKey().equals(other.publicKey()) && fresh.publicKey().equals(SigningKey.fromSeed(fresh.seed()).publicKey()));
+		assert(fresh.publicKey().verify(message, fresh.sign(message)) && !other.publicKey().verify(message, fresh.sign(message)));
+	}
+
+	/* An OpenSSH private key file for a seed, as ssh-keygen lays one out. */
+	class string privateFile(Bytes seed, Bytes publicKey, string cipher) {
+		Bytes blob = Bytes();
+		SSHWire.putText(blob, SSHWire.keyType());
+		SSHWire.putField(blob, publicKey);
+		Bytes secret = seed.slice(0, 32);
+		secret.appendBytes(publicKey);
+		Bytes inner = Bytes();
+		SSHWire.putU32(inner, 0x12345678);
+		SSHWire.putU32(inner, 0x12345678);
+		SSHWire.putText(inner, SSHWire.keyType());
+		SSHWire.putField(inner, publicKey);
+		SSHWire.putField(inner, secret);
+		SSHWire.putText(inner, "a comment");
+		for (int pad = 1; inner.length() % 8 != 0; pad++) { inner.append(pad); }
+		Bytes file = Bytes.fromString("openssh-key-v1");
+		file.append(0);
+		SSHWire.putText(file, cipher);
+		SSHWire.putText(file, "none");
+		SSHWire.putText(file, "");
+		SSHWire.putU32(file, 1);
+		SSHWire.putField(file, blob);
+		SSHWire.putField(file, inner);
+		string body = Base64.encode(file);
+		string text = "-----BEGIN OPENSSH PRIVATE KEY-----\n";
+		for (int index = 0; index < body.length(); index += 70) { text = text + body.substring(index, index + 70 <= body.length() ? 70 : body.length() - index) + "\n"; }
+		return text + "-----END OPENSSH PRIVATE KEY-----\n";
+	}
+
+	class void openSSH() {
+		/* A public key line and its fingerprint, both printed by ssh-keygen. */
+		string line = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqFqTAxqMqOES4dhNQXRUjmV8eVu/rN7XMD+/X98bBx btrc test fixture, not a real key";
+		PublicKey? parsed = PublicKey.fromOpenSSH(line);
+		if (parsed == null) { throw "the ssh-keygen public key line did not parse"; }
+		PublicKey fixture = parsed;
+		assert(fixture.fingerprint().equals("SHA256:lYvZO5GbLeyscYFmwqAsLv6/GZzd/KpQJuoo0qIGqBo"));
+		assert(fixture.bytes().equals(CryptoConformance.hex("6a85a93031a8ca8e112e1d84d4174548e657c795bbfacded7303fbf5fdf1b071")));
+		assert(fixture.toOpenSSH("btrc test fixture, not a real key").equals(line));
+		assert(fixture.toOpenSSH().equals("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqFqTAxqMqOES4dhNQXRUjmV8eVu/rN7XMD+/X98bBx"));
+		PublicKey? known = PublicKey.fromOpenSSH("deck.local,192.168.50.23 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqFqTAxqMqOES4dhNQXRUjmV8eVu/rN7XMD+/X98bBx");
+		if (known == null) { throw "a known_hosts line did not parse"; }
+		assert(known.equals(fixture));
+		assert(PublicKey.fromOpenSSH("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQ== someone") == null);
+		assert(PublicKey.fromOpenSSH("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqFqTAx") == null);
+		assert(PublicKey.fromOpenSSH("ssh-ed25519 not/base64!") == null && PublicKey.fromOpenSSH("") == null && PublicKey.fromOpenSSH("ssh-ed25519") == null);
+
+		Bytes seed = CryptoConformance.hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+		Bytes publicKey = CryptoConformance.hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a");
+		SigningKey? loaded = SigningKey.fromOpenSSH(CryptoConformance.privateFile(seed, publicKey, "none"));
+		if (loaded == null) { throw "an OpenSSH private key did not load"; }
+		assert(loaded.seed().equals(seed) && loaded.publicKey().bytes().equals(publicKey));
+		assert(SigningKey.fromOpenSSH(CryptoConformance.privateFile(seed, publicKey, "aes256-ctr")) == null);
+		assert(SigningKey.fromOpenSSH(CryptoConformance.privateFile(seed, fixture.bytes(), "none")) == null);
+		assert(SigningKey.fromOpenSSH("-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n") == null);
+		assert(SigningKey.fromOpenSSH("not a key") == null);
+	}
+
+	class void trusted() {
+		string directory = FileSystem.tempDir("btrc-trusted-keys");
+		string path = directory + "/trusted";
+		PublicKey first = SigningKey.fromSeed(CryptoConformance.hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")).publicKey();
+		PublicKey second = SigningKey.fromSeed(CryptoConformance.hex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb")).publicKey();
+		TrustedKeys keys = TrustedKeys(path);
+		assert(keys.count() == 0 && !keys.contains(first) && keys.labelOf(first).isEmpty());
+		keys.add(first, "the desk");
+		assert(keys.addLine("deck.local ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqFqTAxqMqOES4dhNQXRUjmV8eVu/rN7XMD+/X98bBx"));
+		assert(!keys.addLine("ssh-rsa AAAAB3NzaC1yc2E= nobody") && keys.count() == 2);
+		struct stat status;
+		assert(stat(path, &status) == 0 && ((int)status.st_mode & 511) == 384);
+
+		TrustedKeys reloaded = TrustedKeys(path);
+		assert(reloaded.count() == 2 && reloaded.contains(first) && !reloaded.contains(second));
+		assert(reloaded.labelOf(first).equals("the desk") && reloaded.list().get(1).label.equals("deck.local"));
+		reloaded.add(first, "renamed");
+		assert(reloaded.count() == 2 && reloaded.remove(first) && !reloaded.remove(first));
+		TrustedKeys last = TrustedKeys(path);
+		assert(last.count() == 1 && !last.contains(first));
+
+		TrustedKeys memory = TrustedKeys("");
+		memory.add(second, "kept in memory");
+		assert(memory.contains(second) && TrustedKeys(directory + "/absent").count() == 0);
+		FileSystem.removeRecursive(directory);
+	}
+
+	/* The other process: prove an identity, say the pairing code, echo
+	 * messages. Exits 0 on a clean close, 7 when a frame fails to decrypt. */
+	class int respond(TCPStream stream, bool initiator, Bytes seed, Bytes expected) {
+		SigningKey identity = SigningKey.fromSeed(seed);
+		SecureChannel channel = initiator ? SecureChannel.connect(stream, identity, 3000) : SecureChannel.accept(stream, identity, 3000);
+		if (!channel.peer().bytes().equals(expected)) { return 2; }
+		if (!channel.send(Bytes.fromString(channel.pairingCode()), 3000)) { return 3; }
+		while (true) {
+			Bytes message = Bytes();
+			int length = channel.receive(message, 5000);
+			if (length == SECURE_CHANNEL_CLOSED) { return 0; }
+			if (length == SECURE_CHANNEL_FAILED) { return 7; }
+			if (length < 0 || !channel.send(message, 3000)) { return 4; }
+		}
+		return 6;
+	}
+
+	class int respondSafely(TCPStream stream, bool initiator, Bytes seed, Bytes expected) {
+		try { return CryptoConformance.respond(stream, initiator, seed, expected); } catch (string error) { return 5; }
+		return 5;
+	}
+
+	/* A responder in a child process at the far end of a socket pair. */
+	class TCPStream peer(pid_t* child, Bytes seed, Bytes expected) {
+		int pair[2];
+		assert(socketpair((int)AF_UNIX, (int)SOCK_STREAM, 0, pair) == 0);
+		fflush(stdout);
+		*child = fork();
+		assert(*child >= (pid_t)0);
+		if (*child == (pid_t)0) {
+			close(pair[0]);
+			_exit(CryptoConformance.respondSafely(TCPStream.adopt(pair[1], IPv4Address.loopback()), false, seed, expected));
+		}
+		close(pair[1]);
+		return TCPStream.adopt(pair[0], IPv4Address.loopback());
+	}
+
+	class int reap(pid_t child) {
+		int status = 0;
+		assert(waitpid(child, &status, 0) == child && WIFEXITED(status));
+		return WEXITSTATUS(status);
+	}
+
+	class bool refusesChannel(TCPStream stream, SigningKey identity) {
+		try { SecureChannel.connect(stream, identity, 2000); } catch (string error) { return !stream.isOpen(); }
+		return false;
+	}
+
+	class void channel() {
+		Bytes deskSeed = CryptoConformance.hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+		Bytes deckSeed = CryptoConformance.hex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
+		SigningKey desk = SigningKey.fromSeed(deskSeed);
+		PublicKey deck = SigningKey.fromSeed(deckSeed).publicKey();
+		pid_t child = (pid_t)0;
+		TCPStream stream = CryptoConformance.peer(&child, deckSeed, desk.publicKey().bytes());
+		SecureChannel channel = SecureChannel.connect(stream, desk, 3000);
+		assert(channel.isOpen() && channel.peer().equals(deck) && channel.pairingCode().length() == 6 && channel.pairingCode().isDigit());
+		Bytes said = Bytes();
+		assert(channel.receive(said, 3000) == 6 && said.toString().equals(channel.pairingCode()));
+
+		/* One byte, a typical report, and the largest message, each echoed. */
+		int sizes[3] = {1, 54, 16384};
+		for (int turn = 0; turn < 3; turn++) {
+			Bytes message = Bytes();
+			for (int index = 0; index < sizes[turn]; index++) { message.append((index * 7 + turn) & 0xFF); }
+			Bytes echoed = Bytes();
+			assert(channel.send(message, 3000) && channel.receive(echoed, 3000) == sizes[turn] && echoed.equals(message));
+		}
+		Bytes tooLong = Bytes();
+		for (int index = 0; index < 16385; index++) { tooLong.append(1); }
+		assert(!channel.send(tooLong, 1000) && !channel.send(Bytes(), 1000) && channel.isOpen());
+		assert(channel.receive(Bytes(), 0) == SECURE_CHANNEL_TIMED_OUT && channel.receive(Bytes(), 150) == SECURE_CHANNEL_TIMED_OUT);
+		channel.close();
+		assert(!channel.isOpen() && channel.receive(Bytes(), 10) == SECURE_CHANNEL_FAILED && CryptoConformance.reap(child) == 0);
+
+		/* A frame altered on the way ends the channel on the side that reads it. */
+		TCPStream second = CryptoConformance.peer(&child, deckSeed, desk.publicKey().bytes());
+		SecureChannel tampered = SecureChannel.connect(second, desk, 3000);
+		assert(tampered.receive(Bytes(), 3000) == 6);
+		unsigned char forged[34];
+		forged[0] = (unsigned char)0;
+		forged[1] = (unsigned char)32;
+		for (int index = 2; index < 34; index++) { forged[index] = (unsigned char)index; }
+		assert(second.write(forged, 34, 1000) && CryptoConformance.reap(child) == 7);
+
+		/* The peer expects another identity: it hangs up after the handshake. */
+		TCPStream third = CryptoConformance.peer(&child, deckSeed, deck.bytes());
+		SecureChannel unwelcome = SecureChannel.connect(third, desk, 3000);
+		assert(unwelcome.peer().equals(deck) && unwelcome.receive(Bytes(), 3000) == SECURE_CHANNEL_CLOSED && CryptoConformance.reap(child) == 2);
+
+		/* A peer that is not speaking the protocol is refused, and the stream closed. */
+		int pair[2];
+		assert(socketpair((int)AF_UNIX, (int)SOCK_STREAM, 0, pair) == 0);
+		TCPStream stranger = TCPStream.adopt(pair[0], IPv4Address.loopback());
+		TCPStream noise = TCPStream.adopt(pair[1], IPv4Address.loopback());
+		unsigned char junk[128];
+		memset(junk, 0x41, sizeof(junk));
+		assert(noise.write(junk, 128, 1000) && CryptoConformance.refusesChannel(stranger, desk));
+	}
+	/* The same exchange over a real TCP connection: the child connects and
+	 * opens the channel; this side accepts both. */
+	class void overTCP() {
+		Bytes deskSeed = CryptoConformance.hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+		Bytes deckSeed = CryptoConformance.hex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
+		SigningKey deck = SigningKey.fromSeed(deckSeed);
+		PublicKey desk = SigningKey.fromSeed(deskSeed).publicKey();
+		TCPListener listener = TCPListener.listen(IPv4Address.loopback(), 0);
+		int port = listener.port();
+		fflush(stdout);
+		pid_t child = fork();
+		assert(child >= (pid_t)0);
+		if (child == (pid_t)0) {
+			listener.close();
+			int status = 5;
+			try { status = CryptoConformance.respondSafely(TCPStream.connect(IPv4Address.loopback(), port, 3000), true, deskSeed, deck.publicKey().bytes()); } catch (string error) { status = 8; }
+			_exit(status);
+		}
+		TCPStream? accepted = listener.accept(3000);
+		if (accepted == null) { throw "the peer did not connect"; }
+		TCPStream stream = accepted;
+		assert(stream.setNoDelay(true));
+		SecureChannel channel = SecureChannel.accept(stream, deck, 3000);
+		assert(channel.peer().equals(desk));
+		Bytes said = Bytes();
+		assert(channel.receive(said, 3000) == 6 && said.toString().equals(channel.pairingCode()));
+		/* Many small messages in each direction, as a controller link sends. */
+		for (int turn = 0; turn < 500; turn++) {
+			Bytes report = Bytes();
+			for (int index = 0; index < 54; index++) { report.append((turn + index) & 0xFF); }
+			Bytes echoed = Bytes();
+			assert(channel.send(report, 3000) && channel.receive(echoed, 3000) == 54 && echoed.equals(report));
+		}
+		channel.close();
+		listener.close();
+		assert(CryptoConformance.reap(child) == 0);
+	}
+}
+
+int main() {
+	assert(Sodium.available());
+	CryptoConformance.signatures();
+	CryptoConformance.openSSH();
+	CryptoConformance.trusted();
+	CryptoConformance.channel();
+	CryptoConformance.overTCP();
+	print("PASS: signatures, OpenSSH keys, trusted keys and the secure channel");
+	return 0;
+}

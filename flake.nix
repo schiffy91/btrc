@@ -93,6 +93,8 @@
             (libdecorPatched pkgs).dev   # libdecor-0.pc: the Wayland decoration probe (src/tests/native/gui/shell/probes/linux/LibdecorPending.c)
             (sdl3Patched pkgs).dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
             (curlHttpTransport pkgs).dev   # libcurl.pc: the Linux HTTP transport (OpenSSL 3, c-ares)
+            libsodium.dev   # libsodium.pc: the Linux provider of Library.Crypto
+            openssh   # ssh-keygen: writes the key files the Library.Crypto driver reads back
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
             # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
             # (weston's headless backend) display inside its own session bus,
