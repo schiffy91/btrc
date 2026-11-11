@@ -3964,6 +3964,27 @@ class PackageUniverse:
             "schema": PACKAGE_GRAPH_LOCK_SCHEMA,
         }
 
+    def _covered_by_enclosing_lock(self, root: str) -> bool:
+        """Whether a package further up already locks this one as a path package.
+
+        Such a package is one node of the enclosing graph, as a stdlib group is
+        under the stdlib root. That lock covers it, so resolving the package on
+        its own publishes no second lock beside its manifest.
+        """
+
+        directory = os.path.dirname(root)
+        while True:
+            if os.path.isfile(os.path.join(directory, "btrc.toml")):
+                lock = self._strict_lock(os.path.join(directory, "btrc.lock"))
+                for package in () if lock is None else lock["packages"]:
+                    path = package["source"].get("path")
+                    if path is not None and os.path.realpath(os.path.join(directory, path)) == root:
+                        return True
+            parent = os.path.dirname(directory)
+            if parent == directory:
+                return False
+            directory = parent
+
     def _resolve_version_one(
         self,
         manifest_path: str,
@@ -3987,7 +4008,7 @@ class PackageUniverse:
         )
         nodes = {node.name: node for node in nodes_by_root.values()}
         payload = self._strict_lock_payload(root, root_package, nodes)
-        if lock != payload:
+        if lock != payload and (os.path.exists(lock_path) or not self._covered_by_enclosing_lock(root)):
             self.file_store.write_json(lock_path, payload, file_mode=0o644)
         root_node = nodes[root_package]
         entries = {alias: {"path": nodes[package].root} for alias, package in root_node.dependencies.items()}

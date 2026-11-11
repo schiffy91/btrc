@@ -3888,6 +3888,32 @@ class FePackageLock {
 		return source;
 	}
 
+	/* Whether a package further up already locks this one as a path package.
+	 * Such a package is one node of the enclosing graph, as a stdlib group is
+	 * under the stdlib root. That lock covers it, so resolving the package on
+	 * its own publishes no second lock beside its manifest. */
+	public bool coveredByEnclosing(string root) {
+		string directory = PathTools.dirname(root);
+		while (!directory.isEmpty()) {
+			if (FileSystem.isFile(PathTools.join(directory, "btrc.toml"))) {
+				string source = self.validatedExisting(PathTools.join(directory, "btrc.lock"));
+				if (!source.isEmpty()) {
+					JSONValue packages = JSONValue.parse(source).get("packages");
+					int index = 0;
+					while (index < packages.size()) {
+						JSONValue location = packages.at(index).get("source");
+						if (location.has("path") && FeCanonicalPath.absolute(PathTools.join(directory, location.get("path").asString())).equals(root)) { return true; }
+						index++;
+					}
+				}
+			}
+			string parent = PathTools.dirname(directory);
+			if (parent.equals(directory)) { break; }
+			directory = parent;
+		}
+		return false;
+	}
+
 	private string relativePath(string root, string target) {
 		bool windows = Platform.isWindows();
 		string rootSlash = root.replace("\\", "/");
@@ -4195,6 +4221,7 @@ class FePackageGraphResolver {
 		}
 		FeNativeLinkPlan plan = FeNativeLinkPlan(target, packages, declarations);
 		string lockPayload = lock.payload(root, rootPackage, packages);
+		if (!FileSystem.exists(lockPath) && lock.coveredByEnclosing(root)) { return FeResolvedPackages(true, manifestPath, rootPackage, nodes, plan); }
 		if (!existingLock.equals(lockPayload) && !FePackageFileStore().writeAtomically(lockPath, lockPayload)) {
 			FePackageFailure.fail(f"cannot atomically publish package lock '{lockPath}'");
 		}

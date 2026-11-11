@@ -234,3 +234,13 @@ def test_public_controller_builds_with_production_companion(frontend, label, req
     assert output.read_bytes().startswith(b"MZ") and companion.read_bytes().startswith(b"MZ")
     assert report.auxiliary["abi"] == label
     assert hashlib.sha256(companion.read_bytes()).digest() in output.read_bytes()
+
+
+@pytest.mark.parametrize("frontend", ["reference", "selfhost"])
+def test_compiling_the_supervisor_leaves_no_lock_beside_its_group(frontend, request):
+    """The stdlib root's lock covers the Daemon group; the entry inside it adds none."""
+
+    target = TargetRepository.host()
+    assert target is not None
+    transpile(frontend, REPO / "src/stdlib/Daemon/Windows/DaemonSupervisorMain.btrc", target.label, request)
+    assert not (REPO / "src/stdlib/Daemon/btrc.lock").exists()

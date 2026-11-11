@@ -737,6 +737,51 @@ def test_dependency_local_aliases_resolve_a_diamond_once(
     assert (app / "btrc.lock").read_bytes() == reference_lock
 
 
+@pytest.mark.parametrize("frontend", ("reference", "selfhost"))
+def test_package_locked_by_an_enclosing_root_publishes_no_lock_of_its_own(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    frontend: str,
+) -> None:
+    """A group under a root is covered by the root's lock, as a stdlib group is."""
+
+    root = tmp_path / "root"
+    group = root / "Group"
+    _manifest(group, "group")
+    _manifest(root, "root", '\n[dependencies]\nGroup = { path = "Group" }\n')
+    whole = root / "src/Main.btrc"
+    whole.write_text("int main() { return 0; }\n")
+    entry = group / "src/Entry.btrc"
+    entry.write_text("int main() { return 0; }\n")
+    lock = group / "btrc.lock"
+
+    def resolve(source: Path) -> None:
+        if frontend == "reference":
+            completed = _reference(source, tmp_path / "generated.c")
+        else:
+            completed = _selfhost(semantic_btrcc, source)
+        assert completed.returncode == 0, completed.stderr
+
+    # Nothing above locks the group yet, so it is a root like any other.
+    resolve(entry)
+    alone = lock.read_bytes()
+    lock.unlink()
+
+    resolve(whole)
+    locked = json.loads((root / "btrc.lock").read_text(encoding="utf-8"))["packages"]
+    assert {"path": "Group"} in [package["source"] for package in locked]
+    resolve(entry)
+    assert not lock.exists()
+    assert not list(group.glob(".btrc-package-*"))
+
+    # A lock the group does carry is still kept current.
+    (group / "btrc.toml").write_text((group / "btrc.toml").read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    lock.write_bytes(alone)
+    resolve(entry)
+    assert lock.read_bytes() != alone
+    assert json.loads(lock.read_text(encoding="utf-8"))["root"] == "group"
+
+
 def test_selfhost_cycle_and_future_lock_fail_closed(
     semantic_btrcc: Path,
     tmp_path: Path,

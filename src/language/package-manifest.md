@@ -3040,6 +3040,13 @@ a malformed or future lockfile fails closed. Package manifest stamps hash the
 exact validated UTF-8 manifest bytes, so either compiler detects every source
 change without depending on a TOML serializer's formatting choices.
 
+A lock sits beside the root manifest of the graph it records. A package that
+an enclosing package's lock already lists as a path package is covered by that
+lock: compiling a file inside it resolves the package as usual and publishes
+no lock beside its own manifest. The standard library's groups are covered by
+the library root's lock this way. A package that carries its own lock keeps
+it, and it is still rebuilt when stale.
+
 ## Native link-plan schemas
 
 The compiler result owns the validated native plan.  `--emit-link-plan PATH`
