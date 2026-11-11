@@ -274,8 +274,12 @@ def _parsed(name: str) -> dict[str, object]:
 # The workflow classes (WORKSTREAMS.md §3.2). The core three gate every change
 # and are what release.yml calls; a lane workflow belongs to one packet and
 # runs when its paths change; a dispatch-only workflow is a probe someone
-# starts by hand; release runs on dispatch, tags and the nightly schedule.
+# starts by hand; release runs on dispatch, tags and the nightly schedule; a
+# publishing workflow keeps something built from main fresh (the binary
+# cache), so it runs on pushes to main, on a schedule and on dispatch, and
+# never on a pull request, whose code must not reach its secrets.
 CORE_WORKFLOWS = ("ci.yml", "macos.yml", "windows.yml")
+PUBLISHING_WORKFLOWS = ("cache.yml",)
 LANE_WORKFLOWS = ("host-*.yml", "windows-*.yml", "ios.yml", "android.yml", "stdlib.yml")
 DISPATCH_ONLY_WORKFLOWS = ("windows-msvc-probe.yml", "acceptance-x86.yml")
 TAG_WORKFLOWS = ("release.yml",)
@@ -288,6 +292,8 @@ def _workflow_class(name: str) -> str | None:
         return "dispatch-only"
     if name in TAG_WORKFLOWS:
         return "tag"
+    if name in PUBLISHING_WORKFLOWS:
+        return "publishing"
     if any(fnmatch.fnmatchcase(name, pattern) for pattern in LANE_WORKFLOWS):
         return "lane"
     return None
@@ -327,6 +333,20 @@ def _trigger_violations(name: str, triggers: object) -> list[str]:
         problems = [] if set(triggers) <= allowed else [f"triggers {sorted(triggers)}"]
         if not (isinstance(push, dict) and set(push) == {"tags"} and push["tags"]):
             problems.append(f"push must name tags only: {push!r}")
+        schedule = triggers.get("schedule", [])
+        if not (
+            isinstance(schedule, list) and all(isinstance(entry, dict) and set(entry) == {"cron"} for entry in schedule)
+        ):
+            problems.append(f"schedule must be a list of crons: {schedule!r}")
+        return problems + _dispatch_violations(triggers.get("workflow_dispatch"))
+    if kind == "publishing":
+        problems = (
+            []
+            if {"push"} <= set(triggers) <= {"push", "schedule", "workflow_dispatch"}
+            else [f"triggers {sorted(triggers)}"]
+        )
+        if triggers.get("push") != main:
+            problems.append(f"push must be {main}: {triggers.get('push')!r}")
         schedule = triggers.get("schedule", [])
         if not (
             isinstance(schedule, list) and all(isinstance(entry, dict) and set(entry) == {"cron"} for entry in schedule)
@@ -442,6 +462,9 @@ def test_every_workflow_parses_and_follows_its_class_trigger_policy() -> None:
         ("release.yml", "push:\n  tags: ['v*']\nschedule:\n  - cron: '23 8 * * *'\nworkflow_dispatch:\n", 0),
         ("release.yml", "push:\n  tags: ['v*']\nschedule: daily\nworkflow_call:\n", 2),
         ("release.yml", "push:\n  branches: [main]\n  tags: ['v*']\n", 1),
+        ("cache.yml", "push:\n  branches: [main]\nschedule:\n  - cron: '41 6 * * 1'\nworkflow_dispatch:\n", 0),
+        ("cache.yml", "push:\n  branches: [main]\npull_request:\n  branches: [main]\nworkflow_dispatch:\n", 1),
+        ("cache.yml", "push:\n  tags: ['v*']\nschedule: weekly\n", 2),
         ("nightly.yml", "workflow_dispatch:\n", 1),
     ],
 )
