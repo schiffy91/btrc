@@ -1,0 +1,3 @@
+/* TCPListener's provider on Linux and macOS: selection only. Its BSD-socket
+ * body is in TCPListener.btrc and shares TCPStream's includes; a target with
+ * no row here has no listener yet. */

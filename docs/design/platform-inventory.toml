@@ -939,6 +939,58 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.Network"
+group = "stdlib/Network"
+title = "TCP networking facade"
+regression = ["src/tests/python/test_network_runtime.py::test_network_streams_over_loopback_on_both_frontends", "src/tests/python/test_network_runtime.py::test_import_plans_and_links_the_network_group", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade's provider has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade's provider has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
+ios-device = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in iOS libSystem, but the facade's provider's rows have no ios spelling" }
+ios-simulator = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in iOS libSystem, but the facade's provider's rows have no ios spelling" }
+android-arm64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in bionic, but the facade's provider's rows have no android spelling" }
+android-x86_64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in bionic, but the facade's provider's rows have no android spelling" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Network.IPv4Address"
+group = "stdlib/Network"
+title = "IPv4 address and network values"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Strings and Vector; no socket or OS include (IPv4Address.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Strings and Vector; no socket or OS include (IPv4Address.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Strings and Vector; no socket or OS include (IPv4Address.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Strings and Vector; no socket or OS include (IPv4Address.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Strings and Vector; no socket or OS include (IPv4Address.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Strings and Vector; no socket or OS include (IPv4Address.btrc)" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Network.TCPListener"
+group = "stdlib/Network"
+title = "Listening TCP socket with bounded accept"
+regression = ["src/tests/python/test_network_runtime.py::test_network_streams_over_loopback_on_both_frontends", "src/tests/python/test_network_runtime.py::test_import_plans_and_links_the_network_group", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "TCPListener's provider has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "TCPListener's provider has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
+ios-device = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in iOS libSystem, but TCPListener's provider's rows have no ios spelling" }
+ios-simulator = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in iOS libSystem, but TCPListener's provider's rows have no ios spelling" }
+android-arm64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in bionic, but TCPListener's provider's rows have no android spelling" }
+android-x86_64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in bionic, but TCPListener's provider's rows have no android spelling" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Network.TCPStream"
+group = "stdlib/Network"
+title = "Connected TCP stream with deadlines and a resolver"
+regression = ["src/tests/python/test_network_runtime.py::test_network_streams_over_loopback_on_both_frontends", "src/tests/python/test_network_runtime.py::test_import_plans_and_links_the_network_group", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "TCPStream's Sockets.h binding has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "TCPStream's Sockets.h binding has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
+ios-device = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in iOS libSystem, but TCPStream's Sockets.h binding's rows have no ios spelling" }
+ios-simulator = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in iOS libSystem, but TCPStream's Sockets.h binding's rows have no ios spelling" }
+android-arm64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in bionic, but TCPStream's Sockets.h binding's rows have no android spelling" }
+android-x86_64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "BSD sockets exist in bionic, but TCPStream's Sockets.h binding's rows have no android spelling" }
+
+[[rows]]
+kind = "operation"
 id = "Library.OwnedBuffer"
 group = "stdlib"
 title = "Fixed owned buffers and atomic buffers"

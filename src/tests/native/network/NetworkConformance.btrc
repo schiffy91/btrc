@@ -1,0 +1,195 @@
+/* Library.Network over real loopback sockets: a listener the system gives a
+ * port, connections in both directions, deadlines, a peer that goes away, and
+ * a megabyte through a forked echo peer so partial reads and writes happen. */
+
+import Library.Bytes;
+import Library.Network;
+import Library.Timer;
+
+#include <assert.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+class NetworkConformance {
+	class string listenError(IPv4Address address, int port) {
+		try { TCPListener.listen(address, port); } catch (string error) { return error; }
+		return "";
+	}
+
+	class bool refusesConnect(IPv4Address address, int port) {
+		try { TCPStream.connect(address, port, 1000); } catch (string error) { return error.contains("Cannot connect"); }
+		return false;
+	}
+
+	class bool refusesHost(string host) {
+		try { TCPStream.connectHost(host, 9, 1000); } catch (string error) { return error.contains("Cannot resolve"); }
+		return false;
+	}
+
+	class void listener() {
+		TCPListener listener = TCPListener.listen(IPv4Address.loopback(), 0);
+		int port = listener.port();
+		assert(listener.isOpen() && listener.handle() >= 0 && port > 0 && port <= 65535);
+		assert(NetworkConformance.listenError(IPv4Address.loopback(), port).startsWith("Cannot listen on 127.0.0.1:"));
+		assert(NetworkConformance.listenError(IPv4Address.loopback(), 70000).contains("a port from 0 to 65535"));
+
+		Timer waited = Timer();
+		waited.start();
+		assert(listener.accept(300) == null);
+		waited.stop();
+		assert(waited.elapsedMillis() >= 200.0f && waited.elapsedMillis() < 3000.0f);
+		assert(listener.accept(0) == null);
+
+		listener.close();
+		listener.close();
+		assert(!listener.isOpen() && listener.port() == -1 && listener.accept(10) == null);
+		assert(NetworkConformance.refusesConnect(IPv4Address.loopback(), port));
+
+		TCPListener again = TCPListener.listen(IPv4Address.loopback(), port);
+		assert(again.port() == port);
+	}
+
+	class void exchange() {
+		TCPListener listener = TCPListener.listen(IPv4Address.loopback(), 0);
+		TCPStream client = TCPStream.connect(IPv4Address.loopback(), listener.port(), 2000);
+		TCPStream? accepted = listener.accept(2000);
+		if (accepted == null) { throw "no connection was accepted"; }
+		TCPStream server = accepted;
+		assert(client.isOpen() && server.isOpen() && client.peer().isLoopback() && server.peer().isLoopback());
+		assert(client.setNoDelay(true) && server.setNoDelay(true) && client.setKeepAlive(true));
+
+		unsigned char buffer[64];
+		memset(buffer, 0, sizeof(buffer));
+		assert(server.read(buffer, 64, 0) == TCP_STREAM_READ_TIMED_OUT);
+		Timer waited = Timer();
+		waited.start();
+		assert(server.read(buffer, 64, 250) == TCP_STREAM_READ_TIMED_OUT);
+		waited.stop();
+		assert(waited.elapsedMillis() >= 150.0f && waited.elapsedMillis() < 3000.0f);
+
+		unsigned char hello[5] = {'h', 'e', 'l', 'l', 'o'};
+		assert(client.write(hello, 5, 1000));
+		assert(server.readExactly(buffer, 5, 1000) && memcmp(buffer, hello, (size_t)5) == 0);
+		assert(!server.readExactly(buffer, 5, 100));
+
+		assert(server.writeBytes(Bytes.fromString("pong"), 1000));
+		Bytes reply = client.readBytes(64, 1000);
+		assert(reply.toString().equals("pong"));
+		assert(client.readBytes(64, 0).isEmpty() && client.readBytes(0, 1000).isEmpty());
+
+		/* Half-close: the reader sees what was sent, then end of input. */
+		assert(client.write(hello, 5, 1000) && client.finishWriting());
+		assert(server.readExactly(buffer, 5, 1000));
+		assert(server.read(buffer, 64, 1000) == TCP_STREAM_READ_CLOSED);
+		assert(server.writeBytes(Bytes.fromString("late"), 1000));
+		assert(client.readBytes(64, 1000).toString().equals("late"));
+
+		/* A peer that went away is a failed write, never SIGPIPE. */
+		server.close();
+		server.close();
+		assert(!server.isOpen() && server.handle() == -1);
+		assert(server.read(buffer, 64, 10) == TCP_STREAM_READ_FAILED && !server.write(hello, 5, 10) && !server.setNoDelay(true));
+		assert(client.read(buffer, 64, 1000) == TCP_STREAM_READ_CLOSED);
+		bool failed = false;
+		for (int attempt = 0; attempt < 50 && !failed; attempt++) {
+			failed = !client.write(hello, 5, 100);
+			Timer.sleepMillis(10);
+		}
+		assert(failed);
+	}
+
+	class void handoff() {
+		TCPListener listener = TCPListener.listen(IPv4Address.loopback(), 0);
+		TCPStream client = TCPStream.connect(IPv4Address.loopback(), listener.port(), 2000);
+		TCPStream? accepted = listener.accept(2000);
+		if (accepted == null) { throw "no connection was accepted"; }
+		TCPStream server = accepted;
+		int descriptor = server.detach();
+		assert(descriptor >= 0 && !server.isOpen() && server.detach() == -1);
+		TCPStream adopted = TCPStream.adopt(descriptor, IPv4Address.loopback());
+		unsigned char byte[1] = {'x'};
+		unsigned char seen[1] = {0};
+		assert(client.write(byte, 1, 1000) && adopted.readExactly(seen, 1, 1000) && seen[0] == 'x');
+	}
+
+	class void resolve() {
+		IPv4Address? local = TCPStream.resolve("localhost");
+		if (local == null) { throw "localhost did not resolve"; }
+		IPv4Address address = local;
+		assert(address.isLoopback());
+		IPv4Address? dotted = TCPStream.resolve("127.0.0.2");
+		if (dotted == null) { throw "a dotted address did not resolve"; }
+		IPv4Address second = dotted;
+		assert(second.toString().equals("127.0.0.2"));
+		assert(TCPStream.resolve("") == null && TCPStream.resolve("no such host.invalid") == null);
+		assert(NetworkConformance.refusesHost("no such host.invalid"));
+
+		TCPListener listener = TCPListener.listen(IPv4Address.loopback(), 0);
+		TCPStream client = TCPStream.connectHost("localhost", listener.port(), 2000);
+		assert(client.isOpen() && listener.accept(2000) != null);
+	}
+
+	/* Send back whatever arrives until the peer finishes writing. */
+	class int echo(int port) {
+		unsigned char chunk[4096];
+		TCPStream stream = TCPStream.connect(IPv4Address.loopback(), port, 2000);
+		while (true) {
+			int count = stream.read(chunk, 4096, 5000);
+			if (count == TCP_STREAM_READ_CLOSED) { break; }
+			if (count < 0 || !stream.write(chunk, count, 5000)) { return 3; }
+		}
+		return stream.finishWriting() ? 0 : 5;
+	}
+
+	/* A megabyte each way, more than the socket buffers hold, through a child
+	 * that echoes whatever it reads. */
+	class void bulk() {
+		TCPListener listener = TCPListener.listen(IPv4Address.loopback(), 0);
+		int port = listener.port();
+		fflush(stdout);
+		pid_t child = fork();
+		assert(child >= (pid_t)0);
+		if (child == (pid_t)0) {
+			listener.close();
+			int status = 4;
+			try { status = NetworkConformance.echo(port); } catch (string error) { status = 4; }
+			_exit(status);
+		}
+		TCPStream? accepted = listener.accept(5000);
+		if (accepted == null) { throw "no connection was accepted"; }
+		TCPStream stream = accepted;
+		int total = 1048576;
+		unsigned char block[8192];
+		unsigned char back[8192];
+		int sent = 0;
+		int received = 0;
+		while (received < total) {
+			if (sent < total && sent - received < 262144) {
+				for (int index = 0; index < 8192; index++) { block[index] = (unsigned char)((sent + index) * 31 + 7); }
+				assert(stream.write(block, 8192, 5000));
+				sent += 8192;
+				if (sent == total) { assert(stream.finishWriting()); }
+				continue;
+			}
+			int count = stream.read(back, 8192, 5000);
+			assert(count > 0);
+			for (int index = 0; index < count; index++) { assert(back[index] == (unsigned char)((received + index) * 31 + 7)); }
+			received += count;
+		}
+		assert(stream.read(back, 8192, 5000) == TCP_STREAM_READ_CLOSED);
+		int status = 0;
+		assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	}
+}
+
+int main() {
+	NetworkConformance.listener();
+	NetworkConformance.exchange();
+	NetworkConformance.handoff();
+	NetworkConformance.resolve();
+	NetworkConformance.bulk();
+	print("PASS: network listener, streams, deadlines, resolver and bulk transfer");
+	return 0;
+}

@@ -585,6 +585,7 @@ The current groups are:
 | `Image` | DDS decoding, platform image decoding (ImageIO on macOS, libpng/libjpeg-turbo on Linux), pixel access |
 | `FileSystem`, `HTTP`, `Terminal`, `Daemon`, `Digest` | Files, directories and application directories; HTTP client/server and framing; terminal control and password prompts; daemon control protocol; incremental SHA-256 |
 | `BackgroundJobs`, `Graph`, `LocalApplicationChannel` | Worker queues, graph utilities, local IPC between an app and its agent tools |
+| `Network` | IPv4 address values, TCP streams and listeners with deadlines (Linux and macOS) |
 
 The everyday surfaces are intentionally practical:
 
@@ -1853,7 +1854,7 @@ src/
     IO.btrc Console.btrc CLI.btrc Process.btrc Platform.btrc
     Result.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
     App/ Audio/ BackgroundJobs/ Daemon/ Digest/ FileSystem/ GPU/ GUI/
-    Graph/ HTTP/ Image/ LocalApplicationChannel/ Realtime/ Terminal/ Tray/ UI/
+    Graph/ HTTP/ Image/ LocalApplicationChannel/ Network/ Realtime/ Terminal/ Tray/ UI/
 
   tests/                       # One framework for both compilers
     runner.py                  # Unified runner: each .btrc test through BOTH compilers

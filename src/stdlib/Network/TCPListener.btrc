@@ -1,0 +1,78 @@
+/* A listening TCP socket. Port 0 lets the system choose one, which `port()`
+ * then reports; `accept` waits at most its timeout and returns null when no
+ * connection arrived. The provider row selects the BSD-socket rows; the code
+ * shares TCPStream's includes and waits. */
+
+import Library.IO;
+import Library.Network.IPv4Address;
+import Library.Network.TCPStream;
+import Library.Strings;
+import Library.Timer;
+
+class TCPListener {
+	private int descriptor = -1;
+
+	private TCPListener(int descriptor) { self.descriptor = descriptor; }
+
+	/* Listen on an address and port, or throw why not. */
+	class TCPListener listen(IPv4Address address, int port) {
+		if (address == null || port < 0 || port > 65535) { throw "A TCP listener needs an address and a port from 0 to 65535"; }
+		int descriptor = socket(AF_INET, SOCK_STREAM, 0);
+		if (descriptor < 0 || !DescriptorFlags.configure(descriptor, true)) {
+			if (descriptor >= 0) { close(descriptor); }
+			throw "Cannot create a TCP socket";
+		}
+		int yes = 1;
+		struct sockaddr_in local;
+		memset(&local, 0, sizeof(local));
+		local.sin_family = AF_INET;
+		local.sin_port = htons((unsigned short)port);
+		local.sin_addr.s_addr = htonl((uint32_t)address.number());
+		if (setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) != 0 || bind(descriptor, (struct sockaddr*)&local, sizeof(local)) != 0 || listen(descriptor, 16) != 0) {
+			int failure = errno;
+			close(descriptor);
+			throw f"Cannot listen on {address.toString()}:{port}: {Strings.copy(strerror(failure))}";
+		}
+		return TCPListener(descriptor);
+	}
+
+	public bool isOpen() { return self.descriptor >= 0; }
+
+	/* The socket, still owned by the listener. */
+	public int handle() { return self.descriptor; }
+
+	/* The port the listener is bound to, or -1 once closed. */
+	public int port() {
+		if (self.descriptor < 0) { return -1; }
+		struct sockaddr_in local;
+		memset(&local, 0, sizeof(local));
+		socklen_t length = sizeof(local);
+		if (getsockname(self.descriptor, (struct sockaddr*)&local, &length) != 0) { return -1; }
+		return (int)ntohs(local.sin_port);
+	}
+
+	/* The next connection, or null when none arrived within the timeout. */
+	public TCPStream? accept(int timeoutMilliseconds) {
+		if (self.descriptor < 0) { return null; }
+		long long deadline = TCPStream.deadlineAfter(timeoutMilliseconds);
+		while (true) {
+			struct sockaddr_in remote;
+			memset(&remote, 0, sizeof(remote));
+			socklen_t length = sizeof(remote);
+			int connection = accept(self.descriptor, (struct sockaddr*)&remote, &length);
+			if (connection >= 0) { return TCPStream.adopt(connection, IPv4Address((long long)ntohl(remote.sin_addr.s_addr))); }
+			if (errno == EINTR || errno == ECONNABORTED) { continue; }
+			if (errno != EAGAIN && errno != EWOULDBLOCK) { return null; }
+			if (!MonotonicClock.before(deadline) || !TCPStream.waitFor(self.descriptor, POLLIN, deadline)) { return null; }
+		}
+		return null;
+	}
+
+	public void close() {
+		if (self.descriptor < 0) { return; }
+		close(self.descriptor);
+		self.descriptor = -1;
+	}
+
+	public void __del__() { self.close(); }
+}

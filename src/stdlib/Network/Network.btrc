@@ -1,0 +1,9 @@
+/* Network: IPv4 addresses and TCP connections.
+ *
+ * `import Library.Network;` brings in the whole group. A program that only
+ * handles addresses imports `Library.Network.IPv4Address`, which has no
+ * socket code and builds on every target. */
+
+import Library.Network.IPv4Address;
+import Library.Network.TCPListener;
+import Library.Network.TCPStream;

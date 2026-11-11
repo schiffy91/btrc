@@ -1,0 +1,30 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_network"
+exports = ["IPv4Address", "Network", "TCPListener", "TCPStream"]
+
+[[package.providers]]
+module = "TCPListener"
+implementation = "Unix.TCPListenerProvider"
+os = ["linux", "macos"]
+
+[[package.providers]]
+module = "Network"
+implementation = "Unix.TCPListenerProvider"
+os = ["linux", "macos"]
+
+[[native.bindings]]
+module = "TCPStream"
+header = "Sockets.h"
+language = "c"
+standard = "c11"
+symbols = ["addrinfo", "getaddrinfo", "freeaddrinfo", "TCP_NODELAY"]
+os = ["linux", "macos"]
+
+# glibc declares the resolver only under a POSIX feature macro.
+[[native.defines]]
+name = "_GNU_SOURCE"
+value = "1"
+modules = ["TCPStream"]
+os = ["linux"]

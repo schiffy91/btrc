@@ -1,0 +1,78 @@
+/* IPv4 addresses and networks as values: parsed from and printed as dotted
+ * text, compared by number. Nothing here touches a socket, so it is the same
+ * on every target. */
+
+import Library.Strings;
+import Library.Vector;
+
+class IPv4Address {
+	private long long value;
+
+	/* The address as a host-order number, 0 to 2^32 - 1. */
+	public IPv4Address(long long value) { self.value = value & 0xFFFFFFFFLL; }
+
+	class IPv4Address loopback() { return IPv4Address(0x7F000001LL); }
+
+	/* Every local address, for a listener that accepts on all interfaces. */
+	class IPv4Address any() { return IPv4Address(0LL); }
+
+	/* "a.b.c.d" with each part 0 to 255 and no sign, space or leading
+	 * garbage; null for anything else. */
+	class IPv4Address? parse(string text) {
+		if (text == null) { return null; }
+		Vector<string> parts = Strings.split(text, ".");
+		if (parts.len != 4) { return null; }
+		long long value = 0LL;
+		for part in parts {
+			if (part.isEmpty() || part.length() > 3 || !part.isDigit() || Strings.toInt(part) > 255) { return null; }
+			value = (value << 8) | (long long)Strings.toInt(part);
+		}
+		return IPv4Address(value);
+	}
+
+	public long long number() { return self.value; }
+
+	public bool isLoopback() { return (self.value >> 24) == 127LL; }
+
+	public bool equals(IPv4Address other) { return other != null && other.value == self.value; }
+
+	public string toString() { return f"{(int)((self.value >> 24) & 255LL)}.{(int)((self.value >> 16) & 255LL)}.{(int)((self.value >> 8) & 255LL)}.{(int)(self.value & 255LL)}"; }
+}
+
+/* An address range: a base address and how many leading bits are fixed. */
+class IPv4Network {
+	private IPv4Address base;
+	private int bits;
+
+	public IPv4Network(IPv4Address base, int bits) {
+		if (base == null || bits < 0 || bits > 32) { throw "An IPv4 network needs an address and 0 to 32 prefix bits"; }
+		self.bits = bits;
+		self.base = IPv4Address(base.number() & IPv4Network.mask(bits));
+	}
+
+	class long long mask(int bits) { return bits == 0 ? 0LL : (0xFFFFFFFFLL << (32 - bits)) & 0xFFFFFFFFLL; }
+
+	/* "a.b.c.d/bits", or "a.b.c.d" for the one address; null when malformed. */
+	class IPv4Network? parse(string text) {
+		if (text == null) { return null; }
+		Vector<string> parts = Strings.split(text, "/");
+		if (parts.len < 1 || parts.len > 2) { return null; }
+		IPv4Address? base = IPv4Address.parse(parts.get(0));
+		if (base == null) { return null; }
+		int bits = 32;
+		if (parts.len == 2) {
+			string prefix = parts.get(1);
+			if (prefix.isEmpty() || prefix.length() > 2 || !prefix.isDigit() || Strings.toInt(prefix) > 32) { return null; }
+			bits = Strings.toInt(prefix);
+		}
+		return IPv4Network(base, bits);
+	}
+
+	public IPv4Address address() { return self.base; }
+
+	public int prefix() { return self.bits; }
+
+	public bool contains(IPv4Address address) { return address != null && (address.number() & IPv4Network.mask(self.bits)) == self.base.number(); }
+
+	public string toString() { return f"{self.base.toString()}/{self.bits}"; }
+}

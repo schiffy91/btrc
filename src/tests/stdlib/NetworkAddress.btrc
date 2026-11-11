@@ -1,0 +1,41 @@
+/* IPv4 addresses and networks as values: no sockets, so every target runs it. */
+import Library.Network.IPv4Address;
+import Library.Vector;
+
+#include <assert.h>
+
+int main() {
+	IPv4Address? parsed = IPv4Address.parse("192.168.50.23");
+	if (parsed == null) { return 2; }
+	IPv4Address deck = parsed;
+	assert(deck.number() == 0xC0A83217LL && deck.toString().equals("192.168.50.23") && !deck.isLoopback());
+	assert(deck.equals(IPv4Address(0xC0A83217LL)) && !deck.equals(IPv4Address.loopback()));
+	assert(IPv4Address.loopback().toString().equals("127.0.0.1") && IPv4Address.loopback().isLoopback());
+	assert(IPv4Address(0x7FFFFFFFLL).isLoopback() && IPv4Address.any().number() == 0LL);
+	assert(IPv4Address(0x1FFFFFFFFLL).toString().equals("255.255.255.255"));
+
+	Vector<string> malformed = ["", "192.168.50", "192.168.50.23.1", "192.168.50.256", "192.168..23", "192.168.50.-1", " 192.168.50.23", "a.b.c.d", "1.2.3.4/8", "0001.2.3.4"];
+	for text in malformed { assert(IPv4Address.parse(text) == null); }
+
+	IPv4Network? home = IPv4Network.parse("192.168.50.99/24");
+	if (home == null) { return 3; }
+	IPv4Network network = home;
+	assert(network.prefix() == 24 && network.address().toString().equals("192.168.50.0") && network.toString().equals("192.168.50.0/24"));
+	assert(network.contains(deck) && !network.contains(IPv4Address(0xC0A83317LL)) && !network.contains(IPv4Address.loopback()));
+
+	IPv4Network? host = IPv4Network.parse("192.168.50.23");
+	if (host == null) { return 4; }
+	IPv4Network single = host;
+	assert(single.prefix() == 32 && single.contains(deck) && !single.contains(IPv4Address(0xC0A83218LL)));
+
+	IPv4Network? all = IPv4Network.parse("0.0.0.0/0");
+	if (all == null) { return 5; }
+	IPv4Network everything = all;
+	assert(everything.contains(deck) && everything.contains(IPv4Address.loopback()) && everything.toString().equals("0.0.0.0/0"));
+
+	Vector<string> badNetworks = ["192.168.50.0/33", "192.168.50.0/", "192.168.50.0/2/4", "192.168.50/24", "/24", "192.168.50.0/-1", "192.168.50.0/ 8"];
+	for text in badNetworks { assert(IPv4Network.parse(text) == null); }
+
+	print("PASS: test_stdlib_network_address");
+	return 0;
+}

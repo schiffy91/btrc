@@ -100,8 +100,8 @@ the API surface, so the layout follows a few fixed rules.
 Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 (`Linux/`, `MacOS/`, `Unix/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`,
 `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`, `Windows/`), `HTTP`, `Image`
-(`Linux/`, `MacOS/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`),
-`Realtime`, `Terminal` (`Unix/`, `Windows/`), `Tray` (`Linux/`, `MacOS/`), `UI`.
+(`Linux/`, `MacOS/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`), `Network`
+(`Unix/`), `Realtime`, `Terminal` (`Unix/`, `Windows/`), `Tray` (`Linux/`, `MacOS/`), `UI`.
 Each group with behavior worth explaining has its own `README.md`.
 
 ## Drift findings

@@ -124,6 +124,19 @@
         "linux-devcontainer"
       ],
       "note": "Real Linux ProcessThreads directory-read failure and closure, paired plain/sanitized native fixture."
+    },
+    {
+      "id": "network-posix-providers",
+      "files": [
+        "src/tests/python/test_network_runtime.py"
+      ],
+      "reason": "^Library\\.Network has providers for Linux and macOS only$",
+      "category": "platform",
+      "covered_by": [
+        "macos-hosted",
+        "linux-devcontainer"
+      ],
+      "note": "TCPStream and TCPListener have BSD-socket rows for Linux and macOS; test_windows_has_no_network_provider_yet runs here and pins the refusal. The macOS and Linux shards run the loopback conformance."
     }
   ]
 }

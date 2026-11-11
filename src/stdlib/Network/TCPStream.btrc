@@ -1,0 +1,237 @@
+/* A connected TCP stream that owns its socket.
+ *
+ * Every wait takes a timeout in milliseconds and is bounded by one monotonic
+ * deadline, however many partial reads or writes it takes; zero or less tries
+ * once without waiting. The socket is nonblocking and close-on-exec, and
+ * writes never raise SIGPIPE: a peer that went away is a failed write.
+ *
+ * `Sockets.h` holds the SDK includes; the typed binding imports the resolver
+ * and TCP_NODELAY, which the hosted ABI does not carry. Linux and macOS select
+ * it; Windows has no provider yet. */
+
+import Library.Bytes;
+import Library.IO;
+import Library.Network.IPv4Address;
+import Library.Strings;
+import Library.Timer;
+
+/* What a read can report besides a byte count. */
+enum TCPStreamRead {
+	TCP_STREAM_READ_CLOSED = 0,
+	TCP_STREAM_READ_TIMED_OUT = -1,
+	TCP_STREAM_READ_FAILED = -2
+};
+
+class TCPStream {
+	private int descriptor = -1;
+	private IPv4Address remote;
+
+	private TCPStream(int descriptor, IPv4Address remote) {
+		self.descriptor = descriptor;
+		self.remote = remote;
+	}
+
+	/* The deadline `timeoutMilliseconds` from now, at most a day ahead. */
+	class long long deadlineAfter(int timeoutMilliseconds) {
+		int bounded = timeoutMilliseconds > 0 ? timeoutMilliseconds : 0;
+		if (bounded > 86400000) { bounded = 86400000; }
+		return MonotonicClock.deadlineAfter((long long)bounded);
+	}
+
+	/* Wait until the socket is ready for `events` or the deadline passes. A
+	 * deadline already in the past still polls once. */
+	class bool waitFor(int descriptor, short events, long long deadline) {
+		while (true) {
+			long long remaining = MonotonicClock.remaining(deadline);
+			struct pollfd pending;
+			pending.fd = descriptor;
+			pending.events = events;
+			pending.revents = 0;
+			int waitMilliseconds = remaining <= 0LL ? 0 : (remaining > (long long)INT_MAX ? INT_MAX : (int)remaining);
+			int ready = poll(&pending, (nfds_t)1, waitMilliseconds);
+			if (ready < 0 && errno == EINTR) { continue; }
+			return ready > 0;
+		}
+		return false;
+	}
+
+	/* Own a connected socket, such as one a listener accepted. The socket is
+	 * closed if it cannot be made nonblocking. */
+	class TCPStream adopt(int descriptor, IPv4Address remote) {
+		if (descriptor < 0 || remote == null) { throw "A TCP stream needs a connected socket and its peer address"; }
+		if (!DescriptorFlags.configure(descriptor, true)) {
+			close(descriptor);
+			throw "Cannot configure the TCP socket";
+		}
+		return TCPStream(descriptor, remote);
+	}
+
+	/* The first IPv4 address of a host name or dotted address; null when it
+	 * does not resolve. This asks the system resolver and can block. */
+	class IPv4Address? resolve(string host) {
+		if (host == null || host.isEmpty() || host.length() > 255) { return null; }
+		char name[256];
+		memset(name, 0, sizeof(name));
+		memcpy(name, host, (size_t)host.length());
+		struct addrinfo hints;
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family = AF_INET;
+		hints.ai_socktype = SOCK_STREAM;
+		struct addrinfo* found = NULL;
+		if (getaddrinfo(name, NULL, &hints, &found) != 0 || found == NULL) { return null; }
+		long long number = -1LL;
+		if ((int)found->ai_family == (int)AF_INET && found->ai_addr != NULL) {
+			struct sockaddr_in* address = (struct sockaddr_in*)found->ai_addr;
+			number = (long long)ntohl(address->sin_addr.s_addr);
+		}
+		freeaddrinfo(found);
+		if (number < 0LL) { return null; }
+		return IPv4Address(number);
+	}
+
+	/* Connect to an address and port within the timeout, or throw why not. */
+	class TCPStream connect(IPv4Address address, int port, int timeoutMilliseconds) {
+		if (address == null || port < 1 || port > 65535) { throw "A TCP connection needs an address and a port from 1 to 65535"; }
+		int descriptor = socket(AF_INET, SOCK_STREAM, 0);
+		if (descriptor < 0 || !DescriptorFlags.configure(descriptor, true)) {
+			if (descriptor >= 0) { close(descriptor); }
+			throw "Cannot create a TCP socket";
+		}
+		struct sockaddr_in target;
+		memset(&target, 0, sizeof(target));
+		target.sin_family = AF_INET;
+		target.sin_port = htons((unsigned short)port);
+		target.sin_addr.s_addr = htonl((uint32_t)address.number());
+		int failure = 0;
+		if (connect(descriptor, (struct sockaddr*)&target, sizeof(target)) != 0) {
+			failure = errno;
+			if (failure == EINPROGRESS || failure == EINTR) {
+				failure = ETIMEDOUT;
+				socklen_t length = sizeof(failure);
+				long long deadline = TCPStream.deadlineAfter(timeoutMilliseconds);
+				if (TCPStream.waitFor(descriptor, POLLOUT, deadline)) {
+					if (getsockopt(descriptor, (int)SOL_SOCKET, (int)SO_ERROR, &failure, &length) != 0) { failure = errno; }
+				}
+			}
+		}
+		if (failure != 0) {
+			close(descriptor);
+			throw f"Cannot connect to {address.toString()}:{port}: {Strings.copy(strerror(failure))}";
+		}
+		return TCPStream(descriptor, address);
+	}
+
+	/* Resolve a host name, then connect to it. */
+	class TCPStream connectHost(string host, int port, int timeoutMilliseconds) {
+		IPv4Address? address = TCPStream.resolve(host);
+		if (address == null) { throw f"Cannot resolve {host}"; }
+		return TCPStream.connect(address, port, timeoutMilliseconds);
+	}
+
+	public bool isOpen() { return self.descriptor >= 0; }
+
+	/* The socket, still owned by the stream. */
+	public int handle() { return self.descriptor; }
+
+	public IPv4Address peer() { return self.remote; }
+
+	private bool option(int level, int name, bool enabled) {
+		int value = enabled ? 1 : 0;
+		return self.descriptor >= 0 && setsockopt(self.descriptor, level, name, &value, sizeof(value)) == 0;
+	}
+
+	/* Send small writes at once instead of batching them. */
+	public bool setNoDelay(bool enabled) { return self.option((int)IPPROTO_TCP, (int)TCP_NODELAY, enabled); }
+
+	/* Probe an idle connection so a dead peer is noticed. */
+	public bool setKeepAlive(bool enabled) { return self.option((int)SOL_SOCKET, (int)SO_KEEPALIVE, enabled); }
+
+	/* Read what has arrived, up to `capacity` bytes: the count, or a
+	 * TCPStreamRead value when the peer closed, nothing came in time, or the
+	 * connection failed. */
+	public int read(unsigned char* buffer, int capacity, int timeoutMilliseconds) {
+		if (self.descriptor < 0 || buffer == NULL || capacity <= 0) { return TCP_STREAM_READ_FAILED; }
+		long long deadline = TCPStream.deadlineAfter(timeoutMilliseconds);
+		while (true) {
+			long long count = (long long)recv(self.descriptor, buffer, (size_t)capacity, 0);
+			if (count > 0LL) { return (int)count; }
+			if (count == 0LL) { return TCP_STREAM_READ_CLOSED; }
+			if (errno == EINTR) { continue; }
+			if (errno != EAGAIN && errno != EWOULDBLOCK) { return TCP_STREAM_READ_FAILED; }
+			if (!MonotonicClock.before(deadline) || !TCPStream.waitFor(self.descriptor, POLLIN, deadline)) { return TCP_STREAM_READ_TIMED_OUT; }
+		}
+		return TCP_STREAM_READ_FAILED;
+	}
+
+	/* Fill the whole buffer before the deadline. False when the peer closed,
+	 * time ran out or the connection failed first. */
+	public bool readExactly(unsigned char* buffer, int length, int timeoutMilliseconds) {
+		if (self.descriptor < 0 || buffer == NULL || length < 0) { return false; }
+		long long deadline = TCPStream.deadlineAfter(timeoutMilliseconds);
+		int received = 0;
+		while (received < length) {
+			long long remaining = MonotonicClock.remaining(deadline);
+			int count = self.read(buffer + received, length - received, remaining > 0LL ? (int)remaining : 0);
+			if (count <= 0) { return false; }
+			received += count;
+		}
+		return true;
+	}
+
+	/* Read up to `maximum` bytes into a new buffer; empty when nothing was
+	 * read for any reason. */
+	public Bytes readBytes(int maximum, int timeoutMilliseconds) {
+		Bytes result = Bytes();
+		if (maximum <= 0) { return result; }
+		unsigned char chunk[4096];
+		int capacity = maximum < 4096 ? maximum : 4096;
+		int count = self.read(chunk, capacity, timeoutMilliseconds);
+		if (count > 0) { result.appendRaw((char*)chunk, count); }
+		return result;
+	}
+
+	/* Send every byte before the deadline. False when the peer closed, time
+	 * ran out or the connection failed first; some bytes may have been sent. */
+	public bool write(unsigned char* data, int length, int timeoutMilliseconds) {
+		if (self.descriptor < 0 || data == NULL || length < 0) { return false; }
+		long long deadline = TCPStream.deadlineAfter(timeoutMilliseconds);
+		int sent = 0;
+		while (sent < length) {
+			long long count = (long long)send(self.descriptor, data + sent, (size_t)(length - sent), MSG_NOSIGNAL);
+			if (count > 0LL) {
+				sent += (int)count;
+				continue;
+			}
+			if (count < 0LL && errno == EINTR) { continue; }
+			if (count < 0LL && (errno == EAGAIN || errno == EWOULDBLOCK) && MonotonicClock.before(deadline) && TCPStream.waitFor(self.descriptor, POLLOUT, deadline)) { continue; }
+			return false;
+		}
+		return true;
+	}
+
+	public bool writeBytes(Bytes data, int timeoutMilliseconds) {
+		if (data == null) { return false; }
+		if (data.len <= 0) { return self.descriptor >= 0; }
+		return self.write((unsigned char*)data.data, data.len, timeoutMilliseconds);
+	}
+
+	/* Tell the peer no more bytes are coming; it reads end of input after
+	 * everything already sent. */
+	public bool finishWriting() { return self.descriptor >= 0 && shutdown(self.descriptor, SHUT_WR) == 0; }
+
+	/* Give the socket to the caller, who now closes it. The stream is closed. */
+	public int detach() {
+		int released = self.descriptor;
+		self.descriptor = -1;
+		return released;
+	}
+
+	public void close() {
+		if (self.descriptor < 0) { return; }
+		shutdown(self.descriptor, SHUT_RDWR);
+		close(self.descriptor);
+		self.descriptor = -1;
+	}
+
+	public void __del__() { self.close(); }
+}
