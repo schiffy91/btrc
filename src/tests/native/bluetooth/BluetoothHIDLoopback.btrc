@@ -34,7 +34,7 @@ class BluetoothHIDLoopback {
 
 	/* The device: serve until the host unplugs the virtual cable. When the
 	 * host drops the link without unplugging, reconnect to it once. */
-	class int device(string name, BluetoothAddress host, pid_t parent, int pairingSeconds) {
+	class int device(string name, BluetoothAddress host, pid_t parent, int pairingSeconds, int ready) {
 		BluetoothPairingWindow window = BluetoothPairingWindow();
 		BluetoothAdapter adapter = BluetoothAdapter.open(name, window);
 		if (!adapter.setPowered(true) || !adapter.setAlias("Counter Pad")) { return 10; }
@@ -44,6 +44,11 @@ class BluetoothHIDLoopback {
 		if (pairingSeconds > 0) { window.open(pairingSeconds); }
 		if (!adapter.allowPairing(window.isOpen()) || adapter.pairable() != window.isOpen() || !adapter.setDiscoverable(true)) { return 12; }
 		BluetoothHIDDevice pad = BluetoothHIDDevice.open(adapter.address(), CounterPad(), BluetoothBondedPeers(adapter));
+		/* Tell the host side the device is up. */
+		char up[1];
+		up[0] = 'u';
+		if ((int)write(ready, up, (size_t)1) != 1) { return 16; }
+		close(ready);
 		bool served = false;
 		bool reconnected = false;
 		while ((pid_t)getppid() == parent && !pad.unplugged()) {
@@ -55,9 +60,8 @@ class BluetoothHIDLoopback {
 			pad.step();
 			if (pad.connected()) { served = true; }
 			else if (served && !reconnected) {
-				/* The host went away: wake up and go back to it. */
+				/* The host went away: go back to it. */
 				reconnected = true;
-				Timer.sleepMillis(500);
 				if (!pad.reconnect(host, 15000)) { return 14; }
 			}
 		}
@@ -66,20 +70,42 @@ class BluetoothHIDLoopback {
 		return pad.unplugged() && served && reconnected && pad.reportsSent() >= 60 ? 0 : 15;
 	}
 
+	/* Start the device in a process of its own and wait until it serves. */
 	class pid_t start(string name, BluetoothAddress host, int pairingSeconds) {
+		int ready[2];
+		assert(pipe(ready) == 0);
 		fflush(stdout);
 		pid_t parent = getpid();
 		pid_t child = fork();
 		assert(child >= (pid_t)0);
 		if (child == (pid_t)0) {
+			close(ready[0]);
 			int status = 9;
-			try { status = BluetoothHIDLoopback.device(name, host, parent, pairingSeconds); } catch (string error) {
+			try { status = BluetoothHIDLoopback.device(name, host, parent, pairingSeconds, ready[1]); } catch (string error) {
 				fprintf(stderr, "device: %s\n", error);
 				status = 8;
 			}
 			_exit(status);
 		}
+		close(ready[1]);
+		struct pollfd waiting;
+		waiting.fd = ready[0];
+		waiting.events = POLLIN;
+		waiting.revents = 0;
+		char up[1];
+		assert(poll(&waiting, (nfds_t)1, 60000) == 1 && (int)read(ready[0], up, (size_t)1) == 1);
+		close(ready[0]);
 		return child;
+	}
+
+	/* Wait for a link to a device to come down. */
+	class bool waitGone(BluetoothAdapter adapter, BluetoothAddress peer, int milliseconds) {
+		long long deadline = MonotonicClock.deadlineAfter((long long)milliseconds);
+		while (adapter.connected(peer)) {
+			if (!MonotonicClock.before(deadline)) { return false; }
+			Timer.sleepMillis(50);
+		}
+		return true;
 	}
 
 	class Bytes ask(L2CAPChannel control, Bytes request) {
@@ -132,7 +158,6 @@ class BluetoothHIDLoopback {
 		/* With the pairing window shut, a host that has never paired cannot
 		 * pair: the link it asks for is refused. */
 		pid_t shut = BluetoothHIDLoopback.start(deviceName, hostAddress, 0);
-		Timer.sleepMillis(3000);
 		BluetoothAdapter watched = BluetoothAdapter.open(deviceName, unused);
 		assert(!watched.pairable() && host.pairable());
 		watched.close();
@@ -149,12 +174,13 @@ class BluetoothHIDLoopback {
 		assert(kill(shut, (int)SIGKILL) == 0);
 		int status = 0;
 		assert(waitpid(shut, &status, 0) == shut);
-		Timer.sleepMillis(3000);
+		/* Drop what is left of that link, so the next one starts from nothing. */
+		host.forget(deviceAddress);
+		assert(BluetoothHIDLoopback.waitGone(host, deviceAddress, 30000));
 
 		/* With it open, connecting pairs the two and the channels come up. */
 		assert(host.allowPairing(true));
 		pid_t child = BluetoothHIDLoopback.start(deviceName, hostAddress, 120);
-		Timer.sleepMillis(3000);
 		L2CAPChannel control = L2CAPChannel.connect(hostAddress, deviceAddress, BLUETOOTH_HID_CONTROL, L2CAP_SECURITY_ENCRYPTED, 30000);
 		L2CAPChannel interrupt = L2CAPChannel.connect(hostAddress, deviceAddress, BLUETOOTH_HID_INTERRUPT, L2CAP_SECURITY_ENCRYPTED, 30000);
 		assert(control.peer().equals(deviceAddress));

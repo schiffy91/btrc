@@ -1670,7 +1670,6 @@ class StatementAnalyzer:
         elif isinstance(declaration, VarDeclStmt) and declaration.type is not None:
             self._validate_array_bound(declaration.type, f"Global '{declaration.name}'", "global")
 
-
     def _validate_function_signature_types(self, function) -> None:
         self.declarations.validate_hosted_function(function)
         self._reject_bodyless_realtime_function_signature(

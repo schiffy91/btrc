@@ -62,7 +62,8 @@ serve afterwards:
 
 The pairing setting belongs to the system: BlueZ lets devices pair while any
 program is its agent, so a desktop's Bluetooth applet turns it on for its own
-pairings. `adapter.bonded(peer)` is the fact to rely on.
+pairings. `adapter.bonded(peer)` is the fact to rely on, and
+`adapter.connected(peer)` tells whether a device has a link right now.
 
 ## Targets
 

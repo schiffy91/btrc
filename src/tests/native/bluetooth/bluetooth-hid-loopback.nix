@@ -49,20 +49,16 @@ in pkgs.testers.runNixOSTest {
   testScript = ''
     machine.wait_for_unit("multi-user.target")
 
-    # The controllers appear once the machine is quiet enough to answer
-    # their first commands in time; start them again if one did not come up.
-    def controllers():
-        return machine.succeed("btmgmt info 2>/dev/null | grep -c 'addr 00:AA:01' || true").strip()
-
-    for attempt in range(6):
-        machine.succeed("systemctl restart btvirt.service && systemctl start bluetooth.service")
-        for _ in range(20):
-            if controllers() == "2":
-                break
-            machine.sleep(1)
-        if controllers() == "2":
-            break
-    assert controllers() == "2", machine.succeed("btmgmt info; journalctl -u btvirt -u bluetooth --no-pager | tail -40")
+    # The emulator creates its two controllers one after the other. The
+    # daemon is started only once both exist, and powers them on; a
+    # controller whose first power-on raced the emulator is powered on again.
+    machine.succeed("systemctl stop bluetooth.service; systemctl start btvirt.service")
+    machine.wait_until_succeeds("test -e /sys/class/bluetooth/hci0 && test -e /sys/class/bluetooth/hci1", timeout=120)
+    machine.succeed("systemctl start bluetooth.service")
+    machine.wait_until_succeeds(
+        "btmgmt --index 0 power on; btmgmt --index 1 power on; test $(btmgmt info | grep -c 'addr 00:AA:01') = 2",
+        timeout=180,
+    )
 
     status, result = machine.execute("${program}/bin/bluetooth-hid-loopback hci0 hci1 2>&1")
     if status != 0:

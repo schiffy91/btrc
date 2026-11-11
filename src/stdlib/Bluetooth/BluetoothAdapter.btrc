@@ -101,6 +101,9 @@ class BluetoothAdapter {
 	 * service that should be for paired devices only checks this. */
 	public bool bonded(BluetoothAddress peer) { return self.open && peer != null && self.daemon.deviceFlag(peer, "Bonded"); }
 
+	/* Whether a device has a link to this adapter right now. */
+	public bool connected(BluetoothAddress peer) { return self.open && peer != null && self.daemon.deviceFlag(peer, "Connected"); }
+
 	/* Advertise a service: `uuid` names its profile and `record` is its
 	 * service record as XML. The program serves the channels itself. */
 	public bool publish(string uuid, string record) { return self.daemon.publish(uuid, record); }
