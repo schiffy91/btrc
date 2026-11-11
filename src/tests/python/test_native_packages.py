@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -1107,3 +1108,24 @@ def test_restore_cached_native_adapters_validates_resolved_plan(damage):
         assert restored == cached
     else:
         assert restored is None
+
+
+def test_every_checked_in_lock_matches_its_manifests():
+    """A lock records the hash of each path package's manifest.
+
+    A stale one is rewritten by the first compile that resolves it, which
+    leaves a test run with a modified source tree.
+    """
+
+    locks = sorted(path for top in ("examples", "src") for path in (REPO / top).rglob("btrc.lock"))
+    assert REPO / "src/stdlib/btrc.lock" in locks
+    stale = []
+    for lock in locks:
+        for package in json.loads(lock.read_text(encoding="utf-8"))["packages"]:
+            source = package["source"].get("path")
+            if source is None:
+                continue
+            manifest = lock.parent / source / "btrc.toml"
+            if hashlib.sha256(manifest.read_bytes()).hexdigest() != package["manifest-hash"]:
+                stale.append(f"{lock.relative_to(REPO)}: {package['name']}")
+    assert stale == []

@@ -1,1 +1,1 @@
-{"manifest-hash":"5d6f1f760726c8dd9e1297ed4faa194f223f91f1f91b4df7778130fe848ea550","packages":[{"dependencies":{},"manifest-hash":"860fb6ea12cd6e5ec20087cb7bfcd5c4ff7f62dea39ac8e439598b90533b4c8e","name":"nativeGpuChild","source":{"path":"."}}],"root":"nativeGpuChild","schema":3}
+{"manifest-hash":"f4742f25d56e408ae4fe19ef83442090620a133b9efc74b7965c731c327aa0b6","packages":[{"dependencies":{},"manifest-hash":"7e69d71ed7adafd979bdc7a08e8db084030fc14560408510b5aa8beb2ee2828a","name":"nativeGpuChild","source":{"path":"."}}],"root":"nativeGpuChild","schema":3}
