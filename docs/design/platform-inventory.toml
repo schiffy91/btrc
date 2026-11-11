@@ -224,6 +224,97 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.Bluetooth"
+group = "stdlib/Bluetooth"
+title = "Bluetooth facade: addresses, L2CAP, the adapter and a HID device"
+regression = ["src/tests/python/test_bluetooth_runtime.py::test_bluetooth_values_and_refusals_on_both_frontends", "src/tests/python/test_bluetooth_runtime.py::test_windows_builds_bluetooth_values_but_no_channels"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "the facade imports L2CAP and BluetoothHID; Windows gives applications RFCOMM sockets only, and L2CAP needs a kernel-mode profile driver" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "the facade imports L2CAP and BluetoothHID; Windows gives applications RFCOMM sockets only, and L2CAP needs a kernel-mode profile driver" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "the facade imports L2CAP and BluetoothHID; an iOS app reaches Classic Bluetooth only through MFi accessories" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "the facade imports L2CAP and BluetoothHID; an iOS app reaches Classic Bluetooth only through MFi accessories" }
+android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "the facade imports L2CAP and BluetoothAdapter; Android reaches these through android.bluetooth over JNI, not sockets and D-Bus" }
+android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "the facade imports L2CAP and BluetoothAdapter; Android reaches these through android.bluetooth over JNI, not sockets and D-Bus" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Bluetooth.BluetoothAdapter"
+group = "stdlib/Bluetooth"
+title = "The adapter: identity, discoverability, pairing and service records"
+regression = ["src/tests/python/test_bluetooth_runtime.py::test_bluetooth_values_and_refusals_on_both_frontends", "src/tests/python/test_bluetooth_runtime.py::test_loopback_program_builds_and_plans_alike", "src/tests/python/test_bluetooth_runtime.py::test_windows_builds_bluetooth_values_but_no_channels"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "BlueZ's D-Bus daemon is Linux's; Windows exposes the radio through Windows.Devices.Bluetooth and has no call to publish a HID service record" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "BlueZ's D-Bus daemon is Linux's; Windows exposes the radio through Windows.Devices.Bluetooth and has no call to publish a HID service record" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot change the adapter's discoverability, pairing or Classic service records" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot change the adapter's discoverability, pairing or Classic service records" }
+android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "android.bluetooth.BluetoothAdapter over JNI in place of BlueZ's D-Bus daemon" }
+android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "android.bluetooth.BluetoothAdapter over JNI in place of BlueZ's D-Bus daemon" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Bluetooth.BluetoothAddress"
+group = "stdlib/Bluetooth"
+title = "Bluetooth device address as a value"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_bluetooth_runtime.py::test_windows_builds_bluetooth_values_but_no_channels"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Bytes; no I/O (BluetoothAddress.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Bytes; no I/O (BluetoothAddress.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Bytes; no I/O (BluetoothAddress.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Bytes; no I/O (BluetoothAddress.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Bytes; no I/O (BluetoothAddress.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc value over Bytes; no I/O (BluetoothAddress.btrc)" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Bluetooth.BluetoothHID"
+group = "stdlib/Bluetooth"
+title = "A HID device served over the Bluetooth HID profile"
+regression = ["src/tests/python/test_bluetooth_runtime.py::test_bluetooth_values_and_refusals_on_both_frontends", "src/tests/python/test_bluetooth_runtime.py::test_loopback_program_builds_and_plans_alike", "src/tests/python/test_bluetooth_runtime.py::test_windows_builds_bluetooth_values_but_no_channels"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "serves L2CAP PSMs 0x11 and 0x13, which Windows applications cannot listen on" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "serves L2CAP PSMs 0x11 and 0x13, which Windows applications cannot listen on" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot act as a Classic Bluetooth HID device" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot act as a Classic Bluetooth HID device" }
+android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android has the HID device role as the BluetoothHidDevice profile proxy (API 28) over JNI, not as L2CAP sockets" }
+android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android has the HID device role as the BluetoothHidDevice profile proxy (API 28) over JNI, not as L2CAP sockets" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Bluetooth.BluetoothPairing"
+group = "stdlib/Bluetooth"
+title = "Pairing policy and a timed pairing window"
+regression = ["src/tests/python/test_bluetooth_runtime.py::test_bluetooth_values_and_refusals_on_both_frontends", "src/tests/python/test_bluetooth_runtime.py::test_windows_builds_bluetooth_values_but_no_channels"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over the monotonic clock; no Bluetooth I/O (BluetoothPairing.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over the monotonic clock; no Bluetooth I/O (BluetoothPairing.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over the monotonic clock; no Bluetooth I/O (BluetoothPairing.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over the monotonic clock; no Bluetooth I/O (BluetoothPairing.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over the monotonic clock; no Bluetooth I/O (BluetoothPairing.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over the monotonic clock; no Bluetooth I/O (BluetoothPairing.btrc)" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Bluetooth.HIDP"
+group = "stdlib/Bluetooth"
+title = "Bluetooth HID protocol device side and HID service record"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_bluetooth_runtime.py::test_windows_builds_bluetooth_values_but_no_channels"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic and text over Library.HID; no I/O (HIDP.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic and text over Library.HID; no I/O (HIDP.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic and text over Library.HID; no I/O (HIDP.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic and text over Library.HID; no I/O (HIDP.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic and text over Library.HID; no I/O (HIDP.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic and text over Library.HID; no I/O (HIDP.btrc)" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Bluetooth.L2CAP"
+group = "stdlib/Bluetooth"
+title = "L2CAP channels and listeners with deadlines"
+regression = ["src/tests/python/test_bluetooth_runtime.py::test_bluetooth_values_and_refusals_on_both_frontends", "src/tests/python/test_bluetooth_runtime.py::test_loopback_program_builds_and_plans_alike", "src/tests/python/test_bluetooth_runtime.py::test_windows_builds_bluetooth_values_but_no_channels"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "Windows sockets carry RFCOMM only; L2CAP channels need a kernel-mode profile driver" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "Windows sockets carry RFCOMM only; L2CAP channels need a kernel-mode profile driver" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "Classic L2CAP is not open to iOS apps; CoreBluetooth offers Low Energy channels only" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "Classic L2CAP is not open to iOS apps; CoreBluetooth offers Low Energy channels only" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android's BluetoothSocket offers RFCOMM and Low Energy L2CAP channels, not Classic L2CAP PSMs" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android's BluetoothSocket offers RFCOMM and Low Energy L2CAP channels, not Classic L2CAP PSMs" }
+
+[[rows]]
+kind = "operation"
 id = "Library.Bytes"
 group = "stdlib"
 title = "Growable byte buffer"

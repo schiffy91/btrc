@@ -33,6 +33,7 @@ os = ["windows"]
 App = { path = "App" }
 Audio = { path = "Audio" }
 BackgroundJobs = { path = "BackgroundJobs" }
+Bluetooth = { path = "Bluetooth" }
 COM = { path = "COM" }
 Crypto = { path = "Crypto" }
 Daemon = { path = "Daemon" }

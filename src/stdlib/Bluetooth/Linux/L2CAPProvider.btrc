@@ -1,0 +1,38 @@
+/* L2CAP on Linux: the kernel's Bluetooth sockets, through the adapters in
+ * `BluetoothSockets.h`. */
+
+class L2CAPProvider {
+	class bool supported() { return btrcL2CAPAvailable() != 0; }
+
+	/* A socket bound to an adapter and a PSM; -1 with errno when refused. */
+	class int bound(unsigned char* local, int psm) {
+		int descriptor = btrcL2CAPSocket();
+		if (descriptor < 0) { return -1; }
+		if (btrcL2CAPBind(descriptor, local, psm) != 0) {
+			int failure = errno;
+			close(descriptor);
+			errno = failure;
+			return -1;
+		}
+		return descriptor;
+	}
+
+	class bool listen(int descriptor) { return btrcL2CAPListen(descriptor) == 0; }
+
+	class int accept(int descriptor, unsigned char* peer) { return btrcL2CAPAccept(descriptor, peer); }
+
+	/* Start a connection: 0 when it is already up, 1 while it proceeds, -1
+	 * with errno when refused. */
+	class int connect(int descriptor, unsigned char* peer, int psm) {
+		if (btrcL2CAPConnect(descriptor, peer, psm) == 0) { return 0; }
+		return errno == EINPROGRESS || errno == EINTR ? 1 : -1;
+	}
+
+	class int failure(int descriptor) { return btrcL2CAPError(descriptor); }
+
+	class bool secure(int descriptor, int level) { return btrcL2CAPSecurity(descriptor, level) == 0; }
+
+	class bool prioritize(int descriptor, int priority) { return btrcL2CAPPriority(descriptor, priority) == 0; }
+
+	class int unsent(int descriptor) { return btrcL2CAPUnsent(descriptor); }
+}

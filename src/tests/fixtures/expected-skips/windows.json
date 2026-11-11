@@ -162,6 +162,18 @@
         "linux-devcontainer"
       ],
       "note": "Sodium has a libsodium provider on Linux only; test_windows_builds_base64_but_no_keys runs on every host and pins what builds without one. The Linux shard runs the signatures, key files and the channel."
+    },
+    {
+      "id": "bluetooth-bluez-linux-only",
+      "files": [
+        "src/tests/python/test_bluetooth_runtime.py"
+      ],
+      "reason": "^requires Linux: Library\\.Bluetooth's BlueZ and L2CAP providers have Linux rows only$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "L2CAP is the Linux kernel's Bluetooth sockets and BluetoothAdapter is BlueZ over D-Bus; test_windows_builds_bluetooth_values_but_no_channels runs on every host and pins what builds without them. The Linux shard runs the values and refusals and builds the loopback program, and the flake's bluetooth-hid-loopback check runs it in a VM with emulated controllers."
     }
   ]
 }

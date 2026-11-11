@@ -126,4 +126,18 @@ class USBHostProvider {
 	}
 
 	class bool detach(int port) { return USBHostProvider.writeAttribute(USBHostProvider.controller() + "/detach", f"{port}"); }
+
+	/* Detach every port that holds a device with this USB/IP device id; the
+	 * number detached. The status table prints the id as eight hex digits. */
+	class int detachDevice(long long deviceId) {
+		int count = 0;
+		string digits = "0123456789abcdef";
+		string wanted = "";
+		for (int shift = 28; shift >= 0; shift -= 4) { wanted = wanted + digits.substring((int)((deviceId >> shift) & 15LL), 1); }
+		if (!FileSystem.exists(USBHostProvider.controller() + "/status")) { return 0; }
+		for row in USBHostProvider.ports() {
+			if (!row.get(2).equals("004") && row.get(4).equals(wanted) && USBHostProvider.detach(Strings.toInt(row.get(1)))) { count++; }
+		}
+		return count;
+	}
 }

@@ -1,0 +1,3 @@
+/* BluetoothHID's and the facade's provider on Linux and macOS: selection
+ * only. Their bodies are btrc over L2CAP and BluetoothAdapter; a target with
+ * no row here has no Bluetooth channels yet. */

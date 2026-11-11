@@ -1,0 +1,23 @@
+/* L2CAP on macOS: not written. Channels there are IOBluetooth objects, not
+ * sockets. Every operation reports that, so a program can ask
+ * `L2CAP.supported()` first. */
+
+class L2CAPProvider {
+	class bool supported() { return false; }
+
+	class int bound(unsigned char* local, int psm) { return -1; }
+
+	class bool listen(int descriptor) { return false; }
+
+	class int accept(int descriptor, unsigned char* peer) { return -1; }
+
+	class int connect(int descriptor, unsigned char* peer, int psm) { return -1; }
+
+	class int failure(int descriptor) { return 0; }
+
+	class bool secure(int descriptor, int level) { return false; }
+
+	class bool prioritize(int descriptor, int priority) { return false; }
+
+	class int unsent(int descriptor) { return 0; }
+}

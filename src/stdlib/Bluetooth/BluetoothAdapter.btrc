@@ -1,0 +1,145 @@
+/* This machine's Bluetooth adapter: its identity, whether other devices can
+ * find and pair with it, and the services it advertises.
+ *
+ * The system's Bluetooth daemon owns the adapter; this asks it. Pairing
+ * requests come back as events, so a program that lets devices pair waits on
+ * `watch`'s descriptor and calls `step`.
+ *
+ * Linux has the provider (BlueZ over the system bus; changing the adapter
+ * needs root or membership of the daemon's group). Other rows report
+ * `BluetoothAdapter.supported()` false and fail to open. */
+
+import Library.Bluetooth.BluetoothAddress;
+import Library.Bluetooth.BluetoothPairing;
+import Library.Timer;
+
+#include <poll.h>
+
+class BluetoothAdapter {
+	private BluetoothAdapterProvider daemon;
+	private BluetoothAddress own;
+	private bool open = true;
+
+	private BluetoothAdapter(BluetoothAdapterProvider daemon, BluetoothAddress own) {
+		self.daemon = daemon;
+		self.own = own;
+	}
+
+	/* Whether this target can control an adapter at all. */
+	class bool supported() { return BluetoothAdapterProvider.supported(); }
+
+	/* The adapter `name`, such as "hci0", or throw why not: the daemon is
+	 * not running, or there is no such adapter. `policy` decides which
+	 * devices may pair once `allowPairing` is on. */
+	class BluetoothAdapter open(string name, IBluetoothPairing policy) {
+		if (name == null || name.isEmpty() || policy == null) { throw "An adapter needs a name and a pairing policy"; }
+		BluetoothAdapterProvider daemon = BluetoothAdapterProvider(name, policy);
+		BluetoothAddress? own = BluetoothAddress.parse(daemon.text("Address"));
+		if (own == null) {
+			daemon.close();
+			throw f"The Bluetooth adapter {name} has no address";
+		}
+		return BluetoothAdapter(daemon, own);
+	}
+
+	public bool isOpen() { return self.open; }
+
+	public BluetoothAddress address() { return self.own; }
+
+	/* The name other devices see. */
+	public string alias() { return self.daemon.text("Alias"); }
+
+	public bool setAlias(string alias) { return self.daemon.setText("Alias", alias); }
+
+	public bool powered() { return self.daemon.flag("Powered"); }
+
+	public bool setPowered(bool on) { return self.daemon.setFlag("Powered", on); }
+
+	public bool discoverable() { return self.daemon.flag("Discoverable"); }
+
+	/* Let other devices find this one, for `seconds` or until turned off
+	 * when `seconds` is 0. */
+	public bool setDiscoverable(bool on, int seconds = 0) {
+		if (on && !self.daemon.setNumber("DiscoverableTimeout", seconds > 0 ? seconds : 0)) { return false; }
+		return self.daemon.setFlag("Discoverable", on);
+	}
+
+	/* The daemon changes this setting itself as agents come and go, and
+	 * refuses a change while one is under way, so ask until it holds. */
+	private bool settle(bool wanted) {
+		for (int attempt = 0; attempt < 40; attempt++) {
+			if (self.daemon.flag("Pairable") == wanted) { return true; }
+			self.daemon.setFlag("Pairable", wanted);
+			Timer.sleepMillis(50);
+		}
+		return self.daemon.flag("Pairable") == wanted;
+	}
+
+	/* Let devices pair, or stop letting them. While it is on, this program
+	 * is the system's pairing agent and answers its questions with the
+	 * policy. A device that pairs without a code ("just works", as game
+	 * controllers do) is never asked about, so turning this off is what
+	 * ends a pairing window. Devices already paired stay paired either way.
+	 *
+	 * The setting belongs to the system: another program's pairing agent,
+	 * such as a desktop's Bluetooth applet, turns it on for its own
+	 * pairings. `bonded` tells which devices actually paired. */
+	public bool allowPairing(bool on) {
+		if (!self.open) { return false; }
+		if (!on) {
+			self.daemon.dismiss();
+			return self.settle(false);
+		}
+		if (!self.daemon.arbitrate() || !self.daemon.setNumber("PairableTimeout", 0)) { return false; }
+		return self.settle(true);
+	}
+
+	public bool pairable() { return self.daemon.flag("Pairable"); }
+
+	/* Whether a device is bonded: it paired and both sides kept the keys. A
+	 * host can also encrypt a link without bonding, at any time, so a
+	 * service that should be for paired devices only checks this. */
+	public bool bonded(BluetoothAddress peer) { return self.open && peer != null && self.daemon.deviceFlag(peer, "Bonded"); }
+
+	/* Advertise a service: `uuid` names its profile and `record` is its
+	 * service record as XML. The program serves the channels itself. */
+	public bool publish(string uuid, string record) { return self.daemon.publish(uuid, record); }
+
+	public void withdraw() { self.daemon.withdraw(); }
+
+	/* Drop a device's pairing. */
+	public bool forget(BluetoothAddress peer) { return peer != null && self.daemon.forget(peer); }
+
+	/* Fill `descriptors` with what to wait on before the next `step`; the
+	 * number filled, at most 1. */
+	public int watch(struct pollfd* descriptors, int capacity) { return self.open ? self.daemon.watch(descriptors, capacity) : 0; }
+
+	/* Answer the pairing requests that arrived. False when the daemon went
+	 * away; the adapter is then closed. */
+	public bool step() {
+		if (!self.open) { return false; }
+		if (!self.daemon.step()) {
+			self.close();
+			return false;
+		}
+		return true;
+	}
+
+	/* Withdraw the service and stop answering pairing requests. */
+	public void close() {
+		if (!self.open) { return; }
+		self.open = false;
+		self.daemon.close();
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* Lets in only the devices an adapter is bonded with. */
+class BluetoothBondedPeers implements IBluetoothPairing {
+	private BluetoothAdapter adapter;
+
+	public BluetoothBondedPeers(BluetoothAdapter adapter) { self.adapter = adapter; }
+
+	public bool accept(BluetoothAddress peer) { return self.adapter.bonded(peer); }
+}

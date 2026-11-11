@@ -1,0 +1,75 @@
+/* A Bluetooth device address as a value: six bytes, written
+ * "AA:BB:CC:DD:EE:FF". No I/O, so it is the same on every target. */
+
+import Library.Bytes;
+
+class BluetoothAddress {
+	private Bytes octets;
+
+	/* The six bytes in the order they are written. */
+	public BluetoothAddress(Bytes octets) {
+		if (octets == null || octets.length() != 6) { throw "A Bluetooth address is six bytes"; }
+		self.octets = octets.slice(0, 6);
+	}
+
+	class int digit(char letter) {
+		if (letter >= '0' && letter <= '9') { return (int)letter - (int)'0'; }
+		if (letter >= 'a' && letter <= 'f') { return (int)letter - (int)'a' + 10; }
+		if (letter >= 'A' && letter <= 'F') { return (int)letter - (int)'A' + 10; }
+		return -1;
+	}
+
+	/* Read "AA:BB:CC:DD:EE:FF", in either case. Null when the text is not
+	 * an address. */
+	class BluetoothAddress? parse(string text) {
+		if (text == null || text.length() != 17) { return null; }
+		Bytes octets = Bytes();
+		for (int index = 0; index < 6; index++) {
+			int high = BluetoothAddress.digit(text[index * 3]);
+			int low = BluetoothAddress.digit(text[index * 3 + 1]);
+			if (high < 0 || low < 0 || (index < 5 && text[index * 3 + 2] != ':')) { return null; }
+			octets.append(high * 16 + low);
+		}
+		return BluetoothAddress(octets);
+	}
+
+	/* The address that stands for any adapter. */
+	class BluetoothAddress any() {
+		Bytes octets = Bytes();
+		for (int index = 0; index < 6; index++) { octets.append(0); }
+		return BluetoothAddress(octets);
+	}
+
+	/* An address from the six bytes as the kernel orders them: last first. */
+	class BluetoothAddress fromWire(unsigned char* wire) {
+		Bytes octets = Bytes();
+		for (int index = 5; index >= 0; index--) { octets.append((int)wire[index]); }
+		return BluetoothAddress(octets);
+	}
+
+	/* Write the six bytes as the kernel orders them. */
+	public void toWire(unsigned char* wire) {
+		for (int index = 0; index < 6; index++) { wire[index] = (unsigned char)self.octets.get(5 - index); }
+	}
+
+	public Bytes bytes() { return self.octets.slice(0, 6); }
+
+	public bool equals(BluetoothAddress other) { return other != null && self.octets.equals(other.octets); }
+
+	public bool isAny() {
+		for (int index = 0; index < 6; index++) {
+			if (self.octets.get(index) != 0) { return false; }
+		}
+		return true;
+	}
+
+	public string toString() {
+		string digits = "0123456789ABCDEF";
+		string text = "";
+		for (int index = 0; index < 6; index++) {
+			int value = self.octets.get(index);
+			text = text + (index > 0 ? ":" : "") + digits.substring(value >> 4, 1) + digits.substring(value & 15, 1);
+		}
+		return text;
+	}
+}

@@ -99,6 +99,18 @@ def test_reads_the_key_pair_ssh_keygen_writes(compiler: str, tmp_path: Path, req
     )
     assert refused.returncode == 3
 
+    # And the other way: ssh-keygen reads a key btrc wrote and derives the same public key.
+    written = tmp_path / "written"
+    wrote = subprocess.run(
+        [str(executable), "write", str(written)], capture_output=True, text=True, timeout=RUN_TIMEOUT
+    )
+    assert wrote.returncode == 0, wrote.stderr
+    derived = subprocess.run(
+        ["ssh-keygen", "-y", "-f", str(written)], capture_output=True, text=True, timeout=RUN_TIMEOUT
+    )
+    assert derived.returncode == 0, derived.stderr
+    assert derived.stdout.split()[:2] == wrote.stdout.split()[:2]
+
 
 def test_both_frontends_plan_the_crypto_group_alike(tmp_path: Path, request: pytest.FixtureRequest) -> None:
     _require_host()

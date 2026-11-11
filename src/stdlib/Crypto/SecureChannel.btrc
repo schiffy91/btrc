@@ -20,6 +20,9 @@ import Library.Crypto.Sodium;
 import Library.Network.TCPStream;
 import Library.Timer;
 
+#include <string.h>
+#include <unistd.h>
+
 /* What a receive can report besides a message length. */
 enum SecureChannelResult {
 	SECURE_CHANNEL_CLOSED = 0,
@@ -169,6 +172,16 @@ class SecureChannel {
 
 	public void close() {
 		self.stream.close();
+		Sodium.wipe(self.state.sending, SODIUM_STREAM_STATE);
+		Sodium.wipe(self.state.receiving, SODIUM_STREAM_STATE);
+		self.state.buffered = 0;
+	}
+
+	/* Give up this process's copy of the channel without ending the
+	 * connection: for after a fork, when another process carries it on. */
+	public void abandon() {
+		int descriptor = self.stream.detach();
+		if (descriptor >= 0) { close(descriptor); }
 		Sodium.wipe(self.state.sending, SODIUM_STREAM_STATE);
 		Sodium.wipe(self.state.receiving, SODIUM_STREAM_STATE);
 		self.state.buffered = 0;

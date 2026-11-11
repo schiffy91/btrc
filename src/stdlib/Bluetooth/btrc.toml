@@ -1,0 +1,85 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_bluetooth"
+exports = ["Bluetooth", "BluetoothAdapter", "BluetoothAddress", "BluetoothHID", "BluetoothPairing", "HIDP", "L2CAP"]
+
+[[package.providers]]
+module = "L2CAP"
+implementation = "Linux.L2CAPProvider"
+os = ["linux"]
+
+[[package.providers]]
+module = "L2CAP"
+implementation = "MacOS.L2CAPProvider"
+os = ["macos"]
+
+[[package.providers]]
+module = "BluetoothAdapter"
+implementation = "Linux.BluetoothAdapterProvider"
+os = ["linux"]
+
+[[package.providers]]
+module = "BluetoothAdapter"
+implementation = "MacOS.BluetoothAdapterProvider"
+os = ["macos"]
+
+[[package.providers]]
+module = "BluetoothHID"
+implementation = "Unix.BluetoothHIDProvider"
+os = ["linux", "macos"]
+
+[[package.providers]]
+module = "Bluetooth"
+implementation = "Unix.BluetoothHIDProvider"
+os = ["linux", "macos"]
+
+[[native.bindings]]
+module = "Linux.L2CAPProvider"
+header = "Linux/BluetoothSockets.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"btrcL2CAPSocket", "btrcL2CAPBind", "btrcL2CAPListen", "btrcL2CAPConnect", "btrcL2CAPAccept",
+	"btrcL2CAPSecurity", "btrcL2CAPError", "btrcL2CAPPriority", "btrcL2CAPUnsent", "btrcL2CAPAvailable"
+]
+os = ["linux"]
+
+# glibc declares accept4 and SOCK_CLOEXEC only under a feature macro.
+[[native.defines]]
+name = "_GNU_SOURCE"
+value = "1"
+modules = ["Linux.L2CAPProvider"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "dbus-1"
+modules = ["Linux.BluetoothAdapterProvider"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.BluetoothAdapterProvider"
+header = "Linux/BlueZ.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"DBusConnection", "DBusMessage", "DBusMessageIter",
+	"btrcBlueZOpen", "btrcBlueZCall", "btrcBlueZDescriptor",
+	"btrcBlueZAppendString", "btrcBlueZAppendUInt32", "btrcBlueZAppendBool", "btrcBlueZReadString", "btrcBlueZReadBool",
+	"dbus_message_get_path", "dbus_message_get_interface", "dbus_message_get_member",
+	"dbus_connection_set_exit_on_disconnect", "dbus_connection_close", "dbus_connection_unref",
+	"dbus_connection_read_write", "dbus_connection_pop_message", "dbus_connection_send", "dbus_connection_flush",
+	"dbus_message_new_method_call", "dbus_message_new_method_return", "dbus_message_new_error",
+	"dbus_message_unref", "dbus_message_get_type", "dbus_message_get_no_reply",
+	"dbus_message_iter_init_append", "dbus_message_iter_init", "dbus_message_iter_get_arg_type", "dbus_message_iter_recurse",
+	"dbus_message_iter_open_container", "dbus_message_iter_close_container",
+	"DBUS_MESSAGE_TYPE_METHOD_CALL", "DBUS_TYPE_ARRAY", "DBUS_TYPE_BOOLEAN", "DBUS_TYPE_DICT_ENTRY", "DBUS_TYPE_OBJECT_PATH", "DBUS_TYPE_STRING",
+	"DBUS_TYPE_UINT32", "DBUS_TYPE_VARIANT"
+]
+read-only-borrows = [
+	"dbus_message_new_method_call.bus_name", "dbus_message_new_method_call.path", "dbus_message_new_method_call.iface", "dbus_message_new_method_call.method",
+	"dbus_message_new_error.error_name", "dbus_message_new_error.error_message",
+	"dbus_message_iter_open_container.contained_signature",
+	"btrcBlueZAppendString.value"
+]
+os = ["linux"]

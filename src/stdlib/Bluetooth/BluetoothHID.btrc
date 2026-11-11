@@ -1,0 +1,266 @@
+/* A HID device over Bluetooth.
+ *
+ * BluetoothHIDDevice serves an IHIDDevice to one host over the two L2CAP
+ * channels of the HID profile: control (PSM 0x11) for the host's requests
+ * and interrupt (PSM 0x13) for reports. The host connects to it, or it
+ * reconnects to a host it is paired with. A BluetoothAdapter publishes the
+ * matching service record (`BluetoothHIDRecord`) and handles pairing.
+ *
+ * Any host in range can open the channels, and can encrypt the link without
+ * ever pairing, so the device asks an IBluetoothPairing which hosts to
+ * serve: `BluetoothBondedPeers` serves the ones the adapter is bonded with.
+ *
+ * It is driven by a loop: wait on `watch`'s descriptors, then call `step`.
+ * Nothing in it blocks. Input reports are fresh state, so when the radio
+ * falls behind, a report is skipped instead of queued.
+ *
+ * It follows L2CAP: Linux has the provider. There the system's own HID host
+ * (BlueZ's input plugin) holds both PSMs unless the daemon runs without it. */
+
+import Library.Bluetooth.BluetoothAddress;
+import Library.Bluetooth.BluetoothPairing;
+import Library.Bluetooth.HIDP;
+import Library.Bluetooth.L2CAP;
+import Library.Bytes;
+import Library.HID.HIDDevice;
+import Library.Timer;
+
+#include <poll.h>
+
+enum BluetoothHIDChannel {
+	BLUETOOTH_HID_CONTROL = 0x11,
+	BLUETOOTH_HID_INTERRUPT = 0x13
+};
+
+class BluetoothHIDDevice {
+	private IHIDDevice device;
+	private HIDPDevice protocol;
+	private BluetoothAddress local;
+	private L2CAPListener controlListener;
+	private L2CAPListener interruptListener;
+	private IBluetoothPairing admission;
+	private L2CAPChannel? control = null;
+	private L2CAPChannel? interrupt = null;
+	private L2CAPChannel? waiting = null;
+	private long long waitingUntil = 0LL;
+	private bool removed = false;
+	private int perReport = 0;
+	private int sent = 0;
+	private int skipped = 0;
+
+	private BluetoothHIDDevice(IHIDDevice device, BluetoothAddress local, IBluetoothPairing admission, L2CAPListener controlListener, L2CAPListener interruptListener) {
+		self.device = device;
+		self.admission = admission;
+		self.protocol = HIDPDevice(device);
+		self.local = local;
+		self.controlListener = controlListener;
+		self.interruptListener = interruptListener;
+	}
+
+	/* Serve `device` on the adapter with the address `local` to the hosts
+	 * `admission` accepts, or throw why not: another program holds the HID
+	 * channels, or Bluetooth is absent. */
+	class BluetoothHIDDevice open(BluetoothAddress local, IHIDDevice device, IBluetoothPairing admission) {
+		if (local == null || device == null || admission == null) { throw "A Bluetooth HID device needs an adapter address, a device and an admission policy"; }
+		L2CAPListener control = L2CAPListener.listen(local, BLUETOOTH_HID_CONTROL);
+		L2CAPListener interrupt = L2CAPListener.listen(local, BLUETOOTH_HID_INTERRUPT);
+		return BluetoothHIDDevice(device, local, admission, control, interrupt);
+	}
+
+	/* Whether a host has both channels open. */
+	public bool connected() { return self.control != null && self.interrupt != null; }
+
+	/* The host, while one is connected or connecting. */
+	public BluetoothAddress? peer() {
+		L2CAPChannel? channel = self.control;
+		if (channel == null) { return null; }
+		return channel.peer();
+	}
+
+	/* Whether the last host unplugged the virtual cable: it dropped the
+	 * pairing, so there is nothing to reconnect to. */
+	public bool unplugged() { return self.removed; }
+
+	/* Input reports sent, and skipped because the radio was behind. */
+	public int reportsSent() { return self.sent; }
+
+	public int reportsSkipped() { return self.skipped; }
+
+	/* Drop the host's channels; the listeners stay. */
+	public void disconnect() {
+		L2CAPChannel? control = self.control;
+		L2CAPChannel? interrupt = self.interrupt;
+		L2CAPChannel? waiting = self.waiting;
+		if (control != null) { control.close(); }
+		if (interrupt != null) { interrupt.close(); }
+		if (waiting != null) { waiting.close(); }
+		self.control = null;
+		self.interrupt = null;
+		self.waiting = null;
+		self.perReport = 0;
+	}
+
+	private void adopt(L2CAPChannel control, L2CAPChannel interrupt) {
+		self.protocol = HIDPDevice(self.device);
+		self.removed = false;
+		self.perReport = 0;
+		interrupt.prioritize();
+		self.control = control;
+		self.interrupt = interrupt;
+	}
+
+	/* Connect to a paired host, as a device does when it wakes. False when
+	 * the host does not answer in time or refuses. */
+	public bool reconnect(BluetoothAddress host, int timeoutMilliseconds) {
+		if (host == null) { return false; }
+		self.disconnect();
+		try {
+			L2CAPChannel control = L2CAPChannel.connect(self.local, host, BLUETOOTH_HID_CONTROL, L2CAP_SECURITY_ENCRYPTED, timeoutMilliseconds);
+			L2CAPChannel interrupt = L2CAPChannel.connect(self.local, host, BLUETOOTH_HID_INTERRUPT, L2CAP_SECURITY_ENCRYPTED, timeoutMilliseconds);
+			self.adopt(control, interrupt);
+		} catch (string error) { return false; }
+		return true;
+	}
+
+	/* Fill `descriptors` with what to wait on before the next `step`; the
+	 * number filled, at most 4. */
+	public int watch(struct pollfd* descriptors, int capacity) {
+		int count = 0;
+		L2CAPChannel? control = self.control;
+		L2CAPChannel? interrupt = self.interrupt;
+		int handles[4];
+		handles[0] = self.waiting == null ? self.controlListener.handle() : -1;
+		handles[1] = self.interruptListener.handle();
+		handles[2] = control != null ? control.handle() : -1;
+		handles[3] = interrupt != null ? interrupt.handle() : -1;
+		for (int index = 0; index < 4 && count < capacity; index++) {
+			if (handles[index] < 0) { continue; }
+			descriptors[count].fd = handles[index];
+			descriptors[count].events = POLLIN;
+			descriptors[count].revents = 0;
+			count++;
+		}
+		return count;
+	}
+
+	/* A host that just paired is bonded a moment after its channel arrives,
+	 * so one that is not admitted yet is asked about again for a second
+	 * before it is turned away. Nothing is served to it meanwhile. */
+	private void admit() {
+		L2CAPChannel? waiting = self.waiting;
+		if (waiting == null) { return; }
+		if (self.admission.accept(waiting.peer())) {
+			self.control = waiting;
+			self.waiting = null;
+		} else if (!MonotonicClock.before(self.waitingUntil)) {
+			waiting.close();
+			self.waiting = null;
+		}
+	}
+
+	/* A host opens the control channel first, then the interrupt channel.
+	 * A second host is turned away while one is connected. */
+	private void arrivals() {
+		L2CAPChannel? arriving = self.waiting == null ? self.controlListener.accept(0) : null;
+		if (arriving != null) {
+			if (self.control != null) { arriving.close(); }
+			else {
+				self.waiting = arriving;
+				self.waitingUntil = MonotonicClock.deadlineAfter(1500LL);
+			}
+		}
+		self.admit();
+		L2CAPChannel? reports = self.interruptListener.accept(0);
+		if (reports == null) { return; }
+		L2CAPChannel? control = self.control;
+		if (control == null || self.interrupt != null || !reports.peer().equals(control.peer())) {
+			reports.close();
+			return;
+		}
+		self.adopt(control, reports);
+	}
+
+	private void requests(L2CAPChannel control) {
+		while (true) {
+			Bytes message = Bytes();
+			int length = control.receive(message, 0);
+			if (length == L2CAP_TIMED_OUT) { return; }
+			if (length <= 0) {
+				self.disconnect();
+				return;
+			}
+			Bytes reply = self.protocol.control(message);
+			if (self.protocol.unplugged()) {
+				self.removed = true;
+				self.disconnect();
+				return;
+			}
+			if (!reply.isEmpty() && !control.send(reply, 100)) {
+				self.disconnect();
+				return;
+			}
+		}
+	}
+
+	private void outputs(L2CAPChannel interrupt) {
+		while (true) {
+			Bytes message = Bytes();
+			int length = interrupt.receive(message, 0);
+			if (length == L2CAP_TIMED_OUT) { return; }
+			if (length <= 0) {
+				self.disconnect();
+				return;
+			}
+			self.protocol.interrupt(message);
+		}
+	}
+
+	/* Send the device's next input report unless two are already waiting
+	 * for the radio: a report that waits is stale by the time it leaves. */
+	private void inputs(L2CAPChannel interrupt) {
+		int waiting = interrupt.unsent();
+		if (self.perReport > 0 && waiting >= self.perReport * 2) {
+			self.skipped++;
+			return;
+		}
+		Bytes message = Bytes();
+		if (!self.protocol.nextInput(message)) { return; }
+		if (!interrupt.send(message, 0)) {
+			if (!interrupt.isOpen()) { self.disconnect(); }
+			else { self.skipped++; }
+			return;
+		}
+		self.sent++;
+		if (self.perReport == 0) {
+			int grew = interrupt.unsent() - waiting;
+			self.perReport = grew > 0 ? grew : 1;
+		}
+	}
+
+	/* Do what is due: take a connecting host, answer its requests, hand
+	 * its output reports to the device and send the next input report. */
+	public void step() {
+		self.arrivals();
+		L2CAPChannel? control = self.control;
+		if (control != null) { self.requests(control); }
+		L2CAPChannel? interrupt = self.interrupt;
+		if (interrupt != null && self.control != null) { self.outputs(interrupt); }
+		L2CAPChannel? reports = self.interrupt;
+		if (reports != null && self.control != null) { self.inputs(reports); }
+	}
+
+	/* Tell the host the pairing is gone on this side, then disconnect. */
+	public void unplug() {
+		L2CAPChannel? control = self.control;
+		if (control != null) { control.send(HIDPDevice.unplug(), 200); }
+		self.disconnect();
+	}
+
+	public void close() {
+		self.disconnect();
+		self.controlListener.close();
+		self.interruptListener.close();
+	}
+
+	public void __del__() { self.close(); }
+}

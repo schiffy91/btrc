@@ -1,0 +1,143 @@
+/* Bluetooth addresses, the HID protocol's device side and the HID service
+ * record: values, logic and text only, so every target runs it. */
+import Library.Bluetooth.BluetoothAddress;
+import Library.Bluetooth.HIDP;
+import Library.Bytes;
+import Library.HID;
+
+#include <assert.h>
+
+/* A device with numbered reports: input report 1 counts, feature report 2 is
+ * kept, and output report 3 sets the next count. */
+class Counter implements IHIDDevice {
+	public int count = 0;
+	public int due = 0;
+	public Bytes kept;
+
+	public Counter() { self.kept = Bytes.fromString("1234"); }
+
+	class Bytes descriptor() {
+		Bytes out = Bytes();
+		int items[34] = {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x01, 0x75, 0x08, 0x95, 0x01, 0x09, 0x01, 0x81, 0x02, 0x85, 0x02, 0x95, 0x04, 0x09, 0x02, 0xB1, 0x02, 0x85, 0x03, 0x95, 0x01, 0x09, 0x03, 0x91, 0x02, 0xC0};
+		for (int index = 0; index < 34; index++) { out.append(items[index]); }
+		return out;
+	}
+
+	public Bytes reportDescriptor() { return Counter.descriptor(); }
+
+	public bool getReport(int kind, int id, Bytes report) {
+		if (kind != HID_REPORT_FEATURE || id != 2) { return false; }
+		report.append(2);
+		report.appendBytes(self.kept);
+		return true;
+	}
+
+	public bool setReport(int kind, int id, Bytes report) {
+		if (kind == HID_REPORT_FEATURE && id == 2 && report.length() == 5) {
+			self.kept = report.slice(1, 5);
+			return true;
+		}
+		if (kind == HID_REPORT_OUTPUT && id == 3 && report.length() == 2) {
+			self.count = report.get(1);
+			self.due++;
+			return true;
+		}
+		return false;
+	}
+
+	public bool nextInput(Bytes report) {
+		if (self.due == 0) { return false; }
+		self.due--;
+		report.append(1);
+		report.append(self.count);
+		return true;
+	}
+}
+
+class BluetoothHIDPTests {
+	class Bytes of(int first, int second, int third) {
+		Bytes out = Bytes();
+		if (first >= 0) { out.append(first); }
+		if (second >= 0) { out.append(second); }
+		if (third >= 0) { out.append(third); }
+		return out;
+	}
+
+	class void addresses() {
+		BluetoothAddress? parsed = BluetoothAddress.parse("00:1a:7D:da:71:0F");
+		if (parsed == null) { throw "an address did not parse"; }
+		BluetoothAddress address = parsed;
+		assert(address.toString().equals("00:1A:7D:DA:71:0F") && address.bytes().get(1) == 0x1A && !address.isAny());
+		unsigned char wire[6];
+		address.toWire(wire);
+		assert((int)wire[0] == 0x0F && (int)wire[5] == 0x00 && BluetoothAddress.fromWire(wire).equals(address));
+		assert(BluetoothAddress.any().isAny() && BluetoothAddress.any().toString().equals("00:00:00:00:00:00") && !address.equals(BluetoothAddress.any()));
+		assert(BluetoothAddress.parse("00:1A:7D:DA:71") == null && BluetoothAddress.parse("00:1A:7D:DA:71:0G") == null);
+		assert(BluetoothAddress.parse("00-1A-7D-DA-71-0F") == null && BluetoothAddress.parse("") == null);
+	}
+
+	class void protocol() {
+		Counter counter = Counter();
+		HIDPDevice device = HIDPDevice(counter);
+
+		/* GET_REPORT feature 2: the reply is DATA|feature and the report. */
+		Bytes reply = device.control(BluetoothHIDPTests.of(0x43, 2, -1));
+		assert(reply.length() == 6 && reply.get(0) == 0xA3 && reply.get(1) == 2 && reply.slice(2, 6).toString().equals("1234"));
+		/* The host may cap the reply. */
+		Bytes capped = BluetoothHIDPTests.of(0x4B, 2, 3);
+		capped.append(0);
+		assert(device.control(capped).length() == 4);
+		assert(device.control(BluetoothHIDPTests.of(0x43, 9, -1)).get(0) == HIDP_INVALID_REPORT_ID);
+		assert(device.control(BluetoothHIDPTests.of(0x43, -1, -1)).get(0) == HIDP_INVALID_PARAMETER);
+
+		/* SET_REPORT feature 2, then read it back. */
+		Bytes set = BluetoothHIDPTests.of(0x53, 2, -1);
+		set.appendBytes(Bytes.fromString("keep"));
+		Bytes accepted = device.control(set);
+		assert(accepted.length() == 1 && accepted.get(0) == HIDP_SUCCESSFUL && counter.kept.toString().equals("keep"));
+		assert(device.control(BluetoothHIDPTests.of(0x53, 9, 1)).get(0) == HIDP_INVALID_REPORT_ID);
+		assert(device.control(BluetoothHIDPTests.of(0x51, 1, 1)).get(0) == HIDP_INVALID_PARAMETER);
+
+		/* Output reports arrive on either channel; input leaves framed. */
+		assert(!device.nextInput(Bytes()));
+		device.interrupt(BluetoothHIDPTests.of(0xA2, 3, 41));
+		device.interrupt(BluetoothHIDPTests.of(0xA1, 3, 99));
+		device.interrupt(BluetoothHIDPTests.of(0xA2, -1, -1));
+		Bytes input = Bytes();
+		assert(device.nextInput(input) && input.length() == 3 && input.get(0) == 0xA1 && input.get(1) == 1 && input.get(2) == 41 && !device.nextInput(Bytes()));
+		assert(device.control(BluetoothHIDPTests.of(0x52, 3, 42)).get(0) == HIDP_SUCCESSFUL && counter.count == 42);
+
+		/* Protocol and idle are kept; unknown requests are refused. */
+		Bytes protocol = device.control(BluetoothHIDPTests.of(0x60, -1, -1));
+		assert(protocol.length() == 2 && protocol.get(0) == 0xA0 && protocol.get(1) == 1);
+		assert(device.control(BluetoothHIDPTests.of(0x70, -1, -1)).get(0) == HIDP_SUCCESSFUL && device.control(BluetoothHIDPTests.of(0x60, -1, -1)).get(1) == 0);
+		assert(device.control(BluetoothHIDPTests.of(0x90, 5, -1)).get(0) == HIDP_SUCCESSFUL && device.control(BluetoothHIDPTests.of(0x80, -1, -1)).get(1) == 5);
+		assert(device.control(BluetoothHIDPTests.of(0xB0, -1, -1)).get(0) == HIDP_UNSUPPORTED_REQUEST);
+		assert(device.control(BluetoothHIDPTests.of(0x00, -1, -1)).isEmpty() && device.control(Bytes()).isEmpty());
+
+		/* Suspend, resume and the virtual cable. */
+		assert(!device.suspended() && !device.unplugged());
+		assert(device.control(BluetoothHIDPTests.of(0x13, -1, -1)).isEmpty() && device.suspended());
+		assert(device.control(BluetoothHIDPTests.of(0x14, -1, -1)).isEmpty() && !device.suspended());
+		assert(device.control(BluetoothHIDPTests.of(0x15, -1, -1)).isEmpty() && device.unplugged());
+		assert(HIDPDevice.unplug().length() == 1 && HIDPDevice.unplug().get(0) == 0x15);
+	}
+
+	class void record() {
+		BluetoothHIDRecord record = BluetoothHIDRecord("Pad \"One\" <&>", Counter.descriptor()).identified(0x28DE, 0x1303, 0x0100).described("Game Controller", "btrc");
+		assert(record.deviceID().equals("usb:28DE:1303:0100"));
+		string xml = record.xml();
+		assert(xml.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<record>\n") && xml.endsWith("</record>\n"));
+		assert(xml.contains("<text value=\"Pad &quot;One&quot; &lt;&amp;&gt;\" />") && xml.contains("<text value=\"Game Controller\" />"));
+		assert(xml.contains("<uint8 value=\"0x22\" /><text encoding=\"hex\" value=\"0600ff0901a101850175089501090181028502950409") && xml.contains("910 2c0".replace(" ", "")));
+		assert(xml.contains("<uuid value=\"0x1124\" />") && xml.contains("<uint16 value=\"0x0011\" />") && xml.contains("<uint16 value=\"0x0013\" />") && xml.contains("<uint8 value=\"0x08\" />"));
+	}
+}
+
+int main() {
+	BluetoothHIDPTests.addresses();
+	BluetoothHIDPTests.protocol();
+	BluetoothHIDPTests.record();
+	print("PASS: test_stdlib_bluetooth_hidp");
+	return 0;
+}

@@ -88,7 +88,9 @@ class USBKernelHost {
 		device.close();
 		assert(!device.isOpen() && device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 0, 18), Bytes(), 100) == -1);
 
-		assert(attachment.detach() && USBKernelHost.waitPresent(false, 20000) && !attachment.attached());
+		assert(USBIPAttachment.detachDevice(imported.deviceId + 1LL) == 0 && attachment.attached());
+		assert(USBIPAttachment.detachDevice(imported.deviceId) == 1 && USBKernelHost.waitPresent(false, 20000) && !attachment.attached());
+		assert(!attachment.detach() || !attachment.attached());
 		host.connection().close();
 		int status = 0;
 		assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);

@@ -1,0 +1,14 @@
+/* Bluetooth: addresses, L2CAP channels, this machine's adapter, and a HID
+ * device served over the HID profile.
+ *
+ * `import Library.Bluetooth;` brings in the whole group. A program that only
+ * handles addresses, HIDP messages or service records imports
+ * `Library.Bluetooth.BluetoothAddress` or `Library.Bluetooth.HIDP`, which do
+ * no I/O and build on every target. */
+
+import Library.Bluetooth.BluetoothAdapter;
+import Library.Bluetooth.BluetoothAddress;
+import Library.Bluetooth.BluetoothHID;
+import Library.Bluetooth.BluetoothPairing;
+import Library.Bluetooth.HIDP;
+import Library.Bluetooth.L2CAP;

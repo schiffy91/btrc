@@ -119,4 +119,8 @@ class USBIPAttachment {
 	public bool attached() { return USBHostProvider.busy(self.number); }
 
 	public bool detach() { return USBHostProvider.detach(self.number); }
+
+	/* Detach whatever is attached with this USB/IP device id, such as what
+	 * an earlier process left behind; the number of devices detached. */
+	class int detachDevice(long long deviceId) { return USBHostProvider.detachDevice(deviceId); }
 }

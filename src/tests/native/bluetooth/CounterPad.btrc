@@ -1,0 +1,52 @@
+/* The HID device the Bluetooth tests serve. */
+
+import Library.Bytes;
+import Library.HID;
+
+/* A vendor-defined device with numbered reports: input report 1 carries a
+ * count, feature report 2 is kept, and output report 3 sets the count and
+ * makes one input report due. */
+class CounterPad implements IHIDDevice {
+	public int count = 0;
+	public int due = 0;
+	public Bytes kept;
+
+	public CounterPad() { self.kept = Bytes.fromString("1234"); }
+
+	class Bytes descriptor() {
+		Bytes out = Bytes();
+		int items[34] = {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x01, 0x75, 0x08, 0x95, 0x01, 0x09, 0x01, 0x81, 0x02, 0x85, 0x02, 0x95, 0x04, 0x09, 0x02, 0xB1, 0x02, 0x85, 0x03, 0x95, 0x01, 0x09, 0x03, 0x91, 0x02, 0xC0};
+		for (int index = 0; index < 34; index++) { out.append(items[index]); }
+		return out;
+	}
+
+	public Bytes reportDescriptor() { return CounterPad.descriptor(); }
+
+	public bool getReport(int kind, int id, Bytes report) {
+		if (kind != HID_REPORT_FEATURE || id != 2) { return false; }
+		report.append(2);
+		report.appendBytes(self.kept);
+		return true;
+	}
+
+	public bool setReport(int kind, int id, Bytes report) {
+		if (kind == HID_REPORT_FEATURE && id == 2 && report.length() == 5) {
+			self.kept = report.slice(1, 5);
+			return true;
+		}
+		if (kind == HID_REPORT_OUTPUT && id == 3 && report.length() == 2) {
+			self.count = report.get(1);
+			self.due++;
+			return true;
+		}
+		return false;
+	}
+
+	public bool nextInput(Bytes report) {
+		if (self.due == 0) { return false; }
+		self.due--;
+		report.append(1);
+		report.append(self.count);
+		return true;
+	}
+}

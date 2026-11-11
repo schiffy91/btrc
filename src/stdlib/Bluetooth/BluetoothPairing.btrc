@@ -1,0 +1,35 @@
+/* Who may pair with this machine over Bluetooth.
+ *
+ * Bluetooth pairs two devices itself; what a program decides is whether to
+ * let a given device do so. A BluetoothAdapter asks its IBluetoothPairing
+ * when the system asks it: for a pairing with a code or a confirmation. A
+ * pairing without either is bounded by `BluetoothAdapter.allowPairing`
+ * alone, so a program keeps that on only while its pairing window is open.
+ * No I/O, so this is the same on every target. */
+
+import Library.Bluetooth.BluetoothAddress;
+import Library.Timer;
+
+interface IBluetoothPairing {
+	/* A device asks to pair, or to use a service. True lets it. */
+	bool accept(BluetoothAddress peer);
+}
+
+/* Pairing is allowed only for a while after someone asks for it: the usual
+ * "hold the button to pair" behavior. */
+class BluetoothPairingWindow implements IBluetoothPairing {
+	private long long deadline = 0LL;
+	private bool opened = false;
+
+	/* Let devices pair for the next `seconds`. */
+	public void open(int seconds) {
+		self.deadline = MonotonicClock.deadlineAfter((long long)(seconds > 0 ? seconds : 0) * 1000LL);
+		self.opened = true;
+	}
+
+	public void close() { self.opened = false; }
+
+	public bool isOpen() { return self.opened && MonotonicClock.before(self.deadline); }
+
+	public bool accept(BluetoothAddress peer) { return self.isOpen(); }
+}

@@ -1,0 +1,70 @@
+/* Library.Bluetooth where there may be no Bluetooth at all: the values and
+ * the pairing window work everywhere, and every operation that needs an
+ * adapter or a channel fails by saying so instead of hanging or crashing.
+ * The VM check (bluetooth-hid-loopback) covers what works with controllers. */
+
+import Library.Bluetooth;
+import Library.Bytes;
+
+import ./CounterPad.btrc;
+#include <assert.h>
+
+class BluetoothConformance {
+	class bool refusesAdapter() {
+		BluetoothPairingWindow window = BluetoothPairingWindow();
+		try { BluetoothAdapter.open("hci-absent", window); } catch (string error) { return !error.isEmpty(); }
+		return false;
+	}
+
+	class bool refusesNoName() {
+		BluetoothPairingWindow window = BluetoothPairingWindow();
+		try { BluetoothAdapter.open("", window); } catch (string error) { return true; }
+		return false;
+	}
+
+	class bool refusesListener() {
+		try { L2CAPListener.listen(BluetoothAddress.any(), 0x1001); } catch (string error) { return !error.isEmpty(); }
+		return false;
+	}
+
+	class bool refusesChannel(BluetoothAddress peer) {
+		try { L2CAPChannel.connect(BluetoothAddress.any(), peer, 0x1001, L2CAP_SECURITY_NONE, 100); } catch (string error) { return !error.isEmpty(); }
+		return false;
+	}
+
+	class bool refusesDevice() {
+		BluetoothPairingWindow window = BluetoothPairingWindow();
+		try { BluetoothHIDDevice.open(BluetoothAddress.any(), CounterPad(), window); } catch (string error) { return true; }
+		return false;
+	}
+
+	class bool refusesBadPSM() {
+		try { L2CAPListener.listen(BluetoothAddress.any(), 0); } catch (string error) { return true; }
+		return false;
+	}
+}
+
+int main() {
+	BluetoothAddress? parsed = BluetoothAddress.parse("00:11:22:33:44:55");
+	if (parsed == null) { return 2; }
+	BluetoothAddress peer = parsed;
+
+	BluetoothPairingWindow window = BluetoothPairingWindow();
+	assert(!window.isOpen() && !window.accept(peer));
+	window.open(60);
+	assert(window.isOpen() && window.accept(peer));
+	window.close();
+	assert(!window.isOpen() && !window.accept(peer));
+	window.open(0);
+	assert(!window.accept(peer));
+
+	/* No adapter has this name, with or without a daemon to ask. */
+	assert(BluetoothConformance.refusesAdapter() && BluetoothConformance.refusesNoName() && BluetoothConformance.refusesBadPSM());
+	if (!L2CAP.supported()) {
+		assert(BluetoothConformance.refusesListener() && BluetoothConformance.refusesChannel(peer) && BluetoothConformance.refusesDevice());
+		print("PASS: Bluetooth values, and refusals without Bluetooth");
+		return 0;
+	}
+	print("PASS: Bluetooth values, with Bluetooth present");
+	return 0;
+}

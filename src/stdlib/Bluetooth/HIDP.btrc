@@ -1,0 +1,231 @@
+/* The Bluetooth HID protocol (HIDP) from the device's side, and the service
+ * record a HID device publishes. Logic and text only: the channels that carry
+ * the messages are BluetoothHIDDevice's, so this builds on every target.
+ *
+ * A HIDP message starts with one byte: the message kind in the high four
+ * bits and a parameter in the low four. The host asks on the control channel
+ * and the device answers there; reports flow on the interrupt channel. */
+
+import Library.Bytes;
+import Library.HID.HIDDevice;
+
+enum HIDPMessage {
+	HIDP_HANDSHAKE = 0x0,
+	HIDP_CONTROL = 0x1,
+	HIDP_GET_REPORT = 0x4,
+	HIDP_SET_REPORT = 0x5,
+	HIDP_GET_PROTOCOL = 0x6,
+	HIDP_SET_PROTOCOL = 0x7,
+	HIDP_GET_IDLE = 0x8,
+	HIDP_SET_IDLE = 0x9,
+	HIDP_DATA = 0xA
+};
+
+enum HIDPResult {
+	HIDP_SUCCESSFUL = 0x0,
+	HIDP_NOT_READY = 0x1,
+	HIDP_INVALID_REPORT_ID = 0x2,
+	HIDP_UNSUPPORTED_REQUEST = 0x3,
+	HIDP_INVALID_PARAMETER = 0x4
+};
+
+/* HID_CONTROL's parameter. */
+enum HIDPControl {
+	HIDP_SUSPEND = 0x3,
+	HIDP_EXIT_SUSPEND = 0x4,
+	HIDP_VIRTUAL_CABLE_UNPLUG = 0x5
+};
+
+class HIDPDevice {
+	private IHIDDevice device;
+	private bool numbered;
+	private bool removed = false;
+	private bool asleep = false;
+	private int protocol = 1;
+	private int idle = 0;
+
+	public HIDPDevice(IHIDDevice device) {
+		if (device == null) { throw "HIDP needs a device"; }
+		self.device = device;
+		self.numbered = HIDReportDescriptor.numbered(device.reportDescriptor());
+	}
+
+	class Bytes handshake(int result) {
+		Bytes reply = Bytes();
+		reply.append((HIDP_HANDSHAKE << 4) | (result & 15));
+		return reply;
+	}
+
+	/* Whether the host unplugged the virtual cable: it has dropped the
+	 * pairing, and the device should not reconnect to it. */
+	public bool unplugged() { return self.removed; }
+
+	/* Whether the host has asked the device to suspend. */
+	public bool suspended() { return self.asleep; }
+
+	private Bytes getReport(Bytes message) {
+		int header = message.get(0);
+		int kind = header & 3;
+		int id = 0;
+		int next = 1;
+		if (self.numbered) {
+			if (message.length() < 2) { return HIDPDevice.handshake(HIDP_INVALID_PARAMETER); }
+			id = message.get(1);
+			next = 2;
+		}
+		Bytes report = Bytes();
+		if (kind == 0 || !self.device.getReport(kind, id, report)) { return HIDPDevice.handshake(HIDP_INVALID_REPORT_ID); }
+		/* The host may cap the reply's length. */
+		int length = report.length();
+		if ((header & 8) != 0 && message.length() >= next + 2) {
+			int limit = message.get(next) | (message.get(next + 1) << 8);
+			if (limit < length) { length = limit; }
+		}
+		Bytes reply = Bytes();
+		reply.append((HIDP_DATA << 4) | kind);
+		reply.appendBytes(report.slice(0, length));
+		return reply;
+	}
+
+	/* One message from the control channel. The reply to send back on it,
+	 * empty when the message has none. */
+	public Bytes control(Bytes message) {
+		Bytes nothing = Bytes();
+		if (message == null || message.isEmpty()) { return nothing; }
+		int header = message.get(0);
+		int kind = header >> 4;
+		int parameter = header & 15;
+		if (kind == HIDP_CONTROL) {
+			if (parameter == HIDP_VIRTUAL_CABLE_UNPLUG) { self.removed = true; }
+			else if (parameter == HIDP_SUSPEND) { self.asleep = true; }
+			else if (parameter == HIDP_EXIT_SUSPEND) { self.asleep = false; }
+			return nothing;
+		}
+		if (kind == HIDP_GET_REPORT) { return self.getReport(message); }
+		if (kind == HIDP_SET_REPORT) {
+			Bytes report = message.slice(1, message.length());
+			int reportKind = parameter & 3;
+			if (reportKind != HID_REPORT_OUTPUT && reportKind != HID_REPORT_FEATURE) { return HIDPDevice.handshake(HIDP_INVALID_PARAMETER); }
+			bool accepted = self.device.setReport(reportKind, HIDReportDescriptor.idOf(report, self.numbered), report);
+			return HIDPDevice.handshake(accepted ? HIDP_SUCCESSFUL : HIDP_INVALID_REPORT_ID);
+		}
+		if (kind == HIDP_GET_PROTOCOL || kind == HIDP_GET_IDLE) {
+			Bytes reply = Bytes();
+			reply.append(HIDP_DATA << 4);
+			reply.append(kind == HIDP_GET_PROTOCOL ? self.protocol : self.idle);
+			return reply;
+		}
+		if (kind == HIDP_SET_PROTOCOL) {
+			self.protocol = parameter & 1;
+			return HIDPDevice.handshake(HIDP_SUCCESSFUL);
+		}
+		if (kind == HIDP_SET_IDLE) {
+			self.idle = message.length() > 1 ? message.get(1) : 0;
+			return HIDPDevice.handshake(HIDP_SUCCESSFUL);
+		}
+		if (kind == HIDP_HANDSHAKE) { return nothing; }
+		return HIDPDevice.handshake(HIDP_UNSUPPORTED_REQUEST);
+	}
+
+	/* One message from the interrupt channel: an output report for the device. */
+	public void interrupt(Bytes message) {
+		if (message == null || message.length() < 2 || message.get(0) != ((HIDP_DATA << 4) | HID_REPORT_OUTPUT)) { return; }
+		Bytes report = message.slice(1, message.length());
+		self.device.setReport(HID_REPORT_OUTPUT, HIDReportDescriptor.idOf(report, self.numbered), report);
+	}
+
+	/* Append the next input report, framed for the interrupt channel, to
+	 * `message`. False when the device has none due. */
+	public bool nextInput(Bytes message) {
+		Bytes report = Bytes();
+		if (!self.device.nextInput(report)) { return false; }
+		message.append((HIDP_DATA << 4) | HID_REPORT_INPUT);
+		message.appendBytes(report);
+		return true;
+	}
+
+	/* The message that tells the host the pairing is gone on this side. */
+	class Bytes unplug() {
+		Bytes message = Bytes();
+		message.append((HIDP_CONTROL << 4) | HIDP_VIRTUAL_CABLE_UNPLUG);
+		return message;
+	}
+}
+
+/* What a host learns about a HID device before it connects: the service
+ * record, as the XML BlueZ registers. */
+class BluetoothHIDRecord {
+	public string name;
+	public string description = "";
+	public string provider = "";
+	/* The Bluetooth minor device class bits a HID device reports, such as
+	 * 0x08 for a gamepad. */
+	public int subclass = 0x08;
+	public int vendor = 0;
+	public int product = 0;
+	public int version = 0;
+	public Bytes descriptor;
+
+	public BluetoothHIDRecord(string name, Bytes descriptor) {
+		if (descriptor == null || descriptor.isEmpty()) { throw "A HID service record needs a report descriptor"; }
+		self.name = name;
+		self.descriptor = descriptor.slice(0, descriptor.length());
+	}
+
+	/* The USB-style identity hosts match drivers on (the Device ID profile). */
+	public BluetoothHIDRecord identified(int vendor, int product, int version) {
+		self.vendor = vendor & 0xFFFF;
+		self.product = product & 0xFFFF;
+		self.version = version & 0xFFFF;
+		return self;
+	}
+
+	public BluetoothHIDRecord described(string description, string provider) {
+		self.description = description;
+		self.provider = provider;
+		return self;
+	}
+
+	class string hex(int value, int digits) {
+		string letters = "0123456789abcdef";
+		string text = "";
+		for (int shift = (digits - 1) * 4; shift >= 0; shift -= 4) { text = text + letters.substring((value >> shift) & 15, 1); }
+		return text;
+	}
+
+	/* Text safe inside an XML attribute. */
+	class string escaped(string text) { return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;"); }
+
+	/* The identity as BlueZ's `DeviceID` setting spells it. */
+	public string deviceID() { return f"usb:{BluetoothHIDRecord.hex(self.vendor, 4).toUpper()}:{BluetoothHIDRecord.hex(self.product, 4).toUpper()}:{BluetoothHIDRecord.hex(self.version, 4).toUpper()}"; }
+
+	/* The HID service record: L2CAP control (0x11) and interrupt (0x13)
+	 * channels, HID 1.1, virtual cable, reconnect initiated by the device,
+	 * and the report descriptor. */
+	public string xml() {
+		string report = "";
+		for (int index = 0; index < self.descriptor.length(); index++) { report = report + BluetoothHIDRecord.hex(self.descriptor.get(index), 2); }
+		string text = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<record>\n";
+		text = text + "  <attribute id=\"0x0001\"><sequence><uuid value=\"0x1124\" /></sequence></attribute>\n";
+		text = text + "  <attribute id=\"0x0004\"><sequence><sequence><uuid value=\"0x0100\" /><uint16 value=\"0x0011\" /></sequence><sequence><uuid value=\"0x0011\" /></sequence></sequence></attribute>\n";
+		text = text + "  <attribute id=\"0x0005\"><sequence><uuid value=\"0x1002\" /></sequence></attribute>\n";
+		text = text + "  <attribute id=\"0x0006\"><sequence><uint16 value=\"0x656e\" /><uint16 value=\"0x006a\" /><uint16 value=\"0x0100\" /></sequence></attribute>\n";
+		text = text + "  <attribute id=\"0x0009\"><sequence><sequence><uuid value=\"0x1124\" /><uint16 value=\"0x0101\" /></sequence></sequence></attribute>\n";
+		text = text + "  <attribute id=\"0x000d\"><sequence><sequence><sequence><uuid value=\"0x0100\" /><uint16 value=\"0x0013\" /></sequence><sequence><uuid value=\"0x0011\" /></sequence></sequence></sequence></attribute>\n";
+		text = text + f"  <attribute id=\"0x0100\"><text value=\"{BluetoothHIDRecord.escaped(self.name)}\" /></attribute>\n";
+		text = text + f"  <attribute id=\"0x0101\"><text value=\"{BluetoothHIDRecord.escaped(self.description)}\" /></attribute>\n";
+		text = text + f"  <attribute id=\"0x0102\"><text value=\"{BluetoothHIDRecord.escaped(self.provider)}\" /></attribute>\n";
+		text = text + "  <attribute id=\"0x0201\"><uint16 value=\"0x0111\" /></attribute>\n";
+		text = text + f"  <attribute id=\"0x0202\"><uint8 value=\"0x{BluetoothHIDRecord.hex(self.subclass, 2)}\" /></attribute>\n";
+		text = text + "  <attribute id=\"0x0203\"><uint8 value=\"0x00\" /></attribute>\n";
+		text = text + "  <attribute id=\"0x0204\"><boolean value=\"true\" /></attribute>\n";
+		text = text + "  <attribute id=\"0x0205\"><boolean value=\"true\" /></attribute>\n";
+		text = text + f"  <attribute id=\"0x0206\"><sequence><sequence><uint8 value=\"0x22\" /><text encoding=\"hex\" value=\"{report}\" /></sequence></sequence></attribute>\n";
+		text = text + "  <attribute id=\"0x0207\"><sequence><sequence><uint16 value=\"0x0409\" /><uint16 value=\"0x0100\" /></sequence></sequence></attribute>\n";
+		text = text + "  <attribute id=\"0x020b\"><uint16 value=\"0x0100\" /></attribute>\n";
+		text = text + "  <attribute id=\"0x020c\"><uint16 value=\"0x0c80\" /></attribute>\n";
+		text = text + "  <attribute id=\"0x020d\"><boolean value=\"false\" /></attribute>\n";
+		text = text + "  <attribute id=\"0x020e\"><boolean value=\"false\" /></attribute>\n";
+		return text + "</record>\n";
+	}
+}

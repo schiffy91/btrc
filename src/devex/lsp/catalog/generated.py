@@ -412,6 +412,11 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("fromSignedInteger", "uint", "method", (("int", "value"),), "fromSignedInteger"),
         BuiltinMemberSpec("fromFloatingPoint", "uint", "method", (("float", "value"),), "fromFloatingPoint"),
     )),
+    ("L2CAP", (
+        BuiltinMemberSpec("supported", "bool", "method", (), "supported"),
+        BuiltinMemberSpec("deadlineAfter", "long long", "method", (("int", "timeoutMilliseconds"),), "deadlineAfter"),
+        BuiltinMemberSpec("waitFor", "bool", "method", (("int", "descriptor"), ("short", "events"), ("long long", "deadline"),), "waitFor"),
+    )),
     ("COMApartment", (
         BuiltinMemberSpec("initialize", "void", "method", (), "initialize"),
         BuiltinMemberSpec("initialized", "bool", "method", (), "initialized"),

@@ -25,7 +25,8 @@ print(own.publicKey().fingerprint());          // what `ssh-keygen -l` prints
 ```
 
 `SigningKey.fromOpenSSH` reads an unencrypted OpenSSH private key file, so a
-machine's SSH host key can be its identity. `PublicKey.fromOpenSSH` reads the
+machine's SSH host key can be its identity, and `toOpenSSH` writes one that
+`ssh-keygen` reads. `PublicKey.fromOpenSSH` reads the
 key out of an `authorized_keys` or `known_hosts` line, so a peer can be
 trusted by a line that already exists. Passphrase-protected keys and other
 key types are refused (null).
@@ -89,4 +90,4 @@ it; Windows, iOS and Android have no row. `Base64` needs none.
   processes over a socket pair and over TCP, including a tampered frame, an
   unexpected identity and a peer speaking another protocol. It also has
   `ssh-keygen` write a fresh key pair and checks that btrc loads it and prints
-  the same fingerprint.
+  the same fingerprint, and has `ssh-keygen` read a key btrc wrote.

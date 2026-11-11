@@ -1,0 +1,235 @@
+/* L2CAP channels: Bluetooth's packet connections, which the HID, audio and
+ * serial profiles are built on.
+ *
+ * A channel carries whole packets in both directions. Every wait takes a
+ * timeout in milliseconds; zero or less tries once without waiting. A PSM
+ * names the service a channel is for, as a port does for TCP.
+ *
+ * Linux has the provider (the kernel's Bluetooth sockets). Other rows report
+ * `L2CAP.supported()` false and fail to open. */
+
+import Library.Bluetooth.BluetoothAddress;
+import Library.Bytes;
+import Library.Strings;
+import Library.Timer;
+
+#include <errno.h>
+#include <limits.h>
+#include <poll.h>
+#include <string.h>
+#include <unistd.h>
+
+/* What a receive can report besides a packet's length. */
+enum L2CAPResult {
+	L2CAP_CLOSED = 0,
+	L2CAP_TIMED_OUT = -1,
+	L2CAP_FAILED = -2
+};
+
+/* What a channel requires of the link before it carries data. */
+enum L2CAPSecurity {
+	L2CAP_SECURITY_NONE = 1,
+	L2CAP_SECURITY_ENCRYPTED = 2,
+	L2CAP_SECURITY_AUTHENTICATED = 3
+};
+
+/* The largest packet a channel here sends or receives. */
+enum L2CAPLimit {
+	L2CAP_PACKET = 4096
+};
+
+class L2CAP {
+	/* Whether this target has L2CAP channels at all. */
+	class bool supported() { return L2CAPProvider.supported(); }
+
+	class long long deadlineAfter(int timeoutMilliseconds) {
+		int bounded = timeoutMilliseconds > 0 ? timeoutMilliseconds : 0;
+		if (bounded > 86400000) { bounded = 86400000; }
+		return MonotonicClock.deadlineAfter((long long)bounded);
+	}
+
+	/* Wait until the socket is ready for `events` or the deadline passes. */
+	class bool waitFor(int descriptor, short events, long long deadline) {
+		while (true) {
+			long long remaining = MonotonicClock.remaining(deadline);
+			struct pollfd pending;
+			pending.fd = descriptor;
+			pending.events = events;
+			pending.revents = 0;
+			int waitMilliseconds = remaining <= 0LL ? 0 : (remaining > (long long)INT_MAX ? INT_MAX : (int)remaining);
+			int ready = poll(&pending, (nfds_t)1, waitMilliseconds);
+			if (ready < 0 && errno == EINTR) { continue; }
+			return ready > 0;
+		}
+		return false;
+	}
+}
+
+class L2CAPChannel {
+	private int descriptor = -1;
+	private BluetoothAddress remote;
+
+	private L2CAPChannel(int descriptor, BluetoothAddress remote) {
+		self.descriptor = descriptor;
+		self.remote = remote;
+	}
+
+	/* Own a connected channel's socket, such as one a listener accepted. */
+	class L2CAPChannel adopt(int descriptor, BluetoothAddress remote) {
+		if (descriptor < 0 || remote == null) { throw "An L2CAP channel needs a connected socket and its peer address"; }
+		return L2CAPChannel(descriptor, remote);
+	}
+
+	/* Connect from the adapter `local` to a peer's PSM within the timeout,
+	 * or throw why not. `security` is an L2CAPSecurity the link must reach
+	 * first, which pairs with the peer if it has to. */
+	class L2CAPChannel connect(BluetoothAddress local, BluetoothAddress peer, int psm, int security, int timeoutMilliseconds) {
+		if (local == null || peer == null || psm < 1 || psm > 65535) { throw "An L2CAP connection needs two addresses and a PSM"; }
+		unsigned char near[6];
+		unsigned char far[6];
+		local.toWire(near);
+		peer.toWire(far);
+		int descriptor = L2CAPProvider.bound(near, 0);
+		if (descriptor < 0) { throw "Cannot create an L2CAP socket (is Bluetooth available?)"; }
+		int failure = 0;
+		if (!L2CAPProvider.secure(descriptor, security)) { failure = errno; }
+		if (failure == 0) {
+			int started = L2CAPProvider.connect(descriptor, far, psm);
+			if (started < 0) { failure = errno; }
+			else if (started > 0) {
+				failure = ETIMEDOUT;
+				if (L2CAP.waitFor(descriptor, POLLOUT, L2CAP.deadlineAfter(timeoutMilliseconds))) { failure = L2CAPProvider.failure(descriptor); }
+			}
+		}
+		if (failure != 0) {
+			close(descriptor);
+			throw f"Cannot connect to {peer.toString()} PSM {psm}: {Strings.copy(strerror(failure))}";
+		}
+		return L2CAPChannel(descriptor, peer);
+	}
+
+	public bool isOpen() { return self.descriptor >= 0; }
+
+	/* The socket, to wait on. */
+	public int handle() { return self.descriptor; }
+
+	public BluetoothAddress peer() { return self.remote; }
+
+	/* Send this channel's packets ahead of other traffic on the adapter. */
+	public bool prioritize() { return self.descriptor >= 0 && L2CAPProvider.prioritize(self.descriptor, 6); }
+
+	/* Bytes sent but not yet on the air. A sender of fresh state can skip a
+	 * turn while this is high instead of queueing stale packets. */
+	public int unsent() { return self.descriptor >= 0 ? L2CAPProvider.unsent(self.descriptor) : 0; }
+
+	/* Append the next packet to `packet` and return its length, or an
+	 * L2CAPResult. A failed or closed channel is closed here too. */
+	public int receive(Bytes packet, int timeoutMilliseconds) {
+		unsigned char buffer[4096];
+		if (self.descriptor < 0 || packet == null) { return L2CAP_FAILED; }
+		long long deadline = L2CAP.deadlineAfter(timeoutMilliseconds);
+		while (true) {
+			int count = (int)read(self.descriptor, buffer, (size_t)L2CAP_PACKET);
+			if (count > 0) {
+				packet.appendRaw((char*)buffer, count);
+				return count;
+			}
+			if (count == 0) {
+				self.close();
+				return L2CAP_CLOSED;
+			}
+			if (errno == EINTR) { continue; }
+			if (errno != EAGAIN && errno != EWOULDBLOCK) {
+				self.close();
+				return L2CAP_FAILED;
+			}
+			if (!L2CAP.waitFor(self.descriptor, POLLIN, deadline)) { return L2CAP_TIMED_OUT; }
+		}
+		return L2CAP_FAILED;
+	}
+
+	/* Send one packet. False when it could not be sent in time, or the
+	 * channel failed, which closes it. */
+	public bool send(Bytes packet, int timeoutMilliseconds) {
+		if (self.descriptor < 0 || packet == null || packet.isEmpty() || packet.length() > L2CAP_PACKET) { return false; }
+		long long deadline = L2CAP.deadlineAfter(timeoutMilliseconds);
+		while (true) {
+			int count = (int)write(self.descriptor, packet.data, (size_t)packet.length());
+			if (count == packet.length()) { return true; }
+			if (count < 0 && errno == EINTR) { continue; }
+			if (count >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+				self.close();
+				return false;
+			}
+			if (!L2CAP.waitFor(self.descriptor, POLLOUT, deadline)) { return false; }
+		}
+		return false;
+	}
+
+	public void close() {
+		if (self.descriptor < 0) { return; }
+		close(self.descriptor);
+		self.descriptor = -1;
+	}
+
+	public void __del__() { self.close(); }
+}
+
+class L2CAPListener {
+	private int descriptor = -1;
+	private int number;
+
+	private L2CAPListener(int descriptor, int number) {
+		self.descriptor = descriptor;
+		self.number = number;
+	}
+
+	/* Listen on a PSM of the adapter `local` (BluetoothAddress.any() for
+	 * every adapter), or throw why not: another program holds the PSM, or
+	 * Bluetooth is not available. PSMs below 0x1001 need root. */
+	class L2CAPListener listen(BluetoothAddress local, int psm) {
+		if (local == null || psm < 1 || psm > 65535) { throw "An L2CAP listener needs an adapter address and a PSM"; }
+		unsigned char near[6];
+		local.toWire(near);
+		int descriptor = L2CAPProvider.bound(near, psm);
+		if (descriptor < 0) { throw f"Cannot listen on L2CAP PSM {psm}: {Strings.copy(strerror(errno))}"; }
+		if (!L2CAPProvider.listen(descriptor)) {
+			close(descriptor);
+			throw f"Cannot listen on L2CAP PSM {psm}";
+		}
+		return L2CAPListener(descriptor, psm);
+	}
+
+	public bool isOpen() { return self.descriptor >= 0; }
+
+	/* The socket, to wait on: it is readable when a peer is connecting. */
+	public int handle() { return self.descriptor; }
+
+	public int psm() { return self.number; }
+
+	/* Require an L2CAPSecurity of every channel accepted from now on. */
+	public bool secure(int security) { return self.descriptor >= 0 && L2CAPProvider.secure(self.descriptor, security); }
+
+	/* The next channel a peer opened, or null when none arrives in time. */
+	public L2CAPChannel? accept(int timeoutMilliseconds) {
+		unsigned char far[6];
+		if (self.descriptor < 0) { return null; }
+		long long deadline = L2CAP.deadlineAfter(timeoutMilliseconds);
+		while (true) {
+			int accepted = L2CAPProvider.accept(self.descriptor, far);
+			if (accepted >= 0) { return L2CAPChannel.adopt(accepted, BluetoothAddress.fromWire(far)); }
+			if (errno == EINTR) { continue; }
+			if (errno != EAGAIN && errno != EWOULDBLOCK) { return null; }
+			if (!L2CAP.waitFor(self.descriptor, POLLIN, deadline)) { return null; }
+		}
+		return null;
+	}
+
+	public void close() {
+		if (self.descriptor < 0) { return; }
+		close(self.descriptor);
+		self.descriptor = -1;
+	}
+
+	public void __del__() { self.close(); }
+}

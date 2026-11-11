@@ -24,4 +24,6 @@ class USBHostProvider {
 	class bool busy(int port) { return false; }
 
 	class bool detach(int port) { return false; }
+
+	class int detachDevice(long long deviceId) { return 0; }
 }

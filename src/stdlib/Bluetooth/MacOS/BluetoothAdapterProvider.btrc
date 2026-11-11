@@ -1,0 +1,43 @@
+/* BluetoothAdapter on macOS: not written. The adapter there is IOBluetooth's
+ * host controller, and a program cannot publish a HID service on it. Every
+ * operation reports that, so a program can ask
+ * `BluetoothAdapter.supported()` first. */
+
+import Library.Bluetooth.BluetoothAddress;
+import Library.Bluetooth.BluetoothPairing;
+
+#include <poll.h>
+
+class BluetoothAdapterProvider {
+	class bool supported() { return false; }
+
+	public BluetoothAdapterProvider(string name, IBluetoothPairing policy) { throw "This target has no Bluetooth adapter control"; }
+
+	public string text(string property) { return ""; }
+
+	public bool flag(string property) { return false; }
+
+	public bool deviceFlag(BluetoothAddress peer, string property) { return false; }
+
+	public bool setFlag(string property, bool value) { return false; }
+
+	public bool setNumber(string property, int value) { return false; }
+
+	public bool setText(string property, string value) { return false; }
+
+	public bool publish(string uuid, string record) { return false; }
+
+	public void withdraw() {}
+
+	public bool arbitrate() { return false; }
+
+	public void dismiss() {}
+
+	public bool forget(BluetoothAddress peer) { return false; }
+
+	public int watch(struct pollfd* descriptors, int capacity) { return 0; }
+
+	public bool step() { return false; }
+
+	public void close() {}
+}

@@ -495,6 +495,18 @@
         "linux-devcontainer"
       ],
       "note": "USBGadget's provider is configfs and FunctionFS; the macOS provider reports unsupported, which test_a_machine_without_a_device_controller_refuses_a_gadget runs here. The Linux shard builds the loopback program on both frontends, and the flake's usb-gadget-loopback check runs it in a VM."
+    },
+    {
+      "id": "bluetooth-bluez-linux-only",
+      "files": [
+        "src/tests/python/test_bluetooth_runtime.py"
+      ],
+      "reason": "^requires Linux: Library\\.Bluetooth's BlueZ and L2CAP providers have Linux rows only$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "L2CAP is the Linux kernel's Bluetooth sockets and BluetoothAdapter is BlueZ over D-Bus; test_windows_builds_bluetooth_values_but_no_channels runs on every host and pins what builds without them. The Linux shard runs the values and refusals and builds the loopback program, and the flake's bluetooth-hid-loopback check runs it in a VM with emulated controllers."
     }
   ]
 }

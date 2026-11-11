@@ -1,0 +1,340 @@
+/* BluetoothAdapter on Linux: BlueZ's daemon, over the system bus. The
+ * adapter's settings are properties of its object, the service record is a
+ * profile registered with the daemon, and pairing requests arrive as calls
+ * on an agent object this connection serves. `BlueZ.h` holds the include and
+ * the few libdbus adapters. */
+
+import Library.Bluetooth.BluetoothAddress;
+import Library.Bluetooth.BluetoothPairing;
+import Library.Strings;
+
+#include <poll.h>
+
+class BluetoothAdapterProvider {
+	private DBusConnection* connection;
+	private string name;
+	private string path;
+	private IBluetoothPairing policy;
+	private bool agent = false;
+	private bool profile = false;
+
+	class bool supported() { return true; }
+
+	class string service() { return "org.bluez"; }
+
+	class string copied(const char* raw) { return raw == null ? "" : Strings.copy((char*)raw); }
+
+	/* Connect to the daemon and find the adapter, or throw why not. */
+	public BluetoothAdapterProvider(string name, IBluetoothPairing policy) {
+		self.name = name;
+		self.path = f"/org/bluez/{name}";
+		self.policy = policy;
+		self.connection = btrcBlueZOpen();
+		if (self.connection == null) { throw "Cannot reach the system bus (is D-Bus running?)"; }
+		dbus_connection_set_exit_on_disconnect(self.connection, 0u);
+		if (self.text("Address").isEmpty()) {
+			self.close();
+			throw f"No Bluetooth adapter {name} (is bluetoothd running?)";
+		}
+	}
+
+	private string agentPath() { return f"/org/btrc/bluetooth/{self.name}/agent"; }
+
+	private string profilePath() { return f"/org/btrc/bluetooth/{self.name}/profile"; }
+
+	/* Send a call, wait for it and drop the reply. */
+	private bool send(DBusMessage* request) {
+		if (request == null) { return false; }
+		DBusMessage* reply = btrcBlueZCall(self.connection, request, 5000);
+		dbus_message_unref(request);
+		if (reply == null) { return false; }
+		dbus_message_unref(reply);
+		return true;
+	}
+
+	private DBusMessage* getter(string property) {
+		DBusMessage* request = dbus_message_new_method_call(BluetoothAdapterProvider.service(), self.path, "org.freedesktop.DBus.Properties", "Get");
+		if (request == null) { return null; }
+		DBusMessageIter arguments;
+		dbus_message_iter_init_append(request, &arguments);
+		btrcBlueZAppendString(&arguments, DBUS_TYPE_STRING, "org.bluez.Adapter1");
+		btrcBlueZAppendString(&arguments, DBUS_TYPE_STRING, property);
+		DBusMessage* reply = btrcBlueZCall(self.connection, request, 5000);
+		dbus_message_unref(request);
+		return reply;
+	}
+
+	/* A string property of the adapter; empty when it cannot be read. */
+	public string text(string property) {
+		if (self.connection == null) { return ""; }
+		DBusMessage* reply = self.getter(property);
+		if (reply == null) { return ""; }
+		string value = "";
+		DBusMessageIter arguments;
+		DBusMessageIter variant;
+		if (dbus_message_iter_init(reply, &arguments) != 0u && dbus_message_iter_get_arg_type(&arguments) == DBUS_TYPE_VARIANT) {
+			dbus_message_iter_recurse(&arguments, &variant);
+			value = BluetoothAdapterProvider.copied(btrcBlueZReadString(&variant));
+		}
+		dbus_message_unref(reply);
+		return value;
+	}
+
+	/* A boolean property of the adapter; false when it cannot be read. */
+	public bool flag(string property) {
+		if (self.connection == null) { return false; }
+		DBusMessage* reply = self.getter(property);
+		if (reply == null) { return false; }
+		bool value = false;
+		DBusMessageIter arguments;
+		DBusMessageIter variant;
+		if (dbus_message_iter_init(reply, &arguments) != 0u && dbus_message_iter_get_arg_type(&arguments) == DBUS_TYPE_VARIANT) {
+			dbus_message_iter_recurse(&arguments, &variant);
+			value = btrcBlueZReadBool(&variant) != 0;
+		}
+		dbus_message_unref(reply);
+		return value;
+	}
+
+	/* A boolean property of a device the daemon knows, such as "Bonded";
+	 * false when it has no such device. */
+	public bool deviceFlag(BluetoothAddress peer, string property) {
+		if (self.connection == null) { return false; }
+		DBusMessage* request = dbus_message_new_method_call(BluetoothAdapterProvider.service(), self.devicePath(peer), "org.freedesktop.DBus.Properties", "Get");
+		if (request == null) { return false; }
+		DBusMessageIter arguments;
+		DBusMessageIter variant;
+		dbus_message_iter_init_append(request, &arguments);
+		btrcBlueZAppendString(&arguments, DBUS_TYPE_STRING, "org.bluez.Device1");
+		btrcBlueZAppendString(&arguments, DBUS_TYPE_STRING, property);
+		DBusMessage* reply = btrcBlueZCall(self.connection, request, 5000);
+		dbus_message_unref(request);
+		if (reply == null) { return false; }
+		bool value = false;
+		if (dbus_message_iter_init(reply, &arguments) != 0u && dbus_message_iter_get_arg_type(&arguments) == DBUS_TYPE_VARIANT) {
+			dbus_message_iter_recurse(&arguments, &variant);
+			value = btrcBlueZReadBool(&variant) != 0;
+		}
+		dbus_message_unref(reply);
+		return value;
+	}
+
+	private DBusMessage* setter(DBusMessageIter* arguments, string property) {
+		DBusMessage* request = dbus_message_new_method_call(BluetoothAdapterProvider.service(), self.path, "org.freedesktop.DBus.Properties", "Set");
+		if (request == null) { return null; }
+		dbus_message_iter_init_append(request, arguments);
+		btrcBlueZAppendString(arguments, DBUS_TYPE_STRING, "org.bluez.Adapter1");
+		btrcBlueZAppendString(arguments, DBUS_TYPE_STRING, property);
+		return request;
+	}
+
+	public bool setFlag(string property, bool value) {
+		DBusMessageIter arguments;
+		DBusMessageIter variant;
+		if (self.connection == null) { return false; }
+		DBusMessage* request = self.setter(&arguments, property);
+		if (request == null) { return false; }
+		dbus_message_iter_open_container(&arguments, DBUS_TYPE_VARIANT, "b", &variant);
+		btrcBlueZAppendBool(&variant, value ? 1 : 0);
+		dbus_message_iter_close_container(&arguments, &variant);
+		return self.send(request);
+	}
+
+	public bool setNumber(string property, int value) {
+		DBusMessageIter arguments;
+		DBusMessageIter variant;
+		if (self.connection == null) { return false; }
+		DBusMessage* request = self.setter(&arguments, property);
+		if (request == null) { return false; }
+		dbus_message_iter_open_container(&arguments, DBUS_TYPE_VARIANT, "u", &variant);
+		btrcBlueZAppendUInt32(&variant, (unsigned int)value);
+		dbus_message_iter_close_container(&arguments, &variant);
+		return self.send(request);
+	}
+
+	public bool setText(string property, string value) {
+		DBusMessageIter arguments;
+		DBusMessageIter variant;
+		if (self.connection == null) { return false; }
+		DBusMessage* request = self.setter(&arguments, property);
+		if (request == null) { return false; }
+		dbus_message_iter_open_container(&arguments, DBUS_TYPE_VARIANT, "s", &variant);
+		btrcBlueZAppendString(&variant, DBUS_TYPE_STRING, value);
+		dbus_message_iter_close_container(&arguments, &variant);
+		return self.send(request);
+	}
+
+	private void entryText(DBusMessageIter* options, string key, string value) {
+		DBusMessageIter entry;
+		DBusMessageIter variant;
+		dbus_message_iter_open_container(options, DBUS_TYPE_DICT_ENTRY, null, &entry);
+		btrcBlueZAppendString(&entry, DBUS_TYPE_STRING, key);
+		dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, "s", &variant);
+		btrcBlueZAppendString(&variant, DBUS_TYPE_STRING, value);
+		dbus_message_iter_close_container(&entry, &variant);
+		dbus_message_iter_close_container(options, &entry);
+	}
+
+	private void entryFlag(DBusMessageIter* options, string key, bool value) {
+		DBusMessageIter entry;
+		DBusMessageIter variant;
+		dbus_message_iter_open_container(options, DBUS_TYPE_DICT_ENTRY, null, &entry);
+		btrcBlueZAppendString(&entry, DBUS_TYPE_STRING, key);
+		dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, "b", &variant);
+		btrcBlueZAppendBool(&variant, value ? 1 : 0);
+		dbus_message_iter_close_container(&entry, &variant);
+		dbus_message_iter_close_container(options, &entry);
+	}
+
+	/* Publish a service record under a profile UUID. The daemon only lists
+	 * it; the program serves the channels the record names. */
+	public bool publish(string uuid, string record) {
+		if (self.connection == null) { return false; }
+		if (self.profile) { self.withdraw(); }
+		DBusMessage* request = dbus_message_new_method_call(BluetoothAdapterProvider.service(), "/org/bluez", "org.bluez.ProfileManager1", "RegisterProfile");
+		if (request == null) { return false; }
+		DBusMessageIter arguments;
+		DBusMessageIter options;
+		dbus_message_iter_init_append(request, &arguments);
+		btrcBlueZAppendString(&arguments, DBUS_TYPE_OBJECT_PATH, self.profilePath());
+		btrcBlueZAppendString(&arguments, DBUS_TYPE_STRING, uuid);
+		dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "{sv}", &options);
+		self.entryText(&options, "ServiceRecord", record);
+		self.entryText(&options, "Role", "server");
+		self.entryFlag(&options, "RequireAuthentication", false);
+		self.entryFlag(&options, "RequireAuthorization", false);
+		self.entryFlag(&options, "AutoConnect", false);
+		dbus_message_iter_close_container(&arguments, &options);
+		self.profile = self.send(request);
+		return self.profile;
+	}
+
+	private bool manager(string iface, string member, string path, string extra) {
+		DBusMessage* request = dbus_message_new_method_call(BluetoothAdapterProvider.service(), "/org/bluez", iface, member);
+		if (request == null) { return false; }
+		DBusMessageIter arguments;
+		dbus_message_iter_init_append(request, &arguments);
+		btrcBlueZAppendString(&arguments, DBUS_TYPE_OBJECT_PATH, path);
+		if (!extra.isEmpty()) { btrcBlueZAppendString(&arguments, DBUS_TYPE_STRING, extra); }
+		return self.send(request);
+	}
+
+	public void withdraw() {
+		if (self.connection != null && self.profile) { self.manager("org.bluez.ProfileManager1", "UnregisterProfile", self.profilePath(), ""); }
+		self.profile = false;
+	}
+
+	/* Become the system's pairing agent: its questions about devices that
+	 * pair with a code or a confirmation are answered with the policy. The
+	 * daemon lets devices pair while it has an agent. */
+	public bool arbitrate() {
+		if (self.connection == null) { return false; }
+		if (self.agent) { return true; }
+		self.agent = self.manager("org.bluez.AgentManager1", "RegisterAgent", self.agentPath(), "NoInputNoOutput") && self.manager("org.bluez.AgentManager1", "RequestDefaultAgent", self.agentPath(), "");
+		return self.agent;
+	}
+
+	/* Stop being the pairing agent. With no agent left, the daemon stops
+	 * letting devices pair. */
+	public void dismiss() {
+		if (self.connection != null && self.agent) { self.manager("org.bluez.AgentManager1", "UnregisterAgent", self.agentPath(), ""); }
+		self.agent = false;
+	}
+
+	/* "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF" names the device AA:BB:... */
+	class BluetoothAddress? deviceOf(string path) {
+		int at = path.lastIndexOf("/dev_");
+		if (at < 0 || path.length() != at + 22) { return null; }
+		return BluetoothAddress.parse(path.substring(at + 5, 17).replace("_", ":"));
+	}
+
+	private string devicePath(BluetoothAddress peer) {
+		string place = peer.toString().replace(":", "_");
+		return f"{self.path}/dev_{place}";
+	}
+
+	/* Drop a device's pairing. */
+	public bool forget(BluetoothAddress peer) {
+		if (self.connection == null) { return false; }
+		DBusMessage* request = dbus_message_new_method_call(BluetoothAdapterProvider.service(), self.path, "org.bluez.Adapter1", "RemoveDevice");
+		if (request == null) { return false; }
+		DBusMessageIter arguments;
+		dbus_message_iter_init_append(request, &arguments);
+		btrcBlueZAppendString(&arguments, DBUS_TYPE_OBJECT_PATH, self.devicePath(peer));
+		return self.send(request);
+	}
+
+	private bool allowed(DBusMessage* message) {
+		DBusMessageIter arguments;
+		if (dbus_message_iter_init(message, &arguments) == 0u) { return false; }
+		BluetoothAddress? peer = BluetoothAdapterProvider.deviceOf(BluetoothAdapterProvider.copied(btrcBlueZReadString(&arguments)));
+		if (peer == null) { return false; }
+		return self.policy.accept(peer);
+	}
+
+	/* One call on the agent: the daemon asks whether a device may pair or
+	 * use a service. A refusal is the error BlueZ expects. */
+	private DBusMessage* agentReply(DBusMessage* message, string member) {
+		bool asks = member.equals("RequestConfirmation") || member.equals("RequestAuthorization") || member.equals("AuthorizeService") || member.equals("RequestPinCode") || member.equals("RequestPasskey");
+		if (asks && !self.allowed(message)) { return dbus_message_new_error(message, "org.bluez.Error.Rejected", "Pairing is not open"); }
+		DBusMessage* reply = dbus_message_new_method_return(message);
+		if (reply == null) { return null; }
+		DBusMessageIter arguments;
+		if (member.equals("RequestPinCode")) {
+			dbus_message_iter_init_append(reply, &arguments);
+			btrcBlueZAppendString(&arguments, DBUS_TYPE_STRING, "0000");
+		} else if (member.equals("RequestPasskey")) {
+			dbus_message_iter_init_append(reply, &arguments);
+			btrcBlueZAppendUInt32(&arguments, 0u);
+		}
+		return reply;
+	}
+
+	private void handle(DBusMessage* message) {
+		if (dbus_message_get_type(message) != DBUS_MESSAGE_TYPE_METHOD_CALL) { return; }
+		string path = BluetoothAdapterProvider.copied(dbus_message_get_path(message));
+		string iface = BluetoothAdapterProvider.copied(dbus_message_get_interface(message));
+		string member = BluetoothAdapterProvider.copied(dbus_message_get_member(message));
+		DBusMessage* reply = null;
+		if (path.equals(self.agentPath()) && iface.equals("org.bluez.Agent1")) { reply = self.agentReply(message, member); }
+		else if (path.equals(self.profilePath()) && iface.equals("org.bluez.Profile1")) { reply = dbus_message_new_method_return(message); }
+		else { reply = dbus_message_new_error(message, "org.freedesktop.DBus.Error.UnknownMethod", "Unknown method"); }
+		if (reply != null) {
+			if (!dbus_message_get_no_reply(message)) { dbus_connection_send(self.connection, reply, null); }
+			dbus_message_unref(reply);
+		}
+		dbus_connection_flush(self.connection);
+	}
+
+	/* The descriptor to wait on: the bus connection. */
+	public int watch(struct pollfd* descriptors, int capacity) {
+		if (capacity < 1 || self.connection == null) { return 0; }
+		int descriptor = btrcBlueZDescriptor(self.connection);
+		if (descriptor < 0) { return 0; }
+		descriptors[0].fd = descriptor;
+		descriptors[0].events = POLLIN;
+		descriptors[0].revents = 0;
+		return 1;
+	}
+
+	/* Answer what the daemon has asked. False when the bus went away. */
+	public bool step() {
+		if (self.connection == null) { return false; }
+		if (!dbus_connection_read_write(self.connection, 0)) { return false; }
+		DBusMessage* message = dbus_connection_pop_message(self.connection);
+		while (message != null) {
+			try { self.handle(message); } finally { dbus_message_unref(message); }
+			message = dbus_connection_pop_message(self.connection);
+		}
+		return true;
+	}
+
+	public void close() {
+		if (self.connection == null) { return; }
+		self.withdraw();
+		self.dismiss();
+		dbus_connection_close(self.connection);
+		dbus_connection_unref(self.connection);
+		self.connection = null;
+	}
+}

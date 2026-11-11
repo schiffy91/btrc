@@ -189,6 +189,41 @@ class SigningKey {
 		return key;
 	}
 
+	/* The key as an unencrypted OpenSSH private key file, which `ssh-keygen`
+	 * and `fromOpenSSH` read back. Keep the text as secret as the key. */
+	public string toOpenSSH(string comment = "") {
+		Sodium.require();
+		Bytes published = Bytes();
+		SSHWire.putText(published, SSHWire.keyType());
+		SSHWire.putField(published, self.identity.bytes());
+		/* Two equal check numbers, the key pair, the comment, then padding
+		 * 1, 2, 3... to a multiple of eight bytes. */
+		unsigned char check[4];
+		Sodium.random(check, 4);
+		Bytes inner = Bytes();
+		inner.appendRaw((char*)check, 4);
+		inner.appendRaw((char*)check, 4);
+		SSHWire.putText(inner, SSHWire.keyType());
+		SSHWire.putField(inner, self.identity.bytes());
+		SSHWire.putField(inner, self.secret);
+		SSHWire.putText(inner, comment == null ? "" : comment);
+		for (int pad = 1; inner.length() % 8 != 0; pad++) { inner.append(pad); }
+		Bytes file = Bytes.fromString("openssh-key-v1");
+		file.append(0);
+		SSHWire.putText(file, "none");
+		SSHWire.putText(file, "none");
+		SSHWire.putText(file, "");
+		SSHWire.putU32(file, 1);
+		SSHWire.putField(file, published);
+		SSHWire.putField(file, inner);
+		string body = Base64.encode(file);
+		Sodium.wipe((unsigned char*)inner.data, inner.len);
+		Sodium.wipe((unsigned char*)file.data, file.len);
+		string text = "-----BEGIN OPENSSH PRIVATE KEY-----\n";
+		for (int index = 0; index < body.length(); index += 70) { text = text + body.substring(index, index + 70 <= body.length() ? 70 : body.length() - index) + "\n"; }
+		return text + "-----END OPENSSH PRIVATE KEY-----\n";
+	}
+
 	public PublicKey publicKey() { return self.identity; }
 
 	/* The 32 bytes the key can be rebuilt from. Treat them as the key. */

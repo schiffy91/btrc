@@ -117,6 +117,15 @@ class CryptoConformance {
 		assert(SigningKey.fromOpenSSH(CryptoConformance.privateFile(seed, fixture.bytes(), "none")) == null);
 		assert(SigningKey.fromOpenSSH("-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n") == null);
 		assert(SigningKey.fromOpenSSH("not a key") == null);
+
+		/* A key written out reads back as itself, comment or not. */
+		SigningKey fresh = SigningKey.generate();
+		string written = fresh.toOpenSSH("a comment");
+		assert(written.startsWith("-----BEGIN OPENSSH PRIVATE KEY-----\n") && written.endsWith("-----END OPENSSH PRIVATE KEY-----\n"));
+		SigningKey? reread = SigningKey.fromOpenSSH(written);
+		SigningKey? bare = SigningKey.fromOpenSSH(fresh.toOpenSSH());
+		if (reread == null || bare == null) { throw "a written key did not read back"; }
+		assert(reread.seed().equals(fresh.seed()) && reread.publicKey().equals(fresh.publicKey()) && bare.publicKey().equals(fresh.publicKey()));
 	}
 
 	class void trusted() {
@@ -282,6 +291,46 @@ class CryptoConformance {
 		listener.close();
 		assert(CryptoConformance.reap(child) == 0);
 	}
+
+	/* A process that accepted a channel hands it to another and lets go of
+	 * its own copy: the connection carries on there. */
+	class void handOver() {
+		Bytes deskSeed = CryptoConformance.hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+		Bytes deckSeed = CryptoConformance.hex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
+		SigningKey deck = SigningKey.fromSeed(deckSeed);
+		TCPListener listener = TCPListener.listen(IPv4Address.loopback(), 0);
+		int port = listener.port();
+		fflush(stdout);
+		pid_t child = fork();
+		assert(child >= (pid_t)0);
+		if (child == (pid_t)0) {
+			listener.close();
+			int status = 5;
+			try { status = CryptoConformance.respondSafely(TCPStream.connect(IPv4Address.loopback(), port, 3000), true, deskSeed, deck.publicKey().bytes()); } catch (string error) { status = 8; }
+			_exit(status);
+		}
+		TCPStream? accepted = listener.accept(3000);
+		if (accepted == null) { throw "the peer did not connect"; }
+		SecureChannel channel = SecureChannel.accept(accepted, deck, 3000);
+		listener.close();
+		fflush(stdout);
+		pid_t worker = fork();
+		assert(worker >= (pid_t)0);
+		if (worker == (pid_t)0) {
+			int status = 0;
+			Bytes said = Bytes();
+			if (channel.receive(said, 3000) != 6) { status = 2; }
+			for (int turn = 0; turn < 50 && status == 0; turn++) {
+				Bytes message = Bytes.fromString("carried on");
+				Bytes echoed = Bytes();
+				if (!channel.send(message, 3000) || channel.receive(echoed, 3000) != 10 || !echoed.equals(message)) { status = 3; }
+			}
+			channel.close();
+			_exit(status);
+		}
+		channel.abandon();
+		assert(!channel.isOpen() && CryptoConformance.reap(worker) == 0 && CryptoConformance.reap(child) == 0);
+	}
 }
 
 int main() {
@@ -291,6 +340,7 @@ int main() {
 	CryptoConformance.trusted();
 	CryptoConformance.channel();
 	CryptoConformance.overTCP();
+	CryptoConformance.handOver();
 	print("PASS: signatures, OpenSSH keys, trusted keys and the secure channel");
 	return 0;
 }

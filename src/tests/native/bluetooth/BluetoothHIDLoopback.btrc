@@ -1,0 +1,187 @@
+/* A HID device over Bluetooth, and a host for it, on two controllers in one
+ * machine. The device side publishes its service record, lets a host pair
+ * while its pairing window is open, and serves the HID channels. The host
+ * side connects with an encrypted link -- which pairs the two controllers --
+ * and speaks the HID protocol: feature reports both ways, output reports,
+ * and input reports back. Then the device reconnects to the host by itself,
+ * as a paired controller does when it wakes, and the host unplugs it.
+ *
+ * It needs two Bluetooth controllers, the system's Bluetooth daemon without
+ * its own HID host, and root, so a VM with emulated controllers runs it (the
+ * bluetooth-hid-loopback check). `BluetoothHIDLoopback DEVICE HOST` names
+ * the two adapters. */
+
+import Library.Bluetooth;
+import Library.Bytes;
+import Library.HID;
+import Library.Timer;
+
+import ./CounterPad.btrc;
+#include <assert.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+class BluetoothHIDLoopback {
+	class Bytes of(int first, int second, int third) {
+		Bytes out = Bytes();
+		if (first >= 0) { out.append(first); }
+		if (second >= 0) { out.append(second); }
+		if (third >= 0) { out.append(third); }
+		return out;
+	}
+
+	/* The device: serve until the host unplugs the virtual cable. When the
+	 * host drops the link without unplugging, reconnect to it once. */
+	class int device(string name, BluetoothAddress host, pid_t parent, int pairingSeconds) {
+		BluetoothPairingWindow window = BluetoothPairingWindow();
+		BluetoothAdapter adapter = BluetoothAdapter.open(name, window);
+		if (!adapter.setPowered(true) || !adapter.setAlias("Counter Pad")) { return 10; }
+		BluetoothHIDRecord record = BluetoothHIDRecord("Counter Pad", CounterPad.descriptor()).identified(0x1209, 0x0002, 0x0100).described("Game Controller", "btrc");
+		if (!adapter.publish("00001124-0000-1000-8000-00805f9b34fb", record.xml())) { return 11; }
+		/* Pairing is on only while the window is open. */
+		if (pairingSeconds > 0) { window.open(pairingSeconds); }
+		if (!adapter.allowPairing(window.isOpen()) || adapter.pairable() != window.isOpen() || !adapter.setDiscoverable(true)) { return 12; }
+		BluetoothHIDDevice pad = BluetoothHIDDevice.open(adapter.address(), CounterPad(), BluetoothBondedPeers(adapter));
+		bool served = false;
+		bool reconnected = false;
+		while ((pid_t)getppid() == parent && !pad.unplugged()) {
+			struct pollfd waiting[5];
+			int count = adapter.watch(waiting, 1);
+			count += pad.watch(waiting + count, 4);
+			poll(waiting, (nfds_t)count, 10);
+			if (!adapter.step()) { return 13; }
+			pad.step();
+			if (pad.connected()) { served = true; }
+			else if (served && !reconnected) {
+				/* The host went away: wake up and go back to it. */
+				reconnected = true;
+				Timer.sleepMillis(500);
+				if (!pad.reconnect(host, 15000)) { return 14; }
+			}
+		}
+		pad.close();
+		adapter.close();
+		return pad.unplugged() && served && reconnected && pad.reportsSent() >= 60 ? 0 : 15;
+	}
+
+	class pid_t start(string name, BluetoothAddress host, int pairingSeconds) {
+		fflush(stdout);
+		pid_t parent = getpid();
+		pid_t child = fork();
+		assert(child >= (pid_t)0);
+		if (child == (pid_t)0) {
+			int status = 9;
+			try { status = BluetoothHIDLoopback.device(name, host, parent, pairingSeconds); } catch (string error) {
+				fprintf(stderr, "device: %s\n", error);
+				status = 8;
+			}
+			_exit(status);
+		}
+		return child;
+	}
+
+	class Bytes ask(L2CAPChannel control, Bytes request) {
+		Bytes reply = Bytes();
+		assert(control.send(request, 2000) && control.receive(reply, 5000) > 0);
+		return reply;
+	}
+
+	/* The HID protocol from the host's side, on a connected pair of channels. */
+	class void exchange(L2CAPChannel control, L2CAPChannel interrupt, int rounds) {
+		Bytes feature = BluetoothHIDLoopback.ask(control, BluetoothHIDLoopback.of(0x43, 2, -1));
+		assert(feature.length() == 6 && feature.get(0) == 0xA3 && feature.get(1) == 2);
+		Bytes set = BluetoothHIDLoopback.of(0x53, 2, -1);
+		set.appendBytes(Bytes.fromString("keep"));
+		assert(BluetoothHIDLoopback.ask(control, set).get(0) == HIDP_SUCCESSFUL);
+		Bytes kept = BluetoothHIDLoopback.ask(control, BluetoothHIDLoopback.of(0x43, 2, -1));
+		assert(kept.length() == 6 && kept.slice(2, 6).toString().equals("keep"));
+		assert(BluetoothHIDLoopback.ask(control, BluetoothHIDLoopback.of(0x43, 9, -1)).get(0) == HIDP_INVALID_REPORT_ID);
+		assert(BluetoothHIDLoopback.ask(control, BluetoothHIDLoopback.of(0xB0, -1, -1)).get(0) == HIDP_UNSUPPORTED_REQUEST);
+
+		/* Output reports on the interrupt channel come back as input reports. */
+		assert(interrupt.receive(Bytes(), 300) == L2CAP_TIMED_OUT);
+		for (int turn = 1; turn <= rounds; turn++) {
+			assert(interrupt.send(BluetoothHIDLoopback.of(0xA2, 3, turn), 2000));
+			Bytes input = Bytes();
+			assert(interrupt.receive(input, 5000) == 3 && input.get(0) == 0xA1 && input.get(1) == 1 && input.get(2) == turn);
+		}
+		/* And as SET_REPORT on the control channel. */
+		assert(BluetoothHIDLoopback.ask(control, BluetoothHIDLoopback.of(0x52, 3, 200)).get(0) == HIDP_SUCCESSFUL);
+		Bytes last = Bytes();
+		assert(interrupt.receive(last, 5000) == 3 && last.get(2) == 200);
+	}
+
+	class void run(string deviceName, string hostName) {
+		assert(L2CAP.supported() && BluetoothAdapter.supported());
+		BluetoothPairingWindow unused = BluetoothPairingWindow();
+		BluetoothAdapter host = BluetoothAdapter.open(hostName, unused);
+		BluetoothAdapter probe = BluetoothAdapter.open(deviceName, unused);
+		BluetoothAddress deviceAddress = probe.address();
+		BluetoothAddress hostAddress = host.address();
+		probe.close();
+		assert(host.setPowered(true) && !deviceAddress.equals(hostAddress) && !deviceAddress.isAny());
+
+		/* Both controllers share one daemon here, and the daemon lets every
+		 * adapter pair while any program is its pairing agent. So the host
+		 * becomes the agent first, and the device then turns pairing off for
+		 * its own adapter, as it would on a machine of its own. */
+		assert(host.allowPairing(true) && host.pairable());
+
+		/* With the pairing window shut, a host that has never paired cannot
+		 * pair: the link it asks for is refused. */
+		pid_t shut = BluetoothHIDLoopback.start(deviceName, hostAddress, 0);
+		Timer.sleepMillis(3000);
+		BluetoothAdapter watched = BluetoothAdapter.open(deviceName, unused);
+		assert(!watched.pairable() && host.pairable());
+		watched.close();
+		bool refused = false;
+		try { L2CAPChannel.connect(hostAddress, deviceAddress, BLUETOOTH_HID_CONTROL, L2CAP_SECURITY_ENCRYPTED, 20000); } catch (string error) { refused = true; }
+		assert(refused);
+
+		/* A host can also encrypt a link without pairing for good. Such a
+		 * link comes up, but the device serves bonded hosts only: it hangs
+		 * up without answering. */
+		assert(host.allowPairing(false) && !host.pairable());
+		L2CAPChannel stranger = L2CAPChannel.connect(hostAddress, deviceAddress, BLUETOOTH_HID_CONTROL, L2CAP_SECURITY_ENCRYPTED, 20000);
+		assert(stranger.send(BluetoothHIDLoopback.of(0x43, 2, -1), 2000) && stranger.receive(Bytes(), 10000) == L2CAP_CLOSED);
+		assert(kill(shut, (int)SIGKILL) == 0);
+		int status = 0;
+		assert(waitpid(shut, &status, 0) == shut);
+		Timer.sleepMillis(3000);
+
+		/* With it open, connecting pairs the two and the channels come up. */
+		assert(host.allowPairing(true));
+		pid_t child = BluetoothHIDLoopback.start(deviceName, hostAddress, 120);
+		Timer.sleepMillis(3000);
+		L2CAPChannel control = L2CAPChannel.connect(hostAddress, deviceAddress, BLUETOOTH_HID_CONTROL, L2CAP_SECURITY_ENCRYPTED, 30000);
+		L2CAPChannel interrupt = L2CAPChannel.connect(hostAddress, deviceAddress, BLUETOOTH_HID_INTERRUPT, L2CAP_SECURITY_ENCRYPTED, 30000);
+		assert(control.peer().equals(deviceAddress));
+		BluetoothHIDLoopback.exchange(control, interrupt, 40);
+
+		/* The host drops the link; the device comes back by itself. */
+		L2CAPListener controlListener = L2CAPListener.listen(hostAddress, BLUETOOTH_HID_CONTROL);
+		L2CAPListener interruptListener = L2CAPListener.listen(hostAddress, BLUETOOTH_HID_INTERRUPT);
+		interrupt.close();
+		control.close();
+		L2CAPChannel? returned = controlListener.accept(30000);
+		if (returned == null) { throw "the device did not reconnect its control channel"; }
+		L2CAPChannel? reports = interruptListener.accept(30000);
+		if (reports == null) { throw "the device did not reconnect its interrupt channel"; }
+		assert(returned.peer().equals(deviceAddress) && reports.peer().equals(deviceAddress));
+		BluetoothHIDLoopback.exchange(returned, reports, 20);
+
+		/* The host unplugs the virtual cable: the device stops for good. */
+		assert(returned.send(HIDPDevice.unplug(), 2000));
+		assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+		host.close();
+	}
+}
+
+int main(int argc, char** argv) {
+	if (argc != 3) { return 2; }
+	BluetoothHIDLoopback.run(argv[1], argv[2]);
+	print("PASS: Bluetooth HID device paired, served, reconnected and unplugged");
+	return 0;
+}

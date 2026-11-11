@@ -785,6 +785,12 @@
           btrcpy = self.packages.${system}.btrcpy;
           source = ./src/tests/native/usb;
         };
+        # A Bluetooth HID device and its host on emulated controllers; it boots a VM.
+        bluetooth-hid-loopback = import ./src/tests/native/bluetooth/bluetooth-hid-loopback.nix {
+          inherit pkgs;
+          btrcpy = self.packages.${system}.btrcpy;
+          source = ./src/tests/native/bluetooth;
+        };
       });
     };
 }

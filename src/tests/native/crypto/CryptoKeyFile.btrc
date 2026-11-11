@@ -1,11 +1,21 @@
 /* Read the key pair `ssh-keygen` wrote: `CryptoKeyFile PRIVATE PUBLIC`. Prints
- * the fingerprint, which the driver compares with ssh-keygen's own. */
+ * the fingerprint, which the driver compares with ssh-keygen's own. Or write
+ * one for ssh-keygen to read: `CryptoKeyFile write PATH` prints its public
+ * key line. */
 
 import Library.Bytes;
 import Library.Crypto;
 import Library.FileSystem;
+import Library.Strings;
 
 int main(int argc, char** argv) {
+	/* `CryptoKeyFile write PATH` writes a new key for ssh-keygen to read. */
+	if (argc == 3 && Strings.copy(argv[1]).equals("write")) {
+		SigningKey fresh = SigningKey.generate();
+		if (!Path.writeAll(argv[2], fresh.toOpenSSH("written by btrc")) || FileSystem.chmod(argv[2], 384) != 0) { return 6; }
+		print(fresh.publicKey().toOpenSSH());
+		return 0;
+	}
 	if (argc != 3) { return 2; }
 	SigningKey? loaded = SigningKey.fromOpenSSH(Path.readAll(argv[1]));
 	PublicKey? published = PublicKey.fromOpenSSH(Path.readAll(argv[2]));
