@@ -1,0 +1,133 @@
+/* A HID device presented as a USB interface: the report descriptor walk, the
+ * HID class requests, and reports on the interrupt endpoints. Pure btrc, so
+ * every target runs it. */
+import Library.Bytes;
+import Library.HID;
+import Library.USB.USBDescriptors;
+import Library.USB.USBHID;
+import Library.USB.USBVirtualDevice;
+
+#include <assert.h>
+
+/* A device with numbered reports: input report 1 counts, feature report 2 is
+ * kept, and output report 3 sets the next count. */
+class Counter implements IHIDDevice {
+	public int count = 0;
+	public int due = 0;
+	public Bytes kept;
+
+	public Counter() { self.kept = Bytes(); }
+
+	class Bytes descriptor() {
+		Bytes out = Bytes();
+		int items[34] = {0x06, 0x00, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x85, 0x01, 0x75, 0x08, 0x95, 0x01, 0x09, 0x01, 0x81, 0x02, 0x85, 0x02, 0x95, 0x04, 0x09, 0x02, 0xB1, 0x02, 0x85, 0x03, 0x95, 0x01, 0x09, 0x03, 0x91, 0x02, 0xC0};
+		for (int index = 0; index < 34; index++) { out.append(items[index]); }
+		return out;
+	}
+
+	public Bytes reportDescriptor() { return Counter.descriptor(); }
+
+	public bool getReport(int kind, int id, Bytes report) {
+		if (kind != HID_REPORT_FEATURE || id != 2) { return false; }
+		report.append(2);
+		report.appendBytes(self.kept);
+		return true;
+	}
+
+	public bool setReport(int kind, int id, Bytes report) {
+		if (kind == HID_REPORT_FEATURE && id == 2 && report.length() == 5) {
+			self.kept = report.slice(1, 5);
+			return true;
+		}
+		if (kind == HID_REPORT_OUTPUT && id == 3 && report.length() == 2) {
+			self.count = report.get(1);
+			self.due++;
+			return true;
+		}
+		return false;
+	}
+
+	public bool nextInput(Bytes report) {
+		if (self.due == 0) { return false; }
+		self.due--;
+		report.append(1);
+		report.append(self.count);
+		return true;
+	}
+}
+
+int main() {
+	/* Report IDs are found past other items, long items included. */
+	assert(HIDReportDescriptor.numbered(Counter.descriptor()));
+	Bytes plain = Bytes();
+	int items[11] = {0x05, 0x01, 0x09, 0x05, 0xA1, 0x01, 0x27, 0xFF, 0x85, 0x00, 0x00};
+	for (int index = 0; index < 11; index++) { plain.append(items[index]); }
+	plain.append(0xC0);
+	assert(!HIDReportDescriptor.numbered(plain) && !HIDReportDescriptor.numbered(Bytes()));
+	Bytes extended = Bytes();
+	extended.append(0xFE);
+	extended.append(2);
+	extended.append(0x10);
+	extended.append(0x85);
+	extended.append(0x85);
+	assert(!HIDReportDescriptor.numbered(extended));
+	extended.append(0x85);
+	extended.append(7);
+	assert(HIDReportDescriptor.numbered(extended));
+	assert(HIDReportDescriptor.idOf(extended, true) == 0xFE && HIDReportDescriptor.idOf(extended, false) == 0 && HIDReportDescriptor.idOf(Bytes(), true) == 0);
+
+	Counter counter = Counter();
+	USBHIDFunction behavior = USBHIDFunction(counter, 0x81, 0x01);
+	USBInterface entry = behavior.describe(0, 64, 4);
+	assert(entry.deviceClass == 3 && entry.endpoints.len == 2 && entry.endpoints.get(0).isIn() && !entry.endpoints.get(1).isIn() && entry.endpoints.get(0).interval == 4);
+	assert(USBHIDFunction(counter).describe(1).endpoints.len == 1);
+	USBVirtualDevice device = USBVirtualDevice(USBDeviceDescription(0x1209, 0x0002, 0x0100).named("btrc", "Counter", "COUNT001").add(entry), behavior);
+
+	/* The class descriptors come from the device's report descriptor. */
+	Bytes report = Bytes();
+	assert(device.control(USBSetup(0x81, USB_REQUEST_GET_DESCRIPTOR, 0x2200, 0, 255), report) == 34 && report.equals(Counter.descriptor()));
+	Bytes classDescriptor = Bytes();
+	assert(device.control(USBSetup(0x81, USB_REQUEST_GET_DESCRIPTOR, 0x2100, 0, 9), classDescriptor) == 9 && classDescriptor.get(1) == 0x21 && classDescriptor.get(7) == 34);
+	assert(device.control(USBSetup(0x81, USB_REQUEST_GET_DESCRIPTOR, 0x2300, 0, 9), Bytes()) == USB_CONTROL_STALL);
+	Bytes configuration = Bytes();
+	assert(device.control(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0200, 0, 255), configuration) == 9 + 9 + 9 + 7 + 7);
+
+	/* Feature reports go to the device and come back from it. */
+	Bytes feature = Bytes();
+	feature.append(2);
+	feature.appendBytes(Bytes.fromString("keep"));
+	assert(device.control(USBSetup(0x21, USB_HID_SET_REPORT, 0x0302, 0, 5), feature) == 5 && counter.kept.toString().equals("keep"));
+	Bytes read = Bytes();
+	assert(device.control(USBSetup(0xA1, USB_HID_GET_REPORT, 0x0302, 0, 64), read) == 5 && read.equals(feature));
+	Bytes cut = Bytes();
+	assert(device.control(USBSetup(0xA1, USB_HID_GET_REPORT, 0x0302, 0, 3), cut) == 3);
+	assert(device.control(USBSetup(0xA1, USB_HID_GET_REPORT, 0x0309, 0, 64), Bytes()) == USB_CONTROL_STALL);
+	assert(device.control(USBSetup(0x21, USB_HID_SET_REPORT, 0x0309, 0, 1), Bytes.fromString("x")) == USB_CONTROL_STALL);
+
+	/* Idle rate and protocol are kept for the host. */
+	Bytes idle = Bytes();
+	assert(device.control(USBSetup(0x21, USB_HID_SET_IDLE, 0x0700, 0, 0), Bytes()) == 0 && device.control(USBSetup(0xA1, USB_HID_GET_IDLE, 0, 0, 1), idle) == 1 && idle.get(0) == 7);
+	Bytes protocol = Bytes();
+	assert(device.control(USBSetup(0xA1, USB_HID_GET_PROTOCOL, 0, 0, 1), protocol) == 1 && protocol.get(0) == 1);
+	assert(device.control(USBSetup(0x21, USB_HID_SET_PROTOCOL, 0, 0, 0), Bytes()) == 0);
+	assert(device.control(USBSetup(0x21, 0x55, 0, 0, 0), Bytes()) == USB_CONTROL_STALL && device.control(USBSetup(0x41, 0x01, 0, 0, 0), Bytes()) == USB_CONTROL_STALL);
+
+	/* Output reports arrive on the OUT endpoint or as SET_REPORT; input
+	 * reports leave on the IN endpoint only. */
+	Bytes none = Bytes();
+	assert(!device.produce(0x81, none) && none.isEmpty());
+	Bytes output = Bytes();
+	output.append(3);
+	output.append(41);
+	device.consume(0x01, output);
+	device.consume(0x02, output);
+	Bytes input = Bytes();
+	assert(!device.produce(0x82, input) && device.produce(0x81, input) && input.length() == 2 && input.get(0) == 1 && input.get(1) == 41);
+	output.set(1, 42);
+	assert(device.control(USBSetup(0x21, USB_HID_SET_REPORT, 0x0203, 0, 2), output) == 2);
+	Bytes second = Bytes();
+	assert(device.produce(0x81, second) && second.get(1) == 42 && !device.produce(0x81, Bytes()));
+
+	print("PASS: test_stdlib_usb_hid_function");
+	return 0;
+}

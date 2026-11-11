@@ -3,6 +3,7 @@
 import Library.Bytes;
 import Library.USB.USBDescriptors;
 import Library.USB.USBVirtualDevice;
+import Library.Vector;
 
 #include <assert.h>
 
@@ -55,6 +56,10 @@ class USBVirtualDeviceTests {
 		assert(configuration.get(10) == USB_DESCRIPTOR_INTERFACE && configuration.get(13) == 2 && configuration.get(14) == 3);
 		assert(configuration.get(19) == USB_DESCRIPTOR_HID && configuration.get(24) == USB_DESCRIPTOR_HID_REPORT && configuration.get(25) == 52 && configuration.get(26) == 0);
 		assert(configuration.get(29) == 0x81 && configuration.get(30) == USB_TRANSFER_INTERRUPT && configuration.get(31) == 64 && configuration.get(36) == 0x01);
+		/* A host reads the endpoints back out of the configuration. */
+		Vector<USBEndpoint> listed = USBEndpoint.listed(configuration);
+		assert(listed.len == 2 && listed.get(0).address == 0x81 && listed.get(0).isIn() && listed.get(0).maxPacket == 64 && listed.get(0).interval == 1 && listed.get(1).address == 0x01);
+		assert(USBEndpoint.listed(configuration.slice(0, 30)).len == 0 && USBEndpoint.listed(Bytes()).len == 0);
 
 		Bytes languages = description.stringDescriptor(0);
 		assert(languages.length() == 4 && languages.get(2) == 0x09 && languages.get(3) == 0x04);

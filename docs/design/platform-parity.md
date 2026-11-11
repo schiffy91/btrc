@@ -122,13 +122,13 @@ one record per operation and target slice, in the qualification ledger format
 (`tools/qualification/schema.py`, written compactly as one row per operation
 with a cell per slice). The seed, [supervisor supplement](platform-inventory/windows-supervisor.toml),
 [image supplement](platform-inventory/windows-supervisor-image.toml), and
-[daemon file supplement](platform-inventory/windows-daemon-files.toml) hold 377 operations: the
-103 exports of the root and group stdlib manifests outside UI0's groups, the
+[daemon file supplement](platform-inventory/windows-daemon-files.toml) hold 381 operations: the
+107 exports of the root and group stdlib manifests outside UI0's groups, the
 258 helpers of the runtime manifest and the 16 corpus topic directories.
 `src/tests/python/test_platform_inventory.py` recomputes that set from the
 manifests, exports and corpus and fails on drift, and the `operation` entry of
 `tools/qualification/denominators.toml` freezes it (release
-`p0-inventory-2026-11-11-crypto`, 349 ids × 6 slices = 2094 slots) and the
+`p0-inventory-2026-11-11-usb-gadget`, 353 ids × 6 slices = 2118 slots) and the
 separate `p0-windows-supervisor-2026-10-29` release adds 10 ids × 6 slices =
 60 slots. `p0-windows-supervisor-image-2026-10-29` adds another 4 ids × 6 slices =
 24 slots. `p0-windows-daemon-files-2026-10-29` adds 14 ids × 6 slices =
@@ -139,12 +139,12 @@ been ingested, so no row is `passed`.
 
 | Slice | Slots | Equivalent | Adapted | OS-restricted | Missing |
 | --- | --- | --- | --- | --- | --- |
-| `windows-x64` | 377 | 287 | 76 | 4 | 10 |
-| `windows-arm64` | 377 | 287 | 76 | 4 | 10 |
-| `ios-device` | 377 | 330 | 16 | 27 | 4 |
-| `ios-simulator` | 377 | 330 | 16 | 27 | 4 |
-| `android-arm64` | 377 | 343 | 18 | 12 | 4 |
-| `android-x86_64` | 377 | 343 | 18 | 12 | 4 |
+| `windows-x64` | 381 | 290 | 76 | 5 | 10 |
+| `windows-arm64` | 381 | 290 | 76 | 5 | 10 |
+| `ios-device` | 381 | 333 | 16 | 28 | 4 |
+| `ios-simulator` | 381 | 333 | 16 | 28 | 4 |
+| `android-arm64` | 381 | 346 | 18 | 13 | 4 |
+| `android-x86_64` | 381 | 346 | 18 | 13 | 4 |
 
 The `App`, `GUI`, `Tray` and `UI` groups are UI0's: their operations are
 referenced through the frozen family-cell, ui-operation and ui-case

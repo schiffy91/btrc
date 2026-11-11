@@ -120,6 +120,22 @@ class USBEndpoint {
 	public bool isIn() { return (self.address & 0x80) != 0; }
 
 	public int number() { return self.address & 0x0F; }
+
+	/* The endpoints a configuration descriptor lists, in order: what a host
+	 * reads to learn the addresses a device really uses. */
+	class Vector<USBEndpoint> listed(Bytes configuration) {
+		Vector<USBEndpoint> found = [];
+		int index = 0;
+		while (configuration != null && index + 1 < configuration.length()) {
+			int length = configuration.get(index);
+			if (length < 2 || index + length > configuration.length()) { break; }
+			if (configuration.get(index + 1) == USB_DESCRIPTOR_ENDPOINT && length >= 7) {
+				found.push(USBEndpoint(configuration.get(index + 2), configuration.get(index + 3), configuration.get(index + 4) | (configuration.get(index + 5) << 8), configuration.get(index + 6)));
+			}
+			index += length;
+		}
+		return found;
+	}
 }
 
 class USBInterface {

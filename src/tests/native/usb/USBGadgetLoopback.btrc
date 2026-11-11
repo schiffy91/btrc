@@ -1,0 +1,140 @@
+/* This machine as a USB device, and the kernel as its host. USBGadget puts
+ * the emulated device on dummy_hcd, a device controller wired to a host
+ * controller in the same kernel. The USB core enumerates it like hardware on
+ * a cable, and USBHostDevice then drives it through usbfs: descriptors, class
+ * requests, a refused request and interrupt transfers in both directions.
+ *
+ * It needs dummy_hcd, libcomposite, usb_f_fs and root, so a VM runs it (the
+ * usb-gadget-loopback check). */
+
+import Library.Bytes;
+import Library.Timer;
+import Library.USB;
+import Library.Vector;
+
+import ./EchoPad.btrc;
+#include <assert.h>
+#include <errno.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+class USBGadgetLoopback {
+	/* Serve the device until this process is told to stop or its parent is
+	 * gone: 0 when a host configured it and it left the controller cleanly. */
+	class int device(pid_t parent) {
+		USBGadget gadget = USBGadget.open(USBVirtualDevice(EchoPad.description(), EchoPad()), "btrc-echo-pad");
+		bool configured = false;
+		sigset_t stopping;
+		sigemptyset(&stopping);
+		sigaddset(&stopping, (int)SIGTERM);
+		sigprocmask((int)SIG_BLOCK, &stopping, NULL);
+		while (sigpending(&stopping) == 0 && sigismember(&stopping, (int)SIGTERM) == 0 && (pid_t)getppid() == parent) {
+			struct pollfd waiting[2];
+			int count = gadget.watch(waiting, 2);
+			poll(waiting, (nfds_t)count, 20);
+			gadget.step();
+			configured = configured || gadget.connected();
+		}
+		gadget.close();
+		return configured && !gadget.isOpen() ? 0 : 3;
+	}
+
+	class bool waitPresent(bool wanted, int milliseconds) {
+		long long deadline = MonotonicClock.deadlineAfter((long long)milliseconds);
+		while (USBHost.present(0x1209, 0x0001) != wanted) {
+			if (!MonotonicClock.before(deadline)) { return false; }
+			Timer.sleepMillis(50);
+		}
+		return true;
+	}
+
+	class void transfers(USBHostDevice device) {
+		Bytes descriptor = Bytes();
+		assert(device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 0, 18), descriptor, 2000) == 18);
+		assert(descriptor.get(8) == 0x09 && descriptor.get(9) == 0x12 && descriptor.get(10) == 0x01);
+		Bytes serial = Bytes();
+		assert(device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0303, 0x0409, 255), serial, 2000) == 18 && serial.get(2) == 'E' && serial.get(16) == '1');
+
+		/* The kernel's HID driver holds the interface until it is claimed. */
+		assert(device.claim(0));
+		Bytes report = Bytes();
+		assert(device.controlIn(USBSetup(0x81, USB_REQUEST_GET_DESCRIPTOR, 0x2200, 0, 255), report, 2000) == 25 && report.equals(EchoPad.reportDescriptor()));
+		assert(device.controlOut(USBSetup(0x21, 0x09, 0x0300, 0, 8), Bytes.fromString("feature!"), 2000) == 8);
+		Bytes kept = Bytes();
+		assert(device.controlIn(USBSetup(0xA1, 0x01, 0x0300, 0, 64), kept, 2000) == 8 && kept.toString().equals("feature!"));
+		/* A request the device does not know is refused, with and without data. */
+		assert(device.controlIn(USBSetup(0xA1, 0x55, 0, 0, 8), Bytes(), 2000) == -EPIPE);
+		assert(device.controlOut(USBSetup(0x21, 0x55, 0, 0, 0), Bytes(), 2000) == -EPIPE);
+		assert(device.controlOut(USBSetup(0x21, 0x0A, 0, 0, 0), Bytes(), 2000) == 0);
+
+		/* The controller chose the endpoint numbers; the configuration says which. */
+		Bytes configuration = Bytes();
+		assert(device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0200, 0, 255), configuration, 2000) > 9);
+		Vector<USBEndpoint> endpoints = USBEndpoint.listed(configuration);
+		assert(endpoints.len == 2 && endpoints.get(0).isIn() && !endpoints.get(1).isIn() && endpoints.get(0).kind == USB_TRANSFER_INTERRUPT);
+		int input = endpoints.get(0).number();
+		int output = endpoints.get(1).number();
+
+		assert(device.transferIn(input, 64, Bytes(), 300) == -ETIMEDOUT);
+		for (int turn = 1; turn <= 200; turn++) {
+			Bytes sent = Bytes();
+			sent.append(turn);
+			sent.append(turn * 3);
+			assert(device.transferOut(output, sent, 2000) == 2);
+			Bytes echoed = Bytes();
+			assert(device.transferIn(input, 64, echoed, 2000) == 3);
+			assert(echoed.get(0) == (turn & 0xFF) && echoed.get(1) == (turn & 0xFF) && echoed.get(2) == ((turn * 3) & 0xFF));
+		}
+		assert(device.unclaim(0));
+	}
+
+	class void run() {
+		assert(USBGadget.supported() && USBGadget.controllers().len > 0 && !USBHost.present(0x1209, 0x0001));
+		fflush(stdout);
+		pid_t parent = getpid();
+		pid_t child = fork();
+		assert(child >= (pid_t)0);
+		if (child == (pid_t)0) {
+			int status = 9;
+			try { status = USBGadgetLoopback.device(parent); } catch (string error) {
+				fprintf(stderr, "gadget: %s\n", error);
+				status = 8;
+			}
+			_exit(status);
+		}
+		assert(USBGadgetLoopback.waitPresent(true, 20000));
+		USBHostDevice device = USBHostDevice.open(0x1209, 0x0001);
+		USBGadgetLoopback.transfers(device);
+		device.close();
+
+		/* Stopping the gadget unplugs the device and leaves nothing behind. */
+		assert(kill(child, (int)SIGTERM) == 0);
+		int status = 0;
+		assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+		assert(USBGadgetLoopback.waitPresent(false, 20000));
+	}
+
+	/* A process that died with its gadget up: the next one replaces it. */
+	class void recovery() {
+		fflush(stdout);
+		pid_t child = fork();
+		assert(child >= (pid_t)0);
+		if (child == (pid_t)0) {
+			USBGadget gadget = USBGadget.open(USBVirtualDevice(EchoPad.description(), EchoPad()), "btrc-echo-pad");
+			_exit(gadget.isOpen() ? 0 : 1);
+		}
+		int status = 0;
+		assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+		USBGadgetLoopback.run();
+		USBGadget.remove("btrc-echo-pad");
+	}
+}
+
+int main() {
+	USBGadgetLoopback.run();
+	USBGadgetLoopback.recovery();
+	print("PASS: gadget device enumerated and driven by the kernel host");
+	return 0;
+}

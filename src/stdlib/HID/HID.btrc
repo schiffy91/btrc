@@ -1,0 +1,7 @@
+/* HID: a human interface device, apart from the bus that carries it.
+ *
+ * `import Library.HID;` brings the device contract. A bus presents a device
+ * that implements it: `Library.USB.USBHID` as a USB interface,
+ * `Library.Bluetooth.BluetoothHID` as a Bluetooth HID device. */
+
+import Library.HID.HIDDevice;

@@ -1,0 +1,360 @@
+/* USBGadget on Linux: the kernel's gadget stack. configfs describes the
+ * device, FunctionFS hands its one function to this process, and a USB device
+ * controller (the port's hardware, or dummy_hcd) carries it to a host.
+ * `FunctionFS.h` holds the SDK includes and the asynchronous transfer
+ * adapters. Everything here needs root. */
+
+import Library.Bytes;
+import Library.FileSystem;
+import Library.USB.USBDescriptors;
+import Library.Vector;
+
+#include <poll.h>
+
+/* What the function's control file reports, as FunctionFS numbers them. */
+enum USBGadgetSignal {
+	USB_GADGET_BOUND = 0,
+	USB_GADGET_UNBOUND = 1,
+	USB_GADGET_ENABLED = 2,
+	USB_GADGET_DISABLED = 3,
+	USB_GADGET_SETUP = 4,
+	USB_GADGET_SUSPENDED = 5,
+	USB_GADGET_RESUMED = 6,
+	USB_GADGET_QUIET = -1
+};
+
+class USBGadgetPipe {
+	public int address;
+	public int capacity;
+	public int handle = -1;
+	public bool busy = false;
+	public struct BtrcFunctionFSTransfer* transfer = NULL;
+
+	public USBGadgetPipe(int address, int capacity) {
+		self.address = address;
+		self.capacity = capacity > 1024 ? 1024 : capacity;
+	}
+}
+
+class USBGadgetProvider {
+	private string name;
+	private string mounted = "";
+	private int control = -1;
+	private int notifier = -1;
+	private unsigned long queue = 0UL;
+	private Vector<USBGadgetPipe> pipes = [];
+	private bool built = false;
+
+	class bool supported() { return true; }
+
+	class string root() { return "/sys/kernel/config/usb_gadget"; }
+
+	/* The device controllers this machine has, such as "dwc3.1.auto". */
+	class Vector<string> controllers() {
+		Vector<string> names = [];
+		if (FileSystem.isDir("/sys/class/udc")) { names = FileSystem.listDir("/sys/class/udc"); }
+		names.sort();
+		return names;
+	}
+
+	/* configfs attributes take one plain write; an atomic replace fails there. */
+	class bool writeAttribute(string path, string value) {
+		int descriptor = open(path, (int)O_WRONLY | (int)O_CLOEXEC);
+		if (descriptor < 0) { return false; }
+		int length = value.length();
+		bool written = (int)write(descriptor, value, (size_t)length) == length;
+		close(descriptor);
+		return written;
+	}
+
+	class void set(string path, string value) {
+		if (!USBGadgetProvider.writeAttribute(path, value)) { throw f"Cannot write the gadget attribute {path}"; }
+	}
+
+	class void directory(string path) {
+		if (!FileSystem.isDir(path) && FileSystem.mkdir(path, 493) != 0) { throw f"Cannot create {path} (gadgets need root, configfs and libcomposite)"; }
+	}
+
+	class string hex(int value) {
+		string digits = "0123456789abcdef";
+		string text = "0x";
+		for (int shift = 12; shift >= 0; shift -= 4) { text = text + digits.substring((value >> shift) & 15, 1); }
+		return text;
+	}
+
+	class string mountPoint(string name) { return f"/run/usb-gadget-{name}"; }
+
+	/* Take apart whatever is left of the gadget `name`: one this process
+	 * built, or one a crashed process left behind. */
+	class void remove(string name) {
+		string gadget = f"{USBGadgetProvider.root()}/{name}";
+		string mounted = USBGadgetProvider.mountPoint(name);
+		if (FileSystem.isDir(gadget)) {
+			USBGadgetProvider.writeAttribute(gadget + "/UDC", "\n");
+			unlink(f"{gadget}/configs/c.1/ffs.{name}");
+		}
+		if (FileSystem.isDir(mounted)) {
+			btrcFunctionFSUnmount(mounted);
+			rmdir(mounted);
+		}
+		if (FileSystem.isDir(gadget)) {
+			rmdir(gadget + "/configs/c.1/strings/0x409");
+			rmdir(gadget + "/configs/c.1");
+			rmdir(f"{gadget}/functions/ffs.{name}");
+			rmdir(gadget + "/strings/0x409");
+			rmdir(gadget);
+		}
+	}
+
+	public USBGadgetProvider(string name) { self.name = name; }
+
+	/* One interface's descriptors for one speed, as FunctionFS takes them.
+	 * Interrupt intervals are milliseconds at full speed and powers of two of
+	 * 125 microseconds above it; SuperSpeed endpoints carry a companion. */
+	class int describe(Bytes out, USBDeviceDescription description, int speed) {
+		int count = 0;
+		for entry in description.interfaces {
+			out.append(9);
+			out.append(USB_DESCRIPTOR_INTERFACE);
+			out.append(entry.number);
+			out.append(0);
+			out.append(entry.endpoints.len);
+			out.append(entry.deviceClass);
+			out.append(entry.subclass);
+			out.append(entry.protocol);
+			out.append(0);
+			count++;
+			if (!entry.classDescriptor.isEmpty()) {
+				out.appendBytes(entry.classDescriptor);
+				count++;
+			}
+			for endpoint in entry.endpoints {
+				int interval = endpoint.interval;
+				if (speed > USB_SPEED_FULL && endpoint.kind == USB_TRANSFER_INTERRUPT) {
+					interval = 1;
+					for (int frames = (endpoint.interval < 1 ? 1 : endpoint.interval) * 8; frames > 1; frames = frames / 2) { interval++; }
+				}
+				out.append(7);
+				out.append(USB_DESCRIPTOR_ENDPOINT);
+				out.append(endpoint.address);
+				out.append(endpoint.kind);
+				USBBytes.putU16(out, endpoint.maxPacket);
+				out.append(interval);
+				count++;
+				if (speed > USB_SPEED_HIGH) {
+					out.append(6);
+					out.append(0x30);
+					out.append(0);
+					out.append(0);
+					USBBytes.putU16(out, endpoint.kind == USB_TRANSFER_INTERRUPT ? endpoint.maxPacket : 0);
+					count++;
+				}
+			}
+		}
+		return count;
+	}
+
+	class void putU32(Bytes out, int value) {
+		USBBytes.putU16(out, value & 0xFFFF);
+		USBBytes.putU16(out, (value >> 16) & 0xFFFF);
+	}
+
+	/* The function's descriptors for full, high and SuperSpeed. The kernel
+	 * renumbers the endpoints to ones the controller has, and names the
+	 * endpoint files ep1, ep2, ... in the order they are described. */
+	class Bytes descriptors(USBDeviceDescription description) {
+		Bytes full = Bytes();
+		Bytes high = Bytes();
+		Bytes fastest = Bytes();
+		int fullCount = USBGadgetProvider.describe(full, description, USB_SPEED_FULL);
+		int highCount = USBGadgetProvider.describe(high, description, USB_SPEED_HIGH);
+		int superCount = USBGadgetProvider.describe(fastest, description, USB_SPEED_HIGH + 2);
+		Bytes out = Bytes();
+		USBGadgetProvider.putU32(out, 3);
+		USBGadgetProvider.putU32(out, 24 + full.length() + high.length() + fastest.length());
+		USBGadgetProvider.putU32(out, 1 | 2 | 4);
+		USBGadgetProvider.putU32(out, fullCount);
+		USBGadgetProvider.putU32(out, highCount);
+		USBGadgetProvider.putU32(out, superCount);
+		out.appendBytes(full);
+		out.appendBytes(high);
+		out.appendBytes(fastest);
+		return out;
+	}
+
+	/* The function's own string table: empty, since interfaces are unnamed. */
+	class Bytes strings() {
+		Bytes out = Bytes();
+		USBGadgetProvider.putU32(out, 2);
+		USBGadgetProvider.putU32(out, 16);
+		USBGadgetProvider.putU32(out, 0);
+		USBGadgetProvider.putU32(out, 0);
+		return out;
+	}
+
+	private void put(Bytes blob, string what) {
+		if ((int)write(self.control, blob.data, (size_t)blob.length()) != blob.length()) { throw f"FunctionFS refused the function's {what}"; }
+	}
+
+	/* Describe the device in configfs, mount its function and open the
+	 * function's files. Throws what failed; `close` undoes what was done. */
+	public void build(USBDeviceDescription description) {
+		string root = USBGadgetProvider.root();
+		if (!FileSystem.isDir(root)) { throw "No USB gadget support here (mount configfs and load libcomposite)"; }
+		USBGadgetProvider.remove(self.name);
+		self.built = true;
+		string gadget = f"{root}/{self.name}";
+		USBGadgetProvider.directory(gadget);
+		USBGadgetProvider.set(gadget + "/idVendor", USBGadgetProvider.hex(description.vendor));
+		USBGadgetProvider.set(gadget + "/idProduct", USBGadgetProvider.hex(description.product));
+		USBGadgetProvider.set(gadget + "/bcdDevice", USBGadgetProvider.hex(description.version));
+		USBGadgetProvider.set(gadget + "/bcdUSB", "0x0200");
+		USBGadgetProvider.set(gadget + "/bDeviceClass", USBGadgetProvider.hex(description.deviceClass));
+		USBGadgetProvider.set(gadget + "/bDeviceSubClass", USBGadgetProvider.hex(description.subclass));
+		USBGadgetProvider.set(gadget + "/bDeviceProtocol", USBGadgetProvider.hex(description.protocol));
+		USBGadgetProvider.directory(gadget + "/strings/0x409");
+		USBGadgetProvider.set(gadget + "/strings/0x409/manufacturer", description.manufacturer);
+		USBGadgetProvider.set(gadget + "/strings/0x409/product", description.name);
+		USBGadgetProvider.set(gadget + "/strings/0x409/serialnumber", description.serial);
+		USBGadgetProvider.directory(gadget + "/configs/c.1");
+		USBGadgetProvider.set(gadget + "/configs/c.1/MaxPower", f"{description.milliamps}");
+		string behavior = f"{gadget}/functions/ffs.{self.name}";
+		if (!FileSystem.isDir(behavior) && FileSystem.mkdir(behavior, 493) != 0) { throw "Cannot create the gadget's function (load usb_f_fs)"; }
+		if (FileSystem.symlink(behavior, f"{gadget}/configs/c.1/ffs.{self.name}") != 0) { throw "Cannot add the function to the gadget's configuration"; }
+
+		string mounted = USBGadgetProvider.mountPoint(self.name);
+		USBGadgetProvider.directory(mounted);
+		if (btrcFunctionFSMount(self.name, mounted) != 0) { throw "Cannot mount the gadget's function"; }
+		self.mounted = mounted;
+		self.control = open(mounted + "/ep0", (int)O_RDWR | (int)O_CLOEXEC);
+		if (self.control < 0) { throw "Cannot open the gadget's control endpoint"; }
+		self.put(USBGadgetProvider.descriptors(description), "descriptors");
+		self.put(USBGadgetProvider.strings(), "strings");
+		int flags = fcntl(self.control, (int)F_GETFL, 0);
+		if (flags < 0 || fcntl(self.control, (int)F_SETFL, flags | (int)O_NONBLOCK) != 0) { throw "Cannot watch the gadget's control endpoint"; }
+
+		self.queue = btrcFunctionFSQueue();
+		self.notifier = btrcFunctionFSNotifier();
+		if (self.queue == 0UL || self.notifier < 0) { throw "Cannot queue gadget transfers"; }
+		for entry in description.interfaces {
+			for endpoint in entry.endpoints {
+				USBGadgetPipe pipe = USBGadgetPipe(endpoint.address, endpoint.maxPacket);
+				string file = f"{mounted}/ep{self.pipes.len + 1}";
+				pipe.handle = open(file, (endpoint.isIn() ? (int)O_WRONLY : (int)O_RDONLY) | (int)O_NONBLOCK | (int)O_CLOEXEC);
+				pipe.transfer = btrcFunctionFSTransferNew();
+				self.pipes.push(pipe);
+				if (pipe.handle < 0 || pipe.transfer == NULL) { throw f"Cannot open the gadget's endpoint {file}"; }
+			}
+		}
+	}
+
+	/* Put the gadget on a device controller; a host can now see it. */
+	public void bind(string controller) {
+		if (!USBGadgetProvider.writeAttribute(f"{USBGadgetProvider.root()}/{self.name}/UDC", controller)) { throw f"The device controller {controller} refused the gadget (is it in use?)"; }
+	}
+
+	/* The descriptors to wait on: the control endpoint and the transfer notifier. */
+	public int watch(struct pollfd* descriptors, int capacity) {
+		if (capacity < 2 || self.control < 0) { return 0; }
+		descriptors[0].fd = self.control;
+		descriptors[0].events = POLLIN;
+		descriptors[0].revents = 0;
+		descriptors[1].fd = self.notifier;
+		descriptors[1].events = POLLIN;
+		descriptors[1].revents = 0;
+		return 2;
+	}
+
+	/* The next thing the control endpoint reports, a USBGadgetSignal; the
+	 * eight setup bytes go to `setup` for USB_GADGET_SETUP. */
+	public int signal(unsigned char* setup) {
+		unsigned char event[12];
+		if (self.control < 0 || (int)read(self.control, event, (size_t)12) != 12) { return USB_GADGET_QUIET; }
+		memcpy(setup, event, (size_t)8);
+		/* A request for an endpoint names it by its place among the files;
+		 * give the device the address it described. */
+		int place = (int)event[4] & 0x0F;
+		if ((int)event[8] == USB_GADGET_SETUP && ((int)event[0] & 31) == USB_RECIPIENT_ENDPOINT && place >= 1 && place <= self.pipes.len) { setup[4] = (unsigned char)self.pipes.get(place - 1).address; }
+		return (int)event[8];
+	}
+
+	/* Answer a device-to-host request with `length` bytes of `data`. */
+	public bool reply(Bytes data, int length) { return (int)write(self.control, data.data, (size_t)length) == length; }
+
+	/* Take the `length` bytes a host-to-device request carries; reading them
+	 * accepts the request. An empty request is accepted the same way. */
+	public bool accept(Bytes data, int length) {
+		unsigned char buffer[4096];
+		if (length > 4096) { return false; }
+		int count = (int)read(self.control, buffer, (size_t)length);
+		if (count > 0) { data.appendRaw((char*)buffer, count); }
+		return count == length;
+	}
+
+	/* Refuse a request: the transfer in the direction it did not ask for,
+	 * which the kernel answers by stalling the endpoint. */
+	public bool stall(bool deviceToHost) {
+		unsigned char none[1];
+		none[0] = (unsigned char)0;
+		int outcome = deviceToHost ? (int)read(self.control, none, (size_t)0) : (int)write(self.control, none, (size_t)0);
+		return outcome < 0;
+	}
+
+	public int pipeCount() { return self.pipes.len; }
+
+	public int address(int index) { return self.pipes.get(index).address; }
+
+	public bool busy(int index) { return self.pipes.get(index).busy; }
+
+	/* Start a transfer on a pipe: `packet` to the host on an IN pipe, or the
+	 * next packet from it on an OUT pipe. False when the pipe is busy or the
+	 * host has not enabled it. */
+	public bool start(int index, Bytes packet) {
+		USBGadgetPipe pipe = self.pipes.get(index);
+		bool toHost = (pipe.address & 0x80) != 0;
+		if (pipe.busy || pipe.handle < 0) { return false; }
+		int length = pipe.capacity;
+		if (toHost) {
+			length = packet.length() > pipe.capacity ? pipe.capacity : packet.length();
+			if (length > 0) { memcpy(btrcFunctionFSTransferData(pipe.transfer), packet.data, (size_t)length); }
+		}
+		pipe.busy = btrcFunctionFSSubmit(self.queue, pipe.transfer, pipe.handle, toHost ? 1 : 0, length, self.notifier, index) == 0;
+		return pipe.busy;
+	}
+
+	/* The pipe whose transfer completed, or -1. What an OUT pipe received is
+	 * appended to `packet`. */
+	public int finished(Bytes packet) {
+		int index = -1;
+		int result = 0;
+		if (self.queue == 0UL) { return -1; }
+		btrcFunctionFSQuiet(self.notifier);
+		if (btrcFunctionFSReap(self.queue, &index, &result) != 1 || index < 0 || index >= self.pipes.len) { return -1; }
+		USBGadgetPipe pipe = self.pipes.get(index);
+		pipe.busy = false;
+		if ((pipe.address & 0x80) == 0 && result > 0) { packet.appendRaw((char*)btrcFunctionFSTransferData(pipe.transfer), result); }
+		return index;
+	}
+
+	/* Leave the controller and take the gadget apart. */
+	public void close() {
+		if (!self.built) { return; }
+		self.built = false;
+		USBGadgetProvider.writeAttribute(f"{USBGadgetProvider.root()}/{self.name}/UDC", "\n");
+		for pipe in self.pipes {
+			if (pipe.handle >= 0) { close(pipe.handle); }
+			pipe.handle = -1;
+		}
+		if (self.queue != 0UL) { btrcFunctionFSQueueClose(self.queue); }
+		self.queue = 0UL;
+		for pipe in self.pipes {
+			if (pipe.transfer != NULL) { btrcFunctionFSTransferFree(pipe.transfer); }
+			pipe.transfer = NULL;
+		}
+		if (self.notifier >= 0) { close(self.notifier); }
+		if (self.control >= 0) { close(self.control); }
+		self.notifier = -1;
+		self.control = -1;
+		USBGadgetProvider.remove(self.name);
+	}
+}

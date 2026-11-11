@@ -1,0 +1,144 @@
+/* This machine as a USB device.
+ *
+ * A USBGadget puts a USBVirtualDevice on one of the machine's USB device
+ * controllers -- a port that can act as a device, such as a USB-C port in
+ * device mode -- so the host at the other end of the cable sees real
+ * hardware. The kernel answers enumeration from the device's description;
+ * class and vendor requests and the endpoints' packets go to the device's
+ * IUSBFunction, as they do over USB/IP.
+ *
+ * The gadget is driven by a loop: wait on `watch`'s descriptors, then call
+ * `step`. Nothing in it blocks, so one loop can serve a gadget beside other
+ * work.
+ *
+ * Linux has the provider (configfs and FunctionFS; it needs root, and the
+ * libcomposite and usb_f_fs modules). Other rows report
+ * `USBGadget.supported()` false and fail to open. */
+
+import Library.Bytes;
+import Library.USB.USBDescriptors;
+import Library.USB.USBVirtualDevice;
+import Library.Vector;
+
+#include <poll.h>
+
+class USBGadget {
+	private USBVirtualDevice device;
+	private USBGadgetProvider port;
+	private bool enabled = false;
+	private bool open = false;
+
+	private USBGadget(USBVirtualDevice device, USBGadgetProvider port) {
+		self.device = device;
+		self.port = port;
+	}
+
+	/* Whether this target can act as a USB device at all. */
+	class bool supported() { return USBGadgetProvider.supported(); }
+
+	/* The device controllers this machine has now. Empty on a machine whose
+	 * ports are hosts only, or whose port is not in device mode. */
+	class Vector<string> controllers() { return USBGadgetProvider.controllers(); }
+
+	/* Take apart a gadget of this name that a crashed process left behind. */
+	class void remove(string name) { USBGadgetProvider.remove(name); }
+
+	/* Present `device` on a controller (the first one when `controller` is
+	 * empty) as the gadget `name`, or throw why not. A gadget of that name
+	 * left behind earlier is replaced. */
+	class USBGadget open(USBVirtualDevice device, string name, string controller = "") {
+		if (device == null || name == null || name.isEmpty()) { throw "A gadget needs a device and a name"; }
+		string chosen = controller;
+		if (chosen.isEmpty()) {
+			Vector<string> found = USBGadgetProvider.controllers();
+			if (found.len == 0) { throw "This machine has no USB device controller (is the port in device mode?)"; }
+			chosen = found.get(0);
+		}
+		USBGadget gadget = USBGadget(device, USBGadgetProvider(name));
+		gadget.open = true;
+		try {
+			gadget.port.build(device.describe());
+			gadget.port.bind(chosen);
+		} catch (string error) {
+			gadget.close();
+			throw error;
+		}
+		return gadget;
+	}
+
+	public bool isOpen() { return self.open; }
+
+	/* Whether a host has configured the device. */
+	public bool connected() { return self.enabled; }
+
+	/* Fill `descriptors` with what to wait on before the next `step`; the
+	 * number filled. `capacity` must be at least 2. */
+	public int watch(struct pollfd* descriptors, int capacity) { return self.open ? self.port.watch(descriptors, capacity) : 0; }
+
+	private void request(unsigned char* bytes) {
+		USBSetup setup = USBSetup.decode(bytes);
+		Bytes data = Bytes();
+		if (setup.deviceToHost()) {
+			int length = self.device.control(setup, data);
+			if (length < 0) { self.port.stall(true); }
+			else { self.port.reply(data, length); }
+			return;
+		}
+		/* A request with data is accepted by reading it, so only one without
+		 * data can still be refused. */
+		if (setup.length > 0) {
+			if (self.port.accept(data, setup.length)) { self.device.control(setup, data); }
+			return;
+		}
+		if (self.device.control(setup, data) < 0) { self.port.stall(false); }
+		else { self.port.accept(data, 0); }
+	}
+
+	private void signals() {
+		unsigned char setup[8];
+		while (true) {
+			int signal = self.port.signal(setup);
+			if (signal == USB_GADGET_QUIET) { return; }
+			if (signal == USB_GADGET_SETUP) { self.request(setup); }
+			else if (signal == USB_GADGET_ENABLED) {
+				self.enabled = true;
+				self.device.control(USBSetup(0, USB_REQUEST_SET_CONFIGURATION, 1, 0, 0), Bytes());
+			} else if (signal == USB_GADGET_DISABLED || signal == USB_GADGET_UNBOUND) {
+				self.enabled = false;
+				self.device.reset();
+			}
+		}
+	}
+
+	/* Do what is due: answer the host's requests, hand arrived packets to the
+	 * device and send the packets it has ready. */
+	public void step() {
+		if (!self.open) { return; }
+		self.signals();
+		while (true) {
+			Bytes arrived = Bytes();
+			int index = self.port.finished(arrived);
+			if (index < 0) { break; }
+			if (!arrived.isEmpty()) { self.device.consume(self.port.address(index), arrived); }
+		}
+		if (!self.enabled) { return; }
+		for (int index = 0; index < self.port.pipeCount(); index++) {
+			if (self.port.busy(index)) { continue; }
+			int address = self.port.address(index);
+			Bytes packet = Bytes();
+			if ((address & 0x80) == 0) { self.port.start(index, packet); }
+			else if (self.device.produce(address, packet)) { self.port.start(index, packet); }
+		}
+	}
+
+	/* Leave the controller: the host sees the device unplugged. */
+	public void close() {
+		if (!self.open) { return; }
+		self.open = false;
+		self.enabled = false;
+		self.device.reset();
+		self.port.close();
+	}
+
+	public void __del__() { self.close(); }
+}

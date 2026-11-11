@@ -1,0 +1,56 @@
+/* What a HID device is to its host: a report descriptor, reports the host
+ * asks for, reports the host sends, and a stream of input reports. Nothing
+ * here does I/O, so it is the same on every target.
+ *
+ * A report is passed as it travels: when the descriptor numbers its reports
+ * (it has a Report ID item), every report starts with its ID byte. */
+
+import Library.Bytes;
+
+enum HIDReportKind {
+	HID_REPORT_INPUT = 1,
+	HID_REPORT_OUTPUT = 2,
+	HID_REPORT_FEATURE = 3
+};
+
+interface IHIDDevice {
+	/* The report descriptor: what the device's reports mean. */
+	Bytes reportDescriptor();
+
+	/* The host asks for the report `id` of a HIDReportKind (`id` is 0 when
+	 * reports are not numbered). Append it to `report` and return true;
+	 * false refuses the request. */
+	bool getReport(int kind, int id, Bytes report);
+
+	/* The host sends an output or feature report. False refuses it, where
+	 * the bus can still say so. */
+	bool setReport(int kind, int id, Bytes report);
+
+	/* Append the next input report to `report`. False when none is due. */
+	bool nextInput(Bytes report);
+}
+
+class HIDReportDescriptor {
+	/* Whether a report descriptor numbers its reports. Walks the items: a
+	 * short item's first byte holds its size, type and tag, and Report ID is
+	 * the global item with tag 8. */
+	class bool numbered(Bytes descriptor) {
+		int index = 0;
+		while (index < descriptor.length()) {
+			int prefix = descriptor.get(index);
+			if (prefix == 0xFE) {
+				if (index + 1 >= descriptor.length()) { return false; }
+				index += 3 + descriptor.get(index + 1);
+				continue;
+			}
+			if ((prefix & 0xFC) == 0x84) { return true; }
+			int size = prefix & 3;
+			index += 1 + (size == 3 ? 4 : size);
+		}
+		return false;
+	}
+
+	/* The ID a report travels under: its first byte when reports are
+	 * numbered, otherwise 0. */
+	class int idOf(Bytes report, bool numbered) { return numbered && report.length() > 0 ? report.get(0) : 0; }
+}

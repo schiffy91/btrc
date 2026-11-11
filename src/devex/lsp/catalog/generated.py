@@ -666,6 +666,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("parse", "ExecutionGraph", "method", (("string", "text"), ("string", "path"),), "parse"),
         BuiltinMemberSpec("readFile", "ExecutionGraph", "method", (("string", "path"),), "readFile"),
     )),
+    ("HIDReportDescriptor", (
+        BuiltinMemberSpec("numbered", "bool", "method", (("Bytes", "descriptor"),), "numbered"),
+        BuiltinMemberSpec("idOf", "int", "method", (("Bytes", "report"), ("bool", "numbered"),), "idOf"),
+    )),
     ("HTTPFraming", (
         BuiltinMemberSpec("hexVal", "int", "method", (("char", "ch"),), "hexVal"),
         BuiltinMemberSpec("tokenChar", "bool", "method", (("char", "ch"),), "tokenChar"),

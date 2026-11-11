@@ -1,0 +1,59 @@
+/* USBGadget on macOS: there is none. A Mac's ports are hosts, and the kernel
+ * has no gadget stack. Every operation reports that, so a program can ask
+ * `USBGadget.supported()` first. */
+
+import Library.Bytes;
+import Library.USB.USBDescriptors;
+import Library.Vector;
+
+#include <poll.h>
+
+enum USBGadgetSignal {
+	USB_GADGET_BOUND = 0,
+	USB_GADGET_UNBOUND = 1,
+	USB_GADGET_ENABLED = 2,
+	USB_GADGET_DISABLED = 3,
+	USB_GADGET_SETUP = 4,
+	USB_GADGET_SUSPENDED = 5,
+	USB_GADGET_RESUMED = 6,
+	USB_GADGET_QUIET = -1
+};
+
+class USBGadgetProvider {
+	class bool supported() { return false; }
+
+	class Vector<string> controllers() {
+		Vector<string> none = [];
+		return none;
+	}
+
+	class void remove(string name) {}
+
+	public USBGadgetProvider(string name) {}
+
+	public void build(USBDeviceDescription description) { throw "This target cannot act as a USB device"; }
+
+	public void bind(string controller) { throw "This target cannot act as a USB device"; }
+
+	public int watch(struct pollfd* descriptors, int capacity) { return 0; }
+
+	public int signal(unsigned char* setup) { return USB_GADGET_QUIET; }
+
+	public bool reply(Bytes data, int length) { return false; }
+
+	public bool accept(Bytes data, int length) { return false; }
+
+	public bool stall(bool deviceToHost) { return false; }
+
+	public int pipeCount() { return 0; }
+
+	public int address(int index) { return 0; }
+
+	public bool busy(int index) { return false; }
+
+	public bool start(int index, Bytes packet) { return false; }
+
+	public int finished(Bytes packet) { return -1; }
+
+	public void close() {}
+}

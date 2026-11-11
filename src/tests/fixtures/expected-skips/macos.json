@@ -480,6 +480,21 @@
         "linux-devcontainer"
       ],
       "note": "Sodium has a libsodium provider on Linux only; test_windows_builds_base64_but_no_keys runs on every host and pins what builds without one. The Linux shard runs the signatures, key files and the channel."
+    },
+    {
+      "id": "usb-gadget-linux-only",
+      "files": [
+        "src/tests/python/test_usb_runtime.py"
+      ],
+      "nodes": [
+        "*::test_gadget_program_builds_and_plans_alike*"
+      ],
+      "reason": "^requires Linux: the gadget loopback program drives the Linux gadget stack$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "USBGadget's provider is configfs and FunctionFS; the macOS provider reports unsupported, which test_a_machine_without_a_device_controller_refuses_a_gadget runs here. The Linux shard builds the loopback program on both frontends, and the flake's usb-gadget-loopback check runs it in a VM."
     }
   ]
 }

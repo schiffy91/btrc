@@ -779,6 +779,12 @@
           btrcpy = self.packages.${system}.btrcpy;
           source = ./src/tests/native/usb;
         };
+        # This machine as a USB device on a loopback controller; it boots VMs.
+        usb-gadget-loopback = import ./src/tests/native/usb/usb-gadget-loopback.nix {
+          inherit pkgs;
+          btrcpy = self.packages.${system}.btrcpy;
+          source = ./src/tests/native/usb;
+        };
       });
     };
 }

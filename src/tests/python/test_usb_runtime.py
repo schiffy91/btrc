@@ -60,6 +60,48 @@ def test_kernel_host_program_builds_and_plans_alike(
         assert plan.read_bytes() == reference_plan.read_bytes()
 
 
+def test_gadget_program_builds_and_plans_alike(compiler: str, tmp_path: Path, request: pytest.FixtureRequest) -> None:
+    """Both frontends build the configfs and FunctionFS program and plan it identically."""
+    _require_host()
+    if sys.platform != "linux":
+        pytest.skip("requires Linux: the gadget loopback program drives the Linux gadget stack")
+    generated = tmp_path / f"gadget-{compiler}.c"
+    plan = _transpile(compiler, FIXTURE / "USBGadgetLoopback.btrc", generated, request)
+    _compile("clang", generated, tmp_path / f"gadget-{compiler}")
+    if compiler == "btrc":
+        reference_plan = _transpile(
+            "python", FIXTURE / "USBGadgetLoopback.btrc", tmp_path / "gadget-reference.c", request
+        )
+        assert plan.read_bytes() == reference_plan.read_bytes()
+
+
+def test_a_machine_without_a_device_controller_refuses_a_gadget(
+    compiler: str, tmp_path: Path, request: pytest.FixtureRequest
+) -> None:
+    """Where no port can act as a device, opening a gadget says so and leaves nothing behind."""
+    _require_host()
+    source = tmp_path / "NoController.btrc"
+    source.write_text(
+        "import Library.USB;\n\nimport ./EchoPad.btrc;\n\n"
+        "int main() {\n"
+        '\tif (USBGadget.controllers().len > 0) { print("SKIP"); return 0; }\n'
+        '\ttry { USBGadget.open(USBVirtualDevice(EchoPad.description(), EchoPad()), "btrc-none"); } catch (string error) {\n'
+        "\t\tprint(error);\n\t\treturn 0;\n\t}\n"
+        "\treturn 1;\n}\n"
+    )
+    shutil.copy(FIXTURE / "EchoPad.btrc", tmp_path / "EchoPad.btrc")
+    generated = tmp_path / f"no-controller-{compiler}.c"
+    _transpile(compiler, source, generated, request)
+    _compile("clang", generated, tmp_path / f"no-controller-{compiler}")
+    ran = subprocess.run(
+        [str(tmp_path / f"no-controller-{compiler}")], capture_output=True, text=True, timeout=RUN_TIMEOUT
+    )
+    assert ran.returncode == 0, ran.stderr
+    if sys.platform == "linux" and ran.stdout != "SKIP\n":
+        assert ran.stdout == "This machine has no USB device controller (is the port in device mode?)\n"
+    assert ran.stderr == ""
+
+
 def test_windows_builds_usb_values_but_no_transport(
     compiler: str, tmp_path: Path, request: pytest.FixtureRequest
 ) -> None:
@@ -67,7 +109,7 @@ def test_windows_builds_usb_values_but_no_transport(
     environment = {**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache"), "BTRC_HOME": str(ROOT / "src")}
     values = tmp_path / "Values.btrc"
     values.write_text(
-        "import Library.USB.USBDescriptors;\nimport Library.USB.USBVirtualDevice;\n\n"
+        "import Library.USB.USBDescriptors;\nimport Library.USB.USBHID;\nimport Library.USB.USBVirtualDevice;\n\n"
         "int main() { return USBSetup(0x80, 6, 0x0100, 0, 18).deviceToHost() ? 0 : 1; }\n"
     )
 
@@ -84,7 +126,7 @@ def test_windows_builds_usb_values_but_no_transport(
 
     portable = transpile(values)
     assert portable.returncode == 0, portable.stderr
-    for module in ("USBIP", "USBHost"):
+    for module in ("USBIP", "USBHost", "USBGadget"):
         source = tmp_path / f"{module}.btrc"
         source.write_text(f"import Library.USB.{module};\n\nint main() {{ return 0; }}\n")
         refused = transpile(source)

@@ -99,7 +99,7 @@ the API surface, so the layout follows a few fixed rules.
 
 Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 (`Linux/`, `MacOS/`, `Unix/`), `Crypto` (`Linux/`, `MacOS/`, `Unix/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`,
-`GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`, `Windows/`), `HTTP`, `Image`
+`GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`, `Windows/`), `HID`, `HTTP`, `Image`
 (`Linux/`, `MacOS/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`), `Network`
 (`Unix/`), `Realtime`, `Terminal` (`Unix/`, `Windows/`), `Tray` (`Linux/`, `MacOS/`), `UI`,
 `USB` (`Linux/`, `MacOS/`, `Unix/`).

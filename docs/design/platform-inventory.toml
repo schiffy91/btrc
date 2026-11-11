@@ -666,6 +666,32 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.HID"
+group = "stdlib/HID"
+title = "HID facade: the device contract apart from its bus"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "the facade imports HIDDevice only: an interface and pure btrc over Bytes" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "the facade imports HIDDevice only: an interface and pure btrc over Bytes" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "the facade imports HIDDevice only: an interface and pure btrc over Bytes" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "the facade imports HIDDevice only: an interface and pure btrc over Bytes" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "the facade imports HIDDevice only: an interface and pure btrc over Bytes" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "the facade imports HIDDevice only: an interface and pure btrc over Bytes" }
+
+[[rows]]
+kind = "operation"
+id = "Library.HID.HIDDevice"
+group = "stdlib/HID"
+title = "HID device contract and report descriptor walk"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over Bytes; no I/O (HIDDevice.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over Bytes; no I/O (HIDDevice.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over Bytes; no I/O (HIDDevice.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over Bytes; no I/O (HIDDevice.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over Bytes; no I/O (HIDDevice.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "an interface and pure btrc over Bytes; no I/O (HIDDevice.btrc)" }
+
+[[rows]]
+kind = "operation"
 id = "Library.HTTP"
 group = "stdlib/HTTP"
 title = "HTTP package aggregate"
@@ -1305,7 +1331,7 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 kind = "operation"
 id = "Library.USB"
 group = "stdlib/USB"
-title = "USB facade: descriptors, emulated devices, USB/IP and the host"
+title = "USB facade: descriptors, emulated devices, HID, USB/IP, the host and the gadget"
 regression = ["src/tests/python/test_usb_runtime.py::test_emulated_usb_device_over_usbip_on_both_frontends", "src/tests/python/test_usb_runtime.py::test_kernel_host_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream, which has no Winsock provider yet" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream, which has no Winsock provider yet" }
@@ -1326,6 +1352,32 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "P
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc values over Bytes and Vector; no I/O (USBDescriptors.btrc)" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc values over Bytes and Vector; no I/O (USBDescriptors.btrc)" }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc values over Bytes and Vector; no I/O (USBDescriptors.btrc)" }
+
+[[rows]]
+kind = "operation"
+id = "Library.USB.USBGadget"
+group = "stdlib/USB"
+title = "This machine as a USB device on a device controller"
+regression = ["src/tests/python/test_usb_runtime.py::test_gadget_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_a_machine_without_a_device_controller_refuses_a_gadget", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "configfs and FunctionFS are Linux interfaces; Windows gives applications no way to define a USB function (function controllers are kernel-mode UFX clients)" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "configfs and FunctionFS are Linux interfaces; Windows gives applications no way to define a USB function (function controllers are kernel-mode UFX clients)" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot define what the device presents on its port; only MFi accessory protocols are open to it" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot define what the device presents on its port; only MFi accessory protocols are open to it" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android's kernel has FunctionFS, but only the system (adbd, MTP) may mount it; an app cannot define a USB function" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android's kernel has FunctionFS, but only the system (adbd, MTP) may mount it; an app cannot define a USB function" }
+
+[[rows]]
+kind = "operation"
+id = "Library.USB.USBHID"
+group = "stdlib/USB"
+title = "A HID device as a USB interface"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBVirtualDevice and Library.HID; no I/O (USBHID.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBVirtualDevice and Library.HID; no I/O (USBHID.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBVirtualDevice and Library.HID; no I/O (USBHID.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBVirtualDevice and Library.HID; no I/O (USBHID.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBVirtualDevice and Library.HID; no I/O (USBHID.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBVirtualDevice and Library.HID; no I/O (USBHID.btrc)" }
 
 [[rows]]
 kind = "operation"

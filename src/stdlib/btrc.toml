@@ -41,6 +41,7 @@ FileSystem = { path = "FileSystem" }
 GPU = { path = "GPU" }
 GUI = { path = "GUI" }
 Graph = { path = "Graph" }
+HID = { path = "HID" }
 HTTP = { path = "HTTP" }
 Image = { path = "Image" }
 Java = { path = "Java" }

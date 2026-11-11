@@ -1,0 +1,98 @@
+/* A HID device as a USB interface.
+ *
+ * USBHIDFunction is the IUSBFunction for an IHIDDevice: it answers the HID
+ * class requests from the device's reports and carries input reports on an
+ * interrupt IN endpoint, and output reports on an interrupt OUT endpoint when
+ * the interface has one. `describe` builds the matching USBInterface. Like
+ * the rest of the emulated device it does no I/O, so it builds on every
+ * target. */
+
+import Library.Bytes;
+import Library.HID.HIDDevice;
+import Library.USB.USBDescriptors;
+import Library.USB.USBVirtualDevice;
+
+enum USBHIDRequest {
+	USB_HID_GET_REPORT = 0x01,
+	USB_HID_GET_IDLE = 0x02,
+	USB_HID_GET_PROTOCOL = 0x03,
+	USB_HID_SET_REPORT = 0x09,
+	USB_HID_SET_IDLE = 0x0A,
+	USB_HID_SET_PROTOCOL = 0x0B
+};
+
+class USBHIDFunction implements IUSBFunction {
+	private IHIDDevice device;
+	private int inEndpoint;
+	private int outEndpoint;
+	private bool numbered;
+	private int idle = 0;
+	private int protocol = 1;
+
+	/* `inEndpoint` carries input reports; `outEndpoint` is the address of an
+	 * interrupt OUT endpoint for output reports, or 0 for none (the host
+	 * then sends them as SET_REPORT requests). */
+	public USBHIDFunction(IHIDDevice device, int inEndpoint = 0x81, int outEndpoint = 0) {
+		if (device == null) { throw "A USB HID function needs a device"; }
+		self.device = device;
+		self.inEndpoint = inEndpoint;
+		self.outEndpoint = outEndpoint;
+		self.numbered = HIDReportDescriptor.numbered(device.reportDescriptor());
+	}
+
+	/* The interface this function serves, for a USBDeviceDescription.
+	 * `interval` is the polling period in milliseconds. */
+	public USBInterface describe(int number, int maxPacket = 64, int interval = 1) {
+		USBInterface entry = USBInterface(number, 3, 0, 0).hid(self.device.reportDescriptor().length());
+		entry.endpoint(USBEndpoint(self.inEndpoint, USB_TRANSFER_INTERRUPT, maxPacket, interval));
+		if (self.outEndpoint != 0) { entry.endpoint(USBEndpoint(self.outEndpoint, USB_TRANSFER_INTERRUPT, maxPacket, interval)); }
+		return entry;
+	}
+
+	private int descriptor(USBSetup setup, Bytes data) {
+		int kind = setup.value >> 8;
+		Bytes found = Bytes();
+		if (kind == USB_DESCRIPTOR_HID_REPORT) { found = self.device.reportDescriptor(); }
+		else if (kind == USB_DESCRIPTOR_HID) { found = USBInterface(0, 3, 0, 0).hid(self.device.reportDescriptor().length()).classDescriptor; }
+		else { return USB_CONTROL_STALL; }
+		data.appendBytes(found);
+		return found.length();
+	}
+
+	public int control(USBSetup setup, Bytes data) {
+		if (setup.scope() == USB_REQUEST_STANDARD) { return setup.request == USB_REQUEST_GET_DESCRIPTOR ? self.descriptor(setup, data) : USB_CONTROL_STALL; }
+		if (setup.scope() != USB_REQUEST_CLASS) { return USB_CONTROL_STALL; }
+		int kind = setup.value >> 8;
+		int id = setup.value & 0xFF;
+		if (setup.request == USB_HID_GET_REPORT) {
+			Bytes report = Bytes();
+			if (!self.device.getReport(kind, id, report)) { return USB_CONTROL_STALL; }
+			data.appendBytes(report);
+			return report.length();
+		}
+		if (setup.request == USB_HID_SET_REPORT) { return self.device.setReport(kind, id, data) ? data.length() : USB_CONTROL_STALL; }
+		if (setup.request == USB_HID_GET_IDLE) {
+			data.append(self.idle);
+			return 1;
+		}
+		if (setup.request == USB_HID_GET_PROTOCOL) {
+			data.append(self.protocol);
+			return 1;
+		}
+		if (setup.request == USB_HID_SET_IDLE) {
+			self.idle = setup.value >> 8;
+			return 0;
+		}
+		if (setup.request == USB_HID_SET_PROTOCOL) {
+			self.protocol = setup.value & 1;
+			return 0;
+		}
+		return USB_CONTROL_STALL;
+	}
+
+	public bool produce(int endpoint, Bytes packet) { return endpoint == self.inEndpoint && self.device.nextInput(packet); }
+
+	public void consume(int endpoint, Bytes packet) {
+		if (endpoint == self.outEndpoint && self.outEndpoint != 0) { self.device.setReport(HID_REPORT_OUTPUT, HIDReportDescriptor.idOf(packet, self.numbered), packet); }
+	}
+}
