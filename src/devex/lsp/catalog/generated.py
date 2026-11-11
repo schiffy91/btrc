@@ -1027,6 +1027,28 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("rasterize", "Image", "method", (("UITypography", "typography"), ("string", "value"), ("int", "fontSize"), ("int", "lineHeight"), ("int", "fontWeight"), ("UIColor", "color"), ("float", "backingScale"),), "rasterize"),
         BuiltinMemberSpec("blit", "void", "method", (("Image", "target"), ("Image", "source"), ("int", "left"), ("int", "top"),), "blit"),
     )),
+    ("USBBytes", (
+        BuiltinMemberSpec("putU16", "void", "method", (("Bytes", "out"), ("int", "value"),), "putU16"),
+        BuiltinMemberSpec("u16", "int", "method", (("unsigned char*", "bytes"), ("int", "offset"),), "u16"),
+    )),
+    ("USBHost", (
+        BuiltinMemberSpec("supported", "bool", "method", (), "supported"),
+        BuiltinMemberSpec("present", "bool", "method", (("int", "vendor"), ("int", "product"),), "present"),
+    )),
+    ("USBIPWire", (
+        BuiltinMemberSpec("busId", "string", "method", (), "busId"),
+        BuiltinMemberSpec("u16", "int", "method", (("unsigned char*", "bytes"), ("int", "offset"),), "u16"),
+        BuiltinMemberSpec("u32", "long long", "method", (("unsigned char*", "bytes"), ("int", "offset"),), "u32"),
+        BuiltinMemberSpec("putU16", "void", "method", (("unsigned char*", "bytes"), ("int", "offset"), ("int", "value"),), "putU16"),
+        BuiltinMemberSpec("putU32", "void", "method", (("unsigned char*", "bytes"), ("int", "offset"), ("long long", "value"),), "putU32"),
+        BuiltinMemberSpec("status", "int", "method", (("unsigned char*", "bytes"), ("int", "offset"),), "status"),
+        BuiltinMemberSpec("device", "void", "method", (("unsigned char*", "out"), ("USBDeviceDescription", "description"),), "device"),
+        BuiltinMemberSpec("operation", "void", "method", (("unsigned char*", "out"), ("int", "code"), ("int", "status"),), "operation"),
+        BuiltinMemberSpec("reply", "void", "method", (("unsigned char*", "out"), ("int", "command"), ("long long", "sequence"), ("int", "status"), ("int", "length"),), "reply"),
+    )),
+    ("USBIPDevice", (
+        BuiltinMemberSpec("decode", "USBIPDevice", "method", (("unsigned char*", "bytes"),), "decode"),
+    )),
 )
 
 # Built-in free function signatures: name -> (return_type, params)

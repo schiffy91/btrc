@@ -1,0 +1,273 @@
+/* USB descriptors and setup packets as values.
+ *
+ * A USBDeviceDescription says what a device is -- identity, strings,
+ * interfaces, endpoints -- and renders the descriptors a host asks for. A
+ * USBSetup is the eight bytes that start a control transfer. Nothing here does
+ * I/O, so it is the same on every target. Multi-byte fields are little-endian,
+ * as on the bus. */
+
+import Library.Bytes;
+import Library.Vector;
+
+enum USBDescriptorKind {
+	USB_DESCRIPTOR_DEVICE = 1,
+	USB_DESCRIPTOR_CONFIGURATION = 2,
+	USB_DESCRIPTOR_STRING = 3,
+	USB_DESCRIPTOR_INTERFACE = 4,
+	USB_DESCRIPTOR_ENDPOINT = 5,
+	USB_DESCRIPTOR_QUALIFIER = 6,
+	USB_DESCRIPTOR_HID = 0x21,
+	USB_DESCRIPTOR_HID_REPORT = 0x22
+};
+
+enum USBRequest {
+	USB_REQUEST_GET_STATUS = 0,
+	USB_REQUEST_CLEAR_FEATURE = 1,
+	USB_REQUEST_GET_DESCRIPTOR = 6,
+	USB_REQUEST_GET_CONFIGURATION = 8,
+	USB_REQUEST_SET_CONFIGURATION = 9,
+	USB_REQUEST_GET_INTERFACE = 10,
+	USB_REQUEST_SET_INTERFACE = 11
+};
+
+enum USBTransferKind {
+	USB_TRANSFER_CONTROL = 0,
+	USB_TRANSFER_ISOCHRONOUS = 1,
+	USB_TRANSFER_BULK = 2,
+	USB_TRANSFER_INTERRUPT = 3
+};
+
+/* Numbered as the Linux kernel and USB/IP number them. */
+enum USBSpeed {
+	USB_SPEED_LOW = 1,
+	USB_SPEED_FULL = 2,
+	USB_SPEED_HIGH = 3
+};
+
+/* Who a control request is for, and whose vocabulary it uses. */
+enum USBRequestScope {
+	USB_REQUEST_STANDARD = 0,
+	USB_REQUEST_CLASS = 1,
+	USB_REQUEST_VENDOR = 2,
+	USB_RECIPIENT_DEVICE = 0,
+	USB_RECIPIENT_INTERFACE = 1,
+	USB_RECIPIENT_ENDPOINT = 2
+};
+
+class USBBytes {
+	class void putU16(Bytes out, int value) {
+		out.append(value & 0xFF);
+		out.append((value >> 8) & 0xFF);
+	}
+
+	class int u16(unsigned char* bytes, int offset) { return (int)bytes[offset] | ((int)bytes[offset + 1] << 8); }
+}
+
+/* The eight bytes that start every control transfer. */
+class USBSetup {
+	public int requestType;
+	public int request;
+	public int value;
+	public int index;
+	public int length;
+
+	public USBSetup(int requestType, int request, int value, int index, int length) {
+		self.requestType = requestType & 0xFF;
+		self.request = request & 0xFF;
+		self.value = value & 0xFFFF;
+		self.index = index & 0xFFFF;
+		self.length = length & 0xFFFF;
+	}
+
+	/* Read a setup packet from its eight bytes. */
+	class USBSetup decode(unsigned char* bytes) { return USBSetup((int)bytes[0], (int)bytes[1], USBBytes.u16(bytes, 2), USBBytes.u16(bytes, 4), USBBytes.u16(bytes, 6)); }
+
+	/* Write the eight bytes. */
+	public void encode(unsigned char* out) {
+		out[0] = (unsigned char)self.requestType;
+		out[1] = (unsigned char)self.request;
+		out[2] = (unsigned char)(self.value & 0xFF);
+		out[3] = (unsigned char)(self.value >> 8);
+		out[4] = (unsigned char)(self.index & 0xFF);
+		out[5] = (unsigned char)(self.index >> 8);
+		out[6] = (unsigned char)(self.length & 0xFF);
+		out[7] = (unsigned char)(self.length >> 8);
+	}
+
+	public bool deviceToHost() { return (self.requestType & 0x80) != 0; }
+
+	/* USB_REQUEST_STANDARD, _CLASS or _VENDOR. */
+	public int scope() { return (self.requestType >> 5) & 3; }
+
+	/* USB_RECIPIENT_DEVICE, _INTERFACE or _ENDPOINT. */
+	public int recipient() { return self.requestType & 31; }
+}
+
+class USBEndpoint {
+	public int address;
+	public int kind;
+	public int maxPacket;
+	public int interval;
+
+	/* `address` carries the direction in bit 7; `kind` is a USBTransferKind. */
+	public USBEndpoint(int address, int kind, int maxPacket, int interval) {
+		self.address = address & 0xFF;
+		self.kind = kind & 3;
+		self.maxPacket = maxPacket;
+		self.interval = interval;
+	}
+
+	public bool isIn() { return (self.address & 0x80) != 0; }
+
+	public int number() { return self.address & 0x0F; }
+}
+
+class USBInterface {
+	public int number;
+	public int deviceClass;
+	public int subclass;
+	public int protocol;
+	public Vector<USBEndpoint> endpoints = [];
+	public Bytes classDescriptor;
+
+	public USBInterface(int number, int deviceClass, int subclass, int protocol) {
+		self.number = number;
+		self.deviceClass = deviceClass;
+		self.subclass = subclass;
+		self.protocol = protocol;
+		self.classDescriptor = Bytes();
+	}
+
+	public USBInterface endpoint(USBEndpoint endpoint) {
+		self.endpoints.push(endpoint);
+		return self;
+	}
+
+	/* Carry the HID class descriptor for a report descriptor of this length. */
+	public USBInterface hid(int reportLength) {
+		Bytes descriptor = Bytes();
+		descriptor.append(9);
+		descriptor.append(USB_DESCRIPTOR_HID);
+		USBBytes.putU16(descriptor, 0x0111);
+		descriptor.append(0);
+		descriptor.append(1);
+		descriptor.append(USB_DESCRIPTOR_HID_REPORT);
+		USBBytes.putU16(descriptor, reportLength);
+		self.classDescriptor = descriptor;
+		return self;
+	}
+}
+
+/* One device with one configuration: what most devices are. */
+class USBDeviceDescription {
+	public int vendor;
+	public int product;
+	public int version;
+	public int deviceClass = 0;
+	public int subclass = 0;
+	public int protocol = 0;
+	public int maxPacket = 64;
+	public int speed = USB_SPEED_FULL;
+	public int milliamps = 500;
+	public string manufacturer = "";
+	public string name = "";
+	public string serial = "";
+	public Vector<USBInterface> interfaces = [];
+
+	/* `version` is the device release, binary-coded: 0x0100 is 1.00. */
+	public USBDeviceDescription(int vendor, int product, int version) {
+		self.vendor = vendor & 0xFFFF;
+		self.product = product & 0xFFFF;
+		self.version = version & 0xFFFF;
+	}
+
+	/* The strings a host shows; an empty one is left out of the descriptors. */
+	public USBDeviceDescription named(string manufacturer, string name, string serial) {
+		self.manufacturer = manufacturer;
+		self.name = name;
+		self.serial = serial;
+		return self;
+	}
+
+	public USBDeviceDescription add(USBInterface entry) {
+		self.interfaces.push(entry);
+		return self;
+	}
+
+	public Bytes deviceDescriptor() {
+		Bytes out = Bytes();
+		out.append(18);
+		out.append(USB_DESCRIPTOR_DEVICE);
+		USBBytes.putU16(out, 0x0200);
+		out.append(self.deviceClass);
+		out.append(self.subclass);
+		out.append(self.protocol);
+		out.append(self.maxPacket);
+		USBBytes.putU16(out, self.vendor);
+		USBBytes.putU16(out, self.product);
+		USBBytes.putU16(out, self.version);
+		out.append(self.manufacturer.isEmpty() ? 0 : 1);
+		out.append(self.name.isEmpty() ? 0 : 2);
+		out.append(self.serial.isEmpty() ? 0 : 3);
+		out.append(1);
+		return out;
+	}
+
+	/* The configuration with every interface, class descriptor and endpoint. */
+	public Bytes configurationDescriptor() {
+		Bytes body = Bytes();
+		for entry in self.interfaces {
+			body.append(9);
+			body.append(USB_DESCRIPTOR_INTERFACE);
+			body.append(entry.number);
+			body.append(0);
+			body.append(entry.endpoints.len);
+			body.append(entry.deviceClass);
+			body.append(entry.subclass);
+			body.append(entry.protocol);
+			body.append(0);
+			body.appendBytes(entry.classDescriptor);
+			for endpoint in entry.endpoints {
+				body.append(7);
+				body.append(USB_DESCRIPTOR_ENDPOINT);
+				body.append(endpoint.address);
+				body.append(endpoint.kind);
+				USBBytes.putU16(body, endpoint.maxPacket);
+				body.append(endpoint.interval);
+			}
+		}
+		Bytes out = Bytes();
+		out.append(9);
+		out.append(USB_DESCRIPTOR_CONFIGURATION);
+		USBBytes.putU16(out, 9 + body.length());
+		out.append(self.interfaces.len);
+		out.append(1);
+		out.append(0);
+		out.append(0x80);
+		out.append(self.milliamps / 2);
+		out.appendBytes(body);
+		return out;
+	}
+
+	/* String 0 is the language table (US English); 1 the manufacturer, 2 the
+	 * product, 3 the serial number. Empty when the device has no such string.
+	 * Text is sent as UTF-16; only ASCII is supported. */
+	public Bytes stringDescriptor(int index) {
+		Bytes out = Bytes();
+		if (index == 0) {
+			out.append(4);
+			out.append(USB_DESCRIPTOR_STRING);
+			USBBytes.putU16(out, 0x0409);
+			return out;
+		}
+		string text = index == 1 ? self.manufacturer : (index == 2 ? self.name : (index == 3 ? self.serial : ""));
+		if (text.isEmpty() || text.length() > 126) { return out; }
+		out.append(2 + 2 * text.length());
+		out.append(USB_DESCRIPTOR_STRING);
+		for (int position = 0; position < text.length(); position++) {
+			out.append((int)text[position] & 0x7F);
+			out.append(0);
+		}
+		return out;
+	}
+}

@@ -1212,6 +1212,71 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.USB"
+group = "stdlib/USB"
+title = "USB facade: descriptors, emulated devices, USB/IP and the host"
+regression = ["src/tests/python/test_usb_runtime.py::test_emulated_usb_device_over_usbip_on_both_frontends", "src/tests/python/test_usb_runtime.py::test_kernel_host_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream, which has no Winsock provider yet" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream, which has no Winsock provider yet" }
+ios-device = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream; BSD sockets exist in iOS libSystem but its rows have no ios spelling" }
+ios-simulator = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream; BSD sockets exist in iOS libSystem but its rows have no ios spelling" }
+android-arm64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream; BSD sockets exist in bionic but its rows have no android spelling" }
+android-x86_64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream; BSD sockets exist in bionic but its rows have no android spelling" }
+
+[[rows]]
+kind = "operation"
+id = "Library.USB.USBDescriptors"
+group = "stdlib/USB"
+title = "USB descriptors and setup packets as values"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc values over Bytes and Vector; no I/O (USBDescriptors.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc values over Bytes and Vector; no I/O (USBDescriptors.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc values over Bytes and Vector; no I/O (USBDescriptors.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc values over Bytes and Vector; no I/O (USBDescriptors.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc values over Bytes and Vector; no I/O (USBDescriptors.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc values over Bytes and Vector; no I/O (USBDescriptors.btrc)" }
+
+[[rows]]
+kind = "operation"
+id = "Library.USB.USBHost"
+group = "stdlib/USB"
+title = "Kernel-enumerated USB devices and USB/IP attachment"
+regression = ["src/tests/python/test_usb_runtime.py::test_kernel_host_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "usbfs and vhci_hcd are Linux interfaces; Windows needs a WinUSB device provider and has no in-box USB/IP host controller" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "usbfs and vhci_hcd are Linux interfaces; Windows needs a WinUSB device provider and has no in-box USB/IP host controller" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot open arbitrary USB devices or attach a kernel host controller; only ExternalAccessory and DriverKit entitlements reach USB" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot open arbitrary USB devices or attach a kernel host controller; only ExternalAccessory and DriverKit entitlements reach USB" }
+android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android reaches USB devices through UsbManager over JNI, not usbfs paths, and ships no vhci_hcd" }
+android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android reaches USB devices through UsbManager over JNI, not usbfs paths, and ships no vhci_hcd" }
+
+[[rows]]
+kind = "operation"
+id = "Library.USB.USBIP"
+group = "stdlib/USB"
+title = "USB/IP export of a virtual device and a user-space host"
+regression = ["src/tests/python/test_usb_runtime.py::test_emulated_usb_device_over_usbip_on_both_frontends", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream, which has no Winsock provider yet" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream, which has no Winsock provider yet" }
+ios-device = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream; BSD sockets exist in iOS libSystem but its rows have no ios spelling" }
+ios-simulator = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream; BSD sockets exist in iOS libSystem but its rows have no ios spelling" }
+android-arm64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream; BSD sockets exist in bionic but its rows have no android spelling" }
+android-x86_64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream; BSD sockets exist in bionic but its rows have no android spelling" }
+
+[[rows]]
+kind = "operation"
+id = "Library.USB.USBVirtualDevice"
+group = "stdlib/USB"
+title = "Emulated USB device with a pluggable function"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_usb_runtime.py::test_emulated_usb_device_over_usbip_on_both_frontends", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBDescriptors; no I/O (USBVirtualDevice.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBDescriptors; no I/O (USBVirtualDevice.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBDescriptors; no I/O (USBVirtualDevice.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBDescriptors; no I/O (USBVirtualDevice.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBDescriptors; no I/O (USBVirtualDevice.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc logic over USBDescriptors; no I/O (USBVirtualDevice.btrc)" }
+
+[[rows]]
+kind = "operation"
 id = "Library.Vector"
 group = "stdlib"
 title = "Generic growable Vector"

@@ -1,0 +1,123 @@
+/* USB descriptors, setup packets and an emulated device's standard requests:
+ * values and logic only, so every target runs it. */
+import Library.Bytes;
+import Library.USB.USBDescriptors;
+import Library.USB.USBVirtualDevice;
+
+#include <assert.h>
+
+/* A function that answers one vendor request and counts what it is given. */
+class CountingFunction implements IUSBFunction {
+	public int consumed = 0;
+	public int asked = 0;
+
+	public int control(USBSetup setup, Bytes data) {
+		self.asked++;
+		if (setup.scope() != USB_REQUEST_VENDOR) { return USB_CONTROL_STALL; }
+		if (!setup.deviceToHost()) { return data.length(); }
+		for (int index = 0; index < 100; index++) { data.append(index); }
+		return 100;
+	}
+
+	public bool produce(int endpoint, Bytes packet) {
+		if (endpoint != 0x81) { return false; }
+		packet.append(self.consumed);
+		return true;
+	}
+
+	public void consume(int endpoint, Bytes packet) { self.consumed += packet.length(); }
+}
+
+class USBVirtualDeviceTests {
+	class USBDeviceDescription sample() { return USBDeviceDescription(0x1209, 0x0001, 0x0102).named("btrc", "Test Pad", "A1").add(USBInterface(0, 3, 0, 0).hid(52).endpoint(USBEndpoint(0x81, USB_TRANSFER_INTERRUPT, 64, 1)).endpoint(USBEndpoint(0x01, USB_TRANSFER_INTERRUPT, 64, 1))); }
+
+	class void setup() {
+		unsigned char raw[8] = {0x81, 0x06, 0x00, 0x22, 0x02, 0x00, 0x34, 0x12};
+		USBSetup decoded = USBSetup.decode(raw);
+		assert(decoded.requestType == 0x81 && decoded.request == USB_REQUEST_GET_DESCRIPTOR && decoded.value == 0x2200 && decoded.index == 2 && decoded.length == 0x1234);
+		assert(decoded.deviceToHost() && decoded.scope() == USB_REQUEST_STANDARD && decoded.recipient() == USB_RECIPIENT_INTERFACE);
+		unsigned char back[8];
+		decoded.encode(back);
+		for (int index = 0; index < 8; index++) { assert(back[index] == raw[index]); }
+		USBSetup vendor = USBSetup(0x40, 0x07, 0x12345, 0, 3);
+		assert(!vendor.deviceToHost() && vendor.scope() == USB_REQUEST_VENDOR && vendor.recipient() == USB_RECIPIENT_DEVICE && vendor.value == 0x2345);
+	}
+
+	class void descriptors() {
+		USBDeviceDescription description = USBVirtualDeviceTests.sample();
+		Bytes device = description.deviceDescriptor();
+		assert(device.length() == 18 && device.get(0) == 18 && device.get(1) == USB_DESCRIPTOR_DEVICE && device.get(7) == 64);
+		assert(device.get(8) == 0x09 && device.get(9) == 0x12 && device.get(10) == 0x01 && device.get(12) == 0x02 && device.get(13) == 0x01);
+		assert(device.get(14) == 1 && device.get(15) == 2 && device.get(16) == 3 && device.get(17) == 1);
+
+		Bytes configuration = description.configurationDescriptor();
+		assert(configuration.length() == 41 && configuration.get(2) == 41 && configuration.get(3) == 0 && configuration.get(4) == 1 && configuration.get(8) == 250);
+		assert(configuration.get(10) == USB_DESCRIPTOR_INTERFACE && configuration.get(13) == 2 && configuration.get(14) == 3);
+		assert(configuration.get(19) == USB_DESCRIPTOR_HID && configuration.get(24) == USB_DESCRIPTOR_HID_REPORT && configuration.get(25) == 52 && configuration.get(26) == 0);
+		assert(configuration.get(29) == 0x81 && configuration.get(30) == USB_TRANSFER_INTERRUPT && configuration.get(31) == 64 && configuration.get(36) == 0x01);
+
+		Bytes languages = description.stringDescriptor(0);
+		assert(languages.length() == 4 && languages.get(2) == 0x09 && languages.get(3) == 0x04);
+		Bytes name = description.stringDescriptor(2);
+		assert(name.length() == 18 && name.get(0) == 18 && name.get(1) == USB_DESCRIPTOR_STRING && name.get(2) == 'T' && name.get(3) == 0 && name.get(16) == 'd');
+		assert(description.stringDescriptor(4).isEmpty());
+		assert(USBDeviceDescription(1, 2, 3).deviceDescriptor().get(14) == 0 && USBDeviceDescription(1, 2, 3).stringDescriptor(1).isEmpty());
+
+		USBEndpoint endpoint = USBEndpoint(0x83, USB_TRANSFER_BULK, 512, 0);
+		assert(endpoint.isIn() && endpoint.number() == 3 && !USBEndpoint(0x02, USB_TRANSFER_BULK, 512, 0).isIn());
+	}
+
+	class int ask(USBVirtualDevice device, int requestType, int request, int value, int length, Bytes data) { return device.control(USBSetup(requestType, request, value, 0, length), data); }
+
+	class void standardRequests() {
+		CountingFunction counting = CountingFunction();
+		USBVirtualDevice device = USBVirtualDevice(USBVirtualDeviceTests.sample(), counting);
+		Bytes data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 18, data) == 18 && data.get(1) == USB_DESCRIPTOR_DEVICE);
+		data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 8, data) == 8);
+		data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0200, 255, data) == 41);
+		data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0303, 255, data) == 6 && data.get(2) == 'A');
+		data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0309, 255, data) == USB_CONTROL_STALL);
+		assert(counting.asked == 0);
+		assert(USBVirtualDeviceTests.ask(device, 0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0600, 10, data) == USB_CONTROL_STALL && counting.asked == 1);
+		assert(USBVirtualDeviceTests.ask(device, 0x81, USB_REQUEST_GET_DESCRIPTOR, 0x2200, 64, data) == USB_CONTROL_STALL && counting.asked == 2);
+
+		assert(!device.configured());
+		data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0x80, USB_REQUEST_GET_CONFIGURATION, 0, 1, data) == 1 && data.get(0) == 0);
+		assert(USBVirtualDeviceTests.ask(device, 0x00, USB_REQUEST_SET_CONFIGURATION, 2, 0, Bytes()) == USB_CONTROL_STALL);
+		assert(USBVirtualDeviceTests.ask(device, 0x00, USB_REQUEST_SET_CONFIGURATION, 1, 0, Bytes()) == 0 && device.configured());
+		data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0x80, USB_REQUEST_GET_CONFIGURATION, 0, 1, data) == 1 && data.get(0) == 1);
+		data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0x80, USB_REQUEST_GET_STATUS, 0, 2, data) == 2 && data.length() == 2);
+		assert(USBVirtualDeviceTests.ask(device, 0x01, USB_REQUEST_SET_INTERFACE, 0, 0, Bytes()) == 0);
+		device.reset();
+		assert(!device.configured());
+
+		/* Class and vendor requests are the function's; long replies are cut. */
+		data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0xC0, 0x07, 0, 16, data) == 16 && data.length() == 100);
+		data = Bytes();
+		assert(USBVirtualDeviceTests.ask(device, 0xC0, 0x07, 0, 500, data) == 100);
+		assert(USBVirtualDeviceTests.ask(device, 0x40, 0x07, 0, 3, Bytes.fromString("abc")) == 3);
+		assert(USBVirtualDeviceTests.ask(device, 0xA1, 0x01, 0x0301, 64, Bytes()) == USB_CONTROL_STALL);
+
+		Bytes packet = Bytes();
+		assert(!device.produce(0x82, packet) && packet.isEmpty());
+		device.consume(0x01, Bytes.fromString("four"));
+		assert(device.produce(0x81, packet) && packet.length() == 1 && packet.get(0) == 4);
+	}
+}
+
+int main() {
+	USBVirtualDeviceTests.setup();
+	USBVirtualDeviceTests.descriptors();
+	USBVirtualDeviceTests.standardRequests();
+	print("PASS: test_stdlib_usb_virtual_device");
+	return 0;
+}

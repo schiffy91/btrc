@@ -49,3 +49,4 @@ Realtime = { path = "Realtime" }
 Terminal = { path = "Terminal" }
 Tray = { path = "Tray" }
 UI = { path = "UI" }
+USB = { path = "USB" }

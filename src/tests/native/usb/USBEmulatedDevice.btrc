@@ -1,0 +1,132 @@
+/* An emulated HID device, exported over USB/IP and driven by a user-space
+ * host through a real socket pair: enumeration, class requests, both
+ * interrupt endpoints, a cancelled request and a refused import. The device
+ * runs in a forked child, as a device is another machine to its host. */
+
+import Library.Bytes;
+import Library.Network.IPv4Address;
+import Library.Network.TCPStream;
+import Library.USB;
+import Library.Vector;
+
+import ./EchoPad.btrc;
+#include <assert.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+class USBEmulatedDevice {
+	/* Run the device on one end of a socket pair until its host leaves. */
+	class int device(int descriptor) {
+		USBIPExport exported = USBIPExport(USBVirtualDevice(EchoPad.description(), EchoPad()), TCPStream.adopt(descriptor, IPv4Address.loopback()));
+		while (exported.step()) {
+			struct pollfd waiting;
+			waiting.fd = exported.handle();
+			waiting.events = POLLIN;
+			waiting.revents = 0;
+			poll(&waiting, (nfds_t)1, 50);
+		}
+		return 0;
+	}
+
+	/* Start a device in a child; the host's stream to it. */
+	class TCPStream plug(pid_t* child) {
+		int pair[2];
+		assert(socketpair((int)AF_UNIX, (int)SOCK_STREAM, 0, pair) == 0);
+		fflush(stdout);
+		*child = fork();
+		assert(*child >= (pid_t)0);
+		if (*child == (pid_t)0) {
+			close(pair[0]);
+			int status = 9;
+			try { status = USBEmulatedDevice.device(pair[1]); } catch (string error) { status = 8; }
+			_exit(status);
+		}
+		close(pair[1]);
+		return TCPStream.adopt(pair[0], IPv4Address.loopback());
+	}
+
+	class void unplug(TCPStream stream, pid_t child) {
+		stream.close();
+		int status = 0;
+		assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	}
+
+	class bool refused(USBIPHost host, string busId) {
+		try { host.importDevice(busId); } catch (string error) { return error.contains("refused"); }
+		return false;
+	}
+
+	class void enumeration(USBIPHost host) {
+		Bytes device = Bytes();
+		assert(host.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 0, 18), device) == 18);
+		assert(device.length() == 18 && device.get(8) == 0x09 && device.get(9) == 0x12 && device.get(17) == 1);
+		Bytes shortened = Bytes();
+		assert(host.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 0, 8), shortened) == 8 && shortened.length() == 8);
+		Bytes configuration = Bytes();
+		assert(host.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0200, 0, 255), configuration) == 41);
+		assert(configuration.get(13) == 2 && configuration.get(14) == 3 && configuration.get(29) == 0x81 && configuration.get(36) == 0x01);
+		Bytes name = Bytes();
+		assert(host.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0302, 0x0409, 255), name) == 18 && name.get(2) == 'E' && name.get(12) == 'P');
+		assert(host.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0309, 0x0409, 255), Bytes()) == USBIP_STALLED);
+		assert(host.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0600, 0, 10), Bytes()) == USBIP_STALLED);
+		Bytes report = Bytes();
+		assert(host.controlIn(USBSetup(0x81, USB_REQUEST_GET_DESCRIPTOR, 0x2200, 0, 255), report) == 25 && report.equals(EchoPad.reportDescriptor()));
+		assert(host.controlOut(USBSetup(0x00, USB_REQUEST_SET_CONFIGURATION, 1, 0, 0), Bytes()) == 0);
+		Bytes selected = Bytes();
+		assert(host.controlIn(USBSetup(0x80, USB_REQUEST_GET_CONFIGURATION, 0, 0, 1), selected) == 1 && selected.get(0) == 1);
+	}
+
+	class void reports(USBIPHost host) {
+		assert(host.controlOut(USBSetup(0x21, 0x0A, 0, 0, 0), Bytes()) == 0);
+		Bytes setting = Bytes.fromString("feature!");
+		assert(host.controlOut(USBSetup(0x21, 0x09, 0x0300, 0, 8), setting) == 8);
+		Bytes kept = Bytes();
+		assert(host.controlIn(USBSetup(0xA1, 0x01, 0x0300, 0, 64), kept) == 8 && kept.toString().equals("feature!"));
+		assert(host.controlIn(USBSetup(0xA1, 0x77, 0, 0, 8), Bytes()) == USBIP_STALLED);
+		assert(host.controlOut(USBSetup(0x40, 0x01, 0, 0, 2), Bytes.fromString("no")) == USBIP_STALLED);
+
+		/* Nothing is due until something is written, so the request waits and
+		 * can be cancelled; then each write is answered once, in order. */
+		assert(host.cancelIn(1, 64));
+		assert(host.transferOut(1, Bytes.fromString("ab")) == 2);
+		assert(host.transferOut(1, Bytes.fromString("cd")) == 2);
+		Bytes first = Bytes();
+		assert(host.transferIn(1, 64, first) == 3 && first.get(0) == 2 && first.get(1) == 'c' && first.get(2) == 'd');
+		Bytes second = Bytes();
+		assert(host.transferIn(1, 2, second) == 2 && second.get(0) == 2 && second.get(1) == 'c');
+		assert(host.cancelIn(1, 64));
+		Bytes large = Bytes();
+		for (int index = 0; index < 4000; index++) { large.append(index & 0xFF); }
+		assert(host.transferOut(1, large) == 4000);
+		Bytes back = Bytes();
+		assert(host.transferIn(1, 4096, back) == 4001 && back.get(0) == 3 && back.get(4000) == (3999 & 0xFF));
+	}
+
+	class void run() {
+		pid_t child = (pid_t)0;
+		TCPStream stream = USBEmulatedDevice.plug(&child);
+		USBIPHost host = USBIPHost(stream, 3000);
+		Vector<USBIPDevice> listed = host.devices();
+		assert(listed.len == 1 && listed.get(0).busId.equals("1-1") && listed.get(0).vendor == 0x1209 && listed.get(0).product == 0x0001 && listed.get(0).interfaces == 1);
+		USBIPDevice device = host.importDevice("1-1");
+		assert(device.deviceId == 0x10002LL && device.speed == USB_SPEED_FULL && device.vendor == 0x1209);
+		USBEmulatedDevice.enumeration(host);
+		USBEmulatedDevice.reports(host);
+		USBEmulatedDevice.unplug(stream, child);
+
+		/* A device that is asked for the wrong bus id refuses and hangs up. */
+		pid_t other = (pid_t)0;
+		TCPStream wrong = USBEmulatedDevice.plug(&other);
+		USBIPHost stranger = USBIPHost(wrong, 3000);
+		assert(USBEmulatedDevice.refused(stranger, "9-9"));
+		USBEmulatedDevice.unplug(wrong, other);
+	}
+}
+
+int main() {
+	USBEmulatedDevice.run();
+	print("PASS: emulated USB device over USB/IP");
+	return 0;
+}

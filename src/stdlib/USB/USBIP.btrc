@@ -1,0 +1,518 @@
+/* USB/IP: USB transfers over a stream (the Linux kernel's protocol,
+ * Documentation/usb/usbip_protocol.rst). Everything on the wire is big-endian.
+ *
+ * USBIPExport presents a USBVirtualDevice to one host. USBIPHost is that host
+ * in user space: it imports a device and runs transfers one at a time, which
+ * is how a program or a test talks to an emulated device without a kernel.
+ * The kernel's own host, vhci_hcd, takes the same stream (USBHost).
+ *
+ * Both sides work over a TCPStream, so the selection follows Library.Network:
+ * Linux and macOS. */
+
+import Library.Bytes;
+import Library.Network.TCPStream;
+import Library.Strings;
+import Library.USB.USBDescriptors;
+import Library.USB.USBVirtualDevice;
+import Library.Vector;
+
+enum USBIPCode {
+	USBIP_VERSION = 0x0111,
+	USBIP_REQUEST_DEVICES = 0x8005,
+	USBIP_REPLY_DEVICES = 0x0005,
+	USBIP_REQUEST_IMPORT = 0x8003,
+	USBIP_REPLY_IMPORT = 0x0003,
+	USBIP_SUBMIT = 1,
+	USBIP_UNLINK = 2,
+	USBIP_SUBMIT_REPLY = 3,
+	USBIP_UNLINK_REPLY = 4,
+	USBIP_HEADER = 48,
+	USBIP_DEVICE = 312,
+	USBIP_PAYLOAD_LIMIT = 4096
+};
+
+/* Transfer results, as the negative errno values the kernel uses. */
+enum USBIPStatus {
+	USBIP_FAILED = -5,
+	USBIP_STALLED = -32,
+	USBIP_UNLINKED = -104,
+	USBIP_TIMED_OUT = -110
+};
+
+struct USBIPBuffer {
+	unsigned char bytes[8192];
+	int length;
+};
+
+/* IN requests the host is waiting on, oldest first. */
+struct USBIPPending {
+	long long sequence[16];
+	int endpoint[16];
+	int capacity[16];
+	int count;
+};
+
+class USBIPWire {
+	/* The one device an export offers sits at this bus position. */
+	class string busId() { return "1-1"; }
+
+	class int u16(unsigned char* bytes, int offset) { return ((int)bytes[offset] << 8) | (int)bytes[offset + 1]; }
+
+	class long long u32(unsigned char* bytes, int offset) {
+		long long value = 0LL;
+		for (int index = 0; index < 4; index++) { value = (value << 8) | (long long)bytes[offset + index]; }
+		return value;
+	}
+
+	class void putU16(unsigned char* bytes, int offset, int value) {
+		bytes[offset] = (unsigned char)((value >> 8) & 0xFF);
+		bytes[offset + 1] = (unsigned char)(value & 0xFF);
+	}
+
+	class void putU32(unsigned char* bytes, int offset, long long value) {
+		for (int index = 0; index < 4; index++) { bytes[offset + index] = (unsigned char)((value >> (8 * (3 - index))) & 0xFFLL); }
+	}
+
+	/* A signed status from its unsigned wire form. */
+	class int status(unsigned char* bytes, int offset) {
+		long long value = USBIPWire.u32(bytes, offset);
+		return (int)(value >= 0x80000000LL ? value - 0x100000000LL : value);
+	}
+
+	/* struct usbip_usb_device: path, bus id, bus and device number, speed,
+	 * then the identity and the interface count. */
+	class void device(unsigned char* out, USBDeviceDescription description) {
+		memset(out, 0, (size_t)USBIP_DEVICE);
+		string path = "/sys/devices/platform/btrc/usb1/1-1";
+		string bus = USBIPWire.busId();
+		for (int index = 0; index < path.length(); index++) { out[index] = (unsigned char)path[index]; }
+		for (int index = 0; index < bus.length(); index++) { out[256 + index] = (unsigned char)bus[index]; }
+		USBIPWire.putU32(out, 288, 1LL);
+		USBIPWire.putU32(out, 292, 2LL);
+		USBIPWire.putU32(out, 296, (long long)description.speed);
+		USBIPWire.putU16(out, 300, description.vendor);
+		USBIPWire.putU16(out, 302, description.product);
+		USBIPWire.putU16(out, 304, description.version);
+		out[306] = (unsigned char)description.deviceClass;
+		out[307] = (unsigned char)description.subclass;
+		out[308] = (unsigned char)description.protocol;
+		out[309] = (unsigned char)1;
+		out[310] = (unsigned char)1;
+		out[311] = (unsigned char)description.interfaces.len;
+	}
+
+	class void operation(unsigned char* out, int code, int status) {
+		USBIPWire.putU16(out, 0, USBIP_VERSION);
+		USBIPWire.putU16(out, 2, code);
+		USBIPWire.putU32(out, 4, (long long)status);
+	}
+
+	class void reply(unsigned char* out, int command, long long sequence, int status, int length) {
+		memset(out, 0, (size_t)USBIP_HEADER);
+		USBIPWire.putU32(out, 0, (long long)command);
+		USBIPWire.putU32(out, 4, sequence);
+		USBIPWire.putU32(out, 20, (long long)status);
+		USBIPWire.putU32(out, 24, (long long)length);
+	}
+}
+
+/* Presents one virtual device to one host over a connected stream. Call
+ * `step` whenever the stream is readable or the device has packets due. */
+class USBIPExport {
+	private USBVirtualDevice device;
+	private TCPStream stream;
+	private bool attached = false;
+	private struct USBIPBuffer received;
+	private struct USBIPPending pending;
+
+	public USBIPExport(USBVirtualDevice device, TCPStream stream) {
+		if (device == null || stream == null) { throw "A USB/IP export needs a device and a stream"; }
+		self.device = device;
+		self.stream = stream;
+		self.received.length = 0;
+		self.pending.count = 0;
+	}
+
+	/* Whether a host has imported the device. */
+	public bool imported() { return self.attached; }
+
+	public bool isOpen() { return self.stream.isOpen(); }
+
+	/* The stream's socket, to wait on. */
+	public int handle() { return self.stream.handle(); }
+
+	public void close() {
+		self.stream.close();
+		self.attached = false;
+		self.received.length = 0;
+		self.pending.count = 0;
+		self.device.reset();
+	}
+
+	private bool transmit(unsigned char* data, int length) { return self.stream.write(data, length, 1000); }
+
+	private bool receive() {
+		int room = 8192 - self.received.length;
+		if (room <= 0) { return false; }
+		int count = self.stream.read(self.received.bytes + self.received.length, room, 0);
+		if (count > 0) { self.received.length += count; }
+		return count > 0 || count == TCP_STREAM_READ_TIMED_OUT;
+	}
+
+	private void consume(int length) {
+		memmove(self.received.bytes, self.received.bytes + length, (size_t)(self.received.length - length));
+		self.received.length -= length;
+	}
+
+	private bool sendDevices() {
+		USBDeviceDescription description = self.device.describe();
+		int count = description.interfaces.len;
+		unsigned char reply[1024];
+		memset(reply, 0, sizeof(reply));
+		if (count > 100) { return false; }
+		USBIPWire.operation(reply, USBIP_REPLY_DEVICES, 0);
+		USBIPWire.putU32(reply, 8, 1LL);
+		USBIPWire.device(reply + 12, description);
+		for (int index = 0; index < count; index++) {
+			USBInterface entry = description.interfaces.get(index);
+			reply[324 + 4 * index] = (unsigned char)entry.deviceClass;
+			reply[325 + 4 * index] = (unsigned char)entry.subclass;
+			reply[326 + 4 * index] = (unsigned char)entry.protocol;
+		}
+		return self.transmit(reply, 324 + 4 * count);
+	}
+
+	private bool importDevice(unsigned char* busId) {
+		char requested[33];
+		memset(requested, 0, sizeof(requested));
+		memcpy(requested, busId, (size_t)32);
+		unsigned char reply[320];
+		memset(reply, 0, sizeof(reply));
+		if (!Strings.copy(requested).equals(USBIPWire.busId())) {
+			USBIPWire.operation(reply, USBIP_REPLY_IMPORT, 1);
+			self.transmit(reply, 8);
+			return false;
+		}
+		USBIPWire.operation(reply, USBIP_REPLY_IMPORT, 0);
+		USBIPWire.device(reply + 8, self.device.describe());
+		self.attached = true;
+		return self.transmit(reply, 320);
+	}
+
+	/* Before import the host speaks the operation protocol: list, or import. */
+	private bool operation() {
+		if (self.received.length < 8) { return true; }
+		if (USBIPWire.u16(self.received.bytes, 0) != USBIP_VERSION) { return false; }
+		int code = USBIPWire.u16(self.received.bytes, 2);
+		if (code == USBIP_REQUEST_DEVICES) {
+			self.consume(8);
+			return self.sendDevices();
+		}
+		if (code != USBIP_REQUEST_IMPORT) { return false; }
+		if (self.received.length < 40) { return true; }
+		unsigned char busId[32];
+		memcpy(busId, self.received.bytes + 8, (size_t)32);
+		self.consume(40);
+		return self.importDevice(busId);
+	}
+
+	private bool refuse(long long sequence) {
+		unsigned char reply[USBIP_HEADER];
+		USBIPWire.reply(reply, USBIP_SUBMIT_REPLY, sequence, USBIP_STALLED, 0);
+		return self.transmit(reply, USBIP_HEADER);
+	}
+
+	private bool control(long long sequence, bool incoming, int length, unsigned char* setupBytes, unsigned char* payload) {
+		unsigned char reply[USBIP_HEADER + USBIP_PAYLOAD_LIMIT];
+		USBSetup setup = USBSetup.decode(setupBytes);
+		Bytes data = Bytes();
+		if (!incoming && length > 0) { data.appendRaw((char*)payload, length); }
+		int result = self.device.control(setup, data);
+		if (result < 0) { return self.refuse(sequence); }
+		if (!incoming) {
+			USBIPWire.reply(reply, USBIP_SUBMIT_REPLY, sequence, 0, length);
+			return self.transmit(reply, USBIP_HEADER);
+		}
+		int count = result < length ? result : length;
+		if (count > data.len) { count = data.len; }
+		USBIPWire.reply(reply, USBIP_SUBMIT_REPLY, sequence, 0, count);
+		if (count > 0) { memcpy(reply + USBIP_HEADER, data.data, (size_t)count); }
+		return self.transmit(reply, USBIP_HEADER + count);
+	}
+
+	private bool submit(long long sequence, bool incoming, int endpoint, int length, unsigned char* setupBytes, unsigned char* payload) {
+		if (endpoint == 0) { return self.control(sequence, incoming, length, setupBytes, payload); }
+		if (endpoint < 0 || endpoint > 15) { return self.refuse(sequence); }
+		if (incoming) {
+			if (self.pending.count == 16) { return self.refuse(sequence); }
+			self.pending.sequence[self.pending.count] = sequence;
+			self.pending.endpoint[self.pending.count] = endpoint;
+			self.pending.capacity[self.pending.count] = length;
+			self.pending.count++;
+			return true;
+		}
+		unsigned char reply[USBIP_HEADER];
+		Bytes packet = Bytes();
+		if (length > 0) { packet.appendRaw((char*)payload, length); }
+		self.device.consume(endpoint, packet);
+		USBIPWire.reply(reply, USBIP_SUBMIT_REPLY, sequence, 0, length);
+		return self.transmit(reply, USBIP_HEADER);
+	}
+
+	private void forget(int index) {
+		for (int next = index + 1; next < self.pending.count; next++) {
+			self.pending.sequence[next - 1] = self.pending.sequence[next];
+			self.pending.endpoint[next - 1] = self.pending.endpoint[next];
+			self.pending.capacity[next - 1] = self.pending.capacity[next];
+		}
+		self.pending.count--;
+	}
+
+	private bool cancel(long long sequence, long long target) {
+		int status = 0;
+		for (int index = 0; index < self.pending.count; index++) {
+			if (self.pending.sequence[index] != target) { continue; }
+			self.forget(index);
+			status = USBIP_UNLINKED;
+			break;
+		}
+		unsigned char reply[USBIP_HEADER];
+		USBIPWire.reply(reply, USBIP_UNLINK_REPLY, sequence, status, 0);
+		return self.transmit(reply, USBIP_HEADER);
+	}
+
+	/* After import every message is a 48-byte header, then data for OUT. */
+	private bool transfer() {
+		if (self.received.length < USBIP_HEADER) { return true; }
+		unsigned char* header = self.received.bytes;
+		long long command = USBIPWire.u32(header, 0);
+		long long sequence = USBIPWire.u32(header, 4);
+		if (command == (long long)USBIP_UNLINK) {
+			long long target = USBIPWire.u32(header, 20);
+			self.consume(USBIP_HEADER);
+			return self.cancel(sequence, target);
+		}
+		if (command != (long long)USBIP_SUBMIT) { return false; }
+		bool incoming = USBIPWire.u32(header, 12) == 1LL;
+		long long endpoint = USBIPWire.u32(header, 16);
+		long long requested = USBIPWire.u32(header, 24);
+		if (requested > (long long)USBIP_PAYLOAD_LIMIT || endpoint > 15LL) { return false; }
+		int length = (int)requested;
+		int total = USBIP_HEADER + (incoming ? 0 : length);
+		if (self.received.length < total) { return true; }
+		unsigned char setupBytes[8];
+		unsigned char payload[USBIP_PAYLOAD_LIMIT];
+		memcpy(setupBytes, header + 40, (size_t)8);
+		if (!incoming && length > 0) { memcpy(payload, header + USBIP_HEADER, (size_t)length); }
+		self.consume(total);
+		return self.submit(sequence, incoming, (int)endpoint, length, setupBytes, payload);
+	}
+
+	private bool process() {
+		while (true) {
+			int before = self.received.length;
+			if (!(self.attached ? self.transfer() : self.operation())) { return false; }
+			if (self.received.length == before) { return true; }
+		}
+		return true;
+	}
+
+	/* Answer waiting IN requests with the packets that are due. */
+	private bool deliver() {
+		unsigned char reply[USBIP_HEADER + USBIP_PAYLOAD_LIMIT];
+		int index = 0;
+		while (index < self.pending.count) {
+			Bytes packet = Bytes();
+			if (!self.device.produce(0x80 | self.pending.endpoint[index], packet)) {
+				index++;
+				continue;
+			}
+			int count = packet.len < self.pending.capacity[index] ? packet.len : self.pending.capacity[index];
+			USBIPWire.reply(reply, USBIP_SUBMIT_REPLY, self.pending.sequence[index], 0, count);
+			if (count > 0) { memcpy(reply + USBIP_HEADER, packet.data, (size_t)count); }
+			self.forget(index);
+			if (!self.transmit(reply, USBIP_HEADER + count)) { return false; }
+		}
+		return true;
+	}
+
+	/* Handle what the host sent and deliver the packets that are due. False
+	 * once the host is gone or broke the protocol; the export is then closed
+	 * and the device reset. */
+	public bool step() {
+		if (!self.stream.isOpen()) { return false; }
+		if (!self.receive() || !self.process() || (self.attached && !self.deliver())) {
+			self.close();
+			return false;
+		}
+		return true;
+	}
+}
+
+/* What an export says about its device. */
+class USBIPDevice {
+	public string busId = "";
+	public long long deviceId = 0LL;
+	public int speed = 0;
+	public int vendor = 0;
+	public int product = 0;
+	public int interfaces = 0;
+
+	class USBIPDevice decode(unsigned char* bytes) {
+		USBIPDevice device = USBIPDevice();
+		char bus[33];
+		memset(bus, 0, sizeof(bus));
+		memcpy(bus, bytes + 256, (size_t)32);
+		device.busId = Strings.copy(bus);
+		device.deviceId = (USBIPWire.u32(bytes, 288) << 16) | USBIPWire.u32(bytes, 292);
+		device.speed = (int)USBIPWire.u32(bytes, 296);
+		device.vendor = USBIPWire.u16(bytes, 300);
+		device.product = USBIPWire.u16(bytes, 302);
+		device.interfaces = (int)bytes[311];
+		return device;
+	}
+}
+
+/* A USB host in user space: imports a device from an export and runs its
+ * transfers one at a time. Each call waits at most the host's timeout. */
+class USBIPHost {
+	private TCPStream stream;
+	private int timeoutMilliseconds;
+	private long long sequence = 0LL;
+	private long long deviceId = 0LL;
+
+	public USBIPHost(TCPStream stream, int timeoutMilliseconds) {
+		if (stream == null) { throw "A USB/IP host needs a stream"; }
+		self.stream = stream;
+		self.timeoutMilliseconds = timeoutMilliseconds;
+	}
+
+	/* The stream, for handing an imported device on to the kernel. */
+	public TCPStream connection() { return self.stream; }
+
+	/* The devices the export offers. A kernel export closes the stream after
+	 * listing, so import over a new one unless the export is a USBIPExport. */
+	public Vector<USBIPDevice> devices() {
+		Vector<USBIPDevice> found = [];
+		unsigned char request[8];
+		unsigned char header[12];
+		unsigned char entry[USBIP_DEVICE];
+		unsigned char skipped[4];
+		USBIPWire.operation(request, USBIP_REQUEST_DEVICES, 0);
+		if (!self.stream.write(request, 8, self.timeoutMilliseconds) || !self.stream.readExactly(header, 12, self.timeoutMilliseconds) || USBIPWire.u16(header, 2) != USBIP_REPLY_DEVICES || USBIPWire.u32(header, 4) != 0LL) {
+			throw "The USB/IP export did not list its devices";
+		}
+		long long count = USBIPWire.u32(header, 8);
+		for (long long index = 0LL; index < count && index < 16LL; index++) {
+			if (!self.stream.readExactly(entry, USBIP_DEVICE, self.timeoutMilliseconds)) { throw "The USB/IP device list was cut short"; }
+			USBIPDevice device = USBIPDevice.decode(entry);
+			for (int skip = 0; skip < device.interfaces; skip++) {
+				if (!self.stream.readExactly(skipped, 4, self.timeoutMilliseconds)) { throw "The USB/IP device list was cut short"; }
+			}
+			found.push(device);
+		}
+		return found;
+	}
+
+	/* Import the device at a bus id, or throw when the export refuses. */
+	public USBIPDevice importDevice(string busId) {
+		unsigned char request[40];
+		unsigned char reply[8];
+		unsigned char entry[USBIP_DEVICE];
+		memset(request, 0, sizeof(request));
+		if (busId == null || busId.isEmpty() || busId.length() > 31) { throw "A USB/IP bus id is 1 to 31 characters"; }
+		USBIPWire.operation(request, USBIP_REQUEST_IMPORT, 0);
+		for (int index = 0; index < busId.length(); index++) { request[8 + index] = (unsigned char)busId[index]; }
+		if (!self.stream.write(request, 40, self.timeoutMilliseconds) || !self.stream.readExactly(reply, 8, self.timeoutMilliseconds) || USBIPWire.u16(reply, 2) != USBIP_REPLY_IMPORT) {
+			throw "The USB/IP export did not answer the import";
+		}
+		if (USBIPWire.u32(reply, 4) != 0LL || !self.stream.readExactly(entry, USBIP_DEVICE, self.timeoutMilliseconds)) {
+			throw f"The USB/IP export refused to share {busId}";
+		}
+		USBIPDevice device = USBIPDevice.decode(entry);
+		self.deviceId = device.deviceId;
+		return device;
+	}
+
+	private long long issue(int command, bool incoming, int endpoint, long long detail, unsigned char* setupBytes, Bytes data) {
+		unsigned char request[USBIP_HEADER + USBIP_PAYLOAD_LIMIT];
+		memset(request, 0, (size_t)USBIP_HEADER);
+		int extra = command == USBIP_SUBMIT && !incoming && data != null ? data.len : 0;
+		if (extra > USBIP_PAYLOAD_LIMIT) { return -1LL; }
+		self.sequence++;
+		USBIPWire.putU32(request, 0, (long long)command);
+		USBIPWire.putU32(request, 4, self.sequence);
+		USBIPWire.putU32(request, 8, self.deviceId);
+		USBIPWire.putU32(request, 12, incoming ? 1LL : 0LL);
+		USBIPWire.putU32(request, 16, (long long)endpoint);
+		if (command == USBIP_UNLINK) { USBIPWire.putU32(request, 20, detail); }
+		else { USBIPWire.putU32(request, 24, incoming ? detail : (long long)extra); }
+		if (setupBytes != NULL) { memcpy(request + 40, setupBytes, (size_t)8); }
+		if (extra > 0) { memcpy(request + USBIP_HEADER, data.data, (size_t)extra); }
+		return self.stream.write(request, USBIP_HEADER + extra, self.timeoutMilliseconds) ? self.sequence : -1LL;
+	}
+
+	/* The next reply header; false on a timeout or a broken stream. */
+	private bool header(unsigned char* out) { return self.stream.readExactly(out, USBIP_HEADER, self.timeoutMilliseconds); }
+
+	/* The reply to one submitted transfer: its length, or a USBIPStatus. */
+	private int answer(long long sequence, bool incoming, Bytes reply) {
+		unsigned char head[USBIP_HEADER];
+		unsigned char payload[USBIP_PAYLOAD_LIMIT];
+		if (sequence < 0LL) { return USBIP_FAILED; }
+		if (!self.header(head)) { return USBIP_TIMED_OUT; }
+		if (USBIPWire.u32(head, 0) != (long long)USBIP_SUBMIT_REPLY || USBIPWire.u32(head, 4) != sequence) { return USBIP_FAILED; }
+		int status = USBIPWire.status(head, 20);
+		long long length = USBIPWire.u32(head, 24);
+		if (status != 0) { return status; }
+		if (!incoming) { return (int)length; }
+		if (length > (long long)USBIP_PAYLOAD_LIMIT) { return USBIP_FAILED; }
+		if (length > 0LL) {
+			if (!self.stream.readExactly(payload, (int)length, self.timeoutMilliseconds)) { return USBIP_TIMED_OUT; }
+			reply.appendRaw((char*)payload, (int)length);
+		}
+		return (int)length;
+	}
+
+	/* A device-to-host control transfer. The reply is appended to `reply`;
+	 * returns its length or a USBIPStatus. */
+	public int controlIn(USBSetup setup, Bytes reply) {
+		unsigned char setupBytes[8];
+		setup.encode(setupBytes);
+		return self.answer(self.issue(USBIP_SUBMIT, true, 0, (long long)setup.length, setupBytes, reply), true, reply);
+	}
+
+	/* A host-to-device control transfer carrying `data`. Returns the length
+	 * accepted or a USBIPStatus. */
+	public int controlOut(USBSetup setup, Bytes data) {
+		unsigned char setupBytes[8];
+		setup.encode(setupBytes);
+		return self.answer(self.issue(USBIP_SUBMIT, false, 0, 0LL, setupBytes, data), false, data);
+	}
+
+	/* Read one packet of at most `capacity` bytes from an IN endpoint number. */
+	public int transferIn(int endpoint, int capacity, Bytes packet) { return self.answer(self.issue(USBIP_SUBMIT, true, endpoint, (long long)capacity, NULL, packet), true, packet); }
+
+	/* Write one packet to an OUT endpoint number. */
+	public int transferOut(int endpoint, Bytes packet) { return self.answer(self.issue(USBIP_SUBMIT, false, endpoint, 0LL, NULL, packet), false, packet); }
+
+	/* Ask an IN endpoint for a packet and cancel the request at once, as a
+	 * driver does when it stops polling. True when the request was still
+	 * waiting; false when its packet had already been sent. */
+	public bool cancelIn(int endpoint, int capacity) {
+		unsigned char head[USBIP_HEADER];
+		unsigned char payload[USBIP_PAYLOAD_LIMIT];
+		Bytes none = Bytes();
+		long long waiting = self.issue(USBIP_SUBMIT, true, endpoint, (long long)capacity, NULL, none);
+		long long cancel = self.issue(USBIP_UNLINK, false, 0, waiting, NULL, none);
+		if (waiting < 0LL || cancel < 0LL || !self.header(head)) { throw "The USB/IP export stopped answering"; }
+		if (USBIPWire.u32(head, 0) == (long long)USBIP_SUBMIT_REPLY) {
+			long long length = USBIPWire.u32(head, 24);
+			if (length > (long long)USBIP_PAYLOAD_LIMIT || (length > 0LL && !self.stream.readExactly(payload, (int)length, self.timeoutMilliseconds)) || !self.header(head)) {
+				throw "The USB/IP export stopped answering";
+			}
+		}
+		if (USBIPWire.u32(head, 0) != (long long)USBIP_UNLINK_REPLY || USBIPWire.u32(head, 4) != cancel) { throw "The USB/IP export answered out of turn"; }
+		return USBIPWire.status(head, 20) == USBIP_UNLINKED;
+	}
+}

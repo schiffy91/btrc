@@ -770,6 +770,13 @@
           mkdir -p "$out"
           cp source/build/native-package*.link.json "$out/"
         '';
+      } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        # The kernel as the host of an emulated USB device; it boots a VM.
+        usb-kernel-host = import ./src/tests/native/usb/usb-kernel-host.nix {
+          inherit pkgs;
+          btrcpy = self.packages.${system}.btrcpy;
+          source = ./src/tests/native/usb;
+        };
       });
     };
 }

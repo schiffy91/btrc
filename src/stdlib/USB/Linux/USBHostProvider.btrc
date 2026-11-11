@@ -1,0 +1,129 @@
+/* USBHost on Linux: devices through usbfs (/dev/bus/usb) and sysfs, and the
+ * virtual host controller vhci_hcd through its sysfs attributes. `USBFS.h`
+ * holds the SDK includes and one adapter per usbfs request. */
+
+import Library.FileSystem;
+import Library.Strings;
+import Library.Vector;
+
+class USBHostProvider {
+	class bool supported() { return true; }
+
+	class string attribute(string path) {
+		try { return Path.readAll(path).trim(); } catch (string error) { return ""; }
+	}
+
+	/* Sysfs attributes take one plain write; an atomic replace fails there. */
+	class bool writeAttribute(string path, string value) {
+		int descriptor = open(path, (int)O_WRONLY | (int)O_CLOEXEC);
+		if (descriptor < 0) { return false; }
+		int length = value.length();
+		bool written = (int)write(descriptor, value, (size_t)length) == length;
+		close(descriptor);
+		return written;
+	}
+
+	class string hex(int value) {
+		string digits = "0123456789abcdef";
+		string text = "";
+		for (int shift = 12; shift >= 0; shift -= 4) { text = text + digits.substring((value >> shift) & 15, 1); }
+		return text;
+	}
+
+	/* The sysfs name of the first device with this identity, such as "3-1";
+	 * empty when there is none. */
+	class string find(int vendor, int product) {
+		string root = "/sys/bus/usb/devices";
+		if (!FileSystem.isDir(root)) { return ""; }
+		Vector<string> names = FileSystem.listDir(root);
+		names.sort();
+		for name in names {
+			string path = f"{root}/{name}";
+			if (USBHostProvider.attribute(path + "/idVendor").equals(USBHostProvider.hex(vendor)) && USBHostProvider.attribute(path + "/idProduct").equals(USBHostProvider.hex(product))) { return name; }
+		}
+		return "";
+	}
+
+	class string padded(string digits) {
+		string text = digits;
+		while (text.length() < 3) { text = "0" + text; }
+		return text;
+	}
+
+	/* Open a device's usbfs node; -1 when it is gone or not permitted. */
+	class int open(string name) {
+		string path = f"/sys/bus/usb/devices/{name}";
+		string bus = USBHostProvider.attribute(path + "/busnum");
+		string number = USBHostProvider.attribute(path + "/devnum");
+		if (bus.isEmpty() || number.isEmpty()) { return -1; }
+		string node = f"/dev/bus/usb/{USBHostProvider.padded(bus)}/{USBHostProvider.padded(number)}";
+		return open(node, (int)O_RDWR | (int)O_CLOEXEC);
+	}
+
+	class void close(int handle) { close(handle); }
+
+	/* Take an interface, detaching the kernel driver that holds it. */
+	class bool claim(int handle, int number) {
+		btrcUSBFSDriver(handle, number, 0);
+		return btrcUSBFSClaim(handle, (unsigned int)number) == 0;
+	}
+
+	/* Give an interface back and let a kernel driver bind to it again. */
+	class bool unclaim(int handle, int number) {
+		bool released = btrcUSBFSUnclaim(handle, (unsigned int)number) == 0;
+		btrcUSBFSDriver(handle, number, 1);
+		return released;
+	}
+
+	class int control(int handle, int requestType, int request, int value, int index, unsigned char* data, int length, int timeoutMilliseconds) {
+		int result = btrcUSBFSControl(handle, requestType, request, value, index, data, length, timeoutMilliseconds);
+		return result >= 0 ? result : -errno;
+	}
+
+	class int transfer(int handle, int endpoint, unsigned char* data, int length, int timeoutMilliseconds) {
+		int result = btrcUSBFSTransfer(handle, endpoint, data, length, timeoutMilliseconds);
+		return result >= 0 ? result : -errno;
+	}
+
+	class string controller() { return "/sys/devices/platform/vhci_hcd.0"; }
+
+	/* Rows of vhci's status table: hub, port, state, speed, device, socket,
+	 * bus id. State 004 is a free port. */
+	class Vector<Vector<string>> ports() {
+		Vector<Vector<string>> rows = [];
+		string path = USBHostProvider.controller() + "/status";
+		if (!FileSystem.exists(path)) { throw "vhci_hcd is not loaded (modprobe vhci-hcd)"; }
+		for line in Strings.split(Path.readAll(path), "\n") {
+			Vector<string> fields = [];
+			for field in Strings.split(line, " ") {
+				if (!field.isEmpty()) { fields.push(field); }
+			}
+			if (fields.len >= 7 && (fields.get(0).equals("hs") || fields.get(0).equals("ss"))) { rows.push(fields); }
+		}
+		return rows;
+	}
+
+	/* Hand a connected USB/IP socket to the kernel; the port it took. USB 2
+	 * devices go on the high-speed hub. The kernel keeps its own reference to
+	 * the socket. */
+	class int attach(int socket, long long deviceId, int speed) {
+		int port = -1;
+		for row in USBHostProvider.ports() {
+			if (port < 0 && row.get(0).equals("hs") && row.get(2).equals("004")) { port = Strings.toInt(row.get(1)); }
+		}
+		if (port < 0) { throw "No free vhci_hcd port"; }
+		if (!USBHostProvider.writeAttribute(USBHostProvider.controller() + "/attach", f"{port} {socket} {deviceId} {speed}")) {
+			throw "vhci_hcd refused the device (attaching needs root)";
+		}
+		return port;
+	}
+
+	class bool busy(int port) {
+		for row in USBHostProvider.ports() {
+			if (row.get(0).equals("hs") && Strings.toInt(row.get(1)) == port) { return !row.get(2).equals("004"); }
+		}
+		return false;
+	}
+
+	class bool detach(int port) { return USBHostProvider.writeAttribute(USBHostProvider.controller() + "/detach", f"{port}"); }
+}

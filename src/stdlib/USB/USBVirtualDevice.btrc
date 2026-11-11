@@ -1,0 +1,102 @@
+/* An emulated USB device.
+ *
+ * A USBVirtualDevice answers what every device answers -- its descriptors,
+ * configuration and status -- from a USBDeviceDescription, and hands the rest
+ * to an IUSBFunction: class and vendor requests, and the endpoints' packets.
+ * It does no I/O itself. Something that can carry USB transfers presents it to
+ * a host: USBIPExport over a stream today. */
+
+import Library.Bytes;
+import Library.USB.USBDescriptors;
+
+/* Returned in place of a length to refuse a control request. */
+enum USBControlResult {
+	USB_CONTROL_STALL = -1
+};
+
+/* What a device does beyond enumeration. */
+interface IUSBFunction {
+	/* A control request the device does not answer itself. For a
+	 * device-to-host request, append the reply to `data` and return its
+	 * length. For a host-to-device request `data` holds what the host sent;
+	 * return its length to accept it. USB_CONTROL_STALL refuses. */
+	int control(USBSetup setup, Bytes data);
+
+	/* Append the next packet for an IN endpoint address to `packet`. False
+	 * when none is due yet. */
+	bool produce(int endpoint, Bytes packet);
+
+	/* A packet arrived on an OUT endpoint address. */
+	void consume(int endpoint, Bytes packet);
+}
+
+class USBVirtualDevice {
+	private USBDeviceDescription description;
+	private IUSBFunction behavior;
+	private int configuration = 0;
+
+	public USBVirtualDevice(USBDeviceDescription description, IUSBFunction behavior) {
+		if (description == null || behavior == null) { throw "A virtual USB device needs a description and a function"; }
+		self.description = description;
+		self.behavior = behavior;
+	}
+
+	public USBDeviceDescription describe() { return self.description; }
+
+	/* Whether a host has selected the configuration. */
+	public bool configured() { return self.configuration != 0; }
+
+	/* The host went away: the device is unconfigured again. */
+	public void reset() { self.configuration = 0; }
+
+	private int descriptor(USBSetup setup, Bytes data) {
+		int kind = setup.value >> 8;
+		if (setup.recipient() != USB_RECIPIENT_DEVICE) { return self.behavior.control(setup, data); }
+		Bytes found = Bytes();
+		if (kind == USB_DESCRIPTOR_DEVICE) { found = self.description.deviceDescriptor(); }
+		else if (kind == USB_DESCRIPTOR_CONFIGURATION) { found = self.description.configurationDescriptor(); }
+		else if (kind == USB_DESCRIPTOR_STRING) { found = self.description.stringDescriptor(setup.value & 0xFF); }
+		else { return self.behavior.control(setup, data); }
+		if (found.isEmpty()) { return USB_CONTROL_STALL; }
+		data.appendBytes(found);
+		return found.length();
+	}
+
+	private int standard(USBSetup setup, Bytes data) {
+		if (setup.request == USB_REQUEST_GET_DESCRIPTOR) { return self.descriptor(setup, data); }
+		if (setup.request == USB_REQUEST_SET_CONFIGURATION && setup.recipient() == USB_RECIPIENT_DEVICE) {
+			if ((setup.value & 0xFF) > 1) { return USB_CONTROL_STALL; }
+			self.configuration = setup.value & 0xFF;
+			return 0;
+		}
+		if (setup.request == USB_REQUEST_GET_CONFIGURATION && setup.recipient() == USB_RECIPIENT_DEVICE) {
+			data.append(self.configuration);
+			return 1;
+		}
+		if (setup.request == USB_REQUEST_GET_STATUS) {
+			data.append(0);
+			data.append(0);
+			return 2;
+		}
+		if (setup.request == USB_REQUEST_GET_INTERFACE && setup.recipient() == USB_RECIPIENT_INTERFACE) {
+			data.append(0);
+			return 1;
+		}
+		if (setup.request == USB_REQUEST_SET_INTERFACE || setup.request == USB_REQUEST_CLEAR_FEATURE) { return 0; }
+		return self.behavior.control(setup, data);
+	}
+
+	/* One control transfer, with IUSBFunction.control's contract. A reply
+	 * longer than the host asked for is cut to `setup.length`: the returned
+	 * length says how many bytes of `data` to send. */
+	public int control(USBSetup setup, Bytes data) {
+		if (setup == null || data == null) { return USB_CONTROL_STALL; }
+		int length = setup.scope() == USB_REQUEST_STANDARD ? self.standard(setup, data) : self.behavior.control(setup, data);
+		if (length < 0) { return USB_CONTROL_STALL; }
+		return setup.deviceToHost() && length > setup.length ? setup.length : length;
+	}
+
+	public bool produce(int endpoint, Bytes packet) { return self.behavior.produce(endpoint, packet); }
+
+	public void consume(int endpoint, Bytes packet) { self.behavior.consume(endpoint, packet); }
+}

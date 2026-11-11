@@ -1,0 +1,27 @@
+/* USBHost on macOS: not written. Device access there is IOKit's, and the
+ * kernel has no USB/IP host controller. Every operation reports that the host
+ * is unsupported, so a program can ask `USBHost.supported()` first. */
+
+class USBHostProvider {
+	class bool supported() { return false; }
+
+	class string find(int vendor, int product) { return ""; }
+
+	class int open(string name) { return -1; }
+
+	class void close(int handle) {}
+
+	class bool claim(int handle, int number) { return false; }
+
+	class bool unclaim(int handle, int number) { return false; }
+
+	class int control(int handle, int requestType, int request, int value, int index, unsigned char* data, int length, int timeoutMilliseconds) { return -1; }
+
+	class int transfer(int handle, int endpoint, unsigned char* data, int length, int timeoutMilliseconds) { return -1; }
+
+	class int attach(int socket, long long deviceId, int speed) { throw "vhci_hcd is a Linux kernel driver; this target has no USB/IP host controller"; }
+
+	class bool busy(int port) { return false; }
+
+	class bool detach(int port) { return false; }
+}

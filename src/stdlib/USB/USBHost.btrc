@@ -1,0 +1,122 @@
+/* This machine as a USB host.
+ *
+ * USBHostDevice opens a device the kernel has enumerated and runs transfers
+ * on it directly, taking an interface from its kernel driver while it does.
+ * USBIPAttachment hands an imported USB/IP device to the kernel's virtual
+ * host controller, which then presents it like any plugged-in device -- so a
+ * USBVirtualDevice can stand in for hardware in front of real drivers.
+ *
+ * Linux has the provider (usbfs and vhci_hcd; both need access to the device
+ * nodes, attaching needs root). Other rows report `USBHost.supported()` false
+ * and fail every operation. */
+
+import Library.Bytes;
+import Library.Network.TCPStream;
+import Library.USB.USBDescriptors;
+import Library.USB.USBIP;
+
+class USBHost {
+	/* Whether this target can open devices and attach USB/IP ones. */
+	class bool supported() { return USBHostProvider.supported(); }
+
+	/* Whether a device with this identity is on the bus. */
+	class bool present(int vendor, int product) { return !USBHostProvider.find(vendor, product).isEmpty(); }
+}
+
+class USBHostDevice {
+	private int handle = -1;
+	private string place;
+
+	private USBHostDevice(int handle, string place) {
+		self.handle = handle;
+		self.place = place;
+	}
+
+	/* Open the first device with this identity, or throw: it is absent, or
+	 * its node cannot be opened. */
+	class USBHostDevice open(int vendor, int product) {
+		string place = USBHostProvider.find(vendor, product);
+		if (place.isEmpty()) { throw "No such USB device"; }
+		int handle = USBHostProvider.open(place);
+		if (handle < 0) { throw f"Cannot open USB device {place}"; }
+		return USBHostDevice(handle, place);
+	}
+
+	public bool isOpen() { return self.handle >= 0; }
+
+	/* Where the device is on the bus, such as "3-1". */
+	public string location() { return self.place; }
+
+	/* Take an interface for this handle, detaching its kernel driver. */
+	public bool claim(int number) { return self.handle >= 0 && USBHostProvider.claim(self.handle, number); }
+
+	/* Give an interface back; a kernel driver may bind to it again. */
+	public bool unclaim(int number) { return self.handle >= 0 && USBHostProvider.unclaim(self.handle, number); }
+
+	/* A device-to-host control transfer. The reply is appended to `reply`;
+	 * returns its length, or a negative errno. */
+	public int controlIn(USBSetup setup, Bytes reply, int timeoutMilliseconds) {
+		unsigned char buffer[4096];
+		if (self.handle < 0 || setup == null || reply == null || setup.length > 4096) { return -1; }
+		int count = USBHostProvider.control(self.handle, setup.requestType, setup.request, setup.value, setup.index, buffer, setup.length, timeoutMilliseconds);
+		if (count > 0) { reply.appendRaw((char*)buffer, count); }
+		return count;
+	}
+
+	/* A host-to-device control transfer carrying `data`. Returns the length
+	 * sent, or a negative errno. */
+	public int controlOut(USBSetup setup, Bytes data, int timeoutMilliseconds) {
+		unsigned char buffer[4096];
+		if (self.handle < 0 || setup == null || data == null || data.len > 4096) { return -1; }
+		if (data.len > 0) { memcpy(buffer, data.data, (size_t)data.len); }
+		return USBHostProvider.control(self.handle, setup.requestType, setup.request, setup.value, setup.index, buffer, data.len, timeoutMilliseconds);
+	}
+
+	/* Read one packet of at most `capacity` bytes from a bulk or interrupt IN
+	 * endpoint number. Returns its length, or a negative errno. */
+	public int transferIn(int endpoint, int capacity, Bytes packet, int timeoutMilliseconds) {
+		unsigned char buffer[4096];
+		if (self.handle < 0 || packet == null || capacity < 0 || capacity > 4096) { return -1; }
+		int count = USBHostProvider.transfer(self.handle, 0x80 | (endpoint & 0x0F), buffer, capacity, timeoutMilliseconds);
+		if (count > 0) { packet.appendRaw((char*)buffer, count); }
+		return count;
+	}
+
+	/* Write one packet to a bulk or interrupt OUT endpoint number. */
+	public int transferOut(int endpoint, Bytes packet, int timeoutMilliseconds) {
+		unsigned char buffer[4096];
+		if (self.handle < 0 || packet == null || packet.len > 4096) { return -1; }
+		if (packet.len > 0) { memcpy(buffer, packet.data, (size_t)packet.len); }
+		return USBHostProvider.transfer(self.handle, endpoint & 0x0F, buffer, packet.len, timeoutMilliseconds);
+	}
+
+	public void close() {
+		if (self.handle < 0) { return; }
+		USBHostProvider.close(self.handle);
+		self.handle = -1;
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* A USB/IP device attached to the kernel's virtual host controller. */
+class USBIPAttachment {
+	private int number;
+
+	private USBIPAttachment(int number) { self.number = number; }
+
+	/* Hand an imported device to the kernel, or throw why not. The kernel
+	 * keeps the host's stream; the host must not run transfers on it again. */
+	class USBIPAttachment attach(USBIPHost host, USBIPDevice device) {
+		if (host == null || device == null) { throw "Attaching needs a host and its imported device"; }
+		return USBIPAttachment(USBHostProvider.attach(host.connection().handle(), device.deviceId, device.speed));
+	}
+
+	/* The virtual host controller's port. */
+	public int port() { return self.number; }
+
+	/* Whether the device is still attached. */
+	public bool attached() { return USBHostProvider.busy(self.number); }
+
+	public bool detach() { return USBHostProvider.detach(self.number); }
+}

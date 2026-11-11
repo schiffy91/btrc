@@ -1,0 +1,2 @@
+/* USBIP's provider on Linux and macOS: selection only. The protocol runs over
+ * a Library.Network TCPStream, so it has rows wherever that has them. */

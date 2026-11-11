@@ -1,0 +1,10 @@
+/* USB: descriptors, emulated devices, USB/IP and this machine as a host.
+ *
+ * `import Library.USB;` brings in the whole group. A program that only builds
+ * descriptors or an emulated device imports `Library.USB.USBDescriptors` or
+ * `Library.USB.USBVirtualDevice`, which do no I/O and build on every target. */
+
+import Library.USB.USBDescriptors;
+import Library.USB.USBHost;
+import Library.USB.USBIP;
+import Library.USB.USBVirtualDevice;

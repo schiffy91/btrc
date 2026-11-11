@@ -1,0 +1,102 @@
+/* The kernel as the host of an emulated device. The device is exported over
+ * USB/IP from a child process, attached to vhci_hcd, enumerated by the
+ * kernel's USB core, and then driven through usbfs with USBHostDevice: real
+ * descriptors, class requests and interrupt transfers, with no hardware.
+ *
+ * It needs vhci_hcd and root, so a VM runs it (the usb-kernel-host check). */
+
+import Library.Bytes;
+import Library.Network.IPv4Address;
+import Library.Network.TCPListener;
+import Library.Network.TCPStream;
+import Library.Timer;
+import Library.USB;
+
+import ./EchoPad.btrc;
+#include <assert.h>
+#include <errno.h>
+#include <poll.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+class USBKernelHost {
+	/* Serve the device to whichever host connects, until it leaves. */
+	class int device(TCPListener listener) {
+		TCPStream? accepted = listener.accept(10000);
+		if (accepted == null) { return 2; }
+		USBIPExport exported = USBIPExport(USBVirtualDevice(EchoPad.description(), EchoPad()), accepted);
+		while (exported.step()) {
+			struct pollfd waiting;
+			waiting.fd = exported.handle();
+			waiting.events = POLLIN;
+			waiting.revents = 0;
+			poll(&waiting, (nfds_t)1, 5);
+		}
+		return 0;
+	}
+
+	class bool waitPresent(bool wanted, int milliseconds) {
+		long long deadline = MonotonicClock.deadlineAfter((long long)milliseconds);
+		while (USBHost.present(0x1209, 0x0001) != wanted) {
+			if (!MonotonicClock.before(deadline)) { return false; }
+			Timer.sleepMillis(50);
+		}
+		return true;
+	}
+
+	class void transfers(USBHostDevice device) {
+		Bytes descriptor = Bytes();
+		assert(device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 0, 18), descriptor, 2000) == 18);
+		assert(descriptor.get(8) == 0x09 && descriptor.get(9) == 0x12 && descriptor.get(10) == 0x01);
+		Bytes serial = Bytes();
+		assert(device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0303, 0x0409, 255), serial, 2000) == 18 && serial.get(2) == 'E' && serial.get(16) == '1');
+		assert(device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0309, 0x0409, 255), Bytes(), 2000) == -EPIPE);
+
+		/* The kernel's HID driver holds the interface until it is claimed. */
+		assert(device.claim(0));
+		assert(device.controlOut(USBSetup(0x21, 0x09, 0x0300, 0, 8), Bytes.fromString("feature!"), 2000) == 8);
+		Bytes kept = Bytes();
+		assert(device.controlIn(USBSetup(0xA1, 0x01, 0x0300, 0, 64), kept, 2000) == 8 && kept.toString().equals("feature!"));
+		assert(device.transferIn(1, 64, Bytes(), 300) == -ETIMEDOUT);
+		assert(device.transferOut(1, Bytes.fromString("ab"), 2000) == 2);
+		Bytes echoed = Bytes();
+		assert(device.transferIn(1, 64, echoed, 2000) == 3 && echoed.get(0) == 1 && echoed.get(1) == 'a' && echoed.get(2) == 'b');
+		assert(device.unclaim(0));
+	}
+
+	class void run() {
+		assert(USBHost.supported() && !USBHost.present(0x1209, 0x0001));
+		TCPListener listener = TCPListener.listen(IPv4Address.loopback(), 0);
+		int port = listener.port();
+		fflush(stdout);
+		pid_t child = fork();
+		assert(child >= (pid_t)0);
+		if (child == (pid_t)0) {
+			int status = 9;
+			try { status = USBKernelHost.device(listener); } catch (string error) { status = 8; }
+			_exit(status);
+		}
+		listener.close();
+		USBIPHost host = USBIPHost(TCPStream.connect(IPv4Address.loopback(), port, 5000), 5000);
+		USBIPDevice imported = host.importDevice("1-1");
+		USBIPAttachment attachment = USBIPAttachment.attach(host, imported);
+		assert(attachment.port() >= 0 && attachment.attached() && USBKernelHost.waitPresent(true, 20000));
+
+		USBHostDevice device = USBHostDevice.open(0x1209, 0x0001);
+		assert(device.isOpen() && !device.location().isEmpty());
+		USBKernelHost.transfers(device);
+		device.close();
+		assert(!device.isOpen() && device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 0, 18), Bytes(), 100) == -1);
+
+		assert(attachment.detach() && USBKernelHost.waitPresent(false, 20000) && !attachment.attached());
+		host.connection().close();
+		int status = 0;
+		assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+	}
+}
+
+int main() {
+	USBKernelHost.run();
+	print("PASS: kernel host of an emulated USB device");
+	return 0;
+}

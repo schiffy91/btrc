@@ -137,6 +137,19 @@
         "linux-devcontainer"
       ],
       "note": "TCPStream and TCPListener have BSD-socket rows for Linux and macOS; test_windows_has_no_network_provider_yet runs here and pins the refusal. The macOS and Linux shards run the loopback conformance."
+    },
+    {
+      "id": "usb-posix-transport",
+      "files": [
+        "src/tests/python/test_usb_runtime.py"
+      ],
+      "reason": "^Library\\.USB carries transfers over Library\\.Network, which has Linux and macOS rows only$",
+      "category": "platform",
+      "covered_by": [
+        "macos-hosted",
+        "linux-devcontainer"
+      ],
+      "note": "USB/IP runs over TCPStream; test_windows_builds_usb_values_but_no_transport runs here and pins what does build. The macOS and Linux shards run the emulated device."
     }
   ]
 }
