@@ -124,6 +124,7 @@ class LinuxTray implements ITray {
 	private UnixShell _shell;
 	private Vector<bool> _checked = [];
 	private Vector<string> _pendingCommands = [];
+	private Vector<int> _pendingProbes = [];  /* submenus shown since the last reply */
 	private unsigned int _revision = 1u;
 	private bool _quitRequested = false;
 	private string _failure = "";
@@ -204,14 +205,16 @@ class LinuxTray implements ITray {
 		if (!newOwner.isEmpty() && !self.registerWithWatcher()) { self.fail("Cannot re-register with the restarted StatusNotifierWatcher"); }
 	}
 
-	/* True when any checkmark changed since the last probe. */
-	private bool probeCheckItems() {
-		bool changed = false;
+	/* Runs the state commands of one menu's items (parent = its dbusmenu id; -1 for every
+	 * item) and returns the indices whose checkmark changed. */
+	private Vector<int> probeCheckItems(int parent = -1) {
+		Vector<int> changed = [];
 		int index = 0;
 		for entry in self._model.items {
-			if (!entry.stateCommand.isEmpty()) {
+			if (!entry.stateCommand.isEmpty() && (parent < 0 || entry.parentId == parent)) {
 				bool checked = self._shell.run(entry.stateCommand, logFailure=false).ok();
-				if (checked != self._checked.get(index)) { self._checked.set(index, checked); changed = true; }
+				if (checked != self._checked.get(index)) { self._checked.set(index, checked); changed.push(index); }
+				if (self._connection != null) { self.drain(0); }  /* a request waits on one command at most */
 			}
 			index++;
 		}
@@ -220,17 +223,33 @@ class LinuxTray implements ITray {
 
 	public void refreshCheckItems() {
 		if (self._connection == null) { return; }
-		if (self.probeCheckItems()) { self.announceLayout(); }
+		self.announceCheckItems(self.probeCheckItems());
 	}
 
-	private void announceLayout() {
-		self._revision++;
-		DBusMessage* signal = dbus_message_new_signal(LinuxTray.menuPath(), LinuxTray.menuInterface(), "LayoutUpdated");
+	/* ItemsPropertiesUpdated changes checkmarks in place; a LayoutUpdated would make the
+	 * host rebuild, and close, a submenu that is opening. */
+	private void announceCheckItems(Vector<int> indices) {
+		if (indices.len == 0) { return; }
+		DBusMessage* signal = dbus_message_new_signal(LinuxTray.menuPath(), LinuxTray.menuInterface(), "ItemsPropertiesUpdated");
 		if (signal == null) { return; }
 		DBusMessageIter arguments;
+		DBusMessageIter updated;
+		DBusMessageIter removed;
 		dbus_message_iter_init_append(signal, &arguments);
-		btrcDBusAppendUInt32(&arguments, self._revision);
-		btrcDBusAppendInt32(&arguments, 0);
+		dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "(ia{sv})", &updated);
+		for index in indices {
+			DBusMessageIter item;
+			DBusMessageIter properties;
+			dbus_message_iter_open_container(&updated, DBUS_TYPE_STRUCT, null, &item);
+			btrcDBusAppendInt32(&item, index + 1);
+			dbus_message_iter_open_container(&item, DBUS_TYPE_ARRAY, "{sv}", &properties);
+			DBusWriter.dictInt32(&properties, "toggle-state", self._checked.get(index) ? 1 : 0);
+			dbus_message_iter_close_container(&item, &properties);
+			dbus_message_iter_close_container(&updated, &item);
+		}
+		dbus_message_iter_close_container(&arguments, &updated);
+		dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "(ias)", &removed);
+		dbus_message_iter_close_container(&arguments, &removed);
 		dbus_connection_send(self._connection, signal, null);
 		dbus_message_unref(signal);
 		dbus_connection_flush(self._connection);
@@ -246,15 +265,18 @@ class LinuxTray implements ITray {
 	public bool pump(int timeoutMs) {
 		if (!self._failure.isEmpty()) { throw self._failure; }
 		if (self._connection == null || self._quitRequested) { return false; }
-		if (!dbus_connection_read_write(self._connection, timeoutMs)) { self.fail("The D-Bus session bus disconnected"); }
-		DBusMessage* message = dbus_connection_pop_message(self._connection);
-		while (message != null && !self._quitRequested) {
-			/* A popped message is owned here, so it is released even when
-			 * answering it fails. */
-			try { self.handle(message); } finally { dbus_message_unref(message); }
-			message = dbus_connection_pop_message(self._connection);
+		self.drain(timeoutMs);
+		/* Work runs after the replies left, so the host never waits on a command. */
+		while (self._pendingCommands.len > 0 && !self._quitRequested) {
+			string command = self._pendingCommands.get(0);
+			self._pendingCommands.remove(0);
+			self.activate(command);
 		}
-		if (message != null) { dbus_message_unref(message); }
+		while (self._pendingProbes.len > 0 && !self._quitRequested) {
+			int parent = self._pendingProbes.get(0);
+			self._pendingProbes.remove(0);
+			self.announceCheckItems(self.probeCheckItems(parent));
+		}
 		return !self._quitRequested;
 	}
 
@@ -295,15 +317,21 @@ class LinuxTray implements ITray {
 			dbus_message_unref(reply);
 		}
 		dbus_connection_flush(self._connection);
-		while (self._pendingCommands.len > 0 && !self._quitRequested) {
-			string command = self._pendingCommands.get(0);
-			self._pendingCommands.remove(0);
-			self.activate(command);
-		}
-		self._pendingCommands = [];
 	}
 
-	/* Runs after the Event reply left, so the host never waits on the command. */
+	/* Answers whatever arrived without blocking; replies only queue commands and probes. */
+	private void drain(int timeoutMs) {
+		if (!dbus_connection_read_write(self._connection, timeoutMs)) { self.fail("The D-Bus session bus disconnected"); }
+		DBusMessage* message = dbus_connection_pop_message(self._connection);
+		while (message != null && !self._quitRequested) {
+			/* A popped message is owned here, so it is released even when
+			 * answering it fails. */
+			try { self.handle(message); } finally { dbus_message_unref(message); }
+			message = dbus_connection_pop_message(self._connection);
+		}
+		if (message != null) { dbus_message_unref(message); }
+	}
+
 	private void activate(string command) {
 		if (command.equals(TraySignal.quit())) { self.quit(); return; }
 		self._shell.run(command, stdout=COMMAND_OUTPUT_STREAM, stderr=COMMAND_OUTPUT_STREAM, logFailure=false);
@@ -315,7 +343,7 @@ class LinuxTray implements ITray {
 		if (path.equals(LinuxTray.itemPath())) {
 			body = "<interface name=\"org.kde.StatusNotifierItem\">" + "<property name=\"Category\" type=\"s\" access=\"read\"/><property name=\"Id\" type=\"s\" access=\"read\"/>" + "<property name=\"Title\" type=\"s\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"IconName\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"s\" access=\"read\"/>" + "<property name=\"ToolTip\" type=\"(sa(iiay)ss)\" access=\"read\"/><property name=\"ItemIsMenu\" type=\"b\" access=\"read\"/>" + "<property name=\"Menu\" type=\"o\" access=\"read\"/>" + "<method name=\"Activate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"SecondaryActivate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"ContextMenu\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"Scroll\"><arg name=\"delta\" type=\"i\" direction=\"in\"/><arg name=\"orientation\" type=\"s\" direction=\"in\"/></method>" + "</interface>";
 		} else if (path.equals(LinuxTray.menuPath())) {
-			body = "<interface name=\"com.canonical.dbusmenu\">" + "<property name=\"Version\" type=\"u\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"TextDirection\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"as\" access=\"read\"/>" + "<method name=\"GetLayout\"><arg name=\"parentId\" type=\"i\" direction=\"in\"/><arg name=\"recursionDepth\" type=\"i\" direction=\"in\"/>" + "<arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"revision\" type=\"u\" direction=\"out\"/><arg name=\"layout\" type=\"(ia{sv}av)\" direction=\"out\"/></method>" + "<method name=\"GetGroupProperties\"><arg name=\"ids\" type=\"ai\" direction=\"in\"/><arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"properties\" type=\"a(ia{sv})\" direction=\"out\"/></method>" + "<method name=\"GetProperty\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"name\" type=\"s\" direction=\"in\"/><arg name=\"value\" type=\"v\" direction=\"out\"/></method>" + "<method name=\"Event\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"eventId\" type=\"s\" direction=\"in\"/><arg name=\"data\" type=\"v\" direction=\"in\"/><arg name=\"timestamp\" type=\"u\" direction=\"in\"/></method>" + "<method name=\"EventGroup\"><arg name=\"events\" type=\"a(isvu)\" direction=\"in\"/><arg name=\"idErrors\" type=\"ai\" direction=\"out\"/></method>" + "<method name=\"AboutToShow\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"needUpdate\" type=\"b\" direction=\"out\"/></method>" + "<signal name=\"LayoutUpdated\"><arg name=\"revision\" type=\"u\"/><arg name=\"parent\" type=\"i\"/></signal>" + "</interface>";
+			body = "<interface name=\"com.canonical.dbusmenu\">" + "<property name=\"Version\" type=\"u\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"TextDirection\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"as\" access=\"read\"/>" + "<method name=\"GetLayout\"><arg name=\"parentId\" type=\"i\" direction=\"in\"/><arg name=\"recursionDepth\" type=\"i\" direction=\"in\"/>" + "<arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"revision\" type=\"u\" direction=\"out\"/><arg name=\"layout\" type=\"(ia{sv}av)\" direction=\"out\"/></method>" + "<method name=\"GetGroupProperties\"><arg name=\"ids\" type=\"ai\" direction=\"in\"/><arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"properties\" type=\"a(ia{sv})\" direction=\"out\"/></method>" + "<method name=\"GetProperty\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"name\" type=\"s\" direction=\"in\"/><arg name=\"value\" type=\"v\" direction=\"out\"/></method>" + "<method name=\"Event\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"eventId\" type=\"s\" direction=\"in\"/><arg name=\"data\" type=\"v\" direction=\"in\"/><arg name=\"timestamp\" type=\"u\" direction=\"in\"/></method>" + "<method name=\"EventGroup\"><arg name=\"events\" type=\"a(isvu)\" direction=\"in\"/><arg name=\"idErrors\" type=\"ai\" direction=\"out\"/></method>" + "<method name=\"AboutToShow\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"needUpdate\" type=\"b\" direction=\"out\"/></method>" + "<signal name=\"LayoutUpdated\"><arg name=\"revision\" type=\"u\"/><arg name=\"parent\" type=\"i\"/></signal>" + "<signal name=\"ItemsPropertiesUpdated\"><arg name=\"updatedProps\" type=\"a(ia{sv})\"/><arg name=\"removedProps\" type=\"a(ias)\"/></signal>" + "</interface>";
 		}
 		string xml = "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">" + "<node>" + body + "<interface name=\"org.freedesktop.DBus.Introspectable\"><method name=\"Introspect\"><arg name=\"data\" type=\"s\" direction=\"out\"/></method></interface>" + "<interface name=\"org.freedesktop.DBus.Properties\"><method name=\"Get\"><arg type=\"s\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/><arg type=\"v\" direction=\"out\"/></method>" + "<method name=\"GetAll\"><arg type=\"s\" direction=\"in\"/><arg type=\"a{sv}\" direction=\"out\"/></method></interface>" + "</node>";
 		DBusMessage* reply = dbus_message_new_method_return(message);
@@ -564,13 +592,18 @@ class LinuxTray implements ITray {
 		if (member.equals("EventGroup")) { return self.eventGroupReply(message); }
 		if (member.equals("GetProperty")) { return self.propertyReply(message); }
 		if (member.equals("AboutToShow")) {
-			bool changed = self.probeCheckItems();
-			if (changed) { self._revision++; }
+			/* Answer at once from the cached states: hosts drop a submenu whose AboutToShow is
+			 * slow, then open it only on the next pointer move. Its states refresh after the reply. */
+			DBusMessageIter request;
+			if (dbus_message_iter_init(message, &request) != 0u) {
+				int id = btrcDBusReadInt32(&request);
+				if (!self._pendingProbes.contains(id)) { self._pendingProbes.push(id); }
+			}
 			DBusMessage* reply = dbus_message_new_method_return(message);
 			if (reply == null) { return null; }
 			DBusMessageIter arguments;
 			dbus_message_iter_init_append(reply, &arguments);
-			btrcDBusAppendBool(&arguments, changed ? 1u : 0u);
+			btrcDBusAppendBool(&arguments, 0u);
 			return reply;
 		}
 		return null;

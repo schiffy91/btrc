@@ -199,6 +199,12 @@ int main() {
         assert [child[1]["toggle-type"] for child in mode[2]] == ["radio", "radio"]
         assert [child[1]["toggle-state"] for child in mode[2]] == [1, 0]
         assert layout(mode[0], -1) == mode
+        about_to_show = bus.call_sync(
+            service, "/MenuBar", "com.canonical.dbusmenu", "AboutToShow",
+            GLib.Variant("(i)", (mode[0],)), None, Gio.DBusCallFlags.NONE, 5000, None,
+        ).unpack()
+        assert about_to_show == (False,)  # answered from cached states; they refresh after the reply
+        assert [child[1]["toggle-state"] for child in layout(mode[0], -1)[2]] == [1, 0]
         assert layout(settings[0], 0)[2] == []
         assert all(child[2] == [] for child in layout(0, 1)[2])
         with pytest.raises(GLib.Error, match="InvalidMenuItem"):
