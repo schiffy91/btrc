@@ -190,11 +190,11 @@ int main() {
             ).unpack()[1]
 
         root = layout(0, -1)
-        assert [child[1]["label"] for child in root[2]] == ["Open", "Settings"]
+        assert [child[1]["label"] for child in root[2]] == ["Open", "Settings  "]
         settings = root[2][1]
         assert settings[1]["children-display"] == "submenu"
         mode, reset = settings[2]
-        assert mode[1]["label"] == "Mode"
+        assert mode[1]["label"] == "Mode  "
         assert reset[1]["label"] == "Reset"
         assert [child[1]["toggle-type"] for child in mode[2]] == ["radio", "radio"]
         assert [child[1]["toggle-state"] for child in mode[2]] == [1, 0]

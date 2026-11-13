@@ -130,6 +130,9 @@ class LinuxTray implements ITray {
 
 	class string itemPath() { return "/StatusNotifierItem"; }
 
+	/* Menus draw a submenu's arrow right after the widest label; two em spaces keep it off short labels. */
+	class string displayLabel(TrayItem entry) { return entry.isSubmenu ? entry.label + "  " : entry.label; }
+
 	class string menuPath() { return "/MenuBar"; }
 
 	class string itemInterface() { return "org.kde.StatusNotifierItem"; }
@@ -395,7 +398,7 @@ class LinuxTray implements ITray {
 		TrayItem entry = self._model.items.get(index);
 		DBusMessageIter properties;
 		dbus_message_iter_open_container(node, DBUS_TYPE_ARRAY, "{sv}", &properties);
-		DBusWriter.dictString(&properties, "label", entry.label);
+		DBusWriter.dictString(&properties, "label", LinuxTray.displayLabel(entry));
 		DBusWriter.dictBool(&properties, "enabled", entry.enabled);
 		DBusWriter.dictBool(&properties, "visible", true);
 		if (entry.isSubmenu) { DBusWriter.dictString(&properties, "children-display", "submenu"); }
@@ -544,7 +547,7 @@ class LinuxTray implements ITray {
 		if (index < 0 || index >= self._model.items.len) { return false; }
 		TrayItem entry = self._model.items.get(index);
 		bool checkable = !entry.stateCommand.isEmpty();
-		if (name.equals("label")) { DBusWriter.variantString(arguments, entry.label); }
+		if (name.equals("label")) { DBusWriter.variantString(arguments, LinuxTray.displayLabel(entry)); }
 		else if (name.equals("enabled")) { DBusWriter.variantBool(arguments, entry.enabled); }
 		else if (name.equals("visible")) { DBusWriter.variantBool(arguments, true); }
 		else if (name.equals("children-display") && entry.isSubmenu) { DBusWriter.variantString(arguments, "submenu"); }
