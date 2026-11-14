@@ -84,7 +84,7 @@ def assert_child_stopped(marker):
     if not marker.exists():
         return
     result = subprocess.run(
-        ["/bin/ps", "-o", "stat=", "-p", marker.read_text()],
+        ["ps", "-o", "stat=", "-p", marker.read_text()],  # by name: NixOS has no /bin/ps
         capture_output=True,
         text=True,
         check=False,

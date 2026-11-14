@@ -26,6 +26,14 @@ class BluetoothAdapterProvider {
 
 	/* Connect to the daemon and find the adapter, or throw why not. */
 	public BluetoothAdapterProvider(string name, IBluetoothPairing policy) {
+		/* The name becomes part of an object path, and the bus library aborts
+		 * the program on a path it considers malformed. */
+		bool named = !name.isEmpty();
+		for (int at = 0; at < name.len(); at++) {
+			char letter = name.charAt(at);
+			if (!((letter >= 'a' && letter <= 'z') || (letter >= 'A' && letter <= 'Z') || (letter >= '0' && letter <= '9') || letter == '_')) { named = false; }
+		}
+		if (!named) { throw f"No Bluetooth adapter can be named '{name}'"; }
 		self.name = name;
 		self.path = f"/org/bluez/{name}";
 		self.policy = policy;
