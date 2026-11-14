@@ -53,13 +53,13 @@ source = { ledger = "docs/design/native-ui-catalog.toml" }
 
 [[denominators]]
 kind = "operation"
-release = "p0-inventory-2026-11-11-bluetooth"
+release = "p0-inventory-2026-11-13-userspace"
 platforms = ["windows", "ios", "android"]
 slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
 frontends = []
-ids = 360
-slots = 2160
-sha256 = "5bfa442b3735fdaaea228c218e8eb8ec50750d28f7755305de8eb203891b97c3"
+ids = 365
+slots = 2190
+sha256 = "10ef49b377dc1d7e01205be1f8be30f9d677aac3241a4d819d027826b5768431"
 source = { ledger = "docs/design/platform-inventory.toml" }
 
 [[denominators]]

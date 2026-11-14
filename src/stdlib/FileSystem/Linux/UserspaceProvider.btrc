@@ -1,0 +1,12 @@
+import Library.FileSystem.IUserspaceFileSystem;
+import Library.FileSystem.Linux.LinuxUserspace;
+
+class UserspaceProvider {
+	class bool supported() { return true; }
+
+	class IUserspaceMount mount(IUserspaceFileSystem files, string directory, UserspaceOptions options) {
+		LinuxUserspace mounted = LinuxUserspace(files);
+		mounted.mount(directory, options);
+		return mounted;
+	}
+}

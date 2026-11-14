@@ -1,0 +1,614 @@
+/* A userspace filesystem that forwards every operation to a real directory.
+ *
+ * What a program sees through the mount is what the directory holds, and
+ * every change lands there. The filesystem underneath does the work, so its
+ * rules for names, permissions, renames and links apply unchanged. With
+ * passthrough agreed, an open file is handed to the kernel and its reads,
+ * writes and mappings never come back here.
+ *
+ * It is the base for a filesystem that changes a few answers: implement the
+ * interfaces, hold one of these, and pass on what is left alone.
+ *
+ * A node is held as a descriptor that names the file without opening it, so
+ * renames underneath do not confuse it. Linux only. */
+
+import Library.Bytes;
+import Library.FileSystem.IUserspaceFileSystem;
+import Library.FileSystem.UserspaceRequest;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+class UserspaceForwardedNode {
+	public int descriptor;
+	public long key;
+	public long lookups = 1L;
+
+	public UserspaceForwardedNode(int descriptor, long key) {
+		self.descriptor = descriptor;
+		self.key = key;
+	}
+}
+
+class UserspaceForwarding implements IUserspaceFileSystem, IUserspaceWriter, IUserspaceLinker, IUserspaceAttributeStore, IUserspaceSeeker {
+	private Map<long, UserspaceForwardedNode> nodes = {};
+	private Map<long, long> known = {};
+	private Map<long, int> listings = {};
+	private Vector<long> devices = [];
+	private Map<long, string> shown = {};
+	private Map<long, long> shownDevice = {};
+	private long next = 2L;
+	private bool owner = false;
+	private long descriptorLimit = 0L;
+
+	/* How long the kernel may remember a name and a node's attributes. A
+	 * directory nothing else changes can make these long. */
+	public long nameMilliseconds = 1000L;
+	public long attributesMilliseconds = 1000L;
+	/* Whether extended attributes are passed on. Off makes the kernel stop
+	 * asking, which saves a question on most opens. */
+	public bool attributeStore = true;
+
+	/* Forward to `directory`, or throw why not. */
+	public UserspaceForwarding(string directory) {
+		int descriptor = open(directory, (int)O_PATH | (int)O_DIRECTORY | (int)O_CLOEXEC);
+		if (descriptor < 0) { throw f"Cannot forward to {directory}: {Strings.copy(strerror(errno))}"; }
+		struct BtrcBackingStatus status;
+		if (btrcBackingInspect(descriptor, &status) != 0) {
+			close(descriptor);
+			throw f"Cannot inspect {directory}";
+		}
+		long key = self.key(&status);
+		self.nodes.put(1L, UserspaceForwardedNode(descriptor, key));
+		self.known.put(key, 1L);
+		self.owner = geteuid() == (uid_t)0;
+		self.descriptorLimit = (long)btrcBackingDescriptorLimit();
+	}
+
+	/* Show `directory`, a folder anywhere, wherever the folder `stand` inside
+	 * the forwarded directory would be seen: one folder in place of another
+	 * without a mount. `stand` is remembered as the folder it is, not by its
+	 * name, so it can be renamed or moved and still leads to `directory`. An
+	 * empty `directory` makes it unavailable: listed by name, and entering
+	 * it fails with "no such device or address" rather than looking empty or
+	 * gone. False when `stand` is not a folder that can be inspected. */
+	public bool redirect(string stand, string directory) {
+		int descriptor = open(stand, (int)O_PATH | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+		if (descriptor < 0) { return false; }
+		struct BtrcBackingStatus status;
+		bool inspected = btrcBackingInspect(descriptor, &status) == 0;
+		close(descriptor);
+		if (!inspected) { return false; }
+		self.shown.put(self.key(&status), directory);
+		return true;
+	}
+
+	/* Let go of everything held on the device of the folder shown in place
+	 * of `stand`, so that the device can be taken away; what the kernel
+	 * still remembers there turns stale. Files that are open stay open with
+	 * whoever has them. Returns how many nodes were let go. */
+	public int drop(string stand) {
+		int descriptor = open(stand, (int)O_PATH | (int)O_DIRECTORY | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+		if (descriptor < 0) { return 0; }
+		struct BtrcBackingStatus status;
+		bool inspected = btrcBackingInspect(descriptor, &status) == 0;
+		close(descriptor);
+		if (!inspected || !self.shownDevice.has(self.key(&status))) { return 0; }
+		long device = self.shownDevice.get(self.key(&status));
+		if (device == (self.nodes.get(1L).key >> 56)) { return 0; }
+		Vector<long> gone = [];
+		for node in self.nodes.keys() {
+			if (node != 1L && (self.nodes.get(node).key >> 56) == device) { gone.push(node); }
+		}
+		for node in gone {
+			UserspaceForwardedNode held = self.nodes.get(node);
+			close(held.descriptor);
+			self.known.remove(held.key);
+			self.nodes.remove(node);
+		}
+		Vector<long> listed = [];
+		for handle in self.listings.keys() {
+			if (btrcBackingInspect(self.listings.get(handle), &status) != 0 || (self.key(&status) >> 56) == device) { listed.push(handle); }
+		}
+		for handle in listed {
+			close(self.listings.get(handle));
+			self.listings.remove(handle);
+		}
+		return gone.len;
+	}
+
+	/* The descriptor that names `node`, or -1. It cannot be read or written. */
+	public int descriptor(long node) { return self.nodes.has(node) ? self.nodes.get(node).descriptor : -1; }
+
+	public int nodeCount() { return self.nodes.size(); }
+
+	/* How many nodes and open files this process may hold at once. */
+	public long capacity() { return self.descriptorLimit; }
+
+	/* Let go of every descriptor. The filesystem answers nothing after. */
+	public void shutdown() {
+		for descriptor in self.listings.values() { close(descriptor); }
+		self.listings.clear();
+		for node in self.nodes.values() { close(node.descriptor); }
+		self.nodes.clear();
+		self.known.clear();
+	}
+
+	public void __del__() { self.shutdown(); }
+
+	/* One number for a file wherever it is: its inode, and which of the
+	 * devices seen so far it is on. */
+	private long key(struct BtrcBackingStatus* status) {
+		long device = (long)status.device;
+		int index = 0;
+		while (index < self.devices.len && self.devices.get(index) != device) { index++; }
+		if (index == self.devices.len) { self.devices.push(device); }
+		return ((long)index << 56) | ((long)status.number & 72057594037927935L);
+	}
+
+	private UserspaceAttributes describe(struct BtrcBackingStatus* status) {
+		UserspaceAttributes attributes = UserspaceAttributes((UserspaceNodeKind)(((int)status.mode >> 12) & 15), (int)status.mode & 4095);
+		attributes.number = (long)status.number;
+		attributes.links = (int)status.links;
+		attributes.user = (int)status.user;
+		attributes.group = (int)status.group;
+		attributes.size = (long)status.size;
+		attributes.blocks = (long)status.blocks;
+		attributes.blockSize = (int)status.blockSize;
+		attributes.device = (long)status.special;
+		attributes.accessed = status.accessed;
+		attributes.accessedNanoseconds = status.accessedNanoseconds;
+		attributes.modified = status.modified;
+		attributes.modifiedNanoseconds = status.modifiedNanoseconds;
+		attributes.changed = status.changed;
+		attributes.changedNanoseconds = status.changedNanoseconds;
+		return attributes;
+	}
+
+	/* The entry for `name` in the directory `parent` names, counted as one
+	 * lookup; null with errno set when there is none. */
+	private UserspaceEntry? enter(int parent, string name) {
+		int descriptor = openat(parent, name, (int)O_PATH | (int)O_NOFOLLOW | (int)O_CLOEXEC);
+		if (descriptor < 0) { return null; }
+		struct BtrcBackingStatus status;
+		if (btrcBackingInspect(descriptor, &status) != 0) {
+			int failure = errno;
+			close(descriptor);
+			errno = failure;
+			return null;
+		}
+		long key = self.key(&status);
+		if (self.shown.has(key)) {
+			/* Another folder is shown in place of this one. */
+			long stand = key;
+			string directory = self.shown.get(stand);
+			close(descriptor);
+			descriptor = -1;
+			if (!directory.isEmpty()) { descriptor = open(directory, (int)O_PATH | (int)O_DIRECTORY | (int)O_CLOEXEC); }
+			if (descriptor < 0 || btrcBackingInspect(descriptor, &status) != 0) {
+				if (descriptor >= 0) { close(descriptor); }
+				errno = ENXIO;
+				return null;
+			}
+			key = self.key(&status);
+			self.shownDevice.put(stand, key >> 56);
+		}
+		long node = 0L;
+		if (self.known.has(key)) {
+			node = self.known.get(key);
+			self.nodes.get(node).lookups++;
+			close(descriptor);
+		} else {
+			node = self.next;
+			self.next++;
+			self.nodes.put(node, UserspaceForwardedNode(descriptor, key));
+			self.known.put(key, node);
+		}
+		return UserspaceEntry(node, self.describe(&status)).remembered(self.nameMilliseconds, self.attributesMilliseconds);
+	}
+
+	/* A file made through the mount belongs to whoever asked, not to a
+	 * filesystem running as root. */
+	private void own(UserspaceCaller caller, long node) {
+		if (self.owner && self.nodes.has(node)) { btrcBackingOwn(self.nodes.get(node).descriptor, caller.user, caller.group); }
+	}
+
+	private UserspaceAttributes? inspect(long node) {
+		if (!self.nodes.has(node)) {
+			errno = ESTALE;
+			return null;
+		}
+		struct BtrcBackingStatus status;
+		if (btrcBackingInspect(self.nodes.get(node).descriptor, &status) != 0) { return null; }
+		return self.describe(&status);
+	}
+
+	/* ---- IUserspaceFileSystem ---- */
+
+	public void lookup(UserspaceEntryReply reply, long parent, string name) {
+		if (!self.nodes.has(parent)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		UserspaceEntry? entry = self.enter(self.nodes.get(parent).descriptor, name);
+		if (entry != null) { reply.found(entry); }
+		else if (errno == ENOENT) { reply.missing(); }
+		else { reply.fail(UserspaceError.fromNative(errno)); }
+	}
+
+	public void forget(long node, long count) {
+		if (node == 1L || !self.nodes.has(node)) { return; }
+		UserspaceForwardedNode held = self.nodes.get(node);
+		held.lookups -= count;
+		if (held.lookups > 0L) { return; }
+		close(held.descriptor);
+		self.known.remove(held.key);
+		self.nodes.remove(node);
+	}
+
+	public void attributes(UserspaceAttributesReply reply, long node, long handle) {
+		UserspaceAttributes? found = self.inspect(node);
+		if (found != null) { reply.attributes(found, self.attributesMilliseconds); }
+		else { reply.fail(UserspaceError.fromNative(errno)); }
+	}
+
+	public void open(UserspaceOpenReply reply, long node, int flags) {
+		if (!self.nodes.has(node)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		int descriptor = btrcBackingOpen(self.nodes.get(node).descriptor, flags);
+		if (descriptor < 0) {
+			reply.fail(UserspaceError.fromNative(errno));
+			return;
+		}
+		reply.passthrough((long)descriptor, descriptor);
+	}
+
+	public void read(UserspaceDataReply reply, long node, long handle, long offset, int size) {
+		unsigned char* buffer = (unsigned char*)malloc((size_t)(size > 0 ? size : 1));
+		if (buffer == NULL) {
+			reply.fail(UserspaceError.fromNative(ENOMEM));
+			return;
+		}
+		long length = btrcBackingRead((int)handle, buffer, (unsigned long)size, offset);
+		if (length < 0L) { reply.fail(UserspaceError.fromNative((int)(0L - length))); }
+		else { reply.data(Bytes.fromRaw((char*)buffer, (int)length)); }
+		free(buffer);
+	}
+
+	public void close(UserspaceDoneReply reply, long node, long handle) {
+		close((int)handle);
+		reply.done();
+	}
+
+	public void openDirectory(UserspaceOpenReply reply, long node) {
+		if (!self.nodes.has(node)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		int descriptor = btrcBackingOpen(self.nodes.get(node).descriptor, (int)O_RDONLY | (int)O_DIRECTORY);
+		if (descriptor < 0) {
+			reply.fail(UserspaceError.fromNative(errno));
+			return;
+		}
+		self.listings.put((long)descriptor, descriptor);
+		reply.opened((long)descriptor);
+	}
+
+	public void list(UserspaceListReply reply, long node, long handle, long offset) {
+		if (!self.listings.has(handle)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		int descriptor = self.listings.get(handle);
+		unsigned long capacity = 32768UL;
+		unsigned char* packed = (unsigned char*)malloc((size_t)capacity);
+		if (packed == NULL) {
+			reply.fail(UserspaceError.fromNative(ENOMEM));
+			return;
+		}
+		long position = offset;
+		bool full = false;
+		while (!full) {
+			long filled = btrcBackingList(descriptor, position, packed, capacity);
+			if (filled < 0L) {
+				free(packed);
+				reply.fail(UserspaceError.fromNative((int)(0L - filled)));
+				return;
+			}
+			if (filled == 0L) { break; }
+			unsigned long at = 0UL;
+			while (at < (unsigned long)filled) {
+				long number = (long)btrcBackingListedNumber(packed, at);
+				long next = btrcBackingListedPosition(packed, at);
+				int kind = (int)btrcBackingListedKind(packed, at);
+				string name = Strings.copy((char*)btrcBackingListedName(packed, at));
+				at += btrcBackingListedLength(packed, at);
+				UserspaceListed listed = UserspaceListed(name, number, (UserspaceNodeKind)kind, next);
+				if (reply.wantsEntries() && !name.equals(".") && !name.equals("..")) {
+					UserspaceEntry? entry = self.enter(descriptor, name);
+					/* Removed since the directory was read: leave it out. A
+					 * folder that is unavailable is listed by name alone. */
+					if (entry == null && errno != ENXIO) {
+						position = next;
+						continue;
+					}
+					if (entry != null) { listed.entry = entry; }
+				}
+				if (!reply.add(listed)) {
+					UserspaceEntry? unused = listed.entry;
+					if (unused != null) { self.forget(unused.node, 1L); }
+					full = true;
+					break;
+				}
+				position = next;
+			}
+		}
+		free(packed);
+		reply.done();
+	}
+
+	public void closeDirectory(UserspaceDoneReply reply, long node, long handle) {
+		if (self.listings.has(handle)) {
+			close(self.listings.get(handle));
+			self.listings.remove(handle);
+		}
+		reply.done();
+	}
+
+	public void statistics(UserspaceStatisticsReply reply, long node) {
+		int descriptor = self.descriptor(self.nodes.has(node) ? node : 1L);
+		UserspaceStatistics statistics = UserspaceStatistics();
+		statistics.blockSize = (long)btrcBackingRoom(descriptor, 0);
+		if (statistics.blockSize == 0L) {
+			reply.fail(UserspaceError.io());
+			return;
+		}
+		statistics.blocks = (long)btrcBackingRoom(descriptor, 1);
+		statistics.blocksFree = (long)btrcBackingRoom(descriptor, 2);
+		statistics.blocksAvailable = (long)btrcBackingRoom(descriptor, 3);
+		statistics.nodes = (long)btrcBackingRoom(descriptor, 4);
+		statistics.nodesFree = (long)btrcBackingRoom(descriptor, 5);
+		statistics.longestName = (long)btrcBackingRoom(descriptor, 6);
+		reply.statistics(statistics);
+	}
+
+	/* ---- IUserspaceWriter ---- */
+
+	public void create(UserspaceCreateReply reply, long parent, string name, int permissions, int flags) {
+		if (!self.nodes.has(parent)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		int directory = self.nodes.get(parent).descriptor;
+		int descriptor = openat(directory, name, (flags | (int)O_CREAT | (int)O_CLOEXEC) & ~(int)O_NOFOLLOW, permissions);
+		if (descriptor < 0) {
+			reply.fail(UserspaceError.fromNative(errno));
+			return;
+		}
+		UserspaceEntry? entry = self.enter(directory, name);
+		if (entry == null) {
+			int failure = errno;
+			close(descriptor);
+			reply.fail(UserspaceError.fromNative(failure));
+			return;
+		}
+		self.own(reply.caller(), entry.node);
+		UserspaceAttributes? fresh = self.inspect(entry.node);
+		if (fresh != null) { entry.attributes = fresh; }
+		reply.created(entry, (long)descriptor, descriptor);
+	}
+
+	public void write(UserspaceWriteReply reply, long node, long handle, long offset, Bytes data) {
+		long length = btrcBackingWrite((int)handle, (unsigned char*)data.data, (unsigned long)data.length(), offset);
+		if (length < 0L) { reply.fail(UserspaceError.fromNative((int)(0L - length))); }
+		else { reply.written(length); }
+	}
+
+	public void change(UserspaceAttributesReply reply, long node, long handle, UserspaceChanges changes) {
+		if (!self.nodes.has(node)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		int descriptor = self.nodes.get(node).descriptor;
+		bool failed = false;
+		if (changes.hasPermissions && btrcBackingPermit(descriptor, changes.permissions) != 0) { failed = true; }
+		if (!failed && changes.hasOwner && btrcBackingOwn(descriptor, changes.user, changes.group) != 0) { failed = true; }
+		if (!failed && changes.hasSize) {
+			int writable = handle != 0L ? (int)handle : btrcBackingOpen(descriptor, (int)O_WRONLY);
+			if (writable < 0 || btrcBackingResize(writable, changes.size) != 0) { failed = true; }
+			int kept = errno;
+			if (handle == 0L && writable >= 0) { close(writable); }
+			errno = kept;
+		}
+		if (!failed && (changes.hasAccessed || changes.hasModified)) {
+			long accessedNanoseconds = !changes.hasAccessed ? -1L : changes.accessedNow ? -2L : changes.accessedNanoseconds;
+			long modifiedNanoseconds = !changes.hasModified ? -1L : changes.modifiedNow ? -2L : changes.modifiedNanoseconds;
+			if (btrcBackingTimes(descriptor, changes.accessed, accessedNanoseconds, changes.modified, modifiedNanoseconds) != 0) { failed = true; }
+		}
+		if (failed) {
+			reply.fail(UserspaceError.fromNative(errno));
+			return;
+		}
+		self.attributes(reply, node, handle);
+	}
+
+	public void makeDirectory(UserspaceEntryReply reply, long parent, string name, int permissions) {
+		if (!self.nodes.has(parent)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		int directory = self.nodes.get(parent).descriptor;
+		if (mkdirat(directory, name, (mode_t)permissions) != 0) {
+			reply.fail(UserspaceError.fromNative(errno));
+			return;
+		}
+		self.answerMade(reply, directory, name);
+	}
+
+	/* Answer with the entry of something just made in `directory`. */
+	private void answerMade(UserspaceEntryReply reply, int directory, string name) {
+		UserspaceEntry? entry = self.enter(directory, name);
+		if (entry == null) {
+			reply.fail(UserspaceError.fromNative(errno));
+			return;
+		}
+		self.own(reply.caller(), entry.node);
+		UserspaceAttributes? fresh = self.inspect(entry.node);
+		if (fresh != null) { entry.attributes = fresh; }
+		reply.found(entry);
+	}
+
+	public void remove(UserspaceDoneReply reply, long parent, string name) {
+		if (!self.nodes.has(parent)) { reply.fail(UserspaceError.stale()); }
+		else if (unlinkat(self.nodes.get(parent).descriptor, name, 0) != 0) { reply.fail(UserspaceError.fromNative(errno)); }
+		else { reply.done(); }
+	}
+
+	public void removeDirectory(UserspaceDoneReply reply, long parent, string name) {
+		if (!self.nodes.has(parent)) { reply.fail(UserspaceError.stale()); }
+		else if (unlinkat(self.nodes.get(parent).descriptor, name, (int)AT_REMOVEDIR) != 0) { reply.fail(UserspaceError.fromNative(errno)); }
+		else { reply.done(); }
+	}
+
+	public void rename(UserspaceDoneReply reply, long parent, string name, long newParent, string newName, bool exclusive, bool exchange) {
+		if (!self.nodes.has(parent) || !self.nodes.has(newParent)) { reply.fail(UserspaceError.stale()); }
+		else if (btrcBackingRename(self.nodes.get(parent).descriptor, name, self.nodes.get(newParent).descriptor, newName, exclusive ? 1 : 0, exchange ? 1 : 0) != 0) { reply.fail(UserspaceError.fromNative(errno)); }
+		else { reply.done(); }
+	}
+
+	public void flush(UserspaceDoneReply reply, long node, long handle) { reply.done(); }
+
+	public void synchronize(UserspaceDoneReply reply, long node, long handle, bool dataOnly) {
+		if (btrcBackingSynchronize((int)handle, dataOnly ? 1 : 0) != 0) { reply.fail(UserspaceError.fromNative(errno)); }
+		else { reply.done(); }
+	}
+
+	public void allocate(UserspaceDoneReply reply, long node, long handle, int mode, long offset, long length) {
+		if (btrcBackingAllocate((int)handle, mode, offset, length) != 0) { reply.fail(UserspaceError.fromNative(errno)); }
+		else { reply.done(); }
+	}
+
+	/* ---- IUserspaceLinker ---- */
+
+	public void readLink(UserspaceDataReply reply, long node) {
+		if (!self.nodes.has(node)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		unsigned char target[4097];
+		long length = btrcBackingTarget(self.nodes.get(node).descriptor, target, 4096UL);
+		if (length < 0L) { reply.fail(UserspaceError.fromNative((int)(0L - length))); }
+		else { reply.data(Bytes.fromRaw((char*)target, (int)length)); }
+	}
+
+	public void symbolicLink(UserspaceEntryReply reply, long parent, string name, string target) {
+		if (!self.nodes.has(parent)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		int directory = self.nodes.get(parent).descriptor;
+		if (btrcBackingSymbolicLink(target, directory, name) != 0) {
+			reply.fail(UserspaceError.fromNative(errno));
+			return;
+		}
+		self.answerMade(reply, directory, name);
+	}
+
+	public void link(UserspaceEntryReply reply, long node, long newParent, string newName) {
+		if (!self.nodes.has(node) || !self.nodes.has(newParent)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		int directory = self.nodes.get(newParent).descriptor;
+		if (btrcBackingLink(self.nodes.get(node).descriptor, directory, newName) != 0) {
+			reply.fail(UserspaceError.fromNative(errno));
+			return;
+		}
+		UserspaceEntry? entry = self.enter(directory, newName);
+		if (entry != null) { reply.found(entry); }
+		else { reply.fail(UserspaceError.fromNative(errno)); }
+	}
+
+	/* ---- IUserspaceAttributeStore ---- */
+
+	public void attribute(UserspaceDataReply reply, UserspaceSizeReply sized, long node, string name, int size) {
+		if (!self.attributeStore || !self.nodes.has(node)) {
+			reply.fail(self.attributeStore ? UserspaceError.stale() : UserspaceError.unsupported());
+			return;
+		}
+		int descriptor = self.nodes.get(node).descriptor;
+		if (size == 0) {
+			long needed = btrcBackingAttribute(descriptor, name, NULL, 0UL);
+			if (needed < 0L) { reply.fail(UserspaceError.fromNative((int)(0L - needed))); }
+			else { sized.size(needed); }
+			return;
+		}
+		unsigned char* value = (unsigned char*)malloc((size_t)size);
+		if (value == NULL) {
+			reply.fail(UserspaceError.fromNative(ENOMEM));
+			return;
+		}
+		long length = btrcBackingAttribute(descriptor, name, value, (unsigned long)size);
+		if (length < 0L) { reply.fail(UserspaceError.fromNative((int)(0L - length))); }
+		else { reply.data(Bytes.fromRaw((char*)value, (int)length)); }
+		free(value);
+	}
+
+	public void attributeNames(UserspaceDataReply reply, UserspaceSizeReply sized, long node, int size) {
+		if (!self.attributeStore || !self.nodes.has(node)) {
+			reply.fail(self.attributeStore ? UserspaceError.stale() : UserspaceError.unsupported());
+			return;
+		}
+		int descriptor = self.nodes.get(node).descriptor;
+		if (size == 0) {
+			long needed = btrcBackingAttributeNames(descriptor, NULL, 0UL);
+			if (needed < 0L) { reply.fail(UserspaceError.fromNative((int)(0L - needed))); }
+			else { sized.size(needed); }
+			return;
+		}
+		unsigned char* names = (unsigned char*)malloc((size_t)size);
+		if (names == NULL) {
+			reply.fail(UserspaceError.fromNative(ENOMEM));
+			return;
+		}
+		long length = btrcBackingAttributeNames(descriptor, names, (unsigned long)size);
+		if (length < 0L) { reply.fail(UserspaceError.fromNative((int)(0L - length))); }
+		else { reply.data(Bytes.fromRaw((char*)names, (int)length)); }
+		free(names);
+	}
+
+	public void setAttribute(UserspaceDoneReply reply, long node, string name, Bytes value, int flags) {
+		if (!self.attributeStore || !self.nodes.has(node)) {
+			reply.fail(self.attributeStore ? UserspaceError.stale() : UserspaceError.unsupported());
+			return;
+		}
+		int outcome = btrcBackingAttributeSet(self.nodes.get(node).descriptor, name, (unsigned char*)value.data, (unsigned long)value.length(), flags);
+		if (outcome < 0) { reply.fail(UserspaceError.fromNative(0 - outcome)); }
+		else { reply.done(); }
+	}
+
+	public void removeAttribute(UserspaceDoneReply reply, long node, string name) {
+		if (!self.attributeStore || !self.nodes.has(node)) {
+			reply.fail(self.attributeStore ? UserspaceError.stale() : UserspaceError.unsupported());
+			return;
+		}
+		int outcome = btrcBackingAttributeRemove(self.nodes.get(node).descriptor, name);
+		if (outcome < 0) { reply.fail(UserspaceError.fromNative(0 - outcome)); }
+		else { reply.done(); }
+	}
+
+	/* ---- IUserspaceSeeker ---- */
+
+	public void seek(UserspaceOffsetReply reply, long node, long handle, long offset, bool toHole) {
+		long found = btrcBackingSeek((int)handle, offset, toHole ? 1 : 0);
+		if (found < 0L) { reply.fail(UserspaceError.fromNative((int)(0L - found))); }
+		else { reply.offset(found); }
+	}
+}

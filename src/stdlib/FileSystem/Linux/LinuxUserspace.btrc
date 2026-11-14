@@ -1,0 +1,385 @@
+/* Userspace filesystems on Linux: the kernel's FUSE protocol, spoken directly
+ * on /dev/fuse. `Fuse.h` holds the kernel's structures and one adapter per
+ * field and answer; this file turns each request into a call on the
+ * filesystem and each reply into an answer. Mounting needs CAP_SYS_ADMIN. */
+
+import Library.Bytes;
+import Library.FileSystem.IUserspaceFileSystem;
+import Library.FileSystem.UserspaceRequest;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+#include <errno.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+class LinuxUserspace implements IUserspaceMount, IUserspaceChannel {
+	private IUserspaceFileSystem files;
+	private IUserspaceWriter? writer = null;
+	private IUserspaceLinker? linker = null;
+	private IUserspaceAttributeStore? store = null;
+	private IUserspaceSeeker? seeker = null;
+	private string directory = "";
+	private int device = -1;
+	private unsigned char* buffer = NULL;
+	private bool mounted = false;
+	private bool ready = false;
+	private bool direct = false;
+	private bool wantsDirect = false;
+	private bool longAttributes = false;
+	private Map<long, int> backings = {};
+
+	public LinuxUserspace(IUserspaceFileSystem files) {
+		self.files = files;
+		self.writer = (IUserspaceWriter?)files;
+		self.linker = (IUserspaceLinker?)files;
+		self.store = (IUserspaceAttributeStore?)files;
+		self.seeker = (IUserspaceSeeker?)files;
+	}
+
+	/* Mount at `directory`, or throw why not. */
+	public void mount(string directory, UserspaceOptions options) {
+		self.buffer = (unsigned char*)malloc((size_t)btrcFuseBufferSize());
+		if (self.buffer == NULL) { throw "No memory for the filesystem's request buffer"; }
+		self.device = btrcFuseOpenDevice();
+		if (self.device < 0) { throw f"Cannot open /dev/fuse: {Strings.copy(strerror(errno))}"; }
+		/* A mount whose filesystem died answers every use with "not
+		 * connected" until it is detached; a new one cannot go on top. */
+		if (access(directory, (int)F_OK) != 0 && errno == ENOTCONN) { btrcFuseUnmount(directory); }
+		unsigned int user = options.user < 0 ? (unsigned int)getuid() : (unsigned int)options.user;
+		unsigned int group = options.group < 0 ? (unsigned int)getgid() : (unsigned int)options.group;
+		if (btrcFuseMount(self.device, directory, options.name, 16384u, user, group, options.allowOthers ? 1 : 0, options.kernelPermissions ? 1 : 0) != 0) {
+			int failure = errno;
+			close(self.device);
+			self.device = -1;
+			throw f"Cannot mount a filesystem at {directory}: {Strings.copy(strerror(failure))}";
+		}
+		self.directory = directory;
+		self.mounted = true;
+		self.wantsDirect = options.passthrough;
+	}
+
+	public int handle() { return self.device; }
+
+	public bool isOpen() { return self.mounted; }
+
+	public bool passthrough() { return self.direct; }
+
+	/* Register `descriptor` as the file behind the open `handle`. The id the
+	 * open's answer carries, or 0 when the kernel does not take it. */
+	private int back(long handle, int descriptor) {
+		if (!self.direct || self.device < 0 || descriptor < 0) { return 0; }
+		int id = btrcFuseBackingOpen(self.device, descriptor);
+		if (id <= 0) { return 0; }
+		self.backings.put(handle, id);
+		return id;
+	}
+
+	private void unback(long handle) {
+		if (!self.backings.has(handle)) { return; }
+		if (self.device >= 0) { btrcFuseBackingClose(self.device, self.backings.get(handle)); }
+		self.backings.remove(handle);
+	}
+
+	public void forgetName(long parent, string name) {
+		if (self.device >= 0 && self.ready) { btrcFuseForgetName(self.device, (unsigned long)parent, name); }
+	}
+
+	public void forgetContents(long node, long offset, long length) {
+		if (self.device >= 0 && self.ready) { btrcFuseForgetContents(self.device, (unsigned long)node, offset, length); }
+	}
+
+	public void close() {
+		if (self.mounted) {
+			self.mounted = false;
+			btrcFuseUnmount(self.directory);
+		}
+		if (self.device >= 0) {
+			close(self.device);
+			self.device = -1;
+		}
+		if (self.buffer != NULL) {
+			free(self.buffer);
+			self.buffer = NULL;
+		}
+	}
+
+	public void __del__() { self.close(); }
+
+	/* ---- answers ---- */
+
+	private void pack(UserspaceAttributes from, struct BtrcFuseAttributes* to) {
+		to.number = (unsigned long)from.number;
+		to.size = (unsigned long)from.size;
+		to.blocks = (unsigned long)from.blocks;
+		to.accessed = (unsigned long)from.accessed;
+		to.modified = (unsigned long)from.modified;
+		to.changed = (unsigned long)from.changed;
+		to.accessedNanoseconds = (unsigned int)from.accessedNanoseconds;
+		to.modifiedNanoseconds = (unsigned int)from.modifiedNanoseconds;
+		to.changedNanoseconds = (unsigned int)from.changedNanoseconds;
+		to.mode = (unsigned int)(((int)from.kind << 12) | (from.permissions & 4095));
+		to.links = (unsigned int)from.links;
+		to.user = (unsigned int)from.user;
+		to.group = (unsigned int)from.group;
+		to.device = (unsigned int)from.device;
+		to.blockSize = (unsigned int)from.blockSize;
+	}
+
+	public void fail(long unique, int native) {
+		if (self.device >= 0) { btrcFuseAnswerError(self.device, (unsigned long)unique, native); }
+	}
+
+	public void done(long unique) {
+		if (self.device >= 0) { btrcFuseAnswerError(self.device, (unsigned long)unique, 0); }
+	}
+
+	public void entry(long unique, UserspaceEntry entry) {
+		struct BtrcFuseAttributes native;
+		self.pack(entry.attributes, &native);
+		if (self.device >= 0) { btrcFuseAnswerEntry(self.device, (unsigned long)unique, (unsigned long)entry.node, (unsigned long)entry.generation, (unsigned long)(entry.nameMilliseconds * 1000000L), (unsigned long)(entry.attributesMilliseconds * 1000000L), &native); }
+	}
+
+	public void missing(long unique, long rememberMilliseconds) {
+		if (self.device >= 0) { btrcFuseAnswerEntry(self.device, (unsigned long)unique, 0UL, 0UL, (unsigned long)(rememberMilliseconds * 1000000L), 0UL, NULL); }
+	}
+
+	public void attributes(long unique, UserspaceAttributes attributes, long rememberMilliseconds) {
+		struct BtrcFuseAttributes native;
+		self.pack(attributes, &native);
+		if (self.device >= 0) { btrcFuseAnswerAttributes(self.device, (unsigned long)unique, (unsigned long)(rememberMilliseconds * 1000000L), &native); }
+	}
+
+	public void opened(long unique, long handle, bool keepCache, int direct) {
+		int backing = self.back(handle, direct);
+		if (self.device >= 0) { btrcFuseAnswerOpen(self.device, (unsigned long)unique, (unsigned long)handle, keepCache ? 1 : 0, backing); }
+	}
+
+	public void created(long unique, UserspaceEntry entry, long handle, int direct) {
+		int backing = self.back(handle, direct);
+		struct BtrcFuseAttributes native;
+		self.pack(entry.attributes, &native);
+		if (self.device >= 0) { btrcFuseAnswerCreate(self.device, (unsigned long)unique, (unsigned long)entry.node, (unsigned long)entry.generation, (unsigned long)(entry.nameMilliseconds * 1000000L), (unsigned long)(entry.attributesMilliseconds * 1000000L), &native, (unsigned long)handle, backing); }
+	}
+
+	public void data(long unique, Bytes data) {
+		if (self.device >= 0) { btrcFuseAnswerData(self.device, (unsigned long)unique, (unsigned char*)data.data, (unsigned long)data.length()); }
+	}
+
+	public void listing(long unique, Vector<UserspaceListed> names, int capacity, bool withEntries) {
+		if (self.device < 0) { return; }
+		unsigned char* packed = (unsigned char*)malloc((size_t)(capacity > 0 ? capacity : 1));
+		if (packed == NULL) {
+			btrcFuseAnswerError(self.device, (unsigned long)unique, ENOMEM);
+			return;
+		}
+		unsigned long used = 0UL;
+		for listed in names {
+			unsigned long after = 0UL;
+			if (withEntries) {
+				struct BtrcFuseAttributes native;
+				UserspaceEntry? entry = listed.entry;
+				if (entry != null) {
+					self.pack(entry.attributes, &native);
+					after = btrcFuseListAddEntry(packed, (unsigned long)capacity, used, listed.name, (unsigned long)entry.node, (unsigned long)entry.generation, (unsigned long)(entry.nameMilliseconds * 1000000L), (unsigned long)(entry.attributesMilliseconds * 1000000L), &native, (unsigned long)listed.next);
+				} else {
+					self.pack(UserspaceAttributes(listed.kind, 0), &native);
+					native.number = (unsigned long)listed.node;
+					after = btrcFuseListAddEntry(packed, (unsigned long)capacity, used, listed.name, 0UL, 0UL, 0UL, 0UL, &native, (unsigned long)listed.next);
+				}
+			} else {
+				after = btrcFuseListAdd(packed, (unsigned long)capacity, used, listed.name, (unsigned long)listed.node, (unsigned int)listed.kind, (unsigned long)listed.next);
+			}
+			if (after == 0UL) { break; }
+			used = after;
+		}
+		btrcFuseAnswerData(self.device, (unsigned long)unique, packed, used);
+		free(packed);
+	}
+
+	public void written(long unique, long count) {
+		if (self.device >= 0) { btrcFuseAnswerWritten(self.device, (unsigned long)unique, (unsigned long)count); }
+	}
+
+	public void statistics(long unique, UserspaceStatistics statistics) {
+		if (self.device >= 0) { btrcFuseAnswerStatistics(self.device, (unsigned long)unique, (unsigned long)statistics.blockSize, (unsigned long)statistics.blocks, (unsigned long)statistics.blocksFree, (unsigned long)statistics.blocksAvailable, (unsigned long)statistics.nodes, (unsigned long)statistics.nodesFree, (unsigned long)statistics.longestName); }
+	}
+
+	public void size(long unique, long size) {
+		if (self.device >= 0) { btrcFuseAnswerSize(self.device, (unsigned long)unique, (unsigned long)size); }
+	}
+
+	public void offset(long unique, long offset) {
+		if (self.device >= 0) { btrcFuseAnswerOffset(self.device, (unsigned long)unique, (unsigned long)offset); }
+	}
+
+	/* ---- requests ---- */
+
+	public bool step() {
+		if (self.device < 0 || self.buffer == NULL) { return false; }
+		long length = btrcFuseReceive(self.device, self.buffer, btrcFuseBufferSize());
+		if (length == 0L) { return true; }
+		if (length < 0L) {
+			/* The mount was detached, here or by someone else. */
+			self.mounted = false;
+			return false;
+		}
+		self.dispatch(self.buffer);
+		return true;
+	}
+
+	private string name(unsigned char* request, unsigned long skip) {
+		const char* raw = btrcFuseName(request, skip);
+		return raw == NULL ? "" : Strings.copy((char*)raw);
+	}
+
+	private long field(unsigned char* request, int which) { return (long)btrcFuseField(request, which); }
+
+	private void dispatch(unsigned char* request) {
+		int operation = (int)btrcFuseOpcode(request);
+		long unique = (long)btrcFuseUnique(request);
+		long node = (long)btrcFuseNode(request);
+
+		if (operation == (int)FUSE_INIT) {
+			int agreed = btrcFuseAnswerHandshake(self.device, request, self.wantsDirect ? 1 : 0);
+			if (agreed >= 0) {
+				self.ready = true;
+				self.direct = (agreed & 1) != 0;
+				self.longAttributes = (agreed & 2) != 0;
+			}
+			return;
+		}
+		if (operation == (int)FUSE_FORGET) {
+			self.files.forget(node, self.field(request, 0));
+			return;
+		}
+		if (operation == (int)FUSE_BATCH_FORGET) {
+			unsigned long count = btrcFuseField(request, 0);
+			for (unsigned long index = 0UL; index < count; index++) { self.files.forget((long)btrcFuseForgetNode(request, index), (long)btrcFuseForgetCount(request, index)); }
+			return;
+		}
+		if (operation == (int)FUSE_INTERRUPT) { return; }
+
+		UserspaceAnswer answer = UserspaceAnswer(unique, UserspaceCaller((int)btrcFuseUser(request), (int)btrcFuseGroup(request), (int)btrcFuseProcess(request)), self);
+
+		if (operation == (int)FUSE_LOOKUP) {
+			string name = self.name(request, 0UL);
+			if (name.isEmpty()) { answer.fail(UserspaceError.invalid()); }
+			else { self.files.lookup(UserspaceEntryReply(answer), node, name); }
+		} else if (operation == (int)FUSE_GETATTR) {
+			self.files.attributes(UserspaceAttributesReply(answer), node, (self.field(request, 0) & 1L) != 0L ? self.field(request, 1) : 0L);
+		} else if (operation == (int)FUSE_OPEN) {
+			self.files.open(UserspaceOpenReply(answer), node, (int)self.field(request, 0));
+		} else if (operation == (int)FUSE_READ) {
+			self.files.read(UserspaceDataReply(answer), node, self.field(request, 0), self.field(request, 1), (int)self.field(request, 2));
+		} else if (operation == (int)FUSE_RELEASE) {
+			self.unback(self.field(request, 0));
+			self.files.close(UserspaceDoneReply(answer), node, self.field(request, 0));
+		} else if (operation == (int)FUSE_OPENDIR) {
+			self.files.openDirectory(UserspaceOpenReply(answer), node);
+		} else if (operation == (int)FUSE_READDIR || operation == (int)FUSE_READDIRPLUS) {
+			self.files.list(UserspaceListReply(answer, (int)self.field(request, 2), operation == (int)FUSE_READDIRPLUS), node, self.field(request, 0), self.field(request, 1));
+		} else if (operation == (int)FUSE_RELEASEDIR) {
+			self.files.closeDirectory(UserspaceDoneReply(answer), node, self.field(request, 0));
+		} else if (operation == (int)FUSE_STATFS) {
+			self.files.statistics(UserspaceStatisticsReply(answer), node);
+		} else if (operation == (int)FUSE_DESTROY) {
+			UserspaceDoneReply(answer).done();
+		} else {
+			self.extended(answer, operation, node, request);
+		}
+	}
+
+	/* The operations a filesystem takes on by implementing more interfaces. */
+	private void extended(UserspaceAnswer answer, int operation, long node, unsigned char* request) {
+		IUserspaceWriter? writer = self.writer;
+		IUserspaceLinker? linker = self.linker;
+		IUserspaceAttributeStore? store = self.store;
+		IUserspaceSeeker? seeker = self.seeker;
+
+		if (writer != null && operation == (int)FUSE_CREATE) {
+			string name = self.name(request, btrcFuseSizeCreate());
+			if (name.isEmpty()) { answer.fail(UserspaceError.invalid()); }
+			else { writer.create(UserspaceCreateReply(answer), node, name, (int)self.field(request, 1) & 4095, (int)self.field(request, 0)); }
+		} else if (writer != null && operation == (int)FUSE_WRITE) {
+			int size = (int)self.field(request, 2);
+			if ((unsigned long)size > btrcFusePayloadLength(request, btrcFuseSizeWrite())) { answer.fail(UserspaceError.invalid()); }
+			else { writer.write(UserspaceWriteReply(answer), node, self.field(request, 0), self.field(request, 1), Bytes.fromRaw((char*)btrcFusePayload(request, btrcFuseSizeWrite()), size)); }
+		} else if (writer != null && operation == (int)FUSE_SETATTR) {
+			long valid = self.field(request, 0);
+			UserspaceChanges changes = UserspaceChanges();
+			changes.hasPermissions = (valid & (long)FATTR_MODE) != 0L;
+			changes.permissions = (int)self.field(request, 7) & 4095;
+			changes.hasOwner = (valid & ((long)FATTR_UID | (long)FATTR_GID)) != 0L;
+			changes.user = (valid & (long)FATTR_UID) != 0L ? (int)self.field(request, 8) : -1;
+			changes.group = (valid & (long)FATTR_GID) != 0L ? (int)self.field(request, 9) : -1;
+			changes.hasSize = (valid & (long)FATTR_SIZE) != 0L;
+			changes.size = self.field(request, 2);
+			changes.hasAccessed = (valid & (long)FATTR_ATIME) != 0L;
+			changes.accessedNow = (valid & (long)FATTR_ATIME_NOW) != 0L;
+			changes.accessed = self.field(request, 3);
+			changes.accessedNanoseconds = self.field(request, 4);
+			changes.hasModified = (valid & (long)FATTR_MTIME) != 0L;
+			changes.modifiedNow = (valid & (long)FATTR_MTIME_NOW) != 0L;
+			changes.modified = self.field(request, 5);
+			changes.modifiedNanoseconds = self.field(request, 6);
+			writer.change(UserspaceAttributesReply(answer), node, (valid & (long)FATTR_FH) != 0L ? self.field(request, 1) : 0L, changes);
+		} else if (writer != null && operation == (int)FUSE_MKDIR) {
+			string name = self.name(request, btrcFuseSizeMakeDirectory());
+			if (name.isEmpty()) { answer.fail(UserspaceError.invalid()); }
+			else { writer.makeDirectory(UserspaceEntryReply(answer), node, name, (int)self.field(request, 0) & 4095); }
+		} else if (writer != null && (operation == (int)FUSE_UNLINK || operation == (int)FUSE_RMDIR)) {
+			string name = self.name(request, 0UL);
+			if (name.isEmpty()) { answer.fail(UserspaceError.invalid()); }
+			else if (operation == (int)FUSE_UNLINK) { writer.remove(UserspaceDoneReply(answer), node, name); }
+			else { writer.removeDirectory(UserspaceDoneReply(answer), node, name); }
+		} else if (writer != null && (operation == (int)FUSE_RENAME || operation == (int)FUSE_RENAME2)) {
+			unsigned long skip = operation == (int)FUSE_RENAME ? btrcFuseSizeRename() : btrcFuseSizeRenameFlags();
+			long flags = operation == (int)FUSE_RENAME ? 0L : self.field(request, 1);
+			string name = self.name(request, skip);
+			string newName = self.name(request, btrcFuseNameAfter(request, skip));
+			if (name.isEmpty() || newName.isEmpty() || (flags & ~3L) != 0L) { answer.fail(UserspaceError.invalid()); }
+			else { writer.rename(UserspaceDoneReply(answer), node, name, self.field(request, 0), newName, (flags & 1L) != 0L, (flags & 2L) != 0L); }
+		} else if (writer != null && operation == (int)FUSE_FLUSH) {
+			writer.flush(UserspaceDoneReply(answer), node, self.field(request, 0));
+		} else if (writer != null && (operation == (int)FUSE_FSYNC || operation == (int)FUSE_FSYNCDIR)) {
+			writer.synchronize(UserspaceDoneReply(answer), node, self.field(request, 0), (self.field(request, 1) & 1L) != 0L);
+		} else if (writer != null && operation == (int)FUSE_FALLOCATE) {
+			writer.allocate(UserspaceDoneReply(answer), node, self.field(request, 0), (int)self.field(request, 3), self.field(request, 1), self.field(request, 2));
+		} else if (linker != null && operation == (int)FUSE_READLINK) {
+			linker.readLink(UserspaceDataReply(answer), node);
+		} else if (linker != null && operation == (int)FUSE_SYMLINK) {
+			string name = self.name(request, 0UL);
+			string target = self.name(request, btrcFuseNameAfter(request, 0UL));
+			if (name.isEmpty() || target.isEmpty()) { answer.fail(UserspaceError.invalid()); }
+			else { linker.symbolicLink(UserspaceEntryReply(answer), node, name, target); }
+		} else if (linker != null && operation == (int)FUSE_LINK) {
+			string name = self.name(request, btrcFuseSizeLink());
+			if (name.isEmpty()) { answer.fail(UserspaceError.invalid()); }
+			else { linker.link(UserspaceEntryReply(answer), self.field(request, 0), node, name); }
+		} else if (store != null && operation == (int)FUSE_GETXATTR) {
+			string name = self.name(request, btrcFuseSizeGetAttribute());
+			if (name.isEmpty()) { answer.fail(UserspaceError.invalid()); }
+			else { store.attribute(UserspaceDataReply(answer), UserspaceSizeReply(answer), node, name, (int)self.field(request, 0)); }
+		} else if (store != null && operation == (int)FUSE_LISTXATTR) {
+			store.attributeNames(UserspaceDataReply(answer), UserspaceSizeReply(answer), node, (int)self.field(request, 0));
+		} else if (store != null && operation == (int)FUSE_SETXATTR) {
+			string name = self.name(request, btrcFuseSizeSetAttribute(self.longAttributes ? 1 : 0));
+			unsigned long valueAt = btrcFuseNameAfter(request, btrcFuseSizeSetAttribute(self.longAttributes ? 1 : 0));
+			int size = (int)self.field(request, 0);
+			if (name.isEmpty() || (unsigned long)size > btrcFusePayloadLength(request, valueAt)) { answer.fail(UserspaceError.invalid()); }
+			else { store.setAttribute(UserspaceDoneReply(answer), node, name, Bytes.fromRaw((char*)btrcFusePayload(request, valueAt), size), (int)self.field(request, 1)); }
+		} else if (store != null && operation == (int)FUSE_REMOVEXATTR) {
+			string name = self.name(request, 0UL);
+			if (name.isEmpty()) { answer.fail(UserspaceError.invalid()); }
+			else { store.removeAttribute(UserspaceDoneReply(answer), node, name); }
+		} else if (seeker != null && operation == (int)FUSE_LSEEK) {
+			int target = btrcFuseSeekTarget(btrcFuseField(request, 2));
+			if (target < 0) { answer.fail(UserspaceError.invalid()); }
+			else { seeker.seek(UserspaceOffsetReply(answer), node, self.field(request, 0), self.field(request, 1), target == 1); }
+		} else {
+			answer.fail(UserspaceError.unsupported());
+		}
+	}
+}

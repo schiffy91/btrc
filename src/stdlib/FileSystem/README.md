@@ -12,6 +12,11 @@ facade; the other modules are addressed by their folder path.
 | `Library.FileSystem.FileSystemHandles` | Exact handles and their typed outcomes. |
 | `Library.FileSystem.FileTree` | Bounded, deterministic tree snapshots and cache revisions. |
 | `Library.FileSystem.ApplicationDirectories` | Per-user state, cache and configuration roots. |
+| `Library.FileSystem.Userspace` | `Userspace.mount` and `UserspaceMount`: a filesystem this process serves, on a directory. Linux only. |
+| `Library.FileSystem.IUserspaceFileSystem` | The interfaces a served filesystem implements, `UserspaceOptions` and `IUserspaceMount`. |
+| `Library.FileSystem.UserspaceRequest` | `UserspaceError`, attributes, entries and the reply each operation is answered through. |
+| `Library.FileSystem.UserspaceMemory` | A served filesystem held in memory. |
+| `Library.FileSystem.UserspaceForwarding` | A served filesystem that forwards to a real directory. Linux only. |
 
 ## Paths and simple operations
 
@@ -179,3 +184,87 @@ the FileSystem corpus programs):
 - **Symlinks.** `FileSystem.symlink` creates a directory link when the target
   is a directory; Windows allows it only with the symlink privilege or in
   Developer Mode. `FileSystem.readLink` reads symbolic links and junctions.
+
+## Filesystems served by a program
+
+`Userspace.mount(files, directory, options)` puts a filesystem this process
+implements on a directory. From then on the kernel sends every operation on
+that directory to the filesystem and waits for its answer. When the process
+stops answering, every use of the directory fails; nothing is made up in its
+place. The `FileSystem` facade does not import these modules, so programs
+that never mount anything do not carry them.
+
+A filesystem implements `IUserspaceFileSystem` (names, attributes, listings,
+reading) and whichever abilities it has: `IUserspaceWriter`,
+`IUserspaceLinker`, `IUserspaceAttributeStore`, `IUserspaceSeeker`. The mount
+asks for each once and answers "not supported" for the ones that are absent.
+Nodes are numbers the filesystem chooses; the mounted directory is
+`Userspace.root()`.
+
+```
+class Greeting implements IUserspaceFileSystem {
+	public void lookup(UserspaceEntryReply reply, long parent, string name) {
+		if (parent == Userspace.root() && name == "hello") { reply.found(UserspaceEntry(2L, self.describe(2L))); }
+		else { reply.missing(); }
+	}
+
+	public void read(UserspaceDataReply reply, long node, long handle, long offset, int size) {
+		reply.data(offset == 0L ? Bytes.fromString("hello\n") : Bytes());
+	}
+	...
+}
+
+UserspaceMount mounted = Userspace.mount(Greeting(), "/mnt/greeting", UserspaceOptions());
+mounted.serve();
+```
+
+Every operation arrives with a reply, and a reply is answered exactly once:
+
+- Answering later is how an operation waits without holding up the others.
+  Keep the reply, return, and answer when the result exists.
+- A reply that is dropped unanswered fails its operation with an I/O error, so
+  a caller never waits on a request the filesystem forgot.
+- Errors are `UserspaceError` values (`UserspaceError.notFound()`,
+  `UserspaceError.fromNative(errno)`); the calling program sees the matching
+  system error.
+
+The mount is driven by one loop. `serve()` runs it until the mount is gone;
+`handle()` and `step()` let it share a loop with other work. Requests are
+served on the thread that calls `step`, one at a time.
+
+`UserspaceOpenReply.passthrough(handle, descriptor)` hands an opened file to
+the kernel: reads, writes and mappings then go straight to `descriptor` at
+the speed of the filesystem it is on, and never reach the program. The mount
+registers the descriptor and gives it back when the file is closed. It needs
+`UserspaceOptions.passthrough` and a kernel that agrees
+(`UserspaceMount.passthrough()`); otherwise the open is answered as usual.
+
+`forgetName` and `forgetContents` tell the kernel that something it
+remembers has changed behind its back. A filesystem that changes only through
+its own mount can let names and attributes be remembered for long
+(`UserspaceEntry.remembered`).
+
+Two filesystems ship with the module:
+
+- `UserspaceMemory` keeps files, directories and symbolic links in memory. It
+  is the smallest complete filesystem and the one to read first.
+- `UserspaceForwarding` forwards every operation to a real directory and
+  hands opened files to the kernel. It is the base for a filesystem that
+  changes a few answers: implement the interfaces, hold one, and pass on what
+  is left alone. It holds one descriptor for every node the kernel remembers
+  and raises its own descriptor limit as far as it is allowed.
+  `redirect(stand, directory)` shows a folder from anywhere, another volume
+  included, in place of a folder inside the forwarded directory, with nothing
+  mounted; the stand-in is remembered as the folder it is, so renaming it or
+  a folder above it changes nothing. With an empty `directory` the folder is
+  listed and cannot be entered ("no such device or address"), which reads as
+  unavailable rather than empty or gone. `drop(stand)` lets go of everything
+  held on the shown folder's device so that the device can be removed.
+
+Linux has the provider: the kernel's FUSE protocol, spoken directly on
+`/dev/fuse` (`Linux/LinuxUserspace.btrc`; `Linux/Fuse.h` keeps the kernel's
+structures C-side). Mounting needs `CAP_SYS_ADMIN`. On macOS
+`Userspace.supported()` is false and mounting throws; importing
+`Library.FileSystem.Userspace` for any other target is an error.
+`src/tests/native/userspace` serves all three kinds in a VM
+(`nix build .#checks.x86_64-linux.userspace-filesystem`).

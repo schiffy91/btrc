@@ -625,6 +625,72 @@ ios-simulator = { parity = "equivalent", implementation = "implemented", owner =
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "pure btrc over FileSystemHandles, whose openat/fdopendir path builds on bionic" }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "pure btrc over FileSystemHandles, whose openat/fdopendir path builds on bionic" }
 
+
+[[rows]]
+kind = "operation"
+id = "Library.FileSystem.IUserspaceFileSystem"
+group = "stdlib/FileSystem"
+title = "What a filesystem served by a program implements"
+regression = ["src/tests/python/test_userspace_filesystem_runtime.py::test_mount_program_builds_and_plans_alike", "src/tests/python/test_userspace_filesystem_runtime.py::test_a_mount_without_privilege_is_refused_with_a_reason", "src/tests/python/test_userspace_filesystem_runtime.py::test_windows_has_no_userspace_filesystems"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "the interfaces of Library.FileSystem.Userspace, which has no provider here: Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "the interfaces of Library.FileSystem.Userspace, which has no provider here: Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "the interfaces of Library.FileSystem.Userspace, which has no provider here: an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "the interfaces of Library.FileSystem.Userspace, which has no provider here: an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "the interfaces of Library.FileSystem.Userspace, which has no provider here: Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "the interfaces of Library.FileSystem.Userspace, which has no provider here: Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+
+[[rows]]
+kind = "operation"
+id = "Library.FileSystem.Userspace"
+group = "stdlib/FileSystem"
+title = "Mount a filesystem this process implements"
+regression = ["src/tests/python/test_userspace_filesystem_runtime.py::test_mount_program_builds_and_plans_alike", "src/tests/python/test_userspace_filesystem_runtime.py::test_a_mount_without_privilege_is_refused_with_a_reason", "src/tests/python/test_userspace_filesystem_runtime.py::test_windows_has_no_userspace_filesystems"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+
+[[rows]]
+kind = "operation"
+id = "Library.FileSystem.UserspaceForwarding"
+group = "stdlib/FileSystem"
+title = "A served filesystem that forwards to a real directory"
+regression = ["src/tests/python/test_userspace_filesystem_runtime.py::test_mount_program_builds_and_plans_alike", "src/tests/python/test_userspace_filesystem_runtime.py::test_a_mount_without_privilege_is_refused_with_a_reason", "src/tests/python/test_userspace_filesystem_runtime.py::test_windows_has_no_userspace_filesystems"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+
+[[rows]]
+kind = "operation"
+id = "Library.FileSystem.UserspaceMemory"
+group = "stdlib/FileSystem"
+title = "A served filesystem held in memory"
+regression = ["src/tests/python/test_userspace_filesystem_runtime.py::test_mount_program_builds_and_plans_alike", "src/tests/python/test_userspace_filesystem_runtime.py::test_a_mount_without_privilege_is_refused_with_a_reason", "src/tests/python/test_userspace_filesystem_runtime.py::test_windows_has_no_userspace_filesystems"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "built on Library.FileSystem.Userspace, which has no provider here: Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+
+[[rows]]
+kind = "operation"
+id = "Library.FileSystem.UserspaceRequest"
+group = "stdlib/FileSystem"
+title = "Requests, replies and errors of a served filesystem"
+regression = ["src/tests/python/test_userspace_filesystem_runtime.py::test_mount_program_builds_and_plans_alike", "src/tests/python/test_userspace_filesystem_runtime.py::test_a_mount_without_privilege_is_refused_with_a_reason", "src/tests/python/test_userspace_filesystem_runtime.py::test_windows_has_no_userspace_filesystems"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "the vocabulary of Library.FileSystem.Userspace, which has no provider here: Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "the vocabulary of Library.FileSystem.Userspace, which has no provider here: Windows has no kernel protocol for a filesystem served by a process; ProjFS and Cloud Files project files into a directory under a different model" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "the vocabulary of Library.FileSystem.Userspace, which has no provider here: an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "the vocabulary of Library.FileSystem.Userspace, which has no provider here: an iOS app cannot mount a filesystem; File Provider extensions are the only route and are a different model" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "the vocabulary of Library.FileSystem.Userspace, which has no provider here: Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "the vocabulary of Library.FileSystem.Userspace, which has no provider here: Android's kernel has FUSE, but only the system (the media provider) may mount it; an app cannot" }
+
 [[rows]]
 kind = "operation"
 id = "Library.GPU.GPUCompletionPump"

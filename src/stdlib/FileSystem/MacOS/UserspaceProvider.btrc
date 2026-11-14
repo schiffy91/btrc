@@ -1,0 +1,12 @@
+/* Userspace filesystems on macOS: not available. The system has no protocol
+ * of its own for a filesystem served by a process; macFUSE is a third-party
+ * kernel extension and File Provider is a different model. A program can ask
+ * `Userspace.supported()` first; mounting says why it cannot. */
+
+import Library.FileSystem.IUserspaceFileSystem;
+
+class UserspaceProvider {
+	class bool supported() { return false; }
+
+	class IUserspaceMount mount(IUserspaceFileSystem files, string directory, UserspaceOptions options) { throw "Userspace filesystems need the Linux kernel's FUSE protocol; macOS has no counterpart"; }
+}

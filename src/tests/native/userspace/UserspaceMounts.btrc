@@ -1,0 +1,219 @@
+/* Filesystems served by a program, on the real kernel.
+ *
+ * One program, three filesystems, chosen by the first argument:
+ *   memory DIRECTORY                       Library.FileSystem.UserspaceMemory
+ *   forward SOURCE DIRECTORY [passthrough] Library.FileSystem.UserspaceForwarding
+ *   held DIRECTORY                         answers that wait, and one that never comes
+ * It prints "READY" once mounted and serves until the mount is detached, then
+ * prints what it counted. Mounting needs root, so a VM runs it (the
+ * userspace-filesystem check); the check's script does the file operations. */
+
+import Library.Bytes;
+import Library.FileSystem.IUserspaceFileSystem;
+import Library.FileSystem.Userspace;
+import Library.FileSystem.UserspaceForwarding;
+import Library.FileSystem.UserspaceMemory;
+import Library.FileSystem.UserspaceRequest;
+import Library.Strings;
+import Library.Vector;
+
+#include <stdio.h>
+#include <string.h>
+
+/* Forwarding, with the reads that reach the filesystem counted: with
+ * passthrough agreed there are none. */
+class CountedForwarding implements IUserspaceFileSystem, IUserspaceWriter, IUserspaceLinker, IUserspaceAttributeStore, IUserspaceSeeker {
+	private UserspaceForwarding inner;
+	public int reads = 0;
+	public int writes = 0;
+
+	public CountedForwarding(UserspaceForwarding inner) { self.inner = inner; }
+
+	public void lookup(UserspaceEntryReply reply, long parent, string name) { self.inner.lookup(reply, parent, name); }
+
+	public void forget(long node, long count) { self.inner.forget(node, count); }
+
+	public void attributes(UserspaceAttributesReply reply, long node, long handle) { self.inner.attributes(reply, node, handle); }
+
+	public void open(UserspaceOpenReply reply, long node, int flags) { self.inner.open(reply, node, flags); }
+
+	public void read(UserspaceDataReply reply, long node, long handle, long offset, int size) {
+		self.reads++;
+		self.inner.read(reply, node, handle, offset, size);
+	}
+
+	public void close(UserspaceDoneReply reply, long node, long handle) { self.inner.close(reply, node, handle); }
+
+	public void openDirectory(UserspaceOpenReply reply, long node) { self.inner.openDirectory(reply, node); }
+
+	public void list(UserspaceListReply reply, long node, long handle, long offset) { self.inner.list(reply, node, handle, offset); }
+
+	public void closeDirectory(UserspaceDoneReply reply, long node, long handle) { self.inner.closeDirectory(reply, node, handle); }
+
+	public void statistics(UserspaceStatisticsReply reply, long node) { self.inner.statistics(reply, node); }
+
+	public void create(UserspaceCreateReply reply, long parent, string name, int permissions, int flags) { self.inner.create(reply, parent, name, permissions, flags); }
+
+	public void write(UserspaceWriteReply reply, long node, long handle, long offset, Bytes data) {
+		self.writes++;
+		self.inner.write(reply, node, handle, offset, data);
+	}
+
+	public void change(UserspaceAttributesReply reply, long node, long handle, UserspaceChanges changes) { self.inner.change(reply, node, handle, changes); }
+
+	public void makeDirectory(UserspaceEntryReply reply, long parent, string name, int permissions) { self.inner.makeDirectory(reply, parent, name, permissions); }
+
+	public void remove(UserspaceDoneReply reply, long parent, string name) { self.inner.remove(reply, parent, name); }
+
+	public void removeDirectory(UserspaceDoneReply reply, long parent, string name) { self.inner.removeDirectory(reply, parent, name); }
+
+	public void rename(UserspaceDoneReply reply, long parent, string name, long newParent, string newName, bool exclusive, bool exchange) { self.inner.rename(reply, parent, name, newParent, newName, exclusive, exchange); }
+
+	public void flush(UserspaceDoneReply reply, long node, long handle) { self.inner.flush(reply, node, handle); }
+
+	public void synchronize(UserspaceDoneReply reply, long node, long handle, bool dataOnly) { self.inner.synchronize(reply, node, handle, dataOnly); }
+
+	public void allocate(UserspaceDoneReply reply, long node, long handle, int mode, long offset, long length) { self.inner.allocate(reply, node, handle, mode, offset, length); }
+
+	public void readLink(UserspaceDataReply reply, long node) { self.inner.readLink(reply, node); }
+
+	public void symbolicLink(UserspaceEntryReply reply, long parent, string name, string target) { self.inner.symbolicLink(reply, parent, name, target); }
+
+	public void link(UserspaceEntryReply reply, long node, long newParent, string newName) { self.inner.link(reply, node, newParent, newName); }
+
+	public void attribute(UserspaceDataReply reply, UserspaceSizeReply sized, long node, string name, int size) { self.inner.attribute(reply, sized, node, name, size); }
+
+	public void attributeNames(UserspaceDataReply reply, UserspaceSizeReply sized, long node, int size) { self.inner.attributeNames(reply, sized, node, size); }
+
+	public void setAttribute(UserspaceDoneReply reply, long node, string name, Bytes value, int flags) { self.inner.setAttribute(reply, node, name, value, flags); }
+
+	public void removeAttribute(UserspaceDoneReply reply, long node, string name) { self.inner.removeAttribute(reply, node, name); }
+
+	public void seek(UserspaceOffsetReply reply, long node, long handle, long offset, bool toHole) { self.inner.seek(reply, node, handle, offset, toHole); }
+}
+
+/* Four files. "quick" answers at once. A read of "slow" waits until "go" is
+ * read, which answers every waiting read. A read of "dropped" is never
+ * answered: its reply is let go, which must fail the read. */
+class HeldFiles implements IUserspaceFileSystem {
+	private Vector<UserspaceDataReply> waiting = [];
+	public int released = 0;
+
+	private long node(string name) {
+		if (name == "quick") { return 2L; }
+		if (name == "slow") { return 3L; }
+		if (name == "go") { return 4L; }
+		if (name == "dropped") { return 5L; }
+		return 0L;
+	}
+
+	private UserspaceAttributes describe(long node) {
+		UserspaceAttributes attributes = UserspaceAttributes(node == 1L ? USERSPACE_DIRECTORY : USERSPACE_FILE, node == 1L ? 493 : 292);
+		attributes.number = node;
+		attributes.size = node == 1L ? 0L : 6L;
+		return attributes;
+	}
+
+	public void lookup(UserspaceEntryReply reply, long parent, string name) {
+		long found = parent == 1L ? self.node(name) : 0L;
+		if (found == 0L) { reply.missing(); }
+		else { reply.found(UserspaceEntry(found, self.describe(found))); }
+	}
+
+	public void forget(long node, long count) {}
+
+	public void attributes(UserspaceAttributesReply reply, long node, long handle) { reply.attributes(self.describe(node)); }
+
+	public void open(UserspaceOpenReply reply, long node, int flags) { reply.opened(node); }
+
+	public void read(UserspaceDataReply reply, long node, long handle, long offset, int size) {
+		if (offset > 0L) {
+			reply.data(Bytes());
+		} else if (node == 3L) {
+			self.waiting.push(reply);
+		} else if (node == 4L) {
+			for held in self.waiting {
+				held.data(Bytes.fromString("later\n"));
+				self.released++;
+			}
+			self.waiting.clear();
+			reply.data(Bytes.fromString("going\n"));
+		} else if (node == 2L) {
+			reply.data(Bytes.fromString("quick\n"));
+		}
+	}
+
+	public void close(UserspaceDoneReply reply, long node, long handle) { reply.done(); }
+
+	public void openDirectory(UserspaceOpenReply reply, long node) { reply.opened(0L); }
+
+	public void list(UserspaceListReply reply, long node, long handle, long offset) {
+		Vector<string> names = ["quick", "slow", "go", "dropped"];
+		for (int index = (int)offset; index < names.len; index++) {
+			if (!reply.add(UserspaceListed(names.get(index), (long)index + 2L, USERSPACE_FILE, (long)index + 1L))) { break; }
+		}
+		reply.done();
+	}
+
+	public void closeDirectory(UserspaceDoneReply reply, long node, long handle) { reply.done(); }
+
+	public void statistics(UserspaceStatisticsReply reply, long node) { reply.statistics(UserspaceStatistics()); }
+}
+
+class UserspaceMounts {
+	class UserspaceOptions options(string name, bool passthrough) {
+		UserspaceOptions options = UserspaceOptions();
+		options.name = name;
+		options.allowOthers = true;
+		options.passthrough = passthrough;
+		return options;
+	}
+
+	class void ready() {
+		printf("READY\n");
+		fflush(stdout);
+	}
+
+	class int memory(string directory) {
+		UserspaceMemory files = UserspaceMemory();
+		UserspaceMount mounted = Userspace.mount(files, directory, UserspaceMounts.options("memory", false));
+		UserspaceMounts.ready();
+		mounted.serve();
+		printf("memory: %d nodes left\n", files.nodeCount());
+		return 0;
+	}
+
+	class int forward(string source, string directory, bool passthrough, string stand, string shown) {
+		UserspaceForwarding inner = UserspaceForwarding(source);
+		if (!stand.isEmpty() && !inner.redirect(stand, shown)) { throw f"Cannot show {shown} in place of {stand}"; }
+		CountedForwarding files = CountedForwarding(inner);
+		UserspaceMount mounted = Userspace.mount(files, directory, UserspaceMounts.options("forward", passthrough));
+		UserspaceMounts.ready();
+		mounted.serve();
+		printf("forward: passthrough %d, reads %d, writes %d\n", mounted.passthrough() ? 1 : 0, files.reads, files.writes);
+		return 0;
+	}
+
+	class int held(string directory) {
+		HeldFiles files = HeldFiles();
+		UserspaceMount mounted = Userspace.mount(files, directory, UserspaceMounts.options("held", false));
+		UserspaceMounts.ready();
+		mounted.serve();
+		printf("held: %d released\n", files.released);
+		return 0;
+	}
+}
+
+int main(int argc, char** argv) {
+	try {
+		if (argc == 3 && strcmp(argv[1], "memory") == 0) { return UserspaceMounts.memory(argv[2]); }
+		if (argc == 7 && strcmp(argv[1], "forward") == 0 && strcmp(argv[4], "show") == 0) { return UserspaceMounts.forward(argv[2], argv[3], false, Strings.copy(argv[5]), Strings.copy(argv[6])); }
+		if (argc >= 4 && strcmp(argv[1], "forward") == 0) { return UserspaceMounts.forward(argv[2], argv[3], argc > 4 && strcmp(argv[4], "passthrough") == 0, "", ""); }
+		if (argc == 3 && strcmp(argv[1], "held") == 0) { return UserspaceMounts.held(argv[2]); }
+	} catch (string error) {
+		printf("FAIL: %s\n", error);
+		return 1;
+	}
+	printf("usage: userspace-mounts memory DIR | forward SOURCE DIR [passthrough | show STAND SHOWN] | held DIR\n");
+	return 2;
+}

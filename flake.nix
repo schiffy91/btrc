@@ -785,6 +785,12 @@
           btrcpy = self.packages.${system}.btrcpy;
           source = ./src/tests/native/usb;
         };
+        # Filesystems served by a program, used through the kernel; it boots a VM.
+        userspace-filesystem = import ./src/tests/native/userspace/userspace-filesystem.nix {
+          inherit pkgs;
+          btrcpy = self.packages.${system}.btrcpy;
+          source = ./src/tests/native/userspace;
+        };
         # A Bluetooth HID device and its host on emulated controllers; it boots a VM.
         bluetooth-hid-loopback = import ./src/tests/native/bluetooth/bluetooth-hid-loopback.nix {
           inherit pkgs;

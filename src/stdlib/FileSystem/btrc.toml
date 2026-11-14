@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_filesystem"
-exports = ["ApplicationDirectories", "FileSystem", "FileSystemHandles", "FileTree"]
+exports = ["ApplicationDirectories", "FileSystem", "FileSystemHandles", "FileTree", "IUserspaceFileSystem", "Userspace", "UserspaceForwarding", "UserspaceMemory", "UserspaceRequest"]
 
 # FileSystemHandles' native seam. POSIX rows keep their bodies inline in
 # FileSystemHandles.btrc, so their provider only completes the selection;
@@ -25,3 +25,65 @@ name = "_GNU_SOURCE"
 value = "1"
 modules = ["FileSystem", "FileSystemHandles"]
 os = ["android", "linux"]
+
+# Userspace filesystems: the Linux kernel's FUSE protocol. Fuse.h keeps the
+# kernel's structures C-side and exposes one adapter per field and answer.
+[[package.providers]]
+module = "Userspace"
+implementation = "Linux.UserspaceProvider"
+os = ["linux"]
+
+[[package.providers]]
+module = "Userspace"
+implementation = "MacOS.UserspaceProvider"
+os = ["macos"]
+
+[[native.bindings]]
+module = "Linux.LinuxUserspace"
+header = "Linux/Fuse.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"BtrcFuseAttributes", "btrcFuseBufferSize", "btrcFuseOpenDevice", "btrcFuseMount", "btrcFuseUnmount", "btrcFuseReceive",
+	"btrcFuseOpcode", "btrcFuseUnique", "btrcFuseNode", "btrcFuseUser", "btrcFuseGroup", "btrcFuseProcess",
+	"btrcFuseName", "btrcFuseNameAfter", "btrcFusePayload", "btrcFusePayloadLength", "btrcFuseField",
+	"btrcFuseSizeMakeDirectory", "btrcFuseSizeMakeNode", "btrcFuseSizeCreate", "btrcFuseSizeRename", "btrcFuseSizeRenameFlags",
+	"btrcFuseSizeLink", "btrcFuseSizeWrite", "btrcFuseSizeSetAttribute", "btrcFuseSizeGetAttribute",
+	"btrcFuseForgetNode", "btrcFuseForgetCount", "btrcFuseSeekTarget",
+	"btrcFuseAnswerError", "btrcFuseAnswerData", "btrcFuseAnswerHandshake", "btrcFuseAnswerEntry", "btrcFuseAnswerAttributes",
+	"btrcFuseAnswerOpen", "btrcFuseAnswerCreate", "btrcFuseAnswerWritten", "btrcFuseAnswerStatistics", "btrcFuseAnswerSize", "btrcFuseAnswerOffset",
+	"btrcFuseListAdd", "btrcFuseListAddEntry", "btrcFuseForgetName", "btrcFuseForgetContents", "btrcFuseBackingOpen", "btrcFuseBackingClose",
+	"FUSE_LOOKUP", "FUSE_FORGET", "FUSE_GETATTR", "FUSE_SETATTR", "FUSE_READLINK", "FUSE_SYMLINK", "FUSE_MKDIR", "FUSE_UNLINK", "FUSE_RMDIR",
+	"FUSE_RENAME", "FUSE_LINK", "FUSE_OPEN", "FUSE_READ", "FUSE_WRITE", "FUSE_STATFS", "FUSE_RELEASE", "FUSE_FSYNC", "FUSE_SETXATTR",
+	"FUSE_GETXATTR", "FUSE_LISTXATTR", "FUSE_REMOVEXATTR", "FUSE_FLUSH", "FUSE_INIT", "FUSE_OPENDIR", "FUSE_READDIR", "FUSE_RELEASEDIR",
+	"FUSE_FSYNCDIR", "FUSE_CREATE", "FUSE_INTERRUPT", "FUSE_DESTROY", "FUSE_BATCH_FORGET", "FUSE_FALLOCATE", "FUSE_READDIRPLUS",
+	"FUSE_RENAME2", "FUSE_LSEEK",
+	"FATTR_MODE", "FATTR_UID", "FATTR_GID", "FATTR_SIZE", "FATTR_ATIME", "FATTR_MTIME", "FATTR_FH", "FATTR_ATIME_NOW", "FATTR_MTIME_NOW"
+]
+read-only-borrows = [
+	"btrcFuseMount.directory", "btrcFuseMount.name", "btrcFuseUnmount.directory",
+	"btrcFuseListAdd.name", "btrcFuseListAddEntry.name", "btrcFuseForgetName.name"
+]
+os = ["linux"]
+
+# What forwarding to a real directory needs beyond the portable calls.
+[[native.bindings]]
+module = "UserspaceForwarding"
+header = "Linux/Backing.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"BtrcBackingStatus", "btrcBackingInspect", "btrcBackingDescriptorLimit", "btrcBackingOpen", "btrcBackingRead", "btrcBackingWrite", "btrcBackingResize", "btrcBackingSynchronize", "btrcBackingTarget", "btrcBackingList", "btrcBackingListedNumber", "btrcBackingListedPosition", "btrcBackingListedLength", "btrcBackingListedKind", "btrcBackingListedName", "btrcBackingRename", "btrcBackingOwn", "btrcBackingPermit", "btrcBackingTimes", "btrcBackingSymbolicLink", "btrcBackingLink", "btrcBackingSeek", "btrcBackingAllocate",
+	"btrcBackingAttribute", "btrcBackingAttributeNames", "btrcBackingAttributeSet", "btrcBackingAttributeRemove", "btrcBackingRoom"
+]
+read-only-borrows = [
+	"btrcBackingRename.name", "btrcBackingRename.newName", "btrcBackingSymbolicLink.target", "btrcBackingSymbolicLink.name", "btrcBackingLink.newName", "btrcBackingAttribute.attribute",
+	"btrcBackingAttributeSet.attribute", "btrcBackingAttributeRemove.attribute"
+]
+os = ["linux"]
+
+[[native.defines]]
+name = "_GNU_SOURCE"
+value = "1"
+modules = ["Linux.LinuxUserspace", "UserspaceForwarding", "UserspaceRequest"]
+os = ["linux"]

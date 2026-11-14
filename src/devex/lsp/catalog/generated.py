@@ -581,6 +581,11 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("temporaryRoot", "string", "method", (), "temporaryRoot"),
         BuiltinMemberSpec("knownFolder", "string", "method", (("int", "which"), ("int*", "status"),), "knownFolder"),
     )),
+    ("Userspace", (
+        BuiltinMemberSpec("root", "long", "method", (), "root"),
+        BuiltinMemberSpec("supported", "bool", "method", (), "supported"),
+        BuiltinMemberSpec("mount", "UserspaceMount", "method", (("IUserspaceFileSystem", "files"), ("string", "directory"), ("UserspaceOptions", "options"),), "mount"),
+    )),
     ("FreeType", (
         BuiltinMemberSpec("load", "Font", "method", (("string", "path"), ("int", "pixelSize"),), "load"),
     )),

@@ -1,0 +1,67 @@
+/* Filesystems served by a program.
+ *
+ * `Userspace.mount` puts a filesystem this process implements on a
+ * directory. From then on the kernel sends every operation on that directory
+ * to the filesystem and waits for its answer; when the process stops
+ * answering, every use of the directory fails rather than returning
+ * something wrong.
+ *
+ * A filesystem implements `IUserspaceFileSystem` and whichever of the other
+ * interfaces in Library.FileSystem.IUserspaceFileSystem it supports. Nodes
+ * are numbers it chooses; the mounted directory itself is `Userspace.root()`.
+ *
+ * The mount is driven by a loop: `serve` runs it until the mount is gone, or
+ * wait on `handle` and call `step` to serve it beside other work.
+ *
+ * Linux has the provider (the kernel's FUSE protocol; mounting needs
+ * CAP_SYS_ADMIN). On macOS `supported()` is false and mounting throws.
+ * Importing this module for another target is an error. */
+
+import Library.FileSystem.IUserspaceFileSystem;
+import Library.FileSystem.UserspaceRequest;
+
+/* A mounted filesystem. Dropping it unmounts. */
+class UserspaceMount {
+	private IUserspaceMount _mount;
+
+	public UserspaceMount(IUserspaceMount mount) { self._mount = mount; }
+
+	/* The descriptor that is readable when a request waits. */
+	public int handle() { return self._mount.handle(); }
+
+	/* Take one request and call the filesystem. False once the mount is gone. */
+	public bool step() { return self._mount.step(); }
+
+	/* Serve until the mount is gone. */
+	public void serve() {
+		while (self._mount.step()) { }
+	}
+
+	public bool isOpen() { return self._mount.isOpen(); }
+
+	/* Whether the kernel agreed to use files directly. Known after the first
+	 * request has been served. */
+	public bool passthrough() { return self._mount.passthrough(); }
+
+	/* The kernel forgets what it remembers of `name` in `parent`. */
+	public void forgetName(long parent, string name) { self._mount.forgetName(parent, name); }
+
+	/* The kernel forgets a node's cached contents from `offset` for `length`
+	 * bytes (0 for all of the rest), or with `offset` below 0 only its
+	 * attributes. */
+	public void forgetContents(long node, long offset, long length) { self._mount.forgetContents(node, offset, length); }
+
+	public void close() { self._mount.close(); }
+
+	public void __del__() { self.close(); }
+}
+
+class Userspace {
+	/* The node of the mounted directory itself. */
+	class long root() { return 1L; }
+
+	class bool supported() { return UserspaceProvider.supported(); }
+
+	/* Mount `files` at `directory`, or throw why not. */
+	class UserspaceMount mount(IUserspaceFileSystem files, string directory, UserspaceOptions options) { return UserspaceMount(UserspaceProvider.mount(files, directory, options)); }
+}

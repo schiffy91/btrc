@@ -1,0 +1,156 @@
+/* What a userspace filesystem implements.
+ *
+ * `IUserspaceFileSystem` is the part every filesystem has: names, attributes,
+ * listings and reading. The other interfaces are abilities a filesystem adds
+ * by implementing them; the mount asks for each once and answers "not
+ * supported" for the ones that are absent.
+ *
+ * Every method answers through its reply, exactly once, now or later. Keeping
+ * a reply and answering it after the method returns is how an operation waits
+ * for something without holding up the others. */
+
+import Library.Bytes;
+import Library.FileSystem.UserspaceRequest;
+
+interface IUserspaceFileSystem {
+	/* The node `name` is in the directory `parent`. Each found answer is one
+	 * lookup the kernel later gives back through `forget`. */
+	void lookup(UserspaceEntryReply reply, long parent, string name);
+
+	/* The kernel gives back `count` lookups of `node`. At none left, the node
+	 * may be discarded. There is no answer. */
+	void forget(long node, long count);
+
+	/* `handle` is the open file asked through, or 0. */
+	void attributes(UserspaceAttributesReply reply, long node, long handle);
+
+	void open(UserspaceOpenReply reply, long node, int flags);
+
+	void read(UserspaceDataReply reply, long node, long handle, long offset, int size);
+
+	/* The last use of an open file is gone. */
+	void close(UserspaceDoneReply reply, long node, long handle);
+
+	void openDirectory(UserspaceOpenReply reply, long node);
+
+	/* The names from `offset` on: 0 for the start, otherwise the `next` of the
+	 * last name the kernel took. */
+	void list(UserspaceListReply reply, long node, long handle, long offset);
+
+	void closeDirectory(UserspaceDoneReply reply, long node, long handle);
+
+	void statistics(UserspaceStatisticsReply reply, long node);
+}
+
+/* What may change, by name. */
+class UserspaceChanges {
+	public bool hasPermissions = false;
+	public int permissions = 0;
+	public bool hasOwner = false;
+	public int user = -1;
+	public int group = -1;
+	public bool hasSize = false;
+	public long size = 0L;
+	public bool hasAccessed = false;
+	public bool accessedNow = false;
+	public long accessed = 0L;
+	public long accessedNanoseconds = 0L;
+	public bool hasModified = false;
+	public bool modifiedNow = false;
+	public long modified = 0L;
+	public long modifiedNanoseconds = 0L;
+}
+
+interface IUserspaceWriter {
+	/* Make and open a new file. `permissions` already has the caller's mask applied. */
+	void create(UserspaceCreateReply reply, long parent, string name, int permissions, int flags);
+
+	void write(UserspaceWriteReply reply, long node, long handle, long offset, Bytes data);
+
+	/* Change what `changes` names, then answer with the new attributes. */
+	void change(UserspaceAttributesReply reply, long node, long handle, UserspaceChanges changes);
+
+	void makeDirectory(UserspaceEntryReply reply, long parent, string name, int permissions);
+
+	void remove(UserspaceDoneReply reply, long parent, string name);
+
+	void removeDirectory(UserspaceDoneReply reply, long parent, string name);
+
+	/* `exclusive` refuses to replace; `exchange` swaps the two names. */
+	void rename(UserspaceDoneReply reply, long parent, string name, long newParent, string newName, bool exclusive, bool exchange);
+
+	/* One of the descriptors for an open file was closed. */
+	void flush(UserspaceDoneReply reply, long node, long handle);
+
+	void synchronize(UserspaceDoneReply reply, long node, long handle, bool dataOnly);
+
+	/* Reserve, release or zero a range, as `fallocate` modes say. */
+	void allocate(UserspaceDoneReply reply, long node, long handle, int mode, long offset, long length);
+}
+
+interface IUserspaceLinker {
+	void readLink(UserspaceDataReply reply, long node);
+
+	void symbolicLink(UserspaceEntryReply reply, long parent, string name, string target);
+
+	/* Another name, `newName` in `newParent`, for the existing `node`. */
+	void link(UserspaceEntryReply reply, long node, long newParent, string newName);
+}
+
+interface IUserspaceAttributeStore {
+	/* `size` 0 asks only how large the value is: answer `sized`. */
+	void attribute(UserspaceDataReply reply, UserspaceSizeReply sized, long node, string name, int size);
+
+	/* The names, each ended by a zero byte. `size` 0 asks only for the length. */
+	void attributeNames(UserspaceDataReply reply, UserspaceSizeReply sized, long node, int size);
+
+	void setAttribute(UserspaceDoneReply reply, long node, string name, Bytes value, int flags);
+
+	void removeAttribute(UserspaceDoneReply reply, long node, string name);
+}
+
+interface IUserspaceSeeker {
+	/* The next data (`toHole` false) or hole at or after `offset`. */
+	void seek(UserspaceOffsetReply reply, long node, long handle, long offset, bool toHole);
+}
+
+/* How a filesystem is mounted. */
+class UserspaceOptions {
+	/* Shown as the mount's source and in its type, "fuse.<name>". */
+	public string name = "btrc";
+	/* Let users other than the owner in. */
+	public bool allowOthers = false;
+	/* Have the kernel check permissions from the attributes before asking. */
+	public bool kernelPermissions = true;
+	/* Let the kernel use files answered with `passthrough` directly. */
+	public bool passthrough = false;
+	/* Who owns the mount: without `allowOthers`, the only user let in. -1 is
+	 * the user running the filesystem. */
+	public int user = -1;
+	public int group = -1;
+}
+
+/* A mounted filesystem, as the platform provides it. `UserspaceMount` in
+ * Library.FileSystem.Userspace owns one. */
+interface IUserspaceMount {
+	/* The descriptor that is readable when a request waits. */
+	int handle();
+
+	/* Take one request and call the filesystem. False once the mount is gone. */
+	bool step();
+
+	bool isOpen();
+
+	/* Whether the kernel agreed to use files directly. */
+	bool passthrough();
+
+	/* The kernel forgets what it remembers of `name` in `parent`. */
+	void forgetName(long parent, string name);
+
+	/* The kernel forgets a node's cached contents from `offset` for `length`
+	 * bytes (0 for all of the rest), or with `offset` below 0 only its
+	 * attributes. */
+	void forgetContents(long node, long offset, long length);
+
+	void close();
+}

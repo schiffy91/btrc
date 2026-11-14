@@ -299,7 +299,7 @@
       "reason": "^Mac-bound: requires macOS with xcrun and Xcode 27A266a \\(MAC-P1-05\\); this host has ",
       "category": "platform",
       "covered_by": [],
-      "note": "platform-target-contract.md \u00a71.3 pins Apple clang's TARGET_OS_* set and the iOS SDK's <TargetConditionals.h> to the acceptance Mac's Xcode 27A266a; a hosted image carries another Xcode, whose predefined TARGET_OS_* set may differ. MAC-P1-05 runs both checks on the acceptance Mac; a hosted platform rule cannot name that host in covered_by, so the report shows them uncovered here."
+      "note": "platform-target-contract.md §1.3 pins Apple clang's TARGET_OS_* set and the iOS SDK's <TargetConditionals.h> to the acceptance Mac's Xcode 27A266a; a hosted image carries another Xcode, whose predefined TARGET_OS_* set may differ. MAC-P1-05 runs both checks on the acceptance Mac; a hosted platform rule cannot name that host in covered_by, so the report shows them uncovered here."
     },
     {
       "id": "linux-real-desktop-session",
@@ -518,6 +518,18 @@
         "linux-devcontainer"
       ],
       "note": "L2CAP is the Linux kernel's Bluetooth sockets and BluetoothAdapter is BlueZ over D-Bus; test_windows_builds_bluetooth_values_but_no_channels runs on every host and pins what builds without them. The Linux shard runs the values and refusals and builds the loopback program, and the flake's bluetooth-hid-loopback check runs it in a VM with emulated controllers."
+    },
+    {
+      "id": "userspace-filesystem-linux-only",
+      "files": [
+        "src/tests/python/test_userspace_filesystem_runtime.py"
+      ],
+      "reason": "^requires Linux: Library\\.FileSystem\\.Userspace speaks the Linux kernel's FUSE protocol$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "Userspace filesystems have a Linux provider only; test_windows_has_no_userspace_filesystems runs on every host and pins the refusal. The Linux shard builds the mount program on both frontends and runs the unprivileged refusal, and the flake's userspace-filesystem check serves the filesystems in a VM."
     }
   ]
 }

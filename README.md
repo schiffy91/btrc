@@ -599,6 +599,8 @@ The everyday surfaces are intentionally practical:
   for shell/process orchestration
 - `FileSystem`, `FileTree`, `ApplicationDirectories`, and `FileSystemHandles`
   for filesystem work, including identity-matched recursive removal
+- `Userspace`, `UserspaceMemory`, and `UserspaceForwarding` for filesystems a
+  program serves through a mounted directory (Linux)
 - `JSONValue` and `TOML` for declarative data, including
   compact, pretty, and canonical newline-terminated JSON serialization
 - `CLIArgs`, `CLICommand`, `CLICommandLine`, and `CLIHelp` for simple CLIs

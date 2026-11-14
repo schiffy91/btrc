@@ -1,0 +1,366 @@
+/* A userspace filesystem held in memory.
+ *
+ * Files, directories and symbolic links that exist only while the program
+ * runs. It is the smallest complete filesystem: every operation is answered
+ * from a few maps, with nothing underneath. Use it for scratch space, as a
+ * fixture in tests, or as the model to read before writing another one. */
+
+import Library.Bytes;
+import Library.FileSystem.IUserspaceFileSystem;
+import Library.FileSystem.UserspaceRequest;
+import Library.Map;
+import Library.Vector;
+
+#include <fcntl.h>
+#include <time.h>
+
+class UserspaceMemoryNode {
+	public UserspaceNodeKind kind;
+	public int permissions;
+	public int user;
+	public int group;
+	public int links = 1;
+	public long lookups = 0L;
+	public long modified;
+	public long changed;
+	public Bytes data = Bytes();
+	public string target = "";
+	public Vector<string> names = [];
+	public Map<string, long> children = {};
+
+	public UserspaceMemoryNode(UserspaceNodeKind kind, int permissions, int user, int group) {
+		self.kind = kind;
+		self.permissions = permissions;
+		self.user = user;
+		self.group = group;
+		self.modified = (long)time(NULL);
+		self.changed = self.modified;
+	}
+
+	public void touch() {
+		self.modified = (long)time(NULL);
+		self.changed = self.modified;
+	}
+
+	public void add(string name, long node) {
+		self.children.put(name, node);
+		self.names.push(name);
+		self.touch();
+	}
+
+	public void drop(string name) {
+		self.children.remove(name);
+		self.names.remove(self.names.indexOf(name));
+		self.touch();
+	}
+}
+
+class UserspaceMemory implements IUserspaceFileSystem, IUserspaceWriter, IUserspaceLinker {
+	private Map<long, UserspaceMemoryNode> nodes = {};
+	private long next = 2L;
+
+	/* How long the kernel may remember names and attributes. Everything
+	 * changes through the mount, so the kernel always knows. */
+	public long rememberMilliseconds = 3600000L;
+
+	public UserspaceMemory() { self.nodes.put(1L, UserspaceMemoryNode(USERSPACE_DIRECTORY, 493, 0, 0)); }
+
+	public int nodeCount() { return self.nodes.size(); }
+
+	private UserspaceAttributes describe(long node) {
+		UserspaceMemoryNode held = self.nodes.get(node);
+		UserspaceAttributes attributes = UserspaceAttributes(held.kind, held.permissions);
+		attributes.number = node;
+		attributes.links = held.kind == USERSPACE_DIRECTORY ? 2 : held.links;
+		attributes.user = held.user;
+		attributes.group = held.group;
+		attributes.size = held.kind == USERSPACE_SYMLINK ? (long)held.target.length() : (long)held.data.length();
+		attributes.blocks = (attributes.size + 511L) / 512L;
+		attributes.accessed = held.modified;
+		attributes.modified = held.modified;
+		attributes.changed = held.changed;
+		return attributes;
+	}
+
+	private UserspaceEntry entry(long node) {
+		self.nodes.get(node).lookups++;
+		return UserspaceEntry(node, self.describe(node)).remembered(self.rememberMilliseconds, self.rememberMilliseconds);
+	}
+
+	private UserspaceMemoryNode? directory(long node) {
+		if (!self.nodes.has(node)) { return null; }
+		UserspaceMemoryNode held = self.nodes.get(node);
+		return held.kind == USERSPACE_DIRECTORY ? held : null;
+	}
+
+	/* A node with no name left goes once the kernel has also let go of it. */
+	private void reap(long node) {
+		if (node == 1L || !self.nodes.has(node)) { return; }
+		UserspaceMemoryNode held = self.nodes.get(node);
+		if (held.links <= 0 && held.lookups <= 0L) { self.nodes.remove(node); }
+	}
+
+	private long make(UserspaceMemoryNode parent, string name, UserspaceNodeKind kind, int permissions, UserspaceCaller caller) {
+		long node = self.next;
+		self.next++;
+		self.nodes.put(node, UserspaceMemoryNode(kind, permissions, caller.user, caller.group));
+		parent.add(name, node);
+		return node;
+	}
+
+	/* ---- IUserspaceFileSystem ---- */
+
+	public void lookup(UserspaceEntryReply reply, long parent, string name) {
+		UserspaceMemoryNode? held = self.directory(parent);
+		if (held == null) { reply.fail(UserspaceError.notDirectory()); }
+		else if (!held.children.has(name)) { reply.missing(); }
+		else { reply.found(self.entry(held.children.get(name))); }
+	}
+
+	public void forget(long node, long count) {
+		if (!self.nodes.has(node)) { return; }
+		self.nodes.get(node).lookups -= count;
+		self.reap(node);
+	}
+
+	public void attributes(UserspaceAttributesReply reply, long node, long handle) {
+		if (!self.nodes.has(node)) { reply.fail(UserspaceError.stale()); }
+		else { reply.attributes(self.describe(node), self.rememberMilliseconds); }
+	}
+
+	public void open(UserspaceOpenReply reply, long node, int flags) {
+		if (!self.nodes.has(node)) { reply.fail(UserspaceError.stale()); }
+		else if (self.nodes.get(node).kind == USERSPACE_DIRECTORY) { reply.fail(UserspaceError.isDirectory()); }
+		else {
+			/* The kernel leaves truncating on open to the filesystem. */
+			if ((flags & (int)O_TRUNC) != 0) {
+				self.nodes.get(node).data = Bytes();
+				self.nodes.get(node).touch();
+			}
+			reply.opened(node);
+		}
+	}
+
+	public void read(UserspaceDataReply reply, long node, long handle, long offset, int size) {
+		if (!self.nodes.has(node)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		Bytes data = self.nodes.get(node).data;
+		long length = (long)data.length();
+		long start = offset > length ? length : offset;
+		long end = start + (long)size > length ? length : start + (long)size;
+		reply.data(data.slice((int)start, (int)end));
+	}
+
+	public void close(UserspaceDoneReply reply, long node, long handle) { reply.done(); }
+
+	public void openDirectory(UserspaceOpenReply reply, long node) {
+		if (self.directory(node) == null) { reply.fail(UserspaceError.notDirectory()); }
+		else { reply.opened(node); }
+	}
+
+	public void list(UserspaceListReply reply, long node, long handle, long offset) {
+		UserspaceMemoryNode? held = self.directory(node);
+		if (held == null) {
+			reply.fail(UserspaceError.notDirectory());
+			return;
+		}
+		/* A name's place is its position plus three: one and two are the
+		 * directory itself and its parent. */
+		bool room = true;
+		if (offset < 1L) { room = reply.add(UserspaceListed(".", node, USERSPACE_DIRECTORY, 1L)); }
+		if (room && offset < 2L) { room = reply.add(UserspaceListed("..", node, USERSPACE_DIRECTORY, 2L)); }
+		for (int index = offset > 2L ? (int)(offset - 2L) : 0; room && index < held.names.len; index++) {
+			string name = held.names.get(index);
+			long child = held.children.get(name);
+			UserspaceListed listed = UserspaceListed(name, child, self.nodes.get(child).kind, (long)index + 3L);
+			if (reply.wantsEntries()) { listed.entry = self.entry(child); }
+			room = reply.add(listed);
+			if (!room && reply.wantsEntries()) { self.forget(child, 1L); }
+		}
+		reply.done();
+	}
+
+	public void closeDirectory(UserspaceDoneReply reply, long node, long handle) { reply.done(); }
+
+	public void statistics(UserspaceStatisticsReply reply, long node) {
+		UserspaceStatistics statistics = UserspaceStatistics();
+		statistics.nodes = (long)self.nodes.size();
+		reply.statistics(statistics);
+	}
+
+	/* ---- IUserspaceWriter ---- */
+
+	public void create(UserspaceCreateReply reply, long parent, string name, int permissions, int flags) {
+		UserspaceMemoryNode? held = self.directory(parent);
+		if (held == null) { reply.fail(UserspaceError.notDirectory()); }
+		else if (held.children.has(name)) { reply.fail(UserspaceError.exists()); }
+		else {
+			long node = self.make(held, name, USERSPACE_FILE, permissions, reply.caller());
+			reply.created(self.entry(node), node);
+		}
+	}
+
+	public void write(UserspaceWriteReply reply, long node, long handle, long offset, Bytes data) {
+		if (!self.nodes.has(node)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		UserspaceMemoryNode held = self.nodes.get(node);
+		while ((long)held.data.length() < offset) { held.data.append(0); }
+		for (int index = 0; index < data.length(); index++) {
+			int at = (int)offset + index;
+			if (at < held.data.length()) { held.data.set(at, data.get(index)); }
+			else { held.data.append(data.get(index)); }
+		}
+		held.touch();
+		reply.written((long)data.length());
+	}
+
+	public void change(UserspaceAttributesReply reply, long node, long handle, UserspaceChanges changes) {
+		if (!self.nodes.has(node)) {
+			reply.fail(UserspaceError.stale());
+			return;
+		}
+		UserspaceMemoryNode held = self.nodes.get(node);
+		if (changes.hasPermissions) { held.permissions = changes.permissions; }
+		if (changes.hasOwner) {
+			if (changes.user >= 0) { held.user = changes.user; }
+			if (changes.group >= 0) { held.group = changes.group; }
+		}
+		if (changes.hasSize) {
+			if (changes.size < (long)held.data.length()) { held.data = held.data.slice(0, (int)changes.size); }
+			while ((long)held.data.length() < changes.size) { held.data.append(0); }
+		}
+		held.changed = (long)time(NULL);
+		if (changes.hasModified) { held.modified = changes.modifiedNow ? held.changed : changes.modified; }
+		else if (changes.hasSize) { held.modified = held.changed; }
+		reply.attributes(self.describe(node), self.rememberMilliseconds);
+	}
+
+	public void makeDirectory(UserspaceEntryReply reply, long parent, string name, int permissions) {
+		UserspaceMemoryNode? held = self.directory(parent);
+		if (held == null) { reply.fail(UserspaceError.notDirectory()); }
+		else if (held.children.has(name)) { reply.fail(UserspaceError.exists()); }
+		else { reply.found(self.entry(self.make(held, name, USERSPACE_DIRECTORY, permissions, reply.caller()))); }
+	}
+
+	private void unname(UserspaceMemoryNode parent, string name) {
+		long node = parent.children.get(name);
+		parent.drop(name);
+		self.nodes.get(node).links--;
+		self.reap(node);
+	}
+
+	public void remove(UserspaceDoneReply reply, long parent, string name) {
+		UserspaceMemoryNode? held = self.directory(parent);
+		if (held == null) { reply.fail(UserspaceError.notDirectory()); }
+		else if (!held.children.has(name)) { reply.fail(UserspaceError.notFound()); }
+		else if (self.nodes.get(held.children.get(name)).kind == USERSPACE_DIRECTORY) { reply.fail(UserspaceError.isDirectory()); }
+		else {
+			self.unname(held, name);
+			reply.done();
+		}
+	}
+
+	public void removeDirectory(UserspaceDoneReply reply, long parent, string name) {
+		UserspaceMemoryNode? held = self.directory(parent);
+		if (held == null) { reply.fail(UserspaceError.notDirectory()); }
+		else if (!held.children.has(name)) { reply.fail(UserspaceError.notFound()); }
+		else {
+			UserspaceMemoryNode child = self.nodes.get(held.children.get(name));
+			if (child.kind != USERSPACE_DIRECTORY) { reply.fail(UserspaceError.notDirectory()); }
+			else if (child.names.len > 0) { reply.fail(UserspaceError.notEmpty()); }
+			else {
+				self.unname(held, name);
+				reply.done();
+			}
+		}
+	}
+
+	public void rename(UserspaceDoneReply reply, long parent, string name, long newParent, string newName, bool exclusive, bool exchange) {
+		UserspaceMemoryNode? from = self.directory(parent);
+		UserspaceMemoryNode? to = self.directory(newParent);
+		if (from == null || to == null) {
+			reply.fail(UserspaceError.notDirectory());
+			return;
+		}
+		if (!from.children.has(name)) {
+			reply.fail(UserspaceError.notFound());
+			return;
+		}
+		long moved = from.children.get(name);
+		bool occupied = to.children.has(newName);
+		if (exchange) {
+			if (!occupied) {
+				reply.fail(UserspaceError.notFound());
+				return;
+			}
+			long other = to.children.get(newName);
+			to.children.put(newName, moved);
+			from.children.put(name, other);
+			from.touch();
+			to.touch();
+			reply.done();
+			return;
+		}
+		if (occupied) {
+			long replaced = to.children.get(newName);
+			if (exclusive) {
+				reply.fail(UserspaceError.exists());
+				return;
+			}
+			if (replaced == moved) {
+				reply.done();
+				return;
+			}
+			UserspaceMemoryNode old = self.nodes.get(replaced);
+			if (old.kind == USERSPACE_DIRECTORY && old.names.len > 0) {
+				reply.fail(UserspaceError.notEmpty());
+				return;
+			}
+			self.unname(to, newName);
+		}
+		from.drop(name);
+		to.add(newName, moved);
+		reply.done();
+	}
+
+	public void flush(UserspaceDoneReply reply, long node, long handle) { reply.done(); }
+
+	public void synchronize(UserspaceDoneReply reply, long node, long handle, bool dataOnly) { reply.done(); }
+
+	public void allocate(UserspaceDoneReply reply, long node, long handle, int mode, long offset, long length) { reply.fail(UserspaceError.unsupported()); }
+
+	/* ---- IUserspaceLinker ---- */
+
+	public void readLink(UserspaceDataReply reply, long node) {
+		if (!self.nodes.has(node) || self.nodes.get(node).kind != USERSPACE_SYMLINK) { reply.fail(UserspaceError.invalid()); }
+		else { reply.data(Bytes.fromString(self.nodes.get(node).target)); }
+	}
+
+	public void symbolicLink(UserspaceEntryReply reply, long parent, string name, string target) {
+		UserspaceMemoryNode? held = self.directory(parent);
+		if (held == null) { reply.fail(UserspaceError.notDirectory()); }
+		else if (held.children.has(name)) { reply.fail(UserspaceError.exists()); }
+		else {
+			long node = self.make(held, name, USERSPACE_SYMLINK, 511, reply.caller());
+			self.nodes.get(node).target = target;
+			reply.found(self.entry(node));
+		}
+	}
+
+	public void link(UserspaceEntryReply reply, long node, long newParent, string newName) {
+		UserspaceMemoryNode? held = self.directory(newParent);
+		if (held == null || !self.nodes.has(node)) { reply.fail(UserspaceError.notDirectory()); }
+		else if (self.nodes.get(node).kind == USERSPACE_DIRECTORY) { reply.fail(UserspaceError.notPermitted()); }
+		else if (held.children.has(newName)) { reply.fail(UserspaceError.exists()); }
+		else {
+			held.add(newName, node);
+			self.nodes.get(node).links++;
+			self.nodes.get(node).changed = (long)time(NULL);
+			reply.found(self.entry(node));
+		}
+	}
+}

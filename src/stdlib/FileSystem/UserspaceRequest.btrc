@@ -1,0 +1,467 @@
+/* What a userspace filesystem is asked and how it answers.
+ *
+ * The kernel turns every operation on a mounted directory into a request.
+ * Each one reaches the filesystem as a method call with the operation's
+ * values and a reply object: an obligation to answer exactly once, now or
+ * later. A reply that is dropped unanswered fails the operation with an I/O
+ * error, so a caller never waits forever on a forgotten request.
+ *
+ * Nodes are numbers the filesystem chooses; the mounted directory itself is
+ * `Userspace.root()`. A node stays known to the kernel from the answer that
+ * named it until `forget` gives it back. */
+
+import Library.Bytes;
+import Library.Strings;
+import Library.Vector;
+
+#include <errno.h>
+#include <string.h>
+
+enum UserspaceErrorKind {
+	USERSPACE_NOT_FOUND = 0,
+	USERSPACE_EXISTS = 1,
+	USERSPACE_ACCESS_DENIED = 2,
+	USERSPACE_NOT_PERMITTED = 3,
+	USERSPACE_NOT_DIRECTORY = 4,
+	USERSPACE_IS_DIRECTORY = 5,
+	USERSPACE_NOT_EMPTY = 6,
+	USERSPACE_INVALID = 7,
+	USERSPACE_NO_SPACE = 8,
+	USERSPACE_NAME_TOO_LONG = 9,
+	USERSPACE_OTHER_DEVICE = 10,
+	USERSPACE_NO_ATTRIBUTE = 11,
+	USERSPACE_TOO_SMALL = 12,
+	USERSPACE_BUSY = 13,
+	USERSPACE_UNAVAILABLE = 14,
+	USERSPACE_UNSUPPORTED = 15,
+	USERSPACE_STALE = 16,
+	USERSPACE_IO = 17
+};
+
+/* Why an operation failed. The kind is for code that decides; the native
+ * code is what the calling program sees, kept exact when it came from the
+ * system. */
+class UserspaceError {
+	private UserspaceErrorKind _kind;
+	private int _native;
+
+	public UserspaceError(UserspaceErrorKind kind, int native) {
+		self._kind = kind;
+		self._native = native;
+	}
+
+	public UserspaceErrorKind kind() { return self._kind; }
+
+	public int native() { return self._native; }
+
+	public string message() { return Strings.copy(strerror(self._native)); }
+
+	class UserspaceError notFound() { return UserspaceError(USERSPACE_NOT_FOUND, ENOENT); }
+
+	class UserspaceError exists() { return UserspaceError(USERSPACE_EXISTS, EEXIST); }
+
+	class UserspaceError accessDenied() { return UserspaceError(USERSPACE_ACCESS_DENIED, EACCES); }
+
+	class UserspaceError notPermitted() { return UserspaceError(USERSPACE_NOT_PERMITTED, EPERM); }
+
+	class UserspaceError notDirectory() { return UserspaceError(USERSPACE_NOT_DIRECTORY, ENOTDIR); }
+
+	class UserspaceError isDirectory() { return UserspaceError(USERSPACE_IS_DIRECTORY, EISDIR); }
+
+	class UserspaceError notEmpty() { return UserspaceError(USERSPACE_NOT_EMPTY, ENOTEMPTY); }
+
+	class UserspaceError invalid() { return UserspaceError(USERSPACE_INVALID, EINVAL); }
+
+	class UserspaceError noSpace() { return UserspaceError(USERSPACE_NO_SPACE, ENOSPC); }
+
+	class UserspaceError nameTooLong() { return UserspaceError(USERSPACE_NAME_TOO_LONG, ENAMETOOLONG); }
+
+	class UserspaceError otherDevice() { return UserspaceError(USERSPACE_OTHER_DEVICE, EXDEV); }
+
+	class UserspaceError noAttribute() { return UserspaceError(USERSPACE_NO_ATTRIBUTE, ENODATA); }
+
+	class UserspaceError tooSmall() { return UserspaceError(USERSPACE_TOO_SMALL, ERANGE); }
+
+	class UserspaceError busy() { return UserspaceError(USERSPACE_BUSY, EBUSY); }
+
+	/* The contents exist but cannot be reached now. */
+	class UserspaceError unavailable() { return UserspaceError(USERSPACE_UNAVAILABLE, EHOSTUNREACH); }
+
+	/* The filesystem does not do this; the kernel stops asking. */
+	class UserspaceError unsupported() { return UserspaceError(USERSPACE_UNSUPPORTED, ENOSYS); }
+
+	class UserspaceError stale() { return UserspaceError(USERSPACE_STALE, ESTALE); }
+
+	class UserspaceError io() { return UserspaceError(USERSPACE_IO, EIO); }
+
+	/* The error a system call left in errno. */
+	class UserspaceError fromNative(int native) {
+		UserspaceErrorKind kind = USERSPACE_IO;
+		if (native == ENOENT) { kind = USERSPACE_NOT_FOUND; }
+		else if (native == EEXIST) { kind = USERSPACE_EXISTS; }
+		else if (native == EACCES) { kind = USERSPACE_ACCESS_DENIED; }
+		else if (native == EPERM) { kind = USERSPACE_NOT_PERMITTED; }
+		else if (native == ENOTDIR) { kind = USERSPACE_NOT_DIRECTORY; }
+		else if (native == EISDIR) { kind = USERSPACE_IS_DIRECTORY; }
+		else if (native == ENOTEMPTY) { kind = USERSPACE_NOT_EMPTY; }
+		else if (native == EINVAL) { kind = USERSPACE_INVALID; }
+		else if (native == ENOSPC || native == EDQUOT) { kind = USERSPACE_NO_SPACE; }
+		else if (native == ENAMETOOLONG) { kind = USERSPACE_NAME_TOO_LONG; }
+		else if (native == EXDEV) { kind = USERSPACE_OTHER_DEVICE; }
+		else if (native == ENODATA) { kind = USERSPACE_NO_ATTRIBUTE; }
+		else if (native == ERANGE) { kind = USERSPACE_TOO_SMALL; }
+		else if (native == EBUSY) { kind = USERSPACE_BUSY; }
+		else if (native == ENOSYS || native == ENOTSUP) { kind = USERSPACE_UNSUPPORTED; }
+		else if (native == ESTALE) { kind = USERSPACE_STALE; }
+		else if (native == EHOSTUNREACH || native == ENETDOWN || native == ENETUNREACH || native == ENOTCONN) { kind = USERSPACE_UNAVAILABLE; }
+		return UserspaceError(kind, native <= 0 ? EIO : native);
+	}
+}
+
+/* The values are the ones directory listings carry. */
+enum UserspaceNodeKind {
+	USERSPACE_PIPE = 1,
+	USERSPACE_CHARACTER_DEVICE = 2,
+	USERSPACE_DIRECTORY = 4,
+	USERSPACE_BLOCK_DEVICE = 6,
+	USERSPACE_FILE = 8,
+	USERSPACE_SYMLINK = 10,
+	USERSPACE_SOCKET = 12
+};
+
+/* Who asked: the user, group and process of the calling program. The process
+ * is 0 when it runs where this one cannot see it. */
+class UserspaceCaller {
+	public int user;
+	public int group;
+	public int process;
+
+	public UserspaceCaller(int user, int group, int process) {
+		self.user = user;
+		self.group = group;
+		self.process = process;
+	}
+}
+
+/* What `stat` reports about a node. */
+class UserspaceAttributes {
+	public long number = 0L;
+	public UserspaceNodeKind kind = USERSPACE_FILE;
+	public int permissions = 0;
+	public int links = 1;
+	public int user = 0;
+	public int group = 0;
+	public long size = 0L;
+	public long blocks = 0L;
+	public int blockSize = 4096;
+	public long device = 0L;
+	public long accessed = 0L;
+	public long accessedNanoseconds = 0L;
+	public long modified = 0L;
+	public long modifiedNanoseconds = 0L;
+	public long changed = 0L;
+	public long changedNanoseconds = 0L;
+
+	public UserspaceAttributes(UserspaceNodeKind kind, int permissions) {
+		self.kind = kind;
+		self.permissions = permissions;
+	}
+
+	public bool isDirectory() { return self.kind == USERSPACE_DIRECTORY; }
+}
+
+/* A name's node and attributes, and for how long the kernel may remember
+ * each without asking again. A filesystem that changes only through its own
+ * mount can let both live long and say when they change. */
+class UserspaceEntry {
+	public long node;
+	public UserspaceAttributes attributes;
+	public long generation = 0L;
+	public long nameMilliseconds = 0L;
+	public long attributesMilliseconds = 0L;
+
+	public UserspaceEntry(long node, UserspaceAttributes attributes) {
+		self.node = node;
+		self.attributes = attributes;
+	}
+
+	public UserspaceEntry remembered(long nameMilliseconds, long attributesMilliseconds) {
+		self.nameMilliseconds = nameMilliseconds;
+		self.attributesMilliseconds = attributesMilliseconds;
+		return self;
+	}
+}
+
+/* Room and counts, as `statfs` reports them. */
+class UserspaceStatistics {
+	public long blockSize = 4096L;
+	public long blocks = 0L;
+	public long blocksFree = 0L;
+	public long blocksAvailable = 0L;
+	public long nodes = 0L;
+	public long nodesFree = 0L;
+	public long longestName = 255L;
+}
+
+/* One name in a directory listing. `next` is what the kernel passes back to
+ * continue the listing after this name; it must not be 0. */
+class UserspaceListed {
+	public string name;
+	public long node;
+	public UserspaceNodeKind kind;
+	public long next;
+	public UserspaceEntry? entry = null;
+
+	public UserspaceListed(string name, long node, UserspaceNodeKind kind, long next) {
+		self.name = name;
+		self.node = node;
+		self.kind = kind;
+		self.next = next;
+	}
+}
+
+/* Where answers go. The mount implements it; filesystems use replies. */
+interface IUserspaceChannel {
+	void fail(long unique, int native);
+	void done(long unique);
+	void entry(long unique, UserspaceEntry entry);
+	void missing(long unique, long rememberMilliseconds);
+	void attributes(long unique, UserspaceAttributes attributes, long rememberMilliseconds);
+	void opened(long unique, long handle, bool keepCache, int direct);
+	void created(long unique, UserspaceEntry entry, long handle, int direct);
+	void data(long unique, Bytes data);
+	void listing(long unique, Vector<UserspaceListed> names, int capacity, bool withEntries);
+	void written(long unique, long count);
+	void statistics(long unique, UserspaceStatistics statistics);
+	void size(long unique, long size);
+	void offset(long unique, long offset);
+}
+
+/* One request's obligation to answer. Shared by every reply. */
+class UserspaceAnswer {
+	public long unique;
+	public UserspaceCaller caller;
+	public IUserspaceChannel channel;
+	private bool _answered = false;
+
+	public UserspaceAnswer(long unique, UserspaceCaller caller, IUserspaceChannel channel) {
+		self.unique = unique;
+		self.caller = caller;
+		self.channel = channel;
+	}
+
+	/* True for the first answer only. */
+	public bool claim() {
+		if (self._answered) { return false; }
+		self._answered = true;
+		return true;
+	}
+
+	public bool answered() { return self._answered; }
+
+	public void fail(UserspaceError error) {
+		if (self.claim()) { self.channel.fail(self.unique, error.native()); }
+	}
+
+	public void __del__() {
+		if (self.claim()) { self.channel.fail(self.unique, EIO); }
+	}
+}
+
+/* Answers an operation that returns nothing: remove, rename, close, flush. */
+class UserspaceDoneReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceDoneReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public UserspaceCaller caller() { return self._answer.caller; }
+
+	public void done() {
+		if (self._answer.claim()) { self._answer.channel.done(self._answer.unique); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+/* Answers an operation that names a node: lookup, make directory, link. */
+class UserspaceEntryReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceEntryReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public UserspaceCaller caller() { return self._answer.caller; }
+
+	public void found(UserspaceEntry entry) {
+		if (self._answer.claim()) { self._answer.channel.entry(self._answer.unique, entry); }
+	}
+
+	/* There is no such name. The kernel may remember that for a while. */
+	public void missing(long rememberMilliseconds = 0L) {
+		if (!self._answer.claim()) { return; }
+		if (rememberMilliseconds > 0L) { self._answer.channel.missing(self._answer.unique, rememberMilliseconds); }
+		else { self._answer.channel.fail(self._answer.unique, ENOENT); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+class UserspaceAttributesReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceAttributesReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public UserspaceCaller caller() { return self._answer.caller; }
+
+	public void attributes(UserspaceAttributes attributes, long rememberMilliseconds = 0L) {
+		if (self._answer.claim()) { self._answer.channel.attributes(self._answer.unique, attributes, rememberMilliseconds); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+/* Answers an open. `handle` comes back with every operation on the open
+ * file. */
+class UserspaceOpenReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceOpenReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public UserspaceCaller caller() { return self._answer.caller; }
+
+	public void opened(long handle, bool keepCache = false) {
+		if (self._answer.claim()) { self._answer.channel.opened(self._answer.unique, handle, keepCache, -1); }
+	}
+
+	/* Hand the open file to the kernel: `descriptor` is the real file, and
+	 * reads, writes and mappings then go straight to it without reaching the
+	 * filesystem. `handle` must be unlike that of any other open file. Where
+	 * the kernel does not take files directly the open is answered as usual,
+	 * so the filesystem still has to be able to read and write it. */
+	public void passthrough(long handle, int descriptor) {
+		if (self._answer.claim()) { self._answer.channel.opened(self._answer.unique, handle, false, descriptor); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+/* Answers a create: the new name and its open file together. A `direct`
+ * descriptor hands the file to the kernel, as `UserspaceOpenReply.passthrough`
+ * does. */
+class UserspaceCreateReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceCreateReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public UserspaceCaller caller() { return self._answer.caller; }
+
+	public void created(UserspaceEntry entry, long handle, int direct = -1) {
+		if (self._answer.claim()) { self._answer.channel.created(self._answer.unique, entry, handle, direct); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+/* Answers with bytes: a read, a link's target, an attribute's value. */
+class UserspaceDataReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceDataReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public UserspaceCaller caller() { return self._answer.caller; }
+
+	public void data(Bytes data) {
+		if (self._answer.claim()) { self._answer.channel.data(self._answer.unique, data); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+/* Answers a directory listing. Add names in order until `add` says the
+ * answer is full, then `done`. */
+class UserspaceListReply {
+	private UserspaceAnswer _answer;
+	private Vector<UserspaceListed> _names = [];
+	private int _capacity;
+	private int _used = 0;
+	private bool _withEntries;
+
+	public UserspaceListReply(UserspaceAnswer answer, int capacity, bool withEntries) {
+		self._answer = answer;
+		self._capacity = capacity;
+		self._withEntries = withEntries;
+	}
+
+	public UserspaceCaller caller() { return self._answer.caller; }
+
+	/* Whether each name should carry its entry, saving the kernel a lookup
+	 * per name. A name listed with an entry counts as one lookup of it. */
+	public bool wantsEntries() { return self._withEntries; }
+
+	/* False when the name did not fit; list it first in the next answer. */
+	public bool add(UserspaceListed listed) {
+		int needed = ((self._withEntries ? 152 : 24) + listed.name.length() + 7) & ~7;
+		if (self._used + needed > self._capacity) { return false; }
+		self._used += needed;
+		self._names.push(listed);
+		return true;
+	}
+
+	public void done() {
+		if (self._answer.claim()) { self._answer.channel.listing(self._answer.unique, self._names, self._capacity, self._withEntries); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+class UserspaceWriteReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceWriteReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public UserspaceCaller caller() { return self._answer.caller; }
+
+	public void written(long count) {
+		if (self._answer.claim()) { self._answer.channel.written(self._answer.unique, count); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+class UserspaceStatisticsReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceStatisticsReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public void statistics(UserspaceStatistics statistics) {
+		if (self._answer.claim()) { self._answer.channel.statistics(self._answer.unique, statistics); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+/* Answers with a size: how large an attribute's value or a list of names is,
+ * for a caller that asked without room. */
+class UserspaceSizeReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceSizeReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public void size(long size) {
+		if (self._answer.claim()) { self._answer.channel.size(self._answer.unique, size); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
+
+/* Answers a seek for the next data or hole. */
+class UserspaceOffsetReply {
+	private UserspaceAnswer _answer;
+
+	public UserspaceOffsetReply(UserspaceAnswer answer) { self._answer = answer; }
+
+	public void offset(long offset) {
+		if (self._answer.claim()) { self._answer.channel.offset(self._answer.unique, offset); }
+	}
+
+	public void fail(UserspaceError error) { self._answer.fail(error); }
+}
