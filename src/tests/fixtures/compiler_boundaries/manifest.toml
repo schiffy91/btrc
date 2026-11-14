@@ -631,8 +631,8 @@ channel = "artifact"
 baseline_path = "baseline/surface.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/surface.python.raw-ir.artifact.bin"
-accepted_sha256 = "ecdead3279615bae25c0e7ece69d71c463ffd3603d80d317cc559408e915ac74"
-reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged. Boundary capture replaces only the checkout prefix in function provenance with $REPOSITORY so the same modules compare across hosts."
+accepted_sha256 = "cc3a4db14977b1e873908d196ace6362f56e9bbe786c5d29d5bda44105aad076"
+reason = "IR function definitions carry requires_cycle_boundary (whether the function's cleanup must run a cycle boundary), added when public collection release boundaries were aligned between the compilers; the reference IR dumps gain that field and nothing else changes."
 regressions = ["src/tests/python/test_emitted_units.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
@@ -659,8 +659,8 @@ channel = "artifact"
 baseline_path = "baseline/surface.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/surface.python.optimized-ir.artifact.bin"
-accepted_sha256 = "c6fb36632c42e43fdae698c150c8c3caed362436a63ca1d12c01311dc96d86d8"
-reason = "IR function definitions carry the .btrc module they were lowered from (source_file) so --emit-units packs translation units along module boundaries; the reference IR dumps gain that field and generated C is unchanged. Boundary capture replaces only the checkout prefix in function provenance with $REPOSITORY so the same modules compare across hosts."
+accepted_sha256 = "e8cee3d7ba5de37583b54c535218ec2059e1aaf44732f2104afbe6b66ac20972"
+reason = "IR function definitions carry requires_cycle_boundary (whether the function's cleanup must run a cycle boundary), added when public collection release boundaries were aligned between the compilers; the reference IR dumps gain that field and nothing else changes."
 regressions = ["src/tests/python/test_emitted_units.py", "src/tests/python/test_boundary_manifest.py"]
 
 [[records]]
@@ -800,8 +800,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.raw-ir.artifact.bin"
-accepted_sha256 = "35ad1bb65ba2bb6ad490d9824460e9f1ca38a5fd59c4e7ee2c69f24d465fd022"
-reason = "Stage 4 analyzer-parity lane (PLAN.md D14): the Python lowerer deduplicates includes when it produces them, as btrcc always did, so this fixture's source #include <assert.h> no longer repeats the prelude's include. The include list loses one duplicate line; behavior is unchanged. Stage 4 C-output parity (PLAN.md D14): both catalogs share one dependency-first order -- the btrc order is the Python order restricted to its members, and the generator rejects a helper ordered before a dependency -- and both compilers materialize a selection's dependency closure in that order, whichever members were roots, so the two compilers emit shared runtime helpers in the same sequence. Helper sources are unchanged; only their order in generated C moves. Issue #17 adds the IRVarDecl register storage flag, false throughout this fixture. All other IR fields and generated C are unchanged."
+accepted_sha256 = "813c4ca8b41cd631384673e8d25961b7a6ffd7290effd38350fb01add25c7539"
+reason = "IR function definitions carry requires_cycle_boundary (whether the function's cleanup must run a cycle boundary), added when public collection release boundaries were aligned between the compilers; the reference IR dumps gain that field and nothing else changes."
 regressions = [
   "src/tests/btrc/test_c_storage_classes.py","src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/btrc/test_analyzer_parity_battery.py", "src/tests/btrc/test_c_output_parity.py"]
 
@@ -829,8 +829,8 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.optimized-ir.artifact.bin"
-accepted_sha256 = "50907225f5f5dde5dcdb35a842a65d7709a4cf061c528f75e55dafddb38dc11b"
-reason = "Stage 4 analyzer-parity lane (PLAN.md D14): the Python lowerer deduplicates includes when it produces them, as btrcc always did, so this fixture's source #include <assert.h> no longer repeats the prelude's include. The include list loses one duplicate line; behavior is unchanged. Issue #17 adds the IRVarDecl register storage flag, false throughout this fixture. All other IR fields and generated C are unchanged."
+accepted_sha256 = "f674063549c1b279f2c60ed8f1ff4d7a0db28a61663bfc05bfa7990e2cefa470"
+reason = "IR function definitions carry requires_cycle_boundary (whether the function's cleanup must run a cycle boundary), added when public collection release boundaries were aligned between the compilers; the reference IR dumps gain that field and nothing else changes."
 regressions = [
   "src/tests/btrc/test_c_storage_classes.py","src/tests/python/test_runtime_helper_registry.py", "src/tests/python/test_string_helpers_runtime.py", "src/tests/python/test_boundary_manifest.py", "src/tests/btrc/test_analyzer_parity_battery.py"]
 
