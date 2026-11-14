@@ -255,6 +255,29 @@ class LinuxTray implements ITray {
 		dbus_connection_flush(self._connection);
 	}
 
+	/* A host reads the item's properties once and again only when told they changed. */
+	private void announce(string member) {
+		if (self._connection == null) { return; }
+		DBusMessage* signal = dbus_message_new_signal(LinuxTray.itemPath(), LinuxTray.itemInterface(), member);
+		if (signal == null) { return; }
+		dbus_connection_send(self._connection, signal, null);
+		dbus_message_unref(signal);
+		dbus_connection_flush(self._connection);
+	}
+
+	public void setIcon(string path) {
+		string resolved = LinuxTray.resolveIcon(path);
+		if (resolved.equals(self._iconName)) { return; }
+		self._iconName = resolved;
+		self.announce("NewIcon");
+		self.announce("NewToolTip");  /* the tooltip carries the icon too */
+	}
+
+	public void setTip(string text) {
+		self._model.tooltip = text;
+		self.announce("NewToolTip");
+	}
+
 	public void quit() { self._quitRequested = true; }
 
 	private void fail(string error) {
@@ -307,7 +330,9 @@ class LinuxTray implements ITray {
 		} else if (iface.equals("org.freedesktop.DBus.Properties")) {
 			reply = self.propertiesReply(message, path, member);
 		} else if (path.equals(LinuxTray.itemPath()) && iface.equals(LinuxTray.itemInterface())) {
-			reply = dbus_message_new_method_return(message);  /* Activate/ContextMenu/Scroll: the host shows the menu itself */
+			/* ContextMenu and Scroll: the host shows the menu itself. Activate is the click on the icon. */
+			if (member.equals("Activate") && !self._model.clickCommand.isEmpty()) { self._pendingCommands.push(self._model.clickCommand); }
+			reply = dbus_message_new_method_return(message);
 		} else if (path.equals(LinuxTray.menuPath()) && iface.equals(LinuxTray.menuInterface())) {
 			reply = self.menuReply(message, member);
 		}
@@ -341,7 +366,7 @@ class LinuxTray implements ITray {
 	private DBusMessage* introspectReply(DBusMessage* message, string path) {
 		string body = "";
 		if (path.equals(LinuxTray.itemPath())) {
-			body = "<interface name=\"org.kde.StatusNotifierItem\">" + "<property name=\"Category\" type=\"s\" access=\"read\"/><property name=\"Id\" type=\"s\" access=\"read\"/>" + "<property name=\"Title\" type=\"s\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"IconName\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"s\" access=\"read\"/>" + "<property name=\"ToolTip\" type=\"(sa(iiay)ss)\" access=\"read\"/><property name=\"ItemIsMenu\" type=\"b\" access=\"read\"/>" + "<property name=\"Menu\" type=\"o\" access=\"read\"/>" + "<method name=\"Activate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"SecondaryActivate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"ContextMenu\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"Scroll\"><arg name=\"delta\" type=\"i\" direction=\"in\"/><arg name=\"orientation\" type=\"s\" direction=\"in\"/></method>" + "</interface>";
+			body = "<interface name=\"org.kde.StatusNotifierItem\">" + "<property name=\"Category\" type=\"s\" access=\"read\"/><property name=\"Id\" type=\"s\" access=\"read\"/>" + "<property name=\"Title\" type=\"s\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"IconName\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"s\" access=\"read\"/>" + "<property name=\"ToolTip\" type=\"(sa(iiay)ss)\" access=\"read\"/><property name=\"ItemIsMenu\" type=\"b\" access=\"read\"/>" + "<property name=\"Menu\" type=\"o\" access=\"read\"/>" + "<method name=\"Activate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"SecondaryActivate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"ContextMenu\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"Scroll\"><arg name=\"delta\" type=\"i\" direction=\"in\"/><arg name=\"orientation\" type=\"s\" direction=\"in\"/></method>" + "<signal name=\"NewIcon\"/><signal name=\"NewToolTip\"/>" + "</interface>";
 		} else if (path.equals(LinuxTray.menuPath())) {
 			body = "<interface name=\"com.canonical.dbusmenu\">" + "<property name=\"Version\" type=\"u\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"TextDirection\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"as\" access=\"read\"/>" + "<method name=\"GetLayout\"><arg name=\"parentId\" type=\"i\" direction=\"in\"/><arg name=\"recursionDepth\" type=\"i\" direction=\"in\"/>" + "<arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"revision\" type=\"u\" direction=\"out\"/><arg name=\"layout\" type=\"(ia{sv}av)\" direction=\"out\"/></method>" + "<method name=\"GetGroupProperties\"><arg name=\"ids\" type=\"ai\" direction=\"in\"/><arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"properties\" type=\"a(ia{sv})\" direction=\"out\"/></method>" + "<method name=\"GetProperty\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"name\" type=\"s\" direction=\"in\"/><arg name=\"value\" type=\"v\" direction=\"out\"/></method>" + "<method name=\"Event\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"eventId\" type=\"s\" direction=\"in\"/><arg name=\"data\" type=\"v\" direction=\"in\"/><arg name=\"timestamp\" type=\"u\" direction=\"in\"/></method>" + "<method name=\"EventGroup\"><arg name=\"events\" type=\"a(isvu)\" direction=\"in\"/><arg name=\"idErrors\" type=\"ai\" direction=\"out\"/></method>" + "<method name=\"AboutToShow\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"needUpdate\" type=\"b\" direction=\"out\"/></method>" + "<signal name=\"LayoutUpdated\"><arg name=\"revision\" type=\"u\"/><arg name=\"parent\" type=\"i\"/></signal>" + "<signal name=\"ItemsPropertiesUpdated\"><arg name=\"updatedProps\" type=\"a(ia{sv})\"/><arg name=\"removedProps\" type=\"a(ias)\"/></signal>" + "</interface>";
 		}
@@ -376,7 +401,7 @@ class LinuxTray implements ITray {
 				DBusWriter.openDictEntry(&dictionary, &entry, "ToolTip");
 				DBusWriter.variantToolTip(&entry, self._iconName, self._model.title, self._model.tooltip);
 				dbus_message_iter_close_container(&dictionary, &entry);
-				DBusWriter.dictBool(&dictionary, "ItemIsMenu", true);
+				DBusWriter.dictBool(&dictionary, "ItemIsMenu", self._model.clickCommand.isEmpty());
 				DBusWriter.dictObjectPath(&dictionary, "Menu", LinuxTray.menuPath());
 			} else {
 				DBusWriter.dictUInt32(&dictionary, "Version", 3u);
@@ -406,7 +431,7 @@ class LinuxTray implements ITray {
 			else if (name.equals("IconName")) { DBusWriter.variantString(&arguments, self._iconName); }
 			else if (name.equals("IconThemePath")) { DBusWriter.variantString(&arguments, ""); }
 			else if (name.equals("ToolTip")) { DBusWriter.variantToolTip(&arguments, self._iconName, self._model.title, self._model.tooltip); }
-			else if (name.equals("ItemIsMenu")) { DBusWriter.variantBool(&arguments, true); }
+			else if (name.equals("ItemIsMenu")) { DBusWriter.variantBool(&arguments, self._model.clickCommand.isEmpty()); }
 			else if (name.equals("Menu")) { DBusWriter.variantObjectPath(&arguments, LinuxTray.menuPath()); }
 			else { known = false; }
 		} else {

@@ -147,6 +147,39 @@ class MacOSTray implements ITray {
 
 	public void refreshCheckItems() { self.requireMainThread(); if (self._status != null) { self._commands.refresh(); } }
 
+	/* A file that cannot be read leaves the item as it is. */
+	public void setIcon(string path) {
+		self.requireMainThread();
+		var status = self._status;
+		if (status != null) {
+			var button = status.button();
+			if (button != null) {
+				var representation = NSImageRep.imageRepWithContentsOfFile(AppKitText.nativeValue(path));
+				if (representation != null) {
+					var image = NSImage.new();
+					if (image == null) { throw "Cannot create native tray image"; }
+					image.addRepresentation(representation);
+					image.setTemplate(true);
+					CGSize size;
+					size.width = 18.0;
+					size.height = 18.0;
+					image.setSize(size);
+					button.setImage(image);
+					button.setTitle(AppKitText.nativeValue(""));
+				}
+			}
+		}
+	}
+
+	public void setTip(string text) {
+		self.requireMainThread();
+		var status = self._status;
+		if (status != null) {
+			var button = status.button();
+			if (button != null) { button.setToolTip(AppKitText.nativeValue(text)); }
+		}
+	}
+
 	public void quit() { self.requireMainThread(); self._commands.quit(); }
 
 	public bool pump(int timeoutMs) {

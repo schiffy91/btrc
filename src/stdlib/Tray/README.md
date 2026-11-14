@@ -20,6 +20,25 @@ native failure is thrown from `pump()` and `run()` on both platforms rather
 than ending the loop normally. `close()` removes the item and is idempotent. Shell commands and check-item probes execute synchronously, so
 callers must keep them bounded.
 
+## A tray that reports a state
+
+```btrc
+var tray = SystemTray("Sync").icon(idle).onClick("sync-status").item("Quit", TraySignal.quit());
+tray.show();
+while (tray.pump(1000)) {
+	tray.setIcon(busy() ? working : idle);
+	tray.setTip(summary());
+}
+```
+
+`setIcon(path)` and `setTip(text)` change a tray that is already shown; saying
+the same value again does nothing, so a loop may call them on every turn.
+`onClick(command)` names what a click on the icon itself runs. On Linux the
+host then opens the menu on the secondary click only (`ItemIsMenu` is false and
+`Activate` queues the command like a menu activation); without a click command
+every click opens the menu, as before. macOS opens a status item's menu on every
+click, so the click command is not used there: give it a menu item as well.
+
 ## macOS provider
 
 `MacOS/MacOSTray.btrc` imports AppKit SDK declarations. Generated adapters
@@ -65,4 +84,5 @@ again; a failed re-registration, like losing the session bus, is terminal and
 thrown from `pump()`/`run()`. `IconName` is the icon path resolved to an
 existing absolute file, else the theme icon `application-x-executable` (the
 macOS tray likewise falls back to its title). `show()` throws when there is no
-session bus or no watcher.
+session bus or no watcher. `setIcon` and `setTip` emit `NewIcon` and
+`NewToolTip`, which is when a host reads those properties again.

@@ -31,12 +31,14 @@ class Tray {
 	public string title;
 	public string tooltip;
 	public string iconPath;
+	public string clickCommand;
 	public Vector<TrayItem> items;
 
 	public Tray(string title) {
 		self.title = title;
 		self.tooltip = title;
 		self.iconPath = "";
+		self.clickCommand = "";
 		self.items = [];
 	}
 
@@ -47,6 +49,14 @@ class Tray {
 
 	public Tray tip(string text) {
 		self.tooltip = text;
+		return self;
+	}
+
+	/* What a click on the icon itself runs. With one, a host that tells the two clicks apart
+	 * (Linux) opens the menu on the secondary click only. macOS opens a status item's menu on
+	 * every click, so the command is not used there: give it a menu item as well. */
+	public Tray onClick(string command) {
+		self.clickCommand = command;
 		return self;
 	}
 

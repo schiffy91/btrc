@@ -19,6 +19,8 @@ class SystemTray {
 
 	public SystemTray tip(string text) { self.model.tip(text); return self; }
 
+	public SystemTray onClick(string command) { self.model.onClick(command); return self; }
+
 	public SystemTray item(string label, string command) { self.model.item(label, command); return self; }
 
 	public SystemTray checkItem(string label, string command, string stateCommand) { self.model.checkItem(label, command, stateCommand); return self; }
@@ -37,6 +39,19 @@ class SystemTray {
 	public bool pump(int timeoutMs) { return self._provider != null && self._provider.pump(timeoutMs); }
 
 	public void refreshCheckItems() { if (self._provider != null) { self._provider.refreshCheckItems(); } }
+
+	/* Change the icon or the tooltip of a tray that may already be shown. Saying the same again costs nothing. */
+	public void setIcon(string path) {
+		if (path.equals(self.model.iconPath)) { return; }
+		self.model.icon(path);
+		if (self._provider != null) { self._provider.setIcon(path); }
+	}
+
+	public void setTip(string text) {
+		if (text.equals(self.model.tooltip)) { return; }
+		self.model.tip(text);
+		if (self._provider != null) { self._provider.setTip(text); }
+	}
 
 	public void run() { self.show(); if (self._provider != null) { self._provider.run(); } }
 

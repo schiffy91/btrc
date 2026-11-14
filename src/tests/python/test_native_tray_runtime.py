@@ -219,3 +219,145 @@ int main() {
     finally:
         process.terminate()
         process.communicate(timeout=10)
+
+
+def test_linux_tray_click_and_live_state(tmp_path):
+    """A click on the icon runs its command; a new icon and tooltip are announced and served."""
+    if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("requires Linux and the explicitly built native header reader")
+    if error := linux_tray_backend_error():
+        pytest.skip(error)
+    from gi.repository import Gio, GLib
+
+    clicked = tmp_path / "clicked"
+    switch = tmp_path / "switch"
+    icon = tmp_path / "second.png"
+    icon.write_bytes(b"not read by the provider")
+    source = tmp_path / "LiveTray.btrc"
+    source.write_text(f"""import Library.FileSystem;
+import Library.Tray;
+int main() {{
+    var plain = SystemTray("Plain").item("Open", "true");
+    plain.show();
+    var tray = SystemTray("Live").tip("first").onClick("touch {clicked}").item("Quit", TraySignal.quit());
+    tray.show();
+    for (int i = 0; i < 3000; i++) {{
+        if (!tray.pump(10) || !plain.pump(0)) {{ break; }}
+        if (FileSystem.isFile("{switch}")) {{ tray.setIcon("{icon}"); tray.setTip("second"); }}
+    }}
+    tray.close();
+    plain.close();
+    return 0;
+}}
+""")
+    generated = tmp_path / "LiveTray.c"
+    plan = tmp_path / "LiveTray.json"
+    compiled = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src.compiler.python.main",
+            "--no-cache",
+            str(source),
+            "-o",
+            str(generated),
+            "--emit-link-plan",
+            str(plan),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "BTRC_HOME": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    executable = tmp_path / "LiveTray"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+    process = subprocess.Popen([str(executable)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+        def names():
+            listed = bus.call_sync(
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                "ListNames",
+                None,
+                None,
+                Gio.DBusCallFlags.NONE,
+                2000,
+                None,
+            ).unpack()[0]
+            return sorted(name for name in listed if name.startswith(f"org.kde.StatusNotifierItem-{process.pid}-"))
+
+        def item(service, name):
+            return bus.call_sync(
+                service,
+                "/StatusNotifierItem",
+                "org.freedesktop.DBus.Properties",
+                "Get",
+                GLib.Variant("(ss)", ("org.kde.StatusNotifierItem", name)),
+                None,
+                Gio.DBusCallFlags.NONE,
+                5000,
+                None,
+            ).unpack()[0]
+
+        def eventually(condition):
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                GLib.MainContext.default().iteration(False)
+                if condition():
+                    return True
+                assert process.poll() is None, process.communicate()
+                time.sleep(0.01)
+            return False
+
+        assert eventually(lambda: len(names()) == 2)
+        services = {item(service, "Title"): service for service in names()}
+        plain, live = services["Plain"], services["Live"]
+        assert item(plain, "ItemIsMenu") is True  # no click command: the host opens the menu
+        assert item(live, "ItemIsMenu") is False
+        assert item(live, "ToolTip")[2:] == ("Live", "first")
+        first_icon = item(live, "IconName")
+
+        announced = []
+        bus.signal_subscribe(
+            live,
+            "org.kde.StatusNotifierItem",
+            None,
+            "/StatusNotifierItem",
+            None,
+            Gio.DBusSignalFlags.NONE,
+            lambda _bus, _sender, _path, _interface, member, _arguments: announced.append(member),
+        )
+        switch.touch()
+        assert eventually(lambda: "NewIcon" in announced and "NewToolTip" in announced), announced
+        assert item(live, "IconName") == str(icon) != first_icon
+        assert item(live, "ToolTip") == (str(icon), [], "Live", "second")
+        count = len(announced)
+        time.sleep(0.2)
+        GLib.MainContext.default().iteration(False)
+        assert len(announced) == count  # saying the same again announces nothing
+
+        def click(service):
+            bus.call_sync(
+                service,
+                "/StatusNotifierItem",
+                "org.kde.StatusNotifierItem",
+                "Activate",
+                GLib.Variant("(ii)", (0, 0)),
+                None,
+                Gio.DBusCallFlags.NONE,
+                5000,
+                None,
+            )
+
+        click(plain)
+        assert not clicked.exists()
+        click(live)
+        assert eventually(clicked.exists)
+    finally:
+        process.terminate()
+        process.communicate(timeout=10)
