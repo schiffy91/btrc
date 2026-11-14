@@ -190,18 +190,25 @@ int main() {
             ).unpack()[1]
 
         root = layout(0, -1)
-        assert [child[1]["label"] for child in root[2]] == ["Open", "Settings  "]
+        assert [child[1]["label"] for child in root[2]] == ["Open", "Settings\u2003\u2003"]
         settings = root[2][1]
         assert settings[1]["children-display"] == "submenu"
         mode, reset = settings[2]
-        assert mode[1]["label"] == "Mode  "
+        assert mode[1]["label"] == "Mode\u2003\u2003"
         assert reset[1]["label"] == "Reset"
         assert [child[1]["toggle-type"] for child in mode[2]] == ["radio", "radio"]
         assert [child[1]["toggle-state"] for child in mode[2]] == [1, 0]
         assert layout(mode[0], -1) == mode
         about_to_show = bus.call_sync(
-            service, "/MenuBar", "com.canonical.dbusmenu", "AboutToShow",
-            GLib.Variant("(i)", (mode[0],)), None, Gio.DBusCallFlags.NONE, 5000, None,
+            service,
+            "/MenuBar",
+            "com.canonical.dbusmenu",
+            "AboutToShow",
+            GLib.Variant("(i)", (mode[0],)),
+            None,
+            Gio.DBusCallFlags.NONE,
+            5000,
+            None,
         ).unpack()
         assert about_to_show == (False,)  # answered from cached states; they refresh after the reply
         assert [child[1]["toggle-state"] for child in layout(mode[0], -1)[2]] == [1, 0]
