@@ -44,6 +44,16 @@ class USBKernelHost {
 		return true;
 	}
 
+	/* The kernel frees the port a moment after the bus lets the device go. */
+	class bool waitReleased(USBIPAttachment attachment, int milliseconds) {
+		long long deadline = MonotonicClock.deadlineAfter((long long)milliseconds);
+		while (attachment.attached()) {
+			if (!MonotonicClock.before(deadline)) { return false; }
+			Timer.sleepMillis(50);
+		}
+		return true;
+	}
+
 	class void transfers(USBHostDevice device) {
 		Bytes descriptor = Bytes();
 		assert(device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 0, 18), descriptor, 2000) == 18);
@@ -104,7 +114,7 @@ class USBKernelHost {
 		assert(!device.isOpen() && device.controlIn(USBSetup(0x80, USB_REQUEST_GET_DESCRIPTOR, 0x0100, 0, 18), Bytes(), 100) == -1);
 
 		assert(USBIPAttachment.detachDevice(imported.deviceId + 1LL) == 0 && attachment.attached());
-		assert(USBIPAttachment.detachDevice(imported.deviceId) == 1 && USBKernelHost.waitPresent(false, 20000) && !attachment.attached());
+		assert(USBIPAttachment.detachDevice(imported.deviceId) == 1 && USBKernelHost.waitPresent(false, 20000) && USBKernelHost.waitReleased(attachment, 20000));
 		assert(!attachment.detach() || !attachment.attached());
 		host.connection().close();
 		int status = 0;
