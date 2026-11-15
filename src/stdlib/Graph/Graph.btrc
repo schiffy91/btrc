@@ -3,6 +3,11 @@
  * This module keeps the graph mechanics generic: JSONValue graph parsing, CLI
  * target/arg parsing, status listing, and dependency traversal. Callers keep
  * domain-specific readiness checks and node execution in their own runners.
+ *
+ * A node can be switched off without being removed: its `disabled` field holds
+ * the reason, which is the only thing that marks it. A disabled node keeps its
+ * place in the graph and in `required`; the runner is expected to skip it and
+ * say why. A node that still runs may not depend on one that does not.
  */
 
 import Library.IO;
@@ -19,13 +24,17 @@ class GraphNode {
 	public string specPath;
 	public Vector<string> after;
 	public Map<string, string> args;
+	public string disabled;  // why this node is not run; empty for a node that is
 
 	public GraphNode() {
 		self.id = "";
 		self.specPath = "";
 		self.after = [];
 		self.args = {};
+		self.disabled = "";
 	}
+
+	public bool enabled() { return self.disabled.isEmpty(); }
 }
 
 class ExecutionGraph {
@@ -84,6 +93,15 @@ class ExecutionGraph {
 		return result;
 	}
 
+	/* The targets among `targets` that are still run, in the same order. */
+	public Vector<string> enabledTargets(Vector<string> targets) {
+		Vector<string> result = [];
+		for id in targets {
+			if (!self.hasNode(id) || self.node(id).enabled()) { result.push(id); }
+		}
+		return result;
+	}
+
 	public string validationError() { return GraphValidation.error(self); }
 
 	public bool valid() { return self.validationError().isEmpty(); }
@@ -113,7 +131,8 @@ class GraphReport {
 	class void list(ExecutionGraph graph) {
 		for node in graph.nodes {
 			var parents = node.after.isEmpty() ? "root" : node.after.join(",");
-			Console.log(f"{node.id} <- {parents} :: {graph.resolvedSpecPath(node)}");
+			var state = node.enabled() ? "" : f" [disabled: {node.disabled}]";
+			Console.log(f"{node.id} <- {parents} :: {graph.resolvedSpecPath(node)}{state}");
 		}
 	}
 }
@@ -241,6 +260,9 @@ class GraphValidation {
 				if (!seen.contains(parent)) {
 					return f"Graph node {node.id} depends on missing node: {parent}";
 				}
+				if (node.enabled() && !graph.node(parent).enabled()) {
+					return f"Graph node {node.id} depends on disabled node: {parent}";
+				}
 			}
 		}
 		for target in graph.defaults {
@@ -299,6 +321,10 @@ class GraphParser {
 		node.specPath = GraphParser.stringField(object, "spec", "");
 		node.after = GraphParser.stringArray(object, "after");
 		node.args = GraphParser.args(object);
+		node.disabled = GraphParser.stringField(object, "disabled", "").trim();
+		if (!object.get("disabled").isNull() && node.disabled.isEmpty()) {
+			throw f"Graph node {node.id} is disabled without a reason";
+		}
 		/* Missing id/spec is a DATA error in the source JSON, not an internal
          * invariant — throw a catchable message instead of aborting. (readFile
          * also surfaces these via the recoverable validationError() path.) */

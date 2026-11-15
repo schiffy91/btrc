@@ -135,6 +135,33 @@ int main() {
 	var missingParent = graphWith([graphNodeAfter("a", "a.json", ["missing"])]);
 	assert(missingParent.validationError().contains("depends on missing node: missing"));
 
+	// A node is switched off by giving the reason. It stays in the graph and in
+	// `required`, and nothing that still runs may depend on it.
+	string offPath = PathTools.join(dir, "off.json");
+	Path.writeAll(offPath, "{" + "\"required\":[\"seed\",\"old\",\"older\"]," + "\"nodes\":[" + "{\"id\":\"seed\",\"spec\":\"seed.json\"}," + "{\"id\":\"old\",\"spec\":\"old.json\",\"after\":[\"seed\"],\"disabled\":\" the host no longer does this \"}," + "{\"id\":\"older\",\"spec\":\"older.json\",\"after\":[\"old\"],\"disabled\":\"it follows a disabled node\"}" + "]" + "}");
+	ExecutionGraph off = GraphParser.readFile(offPath);
+	assert(off.node("seed").enabled());
+	assert(!off.node("old").enabled());
+	assert(off.node("old").disabled.equals("the host no longer does this"));
+	assert(off.required.len == 3);
+	Vector<string> stillRun = off.enabledTargets(off.required);
+	assert(stillRun.len == 1 && stillRun.get(0).equals("seed"));
+
+	var dependsOnDisabled = graphWith([graphNode("a", "a.json"), graphNodeAfter("b", "b.json", ["a"])]);
+	dependsOnDisabled.nodes.get(0).disabled = "switched off";
+	assert(dependsOnDisabled.validationError().contains("Graph node b depends on disabled node: a"));
+	dependsOnDisabled.nodes.get(1).disabled = "switched off with it";
+	assert(dependsOnDisabled.valid());
+
+	Path.writeAll(offPath, "{\"nodes\":[{\"id\":\"a\",\"spec\":\"a.json\",\"disabled\":\"  \"}]}");
+	bool refused = false;
+	try {
+		GraphParser.readFile(offPath);
+	} catch (string error) {
+		refused = error.contains("Graph node a is disabled without a reason");
+	}
+	assert(refused);
+
 	var missingDefault = graphWith([graphNode("a", "a.json")]);
 	missingDefault.defaults.push("missing");
 	assert(missingDefault.validationError().contains("Graph default target is missing: missing"));
