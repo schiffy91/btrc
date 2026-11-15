@@ -291,6 +291,30 @@
       "note": "The harness exits 77 when wgpu-native finds no compute adapter. Hosted macos-15 exposes a paravirtual Metal adapter, so these cases ran there in macOS runs 37110991739 and 37099829848; the rule keeps a runner image without one from failing the gate, and the acceptance Mac's GPU covers them. The WebGPU toolchain itself is required: its skips stay unexpected."
     },
     {
+      "id": "e40-presented-frames",
+      "files": [
+        "src/tests/python/test_native_ui2_macos_e40.py"
+      ],
+      "nodes": [
+        "*::test_macos_ui2_e40[[]*-load[]]",
+        "*::test_macos_ui2_e40[[]*-popup[]]",
+        "*::test_macos_ui2_e40[[]*-slider[]]",
+        "*::test_macos_ui2_e40[[]*-resize[]]",
+        "*::test_macos_ui2_e40[[]*-sheet[]]"
+      ],
+      "reason": "^this hosted runner's GPU presents no frames \\(direct Metal control: [1-9][0-9]* acquired, [1-9][0-9]* completed, 0 presented\\)$",
+      "category": "hardware",
+      "gating": {
+        "capabilities": [
+          "physical-display"
+        ]
+      },
+      "covered_by": [
+        "macos"
+      ],
+      "note": "The E40 load and tracking trials assert frames presented to a display (MTLDrawable presentedTime). Hosted macos-15's GPU is the Apple Paravirtual device: in macOS run 43709196598 the direct Metal control acquired 20 drawables, completed 20 commands and presented 0 in all four cells, and no trial presented a frame: eight per cell ended at 'E40 deadline phase=drain' with presented=0, and the two resize trials ended sooner, their posted edge drag never dequeued (issue #128). The owner decided on 2026-11-15 that the acceptance Mac verifies them. The trial runs that control first and skips only on a hosted runner with these exact counts; the control's report stays in the cell's evidence. The two burst trials per cell need no presented frame and still run: a skip of theirs, or any other reason, stays unexpected. macos.json has no such rule, so on the acceptance Mac zero presented frames fails."
+    },
+    {
       "id": "c4-c-oracle-host",
       "files": [
         "src/tests/btrc/test_preprocessor_conditionals.py"

@@ -441,6 +441,20 @@ and the clang variants of the sanitizer cases.
 No skip needed a fix or an owner: none was outside `platform` and
 `hardware`.
 
+**A third hardware rule (2026-11-15, issue #128).** `e40-presented-frames`
+expects the E40 load and tracking trials (`load`, `popup`, `slider`,
+`resize`, `sheet`: ten of each cell's twelve) to skip on a hosted runner
+whose GPU presents no frames. Their evidence requires presented frames, and
+macos-15's Apple Paravirtual device completes Metal commands without ever
+presenting one: in macOS run 43709196598 the direct Metal control acquired
+20 drawables, completed 20 commands and presented 0 in all four `macos-e40`
+cells. The trial runs that control first and skips only on a hosted runner
+with those counts, which the skip reason quotes and the cell's evidence
+retains; `tools/ui/e40.py` then requires exactly those ten skips. The device
+is `physical-display`, covered by the acceptance Mac, whose manifest has no
+such rule: there a GPU that presents nothing fails. The two burst trials per
+cell need no presented frame and still gate on the hosted runner.
+
 **Coverage claims.** Linux and Windows `covered_by` claims that named `macos`
 now name `macos-hosted`, the runner whose reports every push uploads; the
 acceptance Mac runs a superset. With the reports above relabelled

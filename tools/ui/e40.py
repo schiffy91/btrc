@@ -1,7 +1,10 @@
 """Run a serial E40 qualification cell and retain its exact evidence inventory.
 
 Provider case owners select exact nodes and validate native evidence. macOS
-execution requires explicit hosted admission and a new output directory.
+execution requires explicit hosted admission and a new output directory. A
+hosted runner whose GPU presents no frames skips the trials that need them,
+with the direct Metal control's counts as the reason; its acceptance host
+runs them.
 """
 
 from __future__ import annotations
@@ -18,6 +21,8 @@ import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
+
+from tools.qualification.skips import HOSTED_RUNNERS
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -80,20 +85,76 @@ class LinuxE40Cases:
             raise RuntimeError("E40 burst evidence must cover every count/final pair exactly once")
 
 
+class MetalPresentation:
+    """What the direct Metal control saw this host's GPU do with the drawables it acquired."""
+
+    CONTROL = "metal"
+    COUNTS = ("acquired", "command_completed", "command_errors", "presented")
+
+    def __init__(self, acquired: int, completed: int, errors: int, presented: int):
+        self.acquired = acquired
+        self.completed = completed
+        self.errors = errors
+        self.presented = presented
+
+    @classmethod
+    def read(cls, artifact_root: Path) -> MetalPresentation | None:
+        """The control's retained counts, or None when it left no usable report."""
+        try:
+            report = json.loads((artifact_root / f"{cls.CONTROL}-control" / "observations.json").read_text())
+            counts = [report[name] for name in cls.COUNTS]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        if not all(type(count) is int and count >= 0 for count in counts):
+            return None
+        return cls(*counts)
+
+    @property
+    def presents_nothing(self) -> bool:
+        """Every acquired drawable's command completed without error and none was presented."""
+        return self.acquired > 0 and self.completed == self.acquired and self.errors == 0 and self.presented == 0
+
+    def withheld(self, runner: str | None) -> str | None:
+        """Why presentation trials skip here; None runs them, as on every acceptance host."""
+        if runner not in HOSTED_RUNNERS or not self.presents_nothing:
+            return None
+        return (
+            "this hosted runner's GPU presents no frames (direct Metal control: "
+            f"{self.acquired} acquired, {self.completed} completed, {self.presented} presented)"
+        )
+
+
 class MacOSE40Cases:
     """Hosted AppKit desktop/attached-host trials for one compiler variant."""
 
     suite = "src/tests/python/test_native_ui2_macos_e40.py"
     entries = ("desktop", "host")
-    trials = ("bursts", "load", "popup", "slider", "resize", "sheet")
+    presented_trials = ("load", "popup", "slider", "resize", "sheet")  # their evidence requires presented frames
+    trials = ("bursts", *presented_trials)
+    controls = ("metal", "metal-vsync", "resize")
 
     @classmethod
-    def nodes(cls, frontend: str, variant: str) -> list[str]:
+    def nodes(cls, frontend: str, variant: str, trials: tuple[str, ...] | None = None) -> list[str]:
         return [
             f"{cls.suite}::test_macos_ui2_e40[{variant}-{frontend}-{entry}-{trial}]"
             for entry in cls.entries
-            for trial in cls.trials
+            for trial in (cls.trials if trials is None else trials)
         ]
+
+    @classmethod
+    def presentation_withheld(cls, output: Path, metadata: dict[str, object]) -> str | None:
+        """The skip reason this cell's retained Metal control gives its presentation trials."""
+        control = MetalPresentation.read(output / "native")
+        runner = metadata.get("runner")
+        return control.withheld(runner if isinstance(runner, str) else None) if control else None
+
+    @classmethod
+    def expected_skips(cls, output: Path, metadata: dict[str, object]) -> dict[str, str]:
+        reason = cls.presentation_withheld(output, metadata)
+        if reason is None:
+            return {}
+        nodes = cls.nodes(str(metadata["frontend"]), str(metadata["variant"]), cls.presented_trials)
+        return dict.fromkeys(nodes, reason)
 
     @classmethod
     def all_nodes(cls) -> list[str]:
@@ -114,11 +175,14 @@ class MacOSE40Cases:
         from src.tests.python.native_ui2_e40_evidence import E40Evidence
 
         root = output / "native" / str(metadata["frontend"]) / str(metadata["variant"])
-        expected = {root / entry / trial / "observations.json" for entry in cls.entries for trial in cls.trials}
-        if set((output / "native").rglob("observations.json")) != expected:
-            raise RuntimeError("macOS E40 requires exactly 12 distinct native trial reports")
+        withheld = cls.presentation_withheld(output, metadata) is not None
+        trials = [trial for trial in cls.trials if not (withheld and trial in cls.presented_trials)]
+        expected = {root / entry / trial / "observations.json" for entry in cls.entries for trial in trials}
+        retained = {output / "native" / f"{control}-control" / "observations.json" for control in cls.controls}
+        if set((output / "native").rglob("observations.json")) - retained != expected:
+            raise RuntimeError(f"macOS E40 requires exactly {len(expected)} distinct native trial reports")
         for entry in cls.entries:
-            for trial in cls.trials:
+            for trial in trials:
                 directory = root / entry / trial
                 for name in ("provenance.json", "stdout.txt", "stderr.txt"):
                     if not (directory / name).is_file():
@@ -173,6 +237,7 @@ class E40Run:
         environment: dict[str, str] | None = None,
         native_compiler: str = "cc",
         catalog_nodes: list[str] | None = None,
+        expected_skips: Callable[[Path, dict[str, object]], dict[str, str]] | None = None,
     ):
         self.nodes = nodes
         self.output = output
@@ -182,6 +247,7 @@ class E40Run:
         self.environment = dict(os.environ) | (environment or {})
         self.native_compiler = native_compiler
         self.catalog_nodes = catalog_nodes
+        self.expected_skips = expected_skips
         self.record: dict[str, object] = {
             "schema": "btrc.e40-run/1",
             **metadata,
@@ -237,17 +303,26 @@ class E40Run:
             raise RuntimeError(f"E40 collection differs: expected {expected!r}; got {actual!r}")
 
     @staticmethod
-    def validate_junit(path: Path, expected: list[str]) -> None:
-        wanted = {
-            (source.removesuffix(".py").replace("/", "."), name)
-            for source, name in (node.split("::") for node in expected)
-        }
+    def validate_junit(path: Path, expected: list[str], skips: dict[str, str] | None = None) -> None:
+        wanted = {}
+        for node in expected:
+            source, name = node.split("::")
+            wanted[(source.removesuffix(".py").replace("/", "."), name)] = node
         cases = list(ET.parse(path).getroot().iter("testcase"))
         actual = {(case.get("classname"), case.get("name")) for case in cases}
-        if len(cases) != len(expected) or actual != wanted:
+        if len(cases) != len(expected) or actual != set(wanted):
             raise RuntimeError("E40 JUnit must account for every selected node exactly once")
-        if any(case.find(status) is not None for case in cases for status in ("skipped", "failure", "error")):
-            raise RuntimeError("E40 qualification requires every selected case to pass without skips")
+        skips = skips or {}
+        for case in cases:
+            node = wanted[(case.get("classname"), case.get("name"))]
+            skipped = case.find("skipped")
+            if case.find("failure") is not None or case.find("error") is not None:
+                raise RuntimeError("E40 qualification requires every selected case to pass without skips")
+            if node in skips:
+                if skipped is None or skipped.get("message") != skips[node]:
+                    raise RuntimeError(f"E40 requires {node} to skip with its declared reason: {skips[node]}")
+            elif skipped is not None:
+                raise RuntimeError("E40 qualification requires every selected case to pass without skips")
 
     def run(self) -> None:
         self.output.mkdir(parents=True, exist_ok=not self.fresh_output)
@@ -335,7 +410,9 @@ class E40Run:
                     *self.nodes,
                 ],
             )
-            self.validate_junit(junit, self.nodes)
+            skips = self.expected_skips(self.output, self.record) if self.expected_skips else {}
+            self.record["expected_skips"] = skips
+            self.validate_junit(junit, self.nodes, skips)
             self.validate_evidence(self.output, self.record)
             self.record["status"] = "passed"
         except Exception as error:
@@ -401,6 +478,7 @@ def main() -> int:
         environment={"BTRC_UI2_E40_ARTIFACTS": str(output / "native")} if args.provider == "macos" else None,
         native_compiler="/usr/bin/clang" if args.provider == "macos" else "cc",
         catalog_nodes=MacOSE40Cases.all_nodes() if args.provider == "macos" else None,
+        expected_skips=MacOSE40Cases.expected_skips if args.provider == "macos" else None,
     )
     try:
         run.run()

@@ -1,4 +1,8 @@
-"""E40 AppKit evidence: build locally; run visible native trials only on hosted CI."""
+"""E40 AppKit evidence: build locally; run visible native trials only on hosted CI.
+
+A hosted runner whose GPU presents no frames skips the trials that need them;
+the acceptance Mac runs every trial.
+"""
 
 import hashlib
 import json
@@ -20,6 +24,8 @@ from src.tests.python.native_import_fixtures import native_compile as native_com
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.native_ui2_e40_evidence import E40Evidence
 from tools.native_plan import NativePlanBuilder
+from tools.qualification.skips import RunnerIdentity
+from tools.ui.e40 import MacOSE40Cases, MetalPresentation
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "src/tests/native/gui/ui2/probes/macos/e40"
@@ -116,6 +122,22 @@ def build_native_controls(tmp_path_factory):
         return metal, synchronized, resize
 
     return build
+
+
+@pytest.fixture(scope="session")
+def presentation_withheld(build_native_controls):
+    """Decide once from the direct Metal control whether this host's presentation trials skip."""
+    decided = []
+
+    def withheld(artifact_root, environment):
+        if not decided:
+            metal = build_native_controls()[0]
+            metal.record(artifact_root, environment)
+            observed = MetalPresentation.read(artifact_root)
+            decided.append(observed.withheld(RunnerIdentity.detect()) if observed else None)
+        return decided[0]
+
+    return withheld
 
 
 @pytest.fixture(scope="session")
@@ -456,13 +478,20 @@ def test_macos_ui2_e40_load_compile(e40_program, trial, build_native_controls, c
 )
 @pytest.mark.parametrize("trial", ["bursts", "load", "popup", "slider", "resize", "sheet"])
 @pytest.mark.parametrize("entry", ["desktop", "host"])
-def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_native_controls):
+def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_native_controls, presentation_withheld):
     executable, provenance = e40_program
     artifact_root = Path(os.environ.get("BTRC_UI2_E40_ARTIFACTS", str(tmp_path / "e40")))
+    environment = apple_environment() | {"UBSAN_OPTIONS": "halt_on_error=1"}
+    environment.pop("BTRC_GUI_BACKGROUND", None)
+    traced = os.environ.get("BTRC_UI2_E40_TRACE") == "1"  # a diagnostic observes its trial whatever the host
+    if trial in MacOSE40Cases.presented_trials and not traced:
+        withheld = presentation_withheld(artifact_root, environment)
+        if withheld is not None:
+            pytest.skip(withheld)
     directory = artifact_root / provenance["frontend"] / ("sanitized" if sanitized else "plain") / entry / trial
     directory.mkdir(parents=True, exist_ok=True)
     report = directory / "observations.json"
-    diagnostic = E40LoopDiagnostic(directory) if os.environ.get("BTRC_UI2_E40_TRACE") == "1" else None
+    diagnostic = E40LoopDiagnostic(directory) if traced else None
     if diagnostic is not None:
         assert sanitized and provenance["frontend"] == "selfhost" and trial in {"slider", "resize"}
         provenance["diagnostic"] = diagnostic.retain_build(executable)
@@ -473,8 +502,6 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_nat
         diagnostic = E40LoopDiagnostic(directory, after_report=report)
         provenance["shutdown_diagnostic"] = "bounded stack samples after the burst report; original timeout and result"
     (directory / "provenance.json").write_text(json.dumps(provenance, indent=2))
-    environment = apple_environment() | {"UBSAN_OPTIONS": "halt_on_error=1"}
-    environment.pop("BTRC_GUI_BACKGROUND", None)
     if trial == "load":
         for control in build_native_controls():
             control.record(artifact_root, environment)

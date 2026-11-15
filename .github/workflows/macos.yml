@@ -43,8 +43,9 @@ permissions:
 # Every pytest session here classifies its skips as the hosted runner: a Darwin
 # host would otherwise detect as `macos`, the acceptance Mac. macos-hosted.json
 # expects only platform skips and the hardware tier the acceptance Mac covers
-# (a CoreAudio output device, a GPU compute adapter); anything else fails the
-# shard's skip gate. `nix develop --command` keeps the variable.
+# (a CoreAudio output device, a GPU compute adapter, a display that presents
+# frames); anything else fails the shard's skip gate. `nix develop --command`
+# keeps the variable.
 env:
   BTRC_TEST_RUNNER: macos-hosted
   # The scope job plans this file's jobs from ci/tiers.toml under this name.
@@ -531,6 +532,11 @@ jobs:
 
   # Required E40 cells own one serial AppKit process at a time. Each cell
   # includes desktop/host bursts, two 600-second loads and four tracking modes.
+  # The loads and tracking modes assert presented frames. This runner's
+  # paravirtual GPU completes Metal commands and presents none (issue #128), so
+  # each cell runs the direct Metal control and, on those exact counts, skips
+  # them as macos-hosted.json's e40-presented-frames rule expects. The bursts
+  # still gate here; the acceptance Mac runs all twelve trials.
   macos-e40:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'macos-e40')

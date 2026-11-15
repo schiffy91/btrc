@@ -866,3 +866,61 @@ def test_native_e40_build_reuse_preserves_configuration_and_provenance(tmp_path,
     with pytest.raises(AssertionError):
         program()
     assert len(built) == 7  # Changed evidence must fail, not silently rebuild.
+
+
+@pytest.mark.parametrize(
+    "runner,presented,skips",
+    [("macos-hosted", 0, True), ("macos", 0, False), ("macos-hosted", 19, False)],
+)
+def test_presentation_trials_skip_only_on_a_hosted_runner_that_presents_nothing(
+    tmp_path, monkeypatch, runner, presented, skips
+):
+    import hashlib
+    import json
+    import sys
+
+    from src.tests.python import test_native_ui2_macos_e40 as driver
+    from tools.qualification.skips import MANIFEST_ROOT, ExpectedSkipManifest
+
+    monkeypatch.setenv("BTRC_TEST_RUNNER", runner)
+    monkeypatch.delenv("BTRC_UI2_E40_TRACE", raising=False)
+    monkeypatch.delenv("BTRC_UI2_E40_ARTIFACTS", raising=False)
+    counts = {"acquired": 20, "command_completed": 20, "command_errors": 0, "presented": presented}
+    script = tmp_path / "control.py"
+    script.write_text(f"import sys\nfrom pathlib import Path\nPath(sys.argv[1]).write_text({json.dumps(counts)!r})\n")
+    control = driver.E40NativeControl(
+        "metal", [sys.executable, str(script)], [], hashlib.sha256(script.read_bytes()).hexdigest()
+    )
+    withheld = driver.presentation_withheld.__wrapped__(lambda: (control,))
+    trial_program = tmp_path / "trial"
+    trial_program.write_text("#!/bin/sh\necho 'the native trial ran' >&2\nexit 3\n")
+    trial_program.chmod(0o755)
+
+    def run(trial):
+        program = trial_program, {"frontend": "reference"}
+        driver.test_macos_ui2_e40(program, False, "desktop", trial, tmp_path, lambda: (), withheld)
+
+    reason = (
+        "this hosted runner's GPU presents no frames (direct Metal control: 20 acquired, 20 completed, 0 presented)"
+    )
+    hosted = ExpectedSkipManifest.load(MANIFEST_ROOT / "macos-hosted.json")
+    for trial in ("load", "popup", "slider", "resize", "sheet"):
+        if not skips:
+            # Without the hosted observation the trial runs, and its own assertions decide.
+            with pytest.raises(AssertionError, match="the native trial ran"):
+                run(trial)
+            continue
+        with pytest.raises(pytest.skip.Exception) as skipped:
+            run(trial)
+        assert skipped.value.msg == reason
+        node = f"src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[plain-reference-desktop-{trial}]"
+        assert hosted.classify(node, skipped.value.msg).id == "e40-presented-frames"
+        assert not (tmp_path / "e40/reference").exists()
+    # The control ran once and its counts stay beside the trials' evidence.
+    assert json.loads((tmp_path / "e40/metal-control/observations.json").read_text()) == counts
+    script.unlink()
+    with pytest.raises(AssertionError, match="the native trial ran"):
+        run("bursts")
+    monkeypatch.setenv("BTRC_UI2_E40_TRACE", "1")
+    with pytest.raises(AssertionError):  # a diagnostic reaches its own trial checks, never the skip
+        run("slider")
