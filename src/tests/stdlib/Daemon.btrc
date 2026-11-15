@@ -170,7 +170,11 @@ int main(int argc, char** argv) {
 	string restartCount = PathTools.join(dir, "restart-count");
 	DaemonSpec restarting = DaemonSpec("restart", Command(executable).arg("--restart").arg(restartCount)).control(PathTools.join(dir, "restart.control")).log(PathTools.join(dir, "restart.log")).restart(true);
 	assert(controller.start(restarting).ok());
-	assert(waitForTextLength(restartCount, 2, 3000));
+	bool restarted = waitForTextLength(restartCount, 2, 15000); // hosted Windows stalled past three seconds
+	string restartLog = Path.readAll(restarting.logFile);
+	bool childFailed = restartLog.contains("Assertion"); // a crashed child must not pass as slow
+	if (!restarted || childFailed) { fprintf(stderr, "daemon restart stalled: runs=%d status=%d log=%s\n", Path.readAll(restartCount).len(), controller.status(restarting).code, restartLog); }
+	assert(restarted && !childFailed);
 	assert(controller.status(restarting).ok());
 	assert(controller.stop(restarting).ok());
 	int stoppedLength = Path.readAll(restartCount).len();

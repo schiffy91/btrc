@@ -56,7 +56,7 @@ int main() {
 
 	Timer slept = Timer();
 	slept.start();
-	Timer.sleep(0.005);   // ~5ms
+	Timer.sleep(0.05);   // ~50ms: a Windows sleep may end one 15.6ms tick early
 	slept.stop();
 	// Lenient lower bound only (>= 1ms): CPU-time clock() would report ~0 here,
 	// so this is the real regression guard for the monotonic fix.
