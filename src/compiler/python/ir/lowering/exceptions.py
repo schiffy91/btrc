@@ -52,7 +52,24 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
     IRWhile,
 )
-from src.compiler.python.syntax.ast.generated import ThrowStmt, TryCatchStmt, TypeExpr
+from src.compiler.python.syntax.ast.generated import (
+    Block,
+    BreakStmt,
+    CForStmt,
+    ContinueStmt,
+    DoWhileStmt,
+    ElseBlock,
+    ElseIf,
+    ForInStmt,
+    IfStmt,
+    ParallelForStmt,
+    ReturnStmt,
+    SwitchStmt,
+    ThrowStmt,
+    TryCatchStmt,
+    TypeExpr,
+    WhileStmt,
+)
 
 from .types import CodegenError, CTypeLowerer
 
@@ -67,7 +84,7 @@ if TYPE_CHECKING:
     )
     from .expressions import ExpressionLowerer
     from .ownership import OwnershipLowerer
-    from .session import LoweringSession
+    from .session import LoweringSession, TryJumpFrame
 # Every field name per dataclass type, or None for a type that is not one; the
 # setjmp search reflects over each type once instead of once per node.
 _SETJMP_SEARCH_FIELDS: dict[type, tuple[str, ...] | None] = {}
@@ -114,6 +131,13 @@ class TryCatchPlan:
     finally_capture: CallableMutationCapture | None = None
     finally_mutations: frozenset[str] = frozenset()
     finally_result: CallableFlowSnapshot | None = None
+    jump_frame: TryJumpFrame | None = None
+    user_try_falls_through: bool = True
+    user_catch_falls_through: bool = True
+    finally_falls_through: bool = True
+    return_slot_managed: bool = False
+    return_slot_is_thread: bool = False
+    return_cleanup_exit: tuple[IRStmt, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1856,6 +1880,112 @@ class ExceptionLowerer:
         """Register the header even for try/throw nested inside lifted bodies."""
         self._session.require_runtime_header("setjmp.h")
 
+    @staticmethod
+    def _escapes_return(node: object) -> bool:
+        if node is None:
+            return False
+        if isinstance(node, ReturnStmt):
+            return True
+        if isinstance(node, Block):
+            return any(ExceptionLowerer._escapes_return(stmt) for stmt in node.statements)
+        if isinstance(node, IfStmt):
+            if ExceptionLowerer._escapes_return(node.then_block):
+                return True
+            if isinstance(node.else_block, ElseBlock):
+                return ExceptionLowerer._escapes_return(node.else_block.body)
+            if isinstance(node.else_block, ElseIf):
+                return ExceptionLowerer._escapes_return(node.else_block.if_stmt)
+            return False
+        if isinstance(node, (WhileStmt, DoWhileStmt, CForStmt, ForInStmt, ParallelForStmt)):
+            return ExceptionLowerer._escapes_return(node.body)
+        if isinstance(node, SwitchStmt):
+            return any(ExceptionLowerer._escapes_return(stmt) for case in node.cases for stmt in case.body)
+        if isinstance(node, TryCatchStmt):
+            return (
+                ExceptionLowerer._escapes_return(node.try_block)
+                or ExceptionLowerer._escapes_return(node.catch_block)
+                or ExceptionLowerer._escapes_return(node.finally_block)
+            )
+        return False
+
+    @staticmethod
+    def _escapes_break(node: object) -> bool:
+        if node is None:
+            return False
+        if isinstance(node, BreakStmt):
+            return True
+        if isinstance(node, (WhileStmt, DoWhileStmt, CForStmt, ForInStmt, ParallelForStmt, SwitchStmt)):
+            return False
+        if isinstance(node, Block):
+            return any(ExceptionLowerer._escapes_break(stmt) for stmt in node.statements)
+        if isinstance(node, IfStmt):
+            if ExceptionLowerer._escapes_break(node.then_block):
+                return True
+            if isinstance(node.else_block, ElseBlock):
+                return ExceptionLowerer._escapes_break(node.else_block.body)
+            if isinstance(node.else_block, ElseIf):
+                return ExceptionLowerer._escapes_break(node.else_block.if_stmt)
+            return False
+        if isinstance(node, TryCatchStmt):
+            return (
+                ExceptionLowerer._escapes_break(node.try_block)
+                or ExceptionLowerer._escapes_break(node.catch_block)
+                or ExceptionLowerer._escapes_break(node.finally_block)
+            )
+        return False
+
+    @staticmethod
+    def _escapes_continue(node: object) -> bool:
+        if node is None:
+            return False
+        if isinstance(node, ContinueStmt):
+            return True
+        if isinstance(node, (WhileStmt, DoWhileStmt, CForStmt, ForInStmt, ParallelForStmt)):
+            return False
+        if isinstance(node, SwitchStmt):
+            return any(ExceptionLowerer._escapes_continue(stmt) for case in node.cases for stmt in case.body)
+        if isinstance(node, Block):
+            return any(ExceptionLowerer._escapes_continue(stmt) for stmt in node.statements)
+        if isinstance(node, IfStmt):
+            if ExceptionLowerer._escapes_continue(node.then_block):
+                return True
+            if isinstance(node.else_block, ElseBlock):
+                return ExceptionLowerer._escapes_continue(node.else_block.body)
+            if isinstance(node.else_block, ElseIf):
+                return ExceptionLowerer._escapes_continue(node.else_block.if_stmt)
+            return False
+        if isinstance(node, TryCatchStmt):
+            return (
+                ExceptionLowerer._escapes_continue(node.try_block)
+                or ExceptionLowerer._escapes_continue(node.catch_block)
+                or ExceptionLowerer._escapes_continue(node.finally_block)
+            )
+        return False
+
+    def active_return_frame(self) -> TryJumpFrame | None:
+        if not self._session.try_jump_stack:
+            return None
+        frame = self._session.try_jump_stack[-1]
+        return frame if frame.intercept_return else None
+
+    def active_break_frame(self) -> TryJumpFrame | None:
+        if not self._session.try_jump_stack:
+            return None
+        frame = self._session.try_jump_stack[-1]
+        if not frame.intercept_break:
+            return None
+        target = self._ownership.nearest_control_index({"loop", "switch"})
+        return frame if 0 <= target < frame.control_depth else None
+
+    def active_continue_frame(self) -> TryJumpFrame | None:
+        if not self._session.try_jump_stack:
+            return None
+        frame = self._session.try_jump_stack[-1]
+        if not frame.intercept_continue:
+            return None
+        target = self._ownership.nearest_control_index({"loop"})
+        return frame if 0 <= target < frame.control_depth else None
+
     @contextmanager
     def try_catch_scope(self, node: TryCatchStmt, provenance: CallableProvenance):
         """Own the lifetime of one structured try/catch lowering transaction."""
@@ -1866,6 +1996,8 @@ class ExceptionLowerer:
             self._session.in_trycatch_depth -= 1
 
     def _create_try_catch_plan(self, node: TryCatchStmt, provenance: CallableProvenance) -> TryCatchPlan:
+        from .session import TryJumpFrame
+
         self._require_setjmp()
         self._session.require_helper("__btrc_trycatch_globals")
         self._session.require_helper("__btrc_push_try")
@@ -1877,6 +2009,77 @@ class ExceptionLowerer:
             self._session.fresh_temp("__btrc_finally_pending") if finally_only and (not try_terminates) else None
         )
         error_name = self._session.fresh_temp("__btrc_finally_error") if finally_only else ""
+        raw_return = self._escapes_return(node.try_block) or self._escapes_return(node.catch_block)
+        raw_break = self._escapes_break(node.try_block) or self._escapes_break(node.catch_block)
+        raw_continue = self._escapes_continue(node.try_block) or self._escapes_continue(node.catch_block)
+        intercept_return = False
+        intercept_break = False
+        intercept_continue = False
+        if node.finally_block is not None:
+            intercept_return = raw_return
+            intercept_break = raw_break and self._ownership.nearest_control_index({"loop", "switch"}) >= 0
+            intercept_continue = raw_continue and self._ownership.nearest_control_index({"loop"}) >= 0
+        elif self._session.try_jump_stack:
+            enclosing = self._session.try_jump_stack[-1]
+            break_target = self._ownership.nearest_control_index({"loop", "switch"})
+            continue_target = self._ownership.nearest_control_index({"loop"})
+            intercept_return = enclosing.intercept_return and raw_return
+            intercept_break = enclosing.intercept_break and raw_break and (0 <= break_target < enclosing.control_depth)
+            intercept_continue = (
+                enclosing.intercept_continue and raw_continue and (0 <= continue_target < enclosing.control_depth)
+            )
+        statements: list[IRStmt] = []
+        jump_frame: TryJumpFrame | None = None
+        return_slot_managed = False
+        return_slot_is_thread = False
+        if intercept_return or intercept_break or intercept_continue:
+            action_name = self._session.fresh_temp("__btrc_finally_action")
+            return_type = self._types.canonical_type(self._session.current_return_type)
+            return_c_type = self._session.current_return_c_type
+            has_return_slot = bool(
+                intercept_return
+                and return_type is not None
+                and not (return_type.base == "void" and return_type.pointer_depth == 0)
+                and return_c_type != "void"
+            )
+            return_name = self._session.fresh_temp("__btrc_finally_return") if has_return_slot else ""
+            try_exit_label = self._session.fresh_temp("__btrc_try_exit")
+            catch_exit_label = self._session.fresh_temp("__btrc_catch_exit")
+            action_decl = IRVarDecl(c_type=CType(text="int"), name=action_name, init=IRLiteral(text="0"))
+            self._session.record_declaration(action_decl)
+            statements.append(action_decl)
+            return_decl: IRVarDecl | None = None
+            if has_return_slot:
+                return_slot_managed = bool(
+                    self._ownership._values.is_managed(self._session.current_return_type)
+                    and self._session.current_return_owned
+                )
+                return_slot_is_thread = bool(
+                    return_type is not None
+                    and return_type.base == "Thread"
+                    and return_type.pointer_depth == 0
+                    and not return_type.is_array
+                )
+                return_init = IRLiteral(text="NULL") if (return_slot_managed or return_slot_is_thread) else None
+                return_decl = IRVarDecl(c_type=CType(text=return_c_type), name=return_name, init=return_init)
+                self._session.record_declaration(return_decl)
+                statements.append(return_decl)
+            jump_frame = TryJumpFrame(
+                intercept_return=intercept_return,
+                intercept_break=intercept_break,
+                intercept_continue=intercept_continue,
+                has_return_slot=has_return_slot,
+                action_name=action_name,
+                return_name=return_name,
+                return_decl=return_decl,
+                try_exit_label=try_exit_label,
+                catch_exit_label=catch_exit_label,
+                managed_depth=self._ownership.managed_scope_depth,
+                cleanup_depth=self._ownership._cleanup_scope.depth,
+                control_depth=len(self._session.control_context),
+                callable_depth=provenance.scope_depth,
+            )
+        statements.append(IRExprStmt(expr=IRCall(callee="__btrc_push_try", args=[], helper_ref="__btrc_push_try")))
         return TryCatchPlan(
             source=node,
             incoming=provenance.snapshot(),
@@ -1884,7 +2087,10 @@ class ExceptionLowerer:
             try_terminates=try_terminates,
             pending_name=pending_name,
             error_name=error_name,
-            statements=[IRExprStmt(expr=IRCall(callee="__btrc_push_try", args=[], helper_ref="__btrc_push_try"))],
+            statements=statements,
+            jump_frame=jump_frame,
+            return_slot_managed=return_slot_managed,
+            return_slot_is_thread=return_slot_is_thread,
         )
 
     @contextmanager
@@ -1892,6 +2098,9 @@ class ExceptionLowerer:
         """Isolate the ordinary statement traversal for a try branch."""
         self._session.in_try_depth += 1
         self._ownership.push_control_context("try")
+        if plan.jump_frame is not None:
+            plan.jump_frame.in_try_branch = True
+            self._session.try_jump_stack.append(plan.jump_frame)
         plan.exceptional_capture = provenance.begin_exception_capture()
         try:
             with provenance.isolated_flow() as try_isolation:
@@ -1899,6 +2108,8 @@ class ExceptionLowerer:
             assert try_isolation.outgoing is not None
             plan.try_flow = try_isolation.outgoing
         finally:
+            if plan.jump_frame is not None:
+                self._session.try_jump_stack.pop()
             if plan.exceptional_capture is None:
                 exceptional_flows = []
             else:
@@ -1907,9 +2118,11 @@ class ExceptionLowerer:
             self._session.in_try_depth -= 1
         if plan.try_body is None or plan.try_flow is None:
             raise CodegenError("try branch was not materialized")
+        plan.user_try_falls_through = IRStatementSequence(plan.try_body.stmts).may_fall_through()
+        try_tail: list[IRStmt] = []
         if self._session.uses_any_helper({"__btrc_register_cleanup", "__btrc_register_direct_cleanup"}):
             self._session.require_helper("__btrc_discard_cleanups")
-            plan.try_body.stmts.append(
+            try_tail.append(
                 IRExprStmt(
                     expr=IRCall(
                         callee="__btrc_discard_cleanups",
@@ -1918,13 +2131,18 @@ class ExceptionLowerer:
                     )
                 )
             )
-        plan.try_body.stmts.extend(ExceptionLowerer.pop_try_frames(1))
+        try_tail.extend(ExceptionLowerer.pop_try_frames(1))
+        if plan.jump_frame is not None and plan.jump_frame.try_exit_used:
+            plan.try_body = IRBlock(stmts=[plan.try_body, IRLabel(name=plan.jump_frame.try_exit_label), *try_tail])
+        else:
+            plan.try_body.stmts.extend(try_tail)
         provenance.join_flows(*exceptional_flows, plan.try_flow)
         plan.exceptional_entry = provenance.snapshot()
         if plan.finally_only:
             plan.statements.extend(ExceptionLowerer.finally_state_declarations(plan.error_name, plan.pending_name))
             plan.catch_body = IRBlock(stmts=ExceptionLowerer.capture_finally_error(plan.error_name, plan.pending_name))
             plan.catch_flow = plan.exceptional_entry
+            plan.user_catch_falls_through = True
         else:
             plan.catch_bindings = tuple(self._catch_bindings(plan.source))
 
@@ -1933,27 +2151,54 @@ class ExceptionLowerer:
         """Isolate ordinary statement traversal for an explicit catch branch."""
         if plan.finally_only:
             raise CodegenError("finally-only transaction has no source catch block")
-        with provenance.isolated_flow() as catch_isolation:
-            yield plan.catch_bindings
-        assert catch_isolation.outgoing is not None
-        plan.catch_flow = catch_isolation.outgoing
+        if plan.jump_frame is not None:
+            plan.jump_frame.in_try_branch = False
+            self._session.try_jump_stack.append(plan.jump_frame)
+        try:
+            with provenance.isolated_flow() as catch_isolation:
+                yield plan.catch_bindings
+            assert catch_isolation.outgoing is not None
+            plan.catch_flow = catch_isolation.outgoing
+        finally:
+            if plan.jump_frame is not None:
+                self._session.try_jump_stack.pop()
+        if plan.catch_body is None:
+            raise CodegenError("catch branch was not materialized")
+        plan.user_catch_falls_through = IRStatementSequence(plan.catch_body.stmts).may_fall_through()
+        if plan.jump_frame is not None and plan.jump_frame.catch_exit_used:
+            plan.catch_body = IRBlock(stmts=[plan.catch_body, IRLabel(name=plan.jump_frame.catch_exit_label)])
 
     def prepare_finally(self, plan: TryCatchPlan, provenance: CallableProvenance) -> None:
-        """Join try/catch flows before an optional finally block is traversed."""
+        """Join try/catch flows and emit the setjmp conditional before finally."""
         if plan.try_body is None or plan.try_flow is None:
             raise CodegenError("try branch was not completed")
         if plan.catch_body is None or plan.catch_flow is None:
             raise CodegenError("catch branch was not completed")
-        try_falls_through = IRStatementSequence(plan.try_body.stmts).may_fall_through()
-        catch_falls_through = IRStatementSequence(plan.catch_body.stmts).may_fall_through()
+        plan.statements.append(
+            IRIf(
+                condition=ExceptionLowerer.setjmp_success_condition(),
+                then_block=plan.try_body,
+                else_block=plan.catch_body,
+            )
+        )
         continuation_flows: list[CallableFlowSnapshot] = []
-        if try_falls_through:
+        if plan.user_try_falls_through:
             continuation_flows.append(plan.try_flow)
-        if not plan.finally_only and catch_falls_through:
+        if not plan.finally_only and plan.user_catch_falls_through:
             continuation_flows.append(plan.catch_flow)
         plan.continuation_flows = tuple(continuation_flows)
+        escape_flows = plan.jump_frame.escape_flows if plan.jump_frame is not None else ()
         if plan.source.finally_block:
-            provenance.join_flows(plan.try_flow, plan.catch_flow)
+            finally_entries: list[CallableFlowSnapshot] = []
+            if plan.user_try_falls_through:
+                finally_entries.append(plan.try_flow)
+            if plan.finally_only or plan.user_catch_falls_through:
+                finally_entries.append(plan.catch_flow)
+            finally_entries.extend(escape_flows)
+            if finally_entries:
+                provenance.join_flows(*finally_entries)
+            else:
+                provenance.join_flows(plan.try_flow, plan.catch_flow)
         elif continuation_flows:
             provenance.join_flows(*continuation_flows)
         else:
@@ -1962,25 +2207,132 @@ class ExceptionLowerer:
     @contextmanager
     def finally_body_scope(self, plan: TryCatchPlan, provenance: CallableProvenance):
         """Capture mutations made by an ordinary lowered finally block."""
+        guard_return = bool(
+            plan.jump_frame is not None
+            and plan.jump_frame.has_return_slot
+            and (plan.return_slot_managed or plan.return_slot_is_thread)
+        )
+        marker: str | None = None
+        reg_stmts: list[IRStmt] = []
+        if guard_return and plan.jump_frame is not None:
+            marker = self._ownership._cleanup_scope.push()
+            self._ownership.push_managed_scope()
+            if plan.return_slot_managed and self._session.current_return_type is not None:
+                return_type = self._session.current_return_type
+                runtime_type = self._ownership._values.runtime_name(return_type)
+                self._ownership.register_synthetic_managed_slot(
+                    plan.jump_frame.return_name,
+                    runtime_type,
+                    return_type,
+                    cycle_seed=self._ownership._cycles.type_may_cycle(return_type),
+                )
+                if self._ownership._cleanup_scope.exception_cleanup_active():
+                    scratch = [*plan.statements]
+                    reg_start = len(scratch)
+                    recipe = self._ownership._lifetime.register_named_cleanup(
+                        plan.jump_frame.return_name, runtime_type, scratch
+                    )
+                    self._ownership.record_cleanup_registration(recipe)
+                    reg_stmts = scratch[reg_start:]
+            else:
+                self._ownership.register_synthetic_thread_slot(plan.jump_frame.return_name)
+                if self._ownership._cleanup_scope.exception_cleanup_active():
+                    self._session.require_helper("__btrc_thread_free")
+                    scratch = [*plan.statements]
+                    reg_start = len(scratch)
+                    recipe = self._ownership._lifetime.register_direct_cleanup(
+                        plan.jump_frame.return_name, "__btrc_thread_free", scratch
+                    )
+                    self._ownership.record_cleanup_registration(recipe)
+                    reg_stmts = scratch[reg_start:]
         plan.finally_capture = provenance.begin_mutation_capture()
         try:
             yield
         finally:
             plan.finally_mutations = provenance.finish_mutation_capture(plan.finally_capture)
+            if guard_return:
+                self._ownership.pop_managed_scope()
+                if plan.finally_body is not None:
+                    falls_through = IRStatementSequence(plan.finally_body.stmts).may_fall_through()
+                    plan.finally_falls_through = falls_through
+                    marker_active = self._ownership._cleanup_scope.is_active(marker)
+                    marker_referenced = falls_through or IRStatementSequence(
+                        plan.finally_body.stmts
+                    ).references_variable(marker or "")
+                    if marker_active and marker_referenced:
+                        plan.statements.extend(self._ownership._cleanup_scope.entry(marker))
+                    plan.statements.extend(reg_stmts)
+                    if falls_through and marker_active:
+                        plan.return_cleanup_exit = tuple(self._ownership._cleanup_scope.exit(marker))
+                self._ownership._cleanup_scope.pop()
+            elif plan.finally_body is not None:
+                plan.finally_falls_through = IRStatementSequence(plan.finally_body.stmts).may_fall_through()
         plan.finally_result = provenance.snapshot()
 
-    def materialize_try_catch(self, plan: TryCatchPlan, provenance: CallableProvenance) -> list[IRStmt]:
+    def materialize_try_catch(
+        self,
+        plan: TryCatchPlan,
+        provenance: CallableProvenance,
+        dispatch_stmts: Sequence[IRStmt] = (),
+    ) -> list[IRStmt]:
         """Materialize a completed try/catch/finally transaction."""
         if plan.try_body is None or plan.catch_body is None:
             raise CodegenError("try/catch branches were not materialized")
-        plan.statements.append(
-            IRIf(
-                condition=ExceptionLowerer.setjmp_success_condition(),
-                then_block=plan.try_body,
-                else_block=plan.catch_body,
-            )
-        )
-        if not plan.source.finally_block and not plan.continuation_flows:
+        frame = plan.jump_frame
+        any_escape = bool(frame is not None and (frame.return_flows or frame.break_flows or frame.continue_flows))
+        if plan.source.finally_block:
+            if plan.finally_body is None or plan.finally_result is None:
+                raise CodegenError("finally branch was not materialized")
+            if frame is not None and (not plan.finally_falls_through or not any_escape):
+                plan.statements.append(
+                    IRExprStmt(expr=IRCast(target_type=CType(text="void"), expr=IRVar(name=frame.action_name)))
+                )
+                if frame.has_return_slot and not (plan.return_slot_managed or plan.return_slot_is_thread):
+                    plan.statements.append(
+                        IRExprStmt(expr=IRCast(target_type=CType(text="void"), expr=IRVar(name=frame.return_name)))
+                    )
+            plan.statements.extend(plan.finally_body.stmts)
+            plan.statements.extend(plan.return_cleanup_exit)
+            if plan.finally_falls_through:
+                if plan.finally_only and plan.try_terminates:
+                    plan.statements.extend(dispatch_stmts)
+                    plan.statements.append(ExceptionLowerer.rethrow_finally_error(plan.error_name, plan.pending_name))
+                else:
+                    if plan.finally_only:
+                        plan.statements.append(
+                            ExceptionLowerer.rethrow_finally_error(plan.error_name, plan.pending_name)
+                        )
+                    plan.statements.extend(dispatch_stmts)
+                    if not plan.continuation_flows:
+                        plan.statements.append(IRExprStmt(expr=IRCall(callee="abort", args=[], never_returns=True)))
+            elif plan.finally_only and plan.pending_name is not None:
+                plan.statements.append(
+                    IRExprStmt(expr=IRCast(target_type=CType(text="void"), expr=IRVar(name=plan.pending_name)))
+                )
+            if plan.continuation_flows and IRStatementSequence(plan.statements).may_fall_through():
+                continuation_entry = provenance.merge_flows(*plan.continuation_flows)
+                provenance.restore(
+                    provenance.project_mutations(
+                        all_result=plan.finally_result,
+                        continuation_entry=continuation_entry,
+                        mutated=plan.finally_mutations,
+                    )
+                )
+            else:
+                provenance.restore(plan.incoming)
+            return plan.statements
+        if frame is not None:
+            if not any_escape:
+                plan.statements.append(
+                    IRExprStmt(expr=IRCast(target_type=CType(text="void"), expr=IRVar(name=frame.action_name)))
+                )
+                if frame.has_return_slot and not (plan.return_slot_managed or plan.return_slot_is_thread):
+                    plan.statements.append(
+                        IRExprStmt(expr=IRCast(target_type=CType(text="void"), expr=IRVar(name=frame.return_name)))
+                    )
+            else:
+                plan.statements.extend(dispatch_stmts)
+        if not plan.continuation_flows:
             # Both structured branches terminate, but GCC 15 with ASan can
             # conservatively treat a setjmp-backed conditional containing a
             # VLA as falling through. Keep the impossible edge explicit in C
@@ -1994,23 +2346,6 @@ class ExceptionLowerer:
                     )
                 )
             )
-        if plan.source.finally_block:
-            if plan.finally_body is None or plan.finally_result is None:
-                raise CodegenError("finally branch was not materialized")
-            plan.statements.extend(plan.finally_body.stmts)
-            if plan.finally_only:
-                plan.statements.append(ExceptionLowerer.rethrow_finally_error(plan.error_name, plan.pending_name))
-            if plan.continuation_flows and IRStatementSequence(plan.statements).may_fall_through():
-                continuation_entry = provenance.merge_flows(*plan.continuation_flows)
-                provenance.restore(
-                    provenance.project_mutations(
-                        all_result=plan.finally_result,
-                        continuation_entry=continuation_entry,
-                        mutated=plan.finally_mutations,
-                    )
-                )
-            else:
-                provenance.restore(plan.incoming)
         return plan.statements
 
     def _catch_bindings(self, node):

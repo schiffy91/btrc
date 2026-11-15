@@ -1,0 +1,82 @@
+import Library.Array;
+import Library.Bytes;
+import Library.List;
+import Library.Map;
+import Library.Set;
+import Library.Strings;
+import Library.Vector;
+
+#include <assert.h>
+
+int checkSpanLength(Span<int> view) { return (int)view.length; }
+
+int main(Vector<string> args) {
+	assert(args.length == 0);
+
+	string text = "elegance";
+	string? emptyOpt = null;
+	string? someOpt = "ok";
+	assert(text.length == 8);
+	assert((emptyOpt?.length ?? -1) == -1);
+	assert((someOpt?.length ?? -1) == 2);
+
+	int raw[4] = {2, 4, 6, 8};
+	assert(checkSpanLength(Span(raw)) == 4);
+
+	Vector<int> vec = [10, 20, 30];
+	assert(vec.length == 3);
+
+	Bytes bytes = Bytes.fromString("abcd");
+	assert(bytes.length == 4);
+
+	StringBuilder sb = StringBuilder();
+	sb.append("hi!");
+	assert(sb.length == 3);
+
+	Array<string> arr = Array(3);
+	arr.set(0, f"val-{1}");
+	arr.set(1, f"val-{2}");
+	arr.set(2, f"val-{3}");
+	assert(arr.length == 3);
+	string needle = f"val-{2}";
+	assert(arr.contains(needle));
+	assert(arr.indexOf(needle) == 1);
+	assert(!arr.contains("missing"));
+
+	Map<string, int> scores = {};
+	for (int i = 1; i <= 25; i = i + 1) {
+		scores.put(f"item-{i}", i);
+	}
+	assert(scores.length == 25);
+	int sum = 0;
+	for k, v in scores {
+		assert(k.length >= 6);
+		sum = sum + v;
+	}
+	assert(sum == 325);
+
+	Set<string> seen = Set();
+	seen.add(f"a-{1}");
+	seen.add(f"a-{2}");
+	seen.add(f"a-{3}");
+	assert(seen.length == 3);
+	int count = 0;
+	for entry in seen {
+		if (entry.length == 3) { count = count + 1; }
+	}
+	assert(count == 3);
+
+	List<string> items = List();
+	items.push("first");
+	items.push("second");
+	items.push("third");
+	assert(items.length == 3);
+	Vector<string> walked = [];
+	for item in items {
+		walked.push(item);
+	}
+	assert(walked.join(",") == "first,second,third");
+
+	print("PASS: test_length_and_direct_iteration");
+	return 0;
+}

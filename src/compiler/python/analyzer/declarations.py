@@ -1074,6 +1074,35 @@ class DeclarationRegistry:
             and (not result.generic_args)
         )
         valid_params = not function.params
+        if valid_result and len(function.params) == 1:
+            param = function.params[0]
+            canonical = TypeSystem.canonical_declaration_type(param.type, self.index.typedef_table)
+            vec_cls = self.index.class_table.get("Vector")
+            elem = (
+                TypeSystem.canonical_declaration_type(canonical.generic_args[0], self.index.typedef_table)
+                if canonical and len(canonical.generic_args) == 1
+                else None
+            )
+            valid_params = bool(
+                not param.keep
+                and param.default is None
+                and canonical
+                and canonical.base == "Vector"
+                and (not canonical.is_array)
+                and canonical.pointer_depth <= 1
+                and (not canonical.is_nullable)
+                and canonical.nullable_outer_depth == 0
+                and vec_cls is not None
+                and bool(vec_cls.generic_params)
+                and "push" in vec_cls.methods
+                and elem is not None
+                and elem.base == "string"
+                and elem.pointer_depth == 0
+                and (not elem.is_array)
+                and (not elem.generic_args)
+                and (not elem.is_nullable)
+                and elem.nullable_outer_depth == 0
+            )
         if result and result.base == "int" and (len(function.params) == 2):
             argc = TypeSystem.canonical_declaration_type(function.params[0].type, self.index.typedef_table)
             argv = TypeSystem.canonical_declaration_type(function.params[1].type, self.index.typedef_table)
@@ -1089,7 +1118,9 @@ class DeclarationRegistry:
             )
         if not valid_result or not valid_params or function.is_gpu:
             self.session.error(
-                "main must be 'int main()', 'int main(int, char**)', or 'void main()'", function.line, function.col
+                "main must be 'int main()', 'int main(int, char**)', 'int main(Vector<string>)', 'void main()', or 'void main(Vector<string>)'",
+                function.line,
+                function.col,
             )
 
     def _validate_constructor_shape(self, class_decl, method) -> None:

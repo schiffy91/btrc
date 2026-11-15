@@ -2176,9 +2176,11 @@ class GenericSpecializer {
 		if (node.kind == NK_FOR_IN_STMT || node.kind == NK_PARALLEL_FOR_STMT) {
 			self.genericClosureWalkNode(node.iterable, substitutions, unresolved, analyzed, operators, variables);
 			Node? iterableType = self.genericClosureExpressionType(node.iterable, substitutions, analyzed, operators, variables);
-			self.demandCallable(iterableType, "method", "iterLen", unresolved);
-			self.demandCallable(iterableType, "method", "iterGet", unresolved);
-			if (node.varName2 != null) { self.demandCallable(iterableType, "method", "iterValueAt", unresolved); }
+			if (node.kind != NK_FOR_IN_STMT || !GenericSpecializer.isDirectStdlibForIn(iterableType, analyzed)) {
+				self.demandCallable(iterableType, "method", "iterLen", unresolved);
+				self.demandCallable(iterableType, "method", "iterGet", unresolved);
+				if (node.varName2 != null) { self.demandCallable(iterableType, "method", "iterValueAt", unresolved); }
+			}
 			Node? elementType = self.genericClosureIterationType(iterableType, analyzed);
 			Map<string, Node> nested = self.genericClosureCopyTypes(variables);
 			if (elementType != null) { nested.put(node.varName, elementType); }
@@ -2474,6 +2476,22 @@ class GenericSpecializer {
 		BtrccPhaseTimer.note(f"instance-closure=class:{scannedClasses}+{replayedClasses}r,method:{scannedMethods}+{replayedMethods}r");
 	}
 
+	class bool isDirectStdlibForIn(Node? iterType, Analyzed analyzed) {
+		if (iterType == null || iterType.isArray || iterType.pointerDepth > 1 || !analyzed.isGenericClass(iterType.base)) {
+			return false;
+		}
+		if (iterType.base == "Map" && iterType.genericArgs().len == 2) {
+			return SemanticTypeSystem.genericMember(analyzed, "Map", "cap") != null && SemanticTypeSystem.genericMember(analyzed, "Map", "occupied") != null && SemanticTypeSystem.genericMember(analyzed, "Map", "keys") != null && SemanticTypeSystem.genericMember(analyzed, "Map", "values") != null;
+		}
+		if (iterType.base == "Set" && iterType.genericArgs().len == 1) {
+			return SemanticTypeSystem.genericMember(analyzed, "Set", "cap") != null && SemanticTypeSystem.genericMember(analyzed, "Set", "occupied") != null && SemanticTypeSystem.genericMember(analyzed, "Set", "keys") != null;
+		}
+		if (iterType.base == "List" && iterType.genericArgs().len == 1 && SemanticTypeSystem.genericMember(analyzed, "List", "head") != null) {
+			return analyzed.isGenericClass("ListNode") && SemanticTypeSystem.genericMember(analyzed, "ListNode", "value") != null && SemanticTypeSystem.genericMember(analyzed, "ListNode", "next") != null;
+		}
+		return false;
+	}
+
 	private void genericClosureScanOrdinaryCallable(Node callable, Node? owner, Analyzed analyzed, OperatorSemantics operators) {
 		Map<string, Node> substitutions = {};
 		Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(callable.genericParams());
@@ -2488,6 +2506,10 @@ class GenericSpecializer {
 		self.scopeOwner = "";
 		self.scopeMethod = "";
 		self.genericClosureSeedParameters(callable, substitutions, unresolved, analyzed, operators, variables);
+		if (owner == null && callable.name == "main" && callable.params().len == 1) {
+			Node resolvedParam = SemanticTypeSystem.resolveGenericType(callable.params().get(0).type, substitutions, analyzed);
+			self.demandCallable(resolvedParam, "method", "push", unresolved);
+		}
 		self.genericClosureWalkNode(callable.bodyNode, substitutions, unresolved, analyzed, operators, variables);
 		self.scopeOwner = previousOwner;
 		self.scopeMethod = previousMethod;

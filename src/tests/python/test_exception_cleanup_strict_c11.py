@@ -152,7 +152,7 @@ def test_generated_cleanup_slots_survive_strict_optimized_longjmp(
                 try { return 7; }
                 finally { cleaned++; }
             }
-            int main() { return run() == 7 && cleaned == 0 ? 0 : 1; }
+            int main() { return run() == 7 && cleaned == 1 ? 0 : 1; }
             """,
         ),
         (
@@ -169,7 +169,7 @@ def test_generated_cleanup_slots_survive_strict_optimized_longjmp(
             }
             int main() {
                 Box<int> box = new Box<int>(1);
-                return box.run() == 7 && cleaned == 0 ? 0 : 1;
+                return box.run() == 7 && cleaned == 1 ? 0 : 1;
             }
             """,
         ),

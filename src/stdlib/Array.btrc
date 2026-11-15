@@ -45,14 +45,14 @@ class Array<T> implements Iterable {
 
 	public bool contains(T val) {
 		for (int i = 0; i < self.len; i++) {
-			if (self.data[i] == val) { return true; }
+			if (__btrc_eq(self.data[i], val)) { return true; }
 		}
 		return false;
 	}
 
 	public int indexOf(T val) {
 		for (int i = 0; i < self.len; i++) {
-			if (self.data[i] == val) { return i; }
+			if (__btrc_eq(self.data[i], val)) { return i; }
 		}
 		return -1;
 	}

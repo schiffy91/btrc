@@ -474,6 +474,21 @@ class ExpressionTypeResolver {
 					}
 				}
 			}
+			Node? resolvedOt = SemanticTypeSystem.resolveTypedefType(ot, a.typedefTable);
+			if (SemanticTypeSystem.isString(resolvedOt) && node.field == "length") {
+				return SemanticTypeSystem.primitive("int");
+			}
+			if (resolvedOt != null && resolvedOt.base == "Span" && resolvedOt.pointerDepth == 0 && !resolvedOt.isArray && resolvedOt.genericArgs().len == 1 && node.field == "length") {
+				return SemanticTypeSystem.primitive("size_t");
+			}
+			if (resolvedOt != null && !resolvedOt.isArray && resolvedOt.pointerDepth <= 1 && node.field == "length") {
+				if ((resolvedOt.base == "Array" || resolvedOt.base == "List" || resolvedOt.base == "Map" || resolvedOt.base == "Set" || resolvedOt.base == "Vector") && resolvedOt.genericArgs().len > 0 && SemanticTypeSystem.genericMember(a, resolvedOt.base, "len") != null) {
+					return SemanticTypeSystem.primitive("int");
+				}
+				if ((resolvedOt.base == "Bytes" || resolvedOt.base == "StringBuilder") && resolvedOt.genericArgs().len == 0 && a.classMember(resolvedOt.base, "len") != null) {
+					return SemanticTypeSystem.primitive("int");
+				}
+			}
 			if (ot != null && a.isClass(ot.base)) {
 				Node? fm = a.classMember(ot.base, node.field);
 				if (fm != null && fm.kind == NK_FIELD_DECL) { return fm.type; }

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from src.compiler.python.analyzer.reachability import StdlibReachabilityPlan
     from src.compiler.python.frontend.sources import SourceMap
 
+    from .calls import CallableFlowSnapshot
     from .generics import SpecializationView, SpecializedDeclarationView
 
 
@@ -58,6 +59,32 @@ class ModuleLoweringFacts:
     """Facts a module-unit owner consumes after its lowering session finishes."""
 
     instance_functions: set[str] = field(default_factory=set)
+
+
+@dataclass(slots=True)
+class TryJumpFrame:
+    """Intercepted return/break/continue state for an active try/catch region."""
+
+    intercept_return: bool
+    intercept_break: bool
+    intercept_continue: bool
+    has_return_slot: bool
+    action_name: str
+    return_name: str
+    return_decl: IRVarDecl | None
+    try_exit_label: str
+    catch_exit_label: str
+    managed_depth: int
+    cleanup_depth: int
+    control_depth: int
+    callable_depth: int
+    in_try_branch: bool = True
+    try_exit_used: bool = False
+    catch_exit_used: bool = False
+    escape_flows: list[CallableFlowSnapshot] = field(default_factory=list)
+    return_flows: list[CallableFlowSnapshot] = field(default_factory=list)
+    break_flows: list[CallableFlowSnapshot] = field(default_factory=list)
+    continue_flows: list[CallableFlowSnapshot] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -103,6 +130,7 @@ class LoweringSession:
     explicit_release_function: IRFunctionDef | None = None
     c_array_scopes: list[dict[str, bool]] = field(default_factory=list)
     control_context: list[object] = field(default_factory=list)
+    try_jump_stack: list[TryJumpFrame] = field(default_factory=list)
     jump_index: JumpScopeIndex | None = None
     variable_length_declarations: set[int] = field(default_factory=set)
     # Module-unit lowering: the one compilation group whose bodies this session

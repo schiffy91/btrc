@@ -713,6 +713,11 @@ class CallAnalyzer:
                 field = cls.static_fields.get(callee.field)
                 return bool(field and self.types.callable_signature(field.type) is not None)
         receiver = self.type_of(callee.obj)
+        canonical_receiver = self.types.canonical_type(receiver)
+        if canonical_receiver and self.types.is_scalar_string_value(canonical_receiver):
+            return self.types.string_method_return_type(callee.field) is not None
+        if canonical_receiver and canonical_receiver.base == "Span" and len(canonical_receiver.generic_args) == 1:
+            return callee.field in {"length", "isEmpty", "isValid", "tryGet", "trySet"}
         if receiver and receiver.base in self.index.interface_table:
             return callee.field in self.index.interface_table[receiver.base].methods
         if (
@@ -720,7 +725,7 @@ class CallAnalyzer:
             and receiver.base not in self.index.class_table
             and (receiver.base in {"Array", "List", "Map", "Set", "Vector"})
         ):
-            if callee.field == "size":
+            if callee.field in {"size", "length"}:
                 return True
         if receiver and receiver.base in self.index.class_table:
             cls = self.index.class_table[receiver.base]
@@ -870,7 +875,11 @@ class CallAnalyzer:
                 return TypeExpr(base="size_t")
             if callee.field in {"isEmpty", "isValid", "tryGet", "trySet"}:
                 return TypeExpr(base="bool")
-        if object_type and object_type.base in {"Array", "List", "Map", "Set", "Vector"} and (callee.field == "size"):
+        if (
+            object_type
+            and object_type.base in {"Array", "List", "Map", "Set", "Vector"}
+            and (callee.field in {"size", "length"})
+        ):
             return TypeExpr(base="int")
         if object_type and object_type.base in self.index.class_table:
             cls = self.index.class_table[object_type.base]

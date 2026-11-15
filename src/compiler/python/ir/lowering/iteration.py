@@ -14,6 +14,7 @@ from src.compiler.python.ir.nodes import (
     IRBlock,
     IRCall,
     IRCast,
+    IRContinue,
     IRExpr,
     IRExprStmt,
     IRFieldAccess,
@@ -35,6 +36,7 @@ from src.compiler.python.syntax.ast.generated import (
     CForStmt,
     ForInitVar,
     Identifier,
+    ParallelForStmt,
     TypeExpr,
     VarDeclStmt,
 )
@@ -66,6 +68,7 @@ class IterationBinding:
     type_expr: TypeExpr | None
     value: IRExpr
     owned: bool
+    retain_on_bind: bool = False
 
 
 @dataclass(slots=True)
@@ -79,6 +82,7 @@ class IterationPlan:
     condition: IRExpr
     update: IRExpr | None
     owners: tuple[ManagedLocal, ...] = ()
+    body_prefix: tuple[IRStmt, ...] = ()
 
 
 @dataclass(slots=True)
@@ -206,9 +210,11 @@ class IterationLowerer:
             self._session.function_declarations.append(declaration)
             result.append(declaration)
             result.append(IRExprStmt(expr=IRVar(name=binding_c_name)))
-            type_expr = binding.type_expr
+            type_expr = self._types.resolve_active_type(binding.type_expr) if binding.type_expr is not None else None
             managed = binding.owned and self._values.is_managed(type_expr)
             if managed:
+                if getattr(binding, "retain_on_bind", False):
+                    result.append(IRExprStmt(expr=self._lifetime.retain_value(IRVar(name=binding_c_name), type_expr)))
                 runtime_type = self._values.runtime_name(type_expr)
                 self._ownership.register_managed_var(
                     binding.name,
@@ -605,6 +611,27 @@ class IterationLowerer:
         if iter_type and iter_type.base == "Span" and len(iter_type.generic_args) == 1:
             yield self.plan_span_for_in(node, lowered_iterable, iter_type, provenance)
             return
+        resolved_iter_type = self._types.resolve_active_type(iter_type) if iter_type is not None else None
+        if resolved_iter_type is not None and not isinstance(node, ParallelForStmt):
+            if self._is_direct_hash_table_iterable(resolved_iter_type):
+                yield self._plan_hash_table_for_in(
+                    node,
+                    lowered_iterable,
+                    resolved_iter_type,
+                    var_name,
+                    var_name2,
+                    provenance,
+                )
+                return
+            if self._is_direct_linked_list_iterable(resolved_iter_type):
+                yield self._plan_linked_list_for_in(
+                    node,
+                    lowered_iterable,
+                    resolved_iter_type,
+                    var_name,
+                    provenance,
+                )
+                return
         if iter_type:
             cls_info = self._analyzed.class_table.get(iter_type.base)
             if cls_info and "iterLen" in cls_info.methods and ("iterGet" in cls_info.methods):
@@ -656,6 +683,160 @@ class IterationLowerer:
             ),
             update=IRUnaryOp(op="++", operand=IRVar(name=idx), prefix=False),
             owners=(owner,) if owner is not None else (),
+        )
+
+    def _is_direct_hash_table_iterable(self, iter_type: TypeExpr) -> bool:
+        if iter_type.is_array or iter_type.pointer_depth > 1:
+            return False
+        cls_info = self._analyzed.class_table.get(iter_type.base)
+        if cls_info is None or not cls_info.generic_params:
+            return False
+        if iter_type.base == "Map" and len(iter_type.generic_args) == 2:
+            return all(field in cls_info.fields for field in ("cap", "occupied", "keys", "values"))
+        if iter_type.base == "Set" and len(iter_type.generic_args) == 1:
+            return all(field in cls_info.fields for field in ("cap", "occupied", "keys"))
+        return False
+
+    def _is_direct_linked_list_iterable(self, iter_type: TypeExpr) -> bool:
+        if (
+            iter_type.base != "List"
+            or iter_type.is_array
+            or iter_type.pointer_depth > 1
+            or len(iter_type.generic_args) != 1
+        ):
+            return False
+        cls_info = self._analyzed.class_table.get("List")
+        node_cls = self._analyzed.class_table.get("ListNode")
+        return bool(
+            cls_info
+            and cls_info.generic_params
+            and "head" in cls_info.fields
+            and node_cls
+            and node_cls.generic_params
+            and "value" in node_cls.fields
+            and "next" in node_cls.fields
+        )
+
+    def _plan_hash_table_for_in(
+        self,
+        node,
+        ir_iter: IRExpr,
+        iter_type: TypeExpr,
+        var_name: str,
+        var_name2: str | None,
+        provenance: CallableProvenance,
+    ) -> IterationPlan:
+        """Plan O(cap) open-addressed table iteration for stdlib Map/Set."""
+        tmp_iter = self._session.fresh_temp("__iter")
+        iter_c_type = self._types.render(iter_type)
+        if not iter_c_type.endswith("*"):
+            iter_c_type += "*"
+        hoist_decl = IRVarDecl(c_type=CType(text=iter_c_type), name=tmp_iter, init=ir_iter)
+        ir_iter = IRVar(name=tmp_iter)
+        stmts: list[IRStmt] = [hoist_decl]
+        owner = self.begin_owned_iterable(node.iterable, iter_type, hoist_decl.name, stmts, provenance)
+        idx = self._session.fresh_temp("__i")
+        n_var = self._session.fresh_temp("__n")
+        elem_type = iter_type.generic_args[0]
+        elem_c = self._iter_value_c(elem_type)
+        bindings = [
+            IterationBinding(
+                name=var_name,
+                c_type=elem_c,
+                type_expr=elem_type,
+                value=IRIndex(obj=IRFieldAccess(obj=ir_iter, field="keys", arrow=True), index=IRVar(name=idx)),
+                owned=True,
+                retain_on_bind=True,
+            )
+        ]
+        if var_name2 and iter_type.base == "Map" and len(iter_type.generic_args) == 2:
+            value_type = iter_type.generic_args[1]
+            v_c = self._iter_value_c(value_type)
+            bindings.append(
+                IterationBinding(
+                    name=var_name2,
+                    c_type=v_c,
+                    type_expr=value_type,
+                    value=IRIndex(obj=IRFieldAccess(obj=ir_iter, field="values", arrow=True), index=IRVar(name=idx)),
+                    owned=True,
+                    retain_on_bind=True,
+                )
+            )
+        stmts.append(
+            IRVarDecl(c_type=CType(text="int"), name=n_var, init=IRFieldAccess(obj=ir_iter, field="cap", arrow=True))
+        )
+        skip_empty = IRIf(
+            condition=IRUnaryOp(
+                op="!",
+                operand=IRIndex(obj=IRFieldAccess(obj=ir_iter, field="occupied", arrow=True), index=IRVar(name=idx)),
+                prefix=True,
+            ),
+            then_block=IRBlock(stmts=[IRContinue()]),
+        )
+        return IterationPlan(
+            source_body=node.body,
+            prefix=stmts,
+            bindings=tuple(bindings),
+            init=IRVarDecl(c_type=CType(text="int"), name=idx, init=IRLiteral(text="0")),
+            condition=IRBinOp(left=IRVar(name=idx), op="<", right=IRVar(name=n_var)),
+            update=IRUnaryOp(op="++", operand=IRVar(name=idx), prefix=False),
+            owners=(owner,) if owner is not None else (),
+            body_prefix=(skip_empty,),
+        )
+
+    def _plan_linked_list_for_in(
+        self,
+        node,
+        ir_iter: IRExpr,
+        iter_type: TypeExpr,
+        var_name: str,
+        provenance: CallableProvenance,
+    ) -> IterationPlan:
+        """Plan O(n) pointer-walk iteration for stdlib List<T>."""
+        tmp_iter = self._session.fresh_temp("__iter")
+        iter_c_type = self._types.render(iter_type)
+        if not iter_c_type.endswith("*"):
+            iter_c_type += "*"
+        hoist_decl = IRVarDecl(c_type=CType(text=iter_c_type), name=tmp_iter, init=ir_iter)
+        ir_iter = IRVar(name=tmp_iter)
+        stmts: list[IRStmt] = [hoist_decl]
+        owner = self.begin_owned_iterable(node.iterable, iter_type, hoist_decl.name, stmts, provenance)
+        node_var = self._session.fresh_temp("__node")
+        next_var = self._session.fresh_temp("__next")
+        elem_type = iter_type.generic_args[0]
+        elem_c = self._iter_value_c(elem_type)
+        node_type = TypeExpr(base="ListNode", generic_args=[elem_type], pointer_depth=1)
+        node_c = self._iter_value_c(node_type)
+        stmts.append(IRVarDecl(c_type=CType(text=node_c), name=next_var, init=IRLiteral(text="NULL")))
+        save_next = IRAssign(
+            target=IRVar(name=next_var),
+            value=IRFieldAccess(obj=IRVar(name=node_var), field="next", arrow=True),
+        )
+        return IterationPlan(
+            source_body=node.body,
+            prefix=stmts,
+            bindings=(
+                IterationBinding(
+                    name=var_name,
+                    c_type=elem_c,
+                    type_expr=elem_type,
+                    value=IRFieldAccess(obj=IRVar(name=node_var), field="value", arrow=True),
+                    owned=True,
+                    retain_on_bind=True,
+                ),
+            ),
+            init=IRVarDecl(
+                c_type=CType(text=node_c),
+                name=node_var,
+                init=IRFieldAccess(obj=ir_iter, field="head", arrow=True),
+            ),
+            condition=IRBinOp(left=IRVar(name=node_var), op="!=", right=IRLiteral(text="NULL")),
+            update=IRCast(
+                target_type=CType(text="void"),
+                expr=IRBinOp(left=IRVar(name=node_var), op="=", right=IRVar(name=next_var)),
+            ),
+            owners=(owner,) if owner is not None else (),
+            body_prefix=(save_next,),
         )
 
     def _plan_iterable_for_in(
@@ -729,13 +910,14 @@ class IterationLowerer:
     ) -> list[IRStmt]:
         """Complete callable flow and install an explicitly lowered loop body."""
         provenance.complete_loop(loop_flow, condition_can_exit=True)
+        loop_body = IRBlock(stmts=[*plan.body_prefix, body]) if plan.body_prefix else body
         result = [
             *plan.prefix,
             IRFor(
                 init=plan.init,
                 condition=plan.condition,
                 update=plan.update,
-                body=body,
+                body=loop_body,
             ),
         ]
         for owner in reversed(plan.owners):

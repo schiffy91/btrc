@@ -868,6 +868,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("euid", "int", "method", (), "euid"),
         BuiltinMemberSpec("isRoot", "bool", "method", (), "isRoot"),
         BuiltinMemberSpec("currentDirectory", "string", "method", (), "currentDirectory"),
+        BuiltinMemberSpec("programName", "string", "method", (), "programName"),
     )),
     ("Environment", (
         BuiltinMemberSpec("get", "string", "method", (("string", "name"), ("string", "fallback"),), "get"),

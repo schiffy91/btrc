@@ -30,6 +30,7 @@ import ./Types.btrc;
 class ScopeSnapshot {
 	public ManagedLifetimeSnapshot lifetime;
 	public JumpLoweringState jumps = JumpLoweringState();
+	public TryJumpState tryJumps = TryJumpState();
 	public string retC;
 	public Node? retType;
 	public bool retOwned;
@@ -123,6 +124,7 @@ class FunctionLowerer {
      * `gen._func_var_decls = []` reset at every body-lowering entry point. */
 	public void resetFuncVarDecls() {
 		self.context.beginFunction();
+		self.statements.clearTryJumps();
 		self.resetExpressionInferenceMemo();
 	}
 
@@ -143,6 +145,7 @@ class FunctionLowerer {
 		snap.trycatchDepth = self.context.tryCatchDepth;
 		snap.lifetime = self.managedLifetime.isolate();
 		snap.jumps = self.controlFlow.isolateJumps();
+		snap.tryJumps = self.statements.isolateTryJumps();
 		snap.funcVarDecls = self.context.snapshotFunctionLocals();
 		Vector<string> borrowed = self.context.snapshotBorrowedBindings();
 		int borrowedIndex = 0;
@@ -175,6 +178,7 @@ class FunctionLowerer {
 	public void exitIsolatedScope(ScopeSnapshot snap) {
 		self.managedLifetime.restore(snap.lifetime);
 		self.controlFlow.restoreJumps(snap.jumps);
+		self.statements.restoreTryJumps(snap.tryJumps);
 		self.context.restoreFunctionLocals(snap.funcVarDecls);
 		self.context.restoreBorrowedBindings(snap.borrowedLocalBindings);
 		self.context.restoreSourceBindings(snap.sourceLexicalBindings);
@@ -569,6 +573,34 @@ class FunctionLowerer {
 		self.gpuPipeline.finishCpuFallback(plan, body, module);
 	}
 
+	public IRNode lowerVectorMainBody(Node body, Node paramDecl, Node vecType, Map<string, Node> variableTypes) {
+		CallableFlowState callableFlow = CallableFlowState();
+		string vecPrefix = TypeIdentity.mangleGenericType("Vector", vecType.genericArgs());
+		string vecCType = self.cTypes.lower(vecType);
+		if (vecCType.length() < 1 || vecCType.substring(vecCType.length() - 1, 1) != "*") {
+			vecCType = vecCType + "*";
+		}
+		string argIdx = self.context.freshTemporary("__btrc_arg_i");
+		self.context.activateSourceName(paramDecl.name, self.lexicalBindingCName(paramDecl.name));
+		string argsCName = self.context.sourceCName(paramDecl.name);
+		Vector<IRNode> noArgs = [];
+		Vector<IRNode> declarations = [IRNode.variableDeclaration(vecCType, argsCName, IRNode.call(vecPrefix + "_new", noArgs))];
+		Vector<string> sourceNames = [paramDecl.name];
+		Vector<Node> types = [vecType];
+		Vector<bool> owned = [true];
+		IRNode argvElem = IRNode.indexAccess(IRNode.variable("__btrc_argv"), IRNode.variable(argIdx));
+		IRNode safeArg = IRNode.ternary(IRNode.binary(argvElem, "!=", IRNode.literal("NULL")), argvElem, IRNode.literal("\"\""));
+		Vector<IRNode> pushArgs = [IRNode.variable(argsCName), safeArg];
+		Vector<IRNode> loopStmts = [IRNode.expressionStatement(IRNode.call(vecPrefix + "_push", pushArgs))];
+		IRNode init = IRNode.variableDeclaration("int", argIdx, IRNode.literal("1"));
+		IRNode cond = IRNode.binary(IRNode.variable(argIdx), "<", IRNode.variable("__btrc_argc"));
+		IRNode upd = IRNode.unary("++", IRNode.variable(argIdx), false);
+		Vector<IRNode> prologue = [IRNode.forStatement(init, cond, upd, IRNode.block(loopStmts))];
+		IRNode lowered = self.statements.lowerBlockWithBindings(body, variableTypes, declarations, sourceNames, types, owned, callableFlow, null, prologue);
+		self.materializePendingCallables();
+		return lowered;
+	}
+
 	public IRFunction lowerFunction(Node d) {
 		self.gpuPipeline.resetHostCapacities();
 		IRFunction fn = IRFunction();
@@ -580,24 +612,40 @@ class FunctionLowerer {
 		/* main() with void return -> int (matches functions.py). */
 		if (d.name == "main" && ret == "void") { ret = "int"; }
 		fn.returnType = ret;
-		int i = 0;
-		while (i < d.params().len) {
-			Node p = d.params().get(i);
-			fn.params.push(self.cTypes.lowerParameter(p));
-			if (p.type != null && p.type.isArray) {
-				self.gpuPipeline.recordUnknownHostCapacity(p.name);
+		bool isVectorMain = false;
+		Node? vecParamType = null;
+		if (d.name == "main" && d.params().len == 1 && d.params().get(0).type != null) {
+			Node? resolvedParam = SemanticTypeSystem.resolveTypedefType(d.params().get(0).type, self.analyzed.typedefTable);
+			if (resolvedParam != null && resolvedParam.base == "Vector" && !resolvedParam.isArray && resolvedParam.pointerDepth <= 1 && resolvedParam.genericArgs().len == 1) {
+				isVectorMain = true;
+				vecParamType = resolvedParam;
 			}
-			i = i + 1;
+		}
+		if (isVectorMain) {
+			fn.params.push(IRParam("int", "__btrc_argc"));
+			fn.params.push(IRParam("char**", "__btrc_argv"));
+		} else {
+			int i = 0;
+			while (i < d.params().len) {
+				Node p = d.params().get(i);
+				fn.params.push(self.cTypes.lowerParameter(p));
+				if (p.type != null && p.type.isArray) {
+					self.gpuPipeline.recordUnknownHostCapacity(p.name);
+				}
+				i = i + 1;
+			}
 		}
 		/* Seed the global scope: module-level vars are visible inside every
          * function. Params (added next) shadow a same-named global, matching
          * scope resolution order. */
 		Map<string, Node> varTypes = self.bodyVarTypes();
-		int j = 0;
-		while (j < d.params().len) {
-			Node p = d.params().get(j);
-			varTypes.put(p.name, p.type);
-			j = j + 1;
+		if (!isVectorMain) {
+			int j = 0;
+			while (j < d.params().len) {
+				Node p = d.params().get(j);
+				varTypes.put(p.name, p.type);
+				j = j + 1;
+			}
 		}
 		self.context.currentReturnCType = ret;
 		self.context.currentReturnType = d.returnType;
@@ -605,13 +653,21 @@ class FunctionLowerer {
 		self.context.currentClass = "";
 		self.resetFuncVarDecls();
 		if (d.bodyNode != null) {
-			Vector<string> sourceBindings = self.replaceSourceLexicalParameters(d.params());
-			/* Hoist to a local: btrcpy's ARC double-evaluates `field = call()`
-             * (see gotchas), which would lower the body twice and desync the
-             * fresh-temp counter. */
-			IRNode b = self.lowerBody(d.bodyNode, varTypes);
-			fn.body = b;
-			self.context.restoreSourceBindings(sourceBindings);
+			if (isVectorMain && vecParamType != null) {
+				Vector<Node> noParams = [];
+				Vector<string> sourceBindings = self.replaceSourceLexicalParameters(noParams);
+				IRNode b = self.lowerVectorMainBody(d.bodyNode, d.params().get(0), vecParamType, varTypes);
+				fn.body = b;
+				self.context.restoreSourceBindings(sourceBindings);
+			} else {
+				Vector<string> sourceBindings = self.replaceSourceLexicalParameters(d.params());
+				/* Hoist to a local: btrcpy's ARC double-evaluates `field = call()`
+                 * (see gotchas), which would lower the body twice and desync the
+                 * fresh-temp counter. */
+				IRNode b = self.lowerBody(d.bodyNode, varTypes);
+				fn.body = b;
+				self.context.restoreSourceBindings(sourceBindings);
+			}
 		}
 		return fn;
 	}

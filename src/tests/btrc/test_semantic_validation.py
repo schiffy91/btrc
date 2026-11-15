@@ -92,7 +92,7 @@ def test_try_finally_without_catch_preserves_try_return_proof(
             }
         }
         int main() {
-            return run() == 7 && finallyRuns == 0 ? 0 : 1;
+            return run() == 7 && finallyRuns == 1 ? 0 : 1;
         }
     """
     selfhost, selfhost_source = compile_source(semantic_btrcc, tmp_path, source)

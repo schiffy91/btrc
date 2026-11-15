@@ -267,6 +267,18 @@ class CallableValueSemantics {
 			return self.expressionRequiresEnvironment(expression.left, context) || self.expressionRequiresEnvironment(expression.right, context);
 		}
 		if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+			if (expression.obj != null) {
+				Node? projectedReceiver = self.expressionType(expression.obj, context);
+				Node? projectedCanonical = self.canonicalType(projectedReceiver, context);
+				if (projectedCanonical != null && !projectedCanonical.isArray && projectedCanonical.pointerDepth <= 1) {
+					if ((projectedCanonical.base == "Array" || projectedCanonical.base == "List" || projectedCanonical.base == "Map" || projectedCanonical.base == "Set" || projectedCanonical.base == "Vector") && projectedCanonical.genericArgs().len > 0 && (expression.field == "len" || expression.field == "length" || expression.field == "size") && SemanticTypeSystem.genericMember(self.analysis, projectedCanonical.base, "len") != null) {
+						return false;
+					}
+					if ((projectedCanonical.base == "Bytes" || projectedCanonical.base == "StringBuilder") && projectedCanonical.genericArgs().len == 0 && expression.field == "length" && self.analysis.isClass(projectedCanonical.base) && self.analysis.classMember(projectedCanonical.base, "len") != null) {
+						return false;
+					}
+				}
+			}
 			Node? method = self.methodDeclaration(expression, context);
 			if (method != null) {
 				if (method.kind == NK_METHOD_SIG) { return true; }
@@ -292,7 +304,7 @@ class CallableValueSemantics {
 		if (receiverType.base == "Mutex" && receiverType.genericArgs().len == 1) {
 			return methodName == "get" || methodName == "set" || methodName == "destroy";
 		}
-		return SemanticTypeSystem.isString(receiverType) && SemanticTypeSystem.stringMethodResult(methodName) != null;
+		return SemanticTypeSystem.isString(receiverType) && methodName != "length" && SemanticTypeSystem.stringMethodResult(methodName) != null;
 	}
 
 	private Node? methodDeclaration(Node expression, CallableBoundaryContext context) {

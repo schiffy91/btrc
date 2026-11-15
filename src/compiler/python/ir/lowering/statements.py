@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from src.compiler.python.ir.nodes import (
     CType,
+    IRAssign,
+    IRBinOp,
     IRBlock,
     IRBreak,
     IRCall,
@@ -14,6 +16,8 @@ from src.compiler.python.ir.nodes import (
     IRContinue,
     IRDoWhile,
     IRExprStmt,
+    IRGoto,
+    IRIf,
     IRLiteral,
     IRStatementSequence,
     IRStmt,
@@ -163,6 +167,7 @@ class StatementLowerer:
         local_bindings=(),
         callable_bindings=(),
         callable_abis=(),
+        body_prologue=(),
     ) -> IRBlock:
         """Lower a btrc Block to an IRBlock."""
         if block is None or self._session.foreign_body:
@@ -194,6 +199,8 @@ class StatementLowerer:
                 provenance.bind_with_abi(binding.name, binding.type, return_abi)
             if iteration_bindings:
                 stmts.extend(self._iteration.emit_iteration_bindings(iteration_bindings, provenance))
+            if body_prologue:
+                stmts.extend(body_prologue() if callable(body_prologue) else body_prologue)
             with self._control_flow.jump_frame(block, stmts, provenance, marker):
                 for statement in block.statements:
                     self._emit_line_marker(statement, stmts)
@@ -250,6 +257,30 @@ class StatementLowerer:
             provenance,
         )
         plan = self._ownership.plan_return(node, provenance)
+        frame = self._exceptions.active_return_frame()
+        if frame is not None:
+            if node.value is None:
+                flow = provenance.project_goto(frame.callable_depth)
+                frame.escape_flows.append(flow)
+                frame.return_flows.append(flow)
+                return self._ownership.materialize_intercepted_return(frame, plan, None, provenance)
+            prepared = self._expressions.prepare_value(
+                node.value,
+                self._session.current_return_type,
+                provenance,
+            )
+            flow = provenance.project_goto(frame.callable_depth)
+            frame.escape_flows.append(flow)
+            frame.return_flows.append(flow)
+            return self._ownership.materialize_intercepted_return(
+                frame,
+                plan,
+                prepared.value,
+                provenance,
+                effective_type=prepared.effective_type,
+                owned=prepared.owned,
+                converted=prepared.converted,
+            )
         if node.value is None:
             return self._ownership.materialize_return(plan, None, provenance)
         prepared = self._expressions.prepare_value(
@@ -595,6 +626,23 @@ class StatementLowerer:
                 )
             ]
         if isinstance(node, BreakStmt):
+            frame = self._exceptions.active_break_frame()
+            if frame is not None:
+                flow = provenance.project_goto(frame.callable_depth)
+                frame.escape_flows.append(flow)
+                frame.break_flows.append(flow)
+                if frame.in_try_branch:
+                    frame.try_exit_used = True
+                    label = frame.try_exit_label
+                else:
+                    frame.catch_exit_used = True
+                    label = frame.catch_exit_label
+                return [
+                    *self._lifetime.release_scope(self._ownership.managed_from(frame.managed_depth), force=True),
+                    *self._cleanup_scope.exit(self._cleanup_scope.marker_from(frame.cleanup_depth)),
+                    IRAssign(target=IRVar(name=frame.action_name), value=IRLiteral(text="2")),
+                    IRGoto(name=label),
+                ]
             provenance.record_control_exit("break", self._session.control_context)
             try_pop = self._ownership.materialize_try_exit(self._ownership.exited_try_depth({"loop", "switch"}))
             return (
@@ -604,6 +652,23 @@ class StatementLowerer:
                 + [IRBreak()]
             )
         if isinstance(node, ContinueStmt):
+            frame = self._exceptions.active_continue_frame()
+            if frame is not None:
+                flow = provenance.project_goto(frame.callable_depth)
+                frame.escape_flows.append(flow)
+                frame.continue_flows.append(flow)
+                if frame.in_try_branch:
+                    frame.try_exit_used = True
+                    label = frame.try_exit_label
+                else:
+                    frame.catch_exit_used = True
+                    label = frame.catch_exit_label
+                return [
+                    *self._lifetime.release_scope(self._ownership.managed_from(frame.managed_depth), force=True),
+                    *self._cleanup_scope.exit(self._cleanup_scope.marker_from(frame.cleanup_depth)),
+                    IRAssign(target=IRVar(name=frame.action_name), value=IRLiteral(text="3")),
+                    IRGoto(name=label),
+                ]
             provenance.record_control_exit("continue", self._session.control_context)
             try_pop = self._ownership.materialize_try_exit(self._ownership.exited_try_depth({"loop"}))
             return (
@@ -696,7 +761,58 @@ class StatementLowerer:
                         node.finally_block,
                         provenance,
                     )
-            return self._exceptions.materialize_try_catch(plan, provenance)
+            dispatch_stmts: list[IRStmt] = []
+            frame = plan.jump_frame
+            if frame is not None and (node.finally_block is None or plan.finally_falls_through):
+
+                def _edge_flow(flows):
+                    base = provenance.merge_flows(*flows)
+                    if plan.finally_result is not None:
+                        return provenance.project_mutations(
+                            all_result=plan.finally_result,
+                            continuation_entry=base,
+                            mutated=plan.finally_mutations,
+                        )
+                    return base
+
+                if frame.return_flows:
+                    with provenance.isolated_flow():
+                        provenance.restore(_edge_flow(frame.return_flows))
+                        ret_val = IRVar(name=frame.return_name) if frame.has_return_slot else None
+                        ret_stmts = self._ownership.materialize_prepared_return(
+                            ret_val,
+                            lambda outer: (
+                                outer.escape_flows.append(provenance.project_goto(outer.callable_depth)),
+                                outer.return_flows.append(provenance.project_goto(outer.callable_depth)),
+                            ),
+                        )
+                    dispatch_stmts.append(
+                        IRIf(
+                            condition=IRBinOp(left=IRVar(name=frame.action_name), op="==", right=IRLiteral(text="1")),
+                            then_block=IRBlock(stmts=ret_stmts),
+                        )
+                    )
+                if frame.break_flows:
+                    with provenance.isolated_flow():
+                        provenance.restore(_edge_flow(frame.break_flows))
+                        brk_stmts = self.lower_stmt(BreakStmt(line=node.line, col=node.col), provenance)
+                    dispatch_stmts.append(
+                        IRIf(
+                            condition=IRBinOp(left=IRVar(name=frame.action_name), op="==", right=IRLiteral(text="2")),
+                            then_block=IRBlock(stmts=brk_stmts),
+                        )
+                    )
+                if frame.continue_flows:
+                    with provenance.isolated_flow():
+                        provenance.restore(_edge_flow(frame.continue_flows))
+                        cnt_stmts = self.lower_stmt(ContinueStmt(line=node.line, col=node.col), provenance)
+                    dispatch_stmts.append(
+                        IRIf(
+                            condition=IRBinOp(left=IRVar(name=frame.action_name), op="==", right=IRLiteral(text="3")),
+                            then_block=IRBlock(stmts=cnt_stmts),
+                        )
+                    )
+            return self._exceptions.materialize_try_catch(plan, provenance, dispatch_stmts)
 
     def _lower_if(
         self,

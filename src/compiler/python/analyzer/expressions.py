@@ -559,7 +559,32 @@ class ExpressionAnalyzer:
 
     def _is_computed_field_projection(self, expression: FieldAccessExpr) -> bool:
         receiver_type = self.types.canonical_type(self.infer_type(expression.obj))
-        return bool(receiver_type and receiver_type.base == "string")
+        if receiver_type is None:
+            return False
+        if receiver_type.base == "string" and receiver_type.pointer_depth == 0 and not receiver_type.is_array:
+            return True
+        if expression.field == "length" and not receiver_type.is_array:
+            if (
+                receiver_type.base == "Span"
+                and receiver_type.pointer_depth == 0
+                and len(receiver_type.generic_args) == 1
+            ):
+                return True
+            cls = self.index.class_table.get(receiver_type.base)
+            if (
+                cls is not None
+                and "len" in cls.fields
+                and receiver_type.pointer_depth <= 1
+                and (
+                    (
+                        receiver_type.base in {"Array", "List", "Map", "Set", "Vector"}
+                        and bool(receiver_type.generic_args)
+                    )
+                    or (receiver_type.base in {"Bytes", "StringBuilder"} and not receiver_type.generic_args)
+                )
+            ):
+                return True
+        return False
 
     def _is_reference_receiver(self, type_expr) -> bool:
         return bool(
@@ -1649,6 +1674,18 @@ class ExpressionAnalyzer:
             if class_info and expr.field in class_info.static_fields:
                 return class_info.static_fields[expr.field].type
         obj_type = self._infer_type(expr.obj)
+        canonical_obj = self.types.canonical_type(obj_type)
+        if canonical_obj and self.types.is_scalar_string_value(canonical_obj) and expr.field == "length":
+            return TypeExpr(base="int")
+        if (
+            canonical_obj
+            and canonical_obj.base == "Span"
+            and canonical_obj.pointer_depth == 0
+            and (not canonical_obj.is_array)
+            and len(canonical_obj.generic_args) == 1
+            and expr.field == "length"
+        ):
+            return TypeExpr(base="size_t")
         if obj_type and (obj_type.base == "Tuple" or obj_type.base.startswith("(")):
             if expr.field.startswith("_") and expr.field[1:].isdigit():
                 index = int(expr.field[1:])
@@ -1659,9 +1696,25 @@ class ExpressionAnalyzer:
             if expr.field == "tag":
                 return TypeExpr(base="int")
             return None
-        if obj_type and obj_type.base in {"Array", "List", "Map", "Set", "Vector"}:
-            if expr.field in {"len", "length", "size"}:
+        if canonical_obj and (not canonical_obj.is_array) and canonical_obj.pointer_depth <= 1:
+            if (
+                canonical_obj.base in {"Array", "List", "Map", "Set", "Vector"}
+                and canonical_obj.generic_args
+                and expr.field in {"len", "length", "size"}
+                and canonical_obj.base in self.index.class_table
+                and "len" in self.index.class_table[canonical_obj.base].fields
+            ):
+                if expr.field == "length":
+                    return TypeExpr(base="int")
                 return TypeExpr(base="int", is_const=obj_type.is_const)
+            if (
+                canonical_obj.base in {"Bytes", "StringBuilder"}
+                and (not canonical_obj.generic_args)
+                and expr.field == "length"
+                and canonical_obj.base in self.index.class_table
+                and "len" in self.index.class_table[canonical_obj.base].fields
+            ):
+                return TypeExpr(base="int")
         if isinstance(expr.obj, FieldAccessExpr) and isinstance(expr.obj.obj, FieldAccessExpr):
             data_expr = expr.obj.obj
             if isinstance(data_expr.obj, (Identifier, FieldAccessExpr)):
@@ -2625,8 +2678,9 @@ class ExpressionAnalyzer:
             if expr.field not in {"tag", "data"} and (not (call_target and expr.field == "toString")):
                 self.session.error(f"Rich enum '{obj_type.base}' has no field '{expr.field}'", expr.line, expr.col)
             return
-        if obj_type and obj_type.base == "string":
-            if not call_target:
+        canonical_obj = self.types.canonical_type(obj_type)
+        if canonical_obj and self.types.is_scalar_string_value(canonical_obj):
+            if not call_target and expr.field != "length":
                 self.session.error(
                     f"Type 'string' has no field '{expr.field}'; use a string method call", expr.line, expr.col
                 )
@@ -2683,6 +2737,22 @@ class ExpressionAnalyzer:
                         self.session.error(
                             f"Cannot access private method '{expr.field}' of class '{owner}'", expr.line, expr.col
                         )
+            elif (
+                not call_target
+                and expr.field == "length"
+                and canonical_obj is not None
+                and (not canonical_obj.is_array)
+                and canonical_obj.pointer_depth <= 1
+                and "len" in cls.fields
+                and (
+                    (
+                        canonical_obj.base in {"Array", "List", "Map", "Set", "Vector"}
+                        and bool(canonical_obj.generic_args)
+                    )
+                    or (canonical_obj.base in {"Bytes", "StringBuilder"} and (not canonical_obj.generic_args))
+                )
+            ):
+                return
             else:
                 self.session.error(f"Class '{cls.name}' has no field or method '{expr.field}'", expr.line, expr.col)
 

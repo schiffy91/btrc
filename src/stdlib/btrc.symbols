@@ -1,4 +1,4 @@
-btrc-symbols 1 88548e78-248952-26
+btrc-symbols 1 065f1508-251494-26
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
 BitPattern32	BitPattern.btrc
@@ -62,6 +62,7 @@ FileLineReadOutcome	IO.btrc
 FileSnapshot	IO.btrc
 FileSnapshotReadKind	IO.btrc
 FileSnapshotReadOutcome	IO.btrc
+GetModuleFileNameA	Platform.btrc
 ICallbackContext	Callback.btrc
 ICallbackRegistration	Callback.btrc
 Iterable	Iterable.btrc

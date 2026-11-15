@@ -2927,8 +2927,34 @@ class ExpressionLowerer {
 		}
 		IRNode obj = self.lowerExpr(node.obj, varTypes, callableFlow);
 		Node? ot = self.resolvedExpressionType(node.obj, varTypes);
+		Node? resolvedOt = self.cTypes.resolveBodyType(ot, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		resolvedOt = SemanticTypeSystem.resolveTypedefType(resolvedOt, self.analyzed.typedefTable);
+		if (resolvedOt != null && self.managedValues.isString(resolvedOt) && node.field == "length") {
+			self.context.referenceHelper("__btrc_string_length");
+			if (node.optional) {
+				string receiverName = self.context.freshTemporary("__btrc_optional");
+				string receiverType = ot != null ? self.cTypes.lower(ot) : "char*";
+				IRNode receiver = IRNode.variable(receiverName);
+				Vector<IRNode> declarations = [IRNode.variableDeclaration(receiverType, receiverName, null)];
+				Vector<IRNode> sequence = [
+					IRNode.binary(receiver, "=", obj),
+					IRNode.ternary(IRNode.binary(receiver, "!=", IRNode.literal("NULL")), IRNode.call("__btrc_string_length", [receiver]), IRNode.literal("0"))
+				];
+				return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
+			}
+			return IRNode.call("__btrc_string_length", [obj]);
+		}
 		string fieldName = self.sourceFieldCName(node, varTypes);
 		Node? property = DeclarationRegistry.instanceMemberForType(self.analyzed, ot, node.field);
+		if (resolvedOt != null && !resolvedOt.isArray && resolvedOt.pointerDepth <= 1) {
+			if ((resolvedOt.base == "Array" || resolvedOt.base == "List" || resolvedOt.base == "Map" || resolvedOt.base == "Set" || resolvedOt.base == "Vector") && resolvedOt.genericArgs().len > 0 && (node.field == "len" || node.field == "length" || node.field == "size") && SemanticTypeSystem.genericMember(self.analyzed, resolvedOt.base, "len") != null) {
+				fieldName = "len";
+				property = null;
+			} else if ((resolvedOt.base == "Bytes" || resolvedOt.base == "StringBuilder") && resolvedOt.genericArgs().len == 0 && node.field == "length" && self.analyzed.classMember(resolvedOt.base, "len") != null) {
+				fieldName = "len";
+				property = null;
+			}
+		}
 		if (property != null && property.kind == NK_PROPERTY_DECL && DeclarationRegistry.propertyTargetUsesBacking(node.obj, node.field, self.context.currentPropertyBacking)) {
 			return IRNode.fieldAccess(obj, DeclarationRegistry.instanceStorageName(property), true);
 		}

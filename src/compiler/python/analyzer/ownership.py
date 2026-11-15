@@ -179,6 +179,24 @@ class CallableValueSemantics:
         if class_info is not None:
             if expression.field in class_info.fields or expression.field in class_info.properties:
                 return False
+            if (
+                not receiver_type.is_array
+                and receiver_type.pointer_depth <= 1
+                and "len" in class_info.fields
+                and (
+                    (
+                        receiver_type.base in {"Array", "List", "Map", "Set", "Vector"}
+                        and receiver_type.generic_args
+                        and expression.field in {"length", "size"}
+                    )
+                    or (
+                        receiver_type.base in {"Bytes", "StringBuilder"}
+                        and not receiver_type.generic_args
+                        and expression.field == "length"
+                    )
+                )
+            ):
+                return False
             method = class_info.methods.get(expression.field)
             if method is not None:
                 return method.access != "class"
@@ -188,7 +206,7 @@ class CallableValueSemantics:
         return bool(
             (receiver_type.base == "Thread" and expression.field == "join")
             or (receiver_type.base == "Mutex" and expression.field in {"get", "set", "destroy"})
-            or receiver_type.base == "string"
+            or (receiver_type.base == "string" and expression.field != "length")
         )
 
 

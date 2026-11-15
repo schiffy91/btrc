@@ -82,8 +82,12 @@ static inline int btrc_win_fsync(int descriptor) {
 #ifndef BTRC_WIN_REMOVE_DIRECTORY
 #define BTRC_WIN_REMOVE_DIRECTORY RemoveDirectoryA
 #endif
+#ifndef BTRC_WIN_GET_MODULE_FILE_NAME
+#define BTRC_WIN_GET_MODULE_FILE_NAME GetModuleFileNameA
+#endif
 unsigned long BTRC_WIN_GET_FILE_ATTRIBUTES(const char *path);
 int BTRC_WIN_REMOVE_DIRECTORY(const char *path);
+unsigned long BTRC_WIN_GET_MODULE_FILE_NAME(void *module, char *buffer, unsigned long size);
 
 #ifndef INVALID_FILE_ATTRIBUTES
 #define INVALID_FILE_ATTRIBUTES ((unsigned long)-1)

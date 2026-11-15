@@ -219,6 +219,12 @@ class DeclarationValidator {
 		if (functionDecl.name != "main") { return; }
 		bool resultValid = self.plainType(functionDecl.returnType, "int") || self.plainType(functionDecl.returnType, "void");
 		bool paramsValid = functionDecl.params().len == 0;
+		if (resultValid && functionDecl.params().len == 1) {
+			Node param = functionDecl.params().get(0);
+			Node? vecType = self.types.resolveAliases(param.type);
+			Node? elemType = (vecType != null && vecType.genericArgs().len == 1) ? self.types.resolveAliases(vecType.genericArgs().get(0)) : null;
+			paramsValid = !param.keep_ && param.default_ == null && vecType != null && vecType.base == "Vector" && !vecType.isArray && vecType.pointerDepth <= 1 && !vecType.isNullable && vecType.nullableOuterDepth == 0 && self.state.analyzed.isGenericClass("Vector") && self.state.analyzed.genericClassMethod("Vector", "push") != null && elemType != null && elemType.base == "string" && elemType.pointerDepth == 0 && !elemType.isArray && elemType.genericArgs().len == 0 && !elemType.isNullable && elemType.nullableOuterDepth == 0;
+		}
 		if (self.plainType(functionDecl.returnType, "int") && functionDecl.params().len == 2) {
 			Node? argc = self.types.resolveAliases(functionDecl.params().get(0).type);
 			Node? argv = self.types.resolveAliases(functionDecl.params().get(1).type);
@@ -227,7 +233,7 @@ class DeclarationValidator {
 			paramsValid = argc != null && argv != null && argc.base == "int" && argc.pointerDepth == 0 && !argc.isArray && argc.genericArgs().len == 0 && argv.base == "char" && argvDepth == 2 && argv.genericArgs().len == 0;
 		}
 		if (!resultValid || !paramsValid || functionDecl.isGpu) {
-			TypeValidator.fail("main must be 'int main()', 'int main(int, char**)', or 'void main()'", functionDecl);
+			TypeValidator.fail("main must be 'int main()', 'int main(int, char**)', 'int main(Vector<string>)', 'void main()', or 'void main(Vector<string>)'", functionDecl);
 		}
 	}
 
@@ -896,6 +902,9 @@ class DeclarationValidator {
 		self.state.parameterNames = self.types.cloneFlags(parameterNames);
 		self.state.borrowedBindings = self.types.cloneFlags(parameterNames);
 		self.state.localBindings = self.types.cloneFlags(parameterNames);
+		if (classDeclaration == null && callable.name == "main" && callable.params().len == 1) {
+			self.state.borrowedBindings.remove(callable.params().get(0).name);
+		}
 		if (classDeclaration != null && callable.access != "class") {
 			self.state.borrowedBindings.put("self", true);
 			self.state.localBindings.put("self", true);

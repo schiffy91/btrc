@@ -1183,6 +1183,11 @@ class StorageValidator {
 		Node? receiverType = self.types.inferType(expression.obj, vars);
 		receiverType = self.types.resolveAliases(receiverType);
 		if (SemanticTypeSystem.isString(receiverType)) { return false; }
+		if (receiverType != null && expression.field == "length" && !receiverType.isArray) {
+			if (receiverType.base == "Span" && receiverType.pointerDepth == 0 && receiverType.genericArgs().len == 1) { return false; }
+			if ((receiverType.base == "Array" || receiverType.base == "List" || receiverType.base == "Map" || receiverType.base == "Set" || receiverType.base == "Vector") && receiverType.pointerDepth <= 1 && receiverType.genericArgs().len > 0 && SemanticTypeSystem.genericMember(self.state.analyzed, receiverType.base, "len") != null) { return false; }
+			if ((receiverType.base == "Bytes" || receiverType.base == "StringBuilder") && receiverType.pointerDepth <= 1 && receiverType.genericArgs().len == 0 && self.state.analyzed.classMember(receiverType.base, "len") != null) { return false; }
+		}
 		if (self.referenceReceiver(receiverType)) { return true; }
 		return self.isAddressableStorage(expression.obj,  vars);
 	}

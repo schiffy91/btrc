@@ -577,6 +577,16 @@ class ManagedLifetimeLowerer {
 
 	public int managedCount() { return self.managedStack.len; }
 
+	public int managedScopeDepth() { return self.scopeStarts.len; }
+
+	public Vector<Managed> managedFromScope(int scopeDepth) {
+		if (scopeDepth >= self.scopeStarts.len) {
+			Vector<Managed> none = [];
+			return none;
+		}
+		return self.managedRange(self.scopeStarts.get(scopeDepth), self.managedStack.len);
+	}
+
 	public int managedScopeStart() { return self.scopeStarts.get(self.scopeStarts.len - 1); }
 
 	public int cleanupDepth() { return self.cleanupMarkers.len; }
@@ -733,6 +743,20 @@ class ManagedLifetimeLowerer {
 	}
 
 	public Vector<string> controlKinds() { return self.controls; }
+
+	public int controlDepth() { return self.controls.len; }
+
+	public int nearestControlIndex(bool switchIsTarget) {
+		int index = self.controls.len - 1;
+		while (index >= 0) {
+			string kind = self.controls.get(index);
+			if (kind == "loop" || (switchIsTarget && kind == "switch")) {
+				return index;
+			}
+			index = index - 1;
+		}
+		return -1;
+	}
 
 	public int exitedTryDepth(bool switchIsTarget) {
 		int depth = 0;

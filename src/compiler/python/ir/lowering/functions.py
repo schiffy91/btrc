@@ -31,6 +31,7 @@ from src.compiler.python.ir.nodes import (
     IRDeref,
     IRExprStmt,
     IRFieldAccess,
+    IRFor,
     IRFunctionDecl,
     IRFunctionDef,
     IRFunctionPointerTypedef,
@@ -8514,7 +8515,26 @@ class FunctionLowerer:
         ret_type = self._types.render(decl.return_type) if decl.return_type else "void"
         if decl.name == "main" and ret_type == "void":
             ret_type = "int"
-        params = [provenance.lower_source_param(parameter) for parameter in decl.params]
+        is_vector_main = False
+        vec_param = None
+        if decl.name == "main" and len(decl.params) == 1 and decl.params[0].type is not None:
+            resolved_param = self._types.canonical_type(decl.params[0].type)
+            if (
+                resolved_param is not None
+                and resolved_param.base == "Vector"
+                and not resolved_param.is_array
+                and resolved_param.pointer_depth <= 1
+                and len(resolved_param.generic_args) == 1
+            ):
+                is_vector_main = True
+                vec_param = resolved_param
+        if is_vector_main:
+            params = [
+                IRParam(c_type=CType(text="int"), name="__btrc_argc"),
+                IRParam(c_type=CType(text="char**"), name="__btrc_argv"),
+            ]
+        else:
+            params = [provenance.lower_source_param(parameter) for parameter in decl.params]
         is_static = bool(decl.return_type and decl.return_type.is_static)
         c_name = provenance.source_function_c_name(decl.name)
         if decl.body is None:
@@ -8533,12 +8553,62 @@ class FunctionLowerer:
         self._session.current_return_owned = True
         self._normalizing_void_main = bool(name == "main" and decl.return_type.base == "void")
         try:
-            body = self._statements.lower_block(
-                decl.body,
-                provenance,
-                local_bindings=[parameter.name for parameter in decl.params],
-                callable_bindings=decl.params,
-            )
+            if is_vector_main and vec_param is not None:
+                from .iteration import IterationBinding
+
+                param_decl = decl.params[0]
+                vec_c_type = self._types.render(vec_param)
+                vec_prefix = vec_c_type[:-1] if vec_c_type.endswith("*") else vec_c_type
+                if not vec_c_type.endswith("*"):
+                    vec_c_type += "*"
+                arg_idx = self._session.fresh_temp("__btrc_arg_i")
+                main_binding = IterationBinding(
+                    name=param_decl.name,
+                    c_type=vec_c_type,
+                    type_expr=vec_param,
+                    value=IRCall(callee=f"{vec_prefix}_new", args=[]),
+                    owned=True,
+                )
+
+                def _build_main_prologue() -> list[IRStmt]:
+                    args_c_name = self._ownership.source_binding_c_name(param_decl.name, provenance)
+                    argv_elem = IRIndex(obj=IRVar(name="__btrc_argv"), index=IRVar(name=arg_idx))
+                    safe_arg = IRTernary(
+                        condition=IRBinOp(left=argv_elem, op="!=", right=IRLiteral(text="NULL")),
+                        true_expr=argv_elem,
+                        false_expr=IRLiteral(text='""'),
+                    )
+                    return [
+                        IRFor(
+                            init=IRVarDecl(c_type=CType(text="int"), name=arg_idx, init=IRLiteral(text="1")),
+                            condition=IRBinOp(left=IRVar(name=arg_idx), op="<", right=IRVar(name="__btrc_argc")),
+                            update=IRUnaryOp(op="++", operand=IRVar(name=arg_idx), prefix=False),
+                            body=IRBlock(
+                                stmts=[
+                                    IRExprStmt(
+                                        expr=IRCall(
+                                            callee=f"{vec_prefix}_push",
+                                            args=[IRVar(name=args_c_name), safe_arg],
+                                        )
+                                    )
+                                ]
+                            ),
+                        )
+                    ]
+
+                body = self._statements.lower_block(
+                    decl.body,
+                    provenance,
+                    iteration_bindings=(main_binding,),
+                    body_prologue=_build_main_prologue,
+                )
+            else:
+                body = self._statements.lower_block(
+                    decl.body,
+                    provenance,
+                    local_bindings=[parameter.name for parameter in decl.params],
+                    callable_bindings=decl.params,
+                )
         finally:
             self._normalizing_void_main = previous_void_main
             self._session.current_return_type = previous_return_type

@@ -1,0 +1,10 @@
+import Library.Platform;
+
+#include <assert.h>
+
+int main() {
+	string name = Platform.programName();
+	assert(name.length > 0);
+	print("PASS: test_platform_program_name");
+	return 0;
+}

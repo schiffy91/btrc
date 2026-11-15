@@ -1456,10 +1456,11 @@ class StatementAnalyzer:
         class_info = self.index.class_table.get(iter_type.base) if iter_type else None
         owned_first = bool(class_info and "iterLen" in class_info.methods and ("iterGet" in class_info.methods))
         owned_second = bool(owned_first and "iterValueAt" in class_info.methods)
-        if owned_first:
+        direct_stdlib_for_in = self._is_direct_stdlib_for_in(iter_type)
+        if owned_first and not direct_stdlib_for_in:
             self.generics.record_class_method_use(iter_type, "iterLen")
             self.generics.record_class_method_use(iter_type, "iterGet")
-        if stmt.var_name2 and owned_second:
+        if stmt.var_name2 and owned_second and not direct_stdlib_for_in:
             self.generics.record_class_method_use(iter_type, "iterValueAt")
         with self.session.scope_frame():
             if elem_type and self._claim_local_binding(stmt.var_name, "loop variable", stmt.line, stmt.col):
@@ -2072,6 +2073,23 @@ class StatementAnalyzer:
         self.session.in_gpu_function = prev_gpu
         self.session.current_return_type = prev_return_type
 
+    def _is_direct_stdlib_for_in(self, iter_type) -> bool:
+        if iter_type is None or iter_type.is_array or iter_type.pointer_depth > 1:
+            return False
+        cls = self.index.class_table.get(iter_type.base)
+        if cls is None or not cls.generic_params:
+            return False
+        if iter_type.base == "Map" and len(iter_type.generic_args) == 2:
+            return all(field in cls.fields for field in ("cap", "occupied", "keys", "values"))
+        if iter_type.base == "Set" and len(iter_type.generic_args) == 1:
+            return all(field in cls.fields for field in ("cap", "occupied", "keys"))
+        if iter_type.base == "List" and len(iter_type.generic_args) == 1 and "head" in cls.fields:
+            node_cls = self.index.class_table.get("ListNode")
+            return bool(
+                node_cls and node_cls.generic_params and "value" in node_cls.fields and "next" in node_cls.fields
+            )
+        return False
+
     def _analyze_function_body(self, func) -> None:
         prepare = id(func) not in self._prepared_callables
         if prepare:
@@ -2082,8 +2100,11 @@ class StatementAnalyzer:
                 func.name, func.return_type, "function", func.name_line or func.line, func.name_col or func.col
             ),
         )
+        is_vector_main = bool(func.name == "main" and len(func.params) == 1)
         for param in func.params:
             self.generics.collect_type_instances(param.type)
+            if is_vector_main:
+                self.generics.record_class_method_use(param.type, "push")
             if prepare and param.default is not None:
                 parameter_value_type = self.aggregates.array_parameter_value_type(param.type)
                 self.aggregates.validate_array_parameter_default(
@@ -2125,7 +2146,10 @@ class StatementAnalyzer:
                 param.name_col or param.col,
                 c_name_generated=True,
             ):
-                self.session.scope.define(param.name, self._param_symbol(param))
+                param_symbol = self._param_symbol(param)
+                if is_vector_main:
+                    param_symbol = dataclasses.replace(param_symbol, owned_storage=True)
+                self.session.scope.define(param.name, param_symbol)
         self.generics.collect_type_instances(func.return_type)
         self._prepared_callables.add(id(func))
         if id(func.body) in self.session.unreached_stdlib_bodies:

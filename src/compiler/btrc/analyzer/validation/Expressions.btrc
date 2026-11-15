@@ -546,6 +546,14 @@ class ExpressionValidator {
 	}
 
 	public void validateInstanceProjection(Node expression, Node receiver, bool requireGetter) {
+		if (expression.field == "length" && !receiver.isArray && receiver.pointerDepth <= 1) {
+			if ((receiver.base == "Array" || receiver.base == "List" || receiver.base == "Map" || receiver.base == "Set" || receiver.base == "Vector") && receiver.genericArgs().len > 0 && SemanticTypeSystem.genericMember(self.state.analyzed, receiver.base, "len") != null) {
+				return;
+			}
+			if ((receiver.base == "Bytes" || receiver.base == "StringBuilder") && receiver.genericArgs().len == 0 && self.state.analyzed.classMember(receiver.base, "len") != null) {
+				return;
+			}
+		}
 		if (self.names.validateResolvedMemberAccess(receiver.base, expression.field, NK_PROPERTY_DECL, false, true, "property", expression)) {
 			string owner = self.names.resolveMemberOwner(receiver.base, expression.field, NK_PROPERTY_DECL, false, true, self.state.analyzed);
 			Node? property = self.names.declaredMember(owner, expression.field, NK_PROPERTY_DECL, false, self.state.analyzed);
@@ -629,6 +637,7 @@ class ExpressionValidator {
 			return;
 		}
 		if (SemanticTypeSystem.isString(receiver)) {
+			if (expression.field == "length") { return; }
 			TypeValidator.fail("Type 'string' has no field '" + expression.field + "'; use a string method call", expression);
 		}
 		if (receiver.base == "Tuple") {

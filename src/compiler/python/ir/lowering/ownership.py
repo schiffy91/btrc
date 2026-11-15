@@ -29,6 +29,7 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRFunctionRef,
     IRGlobalDecl,
+    IRGoto,
     IRIf,
     IRInitializerList,
     IRLiteral,
@@ -78,7 +79,7 @@ from src.compiler.python.syntax.ast.generated import (
 from .types import CodegenError, CTypeLowerer
 
 if TYPE_CHECKING:
-    from .session import LoweringSession
+    from .session import LoweringSession, TryJumpFrame
 
 ARC_HEADER_FIELD = "__arc"
 _MANAGED_REGISTER = "__btrc_register_cleanup"
@@ -1946,6 +1947,7 @@ class OwnershipLowerer:
         self._local_register_scopes: list[set[str]] = []
         self._loop_scope_depths: list[int] = []
         self._session.control_context = []
+        self._session.try_jump_stack = []
         self._control_managed_depths: list[int] = []
         self._session.in_try_depth = 0
         self._session.in_trycatch_depth = 0
@@ -1964,6 +1966,7 @@ class OwnershipLowerer:
         session_state = (
             self._session.local_ownership_scopes,
             self._session.control_context,
+            self._session.try_jump_stack,
             self._session.in_try_depth,
             self._session.in_trycatch_depth,
             self._session.function_declarations,
@@ -1984,6 +1987,7 @@ class OwnershipLowerer:
         self._control_managed_depths = []
         self._session.local_ownership_scopes = []
         self._session.control_context = []
+        self._session.try_jump_stack = []
         self._session.in_try_depth = 0
         self._session.in_trycatch_depth = 0
         self._session.function_declarations = []
@@ -2010,6 +2014,7 @@ class OwnershipLowerer:
             (
                 self._session.local_ownership_scopes,
                 self._session.control_context,
+                self._session.try_jump_stack,
                 self._session.in_try_depth,
                 self._session.in_trycatch_depth,
                 self._session.function_declarations,
@@ -2056,6 +2061,51 @@ class OwnershipLowerer:
                 result.extend(scope)
             return result
         return []
+
+    def nearest_control_index(self, targets: set[str]) -> int:
+        """Return the innermost control-context index matching ``targets``, or -1."""
+        for index in range(len(self._session.control_context) - 1, -1, -1):
+            if self._session.control_context[index] in targets:
+                return index
+        return -1
+
+    def managed_from(self, scope_depth: int) -> list[ManagedLocal]:
+        """Return managed locals declared at or inside ``scope_depth``."""
+        result: list[ManagedLocal] = []
+        for scope in self._managed_vars_stack[scope_depth:]:
+            result.extend(scope)
+        return result
+
+    def register_synthetic_managed_slot(
+        self,
+        c_name: str,
+        class_type: str,
+        value_type: TypeExpr,
+        *,
+        cycle_seed: bool,
+    ) -> None:
+        if self._managed_vars_stack:
+            self._managed_vars_stack[-1].append(
+                ManagedLocal(
+                    c_name,
+                    class_type,
+                    cycle_seed,
+                    value_type=value_type,
+                    c_name=c_name,
+                )
+            )
+
+    def register_synthetic_thread_slot(self, c_name: str) -> None:
+        if self._managed_vars_stack:
+            self._managed_vars_stack[-1].append(
+                ManagedLocal(
+                    c_name,
+                    "",
+                    False,
+                    c_name=c_name,
+                    cleanup_kind="thread",
+                )
+            )
 
     def push_managed_scope(self) -> None:
         self._managed_vars_stack.append([])
@@ -2391,11 +2441,21 @@ class OwnershipLowerer:
     ) -> list[IRStmt]:
         """Materialize a return from a value lowered by the expression owner."""
         if plan.source is None:
+            void_return_value = (
+                IRLiteral(text="0")
+                if (
+                    self._session.current_return_c_type == "int"
+                    and self._session.current_return_type is not None
+                    and self._session.current_return_type.base == "void"
+                    and self._session.current_return_type.pointer_depth == 0
+                )
+                else None
+            )
             return [
                 *self._lifetime.release_scope(self.get_all_managed_vars()),
                 *self._emit_return_try_pop(),
                 *self._emit_return_cleanup_discard(),
-                IRReturn(value=None),
+                IRReturn(value=void_return_value),
             ]
         if value is None:
             raise ValueError("non-void return materialization requires a value")
@@ -2429,6 +2489,173 @@ class OwnershipLowerer:
         # release, whose destructor may throw, runs before the return.
         if managed_return and returned_local is None and release_stmts:
             runtime_type = self._values.runtime_name(plan.return_type)
+            self._lifetime.register_named_cleanup(temporary.name, runtime_type, prefix)
+            cleanup_discard = self._emit_return_cleanup_discard()
+        return [*prefix, *release_stmts, *try_pop, *cleanup_discard, IRReturn(value=self._maybe_launder_return(result))]
+
+    def materialize_intercepted_return(
+        self,
+        frame: TryJumpFrame,
+        plan: ReturnPlan,
+        value: IRExpr | None,
+        provenance: CallableBodyFacts | None,
+        *,
+        effective_type: TypeExpr | None = None,
+        owned: bool = False,
+        converted: bool = False,
+    ) -> list[IRStmt]:
+        """Store an escaping return into ``frame`` and jump to its branch exit."""
+        if frame.in_try_branch:
+            frame.try_exit_used = True
+            label = frame.try_exit_label
+        else:
+            frame.catch_exit_used = True
+            label = frame.catch_exit_label
+        branch_managed = self.managed_from(frame.managed_depth)
+        cleanup_exit = self._cleanup_scope.exit(self._cleanup_scope.marker_from(frame.cleanup_depth))
+        if plan.source is None or not frame.has_return_slot:
+            return [
+                *self._lifetime.release_scope(branch_managed, force=True),
+                *cleanup_exit,
+                IRAssign(target=IRVar(name=frame.action_name), value=IRLiteral(text="1")),
+                IRGoto(name=label),
+            ]
+        if value is None:
+            raise ValueError("non-void return materialization requires a value")
+        value = self._types.upcast_class_pointer(plan.return_type, effective_type, value)
+        canonical_return = self._types.canonical_type(plan.return_type)
+        managed_value_type = self._values.is_managed(plan.return_type)
+        managed_return = managed_value_type and self._session.current_return_owned
+        is_thread_return = bool(
+            canonical_return is not None
+            and canonical_return.base == "Thread"
+            and canonical_return.pointer_depth == 0
+            and not canonical_return.is_array
+        )
+        returned_local = None if converted else plan.returned_local
+        returned_c_name = (
+            self.source_binding_c_name(returned_local, provenance)
+            if returned_local is not None and provenance is not None
+            else None
+        )
+        branch_c_names = {local.c_name or local.name for local in branch_managed}
+        moved_branch_c_name = (
+            returned_c_name
+            if returned_c_name is not None
+            and returned_c_name in branch_c_names
+            and (managed_return or is_thread_return)
+            else None
+        )
+        moved_outer_thread_c_name = (
+            returned_c_name
+            if returned_c_name is not None and returned_c_name not in branch_c_names and is_thread_return
+            else None
+        )
+        owned_value = bool(managed_return and (owned or moved_branch_c_name is not None))
+        promote_borrowed = managed_return and (not owned_value)
+        release_stmts = self._lifetime.release_scope(
+            [local for local in branch_managed if (local.c_name or local.name) != moved_branch_c_name],
+            force=True,
+        )
+        prefix: list[IRStmt] = [IRAssign(target=IRVar(name=frame.return_name), value=value)]
+        if moved_outer_thread_c_name is not None:
+            prefix.append(IRAssign(target=IRVar(name=moved_outer_thread_c_name), value=IRLiteral(text="NULL")))
+        if promote_borrowed and plan.return_type is not None:
+            prefix.append(IRExprStmt(expr=self._lifetime.retain_value(IRVar(name=frame.return_name), plan.return_type)))
+        if (
+            (managed_return or is_thread_return)
+            and moved_branch_c_name is None
+            and release_stmts
+            and frame.return_decl is not None
+            and self._cleanup_scope.exception_cleanup_active()
+        ):
+            self._cleanup_scope.mark_cleanup_registration()
+            if managed_return and plan.return_type is not None:
+                runtime_type = self._values.runtime_name(plan.return_type)
+                destroy = self._values.cleanup_destroy_symbol(runtime_type)
+                if runtime_type == STRING_RUNTIME_NAME:
+                    self._session.require_helper(destroy)
+                if runtime_type == MUTEX_RUNTIME_NAME:
+                    self._session.require_helper("__btrc_mutex_arc_type")
+                direct = runtime_type == STRING_RUNTIME_NAME or self._values.is_native_name(runtime_type)
+                visitor = None if direct else self._cycles.emitted_visitor_symbol(runtime_type)
+                recipe = CleanupRegistration(
+                    frame.return_decl,
+                    None if runtime_type in self._analyzed.interface_table else destroy,
+                    visitor,
+                    direct=direct,
+                )
+            else:
+                self._session.require_helper("__btrc_thread_free")
+                recipe = CleanupRegistration(frame.return_decl, "__btrc_thread_free", direct=True)
+            prefix.extend(self._lifetime.reissue_cleanup(recipe))
+            cleanup_exit = self._cleanup_scope.exit(self._cleanup_scope.marker_from(frame.cleanup_depth))
+        return [
+            *prefix,
+            *release_stmts,
+            *cleanup_exit,
+            IRAssign(target=IRVar(name=frame.action_name), value=IRLiteral(text="1")),
+            IRGoto(name=label),
+        ]
+
+    def materialize_prepared_return(
+        self,
+        value: IRExpr | None,
+        provenance_escape_recorder=None,
+    ) -> list[IRStmt]:
+        """Return an already-prepared owned return slot after a finally block."""
+        if self._session.try_jump_stack and self._session.try_jump_stack[-1].intercept_return:
+            outer = self._session.try_jump_stack[-1]
+            if provenance_escape_recorder is not None:
+                provenance_escape_recorder(outer)
+            return self.materialize_intercepted_return(
+                outer,
+                ReturnPlan(
+                    source=object() if value is not None else None,
+                    return_type=self._session.current_return_type,
+                    return_c_type=self._session.current_return_c_type,
+                    returned_local=None,
+                ),
+                value,
+                None,
+                effective_type=self._session.current_return_type,
+                owned=True,
+            )
+        if value is None:
+            void_return_value = (
+                IRLiteral(text="0")
+                if (
+                    self._session.current_return_c_type == "int"
+                    and self._session.current_return_type is not None
+                    and self._session.current_return_type.base == "void"
+                    and self._session.current_return_type.pointer_depth == 0
+                )
+                else None
+            )
+            return [
+                *self._lifetime.release_scope(self.get_all_managed_vars()),
+                *self._emit_return_try_pop(),
+                *self._emit_return_cleanup_discard(),
+                IRReturn(value=void_return_value),
+            ]
+        return_type = self._session.current_return_type
+        return_c_type = self._session.current_return_c_type
+        managed_return = self._values.is_managed(return_type) and self._session.current_return_owned
+        release_stmts = self._lifetime.release_scope(self.get_all_managed_vars())
+        try_pop = self._emit_return_try_pop()
+        cleanup_discard = self._emit_return_cleanup_discard()
+        if not release_stmts and (not try_pop) and (not cleanup_discard):
+            return [IRReturn(value=self._maybe_launder_return(value))]
+        temporary = IRVarDecl(
+            c_type=CType(text=return_c_type),
+            name=self._session.fresh_temp("__btrc_ret"),
+            init=value,
+        )
+        self._session.record_declaration(temporary)
+        result = IRVar(name=temporary.name)
+        prefix: list[IRStmt] = [temporary]
+        if managed_return and release_stmts and return_type is not None:
+            runtime_type = self._values.runtime_name(return_type)
             self._lifetime.register_named_cleanup(temporary.name, runtime_type, prefix)
             cleanup_discard = self._emit_return_cleanup_discard()
         return [*prefix, *release_stmts, *try_pop, *cleanup_discard, IRReturn(value=self._maybe_launder_return(result))]

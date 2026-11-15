@@ -2594,11 +2594,32 @@ class ExpressionLowerer:
         field_name = provenance.source_field_c_name(node.obj, node.field)
         if isinstance(node.obj, SelfExpr) and self._session.current_property_backing == node.field:
             return IRFieldAccess(obj=obj, field=f"_prop_{node.field}", arrow=True)
+        resolved_obj_type = self._types.resolve_active_type(obj_type) if obj_type is not None else None
+        if resolved_obj_type and self._values.is_string(resolved_obj_type) and node.field == "length":
+            self._session.require_helper("__btrc_string_length")
+            if node.optional:
+                return self._lower_optional_access(
+                    obj,
+                    obj_type,
+                    self._session.type_of(node),
+                    OptionalAccessPlan(callee="__btrc_string_length"),
+                )
+            return IRCall(callee="__btrc_string_length", args=[obj], helper_ref="__btrc_string_length")
         if (
-            obj_type
-            and obj_type.base in {"Array", "List", "Map", "Set", "Vector"}
-            and self._types.is_direct_generic_instance_reference(obj_type)
+            resolved_obj_type
+            and resolved_obj_type.base in {"Array", "List", "Map", "Set", "Vector"}
+            and self._types.is_direct_generic_instance_reference(resolved_obj_type)
             and (node.field in ("len", "length", "size"))
+            and "len" in self._analyzed.class_table[resolved_obj_type.base].fields
+        ) or (
+            resolved_obj_type
+            and resolved_obj_type.base in {"Bytes", "StringBuilder"}
+            and not resolved_obj_type.is_array
+            and resolved_obj_type.pointer_depth <= 1
+            and not resolved_obj_type.generic_args
+            and node.field == "length"
+            and resolved_obj_type.base in self._analyzed.class_table
+            and "len" in self._analyzed.class_table[resolved_obj_type.base].fields
         ):
             if node.optional:
                 return self._lower_optional_access(

@@ -47,6 +47,50 @@ class LoweredCallableLoopBody {
 }
 
 
+class TryJumpFrame {
+	public bool interceptReturn;
+	public bool interceptBreak;
+	public bool interceptContinue;
+	public bool hasReturnSlot;
+	public string actionName;
+	public string returnName;
+	public IRNode? returnDecl = null;
+	public string tryExitLabel;
+	public string catchExitLabel;
+	public int managedDepth;
+	public int cleanupDepth;
+	public int controlDepth;
+	public int callableDepth;
+	public bool inTryBranch = true;
+	public bool tryExitUsed = false;
+	public bool catchExitUsed = false;
+	public Vector<CallableFlowSnapshot> escapeFlows = [];
+	public Vector<CallableFlowSnapshot> returnFlows = [];
+	public Vector<CallableFlowSnapshot> breakFlows = [];
+	public Vector<CallableFlowSnapshot> continueFlows = [];
+
+	public TryJumpFrame(bool interceptReturn, bool interceptBreak, bool interceptContinue, bool hasReturnSlot, string actionName, string returnName, IRNode? returnDecl, string tryExitLabel, string catchExitLabel, int managedDepth, int cleanupDepth, int controlDepth, int callableDepth) {
+		self.interceptReturn = interceptReturn;
+		self.interceptBreak = interceptBreak;
+		self.interceptContinue = interceptContinue;
+		self.hasReturnSlot = hasReturnSlot;
+		self.actionName = actionName;
+		self.returnName = returnName;
+		if (returnDecl != null) { self.returnDecl = returnDecl; }
+		self.tryExitLabel = tryExitLabel;
+		self.catchExitLabel = catchExitLabel;
+		self.managedDepth = managedDepth;
+		self.cleanupDepth = cleanupDepth;
+		self.controlDepth = controlDepth;
+		self.callableDepth = callableDepth;
+	}
+}
+
+class TryJumpState {
+	public Vector<TryJumpFrame> frames = [];
+}
+
+
 class StatementLowerer {
 	private Analyzed analyzed;
 	private HostedAbiRepository hostedAbi;
@@ -66,6 +110,7 @@ class StatementLowerer {
 	private ExpressionLowerer expressions;
 	private ConcurrencyLowerer concurrency;
 	private ControlFlowLowerer controlFlow;
+	private Vector<TryJumpFrame> tryJumpStack;
 
 	public StatementLowerer(Analyzed analyzed, HostedAbiRepository hostedAbi, ManagedValueSemantics managedValues, CycleSemantics cycles, CallableValueSemantics callableValues, CallableBoundaryPolicy callableBoundaries, CallableValueLowerer callableLowering, LoweringContext context, OwnershipOperandPlanner operandPlanner, OwnershipSemantics ownershipSemantics, ManagedLifetimeLowerer managedLifetime, ManagedTypeLowerer managedTypes, AggregateValueLowerer aggregateValues, GpuPipeline gpuPipeline, CTypeLowerer cTypes, ExpressionLowerer expressions, ConcurrencyLowerer concurrency, ControlFlowLowerer controlFlow) {
 		self.analyzed = analyzed;
@@ -83,6 +128,23 @@ class StatementLowerer {
 		self.cTypes = cTypes; self.expressions = expressions;
 		self.concurrency = concurrency;
 		self.controlFlow = controlFlow;
+		self.tryJumpStack = [];
+	}
+
+	public void clearTryJumps() {
+		while (self.tryJumpStack.len > 0) { self.tryJumpStack.pop(); }
+	}
+
+	public TryJumpState isolateTryJumps() {
+		TryJumpState state = TryJumpState();
+		for frame in self.tryJumpStack { state.frames.push(frame); }
+		self.clearTryJumps();
+		return state;
+	}
+
+	public void restoreTryJumps(TryJumpState state) {
+		self.clearTryJumps();
+		for frame in state.frames { self.tryJumpStack.push(frame); }
 	}
 
 	private string lexicalBindingCName(string name) { return self.hostedAbi.lexicalBindingCName(name, self.hostedAbi.typedefName(name) || self.analyzed.lexicalBindingConflictsType(name)); }
@@ -99,7 +161,7 @@ class StatementLowerer {
      * cleanup marker and managed-scope entry. Managed iterGet results are local
      * +1 owners for one iteration, so ordinary scope/control/return/throw paths
      * must see them before the source body is lowered. */
-	public IRNode lowerBlockWithBindings(Node block, Map<string, Node> varTypes, Vector<IRNode> declarations, Vector<string> sourceNames, Vector<Node> types, Vector<bool> owned, CallableFlowState callableFlow) {
+	public IRNode lowerBlockWithBindings(Node block, Map<string, Node> varTypes, Vector<IRNode> declarations, Vector<string> sourceNames, Vector<Node> types, Vector<bool> owned, CallableFlowState callableFlow, Vector<bool>? retainOnBind = null, Vector<IRNode>? bodyPrologue = null) {
 		if (self.context.foreignBody) {
 			/* Another compilation group defines this body; its unit lowers it. */
 			Vector<IRNode> none = [];
@@ -134,16 +196,27 @@ class StatementLowerer {
 				scopedVarTypes.put(sourceName, bindingType);
 				callableFlow.declare(sourceName);
 				self.context.recordLocal(declaration);
-				if (owned.get(binding) && self.managedValues.isManaged(self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+				Node resolvedBindingType = self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+				if (owned.get(binding) && self.managedValues.isManaged(resolvedBindingType)) {
+					if (retainOnBind != null && binding < retainOnBind.len && retainOnBind.get(binding)) {
+						stmts.push(IRNode.expressionStatement(self.managedLifetime.retainValue(IRNode.variable(declaration.name), resolvedBindingType)));
+					}
 					self.context.borrowedLocalBindings.remove(sourceName);
-					string runtimeType = self.managedValues.runtimeType(self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+					string runtimeType = self.managedValues.runtimeType(resolvedBindingType);
 					self.managedLifetime.registerManaged(sourceName, self.context.sourceCName(sourceName), runtimeType, bindingType, ((IRDeclarationPayload)declaration.payload).cType);
 					self.managedLifetime.maybeRegisterCleanup(declaration.name, runtimeType, stmts);
-				} else if (self.managedValues.isManaged(self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+				} else if (self.managedValues.isManaged(resolvedBindingType)) {
 					self.context.borrowedLocalBindings.put(sourceName, true);
 				}
 			}
 			binding = binding + 1;
+		}
+		if (bodyPrologue != null) {
+			int pi = 0;
+			while (pi < bodyPrologue.len) {
+				stmts.push(bodyPrologue.get(pi));
+				pi = pi + 1;
+			}
 		}
 		if (block != null) {
 			bool jumpRoot = self.analyzed.jumpBodyKeys.len > 0 && self.analyzed.jumpBodyKeys.has(AstIdentity.key(block));
@@ -273,12 +346,12 @@ class StatementLowerer {
 		return lowered;
 	}
 
-	public IRNode lowerLoopBodyWithBindings(Node block, Map<string, Node> varTypes, Vector<IRNode> declarations, Vector<string> sourceNames, Vector<Node> types, Vector<bool> owned, CallableFlowState callableFlow) {
+	public IRNode lowerLoopBodyWithBindings(Node block, Map<string, Node> varTypes, Vector<IRNode> declarations, Vector<string> sourceNames, Vector<Node> types, Vector<bool> owned, CallableFlowState callableFlow, Vector<bool>? retainOnBind = null) {
 		CallableFlowSnapshot head = callableFlow.snapshot();
 		CallableLoopCapture capture = callableFlow.beginLoopCaptureFor(varTypes, self.analyzed.typedefTable);
 		self.managedLifetime.pushLoopScope();
 		self.managedLifetime.pushControl("loop");
-		IRNode body = self.lowerBlockWithBindings(block, varTypes, declarations, sourceNames, types, owned, callableFlow);
+		IRNode body = self.lowerBlockWithBindings(block, varTypes, declarations, sourceNames, types, owned, callableFlow, retainOnBind);
 		self.managedLifetime.popControl();
 		self.managedLifetime.popLoopScope();
 		CallableFlowSnapshot bodyFlow = callableFlow.snapshot();
@@ -772,19 +845,11 @@ class StatementLowerer {
 			return;
 		}
 		if (node.kind == NK_BREAK_STMT) {
-			callableFlow.recordControlExit(true, self.managedLifetime.controlKinds());
-			self.emitScopeRelease(self.managedLifetime.controlManaged(true), out);
-			self.emitControlCleanupExit(true, out);
-			self.emitTryPopDepth(self.managedLifetime.exitedTryDepth(true), out);
-			out.push(IRNode.breakStatement());
+			self.lowerBreakInto(out, callableFlow);
 			return;
 		}
 		if (node.kind == NK_CONTINUE_STMT) {
-			callableFlow.recordControlExit(false, self.managedLifetime.controlKinds());
-			self.emitScopeRelease(self.managedLifetime.controlManaged(false), out);
-			self.emitControlCleanupExit(false, out);
-			self.emitTryPopDepth(self.managedLifetime.exitedTryDepth(false), out);
-			out.push(IRNode.continueStatement());
+			self.lowerContinueInto(out, callableFlow);
 			return;
 		}
 		if (node.kind == NK_KEEP_STMT) {
@@ -926,6 +991,178 @@ class StatementLowerer {
 		return IRNode.cast(self.context.currentReturnCType, IRNode.call("__btrc_launder", largs));
 	}
 
+	private bool escapesReturn(Node? node) {
+		if (node == null) { return false; }
+		int kind = node.kind;
+		if (kind == NK_RETURN_STMT) { return true; }
+		if (kind == NK_BLOCK) {
+			for stmt in node.statements() {
+				if (self.escapesReturn(stmt)) { return true; }
+			}
+			return false;
+		}
+		if (kind == NK_IF_STMT) {
+			if (self.escapesReturn(node.thenBlock)) { return true; }
+			Node? other = node.elseBlock;
+			if (other != null && other.kind == NK_ELSE_BLOCK) { return self.escapesReturn(other.bodyNode); }
+			if (other != null && other.kind == NK_ELSE_IF) { return self.escapesReturn(other.ifStmt); }
+			return false;
+		}
+		if (kind == NK_WHILE_STMT || kind == NK_DO_WHILE_STMT || kind == NK_C_FOR_STMT || kind == NK_FOR_IN_STMT || kind == NK_PARALLEL_FOR_STMT) {
+			return self.escapesReturn(node.bodyNode);
+		}
+		if (kind == NK_SWITCH_STMT) {
+			for clause in node.cases() {
+				for stmt in clause.bodyNodeList() {
+					if (self.escapesReturn(stmt)) { return true; }
+				}
+			}
+			return false;
+		}
+		if (kind == NK_TRY_CATCH_STMT) {
+			return self.escapesReturn(node.tryBlock) || self.escapesReturn(node.catchBlock) || self.escapesReturn(node.finallyBlock);
+		}
+		return false;
+	}
+
+	private bool escapesBreak(Node? node) {
+		if (node == null) { return false; }
+		int kind = node.kind;
+		if (kind == NK_BREAK_STMT) { return true; }
+		if (kind == NK_WHILE_STMT || kind == NK_DO_WHILE_STMT || kind == NK_C_FOR_STMT || kind == NK_FOR_IN_STMT || kind == NK_PARALLEL_FOR_STMT || kind == NK_SWITCH_STMT) {
+			return false;
+		}
+		if (kind == NK_BLOCK) {
+			for stmt in node.statements() {
+				if (self.escapesBreak(stmt)) { return true; }
+			}
+			return false;
+		}
+		if (kind == NK_IF_STMT) {
+			if (self.escapesBreak(node.thenBlock)) { return true; }
+			Node? other = node.elseBlock;
+			if (other != null && other.kind == NK_ELSE_BLOCK) { return self.escapesBreak(other.bodyNode); }
+			if (other != null && other.kind == NK_ELSE_IF) { return self.escapesBreak(other.ifStmt); }
+			return false;
+		}
+		if (kind == NK_TRY_CATCH_STMT) {
+			return self.escapesBreak(node.tryBlock) || self.escapesBreak(node.catchBlock) || self.escapesBreak(node.finallyBlock);
+		}
+		return false;
+	}
+
+	private bool escapesContinue(Node? node) {
+		if (node == null) { return false; }
+		int kind = node.kind;
+		if (kind == NK_CONTINUE_STMT) { return true; }
+		if (kind == NK_WHILE_STMT || kind == NK_DO_WHILE_STMT || kind == NK_C_FOR_STMT || kind == NK_FOR_IN_STMT || kind == NK_PARALLEL_FOR_STMT) {
+			return false;
+		}
+		if (kind == NK_SWITCH_STMT) {
+			for clause in node.cases() {
+				for stmt in clause.bodyNodeList() {
+					if (self.escapesContinue(stmt)) { return true; }
+				}
+			}
+			return false;
+		}
+		if (kind == NK_BLOCK) {
+			for stmt in node.statements() {
+				if (self.escapesContinue(stmt)) { return true; }
+			}
+			return false;
+		}
+		if (kind == NK_IF_STMT) {
+			if (self.escapesContinue(node.thenBlock)) { return true; }
+			Node? other = node.elseBlock;
+			if (other != null && other.kind == NK_ELSE_BLOCK) { return self.escapesContinue(other.bodyNode); }
+			if (other != null && other.kind == NK_ELSE_IF) { return self.escapesContinue(other.ifStmt); }
+			return false;
+		}
+		if (kind == NK_TRY_CATCH_STMT) {
+			return self.escapesContinue(node.tryBlock) || self.escapesContinue(node.catchBlock) || self.escapesContinue(node.finallyBlock);
+		}
+		return false;
+	}
+
+	private TryJumpFrame? activeReturnFrame() {
+		if (self.tryJumpStack.len == 0) { return null; }
+		TryJumpFrame frame = self.tryJumpStack.get(self.tryJumpStack.len - 1);
+		return frame.interceptReturn ? frame : null;
+	}
+
+	private TryJumpFrame? activeBreakFrame() {
+		if (self.tryJumpStack.len == 0) { return null; }
+		TryJumpFrame frame = self.tryJumpStack.get(self.tryJumpStack.len - 1);
+		if (!frame.interceptBreak) { return null; }
+		int target = self.managedLifetime.nearestControlIndex(true);
+		return target >= 0 && target < frame.controlDepth ? frame : null;
+	}
+
+	private TryJumpFrame? activeContinueFrame() {
+		if (self.tryJumpStack.len == 0) { return null; }
+		TryJumpFrame frame = self.tryJumpStack.get(self.tryJumpStack.len - 1);
+		if (!frame.interceptContinue) { return null; }
+		int target = self.managedLifetime.nearestControlIndex(false);
+		return target >= 0 && target < frame.controlDepth ? frame : null;
+	}
+
+	private void lowerBreakInto(Vector<IRNode> out, CallableFlowState callableFlow) {
+		TryJumpFrame? frame = self.activeBreakFrame();
+		if (frame != null) {
+			TryJumpFrame active = frame;
+			Vector<string> noEntered = [];
+			CallableFlowSnapshot flow = callableFlow.projectGoto(active.callableDepth, null, noEntered);
+			active.escapeFlows.push(flow);
+			active.breakFlows.push(flow);
+			string label = active.catchExitLabel;
+			if (active.inTryBranch) {
+				active.tryExitUsed = true;
+				label = active.tryExitLabel;
+			} else {
+				active.catchExitUsed = true;
+			}
+			self.emitScopeRelease(self.managedLifetime.managedFromScope(active.managedDepth), out);
+			self.emitCleanupScopeExit(self.managedLifetime.cleanupMarkerFrom(active.cleanupDepth), out);
+			out.push(IRNode.assignment(IRNode.variable(active.actionName), IRNode.literal("2")));
+			out.push(IRNode.gotoStatement(label));
+			return;
+		}
+		callableFlow.recordControlExit(true, self.managedLifetime.controlKinds());
+		self.emitScopeRelease(self.managedLifetime.controlManaged(true), out);
+		self.emitControlCleanupExit(true, out);
+		self.emitTryPopDepth(self.managedLifetime.exitedTryDepth(true), out);
+		out.push(IRNode.breakStatement());
+	}
+
+	private void lowerContinueInto(Vector<IRNode> out, CallableFlowState callableFlow) {
+		TryJumpFrame? frame = self.activeContinueFrame();
+		if (frame != null) {
+			TryJumpFrame active = frame;
+			Vector<string> noEntered = [];
+			CallableFlowSnapshot flow = callableFlow.projectGoto(active.callableDepth, null, noEntered);
+			active.escapeFlows.push(flow);
+			active.continueFlows.push(flow);
+			string label = active.catchExitLabel;
+			if (active.inTryBranch) {
+				active.tryExitUsed = true;
+				label = active.tryExitLabel;
+			} else {
+				active.catchExitUsed = true;
+			}
+			self.emitScopeRelease(self.managedLifetime.managedFromScope(active.managedDepth), out);
+			self.emitCleanupScopeExit(self.managedLifetime.cleanupMarkerFrom(active.cleanupDepth), out);
+			out.push(IRNode.assignment(IRNode.variable(active.actionName), IRNode.literal("3")));
+			out.push(IRNode.gotoStatement(label));
+			return;
+		}
+		callableFlow.recordControlExit(false, self.managedLifetime.controlKinds());
+		self.emitScopeRelease(self.managedLifetime.controlManaged(false), out);
+		self.emitControlCleanupExit(false, out);
+		self.emitTryPopDepth(self.managedLifetime.exitedTryDepth(false), out);
+		out.push(IRNode.continueStatement());
+	}
+
 	public void lowerReturn(Node node, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
 		if (node.valueNode != null) {
 			CallableBoundaryContext callableContext = callableFlow.boundaryContext(varTypes, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
@@ -937,11 +1174,21 @@ class StatementLowerer {
 
 	private void lowerOwnedReturn(Node statement, Map<string, Node> varTypes, Vector<IRNode> output, CallableFlowState callableFlow) {
 		if (statement.valueNode == null) {
+			TryJumpFrame? returnFrame = self.activeReturnFrame();
+			if (returnFrame != null) {
+				TryJumpFrame active = returnFrame;
+				Vector<string> noEntered = [];
+				CallableFlowSnapshot flow = callableFlow.projectGoto(active.callableDepth, null, noEntered);
+				active.escapeFlows.push(flow);
+				active.returnFlows.push(flow);
+				self.lowerInterceptedReturn(active, null, null, false, false, "", output);
+				return;
+			}
 			self.emitReturnRelease("", output);
 			self.emitReturnTryPop(output);
 			self.emitReturnCleanupExit(output);
 			IRNode? value = null;
-			if (self.context.currentReturnCType == "int" && self.context.currentReturnType != null && self.context.currentReturnType.base == "void") {
+			if (self.context.currentReturnCType == "int" && self.context.currentReturnType != null && self.context.currentReturnType.base == "void" && self.context.currentReturnType.pointerDepth == 0) {
 				value = IRNode.literal("0");
 			}
 			output.push(IRNode.returnStatement(value));
@@ -955,17 +1202,37 @@ class StatementLowerer {
 		}
 		PreparedValue prepared = self.expressions.prepareTargetValue(expression, returnType, varTypes, callableFlow);
 		IRNode value = prepared.value;
-		bool managedValue = self.managedValues.isManaged(self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+		Node? resolvedBodyReturn = self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		bool managedValue = self.managedValues.isManaged(resolvedBodyReturn);
 		bool managedReturn = managedValue && self.context.currentReturnOwned;
 		bool expressionOwned = managedValue && prepared.owned;
 		bool localOwned = false;
 		string returnedLocal = "";
-		if (!prepared.converted && managedValue && expression.kind == NK_IDENTIFIER && self.managedLifetime.managedLocalType(self.context.sourceCName(expression.name)) != "") {
+		string candidateCName = "";
+		if (!prepared.converted && expression.kind == NK_IDENTIFIER) {
+			candidateCName = self.context.sourceCName(expression.name);
+		}
+		if (candidateCName != "" && managedValue && self.managedLifetime.managedLocalType(candidateCName) != "") {
 			localOwned = true;
 			if (managedReturn) { returnedLocal = expression.name; }
 		}
-		if (!prepared.converted && returnType != null && returnType.base == "Thread" && expression.kind == NK_IDENTIFIER && self.managedLifetime.localCleanupKind(self.context.sourceCName(expression.name)) == "thread") {
+		if (candidateCName != "" && returnType != null && returnType.base == "Thread" && self.managedLifetime.localCleanupKind(candidateCName) == "thread") {
 			returnedLocal = expression.name;
+		}
+
+		TryJumpFrame? returnFrame = self.activeReturnFrame();
+		if (returnFrame != null) {
+			TryJumpFrame active = returnFrame;
+			Vector<string> noEntered = [];
+			CallableFlowSnapshot flow = callableFlow.projectGoto(active.callableDepth, null, noEntered);
+			active.escapeFlows.push(flow);
+			active.returnFlows.push(flow);
+			string candidateReturnCName = "";
+			if (returnedLocal != "") {
+				candidateReturnCName = self.context.sourceCName(returnedLocal);
+			}
+			self.lowerInterceptedReturn(active, value, returnType, expressionOwned, prepared.converted, candidateReturnCName, output);
+			return;
 		}
 
 		bool ownedValue = managedReturn && (expressionOwned || localOwned);
@@ -984,12 +1251,12 @@ class StatementLowerer {
 		output.push(declaration);
 		IRNode result = IRNode.variable(temporaryName);
 		if (promoteBorrowed) {
-			output.push(IRNode.expressionStatement(self.managedLifetime.retainValue(result, self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))));
+			output.push(IRNode.expressionStatement(self.managedLifetime.retainValue(result, resolvedBodyReturn)));
 		}
 		/* The returned reference needs an unwind cleanup only while a local's
 		 * release, whose destructor may throw, runs before the return. */
 		if (managedReturn && returnedLocal == "" && releases.len > 0) {
-			string runtimeType = self.managedValues.runtimeType(self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+			string runtimeType = self.managedValues.runtimeType(resolvedBodyReturn);
 			IRNode? registration = self.managedLifetime.cleanupRegistration(declaration, runtimeType);
 			if (registration != null) { output.push(IRNode.expressionStatement(registration)); }
 		}
@@ -998,6 +1265,132 @@ class StatementLowerer {
 			output.push(releases.get(releaseIndex));
 			releaseIndex = releaseIndex + 1;
 		}
+		self.emitReturnTryPop(output);
+		self.emitReturnCleanupExit(output);
+		output.push(IRNode.returnStatement(self.maybeLaunderReturn(result)));
+	}
+
+	private void lowerInterceptedReturn(TryJumpFrame frame, IRNode? value, Node? returnType, bool expressionOwned, bool converted, string returnedCName, Vector<IRNode> output) {
+		string label = frame.catchExitLabel;
+		if (frame.inTryBranch) {
+			frame.tryExitUsed = true;
+			label = frame.tryExitLabel;
+		} else {
+			frame.catchExitUsed = true;
+		}
+		Vector<Managed> branchManaged = self.managedLifetime.managedFromScope(frame.managedDepth);
+		string cleanupMarker = self.managedLifetime.cleanupMarkerFrom(frame.cleanupDepth);
+		if (value == null || !frame.hasReturnSlot) {
+			self.emitScopeRelease(branchManaged, output);
+			self.emitCleanupScopeExit(cleanupMarker, output);
+			output.push(IRNode.assignment(IRNode.variable(frame.actionName), IRNode.literal("1")));
+			output.push(IRNode.gotoStatement(label));
+			return;
+		}
+		Node? resolvedBodyReturn = self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		bool managedValue = self.managedValues.isManaged(resolvedBodyReturn);
+		bool managedReturn = managedValue && self.context.currentReturnOwned;
+		bool isThreadReturn = returnType != null && returnType.base == "Thread" && returnType.pointerDepth == 0 && !returnType.isArray;
+		string effectiveReturnedCName = converted ? "" : returnedCName;
+		bool inBranch = false;
+		if (effectiveReturnedCName != "") {
+			for mv in branchManaged {
+				if (mv.cName == effectiveReturnedCName) {
+					inBranch = true;
+				}
+			}
+		}
+		string movedBranchCName = (effectiveReturnedCName != "" && inBranch && (managedReturn || isThreadReturn)) ? effectiveReturnedCName : "";
+		string movedOuterThreadCName = (effectiveReturnedCName != "" && !inBranch && isThreadReturn) ? effectiveReturnedCName : "";
+		bool ownedValue = managedReturn && (expressionOwned || movedBranchCName != "");
+		bool promoteBorrowed = managedReturn && !ownedValue;
+		Vector<Managed> toRelease = [];
+		for mv in branchManaged {
+			if (mv.cName != movedBranchCName) {
+				toRelease.push(mv);
+			}
+		}
+		Vector<IRNode> releases = [];
+		self.emitScopeRelease(toRelease, releases);
+		output.push(IRNode.assignment(IRNode.variable(frame.returnName), value));
+		if (movedOuterThreadCName != "") {
+			output.push(IRNode.assignment(IRNode.variable(movedOuterThreadCName), IRNode.literal("NULL")));
+		}
+		if (promoteBorrowed && resolvedBodyReturn != null) {
+			output.push(IRNode.expressionStatement(self.managedLifetime.retainValue(IRNode.variable(frame.returnName), resolvedBodyReturn)));
+		}
+		IRNode? maybeRetDecl = frame.returnDecl;
+		if ((managedReturn || isThreadReturn) && movedBranchCName == "" && releases.len > 0 && maybeRetDecl != null && self.context.exceptionsAreEnabled()) {
+			IRNode retDecl = maybeRetDecl;
+			self.managedLifetime.markCleanupRegistration();
+			CleanupRegistration? recipe = null;
+			if (managedReturn && resolvedBodyReturn != null) {
+				string runtimeType = self.managedValues.runtimeType(resolvedBodyReturn);
+				string destroy = self.analyzed.isInterface(runtimeType) ? "" : self.managedLifetime.cleanupSymbol(runtimeType);
+				bool direct = runtimeType == self.managedValues.stringRuntimeType() || self.managedValues.isNativeName(runtimeType);
+				string visitor = (direct || self.analyzed.isInterface(runtimeType)) ? "" : self.cycles.visitorSymbol(runtimeType);
+				recipe = CleanupRegistration(retDecl, destroy, visitor, direct);
+			} else {
+				self.context.referenceHelper("__btrc_thread_free");
+				recipe = CleanupRegistration(retDecl, "__btrc_thread_free", "", true);
+			}
+			if (recipe != null) {
+				self.managedLifetime.reissueCleanup(recipe, output);
+			}
+			cleanupMarker = self.managedLifetime.cleanupMarkerFrom(frame.cleanupDepth);
+		}
+		for rel in releases { output.push(rel); }
+		self.emitCleanupScopeExit(cleanupMarker, output);
+		output.push(IRNode.assignment(IRNode.variable(frame.actionName), IRNode.literal("1")));
+		output.push(IRNode.gotoStatement(label));
+	}
+
+	private void lowerPreparedReturn(IRNode? value, Vector<IRNode> output, CallableFlowState callableFlow) {
+		TryJumpFrame? outerFrame = self.activeReturnFrame();
+		if (outerFrame != null) {
+			TryJumpFrame outer = outerFrame;
+			Vector<string> noEntered = [];
+			CallableFlowSnapshot flow = callableFlow.projectGoto(outer.callableDepth, null, noEntered);
+			outer.escapeFlows.push(flow);
+			outer.returnFlows.push(flow);
+			Node? returnType = self.context.currentReturnType;
+			if (returnType != null) {
+				returnType = SemanticTypeSystem.resolveTypedefType(self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0), self.analyzed.typedefTable);
+			}
+			self.lowerInterceptedReturn(outer, value, returnType, true, false, "", output);
+			return;
+		}
+		if (value == null) {
+			self.emitReturnRelease("", output);
+			self.emitReturnTryPop(output);
+			self.emitReturnCleanupExit(output);
+			IRNode? voidRet = null;
+			if (self.context.currentReturnCType == "int" && self.context.currentReturnType != null && self.context.currentReturnType.base == "void" && self.context.currentReturnType.pointerDepth == 0) {
+				voidRet = IRNode.literal("0");
+			}
+			output.push(IRNode.returnStatement(voidRet));
+			return;
+		}
+		Node? resolvedBodyReturn = self.cTypes.resolveBodyType(self.context.currentReturnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		bool managedReturn = self.managedValues.isManaged(resolvedBodyReturn) && self.context.currentReturnOwned;
+		Vector<IRNode> releases = [];
+		self.emitReturnRelease("", releases);
+		bool needsTemporary = releases.len > 0 || self.context.tryDepth > 0 || self.managedLifetime.returnCleanupMarker() != "";
+		if (!needsTemporary) {
+			output.push(IRNode.returnStatement(self.maybeLaunderReturn(value)));
+			return;
+		}
+		string temporaryName = self.context.freshTemporary("__btrc_ret");
+		IRNode declaration = IRNode.variableDeclaration(self.context.currentReturnCType, temporaryName, value);
+		self.context.recordLocal(declaration);
+		output.push(declaration);
+		IRNode result = IRNode.variable(temporaryName);
+		if (managedReturn && releases.len > 0 && resolvedBodyReturn != null) {
+			string runtimeType = self.managedValues.runtimeType(resolvedBodyReturn);
+			IRNode? registration = self.managedLifetime.cleanupRegistration(declaration, runtimeType);
+			if (registration != null) { output.push(IRNode.expressionStatement(registration)); }
+		}
+		for rel in releases { output.push(rel); }
 		self.emitReturnTryPop(output);
 		self.emitReturnCleanupExit(output);
 		output.push(IRNode.returnStatement(self.maybeLaunderReturn(result)));
@@ -1084,9 +1477,6 @@ class StatementLowerer {
 		self.context.referenceHelper("__btrc_throw");
 		/* Its setjmp call makes helper materialization include <setjmp.h>. */
 
-		/* A try with a `finally` but NO `catch` must run the finally and then
-         * RE-THROW any pending exception to the enclosing handler (mirrors
-         * control_flow._lower_try_catch finally_only). */
 		bool finallyOnly = node.catchBlock == null && node.finallyBlock != null;
 		bool tryTerminates = finallyOnly && ControlFlowValidator.blockTerminates(node.tryBlock, self.controlFlow.targetedNames());
 		string pendingName = "";
@@ -1097,54 +1487,114 @@ class StatementLowerer {
 			}
 			errorName = self.context.freshTemporary("__btrc_finally_error");
 		}
+		bool rawReturn = self.escapesReturn(node.tryBlock) || self.escapesReturn(node.catchBlock);
+		bool rawBreak = self.escapesBreak(node.tryBlock) || self.escapesBreak(node.catchBlock);
+		bool rawContinue = self.escapesContinue(node.tryBlock) || self.escapesContinue(node.catchBlock);
+		bool interceptReturn = false;
+		bool interceptBreak = false;
+		bool interceptContinue = false;
+		if (node.finallyBlock != null) {
+			interceptReturn = rawReturn;
+			interceptBreak = rawBreak && self.managedLifetime.nearestControlIndex(true) >= 0;
+			interceptContinue = rawContinue && self.managedLifetime.nearestControlIndex(false) >= 0;
+		} else if (self.tryJumpStack.len > 0) {
+			TryJumpFrame enclosing = self.tryJumpStack.get(self.tryJumpStack.len - 1);
+			int breakTarget = self.managedLifetime.nearestControlIndex(true);
+			int continueTarget = self.managedLifetime.nearestControlIndex(false);
+			interceptReturn = enclosing.interceptReturn && rawReturn;
+			interceptBreak = enclosing.interceptBreak && rawBreak && breakTarget >= 0 && breakTarget < enclosing.controlDepth;
+			interceptContinue = enclosing.interceptContinue && rawContinue && continueTarget >= 0 && continueTarget < enclosing.controlDepth;
+		}
+
+		Vector<IRNode> txStmts = [];
+		TryJumpFrame? jumpFrame = null;
+		bool returnSlotManaged = false;
+		bool returnSlotIsThread = false;
+		if (interceptReturn || interceptBreak || interceptContinue) {
+			string actionName = self.context.freshTemporary("__btrc_finally_action");
+			Node? returnType = self.context.currentReturnType;
+			Node? resolvedBodyReturn = null;
+			if (returnType != null) {
+				resolvedBodyReturn = self.cTypes.resolveBodyType(returnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+				returnType = SemanticTypeSystem.resolveTypedefType(resolvedBodyReturn, self.analyzed.typedefTable);
+			}
+			string returnCType = self.context.currentReturnCType;
+			bool hasReturnSlot = interceptReturn && returnType != null && !(returnType.base == "void" && returnType.pointerDepth == 0) && returnCType != "void";
+			string returnName = hasReturnSlot ? self.context.freshTemporary("__btrc_finally_return") : "";
+			string tryExitLabel = self.context.freshTemporary("__btrc_try_exit");
+			string catchExitLabel = self.context.freshTemporary("__btrc_catch_exit");
+			IRNode actionDecl = IRNode.variableDeclaration("int", actionName, IRNode.literal("0"));
+			self.context.recordLocal(actionDecl);
+			txStmts.push(actionDecl);
+			IRNode? returnDecl = null;
+			if (hasReturnSlot) {
+				returnSlotManaged = self.managedValues.isManaged(resolvedBodyReturn) && self.context.currentReturnOwned;
+				returnSlotIsThread = returnType != null && returnType.base == "Thread" && returnType.pointerDepth == 0 && !returnType.isArray;
+				IRNode? returnInit = (returnSlotManaged || returnSlotIsThread) ? IRNode.literal("NULL") : null;
+				IRNode decl = IRNode.variableDeclaration(returnCType, returnName, returnInit);
+				self.context.recordLocal(decl);
+				txStmts.push(decl);
+				returnDecl = decl;
+			}
+			jumpFrame = TryJumpFrame(interceptReturn, interceptBreak, interceptContinue, hasReturnSlot, actionName, returnName, returnDecl, tryExitLabel, catchExitLabel, self.managedLifetime.managedScopeDepth(), self.managedLifetime.cleanupDepth(), self.managedLifetime.controlDepth(), callableFlow.scopeDepth());
+		}
+
 		CallableFlowSnapshot incoming = callableFlow.snapshot();
 
 		Vector<IRNode> pushTryArgs = [];
-		out.push(IRNode.expressionStatement(IRNode.call("__btrc_push_try", pushTryArgs)));
+		txStmts.push(IRNode.expressionStatement(IRNode.call("__btrc_push_try", pushTryArgs)));
 
 		/* try block. */
 		self.context.tryDepth = self.context.tryDepth + 1;
 		self.managedLifetime.pushControl("try");
+		if (jumpFrame != null) {
+			TryJumpFrame active = jumpFrame;
+			active.inTryBranch = true;
+			self.tryJumpStack.push(active);
+		}
 		CallableExceptionalCapture exceptionalCapture = callableFlow.beginExceptionalCapture(varTypes, self.analyzed.typedefTable);
 		IRNode tryBody = self.lowerBlock(node.tryBlock, varTypes, callableFlow);
 		CallableFlowSnapshot tryFlow = callableFlow.snapshot();
 		bool tryContinues = IRStatementSequence(tryBody.stmts()).mayFallThrough();
 		callableFlow.finishExceptionalCapture(exceptionalCapture);
 		callableFlow.restore(incoming);
+		if (jumpFrame != null) { self.tryJumpStack.pop(); }
 		self.managedLifetime.popControl();
 		self.context.tryDepth = self.context.tryDepth - 1;
-		/* Normal exit: discard the cleanup registrations (scope release already
-         * freed them), then decrement the try level. Gated on whether any
-         * exception cleanup is registered at all (mirrors the global-helper check
-         * in control_flow._lower_try_catch). */
+
+		Vector<IRNode> tryTail = [];
 		if (self.context.referencesHelper("__btrc_register_cleanup") || self.context.referencesHelper("__btrc_register_direct_cleanup")) {
 			self.context.referenceHelper("__btrc_discard_cleanups");
 			Vector<IRNode> dargs = [];
 			dargs.push(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false));
-			tryBody.stmtsMut().push(IRNode.expressionStatement(IRNode.call("__btrc_discard_cleanups", dargs)));
+			tryTail.push(IRNode.expressionStatement(IRNode.call("__btrc_discard_cleanups", dargs)));
 		}
-		tryBody.stmtsMut().push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
+		tryTail.push(IRNode.expressionStatement(IRNode.unary("--", IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false), false)));
+		if (jumpFrame != null && jumpFrame.tryExitUsed) {
+			TryJumpFrame active = jumpFrame;
+			Vector<IRNode> wrappedTry = [tryBody, IRNode.labelStatement(active.tryExitLabel)];
+			for tailStmt in tryTail { wrappedTry.push(tailStmt); }
+			tryBody = IRNode.block(wrappedTry);
+		} else {
+			for tailStmt in tryTail { tryBody.stmtsMut().push(tailStmt); }
+		}
 
-		/* Without checked throws, every callback state reached while lowering
-         * the try is visible to its exceptional edge. */
 		Vector<CallableFlowSnapshot> exceptionalFlows = [];
 		int exceptionalFlow = 0;
 		while (exceptionalFlow < exceptionalCapture.states.len) {
 			exceptionalFlows.push(exceptionalCapture.states.get(exceptionalFlow));
 			exceptionalFlow = exceptionalFlow + 1;
 		}
-		if (tryContinues) {
-			exceptionalFlows.push(tryFlow);
-		}
+		exceptionalFlows.push(tryFlow);
 		callableFlow.join(exceptionalFlows);
 		CallableFlowSnapshot exceptionalEntry = callableFlow.snapshot();
 
 		/* Pending-exception flag + message buffer, declared before the if. */
 		if (finallyOnly) {
 			if (pendingName != "") {
-				out.push(IRNode.variableDeclaration("bool", pendingName, IRNode.literal("false")));
+				txStmts.push(IRNode.variableDeclaration("bool", pendingName, IRNode.literal("false")));
 			}
-			out.push(IRNode.arrayDeclaration("char", errorName, IRNode.literal("1024"), IRNode.literal("\"\"")));
+			txStmts.push(IRNode.arrayDeclaration("char", errorName, IRNode.literal("1024"), IRNode.literal("\"\"")));
 		}
 
 		/* catch block. */
@@ -1153,8 +1603,6 @@ class StatementLowerer {
 		CallableFlowSnapshot catchFlow = exceptionalEntry;
 		bool catchContinues = true;
 		if (finallyOnly) {
-			/* No user catch: capture the in-flight exception so the finally can
-             * run, then re-throw it after. */
 			Vector<IRNode> cstmts = [];
 			if (pendingName != "") {
 				cstmts.push(IRNode.assignment(IRNode.variable(pendingName), IRNode.literal("true")));
@@ -1166,10 +1614,6 @@ class StatementLowerer {
 			cstmts.push(IRNode.expressionStatement(IRNode.call("__btrc_copy_error_message", copyArgs)));
 			catchBody = IRNode.block(cstmts);
 		} else if (node.catchBlock != null) {
-			/* Register the catch variable's type (declared `catch_type`, else
-             * `string` — exceptions are string messages) so body inference (e.g.
-             * f-string format specifiers) sees `const char*`, not a default int.
-             * The Python compiler gets this from analyzer-stamped node_types. */
 			Vector<IRNode> catchBindings = [];
 			Vector<string> catchSourceNames = [];
 			Vector<Node> catchTypes = [];
@@ -1178,8 +1622,6 @@ class StatementLowerer {
 			Vector<string> catchSourceBindings = self.context.snapshotSourceBindings();
 			string catchCName = node.catchVar;
 			if (node.catchVar != "") {
-				/* Give the catch binding its own message storage. A pointer to
-                 * the TLS buffer would be overwritten by any nested catch. */
 				Node ctype = SemanticTypeSystem.primitive("string");
 				if (node.catchType != null) { ctype = node.catchType; }
 				catchVarTypes.put(node.catchVar, ctype);
@@ -1196,81 +1638,220 @@ class StatementLowerer {
 				catchTypes.push(ctype);
 				catchOwned.push(true);
 			}
+			if (jumpFrame != null) {
+				TryJumpFrame active = jumpFrame;
+				active.inTryBranch = false;
+				self.tryJumpStack.push(active);
+			}
 			catchBody = self.lowerBlockWithBindings(node.catchBlock, catchVarTypes, catchBindings, catchSourceNames, catchTypes, catchOwned, callableFlow);
 			catchFlow = callableFlow.snapshot();
+			if (jumpFrame != null) { self.tryJumpStack.pop(); }
 			catchContinues = IRStatementSequence(catchBody.stmts()).mayFallThrough();
+			if (jumpFrame != null && jumpFrame.catchExitUsed) {
+				TryJumpFrame active = jumpFrame;
+				Vector<IRNode> wrappedCatch = [catchBody, IRNode.labelStatement(active.catchExitLabel)];
+				catchBody = IRNode.block(wrappedCatch);
+			}
 			callableFlow.restore(incoming);
 			self.context.restoreSourceBindings(catchSourceBindings);
 		}
-
-		Vector<CallableFlowSnapshot> tryFlows = [];
-		if (tryContinues) { tryFlows.push(tryFlow); }
-		if (!finallyOnly && catchContinues) {
-			tryFlows.push(catchFlow);
-		}
-		callableFlow.restore(incoming);
-		if (tryFlows.len > 0) {
-			callableFlow.join(tryFlows);
-		}
-		CallableFlowSnapshot normalContinuation = callableFlow.snapshot();
 
 		IRNode frame = IRNode.indexAccess(IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_stack", false), IRNode.fieldAccess(IRNode.variable("__btrc_tls"), "try_top", false));
 		Vector<IRNode> setjmpArgs = [];
 		setjmpArgs.push(IRNode.fieldAccess(frame, "env", true));
 		IRNode tcIf = self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(IRNode.call("setjmp", setjmpArgs), "==", IRNode.literal("0")), tryBody, catchBody));
-		out.push(tcIf);
-		if (node.finallyBlock == null && tryFlows.len == 0) {
-			/* GCC 15 with ASan can conservatively treat a setjmp-backed
-			 * conditional containing a VLA as falling through even when both
-			 * structured branches terminate. Materialize the impossible edge. */
-			Vector<IRNode> abortArgs = [];
-			IRNode abortCall = IRNode.call("abort", abortArgs);
-			((IRCallPayload)abortCall.payload).neverReturns = true;
-			out.push(IRNode.expressionStatement(abortCall));
+		txStmts.push(tcIf);
+
+		Vector<CallableFlowSnapshot> continuationFlows = [];
+		if (tryContinues) { continuationFlows.push(tryFlow); }
+		if (!finallyOnly && catchContinues) { continuationFlows.push(catchFlow); }
+		if (node.finallyBlock != null) {
+			Vector<CallableFlowSnapshot> finallyEntries = [];
+			if (tryContinues) { finallyEntries.push(tryFlow); }
+			if (finallyOnly || catchContinues) { finallyEntries.push(catchFlow); }
+			if (jumpFrame != null) {
+				for esc in jumpFrame.escapeFlows { finallyEntries.push(esc); }
+			}
+			callableFlow.restore(incoming);
+			if (finallyEntries.len > 0) {
+				callableFlow.join(finallyEntries);
+			} else {
+				Vector<CallableFlowSnapshot> both = [tryFlow, catchFlow];
+				callableFlow.join(both);
+			}
+		} else if (continuationFlows.len > 0) {
+			callableFlow.restore(incoming);
+			callableFlow.join(continuationFlows);
+		} else {
+			callableFlow.restore(incoming);
 		}
 
-		/* finally block: emitted inline after the if. */
+		bool finallyFallsThrough = true;
+		CallableFlowSnapshot? finallyExit = null;
+		Vector<string> mutatedBindings = [];
+		IRNode? finBody = null;
+		Vector<IRNode> returnCleanupExit = [];
 		if (node.finallyBlock != null) {
-			if (finallyOnly) {
-				Vector<CallableFlowSnapshot> finallyEntries = [];
-				if (tryContinues) {
-					finallyEntries.push(tryFlow);
+			bool guardReturn = jumpFrame != null && jumpFrame.hasReturnSlot && (returnSlotManaged || returnSlotIsThread);
+			string retCleanupMarker = "";
+			Vector<IRNode> regStmts = [];
+			if (guardReturn && jumpFrame != null) {
+				TryJumpFrame active = jumpFrame;
+				retCleanupMarker = self.managedLifetime.pushCleanupScope();
+				self.managedLifetime.pushManagedScope();
+				if (returnSlotManaged && self.context.currentReturnType != null) {
+					Node? resolvedRet = self.cTypes.resolveBodyType(self.context.currentReturnType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+					if (resolvedRet != null) {
+						string runtimeType = self.managedValues.runtimeType(resolvedRet);
+						self.managedLifetime.registerManaged(active.returnName, active.returnName, runtimeType, resolvedRet, self.context.currentReturnCType);
+						if (self.context.exceptionsAreEnabled() && active.returnDecl != null) {
+							Vector<IRNode> scratch = [active.returnDecl];
+							self.managedLifetime.maybeRegisterCleanup(active.returnName, runtimeType, scratch);
+							int ri = 1;
+							while (ri < scratch.len) { regStmts.push(scratch.get(ri)); ri++; }
+						}
+					}
+				} else {
+					self.managedLifetime.registerThread(active.returnName, active.returnName);
+					if (self.context.exceptionsAreEnabled() && active.returnDecl != null) {
+						self.context.referenceHelper("__btrc_thread_free");
+						Vector<IRNode> scratch = [active.returnDecl];
+						self.managedLifetime.maybeRegisterDirectCleanup(active.returnName, "__btrc_thread_free", scratch);
+						int ri = 1;
+						while (ri < scratch.len) { regStmts.push(scratch.get(ri)); ri++; }
+					}
 				}
-				finallyEntries.push(catchFlow);
-				callableFlow.restore(incoming);
-				callableFlow.join(finallyEntries);
 			}
 			CallableMutationCapture finallyMutations = callableFlow.beginMutationCapture(varTypes, self.analyzed.typedefTable);
 			IRNode fin = self.lowerBlock(node.finallyBlock, varTypes, callableFlow);
-			CallableFlowSnapshot finallyExit = callableFlow.snapshot();
-			Vector<string> mutatedBindings = callableFlow.finishMutationCapture(finallyMutations);
-			int i = 0;
-			while (i < fin.stmts().len) { out.push(fin.stmts().get(i)); i = i + 1; }
-			/* Re-throw the captured exception (finally-only). */
-			if (finallyOnly) {
-				Vector<IRNode> targs = [];
-				targs.push(IRNode.cast("const char*", IRNode.variable(errorName)));
-				IRNode rethrowCall = IRNode.call("__btrc_throw", targs);
-				((IRCallPayload)rethrowCall.payload).neverReturns = true;
-				IRNode rethrow = IRNode.expressionStatement(rethrowCall);
-				if (pendingName == "") {
-					out.push(rethrow);
-				} else {
-					Vector<IRNode> rethrowBody = [];
-					rethrowBody.push(rethrow);
-					out.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.variable(pendingName), IRNode.block(rethrowBody), null)));
+			finallyExit = callableFlow.snapshot();
+			mutatedBindings = callableFlow.finishMutationCapture(finallyMutations);
+			finBody = fin;
+			finallyFallsThrough = IRStatementSequence(fin.stmts()).mayFallThrough();
+			if (guardReturn) {
+				self.managedLifetime.popManagedScope();
+				bool markerActive = self.managedLifetime.cleanupScopeIsActive(retCleanupMarker);
+				bool markerReferenced = finallyFallsThrough || IRStatementSequence(fin.stmts()).referencesVariable(retCleanupMarker);
+				if (markerActive && markerReferenced) {
+					self.context.referenceHelper("__btrc_cleanup_mark");
+					Vector<IRNode> markArgs = [];
+					txStmts.push(IRNode.variableDeclaration("int", retCleanupMarker, IRNode.call("__btrc_cleanup_mark", markArgs)));
 				}
-			}
-			if (finallyOnly && tryContinues) {
-				/* The synthetic catch always rethrows. Lower finally once
-                 * from the conservative all-edge join, then project only its
-                 * explicit callback mutations onto the real normal edge. */
-				CallableFlowSnapshot projected = callableFlow.projectMutations(finallyExit, normalContinuation, mutatedBindings);
-				callableFlow.restore(projected);
-			} else if (finallyOnly) {
-				callableFlow.restore(incoming);
+				for rs in regStmts { txStmts.push(rs); }
+				if (finallyFallsThrough && markerActive) {
+					self.emitCleanupScopeExit(retCleanupMarker, returnCleanupExit);
+				}
+				self.managedLifetime.popCleanupScope();
 			}
 		}
+
+		Vector<IRNode> dispatchStmts = [];
+		if (jumpFrame != null && (node.finallyBlock == null || finallyFallsThrough)) {
+			TryJumpFrame active = jumpFrame;
+			CallableFlowSnapshot savedDispatch = callableFlow.snapshot();
+			if (active.returnFlows.len > 0) {
+				CallableFlowSnapshot base = callableFlow.merged(active.returnFlows);
+				if (finallyExit != null) {
+					base = callableFlow.projectMutations(finallyExit, base, mutatedBindings);
+				}
+				callableFlow.restore(base);
+				Vector<IRNode> retStmts = [];
+				IRNode? retVal = active.hasReturnSlot ? IRNode.variable(active.returnName) : null;
+				self.lowerPreparedReturn(retVal, retStmts, callableFlow);
+				dispatchStmts.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(IRNode.variable(active.actionName), "==", IRNode.literal("1")), IRNode.block(retStmts), null)));
+			}
+			if (active.breakFlows.len > 0) {
+				CallableFlowSnapshot base = callableFlow.merged(active.breakFlows);
+				if (finallyExit != null) {
+					base = callableFlow.projectMutations(finallyExit, base, mutatedBindings);
+				}
+				callableFlow.restore(base);
+				Vector<IRNode> brkStmts = [];
+				self.lowerBreakInto(brkStmts, callableFlow);
+				dispatchStmts.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(IRNode.variable(active.actionName), "==", IRNode.literal("2")), IRNode.block(brkStmts), null)));
+			}
+			if (active.continueFlows.len > 0) {
+				CallableFlowSnapshot base = callableFlow.merged(active.continueFlows);
+				if (finallyExit != null) {
+					base = callableFlow.projectMutations(finallyExit, base, mutatedBindings);
+				}
+				callableFlow.restore(base);
+				Vector<IRNode> cntStmts = [];
+				self.lowerContinueInto(cntStmts, callableFlow);
+				dispatchStmts.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.binary(IRNode.variable(active.actionName), "==", IRNode.literal("3")), IRNode.block(cntStmts), null)));
+			}
+			callableFlow.restore(savedDispatch);
+		}
+
+		bool anyEscape = jumpFrame != null && (jumpFrame.returnFlows.len > 0 || jumpFrame.breakFlows.len > 0 || jumpFrame.continueFlows.len > 0);
+		if (node.finallyBlock != null && finBody != null) {
+			if (jumpFrame != null && (!finallyFallsThrough || !anyEscape)) {
+				txStmts.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable(jumpFrame.actionName))));
+				if (jumpFrame.hasReturnSlot && !(returnSlotManaged || returnSlotIsThread)) {
+					txStmts.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable(jumpFrame.returnName))));
+				}
+			}
+			for fs in finBody.stmts() { txStmts.push(fs); }
+			for ce in returnCleanupExit { txStmts.push(ce); }
+			if (finallyFallsThrough) {
+				if (finallyOnly && tryTerminates) {
+					for ds in dispatchStmts { txStmts.push(ds); }
+					Vector<IRNode> targs = [IRNode.cast("const char*", IRNode.variable(errorName))];
+					IRNode rethrowCall = IRNode.call("__btrc_throw", targs);
+					((IRCallPayload)rethrowCall.payload).neverReturns = true;
+					txStmts.push(IRNode.expressionStatement(rethrowCall));
+				} else {
+					if (finallyOnly) {
+						Vector<IRNode> targs = [IRNode.cast("const char*", IRNode.variable(errorName))];
+						IRNode rethrowCall = IRNode.call("__btrc_throw", targs);
+						((IRCallPayload)rethrowCall.payload).neverReturns = true;
+						IRNode rethrow = IRNode.expressionStatement(rethrowCall);
+						if (pendingName == "") {
+							txStmts.push(rethrow);
+						} else {
+							Vector<IRNode> rethrowBody = [rethrow];
+							txStmts.push(self.controlFlow.materializeConditional(ConditionalPlan(IRNode.variable(pendingName), IRNode.block(rethrowBody), null)));
+						}
+					}
+					for ds in dispatchStmts { txStmts.push(ds); }
+					if (continuationFlows.len == 0) {
+						Vector<IRNode> abortArgs = [];
+						IRNode abortCall = IRNode.call("abort", abortArgs);
+						((IRCallPayload)abortCall.payload).neverReturns = true;
+						txStmts.push(IRNode.expressionStatement(abortCall));
+					}
+				}
+			} else if (finallyOnly && pendingName != "") {
+				txStmts.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable(pendingName))));
+			}
+			if (continuationFlows.len > 0 && IRStatementSequence(txStmts).mayFallThrough() && finallyExit != null) {
+				CallableFlowSnapshot continuationEntry = callableFlow.merged(continuationFlows);
+				CallableFlowSnapshot projected = callableFlow.projectMutations(finallyExit, continuationEntry, mutatedBindings);
+				callableFlow.restore(projected);
+			} else {
+				callableFlow.restore(incoming);
+			}
+			for ts in txStmts { out.push(ts); }
+			return;
+		}
+
+		if (jumpFrame != null) {
+			if (!anyEscape) {
+				txStmts.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable(jumpFrame.actionName))));
+				if (jumpFrame.hasReturnSlot && !(returnSlotManaged || returnSlotIsThread)) {
+					txStmts.push(IRNode.expressionStatement(IRNode.cast("void", IRNode.variable(jumpFrame.returnName))));
+				}
+			} else {
+				for ds in dispatchStmts { txStmts.push(ds); }
+			}
+		}
+		if (continuationFlows.len == 0) {
+			Vector<IRNode> abortArgs = [];
+			IRNode abortCall = IRNode.call("abort", abortArgs);
+			((IRCallPayload)abortCall.payload).neverReturns = true;
+			txStmts.push(IRNode.expressionStatement(abortCall));
+		}
+		for ts in txStmts { out.push(ts); }
 	}
 
 	/* Lower a switch statement -> IRSwitch with IRCase children (mirrors
@@ -1484,7 +2065,115 @@ class StatementLowerer {
 
 	/* Build a loop body block with `prefix` statements prepended to the lowered
      * body (the binding decls), mirroring body_block.stmts.insert(0, ...). */
-	public IRNode loopBodyWithPrefix(Node bodyNode, Map<string, Node> varTypes, Vector<IRNode> prefix, Vector<string> sourceNames, Vector<Node> types, Vector<bool> owned, CallableFlowState callableFlow) { return self.lowerLoopBodyWithBindings(bodyNode, varTypes, prefix, sourceNames, types, owned, callableFlow); }
+	public IRNode loopBodyWithPrefix(Node bodyNode, Map<string, Node> varTypes, Vector<IRNode> prefix, Vector<string> sourceNames, Vector<Node> types, Vector<bool> owned, CallableFlowState callableFlow, Vector<bool>? retainOnBind = null) { return self.lowerLoopBodyWithBindings(bodyNode, varTypes, prefix, sourceNames, types, owned, callableFlow, retainOnBind); }
+
+	private bool isDirectHashTableIterable(Node? iterType) {
+		if (iterType == null || iterType.isArray || iterType.pointerDepth > 1 || !self.analyzed.isGenericClass(iterType.base)) {
+			return false;
+		}
+		if (iterType.base == "Map" && iterType.genericArgs().len == 2) {
+			return SemanticTypeSystem.genericMember(self.analyzed, "Map", "cap") != null && SemanticTypeSystem.genericMember(self.analyzed, "Map", "occupied") != null && SemanticTypeSystem.genericMember(self.analyzed, "Map", "keys") != null && SemanticTypeSystem.genericMember(self.analyzed, "Map", "values") != null;
+		}
+		if (iterType.base == "Set" && iterType.genericArgs().len == 1) {
+			return SemanticTypeSystem.genericMember(self.analyzed, "Set", "cap") != null && SemanticTypeSystem.genericMember(self.analyzed, "Set", "occupied") != null && SemanticTypeSystem.genericMember(self.analyzed, "Set", "keys") != null;
+		}
+		return false;
+	}
+
+	private bool isDirectLinkedListIterable(Node? iterType) {
+		if (iterType == null || iterType.base != "List" || iterType.isArray || iterType.pointerDepth > 1 || iterType.genericArgs().len != 1 || !self.analyzed.isGenericClass("List")) {
+			return false;
+		}
+		return SemanticTypeSystem.genericMember(self.analyzed, "List", "head") != null && self.analyzed.isGenericClass("ListNode") && SemanticTypeSystem.genericMember(self.analyzed, "ListNode", "value") != null && SemanticTypeSystem.genericMember(self.analyzed, "ListNode", "next") != null;
+	}
+
+	private void lowerHashTableForIn(Node node, IRNode irIter, Node iterType, string varName, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
+		string iterVar = self.context.freshTemporary("__iter");
+		string iterCType = self.cTypes.lower(iterType);
+		if (iterCType.length() < 1 || iterCType.substring(iterCType.length() - 1, 1) != "*") {
+			iterCType = iterCType + "*";
+		}
+		out.push(IRNode.variableDeclaration(iterCType, iterVar, irIter));
+		string ownedRuntimeType = self.expressions.beginOwnedIteration(node.iterable, iterType, varTypes, iterVar, out, callableFlow);
+		string idx = self.context.freshTemporary("__i");
+		string nVar = self.context.freshTemporary("__n");
+		Node elemT = iterType.genericArgs().get(0);
+		string elemC = self.iterValueC(elemT);
+		varTypes.put(varName, elemT);
+		self.context.activateSourceName(varName, self.lexicalBindingCName(varName));
+		string varCName = self.context.sourceCName(varName);
+		Vector<IRNode> bindings = [];
+		Vector<string> bindingSourceNames = [];
+		Vector<Node> bindingTypes = [];
+		Vector<bool> bindingOwned = [];
+		Vector<bool> retainOnBind = [];
+		bindings.push(IRNode.variableDeclaration(elemC, varCName, IRNode.indexAccess(IRNode.fieldAccess(IRNode.variable(iterVar), "keys", true), IRNode.variable(idx))));
+		bindingSourceNames.push(varName);
+		bindingTypes.push(elemT);
+		bindingOwned.push(true);
+		retainOnBind.push(true);
+		string vn2 = "";
+		if (node.varName2 != null) { vn2 = node.varName2; }
+		if (vn2 != "" && iterType.base == "Map" && iterType.genericArgs().len == 2) {
+			Node v2T = iterType.genericArgs().get(1);
+			string vC = self.iterValueC(v2T);
+			varTypes.put(vn2, v2T);
+			self.context.activateSourceName(vn2, self.lexicalBindingCName(vn2));
+			string secondCName = self.context.sourceCName(vn2);
+			bindings.push(IRNode.variableDeclaration(vC, secondCName, IRNode.indexAccess(IRNode.fieldAccess(IRNode.variable(iterVar), "values", true), IRNode.variable(idx))));
+			bindingSourceNames.push(vn2);
+			bindingTypes.push(v2T);
+			bindingOwned.push(true);
+			retainOnBind.push(true);
+		}
+		IRNode innerBody = self.loopBodyWithPrefix(node.bodyNode, varTypes, bindings, bindingSourceNames, bindingTypes, bindingOwned, callableFlow, retainOnBind);
+		out.push(IRNode.variableDeclaration("int", nVar, IRNode.fieldAccess(IRNode.variable(iterVar), "cap", true)));
+		Vector<IRNode> contStmts = [IRNode.continueStatement()];
+		IRNode skipEmpty = self.controlFlow.materializeConditional(ConditionalPlan(IRNode.unary("!", IRNode.indexAccess(IRNode.fieldAccess(IRNode.variable(iterVar), "occupied", true), IRNode.variable(idx)), true), IRNode.block(contStmts), null));
+		Vector<IRNode> outerStmts = [skipEmpty, innerBody];
+		IRNode forInit = IRNode.variableDeclaration("int", idx, IRNode.literal("0"));
+		IRNode cond = IRNode.binary(IRNode.variable(idx), "<", IRNode.variable(nVar));
+		IRNode upd = IRNode.unary("++", IRNode.variable(idx), false);
+		out.push(self.controlFlow.materializeFor(ForPlan(forInit, cond, upd, IRNode.block(outerStmts))));
+		self.expressions.endOwnedIteration(iterVar, ownedRuntimeType, out);
+	}
+
+	private void lowerLinkedListForIn(Node node, IRNode irIter, Node iterType, string varName, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
+		string iterVar = self.context.freshTemporary("__iter");
+		string iterCType = self.cTypes.lower(iterType);
+		if (iterCType.length() < 1 || iterCType.substring(iterCType.length() - 1, 1) != "*") {
+			iterCType = iterCType + "*";
+		}
+		out.push(IRNode.variableDeclaration(iterCType, iterVar, irIter));
+		string ownedRuntimeType = self.expressions.beginOwnedIteration(node.iterable, iterType, varTypes, iterVar, out, callableFlow);
+		string nodeVar = self.context.freshTemporary("__node");
+		string nextVar = self.context.freshTemporary("__next");
+		Node elemT = iterType.genericArgs().get(0);
+		string elemC = self.iterValueC(elemT);
+		Node nodeType = Node();
+		nodeType.kind = NK_TYPE_EXPR;
+		nodeType.base = "ListNode";
+		nodeType.pointerDepth = 1;
+		nodeType.genericArgsMut().push(elemT);
+		string nodeC = self.iterValueC(nodeType);
+		varTypes.put(varName, elemT);
+		self.context.activateSourceName(varName, self.lexicalBindingCName(varName));
+		string varCName = self.context.sourceCName(varName);
+		Vector<IRNode> bindings = [IRNode.variableDeclaration(elemC, varCName, IRNode.fieldAccess(IRNode.variable(nodeVar), "value", true))];
+		Vector<string> bindingSourceNames = [varName];
+		Vector<Node> bindingTypes = [elemT];
+		Vector<bool> bindingOwned = [true];
+		Vector<bool> retainOnBind = [true];
+		IRNode innerBody = self.loopBodyWithPrefix(node.bodyNode, varTypes, bindings, bindingSourceNames, bindingTypes, bindingOwned, callableFlow, retainOnBind);
+		out.push(IRNode.variableDeclaration(nodeC, nextVar, IRNode.literal("NULL")));
+		IRNode saveNext = IRNode.assignment(IRNode.variable(nextVar), IRNode.fieldAccess(IRNode.variable(nodeVar), "next", true));
+		Vector<IRNode> outerStmts = [saveNext, innerBody];
+		IRNode forInit = IRNode.variableDeclaration(nodeC, nodeVar, IRNode.fieldAccess(IRNode.variable(iterVar), "head", true));
+		IRNode cond = IRNode.binary(IRNode.variable(nodeVar), "!=", IRNode.literal("NULL"));
+		IRNode upd = IRNode.cast("void", IRNode.binary(IRNode.variable(nodeVar), "=", IRNode.variable(nextVar)));
+		out.push(self.controlFlow.materializeFor(ForPlan(forInit, cond, upd, IRNode.block(outerStmts))));
+		self.expressions.endOwnedIteration(iterVar, ownedRuntimeType, out);
+	}
 
 	/* The declared bound's own scalar C type, so binding it truncates nothing
      * (mirrors StorageLowerer._array_bound_c_type). */
@@ -1536,6 +2225,20 @@ class StatementLowerer {
 			self.lowerSpanForIn(node, irIter, iterType, varName, loopTypes, out, callableFlow);
 			self.context.restoreSourceBindings(sourceBindings);
 			return;
+		}
+
+		Node? resolvedIterType = self.cTypes.resolveBodyType(iterType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
+		if (resolvedIterType != null && node.kind == NK_FOR_IN_STMT) {
+			if (self.isDirectHashTableIterable(resolvedIterType)) {
+				self.lowerHashTableForIn(node, irIter, resolvedIterType, varName, loopTypes, out, callableFlow);
+				self.context.restoreSourceBindings(sourceBindings);
+				return;
+			}
+			if (self.isDirectLinkedListIterable(resolvedIterType)) {
+				self.lowerLinkedListForIn(node, irIter, resolvedIterType, varName, loopTypes, out, callableFlow);
+				self.context.restoreSourceBindings(sourceBindings);
+				return;
+			}
 		}
 
 		/* Iterable protocol: generic class with iterLen + iterGet methods. */
