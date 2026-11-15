@@ -4,8 +4,10 @@
 #
 #   tools/virtual-display.sh make NIX= test-shard-unit
 #
-# The dev shell names Mesa's software Vulkan driver (lavapipe) and the Vulkan
-# loader that wgpu-native dlopens. The display is tools/ui/headless-session.sh
+# The dev shell names Mesa's software Vulkan driver (lavapipe), the Vulkan
+# loader that wgpu-native dlopens, and Mesa's EGL: wgpu-native probes OpenGL
+# too, and a host GPU vendor's EGL can abort on a display it does not drive.
+# The display is tools/ui/headless-session.sh
 # in X11 mode: a private Xvfb started with -noreset, inside its own D-Bus
 # session bus with the AT-SPI accessibility bus, and SDL and GDK pinned to X11
 # so neither probes a missing Wayland compositor. BTRC_VIRTUAL_DISPLAY=wayland
@@ -23,6 +25,9 @@ fi
 if [[ -n "${BTRC_LAVAPIPE_ICD:-}" && -f "$BTRC_LAVAPIPE_ICD" && -z "${VK_DRIVER_FILES:-}${VK_ICD_FILENAMES:-}" ]]; then
   export VK_DRIVER_FILES="$BTRC_LAVAPIPE_ICD"
   export LD_LIBRARY_PATH="${BTRC_VULKAN_LOADER:+$BTRC_VULKAN_LOADER${LD_LIBRARY_PATH:+:}}${LD_LIBRARY_PATH:-}"
+  if [[ -n "${BTRC_MESA_EGL:-}" && -f "$BTRC_MESA_EGL" && -z "${__EGL_VENDOR_LIBRARY_FILENAMES:-}" ]]; then
+    export __EGL_VENDOR_LIBRARY_FILENAMES="$BTRC_MESA_EGL"
+  fi
 fi
 session="${BTRC_VIRTUAL_DISPLAY:-x11}"
 case "$session" in

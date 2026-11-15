@@ -29,7 +29,7 @@ PROBE = """
 import json, os
 from pathlib import Path
 from src.tests.runner_capabilities import linux_atspi_error, linux_display_error, linux_wayland_display_error
-variables = ("DISPLAY", "WAYLAND_DISPLAY", "SDL_VIDEODRIVER", "GDK_BACKEND", "VK_DRIVER_FILES", "XDG_RUNTIME_DIR")
+variables = ("DISPLAY", "WAYLAND_DISPLAY", "SDL_VIDEODRIVER", "GDK_BACKEND", "VK_DRIVER_FILES", "__EGL_VENDOR_LIBRARY_FILENAMES", "XDG_RUNTIME_DIR")
 wayland = os.environ.get("WAYLAND_DISPLAY")
 display = os.environ.get("DISPLAY")
 if wayland:
@@ -111,6 +111,7 @@ def test_x11_session_offers_a_display_and_the_accessibility_bus():
     assert (seen["environ"]["SDL_VIDEODRIVER"], seen["environ"]["GDK_BACKEND"]) == ("x11", "x11")
     if os.environ.get("BTRC_LAVAPIPE_ICD"):
         assert seen["environ"]["VK_DRIVER_FILES"] == os.environ["BTRC_LAVAPIPE_ICD"]
+        assert seen["environ"]["__EGL_VENDOR_LIBRARY_FILENAMES"] == os.environ.get("BTRC_MESA_EGL")
     # The session stopped Xvfb and removed its private runtime directory.
     assert _stopped(seen["socket"], seen["inode"])
     assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()

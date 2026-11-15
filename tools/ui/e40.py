@@ -265,7 +265,13 @@ class E40Run:
             selfhost_compiler=self.digest(os.environ.get("BTRC_TEST_BTRCC")),
             display={name: os.environ.get(name) for name in ("SDL_VIDEODRIVER", "DISPLAY", "WAYLAND_DISPLAY")},
             graphics={
-                name: os.environ.get(name) for name in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "BTRC_LAVAPIPE_ICD")
+                name: os.environ.get(name)
+                for name in (
+                    "VK_DRIVER_FILES",
+                    "VK_ICD_FILENAMES",
+                    "BTRC_LAVAPIPE_ICD",
+                    "__EGL_VENDOR_LIBRARY_FILENAMES",
+                )
             },
             physical_device_latency="not measured",
             native_environment={

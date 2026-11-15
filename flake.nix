@@ -6,11 +6,13 @@
       lib = nixpkgs.lib;
       # nixpkgs builds the AT-SPI bus launcher against NixOS's
       # /run/current-system dbus-daemon, which no container or other Linux
-      # host has; this one spawns the store's dbus-daemon instead.
+      # host has; this one spawns the store's dbus-daemon instead. It is not
+      # told of a dbus-broker either: on a NixOS host that has one the launcher
+      # starts it, and outside a systemd session it serves no accessibility bus.
       atSpiCore = pkgs: pkgs.at-spi2-core.overrideAttrs (old: {
         mesonFlags = map (flag:
           if lib.hasPrefix "-Ddbus_daemon=" flag then "-Ddbus_daemon=${pkgs.dbus}/bin/dbus-daemon" else flag
-        ) old.mesonFlags;
+        ) (lib.filter (flag: !lib.hasPrefix "-Ddbus_broker=" flag) old.mesonFlags);
       });
       # GTK decorations must clear seat references before freeing a frame.
       # Match libdecor's existing Cairo cleanup and its upstream leave ordering.
@@ -238,6 +240,9 @@
           # shell keeps its real GPU and CI's headless runner still gets an adapter.
           BTRC_LAVAPIPE_ICD = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.uname.processor}.json";
           BTRC_VULKAN_LOADER = "${pkgs.vulkan-loader}/lib";
+          # wgpu-native also probes OpenGL through EGL. On a virtual display the
+          # host's own GPU vendor library has no screen to answer for.
+          BTRC_MESA_EGL = "${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json";
           # tools/ui/headless-session.sh starts the AT-SPI bus from here; the
           # launcher is a libexec program, not on PATH.
           BTRC_ATSPI_LIBEXEC = "${atSpiCore pkgs}/libexec";

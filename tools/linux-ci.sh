@@ -86,7 +86,9 @@ done < <(find build dist -maxdepth 1 -type l 2>/dev/null)
 # machine set --cpus N --memory M` resizes the VM, restarting it.
 workers="${PYTEST_WORKERS:-$(podman info --format '{{.Host.CPUs}}' 2>/dev/null || echo 4)}"
 
-exec podman run --rm --init "${mounts[@]}" \
+# ThreadSanitizer switches address randomisation off for itself where the
+# kernel's is too high for its shadow; the default seccomp profile refuses that.
+exec podman run --rm --init --security-opt seccomp=unconfined "${mounts[@]}" \
   -e PYTHONPYCACHEPREFIX=/tmp/btrc-pycache -e "BTRC_VIRTUAL_DISPLAY=${BTRC_VIRTUAL_DISPLAY:-x11}" "$image" \
   tools/virtual-display.sh make NIX= "PYTEST_WORKERS=$workers" \
   "BTRC_TEST_TRANSPILE_TIMEOUT=${BTRC_TEST_TRANSPILE_TIMEOUT:-1800}" \

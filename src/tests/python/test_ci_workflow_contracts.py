@@ -750,7 +750,11 @@ def test_a_pr_tier_corpus_row_reaches_pytest_through_pytest_addopts() -> None:
         expected["UNIT_GUI_DELEGATED"] = "${{ matrix.unit_gui_delegated }}"
         assert suite["env"] == expected, workflow
     linux = next(step for step in _parsed("ci.yml")["jobs"]["tests"]["steps"] if "matrix.target" in step.get("run", ""))
-    assert '-v "$PWD:/workspace" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED btrc-devcontainer:latest' in linux["run"]
+    # ThreadSanitizer's tests need personality(), which the default seccomp profile refuses.
+    assert (
+        '-v "$PWD:/workspace" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED '
+        "--security-opt seccomp=unconfined btrc-devcontainer:latest"
+    ) in linux["run"]
 
 
 def test_bootstrap_shards_keep_their_boundary_report_for_the_bundle() -> None:
@@ -2416,6 +2420,7 @@ def test_unit_diagnostic_preserves_the_complete_shard_and_runner_limits() -> Non
     assert "set -euo pipefail" in run["run"]
     assert (
         'podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS -e PYTEST_DEBUG_TEMPROOT '
+        "--security-opt seccomp=unconfined "
         "btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 "
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit "
         "2>&1 | tee build/unit-diagnostic/console.log"

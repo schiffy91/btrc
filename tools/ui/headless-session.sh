@@ -173,6 +173,9 @@ esac
 if [[ -n "${BTRC_LAVAPIPE_ICD:-}" && -f "$BTRC_LAVAPIPE_ICD" && -z "${VK_DRIVER_FILES:-}${VK_ICD_FILENAMES:-}" ]]; then
   export VK_DRIVER_FILES="$BTRC_LAVAPIPE_ICD"
   export LD_LIBRARY_PATH="${BTRC_VULKAN_LOADER:+$BTRC_VULKAN_LOADER${LD_LIBRARY_PATH:+:}}${LD_LIBRARY_PATH:-}"
+  if [[ -n "${BTRC_MESA_EGL:-}" && -f "$BTRC_MESA_EGL" && -z "${__EGL_VENDOR_LIBRARY_FILENAMES:-}" ]]; then
+    export __EGL_VENDOR_LIBRARY_FILENAMES="$BTRC_MESA_EGL"
+  fi
 fi
 
 # The command runs in the background so a signal interrupts `wait` and is passed
