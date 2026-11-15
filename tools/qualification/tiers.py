@@ -9,6 +9,9 @@ Schema identifier: ``btrc.ci-tiers/1``.
                  matrix job whose rows are the ``[[shards]]`` naming it, and
                  whose rows the key tells apart). Optional ``reports``: the
                  evidence it uploads (``skip-report``, ``junit``, ``bench``).
+                 Optional ``local``: the platform (``linux-x86_64``,
+                 ``macos-arm64``) whose machines reproduce the job, so a
+                 local pass may stand in for it (`tools.qualification.local`).
 ``[[shards]]``   one matrix row: ``job`` (``ci.yml/tests``), the key's value,
                  every other field the row carries (``target``), ``tiers``,
                  and optional ``reports`` (``boundary-report``).
@@ -49,6 +52,7 @@ WHOLE_CORPUS = "*"
 _NAME = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)*$")
 _ROW_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 =._-]*$")
 _CORPUS_DIRECTORY = re.compile(r"^[a-z_]+$")
+_PLATFORM = re.compile(r"^[a-z0-9]+-[a-z0-9_]+$")
 _RESERVED_ROW_FIELDS = frozenset(
     {"job", "tiers", "changed_tiers", "changed_paths", "selected_tiers", "corpus_tiers", "reports"}
 )
@@ -121,6 +125,7 @@ class TierJob:
     condition: TierCondition
     key: str | None = None
     reports: tuple[str, ...] = ()
+    local: str | None = None
 
     @property
     def stem(self) -> str:
@@ -256,7 +261,7 @@ class TierManifest:
         reader = _Reader(
             entry,
             where,
-            {"workflow", "job", "key", "reports", "tiers", "changed_tiers", "changed_paths", "selected_tiers"},
+            {"workflow", "job", "key", "reports", "local", "tiers", "changed_tiers", "changed_paths", "selected_tiers"},
         )
         key = reader.optional_text("key")
         condition = cls._condition(reader, scheduled, paths)
@@ -268,7 +273,10 @@ class TierManifest:
         if not re.fullmatch(r"[a-z0-9-]+\.yml", workflow) or not _NAME.match(job):
             raise TierManifestError(f"{where}: {workflow}/{job} is not a workflow file and job name")
         reports = reader.names("reports", set(REPORT_KINDS))
-        return TierJob(workflow, job, condition, key, reports)
+        local = reader.optional_text("local")
+        if local is not None and not _PLATFORM.match(local):
+            raise TierManifestError(f"{where}.local: a platform as ci-local spells it, such as linux-x86_64")
+        return TierJob(workflow, job, condition, key, reports, local)
 
     @classmethod
     def _shard(cls, entry: object, where: str, scheduled: set[str], paths: Mapping[str, tuple[str, ...]]) -> TierShard:

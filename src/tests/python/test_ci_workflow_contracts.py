@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.abi.generated import TARGET_ROWS
+from tools.qualification.local import LocalJobs
 from tools.qualification.tiers import MANIFEST as TIER_MANIFEST
 from tools.qualification.tiers import TierManifest
 
@@ -105,7 +106,7 @@ def test_every_workflow_action_reference_is_pinned_to_a_commit() -> None:
     workflows = (*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml"))
     for workflow in workflows:
         for line in workflow.read_text(encoding="utf-8").splitlines():
-            if "uses:" not in line:
+            if not re.match(r"\s*(?:- )?uses:", line):  # the key, not a word that ends in it (statuses: read)
                 continue
             reference = line.split("uses:", 1)[1].split("#", 1)[0].strip()
             if reference.startswith("./.github/workflows/"):
@@ -715,7 +716,7 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
                 assert matrix == _plan_matrix(name), (workflow, name)
                 assert job["strategy"]["fail-fast"] == "false", (workflow, name)
     assert scope["runs-on"] == "ubuntu-latest"
-    assert scope["permissions"] == {"contents": "read", "pull-requests": "read"}
+    assert scope["permissions"] == {"contents": "read", "pull-requests": "read", "statuses": "read"}
     assert scope["outputs"] == {
         "tier": "${{ steps.classify.outputs.tier }}",
         "plan": "${{ steps.plan.outputs.plan }}",
@@ -786,7 +787,13 @@ def test_release_runs_every_tiered_workflow_at_one_tier_then_bundles_them() -> N
     assert {job["uses"] for job in calls.values()} == {f"./.github/workflows/{name}" for name in CORE_WORKFLOWS}
     for name, job in calls.items():
         assert job["with"] == {"tier": tier}, name
-        assert job["permissions"] == {"contents": "read", "pull-requests": "read", "actions": "read"}, name
+        # A called job may ask for no more than its caller grants: scope lists statuses.
+        assert job["permissions"] == {
+            "contents": "read",
+            "pull-requests": "read",
+            "statuses": "read",
+            "actions": "read",
+        }, name
     bundle = jobs["bundle"]
     assert bundle["needs"] == sorted(calls) and bundle["if"] == "${{ !cancelled() }}"
     steps = bundle["steps"]
@@ -900,6 +907,9 @@ FAKE_GH = """gh() {
       [[ " $* " == *" --paginate --slurp "* ]] || { echo "files need --paginate --slurp" >&2; return 2; }
       cat "$FAKE_GH/files.json" ;;
     */pulls/*) cat "$FAKE_GH/pull.json" ;;
+    */commits/*/statuses\\?per_page=100)
+      [[ " $* " == *" --paginate --slurp "* ]] || { echo "statuses need --paginate --slurp" >&2; return 2; }
+      cat "$FAKE_GH/statuses.json" ;;
     *) echo "unexpected gh $*" >&2; return 2 ;;
   esac
 }
@@ -958,22 +968,45 @@ def _classify(tmp_path: Path, event: str, head: str = "", files: tuple[str, ...]
     return lines[0].removeprefix("tier=")
 
 
-def _plan(tmp_path: Path, workflow: str, tier: str) -> dict[str, object]:
-    """Run the scope job's plan step after `_classify`, as the job runs it."""
+def _plan(
+    tmp_path: Path,
+    workflow: str,
+    tier: str,
+    statuses: object = (),
+    event: str = "pull_request",
+    called_tier: str = "",
+) -> dict[str, object]:
+    """Run the scope job's local-pass and plan steps after `_classify`, as the job runs them.
 
+    `statuses` is what the stand-in `gh` lists for the commit: pages of
+    statuses, or None for a listing that fails.
+    """
+
+    local = _scope_step(workflow, "Read the owner's local passes")
     step = _scope_step(workflow, "Plan the tier's jobs")
     output = tmp_path / "plan-output"
     output.unlink(missing_ok=True)
+    (tmp_path / "build").mkdir(exist_ok=True)
+    (tmp_path / "gh.sh").write_text(FAKE_GH, encoding="utf-8")
+    (tmp_path / "statuses.json").unlink(missing_ok=True)
+    if statuses is not None:
+        (tmp_path / "statuses.json").write_text(json.dumps(statuses), encoding="utf-8")
     environment = {
         **os.environ,
         "PYTHONPATH": str(REPO),
+        "FAKE_GH": str(tmp_path),
         "CI_WORKFLOW": workflow,
         "TIER": tier,
+        "EVENT": event,
+        "CALLED_TIER": called_tier,
+        "GITHUB_REPOSITORY": "schiffy91/btrc",
+        "GITHUB_REPOSITORY_OWNER": "schiffy91",
+        "GITHUB_SHA": "c" * 40,
         "GITHUB_OUTPUT": str(output),
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
     }
     completed = subprocess.run(
-        ["bash", "-c", step["run"]],
+        ["bash", "-c", f'source "$FAKE_GH/gh.sh"\n{local["run"]}\n{step["run"]}'],
         cwd=tmp_path,
         env=environment,
         capture_output=True,
@@ -2645,3 +2678,219 @@ def test_linux_gui_retains_controller_journals_when_the_job_is_cancelled() -> No
     upload = next(step for step in steps if step.get("name") == "Retain the session evidence")
     assert upload["if"] == "always()"
     assert "build/linux-gui/${{ matrix.cell }}/*.jsonl" in upload["with"]["path"].splitlines()
+
+
+LOCAL = LocalJobs(TIERS)
+# The tiered Linux and macOS jobs no local pass may stand in for, and why.
+NOT_LOCAL = {
+    ("ci.yml", "release"): "its product is the uploaded Linux x64 archive, which a commit status cannot carry",
+    ("ci.yml", "bench"): "it gates against a baseline recorded from the hosted runner's own results",
+    ("ci.yml", "linux-arm64-bundle"): "it runs on an arm64 runner and its product is the uploaded archive",
+    ("ci.yml", "linux-gui"): "the session's union check reads every partition's proof from the run's artifacts",
+    ("ci.yml", "linux-gui-coverage"): "it aggregates the partitions' artifacts",
+    ("macos.yml", "native-bundle"): "its product is the uploaded macOS archive",
+    ("macos.yml", "native-gui"): "the union check reads every partition's proof from the run's artifacts",
+    ("macos.yml", "native-gui-coverage"): "it aggregates the partitions' artifacts",
+}
+RUNNER_PLATFORMS = {"ubuntu-latest": "linux-x86_64", "macos-15": "macos-arm64"}
+UNIT_ADDOPTS = (
+    "${{ matrix.shard == 'unit' && format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', "
+    "matrix.pytest_addopts) || matrix.pytest_addopts }}"
+)
+
+
+def test_every_linux_and_macos_job_is_local_or_says_why_not() -> None:
+    local = {(entry.workflow, entry.job) for entry in LOCAL.entries()}
+    tiered = {(entry.workflow, entry.job) for entry in TIERS.jobs if entry.workflow in ("ci.yml", "macos.yml")}
+    assert local | set(NOT_LOCAL) == tiered and not local & set(NOT_LOCAL)
+    assert all(reason.strip() for reason in NOT_LOCAL.values())
+    # No machine of the owner's runs Windows or the Android emulator lane.
+    assert {entry.workflow for entry in TIERS.jobs if entry.local} == {"ci.yml", "macos.yml"}
+
+
+def test_each_local_job_is_its_workflow_jobs_unconditional_steps() -> None:
+    assert (REPO / "ci/local.json").read_text(encoding="utf-8") == LOCAL.table()
+    entries = LOCAL.entries()
+    assert {entry.name for entry in entries} == set(json.loads(LOCAL.table())["jobs"])
+    for entry in entries:
+        document = _parsed(entry.workflow)
+        job = document["jobs"][entry.job]
+        row = dict(entry.row or {})
+        display = job.get("name", entry.job)
+        for field, value in row.items():
+            display = display.replace(f"${{{{ matrix.{field} }}}}", value)
+        assert entry.name == f"{document['name']} / {display}", entry.name
+        assert entry.platform == RUNNER_PLATFORMS[job["runs-on"]], entry.name
+        assert "env" not in job, entry.name
+        # The row is the release tier's, and the job reads its rows from the plan.
+        if entry.row is None:
+            assert "strategy" not in job, entry.name
+        else:
+            assert job["strategy"]["matrix"] == _plan_matrix(entry.job), entry.name
+            assert entry.row in TIERS.plan(entry.workflow, "release")["matrix"][entry.job]["include"], entry.name
+        # A step an `if` decides provisions the runner (developer mode) or keeps its evidence.
+        steps = [step for step in job["steps"] if "run" in step and "if" not in step]
+        commands = _job_commands({"steps": steps, "strategy": {"matrix": {"include": [row]}}})
+        assert list(entry.steps) == commands and all(commands), entry.name
+        expected = {"BTRC_TEST_RUNNER": "macos"} if entry.platform == "macos-arm64" else {}
+        for step in steps:
+            for name, value in step.get("env", {}).items():
+                if value == UNIT_ADDOPTS:
+                    addopts = "--dist=loadgroup --failure-report=build/failure-report-unit.jsonl "
+                    expected[name] = addopts if row["shard"] == "unit" else ""
+                elif match := re.fullmatch(r"\$\{\{ matrix\.([a-z_]+) \}\}", value):
+                    expected[name] = row.get(match.group(1), "")
+                else:
+                    assert "${{" not in value, (entry.name, name)
+                    expected[name] = value
+        assert dict(entry.environment) == expected, entry.name
+        assert shlex.split(entry.run) == [
+            "tools/ci-local-job.sh",
+            *(f"{name}={value}" for name, value in entry.environment),
+            "--",
+            *commands,
+        ], entry.name
+    by_name = {entry.name: entry for entry in entries}
+    assert dict(by_name["CI / tests (unit)"].environment) == {
+        "UNIT_GUI_DELEGATED": "1",
+        "PYTEST_ADDOPTS": "--dist=loadgroup --failure-report=build/failure-report-unit.jsonl ",
+    }
+    assert by_name["CI / tests (unit)"].steps[:2] == ("make devcontainer", "chmod -R a+w .")
+    e40 = by_name["macOS / macos-e40 (macos-selfhost-sanitized)"]
+    assert dict(e40.environment) == {"BTRC_TEST_RUNNER": "macos", "CI": "true", "BTRC_UI2_HOSTED_E40": "1"}
+    assert e40.steps[-1] == (
+        "nix develop --command make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 "
+        "E40_FRONTEND=selfhost E40_VARIANT=sanitized test-e40-macos"
+    )
+    script = (REPO / "tools/ci-local-job.sh").read_text(encoding="utf-8")
+    assert os.access(REPO / "tools/ci-local-job.sh", os.X_OK)
+    assert 'export CI=true GITHUB_WORKSPACE="$PWD" GITHUB_SHA="$commit" RUNNER_TEMP="$work/temp"' in script
+    assert 'git clone --quiet --no-hardlinks --no-checkout "$root" "$work/workspace"' in script
+    assert 'bash -e -c "$step"' in script
+
+
+def test_only_the_missing_report_job_consumes_a_job_a_local_pass_can_drop() -> None:
+    """A dropped row leaves no artifact, so nothing that needs every row's artifact may wait on one."""
+
+    local = {(entry.workflow, entry.job) for entry in LOCAL.entries()}
+    for workflow in ("ci.yml", "macos.yml"):
+        jobs = _parsed(workflow)["jobs"]
+        consumers = {
+            name: [producer for producer in job["needs"] if (workflow, producer) in local]
+            for name, job in jobs.items()
+            if isinstance(job.get("needs"), list)
+        }
+        assert {name: needs for name, needs in consumers.items() if needs} == {"skip-reports": ["tests"]}, workflow
+        # That job names what the plan expected, and the plan expects nothing from a row it dropped.
+        reports = jobs["skip-reports"]
+        assert reports["if"] == (
+            f"${{{{ !cancelled() && needs.scope.result == 'success' && contains({PLAN}.jobs, 'tests') }}}}"
+        )
+        step = reports["steps"][-1]
+        assert step["env"]["EXPECTED"] == f"${{{{ join({PLAN}.reports.tests, ' ') }}}}", workflow
+        assert step["env"]["LOCAL"] == f"${{{{ join({PLAN}.local, ', ') }}}}", workflow
+        assert 'test -n "$EXPECTED"' in step["run"] and "No report is expected from what passed locally" in step["run"]
+        # No job downloads an artifact a droppable job uploads.
+        uploads = {
+            step["with"]["name"].split("${{")[0]
+            for name, job in jobs.items()
+            if (workflow, name) in local
+            for step in job["steps"]
+            if step.get("uses") == UPLOAD_ARTIFACT
+        }
+        patterns = [
+            str(step["with"].get("pattern", step["with"].get("name", "")))
+            for job in jobs.values()
+            for step in job.get("steps", [])
+            if str(step.get("uses", "")).startswith("actions/download-artifact@") and "with" in step
+        ]
+        assert not any(pattern.startswith(prefix) for pattern in patterns for prefix in uploads), workflow
+    # release.yml bundles every report of its calls; a called scope job counts no local pass.
+    assert "tools.qualification bundle" in _workflow("release.yml")
+
+
+def test_scope_reads_only_the_owners_statuses_for_this_runs_commit() -> None:
+    step = _scope_step("ci.yml", "Read the owner's local passes")
+    assert step["env"] == {
+        "GH_TOKEN": "${{ github.token }}",
+        "EVENT": "${{ github.event_name }}",
+        "CALLED_TIER": "${{ inputs.tier }}",
+    }
+    script = _code(step["run"])
+    assert 'gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses?per_page=100"' in script
+    assert 'python3 -m tools.qualification local-passes --owner "$GITHUB_REPOSITORY_OWNER"' in script
+    assert '[ -z "$CALLED_TIER" ] && { [ "$EVENT" = push ] || [ "$EVENT" = pull_request ]; }' in script
+    # A pull request's head commit is never read: only the commit this run tests.
+    assert "pull_request.head" not in _workflow("ci.yml") and "head.sha" not in script
+    steps = [step.get("name") for step in _parsed("ci.yml")["jobs"]["scope"]["steps"]]
+    assert steps[-3:] == ["Classify the change", "Read the owner's local passes", "Plan the tier's jobs"]
+    plan = _scope_step("ci.yml", "Plan the tier's jobs")["run"]
+    assert "--changed build/changed-files.txt --local-passes build/local-passes.json" in plan
+    assert '((.local // [])[] | "Passed locally, not run here: `\\(.)`")' in plan
+
+
+def _status(context: str, state: str = "success", login: str = "schiffy91", created: str = "2026-11-15T20:00:00Z"):
+    return {"context": context, "state": state, "creator": {"login": login}, "created_at": created, "id": 1}
+
+
+LOCAL_UNIT = "local/linux-x86_64/CI / tests (unit)"
+
+
+def _plan_output(plan: dict[str, object]) -> str:
+    return json.dumps(plan, separators=(",", ":"), sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    ("statuses", "event", "called_tier"),
+    [
+        ([[]], "push", ""),
+        (None, "push", ""),  # the listing failed: every job runs
+        ([[_status(LOCAL_UNIT, login="someone-else")]], "push", ""),
+        ([[_status(LOCAL_UNIT, "failure", created="2026-11-15T21:00:00Z"), _status(LOCAL_UNIT)]], "push", ""),
+        (
+            [[_status("local/macos-arm64/macOS / tests (unit)"), _status("local/macos-arm64/CI / tests (unit)")]],
+            "push",
+            "",
+        ),
+        (
+            [[_status("local/linux-x86_64/CI / linux-gui (x11-0)"), _status("local/linux-x86_64/CI / bench")]],
+            "push",
+            "",
+        ),
+        # A dispatch asks for the hosted jobs, and release.yml's bundle needs every report.
+        ([[_status(LOCAL_UNIT)]], "workflow_dispatch", ""),
+        ([[_status(LOCAL_UNIT)]], "push", "release"),
+        ([[_status(LOCAL_UNIT)]], "schedule", "extended"),
+    ],
+)
+def test_the_plan_is_unchanged_without_a_standing_pass_for_one_of_its_jobs(
+    tmp_path: Path, statuses: object, event: str, called_tier: str
+) -> None:
+    assert _classify(tmp_path, "push") == "main"
+    plan = _plan(tmp_path, "ci.yml", "main", statuses, event, called_tier)
+    assert _plan_output(plan) == _plan_output(TIERS.plan("ci.yml", "main"))
+    summary = (tmp_path / "summary").read_text(encoding="utf-8")
+    assert "Passed locally" not in summary
+
+
+def test_the_owners_pass_for_one_cell_drops_that_cell_alone(tmp_path: Path) -> None:
+    e40 = "local/macos-arm64/macOS / macos-e40 (macos-reference-plain)"
+    statuses = [[_status(LOCAL_UNIT), _status(e40), _status("local/linux-x86_64/CI / tests (btrc)", login="mallory")]]
+    full = TIERS.plan("ci.yml", "main")
+    assert _classify(tmp_path, "push") == "main"
+    plan = _plan(tmp_path, "ci.yml", "main", statuses, "push")
+    assert plan["local"] == [LOCAL_UNIT]
+    assert [row["shard"] for row in plan["matrix"]["tests"]["include"]] == [
+        row["shard"] for row in full["matrix"]["tests"]["include"] if row["shard"] != "unit"
+    ]
+    assert "skip-report-ci-tests-unit" not in plan["reports"]["tests"] and len(plan["reports"]["tests"]) == 13
+    assert {name: plan[name] for name in ("tier", "jobs")} == {name: full[name] for name in ("tier", "jobs")}
+    assert f"Passed locally, not run here: `{LOCAL_UNIT}`" in (tmp_path / "summary").read_text(encoding="utf-8")
+    # The four required macOS E40 cells, minus the one with a local pass; Linux's pass drops nothing there.
+    macos = _plan(tmp_path, "macos.yml", "main", statuses, "push")
+    rows = [shard.row for shard in TIERS.shards if shard.job == "macos.yml/macos-e40"]
+    assert macos["matrix"]["macos-e40"]["include"] == [row for row in rows if row["cell"] != "macos-reference-plain"]
+    assert macos["local"] == [e40] and macos["matrix"]["tests"] == TIERS.plan("macos.yml", "main")["matrix"]["tests"]
+    # A pull request's commit is its merge commit, but a pass for it would count the same way.
+    assert _plan(tmp_path, "ci.yml", "main", statuses, "pull_request")["local"] == [LOCAL_UNIT]
+    assert "local" not in _plan(tmp_path, "windows.yml", "main", statuses, "push")

@@ -8,6 +8,10 @@ denominators  check the frozen inventory denominators against their sources
 skip-gate     fail on a skip the runner's expected-skip manifest does not explain
 skip-coverage compare skip reports: shard partitions and covered_by claims
 tiers         check ci/tiers.toml, or print one workflow's plan for one tier
+              (--local-passes drops the jobs and rows the owner's machines passed)
+local-jobs    print ci/local.json, the jobs a local pass may stand in for
+              (--write updates the file, --check fails when it is stale)
+local-passes  read a commit's statuses on stdin; print the owner's standing local passes
 bundle        ingest a CI run's downloaded artifacts into one ledger bundle
 """
 
@@ -31,6 +35,8 @@ from tools.qualification.adapters import (
 from tools.qualification.bundle import LedgerBundle
 from tools.qualification.denominators import MANIFEST as DENOMINATORS
 from tools.qualification.denominators import REPO, DenominatorManifest
+from tools.qualification.local import TABLE as LOCAL_TABLE
+from tools.qualification.local import LocalJobs, LocalPasses
 from tools.qualification.report import QualificationReport
 from tools.qualification.schema import (
     Budget,
@@ -132,6 +138,15 @@ class QualificationCommand:
         tiers.add_argument("--workflow", help="print this workflow's plan as one line of JSON")
         tiers.add_argument("--tier", help="the tier to plan (with --workflow)")
         tiers.add_argument("--changed", type=Path, help="a pull request's changed paths, one per line")
+        tiers.add_argument(
+            "--local-passes", type=Path, help="a JSON list of local/ contexts that passed (local-passes)"
+        )
+        local_jobs = commands.add_parser("local-jobs")
+        local_jobs.add_argument("--manifest", type=Path, default=TIERS)
+        local_jobs.add_argument("--write", action="store_true", help="write ci/local.json")
+        local_jobs.add_argument("--check", action="store_true", help="fail when ci/local.json is not this output")
+        local_passes = commands.add_parser("local-passes")
+        local_passes.add_argument("--owner", required=True, help="the repository owner, whose statuses alone count")
         bundle = commands.add_parser("bundle")
         bundle.add_argument("--artifacts", type=Path, required=True, help="downloaded artifacts, one directory each")
         bundle.add_argument("--output", type=Path, required=True, help="an empty or absent directory")
@@ -152,6 +167,11 @@ class QualificationCommand:
                 return self.check_denominators(arguments.manifest)
             if arguments.command == "tiers":
                 return self.tiers(arguments)
+            if arguments.command == "local-jobs":
+                return self.local_jobs(arguments)
+            if arguments.command == "local-passes":
+                print(json.dumps(LocalPasses.accepted(json.load(sys.stdin), arguments.owner)))
+                return 0
             if arguments.command == "bundle":
                 return self.bundle(arguments)
             records = self.records(arguments)
@@ -340,8 +360,8 @@ class QualificationCommand:
     def tiers(arguments: argparse.Namespace) -> int:
         manifest = TierManifest.load(arguments.manifest)
         if arguments.workflow is None:
-            if arguments.tier is not None or arguments.changed is not None:
-                raise TierManifestError("--tier and --changed plan one --workflow")
+            if arguments.tier is not None or arguments.changed is not None or arguments.local_passes is not None:
+                raise TierManifestError("--tier, --changed and --local-passes plan one --workflow")
             for workflow in manifest.workflows():
                 for tier in manifest.scheduled_tiers():
                     plan = manifest.plan(workflow, tier)
@@ -357,7 +377,29 @@ class QualificationCommand:
             lines = arguments.changed.read_text(encoding="utf-8").splitlines()
             changed = [line.strip() for line in lines if line.strip()]
         plan = manifest.plan(arguments.workflow, arguments.tier, changed)
+        if arguments.local_passes is not None:
+            passed = json.loads(arguments.local_passes.read_text(encoding="utf-8"))
+            if not isinstance(passed, list) or not all(isinstance(context, str) for context in passed):
+                raise TierManifestError(f"{arguments.local_passes}: expected a JSON list of contexts")
+            if passed:
+                plan = LocalJobs(manifest).without_passed(arguments.workflow, plan, passed)
         print(json.dumps(plan, separators=(",", ":"), sort_keys=True))
+        return 0
+
+    @staticmethod
+    def local_jobs(arguments: argparse.Namespace) -> int:
+        manifest = TierManifest.load(arguments.manifest)
+        table, path = LocalJobs(manifest).table(), manifest.root / LOCAL_TABLE
+        if arguments.write:
+            path.write_text(table, encoding="utf-8")
+        elif arguments.check:
+            if not path.is_file() or path.read_text(encoding="utf-8") != table:
+                print(
+                    f"{LOCAL_TABLE} is stale; run: python3 -m tools.qualification local-jobs --write", file=sys.stderr
+                )
+                return 1
+        else:
+            sys.stdout.write(table)
         return 0
 
     @staticmethod

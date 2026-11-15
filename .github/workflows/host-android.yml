@@ -236,6 +236,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      statuses: read
     outputs:
       tier: ${{ steps.classify.outputs.tier }}
       plan: ${{ steps.plan.outputs.plan }}
@@ -305,15 +306,38 @@ jobs:
           esac
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
           echo "Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
+      # What the owner's machines already passed for this exact commit
+      # (`ci-local`, ci/local.json): a status `local/<platform>/<job>` that the
+      # repository's owner posted, and has not since replaced with a failure,
+      # stands in for the same job here, and the plan below leaves it out.
+      # Statuses are read for this run's commit alone, so a pull request's
+      # merge commit has none. A dispatch asks for the hosted jobs themselves,
+      # and release.yml's bundle needs every report, so neither reads any. A
+      # listing that cannot be read runs everything.
+      - name: Read the owner's local passes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          CALLED_TIER: ${{ inputs.tier }}
+        run: |
+          set -euo pipefail
+          statuses='[]'
+          if [ -z "$CALLED_TIER" ] && { [ "$EVENT" = push ] || [ "$EVENT" = pull_request ]; }; then
+            statuses=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses?per_page=100") || {
+              echo "::warning::could not list this commit's statuses; no local pass is counted"
+              statuses='[]'
+            }
+          fi
+          python3 -m tools.qualification local-passes --owner "$GITHUB_REPOSITORY_OWNER" <<<"$statuses" > build/local-passes.json
       - name: Plan the tier's jobs
         id: plan
         env:
           TIER: ${{ steps.classify.outputs.tier }}
         run: |
           set -euo pipefail
-          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt)
+          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
           echo "plan=$plan" >> "$GITHUB_OUTPUT"
-          jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)"), ((.local // [])[] | "Passed locally, not run here: `\(.)`")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
 
   # The whole language and stdlib corpus on a hosted Android emulator through
   # both compilers (CX-P1-09). target-corpus-build cross-builds every
