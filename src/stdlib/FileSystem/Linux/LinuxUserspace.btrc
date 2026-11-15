@@ -28,7 +28,15 @@ class LinuxUserspace implements IUserspaceMount, IUserspaceChannel {
 	private bool direct = false;
 	private bool wantsDirect = false;
 	private bool longAttributes = false;
-	private Map<long, int> backings = {};
+	/* The kernel keeps one backing file per node for as long as any open of
+	 * it is passed through, and refuses an open that names another or none
+	 * (the caller sees an I/O error). So the opens of a node share one id,
+	 * and a node the filesystem is serving itself stays served that way. */
+	private Map<long, long> opening = {};  /* a file's open request: its node */
+	private Map<long, int> backings = {};  /* node: the id its opens share */
+	private Map<long, int> shares = {};  /* node: how many opens share it */
+	private Map<long, long> passing = {};  /* passed-through handle: its node */
+	private Map<long, int> served = {};  /* node: opens the filesystem serves */
 
 	public LinuxUserspace(IUserspaceFileSystem files) {
 		self.files = files;
@@ -66,20 +74,42 @@ class LinuxUserspace implements IUserspaceMount, IUserspaceChannel {
 
 	public bool passthrough() { return self.direct; }
 
-	/* Register `descriptor` as the file behind the open `handle`. The id the
-	 * open's answer carries, or 0 when the kernel does not take it. */
-	private int back(long handle, int descriptor) {
-		if (!self.direct || self.device < 0 || descriptor < 0) { return 0; }
-		int id = btrcFuseBackingOpen(self.device, descriptor);
-		if (id <= 0) { return 0; }
-		self.backings.put(handle, id);
-		return id;
+	/* Register `descriptor` as the file behind `node` for the open `handle`,
+	 * or join the opens that already pass it through. The id the open's
+	 * answer carries, or 0 when the filesystem serves this open itself. */
+	private int back(long node, long handle, int descriptor) {
+		if (node == 0L) { return 0; }
+		if (self.direct && self.device >= 0 && descriptor >= 0 && !self.served.has(node)) {
+			int id = self.backings.has(node) ? self.backings.get(node) : btrcFuseBackingOpen(self.device, descriptor);
+			if (id > 0) {
+				self.shares.put(node, (self.backings.has(node) ? self.shares.get(node) : 0) + 1);
+				self.backings.put(node, id);
+				self.passing.put(handle, node);
+				return id;
+			}
+		}
+		self.served.put(node, (self.served.has(node) ? self.served.get(node) : 0) + 1);
+		return 0;
 	}
 
-	private void unback(long handle) {
-		if (!self.backings.has(handle)) { return; }
-		if (self.device >= 0) { btrcFuseBackingClose(self.device, self.backings.get(handle)); }
-		self.backings.remove(handle);
+	private void unback(long node, long handle) {
+		if (self.passing.has(handle)) {
+			long passed = self.passing.get(handle);
+			self.passing.remove(handle);
+			int left = self.shares.get(passed) - 1;
+			if (left > 0) {
+				self.shares.put(passed, left);
+				return;
+			}
+			if (self.device >= 0) { btrcFuseBackingClose(self.device, self.backings.get(passed)); }
+			self.backings.remove(passed);
+			self.shares.remove(passed);
+			return;
+		}
+		if (!self.served.has(node)) { return; }
+		int left = self.served.get(node) - 1;
+		if (left > 0) { self.served.put(node, left); }
+		else { self.served.remove(node); }
 	}
 
 	public void forgetName(long parent, string name) {
@@ -128,6 +158,7 @@ class LinuxUserspace implements IUserspaceMount, IUserspaceChannel {
 	}
 
 	public void fail(long unique, int native) {
+		self.opening.remove(unique);
 		if (self.device >= 0) { btrcFuseAnswerError(self.device, (unsigned long)unique, native); }
 	}
 
@@ -152,12 +183,14 @@ class LinuxUserspace implements IUserspaceMount, IUserspaceChannel {
 	}
 
 	public void opened(long unique, long handle, bool keepCache, int direct) {
-		int backing = self.back(handle, direct);
+		long node = self.opening.has(unique) ? self.opening.get(unique) : 0L;  /* a folder's open is not one */
+		self.opening.remove(unique);
+		int backing = self.back(node, handle, direct);
 		if (self.device >= 0) { btrcFuseAnswerOpen(self.device, (unsigned long)unique, (unsigned long)handle, keepCache ? 1 : 0, backing); }
 	}
 
 	public void created(long unique, UserspaceEntry entry, long handle, int direct) {
-		int backing = self.back(handle, direct);
+		int backing = self.back(entry.node, handle, direct);
 		struct BtrcFuseAttributes native;
 		self.pack(entry.attributes, &native);
 		if (self.device >= 0) { btrcFuseAnswerCreate(self.device, (unsigned long)unique, (unsigned long)entry.node, (unsigned long)entry.generation, (unsigned long)(entry.nameMilliseconds * 1000000L), (unsigned long)(entry.attributesMilliseconds * 1000000L), &native, (unsigned long)handle, backing); }
@@ -270,11 +303,12 @@ class LinuxUserspace implements IUserspaceMount, IUserspaceChannel {
 		} else if (operation == (int)FUSE_GETATTR) {
 			self.files.attributes(UserspaceAttributesReply(answer), node, (self.field(request, 0) & 1L) != 0L ? self.field(request, 1) : 0L);
 		} else if (operation == (int)FUSE_OPEN) {
+			self.opening.put(unique, node);
 			self.files.open(UserspaceOpenReply(answer), node, (int)self.field(request, 0));
 		} else if (operation == (int)FUSE_READ) {
 			self.files.read(UserspaceDataReply(answer), node, self.field(request, 0), self.field(request, 1), (int)self.field(request, 2));
 		} else if (operation == (int)FUSE_RELEASE) {
-			self.unback(self.field(request, 0));
+			self.unback(node, self.field(request, 0));
 			self.files.close(UserspaceDoneReply(answer), node, self.field(request, 0));
 		} else if (operation == (int)FUSE_OPENDIR) {
 			self.files.openDirectory(UserspaceOpenReply(answer), node);

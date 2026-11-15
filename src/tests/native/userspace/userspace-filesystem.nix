@@ -85,6 +85,10 @@ in pkgs.testers.runNixOSTest {
     machine.succeed("echo 3 > /proc/sys/vm/drop_caches && cmp /mnt/big /source/big")
     machine.succeed("${pkgs.python3}/bin/python3 -c \"import mmap; f = open('/mnt/big', 'r+b'); m = mmap.mmap(f.fileno(), 0); m[0:4] = b'BTRC'; m.flush(); m.close(); f.close()\"")
     assert machine.succeed("head -c 4 /source/big") == "BTRC"
+    # One file open several times at once: the kernel takes one backing file
+    # per file, so the opens share it, and each reads what the other wrote.
+    machine.succeed("${pkgs.python3}/bin/python3 -c \"import os; a = os.open('/mnt/big', os.O_RDONLY); b = os.open('/mnt/big', os.O_RDWR); assert os.pread(a, 4, 0) == b'BTRC'; os.pwrite(b, b'twice', 4); assert os.pread(a, 9, 0) == b'BTRCtwice'; os.close(a); c = os.open('/mnt/big', os.O_RDONLY); assert os.pread(c, 9, 0) == b'BTRCtwice'; os.close(b); os.close(c); d = os.open('/mnt/big', os.O_RDONLY); assert os.pread(d, 9, 0) == b'BTRCtwice'; os.close(d)\"")
+    assert machine.succeed("head -c 9 /source/big") == "BTRCtwice"
     finish("direct.log", "forward: passthrough 1, reads 0, writes 0")
 
     # A killed filesystem fails every use; it never answers with made-up data.
