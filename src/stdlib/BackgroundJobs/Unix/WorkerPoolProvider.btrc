@@ -123,7 +123,6 @@ class ProcessWorkerState {
 	public int channel;
 	public bool busy = false;
 	public bool reaped = false;
-	public bool requestsClosed = false;
 	public string exit = "";
 	public Bytes buffer = Bytes();
 	/* The worker's own usage, recorded by the wait that reaped it. */
@@ -135,13 +134,6 @@ class ProcessWorkerState {
 	}
 
 	/* End of input for the worker: it finishes and exits. */
-	public void closeRequests() {
-		if (self.channel >= 0 && !self.requestsClosed) {
-			shutdown(self.channel, SHUT_WR);
-			self.requestsClosed = true;
-		}
-	}
-
 	public void closeChannel() {
 		if (self.channel >= 0) {
 			close(self.channel);
@@ -349,10 +341,9 @@ class ForkedWorkerPool implements IWorkerPool {
 		}
 		self.closed = true;
 		bool clean = true;
-		for state in self.workers { state.closeRequests(); }
+		for state in self.workers { state.closeChannel(); } // macOS can lose a half-close's end of input
 		for state in self.workers {
 			if (!state.reap()) { clean = false; }
-			state.closeChannel();
 		}
 		return clean;
 	}

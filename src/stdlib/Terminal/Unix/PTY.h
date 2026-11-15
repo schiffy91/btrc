@@ -44,10 +44,12 @@ static inline void ptyStop(BtrcPTY session) {
     if (session->child > 0) {
         kill(-session->child, SIGKILL);
         kill(session->child, SIGKILL);
+    }
+    if (session->master >= 0) { close(session->master); session->master = -1; } /* macOS exit waits on unread output */
+    if (session->child > 0) {
         while (waitpid(session->child, NULL, 0) < 0 && errno == EINTR) {}
         session->child = 0;
     }
-    if (session->master >= 0) { close(session->master); session->master = -1; }
 }
 
 static inline void ptyRelease(BtrcPTY session) {

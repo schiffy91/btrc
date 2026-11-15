@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from tools.native_plan import NativePlanBuilder
 
@@ -31,13 +32,22 @@ def test_pty_process(tmp_path, native_compile, sanitize):
     flags = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic-errors"]
     if sanitize:
         flags += ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
-    NativePlanBuilder().build(
+    builder, toolchain = NativePlanBuilder(), {}
+    if sanitize and sys.platform == "darwin":
+
+        def run(command, **options):
+            return subprocess.run(command, **{**options, "env": apple_environment(options.get("env"))})
+
+        builder = NativePlanBuilder(runner=run)  # the dev shell's GCC has no ASan runtime on macOS
+        toolchain = {"cc": "/usr/bin/clang", "cxx": "/usr/bin/clang++"}
+    builder.build(
         plan_path=plan,
         generated_c=generated,
         output=executable,
         optimization=0,
         compile_flags=flags,
         link_flags=flags,
+        **toolchain,
     )
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
