@@ -530,6 +530,17 @@
         "linux-devcontainer"
       ],
       "note": "Userspace filesystems have a Linux provider only; test_windows_has_no_userspace_filesystems runs on every host and pins the refusal. The Linux shard builds the mount program on both frontends and runs the unprivileged refusal, and the flake's userspace-filesystem check serves the filesystems in a VM."
+    },
+    {
+      "id": "windows-daemon-native",
+      "files": [
+        "src/tests/python/test_windows_daemon_image.py",
+        "src/tests/python/test_windows_daemon_transfer.py"
+      ],
+      "reason": "^requires native Windows (image and directory handles|process, file and pipe semantics)$",
+      "category": "platform",
+      "covered_by": [],
+      "note": "The supervisor image and its transfer are verified with native Windows handles, processes and pipes. windows-arm64.yml runs both files on its x64 and ARM64 hosts when dispatched with focus=daemon-runtime and requires seven cases with no skip; that evidence is the dispatch's JUnit artifact, not a skip report, so no runner is named."
     }
   ]
 }

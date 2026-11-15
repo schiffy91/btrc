@@ -295,6 +295,10 @@ LINUX_SKIPS = {
         "src/tests/python/test_artifact_reparse.py::test_windows_junction_is_rejected_as_archive_entry_and_destination",
         "native junctions require Windows",
     ),
+    "windows-daemon-native": (
+        "src/tests/python/test_windows_daemon_transfer.py::test_native_transfer_confirms_records_and_preserves_commit[windows-x86_64]",
+        "requires native Windows process, file and pipe semantics",
+    ),
 }
 
 # The Windows steps' recorded skip (run 36898564289) and the os.name skips of
@@ -337,6 +341,10 @@ HOSTED_SKIPS = {
     "gpu-compute-adapter": (
         "src/tests/python/test_native_gpu_runtime.py::test_native_gpu_rejects_malformed_wgsl_without_aborting",
         "no native compute adapter is available",
+    ),
+    "windows-daemon-native": (
+        "src/tests/python/test_windows_daemon_image.py::test_native_image_verification_holds_and_releases_files[windows-aarch64]",
+        "requires native Windows image and directory handles",
     ),
 }
 
@@ -506,10 +514,14 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
     # macOS. No CI runner has the NDK, a Windows SDK row toolchain or a
     # Stage 25 executor yet, so the target ABI fixture's rows that need them
     # are uncovered until those lanes exist. The Android JNI round trip runs
-    # in host-android.yml's emulator jobs, which write no skip report.
+    # in host-android.yml's emulator jobs, which write no skip report, and the
+    # Windows supervisor image and transfer cases run natively only when
+    # windows-arm64.yml is dispatched with focus=daemon-runtime, which writes
+    # a JUnit file and no skip report either.
     uncovered = {rule_id for rule_id, rule in rules.items() if not rule.covered_by}
     assert uncovered == {
         "android-device-bound",
+        "windows-daemon-native",
         "apple-target-macro-oracle",
         "linux-tray-session-bus",
         "target-abi-ndk-bound",

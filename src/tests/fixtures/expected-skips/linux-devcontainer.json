@@ -317,7 +317,7 @@
       "reason": "^Mac-bound: requires macOS with xcrun and Xcode 27A266a \\(MAC-P1-05\\)",
       "category": "platform",
       "covered_by": [],
-      "note": "Apple clang's TARGET_OS_* predefines and the iOS SDK's <TargetConditionals.h> exist only on macOS, and platform-target-contract.md \u00a71.3 pins both checks to the acceptance Mac's Xcode 27A266a, which no CI image carries. MAC-P1-05 runs them there; covered_by cannot name the acceptance Mac, whose reports CI does not upload, so they are uncovered in CI. clang 21 checks the same rows' TARGET_OS_* values here."
+      "note": "Apple clang's TARGET_OS_* predefines and the iOS SDK's <TargetConditionals.h> exist only on macOS, and platform-target-contract.md §1.3 pins both checks to the acceptance Mac's Xcode 27A266a, which no CI image carries. MAC-P1-05 runs them there; covered_by cannot name the acceptance Mac, whose reports CI does not upload, so they are uncovered in CI. clang 21 checks the same rows' TARGET_OS_* values here."
     },
     {
       "id": "ui-shell-windows-only",
@@ -461,6 +461,17 @@
         "windows"
       ],
       "note": "Windows x64 and ARM64 CI execute the cross-built HTTP fixtures and retain native stdout, stderr and process status."
+    },
+    {
+      "id": "windows-daemon-native",
+      "files": [
+        "src/tests/python/test_windows_daemon_image.py",
+        "src/tests/python/test_windows_daemon_transfer.py"
+      ],
+      "reason": "^requires native Windows (image and directory handles|process, file and pipe semantics)$",
+      "category": "platform",
+      "covered_by": [],
+      "note": "The supervisor image and its transfer are verified with native Windows handles, processes and pipes. windows-arm64.yml runs both files on its x64 and ARM64 hosts when dispatched with focus=daemon-runtime and requires seven cases with no skip; that evidence is the dispatch's JUnit artifact, not a skip report, so no runner is named."
     }
   ]
 }
