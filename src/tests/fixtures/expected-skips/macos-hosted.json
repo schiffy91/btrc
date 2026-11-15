@@ -163,6 +163,21 @@
       "note": "glibc's transparent-union socket addresses, its variadic fcntl and the native tag aliases are proven against the Linux dev shell's sysroot through both frontends; the devcontainer's unit shard runs every case."
     },
     {
+      "id": "bench-glibc-allocation-trace",
+      "files": [
+        "src/tests/python/test_bench_diagnostic.py"
+      ],
+      "nodes": [
+        "src/tests/python/test_bench_diagnostic.py::test_native_glibc_trace_control"
+      ],
+      "reason": "^glibc allocation tracing requires native Linux$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The bench diagnostic traces the compiler's allocations through glibc's malloc hooks, which only a native Linux host has; the devcontainer's unit shard runs the control trace. The diagnostic's other cases, including the refusal when no tracer can be prepared, run on every host."
+    },
+    {
       "id": "linux-headless-session",
       "files": [
         "src/tests/python/test_headless_session.py"
