@@ -124,7 +124,6 @@ lane-macos = [
 [[jobs]]
 workflow = "ci.yml"
 job = "static"
-local = "linux-x86_64"
 tiers = ["docs", "pr", "lane", "release"]
 reports = ["skip-report"]
 
@@ -160,7 +159,6 @@ selected_tiers = { lane = "lane-linux" }
 [[jobs]]
 workflow = "ci.yml"
 job = "native-gui"
-local = "linux-x86_64"
 tiers = ["native-gui", "release"]
 reports = ["skip-report", "junit"]
 

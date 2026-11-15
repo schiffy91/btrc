@@ -209,9 +209,7 @@ def test_the_tier_model_names_a_local_jobs_platform():
         with pytest.raises(TierManifestError):
             TierManifest.from_mapping({**base, "jobs": [{**base["jobs"][0], "local": platform}]})
     assert {job.reference: job.local for job in TIERS.jobs if job.local} == {
-        "ci.yml/static": "linux-x86_64",
         "ci.yml/tests": "linux-x86_64",
-        "ci.yml/native-gui": "linux-x86_64",
         "ci.yml/linux-e40": "linux-x86_64",
         "macos.yml/tests": "macos-arm64",
         "macos.yml/macos-e40": "macos-arm64",
@@ -220,12 +218,13 @@ def test_the_tier_model_names_a_local_jobs_platform():
 
 def test_local_jobs_are_named_as_github_shows_them_and_run_through_the_clone():
     entries = LOCAL.entries()
-    assert len(entries) == len({entry.context for entry in entries}) == 36
+    assert len(entries) == len({entry.context for entry in entries}) == 32
     by_name = {entry.name: entry for entry in entries}
     unit = by_name["CI / tests (unit)"]
     assert unit.context == UNIT and unit.context.startswith(CONTEXT_PREFIX)
     assert unit.row == {"shard": "unit", "target": "test-shard-unit", "unit_gui_delegated": "1"}
-    assert by_name["CI / static"].row is None and by_name["CI / native-gui"].row is None
+    # A row only the extended and release tiers run has no local job: no push runs it.
+    assert "macOS / tests (c11-clang-O0)" in by_name and "macOS / tests (c11-clang-O1)" not in by_name
     # The same job name on two platforms is two jobs, told apart by the workflow.
     assert by_name["macOS / tests (unit)"].context == "local/macos-arm64/macOS / tests (unit)"
     assert by_name["macOS / macos-e40 (macos-reference-plain)"].platform == "macos-arm64"
@@ -315,22 +314,24 @@ def test_a_pass_stands_in_only_for_the_command_it_ran():
     assert rows["unit"]["unit_gui_delegated"] == "0" and "pytest_addopts" in rows["corpus-python"]
     passed = [UNIT, "local/linux-x86_64/CI / tests (corpus-python)", "local/linux-x86_64/CI / tests (corpus-btrc)"]
     assert plan_text(LOCAL.without_passed("ci.yml", plan, passed)) == plan_text(plan)
-    # The static job is one command in every tier, so its pass does stand in.
-    shortened = LOCAL.without_passed("ci.yml", plan, ["local/linux-x86_64/CI / static"])
-    assert "static" in plan["jobs"] and "static" not in shortened["jobs"] and "static" not in shortened["reports"]
+    # The same rows unnarrowed are the command that passed.
+    whole = LOCAL.without_passed("ci.yml", TIERS.plan("ci.yml", "main"), passed)
+    assert whole["local"] == passed
 
 
-def test_a_push_to_main_runs_every_local_job_as_the_release_tier_does():
-    """ci/local.json's rows are the release tier's; a push drops a row only because main's is the same row."""
+def test_the_local_jobs_are_exactly_the_rows_a_push_to_main_runs():
+    """A push is the one run whose commit a machine can have passed, so no entry is one it would never drop."""
 
+    assert REFERENCE_TIER == "main"
     for workflow in ("ci.yml", "macos.yml"):
-        main_plan, release = TIERS.plan(workflow, "main"), TIERS.plan(workflow, REFERENCE_TIER)
-        for entry in (entry for entry in LOCAL.entries() if entry.workflow == workflow and entry.row is not None):
-            assert entry.row in release["matrix"][entry.job]["include"]
-            planned = [row for row in main_plan["matrix"].get(entry.job, {"include": []})["include"]]
-            key = next(job.key for job in TIERS.jobs if job.reference == f"{workflow}/{entry.job}")
-            same_cell = [row for row in planned if row[key] == entry.row[key]]
-            assert same_cell in ([], [entry.row]), entry.name
+        plan = TIERS.plan(workflow, "main")
+        entries = [entry for entry in LOCAL.entries() if entry.workflow == workflow]
+        for job in {entry.job for entry in entries}:
+            assert [entry.row for entry in entries if entry.job == job] == plan["matrix"][job]["include"], job
+        # The tiers that add rows run each of these cells as the same command.
+        for tier in ("extended", "release"):
+            wider = TIERS.plan(workflow, tier)
+            assert all(entry.row in wider["matrix"][entry.job]["include"] for entry in entries), tier
 
 
 def test_every_passed_row_of_a_job_removes_the_job():

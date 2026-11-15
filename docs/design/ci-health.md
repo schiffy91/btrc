@@ -497,7 +497,7 @@ job posts a failure under the same context, which withdraws the pass.
 **The table is generated.** `python3 -m tools.qualification local-jobs
 --write` derives `ci/local.json` from `ci/tiers.toml` and the workflows. A
 `[[jobs]]` entry that names `local = "linux-x86_64"` or `"macos-arm64"` is
-reproducible there; each of its release-tier rows becomes one job, named as
+reproducible there; each row a push to main runs becomes one job, named as
 GitHub shows it with the workflow in front (`macOS / macos-e40
 (macos-reference-plain)`), because `tests (unit)` exists on both platforms.
 Its command is the workflow job's own unconditional `run` steps, with the
@@ -530,10 +530,10 @@ step summary names them. A job whose rows all passed is not started.
   the run's commit only, so a fork's pull request is never affected.
 - The same platform. `local/macos-arm64/…` drops a `macos.yml` row and
   nothing in `ci.yml`.
-- The same command. `ci/local.json` holds the rows the release tier runs,
-  which are the rows a push to main runs. A pull request's unit shard that
-  keeps the GUI files, or a corpus row narrowed to some directories, is a
-  different command under the same name and still runs.
+- The same command. `ci/local.json` holds the rows a push to main runs. A
+  pull request's unit shard that keeps the GUI files, or a corpus row
+  narrowed to some directories, is a different command under the same name
+  and still runs.
 - The machine's own skip policy. The Mac's pass was gated by `macos.json`,
   which expects a few capability and runtime-probe skips that the hosted
   runner would run; it also runs the hardware tier the hosted runner skips.
@@ -542,7 +542,10 @@ step summary names them. A job whose rows all passed is not started.
   which asks for the hosted jobs themselves, and release.yml's calls, whose
   bundle needs every report, read no local pass.
 
-**Jobs with no local form.** `release`, `linux-arm64-bundle` and
+**Jobs with no local form.** `static`, the Linux `native-gui` job and the
+two clang C11 cells only the extended tier adds on macOS never run on a
+push, which is the one run whose commit a machine can have passed, so a
+pass for them would drop nothing. `release`, `linux-arm64-bundle` and
 `native-bundle` exist to upload an archive. `bench` gates against a baseline
 recorded from the hosted runner's own results. The Linux and macOS GUI
 partitions feed a union check that reads every partition's proof from the

@@ -4,7 +4,7 @@ A ``[[jobs]]`` entry of ``ci/tiers.toml`` that names ``local = "<platform>"``
 can be reproduced on a machine of that platform, spelled as ``ci-local``
 spells it (``linux-x86_64``, ``macos-arm64``). `LocalJobs` derives
 ``ci/local.json`` from those entries and the workflows themselves: one job
-per matrix row of the release tier, named as GitHub shows it (``CI / tests
+per matrix row a push to main runs, named as GitHub shows it (``CI / tests
 (unit)``), whose command hands the workflow job's own unconditional ``run``
 steps to ``tools/ci-local-job.sh``, which runs them in a fresh clone of the
 commit. ``ci-local run`` records a pass for that exact commit and ``ci-local
@@ -34,8 +34,9 @@ from tools.qualification.tiers import TierJob, TierManifest, TierManifestError
 TABLE = Path("ci") / "local.json"
 CONTEXT_PREFIX = "local/"
 RUNNER = "tools/ci-local-job.sh"
-# release.yml's tier runs every hosted job of every tier, so its rows name every local job.
-REFERENCE_TIER = "release"
+# A push to main is the one run whose commit a machine can have passed (a pull request's is
+# its merge commit; a dispatch and a release read no pass), so its rows are the local jobs.
+REFERENCE_TIER = "main"
 # The owner's Mac is the acceptance runner `macos`; only GitHub's image is `macos-hosted`.
 PLATFORM_ENVIRONMENT = {"macos-arm64": {"BTRC_TEST_RUNNER": "macos"}}
 

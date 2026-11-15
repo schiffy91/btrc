@@ -2683,6 +2683,8 @@ def test_linux_gui_retains_controller_journals_when_the_job_is_cancelled() -> No
 LOCAL = LocalJobs(TIERS)
 # The tiered Linux and macOS jobs no local pass may stand in for, and why.
 NOT_LOCAL = {
+    ("ci.yml", "static"): "no push runs it, and a push is the one run whose commit a machine can have passed",
+    ("ci.yml", "native-gui"): "no push runs it: only the native-gui dispatch and a release, which read no pass",
     ("ci.yml", "release"): "its product is the uploaded Linux x64 archive, which a commit status cannot carry",
     ("ci.yml", "bench"): "it gates against a baseline recorded from the hosted runner's own results",
     ("ci.yml", "linux-arm64-bundle"): "it runs on an arm64 runner and its product is the uploaded archive",
@@ -2722,12 +2724,12 @@ def test_each_local_job_is_its_workflow_jobs_unconditional_steps() -> None:
         assert entry.name == f"{document['name']} / {display}", entry.name
         assert entry.platform == RUNNER_PLATFORMS[job["runs-on"]], entry.name
         assert "env" not in job, entry.name
-        # The row is the release tier's, and the job reads its rows from the plan.
+        # The row is the one a push to main runs, and the job reads its rows from the plan.
         if entry.row is None:
             assert "strategy" not in job, entry.name
         else:
             assert job["strategy"]["matrix"] == _plan_matrix(entry.job), entry.name
-            assert entry.row in TIERS.plan(entry.workflow, "release")["matrix"][entry.job]["include"], entry.name
+            assert entry.row in TIERS.plan(entry.workflow, "main")["matrix"][entry.job]["include"], entry.name
         # A step an `if` decides provisions the runner (developer mode) or keeps its evidence.
         steps = [step for step in job["steps"] if "run" in step and "if" not in step]
         commands = _job_commands({"steps": steps, "strategy": {"matrix": {"include": [row]}}})

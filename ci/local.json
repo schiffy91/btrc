@@ -1,9 +1,5 @@
 {
   "jobs": {
-    "CI / static": {
-      "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'nix develop --command make NIX= generated-check lint format-check' 'nix develop --command python3 -m pytest -q -rs src/tests/btrc/test_naming_convention_contract.py --skip-report=build/skip-report-static.json'"
-    },
     "CI / tests (unit)": {
       "platform": "linux-x86_64",
       "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED=1 'PYTEST_ADDOPTS=--dist=loadgroup --failure-report=build/failure-report-unit.jsonl ' -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit'"
@@ -55,10 +51,6 @@
     "CI / tests (c11-clang-O3)": {
       "platform": "linux-x86_64",
       "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O3'"
-    },
-    "CI / native-gui": {
-      "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS=--junitxml=build/junit/native-gui.xml btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui'"
     },
     "CI / linux-e40 (x11-python-plain)": {
       "platform": "linux-x86_64",
@@ -116,17 +108,9 @@
       "platform": "macos-arm64",
       "run": "tools/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B -m tools.qualification.toolchain --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O0'"
     },
-    "macOS / tests (c11-clang-O1)": {
-      "platform": "macos-arm64",
-      "run": "tools/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B -m tools.qualification.toolchain --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O1'"
-    },
     "macOS / tests (c11-clang-O2)": {
       "platform": "macos-arm64",
       "run": "tools/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B -m tools.qualification.toolchain --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O2'"
-    },
-    "macOS / tests (c11-clang-O3)": {
-      "platform": "macos-arm64",
-      "run": "tools/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B -m tools.qualification.toolchain --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O3'"
     },
     "macOS / macos-e40 (macos-reference-plain)": {
       "platform": "macos-arm64",
