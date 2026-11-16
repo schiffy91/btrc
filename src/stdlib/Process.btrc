@@ -1437,7 +1437,8 @@ class PipeProcess {
 					if (outgoing[1] >= 0) { close(outgoing[1]); }
 					if (errorDescriptor >= 0) { close(errorDescriptor); }
 					if (readyToExec && hasCwd && chdir(cwd) != 0) { readyToExec = false; }
-					if (readyToExec && __btrc_close_descriptors_except(descriptorBound, startupError[1]) != 0) { readyToExec = false; }
+					int closedDescriptors = startupError[1] >= 3 ? __btrc_close_descriptors_except(descriptorBound, startupError[1]) : ChildProcess.closeDescriptorsForExec(descriptorBound);
+					if (readyToExec && closedDescriptors != 0) { readyToExec = false; }
 					if (readyToExec && __btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) { readyToExec = false; }
 					if (readyToExec) {
 						execve(resolved, execArguments, execEnvironment);
@@ -1791,7 +1792,8 @@ class BackgroundProcess {
 					if (nullWrite >= 0) { close(nullWrite); }
 					if (nullRead >= 0) { close(nullRead); }
 					if (readyToExec && hasCwd && chdir(cwd) != 0) { readyToExec = false; }
-					if (readyToExec && __btrc_close_descriptors_except(descriptorBound, startupError[1]) != 0) { readyToExec = false; }
+					int closedDescriptors = startupError[1] >= 3 ? __btrc_close_descriptors_except(descriptorBound, startupError[1]) : ChildProcess.closeDescriptorsForExec(descriptorBound);
+					if (readyToExec && closedDescriptors != 0) { readyToExec = false; }
 					if (readyToExec && __btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) { readyToExec = false; }
 					if (readyToExec) {
 						execve(resolved, execArguments, execEnvironment);
