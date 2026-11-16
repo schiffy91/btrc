@@ -623,6 +623,35 @@ def test_native_plan_is_a_loaded_module_projection(tmp_path: Path) -> None:
     assert transitive_plan["pkg-config"] == []
 
 
+def test_native_plan_names_a_definition_once_for_each_package(tmp_path: Path) -> None:
+    app = tmp_path / "app"
+    dependency = app / "packages" / "seams"
+    (dependency / "src").mkdir(parents=True)
+    (dependency / "native").mkdir()
+    for name in ("First", "Second"):
+        (dependency / f"src/{name}.btrc").write_text(f"extern int {name.lower()}_native();\n", encoding="utf-8")
+        (dependency / f"native/{name}.c").write_text(f"int {name.lower()}_native(void) {{ return 1; }}\n")
+    _manifest(
+        dependency,
+        "seams",
+        native=(
+            '\n[[native.sources]]\npath = "native/First.c"\nlanguage = "c"\nstandard = "c11"\nmodules = ["First"]\n'
+            '\n[[native.sources]]\npath = "native/Second.c"\nlanguage = "c"\nstandard = "c11"\nmodules = ["Second"]\n'
+            '\n[[native.defines]]\nname = "_GNU_SOURCE"\nvalue = "1"\nmodules = ["First"]\nos = ["android", "linux"]\n'
+            '\n[[native.defines]]\nname = "_GNU_SOURCE"\nvalue = "1"\nmodules = ["Second"]\nos = ["linux"]\n'
+        ),
+    )
+    _manifest(app, "app", '\n[dependencies]\nseams = { path = "packages/seams" }\n')
+    source = app / "src/Main.btrc"
+    source.parent.mkdir()
+    source.write_text("import seams.First\nimport seams.Second\nint main() { return 0; }\n", encoding="utf-8")
+    both = _compile(source)
+    assert both.successful, both.failure
+    plan = both.native_plan.as_dict()
+    assert [Path(unit["path"]).name for unit in plan["units"]] == ["First.c", "Second.c"]
+    assert plan["defines"] == [{"name": "_GNU_SOURCE", "package": "seams", "value": "1"}]
+
+
 def test_nested_package_sources_belong_only_to_the_longest_root(tmp_path: Path) -> None:
     app = tmp_path / "app"
     parent = app / "packages" / "parent"

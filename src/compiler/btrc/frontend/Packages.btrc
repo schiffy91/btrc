@@ -3361,15 +3361,19 @@ class FeNativeLinkPlan {
 	private JSONValue defineRecords() {
 		JSONValue result = JSONValue.makeArray();
 		Vector<FeNativeDeclaration> values = self.selected("define");
+		Map<string, bool> named = {};  // a package may declare a definition once for each set of modules that needs it
 		int index = 0;
 		while (index < values.len) {
 			FeNativeDeclaration declaration = values.get(index);
+			index++;
+			string identity = declaration.packageName + "\n" + declaration.value + "\n" + declaration.detail;
+			if (named.has(identity)) { continue; }
+			named.put(identity, true);
 			JSONValue record = JSONValue.makeObject();
 			record.set("name", JSONValue.makeString(declaration.value));
 			record.set("package", JSONValue.makeString(declaration.packageName));
 			record.set("value", JSONValue.makeString(declaration.detail));
 			result.push(record);
-			index++;
 		}
 		return result;
 	}

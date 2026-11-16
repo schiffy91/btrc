@@ -804,13 +804,10 @@ class NativeLinkPlan:
             for item in selected
             if item.kind == "source"
         ]
-        defines = [
-            {"name": item.value, "package": item.package, "value": item.detail}
-            for item in selected
-            if item.kind == "define"
-        ]
+        # One package may declare a definition once for each set of modules that needs it; the plan names it once.
+        defines = sorted({(item.package, item.value, item.detail) for item in selected if item.kind == "define"})
         result = {
-            "defines": sorted(defines, key=lambda item: (item["package"], item["name"], item["value"])),
+            "defines": [{"name": name, "package": package, "value": value} for package, name, value in defines],
             "frameworks": sorted(
                 (self._name_record(item) for item in selected if item.kind == "framework"),
                 key=lambda item: (item["package"], item["name"]),
