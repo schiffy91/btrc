@@ -1416,36 +1416,62 @@ class PipeProcess {
 		pid_t child = __btrc_posix_spawn_cloexec(resolved, execArguments, execEnvironment, hasCwd ? cwd : NULL, outgoing[1], errorDescriptor, incoming[0], 0, 0, 0, errorDescriptor < 0 && ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
 		sigset_t previousSignalMask;
 		bool signalGuarded = false;
+		int startupError[2];
+		startupError[0] = -1;
+		startupError[1] = -1;
 		if (child == (pid_t)0 - (pid_t)2) {
 			int descriptorBound = ChildProcess.descriptorCloseBound();
-			if (descriptorBound < 3 || __btrc_exec_signal_guard_begin(&previousSignalMask) != 0) {
+			if (descriptorBound < 3 || ChildProcess.openPipe(startupError) != 0 || __btrc_exec_signal_guard_begin(&previousSignalMask) != 0) {
+				ChildProcess.closePipe(startupError);
 				child = (pid_t)0 - (pid_t)1;
 			} else {
 				signalGuarded = true;
 				child = fork();
 				if (child == (pid_t)0) {
 					setpgid(0, 0);
+					close(startupError[0]);
 					if (incoming[1] >= 0) { close(incoming[1]); }
 					if (outgoing[0] >= 0) { close(outgoing[0]); }
-					if (dup2(incoming[0], STDIN_FILENO) < 0 || dup2(outgoing[1], STDOUT_FILENO) < 0 || (errorDescriptor >= 0 && dup2(errorDescriptor, STDERR_FILENO) < 0)) {
-						_exit(126);
-					}
+					bool readyToExec = dup2(incoming[0], STDIN_FILENO) >= 0 && dup2(outgoing[1], STDOUT_FILENO) >= 0 && (errorDescriptor < 0 || dup2(errorDescriptor, STDERR_FILENO) >= 0);
 					if (incoming[0] >= 0) { close(incoming[0]); }
 					if (outgoing[1] >= 0) { close(outgoing[1]); }
 					if (errorDescriptor >= 0) { close(errorDescriptor); }
-					if (hasCwd && chdir(cwd) != 0) { _exit(126); }
-					if (ChildProcess.closeDescriptorsForExec(descriptorBound) != 0) { _exit(126); }
-					if (__btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) { _exit(126); }
-					execve(resolved, execArguments, execEnvironment);
+					if (readyToExec && hasCwd && chdir(cwd) != 0) { readyToExec = false; }
+					if (readyToExec && __btrc_close_descriptors_except(descriptorBound, startupError[1]) != 0) { readyToExec = false; }
+					if (readyToExec && __btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) { readyToExec = false; }
+					if (readyToExec) {
+						execve(resolved, execArguments, execEnvironment);
+					}
+					int failureErrno = errno != 0 ? errno : ENOEXEC;
+					ssize_t ignored = write(startupError[1], &failureErrno, sizeof(failureErrno));
+					if (ignored < (ssize_t)0) { _exit(126); }
 					_exit(127);
 				}
 			}
 		}
+		int savedErrno = errno;
+		if (startupError[1] >= 0) { close(startupError[1]); startupError[1] = -1; }
 		if (signalGuarded && __btrc_exec_signal_guard_parent_end(&previousSignalMask) != 0 && child > (pid_t)0) {
 			kill(child, SIGKILL);
 			waitpid(child, NULL, 0);
 			child = (pid_t)0 - (pid_t)1;
 		}
+		if (child > (pid_t)0 && startupError[0] >= 0) {
+			int execErrno = 0;
+			ssize_t errRead = read(startupError[0], &execErrno, sizeof(execErrno));
+			while (errRead < (ssize_t)0 && errno == EINTR) {
+				errRead = read(startupError[0], &execErrno, sizeof(execErrno));
+			}
+			close(startupError[0]);
+			startupError[0] = -1;
+			if (errRead > (ssize_t)0) {
+				int raw = 0;
+				while (waitpid(child, &raw, 0) < (pid_t)0 && errno == EINTR) {}
+				savedErrno = execErrno;
+				child = (pid_t)0 - (pid_t)1;
+			}
+		}
+		ChildProcess.closePipe(startupError);
 		CStringArray.freeAll(execArguments);
 		CStringArray.freeAll(execEnvironment);
 		if (incoming[0] >= 0) { close(incoming[0]); incoming[0] = -1; }
@@ -1454,7 +1480,7 @@ class PipeProcess {
 		if (child < (pid_t)0) {
 			ChildProcess.closePipe(incoming);
 			ChildProcess.closePipe(outgoing);
-			throw f"Cannot start {executable}";
+			throw f"Cannot start {executable}: {Strings.copy(strerror(savedErrno))}";
 		}
 		setpgid(child, child);
 		self.process = (int)child;
@@ -1747,34 +1773,59 @@ class BackgroundProcess {
 		pid_t child = __btrc_posix_spawn_cloexec(resolved, execArguments, execEnvironment, hasCwd ? cwd : NULL, stdoutSource, stderrSource, nullRead, combineStderr ? 1 : 0, nullRead < 0 && ChildProcess.inheritsOnExec(STDIN_FILENO) ? 1 : 0, stdoutSource < 0 && ChildProcess.inheritsOnExec(STDOUT_FILENO) ? 1 : 0, stderrSource < 0 && !combineStderr && ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
 		sigset_t previousSignalMask;
 		bool signalGuarded = false;
+		int startupError[2];
+		startupError[0] = -1;
+		startupError[1] = -1;
 		if (child == (pid_t)0 - (pid_t)2) {
 			int descriptorBound = ChildProcess.descriptorCloseBound();
-			if (descriptorBound < 3 || __btrc_exec_signal_guard_begin(&previousSignalMask) != 0) {
+			if (descriptorBound < 3 || ChildProcess.openPipe(startupError) != 0 || __btrc_exec_signal_guard_begin(&previousSignalMask) != 0) {
+				ChildProcess.closePipe(startupError);
 				child = (pid_t)0 - (pid_t)1;
 			} else {
 				signalGuarded = true;
 				child = fork();
 				if (child == (pid_t)0) {
 					setpgid(0, 0);
-					if ((stdoutSource >= 0 && dup2(stdoutSource, STDOUT_FILENO) < 0) || (stderrSource >= 0 && dup2(stderrSource, STDERR_FILENO) < 0) || (combineStderr && dup2(STDOUT_FILENO, STDERR_FILENO) < 0) || (nullRead >= 0 && dup2(nullRead, STDIN_FILENO) < 0)) {
-						_exit(126);
-					}
+					close(startupError[0]);
+					bool readyToExec = (stdoutSource < 0 || dup2(stdoutSource, STDOUT_FILENO) >= 0) && (stderrSource < 0 || dup2(stderrSource, STDERR_FILENO) >= 0) && (!combineStderr || dup2(STDOUT_FILENO, STDERR_FILENO) >= 0) && (nullRead < 0 || dup2(nullRead, STDIN_FILENO) >= 0);
 					if (nullWrite >= 0) { close(nullWrite); }
 					if (nullRead >= 0) { close(nullRead); }
-					if (hasCwd && chdir(cwd) != 0) { _exit(126); }
-					if (ChildProcess.closeDescriptorsForExec(descriptorBound) != 0) { _exit(126); }
-					if (__btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) { _exit(126); }
-					execve(resolved, execArguments, execEnvironment);
+					if (readyToExec && hasCwd && chdir(cwd) != 0) { readyToExec = false; }
+					if (readyToExec && __btrc_close_descriptors_except(descriptorBound, startupError[1]) != 0) { readyToExec = false; }
+					if (readyToExec && __btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) { readyToExec = false; }
+					if (readyToExec) {
+						execve(resolved, execArguments, execEnvironment);
+					}
+					int failureErrno = errno != 0 ? errno : ENOEXEC;
+					ssize_t ignored = write(startupError[1], &failureErrno, sizeof(failureErrno));
+					if (ignored < (ssize_t)0) { _exit(126); }
 					_exit(127);
 				}
 			}
 		}
+		int savedErrno = errno;
+		if (startupError[1] >= 0) { close(startupError[1]); startupError[1] = -1; }
 		if (signalGuarded && __btrc_exec_signal_guard_parent_end(&previousSignalMask) != 0 && child > (pid_t)0) {
 			kill(child, SIGKILL);
 			waitpid(child, NULL, 0);
 			child = (pid_t)0 - (pid_t)1;
 		}
-		int savedErrno = errno;
+		if (child > (pid_t)0 && startupError[0] >= 0) {
+			int execErrno = 0;
+			ssize_t errRead = read(startupError[0], &execErrno, sizeof(execErrno));
+			while (errRead < (ssize_t)0 && errno == EINTR) {
+				errRead = read(startupError[0], &execErrno, sizeof(execErrno));
+			}
+			close(startupError[0]);
+			startupError[0] = -1;
+			if (errRead > (ssize_t)0) {
+				int raw = 0;
+				while (waitpid(child, &raw, 0) < (pid_t)0 && errno == EINTR) {}
+				savedErrno = execErrno;
+				child = (pid_t)0 - (pid_t)1;
+			}
+		}
+		ChildProcess.closePipe(startupError);
 		CStringArray.freeAll(execArguments);
 		CStringArray.freeAll(execEnvironment);
 		if (nullWrite >= 0) { close(nullWrite); }

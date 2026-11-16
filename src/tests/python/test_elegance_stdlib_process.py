@@ -96,6 +96,16 @@ int main(Vector<string> args) {
 \t/* 6. Process.shell with stdinBytes. */
 \tExecResult shOut = Process.shell("cat", stdinBytes=Bytes.fromString("shell-ok"), check=true);
 \tExpect.strEq(shOut.out, "shell-ok");
+
+\t/* 7. Synchronous exec-failure reporting for PipeProcess and BackgroundProcess. */
+\tcheck.throwsWith("/definitely/missing/btrc-cmd", (string missingPath) => {
+\t\tPipeProcess p = Process.pipe(missingPath);
+\t\tp.close();
+\t}, "missing");
+\tcheck.throwsWith("/definitely/missing/btrc-cmd", (string missingPath) => {
+\t\tBackgroundProcess b = Process.start(missingPath);
+\t\tb.stop();
+\t}, "missing");
 \treturn 0;
 }
 """
