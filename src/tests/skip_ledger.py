@@ -230,6 +230,10 @@ class SkipLedger:
         path = Path(raw) if raw else DEFAULT_REPORT
         if not path.is_absolute():
             path = Path(config.invocation_params.dir) / path
+        if getattr(config.option, "xmlpath", "") is None:
+            # Each gate's session leaves a JUnit file beside its skip report, so a
+            # run's per-test timings can be read back; --junitxml still wins.
+            config.option.xmlpath = str(path.with_name(path.stem.replace("skip-report", "junit", 1) + ".xml"))
         config.pluginmanager.register(cls(config, path), "btrc-skip-ledger")
 
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:

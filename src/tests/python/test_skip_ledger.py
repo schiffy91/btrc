@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 
@@ -1108,6 +1109,40 @@ EXTRA_TEST
     assert not list(tmp_path.glob(".*.partial"))
     if fail_first:
         assert len(journal.read_text().splitlines()) == 1
+
+
+@pytest.mark.parametrize("workers", [None, "2"])
+def test_a_session_leaves_each_test_time_beside_its_skip_report(tmp_path, workers):
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / "conftest.py").write_text(_INNER_CONFTEST)
+    (suite / "test_cases.py").write_text(
+        "import time\n\ndef test_slow():\n    time.sleep(0.3)\n\ndef test_quick():\n    pass\n"
+    )
+    options = ("-n", workers) if workers else ("-p", "no:xdist")
+
+    completed, _ = _run_inner(tmp_path, *options, "--durations=1", "--durations-min=0.2", runner="linux-hosted")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    slowest = completed.stdout.split("slowest", 1)[1]
+    assert "test_cases.py::test_slow" in slowest and "test_quick" not in slowest
+    cases = {
+        case.get("name"): float(case.get("time"))
+        for case in ElementTree.parse(tmp_path / "out" / "junit.xml").getroot().iter("testcase")
+    }
+    assert set(cases) == {"test_slow", "test_quick"}
+    assert cases["test_slow"] >= 0.3 > cases["test_quick"]
+
+    elsewhere = tmp_path / "named.xml"
+    completed, _ = _run_inner(tmp_path, *options, f"--junitxml={elsewhere}", runner="linux-hosted")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert elsewhere.is_file()
+
+
+def test_the_makefile_asks_every_session_for_its_slowest_tests():
+    makefile = (REPO / "Makefile").read_text()
+    assert "PYTEST_DURATIONS ?= --durations=25 --durations-min=1.0" in makefile
+    for arguments in ("PYTEST_ARGS", "PYTEST_SERIAL_ARGS"):
+        assert re.search(rf"^{arguments} \?= .*\$\(PYTEST_DURATIONS\)", makefile, re.MULTILINE), arguments
 
 
 def test_hosted_linux_collector_and_gate_require_every_selected_case(tmp_path):

@@ -35,8 +35,11 @@ PYTEST_WORKERS ?= 8
 # first of ~7000 tests and hide the rest, and it would also skip the serial
 # bootstrap line behind it. -rs reports skip reasons so a green run cannot be
 # confused with a run whose coverage was silently gated away.
-PYTEST_ARGS ?= -q -rs -n $(PYTEST_WORKERS)
-PYTEST_SERIAL_ARGS ?= -q -rs
+# Every session ends with its slowest tests, and its skip ledger leaves a JUnit
+# file with each test's time beside the skip report (build/junit*.xml).
+PYTEST_DURATIONS ?= --durations=25 --durations-min=1.0
+PYTEST_ARGS ?= -q -rs $(PYTEST_DURATIONS) -n $(PYTEST_WORKERS)
+PYTEST_SERIAL_ARGS ?= -q -rs $(PYTEST_DURATIONS)
 BTRC_FORMAT_PATHS := src examples
 # Every tracked Python source: the compilers, tests and editor support under
 # src/, the generators, gates and measurement tools under tools/, and the
