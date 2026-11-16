@@ -31,6 +31,7 @@ from tools.qualification.skips import (
     SkipLedgerError,
 )
 from tools.qualification.tiers import TierManifest
+from tools.ui.e40 import MacOSE40Cases
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -319,7 +320,10 @@ WINDOWS_SKIPS = {
 }
 
 # Hosted macos-15 skips from macOS runs 37110991739 (5b57618) and 37099829848
-# (379ab93), and the two hardware-tier skips its manifest admits.
+# (379ab93), and the three hardware-tier skips its manifest admits.
+E40_NO_PRESENTATION = (
+    "this hosted runner's GPU presents no frames (direct Metal control: 20 acquired, 20 completed, 0 presented)"
+)
 HOSTED_SKIPS = {
     "windows-executable-release": (
         "src/tests/btrc/test_bootstrap_harness.py::test_x",
@@ -341,6 +345,10 @@ HOSTED_SKIPS = {
     "gpu-compute-adapter": (
         "src/tests/python/test_native_gpu_runtime.py::test_native_gpu_rejects_malformed_wgsl_without_aborting",
         "no native compute adapter is available",
+    ),
+    "e40-presented-frames": (
+        "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[sanitized-selfhost-host-sheet]",
+        E40_NO_PRESENTATION,
     ),
     "windows-daemon-native": (
         "src/tests/python/test_windows_daemon_image.py::test_native_image_verification_holds_and_releases_files[windows-aarch64]",
@@ -419,7 +427,7 @@ def test_the_hosted_macos_manifest_expects_only_platform_and_hardware_skips():
     assert HOSTED_RUNNERS == {"macos-hosted": "macos", "linux-hosted": "linux"}
     assert {rule.category for rule in manifest.rules} == set(HOSTED_CATEGORIES)
     hardware = {rule_id: rule for rule_id, rule in rules.items() if rule.category == "hardware"}
-    assert set(hardware) == {"coreaudio-output-device", "gpu-compute-adapter"}
+    assert set(hardware) == {"coreaudio-output-device", "gpu-compute-adapter", "e40-presented-frames"}
     for rule in hardware.values():
         assert rule.covered_by == ("macos",), rule.id
         assert rule.gating_capabilities and set(rule.gating_capabilities) <= set(HARDWARE_CAPABILITIES), rule.id
@@ -468,8 +476,46 @@ def test_the_hosted_macos_manifest_expects_only_platform_and_hardware_skips():
         ),
         ("src/tests/python/test_native_gpu_runtime.py::test_x", "WebGPU build flags are unavailable"),
         ("src/tests/python/test_wgsl_semantics.py::test_x", "naga WGSL validator is not installed"),
+        # The burst trials need no presented frame, and a GPU that presented one is not this device gap.
+        (
+            "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[plain-reference-host-bursts]",
+            E40_NO_PRESENTATION,
+        ),
+        (
+            "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[plain-reference-desktop-load]",
+            E40_NO_PRESENTATION.replace("0 presented", "1 presented"),
+        ),
+        (
+            "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[plain-reference-desktop-load]",
+            E40_NO_PRESENTATION.replace("20 acquired", "0 acquired"),
+        ),
+        (
+            "src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[plain-reference-desktop-load]",
+            "E40 visible native execution requires explicit hosted CI opt-in",
+        ),
     ):
         assert manifest.classify(nodeid, reason) is None, nodeid
+
+
+def test_only_the_hosted_runner_expects_the_e40_presentation_trials_to_skip():
+    """The acceptance Mac covers them: there a GPU that presents no frames is a failure, never a skip."""
+
+    hosted = ExpectedSkipManifest.load(MANIFEST_ROOT / "macos-hosted.json")
+    presented = MacOSE40Cases.presented_trials
+    assert presented == ("load", "popup", "slider", "resize", "sheet")
+    for node in MacOSE40Cases.all_nodes():
+        rule = hosted.classify(node, E40_NO_PRESENTATION)
+        if node.removesuffix("]").rsplit("-", 1)[1] in presented:
+            assert rule is not None and rule.id == "e40-presented-frames", node
+            assert rule.category == "hardware" and rule.covered_by == ("macos",)
+            assert rule.gating_capabilities == ("physical-display",)
+        else:
+            assert rule is None, node
+    for runner in sorted(set(RUNNERS) - {"macos-hosted"}):
+        path = MANIFEST_ROOT / f"{runner}.json"
+        if path.exists():
+            manifest = ExpectedSkipManifest.load(path)
+            assert not any(manifest.classify(node, E40_NO_PRESENTATION) for node in MacOSE40Cases.all_nodes()), runner
 
 
 def test_ci_manifests_name_coverage_that_ci_reports_can_confirm():

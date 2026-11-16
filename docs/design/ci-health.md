@@ -441,6 +441,20 @@ and the clang variants of the sanitizer cases.
 No skip needed a fix or an owner: none was outside `platform` and
 `hardware`.
 
+**A third hardware rule (2026-11-15, issue #128).** `e40-presented-frames`
+expects the E40 load and tracking trials (`load`, `popup`, `slider`,
+`resize`, `sheet`: ten of each cell's twelve) to skip on a hosted runner
+whose GPU presents no frames. Their evidence requires presented frames, and
+macos-15's Apple Paravirtual device completes Metal commands without ever
+presenting one: in macOS run 43709196598 the direct Metal control acquired
+20 drawables, completed 20 commands and presented 0 in all four `macos-e40`
+cells. The trial runs that control first and skips only on a hosted runner
+with those counts, which the skip reason quotes and the cell's evidence
+retains; `tools/ui/e40.py` then requires exactly those ten skips. The device
+is `physical-display`, covered by the acceptance Mac, whose manifest has no
+such rule: there a GPU that presents nothing fails. The two burst trials per
+cell need no presented frame and still gate on the hosted runner.
+
 **Coverage claims.** Linux and Windows `covered_by` claims that named `macos`
 now name `macos-hosted`, the runner whose reports every push uploads; the
 acceptance Mac runs a superset. With the reports above relabelled
@@ -458,6 +472,86 @@ elsewhere. Neither hardware rule fired. CI run 37118685082 on the same head
 had 0 unexpected skips in all 13 reports; its unit shard failed only
 `test_quiet_check.py:355` ("ps failed"), which failed the same way on
 `main`'s push run 37117628092 at `27e48d4` and passed on its dispatch.
+
+## Local passes: jobs the owner's machines already ran for the commit
+
+Added 2026-11-15 at the owner's request: when a commit has passed a job on
+one of the owner's machines, CI does not run that job again for that commit.
+
+**Recording a pass.** `ci/local.json` names each job a local machine can
+reproduce, the platform that reproduces it and the command. The owner's
+`ci-local` tool reads it:
+
+```
+ci-local run 'CI / tests (unit)'    # run it on a clean tree; record a pass for HEAD
+ci-local push                       # post the recorded passes, then git push
+```
+
+`ci-local run` refuses a tree with changes or untracked files and records
+nothing unless the tree is still clean at the same commit afterwards.
+`ci-local push` posts one commit status per pass, `local/<platform>/<job>`
+(`local/linux-x86_64/CI / tests (unit)`), before the branch moves, so the
+push's workflow run already sees them. A later local failure of a published
+job posts a failure under the same context, which withdraws the pass.
+
+**The table is generated.** `python3 -m tools.qualification local-jobs
+--write` derives `ci/local.json` from `ci/tiers.toml` and the workflows. A
+`[[jobs]]` entry that names `local = "linux-x86_64"` or `"macos-arm64"` is
+reproducible there; each row a push to main runs becomes one job, named as
+GitHub shows it with the workflow in front (`macOS / macos-e40
+(macos-reference-plain)`), because `tests (unit)` exists on both platforms.
+Its command is the workflow job's own unconditional `run` steps, with the
+step's `env` filled in from the row, handed to `tools/ci-local-job.sh`. That
+script runs them in a fresh clone of the commit under `bash -e` with
+`CI=true`, as a runner does: no ignored build output comes along, and what
+the devcontainer's user writes lands in the clone, not the checkout. A step
+an `if` decides (enabling developer mode with sudo, keeping evidence) is the
+runner's and is left out. `test_ci_workflow_contracts.py` holds the committed
+table to the generator and each command to its workflow job.
+
+On the Mac the jobs run as `BTRC_TEST_RUNNER=macos`, the acceptance runner,
+never `macos-hosted`: `macOS / macos-e40 (…)` runs all twelve trials there.
+Start it from a terminal that has Accessibility access; over SSH the popup
+and resize trials cannot post their events. On Linux the `make devcontainer`
+step builds CI's image, so `btrc-devcontainer:latest` afterwards is the one
+without Claude Code until `make devcontainer` is run again.
+
+**What CI does with it.** Each `scope` job lists the statuses of the run's
+commit, and `python3 -m tools.qualification local-passes` keeps the `local/`
+contexts whose newest status by the repository's owner is a success. Anyone
+with write access can post a status, so nobody else's counts. `tiers
+--local-passes` then removes each passed job and row from the plan, and the
+step summary names them. A job whose rows all passed is not started.
+
+**What a pass stands in for, and what it does not.**
+
+- The exact commit. A dirty tree records nothing, and a pull request's run
+  tests its merge commit, which no machine has passed; statuses are read for
+  the run's commit only, so a fork's pull request is never affected.
+- The same platform. `local/macos-arm64/…` drops a `macos.yml` row and
+  nothing in `ci.yml`.
+- The same command. `ci/local.json` holds the rows a push to main runs. A
+  pull request's unit shard that keeps the GUI files, or a corpus row
+  narrowed to some directories, is a different command under the same name
+  and still runs.
+- The machine's own skip policy. The Mac's pass was gated by `macos.json`,
+  which expects a few capability and runtime-probe skips that the hosted
+  runner would run; it also runs the hardware tier the hosted runner skips.
+- No artifact. A dropped row uploads nothing: `skip-reports` expects no
+  report from it, because the plan lists none. For that reason a dispatch,
+  which asks for the hosted jobs themselves, and release.yml's calls, whose
+  bundle needs every report, read no local pass.
+
+**Jobs with no local form.** `static`, the Linux `native-gui` job and the
+two clang C11 cells only the extended tier adds on macOS never run on a
+push, which is the one run whose commit a machine can have passed, so a
+pass for them would drop nothing. `release`, `linux-arm64-bundle` and
+`native-bundle` exist to upload an archive. `bench` gates against a baseline
+recorded from the hosted runner's own results. The Linux and macOS GUI
+partitions feed a union check that reads every partition's proof from the
+run's artifacts, so neither they nor the union can be replaced by a status.
+Windows has no local machine. `test_every_linux_and_macos_job_is_local_or_says_why_not`
+keeps that list.
 
 ## Appendix: per-job evidence
 

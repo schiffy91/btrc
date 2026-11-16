@@ -10,6 +10,11 @@
 # through a `fragment: ci/tiers.toml …` commit, which Claude re-applies.
 # `test_ci_workflow_contracts.py` checks this file against the workflows, and
 # `tools/qualification/tiers.py` documents the schema.
+#
+# A job that names `local = "<platform>"` can be reproduced on one of the
+# owner's machines; `python3 -m tools.qualification local-jobs --write` derives
+# ci/local.json from those jobs, and a pass recorded there stands in for the
+# job in CI (docs/design/ci-health.md, "Local passes").
 
 schema = "btrc.ci-tiers/1"
 
@@ -132,6 +137,7 @@ changed_paths = ["src/devex/**", "pyproject.toml", "examples/**", "tools/linux-c
 [[jobs]]
 workflow = "ci.yml"
 job = "tests"
+local = "linux-x86_64"
 key = "shard"
 reports = ["skip-report"]
 
@@ -878,6 +884,7 @@ changed_paths = [
 [[jobs]]
 workflow = "ci.yml"
 job = "linux-e40"
+local = "linux-x86_64"
 key = "cell"
 reports = ["skip-report", "junit"]
 
@@ -1066,6 +1073,7 @@ key = "target"
 [[jobs]]
 workflow = "macos.yml"
 job = "tests"
+local = "macos-arm64"
 key = "shard"
 reports = ["skip-report"]
 
@@ -1118,6 +1126,7 @@ selected_tiers = { lane = "lane-macos" }
 [[jobs]]
 workflow = "macos.yml"
 job = "macos-e40"
+local = "macos-arm64"
 key = "cell"
 reports = ["skip-report", "junit"]
 

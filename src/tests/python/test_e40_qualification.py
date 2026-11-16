@@ -2,24 +2,27 @@
 
 import io
 import json
+import shutil
 import xml.etree.ElementTree as ET
 from types import SimpleNamespace
 
 import pytest
 
-from tools.ui.e40 import E40Run, LinuxE40Cases, MacOSE40Cases
+from tools.ui.e40 import E40Run, LinuxE40Cases, MacOSE40Cases, MetalPresentation
 
 NODES = LinuxE40Cases.nodes("python", "plain")
 METADATA = {"frontend": "python", "variant": "plain", "session": "x11", "revision": "a" * 40, "source_changes": []}
 
 
-def junit(path, nodes, status=None):
+def junit(path, nodes, status=None, skips=None):
     suite = ET.Element("testsuite")
     for node in nodes:
         source, name = node.split("::")
         case = ET.SubElement(suite, "testcase", classname=source.removesuffix(".py").replace("/", "."), name=name)
         if status:
             ET.SubElement(case, status)
+        if skips and node in skips:
+            ET.SubElement(case, "skipped", type="pytest.skip", message=skips[node])
     ET.ElementTree(suite).write(path)
 
 
@@ -321,3 +324,172 @@ def test_mac_native_identity_cannot_be_reused_for_another_trial(tmp_path, mac_ev
     path.write_text(json.dumps({"entry": "desktop", "trial": "sheet"}))
     with pytest.raises(RuntimeError, match="native trial identity differs"):
         MacOSE40Cases.validate_evidence(tmp_path, MAC_METADATA)
+
+
+MAC_NODES = MacOSE40Cases.nodes("reference", "plain")
+HOSTED_METADATA = {**MAC_METADATA, "runner": "macos-hosted"}
+WITHHELD = "this hosted runner's GPU presents no frames (direct Metal control: 20 acquired, 20 completed, 0 presented)"
+WITHHELD_NODES = dict.fromkeys([node for node in MAC_NODES if not node.endswith("-bursts]")], WITHHELD)
+
+
+def metal_control(root, **counts):
+    directory = root / "native/metal-control"
+    directory.mkdir(parents=True, exist_ok=True)
+    report = {"acquired": 20, "command_completed": 20, "command_errors": 0, "presented": 0, "skipped": 20} | counts
+    (directory / "observations.json").write_text(json.dumps(report))
+
+
+def withhold_presentation(root):
+    metal_control(root)
+    for entry in MacOSE40Cases.entries:
+        for trial in MacOSE40Cases.presented_trials:
+            shutil.rmtree(root / "native/reference/plain" / entry / trial)
+
+
+def test_presentation_trials_are_every_trial_whose_evidence_requires_presented_frames():
+    assert MacOSE40Cases.presented_trials == ("load", "popup", "slider", "resize", "sheet")
+    assert MacOSE40Cases.trials == ("bursts", *MacOSE40Cases.presented_trials)
+    assert len(WITHHELD_NODES) == 10 and set(WITHHELD_NODES) < set(MAC_NODES)
+
+
+@pytest.mark.parametrize(
+    "runner,counts,withheld",
+    [
+        ("macos-hosted", {}, True),
+        ("macos-hosted", {"acquired": 3, "command_completed": 3}, True),
+        ("macos", {}, False),  # the acceptance Mac fails without presentation; it never skips
+        ("unconfigured", {}, False),
+        (None, {}, False),
+        ("macos-hosted", {"presented": 19}, False),
+        ("macos-hosted", {"acquired": 0, "command_completed": 0}, False),  # the control never drew
+        ("macos-hosted", {"command_completed": 19}, False),
+        ("macos-hosted", {"command_errors": 1}, False),
+        ("macos-hosted", {"presented": None}, False),
+        ("macos-hosted", {"presented": False}, False),
+    ],
+)
+def test_only_a_hosted_gpu_that_completes_commands_and_presents_nothing_withholds(tmp_path, runner, counts, withheld):
+    metal_control(tmp_path, **counts)
+    metadata = {**HOSTED_METADATA, "runner": runner}
+    reason = MacOSE40Cases.presentation_withheld(tmp_path, metadata)
+    if not withheld:
+        assert reason is None and MacOSE40Cases.expected_skips(tmp_path, metadata) == {}
+        return
+    assert reason == WITHHELD.replace("20", str(counts.get("acquired", 20)))
+    assert MacOSE40Cases.expected_skips(tmp_path, metadata) == dict.fromkeys(WITHHELD_NODES, reason)
+
+
+@pytest.mark.parametrize("report", [None, "", "[]", "{}", '{"acquired": 20}'])
+def test_a_missing_or_unusable_control_report_withholds_nothing(tmp_path, report):
+    if report is not None:
+        (tmp_path / "native/metal-control").mkdir(parents=True)
+        (tmp_path / "native/metal-control/observations.json").write_text(report)
+    assert MetalPresentation.read(tmp_path / "native") is None
+    assert MacOSE40Cases.expected_skips(tmp_path, HOSTED_METADATA) == {}
+
+
+def test_junit_accepts_exactly_the_declared_skips(tmp_path):
+    path = tmp_path / "junit.xml"
+    junit(path, MAC_NODES, skips=WITHHELD_NODES)
+    E40Run.validate_junit(path, MAC_NODES, WITHHELD_NODES)
+    with pytest.raises(RuntimeError, match="without skips"):
+        E40Run.validate_junit(path, MAC_NODES)
+
+
+@pytest.mark.parametrize("change", ["ran", "other-reason", "bursts-skipped", "failed"])
+def test_junit_rejects_any_departure_from_the_declared_skips(tmp_path, change):
+    path = tmp_path / "junit.xml"
+    recorded = dict(WITHHELD_NODES)
+    if change == "ran":
+        del recorded[MAC_NODES[1]]
+    elif change == "other-reason":
+        recorded[MAC_NODES[1]] = "E40 visible native execution requires explicit hosted CI opt-in"
+    elif change == "bursts-skipped":
+        recorded[MAC_NODES[0]] = WITHHELD
+    junit(path, MAC_NODES, skips=recorded)
+    if change == "failed":
+        document = ET.parse(path)
+        ET.SubElement(next(document.getroot().iter("testcase")), "failure")
+        document.write(path)
+    with pytest.raises(RuntimeError, match="without skips" if change in ("bursts-skipped", "failed") else "declared"):
+        E40Run.validate_junit(path, MAC_NODES, WITHHELD_NODES)
+
+
+def test_withheld_mac_evidence_is_the_bursts_and_the_control(tmp_path, mac_evidence):
+    withhold_presentation(tmp_path)
+    MacOSE40Cases.validate_evidence(tmp_path, HOSTED_METADATA)
+    assert mac_evidence == [("desktop", "bursts"), ("host", "bursts")]
+
+
+@pytest.mark.parametrize("change", ["acceptance-mac", "control-presents", "control-missing", "trial-reported"])
+def test_withheld_mac_evidence_needs_the_hosted_control_and_no_presentation_report(tmp_path, mac_evidence, change):
+    withhold_presentation(tmp_path)
+    metadata = dict(HOSTED_METADATA)
+    if change == "acceptance-mac":
+        metadata["runner"] = "macos"
+    elif change == "control-presents":
+        metal_control(tmp_path, presented=19)
+    elif change == "control-missing":
+        shutil.rmtree(tmp_path / "native/metal-control")
+    else:
+        directory = tmp_path / "native/reference/plain/host/sheet"
+        directory.mkdir()
+        (directory / "observations.json").write_text(json.dumps({"entry": "host", "trial": "sheet"}))
+    with pytest.raises(RuntimeError, match="exactly 2 " if change == "trial-reported" else "exactly 12 "):
+        MacOSE40Cases.validate_evidence(tmp_path, metadata)
+
+
+def test_retained_controls_are_not_trial_reports(tmp_path, mac_evidence):
+    for control in MacOSE40Cases.controls:
+        directory = tmp_path / "native" / f"{control}-control"
+        directory.mkdir()
+        (directory / "observations.json").write_text(json.dumps({"acquired": 20, "presented": 19}))
+    MacOSE40Cases.validate_evidence(tmp_path, {**HOSTED_METADATA, "runner": "macos"})
+    assert len(mac_evidence) == 22
+    (tmp_path / "native/other-control").mkdir()
+    (tmp_path / "native/other-control/observations.json").write_text("{}")
+    with pytest.raises(RuntimeError, match="exactly 12 "):
+        MacOSE40Cases.validate_evidence(tmp_path, {**HOSTED_METADATA, "runner": "macos"})
+
+
+@pytest.mark.parametrize("outcome", ["withheld", "presentation-trial-ran", "acceptance-mac"])
+def test_mac_run_passes_with_exactly_the_skips_its_control_declares(tmp_path, monkeypatch, mac_evidence, outcome):
+    monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)
+    monkeypatch.delenv("BTRC_TEST_BTRCC", raising=False)
+    monkeypatch.setenv("BTRC_TEST_RUNNER", "macos" if outcome == "acceptance-mac" else "macos-hosted")
+    monkeypatch.setattr("tools.ui.e40.platform.platform", lambda: "fixture-platform")
+    monkeypatch.setattr("tools.ui.e40.platform.machine", lambda: "fixture-machine")
+
+    def command_output(command, **kwargs):
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            return MAC_METADATA["revision"] + "\n"
+        return "" if command[-2:] == ["status", "--porcelain"] else "fixture compiler\n"
+
+    def process(command, **kwargs):
+        if "--collect-only" in command:
+            return SimpleNamespace(stdout=io.StringIO("\n".join(MAC_NODES) + "\n"), wait=lambda: 0)
+        withhold_presentation(tmp_path)
+        recorded = dict(WITHHELD_NODES)
+        if outcome == "presentation-trial-ran":
+            del recorded[MAC_NODES[1]]
+        junit(tmp_path / "junit.xml", MAC_NODES, skips=recorded)
+        return SimpleNamespace(stdout=io.StringIO("qualification output\n"), wait=lambda: 0)
+
+    monkeypatch.setattr("tools.ui.e40.subprocess.check_output", command_output)
+    monkeypatch.setattr("tools.ui.e40.subprocess.Popen", process)
+    run = E40Run(
+        MAC_NODES,
+        tmp_path,
+        {"provider": "macos", "cell": "fixture-cell", "frontend": "reference", "variant": "plain"},
+        MacOSE40Cases.validate_evidence,
+        expected_skips=MacOSE40Cases.expected_skips,
+    )
+    if outcome == "withheld":
+        run.run()
+    else:
+        with pytest.raises(RuntimeError, match="declared" if outcome == "presentation-trial-ran" else "without skips"):
+            run.run()
+    saved = json.loads((tmp_path / "provenance.json").read_text())
+    assert saved["status"] == ("passed" if outcome == "withheld" else "failed")
+    assert saved["expected_skips"] == ({} if outcome == "acceptance-mac" else WITHHELD_NODES)
+    assert "native/metal-control/observations.json" in {item["path"] for item in saved["evidence"]}

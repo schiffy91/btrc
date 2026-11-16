@@ -43,8 +43,9 @@ permissions:
 # Every pytest session here classifies its skips as the hosted runner: a Darwin
 # host would otherwise detect as `macos`, the acceptance Mac. macos-hosted.json
 # expects only platform skips and the hardware tier the acceptance Mac covers
-# (a CoreAudio output device, a GPU compute adapter); anything else fails the
-# shard's skip gate. `nix develop --command` keeps the variable.
+# (a CoreAudio output device, a GPU compute adapter, a display that presents
+# frames); anything else fails the shard's skip gate. `nix develop --command`
+# keeps the variable.
 env:
   BTRC_TEST_RUNNER: macos-hosted
   # The scope job plans this file's jobs from ci/tiers.toml under this name.
@@ -85,6 +86,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      statuses: read
     outputs:
       tier: ${{ steps.classify.outputs.tier }}
       plan: ${{ steps.plan.outputs.plan }}
@@ -154,15 +156,38 @@ jobs:
           esac
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
           echo "Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
+      # What the owner's machines already passed for this exact commit
+      # (`ci-local`, ci/local.json): a status `local/<platform>/<job>` that the
+      # repository's owner posted, and has not since replaced with a failure,
+      # stands in for the same job here, and the plan below leaves it out.
+      # Statuses are read for this run's commit alone, so a pull request's
+      # merge commit has none. A dispatch asks for the hosted jobs themselves,
+      # and release.yml's bundle needs every report, so neither reads any. A
+      # listing that cannot be read runs everything.
+      - name: Read the owner's local passes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          CALLED_TIER: ${{ inputs.tier }}
+        run: |
+          set -euo pipefail
+          statuses='[]'
+          if [ -z "$CALLED_TIER" ] && { [ "$EVENT" = push ] || [ "$EVENT" = pull_request ]; }; then
+            statuses=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses?per_page=100") || {
+              echo "::warning::could not list this commit's statuses; no local pass is counted"
+              statuses='[]'
+            }
+          fi
+          python3 -m tools.qualification local-passes --owner "$GITHUB_REPOSITORY_OWNER" <<<"$statuses" > build/local-passes.json
       - name: Plan the tier's jobs
         id: plan
         env:
           TIER: ${{ steps.classify.outputs.tier }}
         run: |
           set -euo pipefail
-          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt)
+          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
           echo "plan=$plan" >> "$GITHUB_OUTPUT"
-          jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)"), ((.local // [])[] | "Passed locally, not run here: `\(.)`")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
 
   native-bundle:
     needs: scope
@@ -386,9 +411,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EXPECTED: ${{ join(fromJSON(needs.scope.outputs.plan).reports.tests, ' ') }}
+          LOCAL: ${{ join(fromJSON(needs.scope.outputs.plan).local, ', ') }}
         run: |
           artifacts=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name')
           test -n "$EXPECTED"
+          # A shard the owner's machine passed never ran here: the plan expects
+          # no report from it, and its evidence is that machine's receipt.
+          if [ -n "$LOCAL" ]; then
+            echo "No report is expected from what passed locally: $LOCAL" >> "$GITHUB_STEP_SUMMARY"
+          fi
           missing=0
           for name in $EXPECTED; do
             if ! grep -qx "$name" <<<"$artifacts"; then
@@ -531,6 +562,11 @@ jobs:
 
   # Required E40 cells own one serial AppKit process at a time. Each cell
   # includes desktop/host bursts, two 600-second loads and four tracking modes.
+  # The loads and tracking modes assert presented frames. This runner's
+  # paravirtual GPU completes Metal commands and presents none (issue #128), so
+  # each cell runs the direct Metal control and, on those exact counts, skips
+  # them as macos-hosted.json's e40-presented-frames rule expects. The bursts
+  # still gate here; the acceptance Mac runs all twelve trials.
   macos-e40:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'macos-e40')
