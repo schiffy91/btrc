@@ -119,9 +119,12 @@ class BluetoothAdapter {
 	public int watch(struct pollfd* descriptors, int capacity) { return self.open ? self.daemon.watch(descriptors, capacity) : 0; }
 
 	public int watchIn(PollSet set) {
-		if (set == null || !self.open) { return 0; }
-		int added = self.daemon.watch(set.cursor(), set.remaining());
-		set.advance(added);
+		if (set == null || !self.open || set.remaining() < 1) { return 0; }
+		struct pollfd local[1];
+		int added = self.daemon.watch(local, 1);
+		for (int index = 0; index < added; index++) {
+			set.addEvents(local[index].fd, (int)local[index].events);
+		}
 		return added;
 	}
 

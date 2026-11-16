@@ -182,6 +182,22 @@ class NetworkConformance {
 		int status = 0;
 		assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
 	}
+
+	class void pollSetAndLocalPair() {
+		TCPStreamPair pair = TCPStream.localPair();
+		PollSet polls = PollSet();
+		polls.addReadable(pair.second.handle());
+		assert(polls.count() == 1 && polls.wait(0) == 0);
+		assert(pair.first.writeBytes(Bytes.fromString("hello-pair"), 1000));
+		polls.clear();
+		polls.addReadable(pair.second.handle());
+		assert(polls.wait(1000) == 1 && PollSet.waitReadable(pair.second.handle(), 1000));
+		Bytes received = Bytes();
+		assert(pair.second.readInto(received, 64, 1000) == 10);
+		assert(received.toString().equals("hello-pair"));
+		pair.first.close();
+		pair.second.close();
+	}
 }
 
 int main() {
@@ -190,6 +206,7 @@ int main() {
 	NetworkConformance.handoff();
 	NetworkConformance.resolve();
 	NetworkConformance.bulk();
+	NetworkConformance.pollSetAndLocalPair();
 	print("PASS: network listener, streams, deadlines, resolver and bulk transfer");
 	return 0;
 }

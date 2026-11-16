@@ -58,6 +58,17 @@ void testBytesEndianAndHex() {
 		}, "out of bounds");
 	Expect.isTrue(Bytes.fromHex("abc") == null, "odd hex length returns null");
 	Expect.isTrue(Bytes.fromHex("zz") == null, "invalid hex digits return null");
+
+	Bytes zeroed = Bytes.zeros(16);
+	Expect.intEq((long long)zeroed.length, 16LL);
+	Expect.intEq((long long)zeroed.get(0), 0LL);
+	Expect.intEq((long long)zeroed.get(15), 0LL);
+	zeroed.set(5, 99);
+	zeroed.resetZeros(8);
+	Expect.intEq((long long)zeroed.length, 8LL);
+	Expect.intEq((long long)zeroed.get(5), 0LL);
+	zeroed.clear();
+	Expect.isTrue(zeroed.isEmpty());
 }
 
 void testDeclarativeCli() {

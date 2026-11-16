@@ -49,6 +49,29 @@ class Bytes {
 
 	public bool isEmpty() { return self.len == 0; }
 
+	public void clear() { self.len = 0; }
+
+	public void resetZeros(int count) {
+		if (count < 0 || count > 2147483646) {
+			fprintf(stderr, "Bytes length overflow\n");
+			exit(1);
+		}
+		self.len = 0;
+		if (count > 0) {
+			self.reserve(count);
+			memset(self.data, 0, (size_t)count);
+			self.len = count;
+		}
+	}
+
+	class Bytes zeros(int count) {
+		Bytes result = Bytes();
+		if (count > 0) {
+			result.resetZeros(count);
+		}
+		return result;
+	}
+
 	/* Return byte i as an unsigned value in 0..255. */
 	public int get(int i) {
 		if (i < 0 || i >= self.len) {

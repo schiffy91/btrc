@@ -14,6 +14,7 @@ import Library.IO;
 import Library.Network.IPv4Address;
 import Library.Strings;
 import Library.Timer;
+import Library.Vector;
 
 /* What a read can report besides a byte count. */
 enum TCPStreamRead {
@@ -25,39 +26,40 @@ enum TCPStreamRead {
 /* Bounded poll-descriptor set for event loops multiplexing sockets, gadgets,
  * and adapters without exposing raw struct pollfd arrays to callers. */
 class PollSet {
-	private struct pollfd slots[64];
-	private int used = 0;
+	private Vector<int> descriptors = [];
+	private Vector<int> eventMasks = [];
 
-	public PollSet() { self.clear(); }
+	public PollSet() {}
 
 	public void clear() {
-		memset(self.slots, 0, sizeof(self.slots));
-		self.used = 0;
+		self.descriptors.clear();
+		self.eventMasks.clear();
 	}
 
-	public int count() { return self.used; }
+	public int count() { return self.descriptors.len; }
 
-	public size_t length { get { return (size_t)self.used; } }
+	public size_t length { get { return (size_t)self.descriptors.len; } }
 
-	public int remaining() { return 64 - self.used; }
+	public int remaining() { return 64 - self.descriptors.len; }
 
-	public struct pollfd* cursor() { return self.slots + self.used; }
-
-	public void advance(int added) {
-		if (added > 0 && self.used + added <= 64) { self.used += added; }
-	}
-
-	public bool addReadable(int descriptor) {
-		if (descriptor < 0 || self.used >= 64) { return false; }
-		self.slots[self.used].fd = descriptor;
-		self.slots[self.used].events = POLLIN;
-		self.slots[self.used].revents = 0;
-		self.used++;
+	public bool addEvents(int descriptor, int events) {
+		if (descriptor < 0 || self.descriptors.len >= 64) { return false; }
+		self.descriptors.push(descriptor);
+		self.eventMasks.push(events);
 		return true;
 	}
 
+	public bool addReadable(int descriptor) { return self.addEvents(descriptor, (int)POLLIN); }
+
 	public int wait(int timeoutMilliseconds) {
-		int ready = poll(self.slots, (nfds_t)self.used, timeoutMilliseconds);
+		struct pollfd slots[64];
+		int count = self.descriptors.len < 64 ? self.descriptors.len : 64;
+		for (int index = 0; index < count; index++) {
+			slots[index].fd = self.descriptors.get(index);
+			slots[index].events = (short)self.eventMasks.get(index);
+			slots[index].revents = 0;
+		}
+		int ready = poll(slots, (nfds_t)count, timeoutMilliseconds);
 		if (ready < 0 && errno == EINTR) { return 0; }
 		return ready;
 	}

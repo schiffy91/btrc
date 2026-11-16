@@ -145,9 +145,13 @@ class BluetoothHIDDevice {
 	}
 
 	public int watchIn(PollSet set) {
-		if (set == null) { return 0; }
-		int added = self.watch(set.cursor(), set.remaining());
-		set.advance(added);
+		if (set == null || set.remaining() <= 0) { return 0; }
+		struct pollfd local[8];
+		int cap = set.remaining() < 8 ? set.remaining() : 8;
+		int added = self.watch(local, cap);
+		for (int index = 0; index < added; index++) {
+			set.addEvents(local[index].fd, (int)local[index].events);
+		}
 		return added;
 	}
 

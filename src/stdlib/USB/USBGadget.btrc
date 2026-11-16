@@ -77,9 +77,13 @@ class USBGadget {
 	public int watch(struct pollfd* descriptors, int capacity) { return self.open ? self.port.watch(descriptors, capacity) : 0; }
 
 	public int watchIn(PollSet set) {
-		if (set == null || !self.open) { return 0; }
-		int added = self.port.watch(set.cursor(), set.remaining());
-		set.advance(added);
+		if (set == null || !self.open || set.remaining() <= 0) { return 0; }
+		struct pollfd local[16];
+		int cap = set.remaining() < 16 ? set.remaining() : 16;
+		int added = self.port.watch(local, cap);
+		for (int index = 0; index < added; index++) {
+			set.addEvents(local[index].fd, (int)local[index].events);
+		}
 		return added;
 	}
 
