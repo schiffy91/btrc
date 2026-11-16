@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.compiler.python.runtime.catalog import RuntimeHelperSelection
 from src.compiler.python.syntax.ast.generated import ClassDecl, MethodDecl, TypeExpr
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from src.compiler.python.analyzer.reachability import StdlibReachabilityPlan
     from src.compiler.python.frontend.sources import SourceMap
 
-    from .calls import CallableFlowSnapshot
     from .generics import SpecializationView, SpecializedDeclarationView
 
 
@@ -81,10 +80,10 @@ class TryJumpFrame:
     in_try_branch: bool = True
     try_exit_used: bool = False
     catch_exit_used: bool = False
-    escape_flows: list[CallableFlowSnapshot] = field(default_factory=list)
-    return_flows: list[CallableFlowSnapshot] = field(default_factory=list)
-    break_flows: list[CallableFlowSnapshot] = field(default_factory=list)
-    continue_flows: list[CallableFlowSnapshot] = field(default_factory=list)
+    escape_flows: list[Any] = field(default_factory=list)
+    return_flows: list[Any] = field(default_factory=list)
+    break_flows: list[Any] = field(default_factory=list)
+    continue_flows: list[Any] = field(default_factory=list)
 
 
 @dataclass(slots=True)

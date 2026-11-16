@@ -61,6 +61,7 @@ from src.compiler.python.syntax.ast.generated import (
     ElseBlock,
     ElseIf,
     ForInStmt,
+    GotoStmt,
     IfStmt,
     ParallelForStmt,
     ReturnStmt,
@@ -1886,6 +1887,8 @@ class ExceptionLowerer:
             return False
         if isinstance(node, ReturnStmt):
             return True
+        if isinstance(node, GotoStmt):
+            return False
         if isinstance(node, Block):
             return any(ExceptionLowerer._escapes_return(stmt) for stmt in node.statements)
         if isinstance(node, IfStmt):
@@ -1914,6 +1917,8 @@ class ExceptionLowerer:
             return False
         if isinstance(node, BreakStmt):
             return True
+        if isinstance(node, GotoStmt):
+            return False
         if isinstance(node, (WhileStmt, DoWhileStmt, CForStmt, ForInStmt, ParallelForStmt, SwitchStmt)):
             return False
         if isinstance(node, Block):
@@ -2051,7 +2056,7 @@ class ExceptionLowerer:
             return_decl: IRVarDecl | None = None
             if has_return_slot:
                 return_slot_managed = bool(
-                    self._ownership._values.is_managed(self._session.current_return_type)
+                    self._ownership.is_managed_type(self._session.current_return_type)
                     and self._session.current_return_owned
                 )
                 return_slot_is_thread = bool(
@@ -2075,7 +2080,7 @@ class ExceptionLowerer:
                 try_exit_label=try_exit_label,
                 catch_exit_label=catch_exit_label,
                 managed_depth=self._ownership.managed_scope_depth,
-                cleanup_depth=self._ownership._cleanup_scope.depth,
+                cleanup_depth=self._ownership.cleanup_scope_depth,
                 control_depth=len(self._session.control_context),
                 callable_depth=provenance.scope_depth,
             )
@@ -2207,66 +2212,12 @@ class ExceptionLowerer:
     @contextmanager
     def finally_body_scope(self, plan: TryCatchPlan, provenance: CallableProvenance):
         """Capture mutations made by an ordinary lowered finally block."""
-        guard_return = bool(
-            plan.jump_frame is not None
-            and plan.jump_frame.has_return_slot
-            and (plan.return_slot_managed or plan.return_slot_is_thread)
-        )
-        marker: str | None = None
-        reg_stmts: list[IRStmt] = []
-        if guard_return and plan.jump_frame is not None:
-            marker = self._ownership._cleanup_scope.push()
-            self._ownership.push_managed_scope()
-            if plan.return_slot_managed and self._session.current_return_type is not None:
-                return_type = self._session.current_return_type
-                runtime_type = self._ownership._values.runtime_name(return_type)
-                self._ownership.register_synthetic_managed_slot(
-                    plan.jump_frame.return_name,
-                    runtime_type,
-                    return_type,
-                    cycle_seed=self._ownership._cycles.type_may_cycle(return_type),
-                )
-                if self._ownership._cleanup_scope.exception_cleanup_active():
-                    scratch = [*plan.statements]
-                    reg_start = len(scratch)
-                    recipe = self._ownership._lifetime.register_named_cleanup(
-                        plan.jump_frame.return_name, runtime_type, scratch
-                    )
-                    self._ownership.record_cleanup_registration(recipe)
-                    reg_stmts = scratch[reg_start:]
-            else:
-                self._ownership.register_synthetic_thread_slot(plan.jump_frame.return_name)
-                if self._ownership._cleanup_scope.exception_cleanup_active():
-                    self._session.require_helper("__btrc_thread_free")
-                    scratch = [*plan.statements]
-                    reg_start = len(scratch)
-                    recipe = self._ownership._lifetime.register_direct_cleanup(
-                        plan.jump_frame.return_name, "__btrc_thread_free", scratch
-                    )
-                    self._ownership.record_cleanup_registration(recipe)
-                    reg_stmts = scratch[reg_start:]
-        plan.finally_capture = provenance.begin_mutation_capture()
-        try:
-            yield
-        finally:
-            plan.finally_mutations = provenance.finish_mutation_capture(plan.finally_capture)
-            if guard_return:
-                self._ownership.pop_managed_scope()
-                if plan.finally_body is not None:
-                    falls_through = IRStatementSequence(plan.finally_body.stmts).may_fall_through()
-                    plan.finally_falls_through = falls_through
-                    marker_active = self._ownership._cleanup_scope.is_active(marker)
-                    marker_referenced = falls_through or IRStatementSequence(
-                        plan.finally_body.stmts
-                    ).references_variable(marker or "")
-                    if marker_active and marker_referenced:
-                        plan.statements.extend(self._ownership._cleanup_scope.entry(marker))
-                    plan.statements.extend(reg_stmts)
-                    if falls_through and marker_active:
-                        plan.return_cleanup_exit = tuple(self._ownership._cleanup_scope.exit(marker))
-                self._ownership._cleanup_scope.pop()
-            elif plan.finally_body is not None:
-                plan.finally_falls_through = IRStatementSequence(plan.finally_body.stmts).may_fall_through()
+        with self._ownership.finally_return_slot_guard(plan):
+            plan.finally_capture = provenance.begin_mutation_capture()
+            try:
+                yield
+            finally:
+                plan.finally_mutations = provenance.finish_mutation_capture(plan.finally_capture)
         plan.finally_result = provenance.snapshot()
 
     def materialize_try_catch(

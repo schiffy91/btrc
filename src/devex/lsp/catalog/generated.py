@@ -243,6 +243,7 @@ MAP_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
 
 # Generated from src/stdlib/ownedbuffer.btrc
 OWNEDBUFFER_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("length", "size_t", "field", doc="length"),
     BuiltinMemberSpec("status", "OwnedBufferOpenKind", "method", (), "status"),
     BuiltinMemberSpec("opened", "bool", "method", (), "opened"),
     BuiltinMemberSpec("count", "size_t", "method", (), "count"),
@@ -260,6 +261,7 @@ OWNEDBUFFER_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
 
 # Generated from src/stdlib/atomicbuffer.btrc
 ATOMICBUFFER_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("length", "size_t", "field", doc="length"),
     BuiltinMemberSpec("status", "OwnedBufferOpenKind", "method", (), "status"),
     BuiltinMemberSpec("opened", "bool", "method", (), "opened"),
     BuiltinMemberSpec("count", "size_t", "method", (), "count"),
@@ -429,6 +431,11 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("error", "void", "method", (("string", "msg"),), "error"),
         BuiltinMemberSpec("fatal", "void", "method", (("string", "msg"),), "fatal"),
         BuiltinMemberSpec("write", "void", "method", (("string", "msg"),), "write"),
+        BuiltinMemberSpec("writeError", "void", "method", (("string", "msg"),), "writeError"),
+        BuiltinMemberSpec("flush", "void", "method", (), "flush"),
+        BuiltinMemberSpec("flushError", "void", "method", (), "flushError"),
+        BuiltinMemberSpec("isTty", "bool", "method", (), "isTty"),
+        BuiltinMemberSpec("isErrorTty", "bool", "method", (), "isErrorTty"),
     )),
     ("Base64", (
         BuiltinMemberSpec("alphabet", "string", "method", (), "alphabet"),
@@ -448,6 +455,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("available", "bool", "method", (), "available"),
         BuiltinMemberSpec("require", "void", "method", (), "require"),
         BuiltinMemberSpec("random", "void", "method", (("unsigned char*", "out"), ("int", "length"),), "random"),
+        BuiltinMemberSpec("randomBytes", "Bytes", "method", (("int", "length"),), "randomBytes"),
         BuiltinMemberSpec("wipe", "void", "method", (("unsigned char*", "data"), ("int", "length"),), "wipe"),
         BuiltinMemberSpec("signingKeys", "bool", "method", (("unsigned char*", "seed"), ("unsigned char*", "publicKey"), ("unsigned char*", "secretKey"),), "signingKeys"),
         BuiltinMemberSpec("sign", "bool", "method", (("unsigned char*", "signature"), ("unsigned char*", "message"), ("int", "length"), ("unsigned char*", "secretKey"),), "sign"),
@@ -536,7 +544,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("chmod", "int", "method", (("string", "path"), ("int", "mode"),), "chmod"),
         BuiltinMemberSpec("mkdir", "int", "method", (("string", "path"), ("int", "mode"),), "mkdir"),
         BuiltinMemberSpec("mkdirOne", "int", "method", (("string", "path"), ("int", "mode"),), "mkdirOne"),
-        BuiltinMemberSpec("mkdirp", "int", "method", (("string", "path"),), "mkdirp"),
+        BuiltinMemberSpec("mkdirp", "int", "method", (("string", "path"), ("int", "mode"),), "mkdirp"),
         BuiltinMemberSpec("isCanonicalRoot", "bool", "method", (("string", "path"),), "isCanonicalRoot"),
         BuiltinMemberSpec("removeRecursivePath", "int", "method", (("string", "path"),), "removeRecursivePath"),
         BuiltinMemberSpec("openDirectoryNoFollow", "int", "method", (("string", "path"),), "openDirectoryNoFollow"),
@@ -551,6 +559,15 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("readText", "string", "method", (("string", "path"),), "readText"),
         BuiltinMemberSpec("readBytes", "Bytes", "method", (("string", "path"),), "readBytes"),
         BuiltinMemberSpec("writeText", "bool", "method", (("string", "path"), ("string", "content"),), "writeText"),
+        BuiltinMemberSpec("stat", "FileStatus", "method", (("string", "path"),), "stat"),
+        BuiltinMemberSpec("writeBytes", "bool", "method", (("string", "path"), ("Bytes", "content"),), "writeBytes"),
+        BuiltinMemberSpec("appendText", "bool", "method", (("string", "path"), ("string", "content"),), "appendText"),
+        BuiltinMemberSpec("rename", "int", "method", (("string", "source"), ("string", "destination"),), "rename"),
+        BuiltinMemberSpec("removeFile", "int", "method", (("string", "path"),), "removeFile"),
+        BuiltinMemberSpec("removeIfExists", "bool", "method", (("string", "path"),), "removeIfExists"),
+        BuiltinMemberSpec("writeAtomicBytes", "bool", "method", (("string", "path"), ("Bytes", "content"), ("int", "mode"),), "writeAtomicBytes"),
+        BuiltinMemberSpec("writeAtomic", "bool", "method", (("string", "path"), ("string", "content"), ("int", "mode"),), "writeAtomic"),
+        BuiltinMemberSpec("copyFile", "bool", "method", (("string", "source"), ("string", "destination"), ("int", "mode"),), "copyFile"),
     )),
     ("FileSystemDiagnostics", (
         BuiltinMemberSpec("ownedHandleInventory", "FileSystemHandleInventory", "method", (), "ownedHandleInventory"),
@@ -865,14 +882,22 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("isUnix", "bool", "method", (), "isUnix"),
         BuiltinMemberSpec("pathSeparator", "string", "method", (), "pathSeparator"),
         BuiltinMemberSpec("pid", "int", "method", (), "pid"),
+        BuiltinMemberSpec("uid", "int", "method", (), "uid"),
         BuiltinMemberSpec("euid", "int", "method", (), "euid"),
         BuiltinMemberSpec("isRoot", "bool", "method", (), "isRoot"),
+        BuiltinMemberSpec("hostname", "string", "method", (), "hostname"),
+        BuiltinMemberSpec("setUmask", "int", "method", (("int", "mask"),), "setUmask"),
+        BuiltinMemberSpec("disableCoreDumps", "bool", "method", (), "disableCoreDumps"),
+        BuiltinMemberSpec("setEnv", "bool", "method", (("string", "name"), ("string", "value"), ("bool", "overwrite"),), "setEnv"),
+        BuiltinMemberSpec("unsetEnv", "bool", "method", (("string", "name"),), "unsetEnv"),
         BuiltinMemberSpec("currentDirectory", "string", "method", (), "currentDirectory"),
         BuiltinMemberSpec("programName", "string", "method", (), "programName"),
     )),
     ("Environment", (
         BuiltinMemberSpec("get", "string", "method", (("string", "name"), ("string", "fallback"),), "get"),
         BuiltinMemberSpec("has", "bool", "method", (("string", "name"),), "has"),
+        BuiltinMemberSpec("set", "bool", "method", (("string", "name"), ("string", "value"), ("bool", "overwrite"),), "set"),
+        BuiltinMemberSpec("unset", "bool", "method", (("string", "name"),), "unset"),
     )),
     ("ShellWords", (
         BuiltinMemberSpec("isEnvNameStart", "bool", "method", (("char", "c"),), "isEnvNameStart"),
@@ -882,6 +907,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("isSafeArg", "bool", "method", (("string", "raw"),), "isSafeArg"),
         BuiltinMemberSpec("quote", "string", "method", (("string", "raw"),), "quote"),
         BuiltinMemberSpec("redact", "string", "method", (("string", "text"), ("string", "sensitive"),), "redact"),
+    )),
+    ("ChildProcessPipe", (
+        BuiltinMemberSpec("suppressSigpipe", "void", "method", (("int", "descriptor"),), "suppressSigpipe"),
+        BuiltinMemberSpec("writeNoSigpipe", "ssize_t", "method", (("int", "descriptor"), ("char*", "data"), ("size_t", "count"),), "writeNoSigpipe"),
     )),
     ("CStringArray", (
         BuiltinMemberSpec("copyEntry", "char*", "method", (("string", "value"),), "copyEntry"),
@@ -917,8 +946,15 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("validOutputs", "bool", "method", (("CommandOutput", "stdout"), ("CommandOutput", "stderr"),), "validOutputs"),
         BuiltinMemberSpec("validateDescriptorMappings", "int", "method", (("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "descriptorBound"),), "validateDescriptorMappings"),
         BuiltinMemberSpec("render", "string", "method", (("string", "executable"), ("Vector<string>", "arguments"),), "render"),
-        BuiltinMemberSpec("run", "ExecResult", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("CommandOutput", "stdout"), ("CommandOutput", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"), ("bool", "foreground"), ("ChildStdin", "stdinMode"),), "run"),
-        BuiltinMemberSpec("runOnWindows", "ExecResult", "method", (("string", "command"), ("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("CommandOutput", "stdout"), ("CommandOutput", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"), ("bool", "foreground"), ("ChildStdin", "stdinMode"),), "runOnWindows"),
+        BuiltinMemberSpec("run", "ExecResult", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("CommandOutput", "stdout"), ("CommandOutput", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"), ("bool", "foreground"), ("ChildStdin", "stdinMode"), ("Bytes?", "stdinBytes"), ("bool", "check"),), "run"),
+        BuiltinMemberSpec("runOnWindows", "ExecResult", "method", (("string", "command"), ("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("CommandOutput", "stdout"), ("CommandOutput", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"), ("bool", "foreground"), ("ChildStdin", "stdinMode"), ("Bytes?", "stdinBytes"),), "runOnWindows"),
+    )),
+    ("Process", (
+        BuiltinMemberSpec("run", "ExecResult", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("Bytes?", "stdinBytes"), ("CommandOutput", "stdout"), ("CommandOutput", "stderr"), ("bool", "foreground"), ("ChildStdin", "stdinMode"), ("bool", "check"),), "run"),
+        BuiltinMemberSpec("shell", "ExecResult", "method", (("string", "command"), ("CommandOutput", "stdout"), ("CommandOutput", "stderr"), ("bool", "logCommand"), ("bool", "logFailure"), ("bool", "check"), ("string", "redactSubstring"), ("string", "stdin"), ("Bytes?", "stdinBytes"), ("string", "cwd"), ("Vector<string>", "env"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("bool", "foreground"),), "shell"),
+        BuiltinMemberSpec("start", "BackgroundProcess", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("string", "cwd"), ("CommandOutput", "stdout"), ("CommandOutput", "stderr"), ("ChildStdin", "stdinMode"), ("bool", "killOnDrop"),), "start"),
+        BuiltinMemberSpec("pipe", "PipeProcess", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "errorLog"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"),), "pipe"),
+        BuiltinMemberSpec("exec", "void", "method", (("Vector<string>", "command"), ("string", "argv0"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"),), "exec"),
     )),
     ("Regex", (
         BuiltinMemberSpec("capacityFor", "int", "method", (("int", "current"), ("long long", "required"),), "capacityFor"),
@@ -1001,6 +1037,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("prompt", "string", "method", (("string", "label"),), "prompt"),
         BuiltinMemberSpec("signalReadDescriptor", "int", "method", (), "signalReadDescriptor"),
         BuiltinMemberSpec("signalWriteDescriptor", "int", "method", (), "signalWriteDescriptor"),
+    )),
+    ("Test", (
+        BuiltinMemberSpec("section", "void", "method", (("string", "name"), ("__fn_ptr<void>", "body"),), "section"),
+        BuiltinMemberSpec("run", "int", "method", (("string", "suiteName"), ("Vector<TestCase>", "cases"),), "run"),
     )),
     ("MonotonicClock", (
         BuiltinMemberSpec("millisecondsFrom", "long long", "method", (("uintmax_t", "seconds"), ("long", "nanoseconds"),), "millisecondsFrom"),

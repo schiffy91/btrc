@@ -573,7 +573,7 @@ class ExpressionAnalyzer:
             cls = self.index.class_table.get(receiver_type.base)
             if (
                 cls is not None
-                and "len" in cls.fields
+                and cls.fields.get("len") is not None
                 and receiver_type.pointer_depth <= 1
                 and (
                     (
@@ -1702,7 +1702,7 @@ class ExpressionAnalyzer:
                 and canonical_obj.generic_args
                 and expr.field in {"len", "length", "size"}
                 and canonical_obj.base in self.index.class_table
-                and "len" in self.index.class_table[canonical_obj.base].fields
+                and self.index.class_table[canonical_obj.base].fields.get("len") is not None
             ):
                 if expr.field == "length":
                     return TypeExpr(base="int")
@@ -1712,7 +1712,7 @@ class ExpressionAnalyzer:
                 and (not canonical_obj.generic_args)
                 and expr.field == "length"
                 and canonical_obj.base in self.index.class_table
-                and "len" in self.index.class_table[canonical_obj.base].fields
+                and self.index.class_table[canonical_obj.base].fields.get("len") is not None
             ):
                 return TypeExpr(base="int")
         if isinstance(expr.obj, FieldAccessExpr) and isinstance(expr.obj.obj, FieldAccessExpr):
@@ -2743,7 +2743,7 @@ class ExpressionAnalyzer:
                 and canonical_obj is not None
                 and (not canonical_obj.is_array)
                 and canonical_obj.pointer_depth <= 1
-                and "len" in cls.fields
+                and cls.fields.get("len") is not None
                 and (
                     (
                         canonical_obj.base in {"Array", "List", "Map", "Set", "Vector"}

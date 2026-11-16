@@ -1,6 +1,7 @@
-btrc-symbols 1 065f1508-251494-26
+btrc-symbols 1 44103307-291838-26
 Array	Array.btrc
 AtomicBuffer	OwnedBuffer.btrc
+BackgroundProcess	Process.btrc
 BitPattern32	BitPattern.btrc
 Bytes	Bytes.btrc
 CALLBACK_CANCELLATION_COMPLETE	Callback.btrc
@@ -14,6 +15,10 @@ CLIArgs	CLI.btrc
 CLICommand	CLI.btrc
 CLICommandLine	CLI.btrc
 CLIHelp	CLI.btrc
+CLIOptionSpec	CLI.btrc
+CLIParsed	CLI.btrc
+CLIPositionalSpec	CLI.btrc
+CLISpec	CLI.btrc
 COMMAND_OUTPUT_COLLECT	Process.btrc
 COMMAND_OUTPUT_COMBINE	Process.btrc
 COMMAND_OUTPUT_STREAM	Process.btrc
@@ -34,6 +39,8 @@ ChildProcessArguments	Process.btrc
 ChildProcessCapture	Process.btrc
 ChildProcessEnvironment	Process.btrc
 ChildProcessExecutable	Process.btrc
+ChildProcessInput	Process.btrc
+ChildProcessPipe	Process.btrc
 ChildStdin	Process.btrc
 Command	Process.btrc
 CommandOutput	Process.btrc
@@ -62,7 +69,6 @@ FileLineReadOutcome	IO.btrc
 FileSnapshot	IO.btrc
 FileSnapshotReadKind	IO.btrc
 FileSnapshotReadOutcome	IO.btrc
-GetModuleFileNameA	Platform.btrc
 ICallbackContext	Callback.btrc
 ICallbackRegistration	Callback.btrc
 Iterable	Iterable.btrc
@@ -94,7 +100,9 @@ OwnedBuffers	OwnedBuffer.btrc
 OwnedClosure	Callback.btrc
 Path	IO.btrc
 Pattern	Pattern.btrc
+PipeProcess	Process.btrc
 Platform	Platform.btrc
+Process	Process.btrc
 ProcessStatus	Process.btrc
 Random	Random.btrc
 Regex	Regex.btrc
@@ -122,6 +130,7 @@ UTF8	Strings.btrc
 UnixShell	Process.btrc
 Vector	Vector.btrc
 btrcWinDescribeStream	IO.btrc
+btrcWinProgramName	Platform.btrc
 callbackBackoff	Callback.btrc
 callbackGateCloseAdmission	Callback.btrc
 callbackGateDrain	Callback.btrc

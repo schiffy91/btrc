@@ -8,6 +8,8 @@
  *   Console.fatal("Broken");    // flushes one diagnostic, then aborts
  */
 
+#include <unistd.h>
+
 class Console {
 	class void log(string msg) { printf("%s\n", __btrc_string_or_empty(msg)); }
 
@@ -20,4 +22,26 @@ class Console {
 	}
 
 	class void write(string msg) { printf("%s", __btrc_string_or_empty(msg)); }
+
+	class void writeError(string msg) { fprintf(stderr, "%s", __btrc_string_or_empty(msg)); }
+
+	class void flush() { fflush(stdout); }
+
+	class void flushError() { fflush(stderr); }
+
+	class bool isTty() {
+#if defined(_WIN32)
+		return isatty(1) != 0;
+#else
+		return isatty(STDOUT_FILENO) != 0;
+#endif
+	}
+
+	class bool isErrorTty() {
+#if defined(_WIN32)
+		return isatty(2) != 0;
+#else
+		return isatty(STDERR_FILENO) != 0;
+#endif
+	}
 }

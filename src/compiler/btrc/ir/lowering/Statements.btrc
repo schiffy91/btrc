@@ -995,6 +995,7 @@ class StatementLowerer {
 		if (node == null) { return false; }
 		int kind = node.kind;
 		if (kind == NK_RETURN_STMT) { return true; }
+		if (kind == NK_GOTO_STMT) { return false; }
 		if (kind == NK_BLOCK) {
 			for stmt in node.statements() {
 				if (self.escapesReturn(stmt)) { return true; }
@@ -1029,6 +1030,7 @@ class StatementLowerer {
 		if (node == null) { return false; }
 		int kind = node.kind;
 		if (kind == NK_BREAK_STMT) { return true; }
+		if (kind == NK_GOTO_STMT) { return false; }
 		if (kind == NK_WHILE_STMT || kind == NK_DO_WHILE_STMT || kind == NK_C_FOR_STMT || kind == NK_FOR_IN_STMT || kind == NK_PARALLEL_FOR_STMT || kind == NK_SWITCH_STMT) {
 			return false;
 		}

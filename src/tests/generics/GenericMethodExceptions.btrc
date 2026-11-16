@@ -97,7 +97,7 @@ int main() {
 	assert(guard.early() == 7);
 	assert(guard.parallelSum([1, 2, 3]) == 6);
 	assert(guard.describe("ready").equals("42:ready"));
-	assert(guard.escapeFrame() == 1);
+	assert(guard.escapeFrame() == 11);
 	assert(guard.caughtReturnExpression() == 23);
 	assert(guard.steppedRange() == 8);
 	assert(guard.countChars("abc") == 3);

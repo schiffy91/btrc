@@ -13,6 +13,7 @@ import Library.Vector;
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdlib.h>
@@ -22,6 +23,10 @@ class FileStatus {
 	public string path;
 	public int mode;
 	public int linkMode;
+	public long long size;
+	public int uid;
+	public int gid;
+	public long long mtimeSeconds;
 	public bool found;
 	public bool linkFound;
 	public int error;
@@ -29,6 +34,10 @@ class FileStatus {
 
 	public FileStatus(string path) {
 		self.path = path == null ? "" : path;
+		self.size = 0LL;
+		self.uid = 0;
+		self.gid = 0;
+		self.mtimeSeconds = 0LL;
 		if (path == null) {
 			self.found = false;
 			self.mode = 0;
@@ -43,6 +52,12 @@ class FileStatus {
 		self.found = stat(path, &st) == 0;
 		self.error = self.found ? 0 : errno;
 		self.mode = self.found ? (int)st.st_mode : 0;
+		if (self.found) {
+			self.size = (long long)st.st_size;
+			self.uid = (int)st.st_uid;
+			self.gid = (int)st.st_gid;
+			self.mtimeSeconds = (long long)st.st_mtime;
+		}
 		struct stat lst;
 		errno = 0;
 		self.linkFound = lstat(path, &lst) == 0;
@@ -57,6 +72,8 @@ class FileStatus {
 	public bool isFile() { return self.found && S_ISREG(self.mode); }
 
 	public bool isSymlink() { return self.linkFound && S_ISLNK(self.linkMode); }
+
+	public int permissions() { return self.mode & 0o7777; }
 
 	/* Destructive idempotence applies only when both following and no-follow
      * metadata probes positively report that the path does not exist. Access,
@@ -366,10 +383,9 @@ class FileSystem {
 		return created;
 	}
 
-	class int mkdirp(string path) {
+	class int mkdirp(string path, int mode = 0o755) {
 		if (path == null || path.isEmpty()) { return -1; }
 		if (FileSystem.isDir(path)) { return 0; }
-		int mode = 493;
 #if defined(_WIN32)
 		/* Either separator ends a component; the volume root ("C:\",
 		 * "\\server\share\") is never created. */
@@ -381,7 +397,7 @@ class FileSystem {
 			if (path[i] == '/') {
 #endif
 				string parent = path.substring(0, i);
-				if (!parent.isEmpty() && FileSystem.mkdirOne(parent, mode) != 0) {
+				if (!parent.isEmpty() && FileSystem.mkdirOne(parent, 0o755) != 0) {
 					return -1;
 				}
 			}
@@ -584,4 +600,123 @@ class FileSystem {
      * open/write failure (and prints a clear stderr message via Path.writeAll).
      * Callers that ignore the result keep the previous fire-and-forget shape. */
 	class bool writeText(string path, string content) { return Path.writeAll(path, content); }
+
+	class FileStatus stat(string path) { return FileStatus(path); }
+
+	class bool writeBytes(string path, Bytes content) {
+		if (path == null || content == null) { return false; }
+		File file = File(path, "wb");
+		if (!file.ok()) { return false; }
+		bool wrote = file.writeBytes(content);
+		bool closed = file.close();
+		return wrote && closed;
+	}
+
+	class bool appendText(string path, string content) {
+		if (path == null || content == null) { return false; }
+		File file = File(path, "ab");
+		if (!file.ok()) { return false; }
+		bool wrote = file.write(content);
+		bool closed = file.close();
+		return wrote && closed;
+	}
+
+	class int rename(string source, string destination) {
+		if (source == null || destination == null) { return -1; }
+		return rename(source, destination);
+	}
+
+	class int removeFile(string path) {
+		if (path == null || path.isEmpty()) { return -1; }
+		return unlink(path);
+	}
+
+	class bool removeIfExists(string path) {
+		if (path == null || path.isEmpty()) { return false; }
+		FileStatus status = FileStatus(path);
+		if (status.isMissing()) { return true; }
+		if (unlink(path) == 0) { return true; }
+		return errno == ENOENT;
+	}
+
+	/* Atomically write `content` to `path` via an exclusive temporary sibling in
+	 * the same directory, explicit permission mode, fsync, and atomic rename. */
+	class bool writeAtomicBytes(string path, Bytes content, int mode = 0o644) {
+		if (path == null || path.isEmpty() || content == null) { return false; }
+		string dir = PathTools.dirname(path);
+		string base = PathTools.basename(path);
+		if (base.isEmpty() || base.equals(".") || base.equals("..")) { return false; }
+#if defined(_WIN32)
+		for (int attempt = 0; attempt < 128; attempt++) {
+			string candidate = PathTools.join(dir, f".{base}.tmp.{Platform.pid()}.{attempt}");
+			if (FileSystem.exists(candidate) || FileSystem.isSymlink(candidate)) { continue; }
+			if (!FileSystem.writeBytes(candidate, content)) {
+				unlink(candidate);
+				return false;
+			}
+			FileSystem.chmod(candidate, mode);
+			if (FileSystem.exists(path) || FileSystem.isSymlink(path)) {
+				unlink(path);
+			}
+			if (rename(candidate, path) == 0) { return true; }
+			unlink(candidate);
+			return false;
+		}
+		return false;
+#else
+		int flags = (int)O_WRONLY | (int)O_CREAT | (int)O_EXCL | (int)O_CLOEXEC | (int)O_NOFOLLOW;
+		int descriptor = -1;
+		string candidate = "";
+		for (int attempt = 0; attempt < 128; attempt++) {
+			candidate = PathTools.join(dir, f".{base}.tmp.{Platform.pid()}.{attempt}");
+			descriptor = open(candidate, flags, (mode_t)mode);
+			if (descriptor >= 0) { break; }
+			if (errno != EEXIST) { return false; }
+		}
+		if (descriptor < 0) { return false; }
+		if (fchmod(descriptor, (mode_t)mode) != 0) {
+			close(descriptor);
+			unlink(candidate);
+			return false;
+		}
+		int offset = 0;
+		while (offset < content.len) {
+			ssize_t wrote = write(descriptor, content.data + offset, (size_t)(content.len - offset));
+			if (wrote < (ssize_t)0) {
+				if (errno == EINTR) { continue; }
+				close(descriptor);
+				unlink(candidate);
+				return false;
+			}
+			offset = offset + (int)wrote;
+		}
+		if (fsync(descriptor) != 0) {
+			close(descriptor);
+			unlink(candidate);
+			return false;
+		}
+		if (close(descriptor) != 0) {
+			unlink(candidate);
+			return false;
+		}
+		if (rename(candidate, path) != 0) {
+			unlink(candidate);
+			return false;
+		}
+		return true;
+#endif
+	}
+
+	class bool writeAtomic(string path, string content, int mode = 0o644) { return FileSystem.writeAtomicBytes(path, Bytes.fromString(content == null ? "" : content), mode); }
+
+	class bool copyFile(string source, string destination, int mode = 0o644) {
+		if (source == null || destination == null) { return false; }
+		if (!FileSystem.isFile(source)) { return false; }
+		File file = File(source, "rb");
+		if (!file.ok()) { return false; }
+		Bytes data = file.readBytes();
+		bool ok = !file.failed() && file.close();
+		if (!ok) { return false; }
+		return FileSystem.writeAtomicBytes(destination, data, mode);
+	}
 }

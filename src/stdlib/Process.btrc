@@ -22,7 +22,9 @@ import Library.Vector;
 #include <signal.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#if !defined(_WIN32)
 #include <poll.h>
+#endif
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -160,6 +162,8 @@ class ExecResult {
 	public int code;
 	public string out;
 	public string err;
+	public Bytes outBytes;
+	public Bytes errBytes;
 	public string command;
 	public bool timedOut;
 	/* A committed daemon may exist; callers must reconcile before retrying start. */
@@ -181,6 +185,8 @@ class ExecResult {
 		self.code = code;
 		self.out = out;
 		self.err = err;
+		self.outBytes = Bytes();
+		self.errBytes = Bytes();
 		self.command = command;
 		self.timedOut = false;
 		self.startIndeterminate = false;
@@ -195,13 +201,28 @@ class ExecResult {
 
 	public string stdout() { return self.out; }
 
-	// Captured stdout with surrounding whitespace removed — the common
+	public Bytes stdoutBytes() { return self.outBytes.slice(0, self.outBytes.len); }
+
+	// Captured stdout with surrounding whitespace removed, the common
 	// "run a command and read one value" idiom.
 	public string trimmed() { return self.out.trim(); }
 
 	public string stderr() { return self.err; }
 
+	public Bytes stderrBytes() { return self.errBytes.slice(0, self.errBytes.len); }
+
 	public bool wasTimedOut() { return self.timedOut; }
+
+	public ExecResult check() {
+		if (!self.ok()) {
+			string detail = self.err.trim();
+			if (detail.isEmpty()) {
+				throw f"Command failed ({self.code}): {self.command}";
+			}
+			throw f"Command failed ({self.code}): {self.command}: {detail}";
+		}
+		return self;
+	}
 }
 
 /* One captured child stream. The parent only reads after poll(2) marks the
@@ -246,6 +267,112 @@ class ChildProcessCapture {
 	public string text() { return self.buffer.toStringLossy(); }
 
 	public void closeCapture() {
+		if (self.open) {
+			close(self.descriptor);
+			self.descriptor = -1;
+			self.open = false;
+		}
+	}
+}
+
+/* Thread-local SIGPIPE-safe pipe writing for child stdin feeds and sessions.
+ * Never mutates process-wide signal handlers. */
+class ChildProcessPipe {
+	class void suppressSigpipe(int descriptor) {
+#if defined(__APPLE__)
+		if (descriptor >= 0) { fcntl(descriptor, F_SETNOSIGPIPE, 1); }
+#else
+		if (descriptor < 0) { return; }
+#endif
+	}
+
+	class ssize_t writeNoSigpipe(int descriptor, char* data, size_t count) {
+#if defined(_WIN32)
+		if (descriptor < 0 || data == NULL || count == (size_t)0) { return (ssize_t)(-1); }
+		return (ssize_t)(-1);
+#elif defined(__APPLE__)
+		return write(descriptor, data, count);
+#else
+		int pipeSignal = (int)SIGPIPE;
+		int blockHow = (int)SIG_BLOCK;
+		int setHow = (int)SIG_SETMASK;
+		int pipeError = (int)EPIPE;
+		sigset_t pipeMask;
+		sigset_t previousMask;
+		sigset_t pendingBefore;
+		sigemptyset(&pipeMask);
+		sigaddset(&pipeMask, pipeSignal);
+		bool wasPending = false;
+		if (sigpending(&pendingBefore) == 0) {
+			wasPending = sigismember(&pendingBefore, pipeSignal) == 1;
+		}
+		bool masked = pthread_sigmask(blockHow, &pipeMask, &previousMask) == 0;
+		ssize_t written = write(descriptor, data, count);
+		int savedErrno = errno;
+		if (written < (ssize_t)0 && savedErrno == pipeError && !wasPending) {
+			sigset_t pendingAfter;
+			if (sigpending(&pendingAfter) == 0) {
+				if (sigismember(&pendingAfter, pipeSignal) == 1) {
+					int consumed = 0;
+					sigwait(&pipeMask, &consumed);
+				}
+			}
+		}
+		if (masked) {
+			pthread_sigmask(setHow, &previousMask, NULL);
+		}
+		errno = savedErrno;
+		return written;
+#endif
+	}
+}
+
+/* Nonblocking in-memory stdin pipe writer multiplexed with stdout and stderr
+ * captures so supplied input never touches /tmp or deadlocks large outputs. */
+class ChildProcessInput {
+	public int descriptor;
+	public Bytes payload;
+	public int offset;
+	public bool open;
+
+	public ChildProcessInput(int descriptor, Bytes payload) {
+		self.descriptor = descriptor;
+		self.payload = payload;
+		self.offset = 0;
+		self.open = descriptor >= 0;
+		if (self.open) {
+			ChildProcessPipe.suppressSigpipe(descriptor);
+			if (payload == null || payload.len == 0) {
+				self.closeInput();
+			}
+		}
+	}
+
+	public void writeReady() {
+		if (!self.open) { return; }
+#if !defined(_WIN32)
+		if (self.offset >= self.payload.len) {
+			self.closeInput();
+			return;
+		}
+		int remaining = self.payload.len - self.offset;
+		int chunk = remaining > 65536 ? 65536 : remaining;
+		ssize_t count = ChildProcessPipe.writeNoSigpipe(self.descriptor, self.payload.data + self.offset, (size_t)chunk);
+		if (count > (ssize_t)0) {
+			self.offset = self.offset + (int)count;
+			if (self.offset >= self.payload.len) {
+				self.closeInput();
+			}
+			return;
+		}
+		if (count < (ssize_t)0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+			return;
+		}
+#endif
+		self.closeInput();
+	}
+
+	public void closeInput() {
 		if (self.open) {
 			close(self.descriptor);
 			self.descriptor = -1;
@@ -635,7 +762,7 @@ class ChildProcess {
 	 * the caller's stdin. Conditions met while starting the child --
 	 * an unsupported platform capability, a resource or exec failure --
 	 * return code 127 with the reason in err. */
-	class ExecResult run(string executable, Vector<string> arguments, string cwd = "", Vector<string> environment = [], Vector<string> unsetEnvironment = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, string stdinData = "", CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COLLECT, int executableDescriptor = -1, Vector<ChildDescriptorMapping> descriptorMappings = [], int workingDirectoryDescriptor = -1, bool foreground = false, ChildStdin stdinMode = CHILD_STDIN_NULL) {
+	class ExecResult run(string executable, Vector<string> arguments, string cwd = "", Vector<string> environment = [], Vector<string> unsetEnvironment = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, string stdinData = "", CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COLLECT, int executableDescriptor = -1, Vector<ChildDescriptorMapping> descriptorMappings = [], int workingDirectoryDescriptor = -1, bool foreground = false, ChildStdin stdinMode = CHILD_STDIN_NULL, Bytes? stdinBytes = null, bool check = false) {
 		if (executable == null || executable.isEmpty()) {
 			throw "executable cannot be empty";
 		}
@@ -662,7 +789,12 @@ class ChildProcess {
 		if (!ChildProcess.validOutputs(stdout, stderr)) {
 			throw "invalid child output mode combination";
 		}
-		bool hasStdinData = stdinData != null && !stdinData.isEmpty();
+		bool hasStdinText = stdinData != null && !stdinData.isEmpty();
+		bool hasStdinBytes = stdinBytes != null;
+		if (hasStdinText && hasStdinBytes) {
+			throw "stdinData and stdinBytes cannot both be set";
+		}
+		bool hasStdinData = hasStdinText || hasStdinBytes;
 		if (stdinMode != CHILD_STDIN_NULL && stdinMode != CHILD_STDIN_INHERIT) {
 			throw "invalid child stdin mode";
 		}
@@ -677,7 +809,9 @@ class ChildProcess {
 #endif
 		string command = ChildProcess.render(executable, arguments);
 #if defined(_WIN32)
-		return ChildProcess.runOnWindows(command, executable, arguments, cwd, environment, unsetEnvironment, timeoutMilliseconds, maxStdoutBytes, maxStderrBytes, stdinData, stdout, stderr, executableDescriptor, descriptorMappings, workingDirectoryDescriptor, foreground, stdinMode);
+		ExecResult winResult = ChildProcess.runOnWindows(command, executable, arguments, cwd, environment, unsetEnvironment, timeoutMilliseconds, maxStdoutBytes, maxStderrBytes, stdinData, stdout, stderr, executableDescriptor, descriptorMappings, workingDirectoryDescriptor, foreground, stdinMode, stdinBytes);
+		if (check) { winResult.check(); }
+		return winResult;
 #else
 		int descriptorBound = -1;
 		int maximumChildDescriptor = 2;
@@ -715,10 +849,13 @@ class ChildProcess {
 
 		int stdoutPipe[2];
 		int stderrPipe[2];
+		int stdinPipe[2];
 		stdoutPipe[0] = -1;
 		stdoutPipe[1] = -1;
 		stderrPipe[0] = -1;
 		stderrPipe[1] = -1;
+		stdinPipe[0] = -1;
+		stdinPipe[1] = -1;
 		if (stdout == COMMAND_OUTPUT_COLLECT && ChildProcess.openPipe(stdoutPipe) != 0) {
 			CStringArray.freeAll(execEnvironment);
 			CStringArray.freeAll(execArguments);
@@ -750,10 +887,10 @@ class ChildProcess {
 			return ChildProcess.failure(command, "failed to open /dev/null");
 		}
 
-		FILE* input = NULL;
+		Bytes stdinPayload = hasStdinBytes && stdinBytes != null ? stdinBytes : (hasStdinText ? Bytes.fromString(stdinData) : Bytes());
+		bool feedStdinPipe = hasStdinData && stdinPayload.len > 0;
 		int inputDescriptor = -1;
-		int inputStreamDescriptor = -1;
-		if (!hasStdinData && stdinMode == CHILD_STDIN_NULL) {
+		if (!feedStdinPipe && stdinMode == CHILD_STDIN_NULL) {
 			inputDescriptor = open("/dev/null", (int)O_RDONLY | (int)O_CLOEXEC);
 			if (inputDescriptor >= 0 && ChildProcess.moveOutsideStandardStreams(&inputDescriptor) != 0) {
 				if (inputDescriptor >= 0) { close(inputDescriptor); }
@@ -768,30 +905,9 @@ class ChildProcess {
 				return ChildProcess.failure(command, "failed to open /dev/null for child stdin");
 			}
 		}
-		if (hasStdinData) {
-			input = tmpfile();
-			if (input != NULL) {
-				size_t inputLength = strlen(stdinData);
-				if ((size_t)fwrite(stdinData, 1, inputLength, input) != inputLength || fflush(input) != 0) {
-					fclose(input);
-					input = NULL;
-				} else {
-					inputStreamDescriptor = fileno(input);
-					if (inputStreamDescriptor < 0 || !DescriptorFlags.closeOnExec(inputStreamDescriptor) || lseek(inputStreamDescriptor, (off_t)0, SEEK_SET) < (off_t)0) {
-						fclose(input);
-						input = NULL;
-						inputStreamDescriptor = -1;
-					} else {
-						inputDescriptor = ChildProcess.childSourceOutsideStandardStreams(inputStreamDescriptor);
-						if (inputDescriptor < 0) {
-							fclose(input);
-							input = NULL;
-							inputStreamDescriptor = -1;
-						}
-					}
-				}
-			}
-			if (input == NULL) {
+		if (feedStdinPipe) {
+			if (ChildProcess.openPipe(stdinPipe) != 0 || !DescriptorFlags.nonblocking(stdinPipe[1])) {
+				ChildProcess.closePipe(stdinPipe);
 				ChildProcess.closePipe(stdoutPipe);
 				ChildProcess.closePipe(stderrPipe);
 				if (nullDescriptor >= 0) { close(nullDescriptor); }
@@ -799,17 +915,16 @@ class ChildProcess {
 				CStringArray.freeAll(execArguments);
 				return ChildProcess.failure(command, "failed to prepare child stdin");
 			}
+			inputDescriptor = stdinPipe[0];
 		}
 
 		string resolvedExecutable = executableDescriptor < 0 ? ChildProcessExecutable.resolve(executable, cwd, environment, unsetEnvironment) : "";
 		if (executableDescriptor < 0 && resolvedExecutable.isEmpty()) {
 			ChildProcess.closePipe(stdoutPipe);
 			ChildProcess.closePipe(stderrPipe);
+			ChildProcess.closePipe(stdinPipe);
 			if (nullDescriptor >= 0) { close(nullDescriptor); }
-			if (inputDescriptor >= 0 && inputDescriptor != inputStreamDescriptor) {
-				close(inputDescriptor);
-			}
-			if (input != NULL) { fclose(input); }
+			if (!feedStdinPipe && inputDescriptor >= 0) { close(inputDescriptor); }
 			CStringArray.freeAll(execArguments);
 			CStringArray.freeAll(execEnvironment);
 			return ChildProcess.failure(command, "failed to execute child process\n");
@@ -888,20 +1003,14 @@ class ChildProcess {
 			if (leasedExecutable >= 0) { close(leasedExecutable); }
 			ChildProcess.closePipe(stdoutPipe);
 			ChildProcess.closePipe(stderrPipe);
+			ChildProcess.closePipe(stdinPipe);
 			if (nullDescriptor >= 0) { close(nullDescriptor); }
-			if (inputDescriptor >= 0 && inputDescriptor != inputStreamDescriptor) {
-				close(inputDescriptor);
-			}
-			if (input != NULL) { fclose(input); }
+			if (!feedStdinPipe && inputDescriptor >= 0) { close(inputDescriptor); }
 			CStringArray.freeAll(execArguments);
 			CStringArray.freeAll(execEnvironment);
 			return ChildProcess.failure(command, descriptorPreparationError);
 		}
 
-		/* Resolve the controlling terminal before forking: the child branch may
-         * only use precomputed, async-signal-safe inputs. A child that owns the
-         * terminal cannot come from posix_spawn, which offers no race-free
-         * foreground handoff, so that fast path is skipped for it. */
 		int terminalDescriptor = -1;
 		pid_t callerForegroundGroup = (pid_t)0 - (pid_t)1;
 		if (foreground) {
@@ -933,7 +1042,6 @@ class ChildProcess {
 		}
 		if (child == (pid_t)0) {
 			if (setpgid(0, 0) != 0) {
-				/* The diagnostic is best effort; fortified builds insist the result is read. */
 				if (write(STDERR_FILENO, "failed to prepare child process\n", 32) < (ssize_t)0) { _exit(126); }
 				_exit(126);
 			}
@@ -942,8 +1050,8 @@ class ChildProcess {
 			}
 			if (stdoutPipe[0] >= 0) { close(stdoutPipe[0]); }
 			if (stderrPipe[0] >= 0) { close(stderrPipe[0]); }
+			if (stdinPipe[1] >= 0) { close(stdinPipe[1]); }
 			if ((stdoutPipe[1] >= 0 && dup2(stdoutPipe[1], STDOUT_FILENO) < 0) || (suppressStdout && dup2(nullDescriptor, STDOUT_FILENO) < 0) || (stderrPipe[1] >= 0 && dup2(stderrPipe[1], STDERR_FILENO) < 0) || (suppressStderr && dup2(nullDescriptor, STDERR_FILENO) < 0) || (combineStderr && dup2(STDOUT_FILENO, STDERR_FILENO) < 0) || (inputDescriptor >= 0 && dup2(inputDescriptor, STDIN_FILENO) < 0)) {
-				/* The diagnostic is best effort; fortified builds insist the result is read. */
 				if (write(STDERR_FILENO, "failed to prepare child process\n", 32) < (ssize_t)0) { _exit(126); }
 				_exit(126);
 			}
@@ -953,24 +1061,20 @@ class ChildProcess {
 			if (inputDescriptor >= 0) { close(inputDescriptor); }
 			for (int index = 0; index < descriptorMappingCount; index++) {
 				if (dup2(leasedMappingDescriptors[index], childMappingDescriptors[index]) < 0) {
-					/* The diagnostic is best effort; fortified builds insist the result is read. */
 					if (write(STDERR_FILENO, "failed to map child descriptor\n", 31) < (ssize_t)0) { _exit(126); }
 					_exit(126);
 				}
 			}
 			if ((leasedWorkingDirectory >= 0 && __btrc_enter_working_directory_descriptor(leasedWorkingDirectory) != 0) || (leasedWorkingDirectory < 0 && hasCwd && chdir(cwd) != 0)) {
-				/* The diagnostic is best effort; fortified builds insist the result is read. */
 				if (write(STDERR_FILENO, "failed to enter working directory\n", 34) < (ssize_t)0) { _exit(126); }
 				_exit(126);
 			}
 			int closeResult = descriptorMappingCount > 0 ? __btrc_close_descriptors_except_many(descriptorBound, preservedDescriptors, preservedDescriptorCount) : (leasedExecutable >= 0 ? __btrc_close_descriptors_except(descriptorBound, leasedExecutable) : ChildProcess.closeDescriptorsForExec(descriptorBound));
 			if (closeResult != 0) {
-				/* The diagnostic is best effort; fortified builds insist the result is read. */
 				if (write(STDERR_FILENO, "unsupported process descriptor limit\n", 37) < (ssize_t)0) { _exit(126); }
 				_exit(126);
 			}
 			if (__btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) {
-				/* The diagnostic is best effort; fortified builds insist the result is read. */
 				if (write(STDERR_FILENO, "failed to restore child signals\n", 32) < (ssize_t)0) { _exit(126); }
 				_exit(126);
 			}
@@ -979,7 +1083,6 @@ class ChildProcess {
 			} else {
 				execve(resolvedExecutable, execArguments, execEnvironment);
 			}
-			/* The diagnostic is best effort; fortified builds insist the result is read. */
 			if (write(STDERR_FILENO, "failed to execute child process\n", 32) < (ssize_t)0) { _exit(127); }
 			_exit(127);
 		}
@@ -996,10 +1099,11 @@ class ChildProcess {
 		if (stdoutPipe[1] >= 0) { close(stdoutPipe[1]); stdoutPipe[1] = -1; }
 		if (stderrPipe[1] >= 0) { close(stderrPipe[1]); stderrPipe[1] = -1; }
 		if (nullDescriptor >= 0) { close(nullDescriptor); }
-		if (inputDescriptor >= 0 && inputDescriptor != inputStreamDescriptor) {
+		if (inputDescriptor >= 0) {
 			close(inputDescriptor);
+			inputDescriptor = -1;
+			stdinPipe[0] = -1;
 		}
-		if (input != NULL) { fclose(input); }
 		ChildProcess.closeLeasedDescriptors(leasedMappingDescriptors, descriptorMappingCount);
 		free(leasedMappingDescriptors);
 		free(childMappingDescriptors);
@@ -1009,19 +1113,17 @@ class ChildProcess {
 		if (child < (pid_t)0) {
 			ChildProcess.closePipe(stdoutPipe);
 			ChildProcess.closePipe(stderrPipe);
+			ChildProcess.closePipe(stdinPipe);
 			return ChildProcess.failure(command, signalRestoreFailed ? "failed to restore parent signals\n" : "failed to start child process\n");
 		}
-		/* Both spawn paths create the process group; this parent call closes
-         * the small fork scheduling window without changing child semantics. */
 		setpgid(child, child);
-		/* The child performs the same handoff. Repeating it here means neither
-         * side depends on being scheduled first. */
 		if (terminalDescriptor >= 0) {
 			__btrc_terminal_adopt_foreground(terminalDescriptor, child);
 		}
 
 		ChildProcessCapture output = ChildProcessCapture(stdoutPipe[0], maxStdoutBytes);
 		ChildProcessCapture error = ChildProcessCapture(stderrPipe[0], maxStderrBytes);
+		ChildProcessInput inputFeed = ChildProcessInput(stdinPipe[1], stdinPayload);
 		bool exited = false;
 		bool timedOut = false;
 		bool captureFailed = false;
@@ -1029,9 +1131,7 @@ class ChildProcess {
 		int rawStatus = 0;
 
 		while (!exited || output.open || error.open) {
-			/* With nothing to read and no deadline, the only remaining event
-             * is the child's exit, so block for it instead of polling. */
-			if (!exited && !output.open && !error.open && deadline == 0LL) {
+			if (!exited && !output.open && !error.open && !inputFeed.open && deadline == 0LL) {
 				pid_t waited = waitpid(child, &rawStatus, 0);
 				if (waited == child) {
 					exited = true;
@@ -1057,24 +1157,21 @@ class ChildProcess {
 				if (kill(-child, SIGKILL) != 0) {
 					kill(child, SIGKILL);
 				}
-				/* A descendant can deliberately escape the process group while
-                 * retaining a capture descriptor. Closing at the deadline is
-                 * the hard bound; EOF from descendants is never trusted. */
+				inputFeed.closeInput();
 				output.closeCapture();
 				error.closeCapture();
 			}
 
-			struct pollfd streams[2];
+			struct pollfd streams[3];
 			streams[0].fd = output.open ? output.descriptor : -1;
 			streams[0].events = POLLIN;
 			streams[0].revents = 0;
 			streams[1].fd = error.open ? error.descriptor : -1;
 			streams[1].events = POLLIN;
 			streams[1].revents = 0;
-			/* Open captures without a deadline wait for data or EOF alone.
-             * Before a deadline, wake no later than it; with no capture open
-             * the child's exit is only observable by polling, so wake at
-             * least every 10 ms, as after an expired deadline. */
+			streams[2].fd = inputFeed.open ? inputFeed.descriptor : -1;
+			streams[2].events = POLLOUT;
+			streams[2].revents = 0;
 			int pollTimeout = 10;
 			if (!timedOut && deadline > 0LL) {
 				long long remaining = now < 0LL || now >= deadline ? 0LL : deadline - now;
@@ -1083,8 +1180,11 @@ class ChildProcess {
 			} else if (deadline == 0LL && (output.open || error.open)) {
 				pollTimeout = -1;
 			}
-			int ready = poll(streams, (nfds_t)2, pollTimeout);
+			int ready = poll(streams, (nfds_t)3, pollTimeout);
 			if (ready > 0) {
+				if (inputFeed.open && streams[2].revents != 0) {
+					inputFeed.writeReady();
+				}
 				if (output.open && streams[0].revents != 0) {
 					output.readReady();
 				}
@@ -1093,6 +1193,7 @@ class ChildProcess {
 				}
 			} else if (ready < 0 && errno != EINTR) {
 				captureFailed = true;
+				inputFeed.closeInput();
 				output.closeCapture();
 				error.closeCapture();
 				if (!exited) {
@@ -1105,13 +1206,14 @@ class ChildProcess {
 			if (!captureExceeded && (output.exceeded || error.exceeded)) {
 				captureExceeded = true;
 				if (kill(-child, SIGKILL) != 0) { kill(child, SIGKILL); }
+				inputFeed.closeInput();
 				output.closeCapture();
 				error.closeCapture();
 			}
 		}
 
-		/* Reclaim the terminal before returning: leaving the caller in the
-         * background would make its own reads fail with EIO. */
+		inputFeed.closeInput();
+
 		if (terminalDescriptor >= 0) {
 			__btrc_terminal_adopt_foreground(terminalDescriptor, callerForegroundGroup);
 		}
@@ -1126,20 +1228,18 @@ class ChildProcess {
 			errorText = errorText + "child output exceeded capture limit\n";
 		}
 		ExecResult result = ExecResult(code, output.text(), errorText, command, output.buffer.len, error.buffer.len);
+		result.outBytes = output.buffer;
+		result.errBytes = error.buffer;
 		result.timedOut = timedOut;
 		result.captureExceeded = captureExceeded;
 		result.captureFailed = captureFailed;
 		result.terminatingSignal = captureFailed || captureExceeded || timedOut ? 0 : ProcessStatus(rawStatus).terminatingSignal();
+		if (check) { result.check(); }
 		return result;
 #endif
 	}
 
-	/* The Windows half of run, after its portable validation. The result
-	 * follows the same precedence as the POSIX body: capture failure 127,
-	 * capture limit 125, timeout 124, then the child's own exit code. Only
-	 * windows rows call it; every row declares it, so Process's classes have
-	 * one shape on every target. */
-	class ExecResult runOnWindows(string command, string executable, Vector<string> arguments, string cwd, Vector<string> environment, Vector<string> unsetEnvironment, int timeoutMilliseconds, int maxStdoutBytes, int maxStderrBytes, string stdinData, CommandOutput stdout, CommandOutput stderr, int executableDescriptor, Vector<ChildDescriptorMapping> descriptorMappings, int workingDirectoryDescriptor, bool foreground, ChildStdin stdinMode) {
+	class ExecResult runOnWindows(string command, string executable, Vector<string> arguments, string cwd, Vector<string> environment, Vector<string> unsetEnvironment, int timeoutMilliseconds, int maxStdoutBytes, int maxStderrBytes, string stdinData, CommandOutput stdout, CommandOutput stderr, int executableDescriptor, Vector<ChildDescriptorMapping> descriptorMappings, int workingDirectoryDescriptor, bool foreground, ChildStdin stdinMode, Bytes? stdinBytes = null) {
 #if !defined(_WIN32)
 		return ChildProcess.failure(command, "ChildProcess.runOnWindows runs only on windows rows\n");
 #else
@@ -1149,7 +1249,7 @@ class ChildProcess {
 		if (foreground) {
 			return ChildProcess.failure(command, "ChildProcess.run is unavailable on Windows: a console has no controlling-terminal foreground handoff; use a background child\n");
 		}
-		ProcessHostOutcome outcome = ProcessHostProvider.run(executable, arguments, cwd, environment, unsetEnvironment, timeoutMilliseconds, maxStdoutBytes, maxStderrBytes, stdinData, (int)stdinMode, (int)stdout, (int)stderr);
+		ProcessHostOutcome outcome = ProcessHostProvider.run(executable, arguments, cwd, environment, unsetEnvironment, timeoutMilliseconds, maxStdoutBytes, maxStderrBytes, stdinData, (int)stdinMode, (int)stdout, (int)stderr, stdinBytes);
 		if (!outcome.failure.isEmpty()) {
 			return ChildProcess.failure(command, outcome.failure);
 		}
@@ -1162,6 +1262,8 @@ class ChildProcess {
 			errorText = errorText + "child output exceeded capture limit\n";
 		}
 		ExecResult result = ExecResult(code, outcome.out, errorText, command, outcome.capturedStdoutBytes, outcome.capturedStderrBytes);
+		result.outBytes = outcome.outBytes;
+		result.errBytes = outcome.errBytes;
 		result.timedOut = outcome.timedOut;
 		result.captureExceeded = outcome.captureExceeded;
 		result.captureFailed = outcome.captureFailed;
@@ -1213,7 +1315,7 @@ class UnixShell {
 
 	class void logError(string message) { fprintf(stderr, "%s\n", __btrc_string_or_empty(message)); }
 
-	public ExecResult run(string command, CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COMBINE, bool logCommand = false, bool logFailure = true, bool throwOnFailure = false, string redactSubstring = "", string stdin = "", string cwd = "", Vector<string> env = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, bool foreground = false) {
+	public ExecResult run(string command, CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COMBINE, bool logCommand = false, bool logFailure = true, bool throwOnFailure = false, string redactSubstring = "", string stdin = "", string cwd = "", Vector<string> env = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, bool foreground = false, Bytes? stdinBytes = null) {
 		if (command == null) { throw "shell command cannot be null"; }
 		string visible = ShellWords.redact(command, redactSubstring == null ? "" : redactSubstring);
 		if (logCommand) {
@@ -1221,14 +1323,12 @@ class UnixShell {
 		}
 
 #if defined(_WIN32)
-		/* No POSIX shell exists. The shell environment keeps its POSIX
-		 * grammar, so a malformed request still throws exactly as on Unix. */
 		Vector<string> noUnsets = [];
 		ChildProcess.validateEnvironment(env, noUnsets);
 		var child = ChildProcess.failure(visible, "UnixShell.run is unavailable on Windows: there is no POSIX /bin/sh; use ChildProcess.run with an argument vector\n");
 #else
-		bool hasStdin = stdin != null && !stdin.isEmpty();
-		var child = ChildProcess.run("/bin/sh", ["-c", command], cwd=cwd, environment=env, timeoutMilliseconds=timeoutMilliseconds, maxStdoutBytes=maxStdoutBytes, maxStderrBytes=maxStderrBytes, stdinData=stdin, stdout=stdout, stderr=stderr, foreground=foreground, stdinMode=hasStdin ? CHILD_STDIN_NULL : CHILD_STDIN_INHERIT);
+		bool hasStdin = (stdin != null && !stdin.isEmpty()) || stdinBytes != null;
+		var child = ChildProcess.run("/bin/sh", ["-c", command], cwd=cwd, environment=env, timeoutMilliseconds=timeoutMilliseconds, maxStdoutBytes=maxStdoutBytes, maxStderrBytes=maxStderrBytes, stdinData=stdin, stdout=stdout, stderr=stderr, foreground=foreground, stdinMode=hasStdin ? CHILD_STDIN_NULL : CHILD_STDIN_INHERIT, stdinBytes=stdinBytes);
 #endif
 		var code = child.code;
 
@@ -1239,10 +1339,605 @@ class UnixShell {
 			throw f"Command failed ({code}): {visible}";
 		}
 		ExecResult result = ExecResult(code, child.out, child.err, visible, child.capturedStdoutBytes, child.capturedStderrBytes);
+		result.outBytes = child.outBytes;
+		result.errBytes = child.errBytes;
 		result.timedOut = child.timedOut;
 		result.captureExceeded = child.captureExceeded;
 		result.captureFailed = child.captureFailed;
 		result.terminatingSignal = child.terminatingSignal;
 		return result;
+	}
+}
+
+/* Bidirectional byte-preserving child session over nonblocking pipes.
+ * Unrelated parent descriptors >= 3 are closed before exec, and dropping the
+ * session kills and reaps an unfinished child. */
+class PipeProcess {
+	private int process;
+	private int input;
+	private int output;
+	private Bytes pendingRead;
+
+	public PipeProcess(string executable, Vector<string> arguments = [], string errorLog = "", string cwd = "", Vector<string> environment = [], Vector<string> unsetEnvironment = []) {
+		self.process = -1;
+		self.input = -1;
+		self.output = -1;
+		self.pendingRead = Bytes();
+		if (executable == null || executable.isEmpty()) {
+			throw "executable cannot be empty";
+		}
+		ChildProcess.validateArguments(arguments);
+#if defined(_WIN32)
+		ProcessHostProvider.validateEnvironment(environment, unsetEnvironment);
+		throw "PipeProcess is unavailable on Windows";
+#else
+		ChildProcess.validateEnvironment(environment, unsetEnvironment);
+		string resolved = ChildProcessExecutable.resolve(executable, cwd, environment, unsetEnvironment);
+		if (resolved.isEmpty()) {
+			throw f"Cannot find executable: {executable}";
+		}
+		int incoming[2];
+		int outgoing[2];
+		incoming[0] = -1;
+		incoming[1] = -1;
+		outgoing[0] = -1;
+		outgoing[1] = -1;
+		if (ChildProcess.openPipe(incoming) != 0) {
+			throw "Cannot create child input pipe";
+		}
+		if (ChildProcess.openPipe(outgoing) != 0) {
+			ChildProcess.closePipe(incoming);
+			throw "Cannot create child output pipe";
+		}
+		int errorDescriptor = -1;
+		if (errorLog != null && !errorLog.isEmpty()) {
+			errorDescriptor = open(errorLog, (int)O_WRONLY | (int)O_CREAT | (int)O_TRUNC | (int)O_CLOEXEC, (mode_t)0o600);
+			if (errorDescriptor >= 0 && ChildProcess.moveOutsideStandardStreams(&errorDescriptor) != 0) {
+				if (errorDescriptor >= 0) { close(errorDescriptor); }
+				errorDescriptor = -1;
+			}
+			if (errorDescriptor < 0) {
+				ChildProcess.closePipe(incoming);
+				ChildProcess.closePipe(outgoing);
+				throw f"Cannot open child error log: {errorLog}";
+			}
+		}
+		char** execArguments = ChildProcessArguments.build(executable, arguments);
+		char** execEnvironment = ChildProcessEnvironment.build(environment, unsetEnvironment);
+		if (execArguments == NULL || execEnvironment == NULL) {
+			CStringArray.freeAll(execArguments);
+			CStringArray.freeAll(execEnvironment);
+			if (errorDescriptor >= 0) { close(errorDescriptor); }
+			ChildProcess.closePipe(incoming);
+			ChildProcess.closePipe(outgoing);
+			throw "Cannot allocate child arguments";
+		}
+		bool hasCwd = cwd != null && !cwd.isEmpty();
+		pid_t child = __btrc_posix_spawn_cloexec(resolved, execArguments, execEnvironment, hasCwd ? cwd : NULL, outgoing[1], errorDescriptor, incoming[0], 0, 0, 0, errorDescriptor < 0 && ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
+		sigset_t previousSignalMask;
+		bool signalGuarded = false;
+		if (child == (pid_t)0 - (pid_t)2) {
+			int descriptorBound = ChildProcess.descriptorCloseBound();
+			if (descriptorBound < 3 || __btrc_exec_signal_guard_begin(&previousSignalMask) != 0) {
+				child = (pid_t)0 - (pid_t)1;
+			} else {
+				signalGuarded = true;
+				child = fork();
+				if (child == (pid_t)0) {
+					setpgid(0, 0);
+					if (incoming[1] >= 0) { close(incoming[1]); }
+					if (outgoing[0] >= 0) { close(outgoing[0]); }
+					if (dup2(incoming[0], STDIN_FILENO) < 0 || dup2(outgoing[1], STDOUT_FILENO) < 0 || (errorDescriptor >= 0 && dup2(errorDescriptor, STDERR_FILENO) < 0)) {
+						_exit(126);
+					}
+					if (incoming[0] >= 0) { close(incoming[0]); }
+					if (outgoing[1] >= 0) { close(outgoing[1]); }
+					if (errorDescriptor >= 0) { close(errorDescriptor); }
+					if (hasCwd && chdir(cwd) != 0) { _exit(126); }
+					if (ChildProcess.closeDescriptorsForExec(descriptorBound) != 0) { _exit(126); }
+					if (__btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) { _exit(126); }
+					execve(resolved, execArguments, execEnvironment);
+					_exit(127);
+				}
+			}
+		}
+		if (signalGuarded && __btrc_exec_signal_guard_parent_end(&previousSignalMask) != 0 && child > (pid_t)0) {
+			kill(child, SIGKILL);
+			waitpid(child, NULL, 0);
+			child = (pid_t)0 - (pid_t)1;
+		}
+		CStringArray.freeAll(execArguments);
+		CStringArray.freeAll(execEnvironment);
+		if (incoming[0] >= 0) { close(incoming[0]); incoming[0] = -1; }
+		if (outgoing[1] >= 0) { close(outgoing[1]); outgoing[1] = -1; }
+		if (errorDescriptor >= 0) { close(errorDescriptor); }
+		if (child < (pid_t)0) {
+			ChildProcess.closePipe(incoming);
+			ChildProcess.closePipe(outgoing);
+			throw f"Cannot start {executable}";
+		}
+		setpgid(child, child);
+		self.process = (int)child;
+		self.input = incoming[1];
+		self.output = outgoing[0];
+		ChildProcessPipe.suppressSigpipe(self.input);
+		if (!DescriptorFlags.nonblocking(self.input) || !DescriptorFlags.nonblocking(self.output)) {
+			self.close();
+			throw "Cannot configure child pipes";
+		}
+#endif
+	}
+
+	public int pid() { return self.process; }
+
+	class bool waitReady(int descriptor, int eventMask, long long deadline) {
+#if defined(_WIN32)
+		if (descriptor < 0 || eventMask == 0 || deadline < 0LL) { return false; }
+		return false;
+#else
+		struct pollfd state;
+		state.fd = descriptor;
+		state.events = (short)eventMask;
+		state.revents = 0;
+		while (deadline <= 0LL || MonotonicClock.before(deadline)) {
+			int timeout = deadline <= 0LL ? -1 : (int)MonotonicClock.remaining(deadline);
+			int result = poll(&state, (nfds_t)1, timeout);
+			if (result > 0) { return true; }
+			if (result == 0) { return false; }
+			if (errno != EINTR) { throw "Cannot poll child pipe"; }
+		}
+		return false;
+#endif
+	}
+
+	public void write(Bytes bytes, long long deadline = 0LL) {
+		if (bytes == null || bytes.len == 0) { return; }
+#if defined(_WIN32)
+		if (deadline < 0LL) { return; }
+		throw "PipeProcess is unavailable on Windows";
+#else
+		int offset = 0;
+		while (offset < bytes.len) {
+			if (self.input < 0 || !PipeProcess.waitReady(self.input, (int)POLLOUT, deadline)) {
+				throw "Child input timed out";
+			}
+			ssize_t count = ChildProcessPipe.writeNoSigpipe(self.input, bytes.data + offset, (size_t)(bytes.len - offset));
+			if (count > (ssize_t)0) {
+				offset = offset + (int)count;
+			} else if (count < (ssize_t)0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+				throw "Child input closed";
+			}
+		}
+#endif
+	}
+
+	public void writeText(string text, long long deadline = 0LL) {
+		if (text == null || text.isEmpty()) { return; }
+		self.write(Bytes.fromString(text), deadline);
+	}
+
+	public void writeLine(string line, long long deadline = 0LL) {
+		string payload = line == null ? "\n" : f"{line}\n";
+		self.write(Bytes.fromString(payload), deadline);
+	}
+
+	/* Returns null on EOF; throws on timeout or I/O error. */
+	public Bytes? read(long long deadline = 0LL) {
+		if (self.pendingRead.len > 0) {
+			Bytes buffered = self.pendingRead.slice(0, self.pendingRead.len);
+			self.pendingRead.free();
+			return buffered;
+		}
+		if (self.output < 0) { return null; }
+#if defined(_WIN32)
+		if (deadline < 0LL) { return null; }
+		return null;
+#else
+		char buffer[65536];
+		while (true) {
+			if (!PipeProcess.waitReady(self.output, (int)POLLIN, deadline)) {
+				throw "Child output timed out";
+			}
+			ssize_t count = read(self.output, buffer, sizeof(buffer));
+			if (count == (ssize_t)0) {
+				close(self.output);
+				self.output = -1;
+				return null;
+			}
+			if (count > (ssize_t)0) {
+				Bytes chunk = Bytes();
+				chunk.appendRaw(buffer, (int)count);
+				return chunk;
+			}
+			if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+				throw "Cannot read child output";
+			}
+		}
+		return null;
+#endif
+	}
+
+	/* Read one LF-terminated line (stripping trailing LF and optional CR), or null on EOF. */
+	public string? readLine(long long deadline = 0LL) {
+#if defined(_WIN32)
+		if (deadline < 0LL) { return null; }
+		return null;
+#else
+		char buffer[4096];
+		while (true) {
+			for (int i = 0; i < self.pendingRead.len; i++) {
+				if (self.pendingRead.get(i) == 10) {
+					int lineEnd = i > 0 && self.pendingRead.get(i - 1) == 13 ? i - 1 : i;
+					Bytes lineBytes = self.pendingRead.slice(0, lineEnd);
+					Bytes rest = self.pendingRead.slice(i + 1, self.pendingRead.len);
+					self.pendingRead = rest;
+					return lineBytes.toStringLossy();
+				}
+			}
+			if (self.output < 0) {
+				if (self.pendingRead.len == 0) { return null; }
+				string finalLine = self.pendingRead.toStringLossy();
+				self.pendingRead.free();
+				return finalLine;
+			}
+			if (!PipeProcess.waitReady(self.output, (int)POLLIN, deadline)) {
+				throw "Child output timed out";
+			}
+			ssize_t count = read(self.output, buffer, sizeof(buffer));
+			if (count == (ssize_t)0) {
+				close(self.output);
+				self.output = -1;
+				continue;
+			}
+			if (count > (ssize_t)0) {
+				self.pendingRead.appendRaw(buffer, (int)count);
+				continue;
+			}
+			if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+				throw "Cannot read child output";
+			}
+		}
+		return null;
+#endif
+	}
+
+	public void closeInput() {
+		if (self.input >= 0) {
+			close(self.input);
+			self.input = -1;
+		}
+	}
+
+	public void closeStdin() { self.closeInput(); }
+
+	public int wait(long long deadline = 0LL) {
+#if defined(_WIN32)
+		if (deadline < 0LL) { return -1; }
+		return -1;
+#else
+		int status = 0;
+		if (self.process <= 0) { return 0; }
+		if (deadline <= 0LL) {
+			while (true) {
+				pid_t waited = waitpid((pid_t)self.process, &status, 0);
+				if (waited == (pid_t)self.process) {
+					self.process = -1;
+					return ProcessStatus(status).code();
+				}
+				if (waited < (pid_t)0 && errno != EINTR) {
+					throw "Cannot wait for child";
+				}
+			}
+		}
+		while (self.process > 0 && MonotonicClock.before(deadline)) {
+			pid_t waited = waitpid((pid_t)self.process, &status, WNOHANG);
+			if (waited == (pid_t)self.process) {
+				self.process = -1;
+				return ProcessStatus(status).code();
+			}
+			if (waited < (pid_t)0 && errno != EINTR) {
+				throw "Cannot wait for child";
+			}
+			Timer.sleepMillis(10);
+		}
+		throw "Child did not exit before deadline";
+#endif
+	}
+
+	public void kill() {
+#if !defined(_WIN32)
+		if (self.process > 0) {
+			if (kill((pid_t)(0 - self.process), SIGKILL) != 0) {
+				kill((pid_t)self.process, SIGKILL);
+			}
+		}
+#endif
+	}
+
+	public void close() {
+		self.closeInput();
+		if (self.output >= 0) {
+			close(self.output);
+			self.output = -1;
+		}
+		self.pendingRead.free();
+#if !defined(_WIN32)
+		if (self.process > 0) {
+			self.kill();
+			int status = 0;
+			while (waitpid((pid_t)self.process, &status, 0) < (pid_t)0 && errno == EINTR) {}
+			self.process = -1;
+		}
+#endif
+	}
+
+	public void __del__() { self.close(); }
+}
+
+/* Managed background child process. By default `killOnDrop` is false so
+ * explicitly detached daemons or virtual monitors can outlive their launcher;
+ * pass `killOnDrop = true` when the handle owns the child's lifetime. */
+class BackgroundProcess {
+	private int childPid;
+	private ProcessStatus? exitStatus;
+	private bool killOnDrop;
+
+	private BackgroundProcess(int childPid, bool killOnDrop) {
+		self.childPid = childPid;
+		self.exitStatus = null;
+		self.killOnDrop = killOnDrop;
+	}
+
+	class BackgroundProcess start(string executable, Vector<string> arguments = [], Vector<string> environment = [], Vector<string> unsetEnvironment = [], string cwd = "", CommandOutput stdout = COMMAND_OUTPUT_STREAM, CommandOutput stderr = COMMAND_OUTPUT_STREAM, ChildStdin stdinMode = CHILD_STDIN_INHERIT, bool killOnDrop = false) {
+		if (executable == null || executable.isEmpty()) {
+			throw "executable cannot be empty";
+		}
+		ChildProcess.validateArguments(arguments);
+		if ((stdout != COMMAND_OUTPUT_STREAM && stdout != COMMAND_OUTPUT_SUPPRESS) || (stderr != COMMAND_OUTPUT_STREAM && stderr != COMMAND_OUTPUT_SUPPRESS && stderr != COMMAND_OUTPUT_COMBINE)) {
+			throw "BackgroundProcess output must be STREAM, SUPPRESS, or COMBINE";
+		}
+#if defined(_WIN32)
+		ProcessHostProvider.validateEnvironment(environment, unsetEnvironment);
+		if (cwd == null && stdinMode == CHILD_STDIN_NULL && killOnDrop) {}
+		throw "BackgroundProcess.start is unavailable on Windows";
+#else
+		ChildProcess.validateEnvironment(environment, unsetEnvironment);
+		string resolved = ChildProcessExecutable.resolve(executable, cwd, environment, unsetEnvironment);
+		if (resolved.isEmpty()) {
+			throw f"Cannot find {executable}";
+		}
+		char** execArguments = ChildProcessArguments.build(resolved, arguments);
+		char** execEnvironment = ChildProcessEnvironment.build(environment, unsetEnvironment);
+		if (execArguments == NULL || execEnvironment == NULL) {
+			CStringArray.freeAll(execArguments);
+			CStringArray.freeAll(execEnvironment);
+			throw "Cannot allocate child process arguments";
+		}
+		int nullWrite = -1;
+		if (stdout == COMMAND_OUTPUT_SUPPRESS || stderr == COMMAND_OUTPUT_SUPPRESS) {
+			nullWrite = open("/dev/null", (int)O_WRONLY | (int)O_CLOEXEC);
+			if (nullWrite >= 0 && ChildProcess.moveOutsideStandardStreams(&nullWrite) != 0) {
+				if (nullWrite >= 0) { close(nullWrite); }
+				nullWrite = -1;
+			}
+			if (nullWrite < 0) {
+				CStringArray.freeAll(execArguments);
+				CStringArray.freeAll(execEnvironment);
+				throw "Cannot open /dev/null for background process";
+			}
+		}
+		int nullRead = -1;
+		if (stdinMode == CHILD_STDIN_NULL) {
+			nullRead = open("/dev/null", (int)O_RDONLY | (int)O_CLOEXEC);
+			if (nullRead >= 0 && ChildProcess.moveOutsideStandardStreams(&nullRead) != 0) {
+				if (nullRead >= 0) { close(nullRead); }
+				nullRead = -1;
+			}
+			if (nullRead < 0) {
+				if (nullWrite >= 0) { close(nullWrite); }
+				CStringArray.freeAll(execArguments);
+				CStringArray.freeAll(execEnvironment);
+				throw "Cannot open /dev/null for background process stdin";
+			}
+		}
+		bool hasCwd = cwd != null && !cwd.isEmpty();
+		bool combineStderr = stderr == COMMAND_OUTPUT_COMBINE;
+		int stdoutSource = stdout == COMMAND_OUTPUT_SUPPRESS ? nullWrite : -1;
+		int stderrSource = stderr == COMMAND_OUTPUT_SUPPRESS ? nullWrite : -1;
+		pid_t child = __btrc_posix_spawn_cloexec(resolved, execArguments, execEnvironment, hasCwd ? cwd : NULL, stdoutSource, stderrSource, nullRead, combineStderr ? 1 : 0, nullRead < 0 && ChildProcess.inheritsOnExec(STDIN_FILENO) ? 1 : 0, stdoutSource < 0 && ChildProcess.inheritsOnExec(STDOUT_FILENO) ? 1 : 0, stderrSource < 0 && !combineStderr && ChildProcess.inheritsOnExec(STDERR_FILENO) ? 1 : 0);
+		sigset_t previousSignalMask;
+		bool signalGuarded = false;
+		if (child == (pid_t)0 - (pid_t)2) {
+			int descriptorBound = ChildProcess.descriptorCloseBound();
+			if (descriptorBound < 3 || __btrc_exec_signal_guard_begin(&previousSignalMask) != 0) {
+				child = (pid_t)0 - (pid_t)1;
+			} else {
+				signalGuarded = true;
+				child = fork();
+				if (child == (pid_t)0) {
+					setpgid(0, 0);
+					if ((stdoutSource >= 0 && dup2(stdoutSource, STDOUT_FILENO) < 0) || (stderrSource >= 0 && dup2(stderrSource, STDERR_FILENO) < 0) || (combineStderr && dup2(STDOUT_FILENO, STDERR_FILENO) < 0) || (nullRead >= 0 && dup2(nullRead, STDIN_FILENO) < 0)) {
+						_exit(126);
+					}
+					if (nullWrite >= 0) { close(nullWrite); }
+					if (nullRead >= 0) { close(nullRead); }
+					if (hasCwd && chdir(cwd) != 0) { _exit(126); }
+					if (ChildProcess.closeDescriptorsForExec(descriptorBound) != 0) { _exit(126); }
+					if (__btrc_exec_signal_guard_child_end(&previousSignalMask) != 0) { _exit(126); }
+					execve(resolved, execArguments, execEnvironment);
+					_exit(127);
+				}
+			}
+		}
+		if (signalGuarded && __btrc_exec_signal_guard_parent_end(&previousSignalMask) != 0 && child > (pid_t)0) {
+			kill(child, SIGKILL);
+			waitpid(child, NULL, 0);
+			child = (pid_t)0 - (pid_t)1;
+		}
+		int savedErrno = errno;
+		CStringArray.freeAll(execArguments);
+		CStringArray.freeAll(execEnvironment);
+		if (nullWrite >= 0) { close(nullWrite); }
+		if (nullRead >= 0) { close(nullRead); }
+		if (child < (pid_t)0) {
+			throw f"Cannot start {resolved}: {Strings.copy(strerror(savedErrno))}";
+		}
+		setpgid(child, child);
+		return BackgroundProcess((int)child, killOnDrop);
+#endif
+	}
+
+	public int pid() { return self.childPid; }
+
+	public int code() {
+		ProcessStatus? st = self.exitStatus;
+		return st == null ? -1 : st.code();
+	}
+
+	private bool reap(int flags) {
+		if (self.exitStatus != null) { return true; }
+#if defined(_WIN32)
+		if (flags != 0) {}
+		return true;
+#else
+		int raw = 0;
+		pid_t result = waitpid((pid_t)self.childPid, &raw, flags);
+		while (result < (pid_t)0 && errno == EINTR) {
+			result = waitpid((pid_t)self.childPid, &raw, flags);
+		}
+		if (result == (pid_t)0) { return false; }
+		if (result < (pid_t)0) {
+			throw f"Cannot wait for child {self.childPid}: {Strings.copy(strerror(errno))}";
+		}
+		self.exitStatus = ProcessStatus(raw);
+		return true;
+#endif
+	}
+
+	public bool running() {
+#if defined(_WIN32)
+		return false;
+#else
+		return !self.reap(WNOHANG);
+#endif
+	}
+
+	public bool isRunning() { return self.running(); }
+
+	public ProcessStatus? tryWait() {
+#if !defined(_WIN32)
+		self.reap(WNOHANG);
+#endif
+		return self.exitStatus;
+	}
+
+	public int wait() {
+		self.reap(0);
+		return self.code();
+	}
+
+	public bool waitUntil(long long deadline) {
+		while (self.running()) {
+			if (!MonotonicClock.before(deadline)) { return false; }
+			Timer.sleepMillis(10);
+		}
+		return true;
+	}
+
+	private void sendSignal(int number) {
+#if !defined(_WIN32)
+		if (kill((pid_t)self.childPid, number) != 0 && errno != ESRCH) {
+			throw f"Cannot signal child {self.childPid}: {Strings.copy(strerror(errno))}";
+		}
+#else
+		if (number != 0) {}
+#endif
+	}
+
+	public void terminate() {
+#if !defined(_WIN32)
+		if (!self.running()) { return; }
+		self.sendSignal(SIGTERM);
+#endif
+	}
+
+	public void kill() {
+#if !defined(_WIN32)
+		if (!self.running()) { return; }
+		self.sendSignal(SIGKILL);
+#endif
+	}
+
+	public void stop(int graceMilliseconds = 2000) {
+#if !defined(_WIN32)
+		if (!self.running()) { return; }
+		self.sendSignal(SIGTERM);
+		if (self.waitUntil(MonotonicClock.deadlineAfter((long long)graceMilliseconds))) { return; }
+		self.sendSignal(SIGKILL);
+		self.reap(0);
+#else
+		if (graceMilliseconds != 0) {}
+#endif
+	}
+
+	public void __del__() {
+		if (self.killOnDrop && self.exitStatus == null) {
+#if !defined(_WIN32)
+			if (kill((pid_t)(0 - self.childPid), SIGKILL) != 0) {
+				kill((pid_t)self.childPid, SIGKILL);
+			}
+			int raw = 0;
+			while (waitpid((pid_t)self.childPid, &raw, 0) < (pid_t)0 && errno == EINTR) {}
+			self.exitStatus = ProcessStatus(raw);
+#endif
+		}
+	}
+}
+
+/* Unified process facade for direct argv execution, shell pipelines, streaming
+ * pipes, background children, and current-process exec handoff. */
+class Process {
+	class ExecResult run(string executable, Vector<string> arguments = [], string cwd = "", Vector<string> environment = [], Vector<string> unsetEnvironment = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, string stdinData = "", Bytes? stdinBytes = null, CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COLLECT, bool foreground = false, ChildStdin stdinMode = CHILD_STDIN_NULL, bool check = false) { return ChildProcess.run(executable, arguments, cwd=cwd, environment=environment, unsetEnvironment=unsetEnvironment, timeoutMilliseconds=timeoutMilliseconds, maxStdoutBytes=maxStdoutBytes, maxStderrBytes=maxStderrBytes, stdinData=stdinData, stdout=stdout, stderr=stderr, foreground=foreground, stdinMode=stdinMode, stdinBytes=stdinBytes, check=check); }
+
+	class ExecResult shell(string command, CommandOutput stdout = COMMAND_OUTPUT_COLLECT, CommandOutput stderr = COMMAND_OUTPUT_COMBINE, bool logCommand = false, bool logFailure = false, bool check = false, string redactSubstring = "", string stdin = "", Bytes? stdinBytes = null, string cwd = "", Vector<string> env = [], int timeoutMilliseconds = 0, int maxStdoutBytes = 8388608, int maxStderrBytes = 8388608, bool foreground = false) { return UnixShell().run(command, stdout=stdout, stderr=stderr, logCommand=logCommand, logFailure=logFailure, throwOnFailure=check, redactSubstring=redactSubstring, stdin=stdin, cwd=cwd, env=env, timeoutMilliseconds=timeoutMilliseconds, maxStdoutBytes=maxStdoutBytes, maxStderrBytes=maxStderrBytes, foreground=foreground, stdinBytes=stdinBytes); }
+
+	class BackgroundProcess start(string executable, Vector<string> arguments = [], Vector<string> environment = [], Vector<string> unsetEnvironment = [], string cwd = "", CommandOutput stdout = COMMAND_OUTPUT_STREAM, CommandOutput stderr = COMMAND_OUTPUT_STREAM, ChildStdin stdinMode = CHILD_STDIN_INHERIT, bool killOnDrop = false) { return BackgroundProcess.start(executable, arguments, environment=environment, unsetEnvironment=unsetEnvironment, cwd=cwd, stdout=stdout, stderr=stderr, stdinMode=stdinMode, killOnDrop=killOnDrop); }
+
+	class PipeProcess pipe(string executable, Vector<string> arguments = [], string errorLog = "", string cwd = "", Vector<string> environment = [], Vector<string> unsetEnvironment = []) { return PipeProcess(executable, arguments, errorLog=errorLog, cwd=cwd, environment=environment, unsetEnvironment=unsetEnvironment); }
+
+	class void exec(Vector<string> command, string argv0 = "", Vector<string> environment = [], Vector<string> unsetEnvironment = []) {
+		if (command == null || command.len == 0) {
+			throw "Process.exec requires a non-empty command vector";
+		}
+		ChildProcess.validateArguments(command);
+		string program = command.get(0);
+		if (program.isEmpty()) {
+			throw "Process.exec executable cannot be empty";
+		}
+#if defined(_WIN32)
+		ProcessHostProvider.validateEnvironment(environment, unsetEnvironment);
+		if (argv0 == null) {}
+		throw "Process.exec is unavailable on Windows";
+#else
+		ChildProcess.validateEnvironment(environment, unsetEnvironment);
+		string resolved = ChildProcessExecutable.resolve(program, "", environment, unsetEnvironment);
+		if (resolved.isEmpty()) {
+			throw f"Cannot execute: {program}";
+		}
+		string invokedName = argv0 != null && !argv0.isEmpty() ? argv0 : program;
+		Vector<string> tail = command.slice(1, command.len);
+		char** execArguments = ChildProcessArguments.build(invokedName, tail);
+		char** execEnvironment = ChildProcessEnvironment.build(environment, unsetEnvironment);
+		if (execArguments == NULL || execEnvironment == NULL) {
+			CStringArray.freeAll(execArguments);
+			CStringArray.freeAll(execEnvironment);
+			throw "Cannot allocate exec arguments";
+		}
+		execve(resolved, execArguments, execEnvironment);
+		int savedErrno = errno;
+		CStringArray.freeAll(execArguments);
+		CStringArray.freeAll(execEnvironment);
+		throw f"Cannot execute {program}: {Strings.copy(strerror(savedErrno))}";
+#endif
 	}
 }

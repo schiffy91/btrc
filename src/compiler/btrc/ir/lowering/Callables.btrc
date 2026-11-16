@@ -321,6 +321,14 @@ class CallableValueSemantics {
 		Node? receiverType = self.expressionType(receiver, context);
 		Node? canonical = self.canonicalType(receiverType, context);
 		if (canonical == null) { return null; }
+		if (!canonical.isArray && canonical.pointerDepth <= 1) {
+			if ((canonical.base == "Array" || canonical.base == "List" || canonical.base == "Map" || canonical.base == "Set" || canonical.base == "Vector") && canonical.genericArgs().len > 0 && (expression.field == "len" || expression.field == "length" || expression.field == "size") && SemanticTypeSystem.genericMember(self.analysis, canonical.base, "len") != null) {
+				return null;
+			}
+			if ((canonical.base == "Bytes" || canonical.base == "StringBuilder") && canonical.genericArgs().len == 0 && expression.field == "length" && self.analysis.isClass(canonical.base) && self.analysis.classMember(canonical.base, "len") != null) {
+				return null;
+			}
+		}
 		if (self.analysis.isClass(canonical.base)) {
 			return self.analysis.classMethod(canonical.base, expression.field);
 		}

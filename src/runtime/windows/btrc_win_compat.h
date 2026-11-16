@@ -71,6 +71,22 @@ static inline int btrc_win_fsync(int descriptor) {
 #endif
 #define fsync btrc_win_fsync
 
+static inline int btrc_win_isatty(int descriptor) {
+    return _isatty(descriptor);
+}
+#ifdef isatty
+#undef isatty
+#endif
+#define isatty btrc_win_isatty
+
+static inline int btrc_win_umask(int mask) {
+    return _umask(mask);
+}
+#ifdef umask
+#undef umask
+#endif
+#define umask(mask) btrc_win_umask((int)(mask))
+
 /* Keep the forced-include boundary narrow: importing windows.h here would
    inject thousands of unrelated typedefs and macros into every generated
    translation unit.  These are the exact Win32 filesystem seams used below.
@@ -82,12 +98,8 @@ static inline int btrc_win_fsync(int descriptor) {
 #ifndef BTRC_WIN_REMOVE_DIRECTORY
 #define BTRC_WIN_REMOVE_DIRECTORY RemoveDirectoryA
 #endif
-#ifndef BTRC_WIN_GET_MODULE_FILE_NAME
-#define BTRC_WIN_GET_MODULE_FILE_NAME GetModuleFileNameA
-#endif
 unsigned long BTRC_WIN_GET_FILE_ATTRIBUTES(const char *path);
 int BTRC_WIN_REMOVE_DIRECTORY(const char *path);
-unsigned long BTRC_WIN_GET_MODULE_FILE_NAME(void *module, char *buffer, unsigned long size);
 
 #ifndef INVALID_FILE_ATTRIBUTES
 #define INVALID_FILE_ATTRIBUTES ((unsigned long)-1)
@@ -387,6 +399,12 @@ static inline char *btrc_win_getcwd(char *buffer, size_t capacity) {
 #undef getcwd
 #endif
 #define getcwd btrc_win_getcwd
+
+static inline char *btrcWinProgramName(void) {
+    wchar_t *wide = NULL;
+    if (_get_wpgmptr(&wide) != 0 || !wide || !wide[0]) { return NULL; }
+    return btrc_win_path_to_utf8(wide);
+}
 
 /* mkdtemp: create a uniquely-named temp directory. Keep the implementation
    inline because this header is force-included into every translation unit;

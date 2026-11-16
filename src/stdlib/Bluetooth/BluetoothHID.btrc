@@ -23,6 +23,7 @@ import Library.Bluetooth.HIDP;
 import Library.Bluetooth.L2CAP;
 import Library.Bytes;
 import Library.HID.HIDDevice;
+import Library.Network.TCPStream;
 import Library.Timer;
 
 #include <poll.h>
@@ -141,6 +142,13 @@ class BluetoothHIDDevice {
 			count++;
 		}
 		return count;
+	}
+
+	public int watchIn(PollSet set) {
+		if (set == null) { return 0; }
+		int added = self.watch(set.cursor(), set.remaining());
+		set.advance(added);
+		return added;
 	}
 
 	/* A host that just paired is bonded a moment after its channel arrives,

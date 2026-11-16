@@ -345,6 +345,10 @@ class CallTargetResolver {
 		target.ownerName = owner;
 		target.classPrefix = prefix;
 		target.defaultCName = self.methodSymbol(owner, method.name, prefix);
+		Vector<Node>? methodArguments = method.genericParams().len > 0 ? self.analyzed.methodCallArguments(target.call) : null;
+		if (methodArguments != null) {
+			target.defaultCName = GenericSpecializer.genericMethodInstanceName(owner, receiverType.genericArgs(), method.name, methodArguments);
+		}
 		if (method.access != "class") {
 			Node selfType = SemanticTypeSystem.namedClass(owner);
 			int argumentIndex = 0;

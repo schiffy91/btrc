@@ -6,6 +6,8 @@
  * Everything here works on raw buffers of the sizes SodiumSize names. The
  * classes above this seam (SigningKey, SecureChannel) are what programs use. */
 
+import Library.Bytes;
+
 enum SodiumSize {
 	SODIUM_KEY = 32,
 	SODIUM_SECRET_KEY = 64,
@@ -24,6 +26,22 @@ class Sodium {
 	}
 
 	class void random(unsigned char* out, int length) { SodiumProvider.random(out, length); }
+
+	class Bytes randomBytes(int length) {
+		Sodium.require();
+		Bytes out = Bytes();
+		if (length <= 0) { return out; }
+		unsigned char chunk[256];
+		int remaining = length;
+		while (remaining > 0) {
+			int step = remaining > 256 ? 256 : remaining;
+			SodiumProvider.random(chunk, step);
+			out.appendRaw((char*)chunk, step);
+			remaining -= step;
+		}
+		SodiumProvider.wipe(chunk, 256);
+		return out;
+	}
 
 	/* Overwrite secret bytes in a way the compiler cannot remove. */
 	class void wipe(unsigned char* data, int length) { SodiumProvider.wipe(data, length); }

@@ -433,6 +433,12 @@ class Image {
 		return true;
 	}
 
+	public bool tryCopyPackedRgbaBytes(Bytes pixels) {
+		if (pixels == null) { return false; }
+		if (self.isEmpty()) { return pixels.isEmpty(); }
+		return self.tryCopyPackedRgba(pixels.data, (unsigned long long)pixels.length());
+	}
+
 	/* Import premultiplied codec/GPU pixels into Image's straight-alpha storage.
 	 * Transparent RGB is cleared; malformed channels above alpha saturate. */
 	public bool tryCopyPremultipliedRgba(const void* source, unsigned long long byteCount) {

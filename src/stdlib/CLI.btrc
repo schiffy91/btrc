@@ -1,6 +1,7 @@
 /* btrc standard library — CLI argument helpers */
 
 import Library.Console;
+import Library.Platform;
 import Library.Strings;
 import Library.Vector;
 
@@ -15,6 +16,21 @@ class CLIArgs {
 		for (int i = 1; i < count; i++) {
 			self.values.push(Strings.copy(argv[i]));
 		}
+	}
+
+	class CLIArgs from(Vector<string> values, string program = "") {
+		CLIArgs result = CLIArgs(0, null);
+		result.program = program != null && !program.isEmpty() ? Strings.copy(program) : Platform.programName();
+		if (values != null) {
+			for item in values {
+				result.values.push(item == null ? "" : Strings.copy(item));
+			}
+		}
+		return result;
+	}
+
+	public int length {
+		get { return self.values.len; }
 	}
 
 	public int count() { return self.values.len; }
@@ -254,4 +270,346 @@ class CLIHelp {
 	public string render() { return self.lines.join("\n"); }
 
 	public void print() { Console.log(self.render()); }
+}
+
+class CLIOptionSpec {
+	public string longName;
+	public string shortName;
+	public string valueLabel;
+	public string description;
+	public string defaultValue;
+	public bool isFlag;
+	public bool required;
+
+	public CLIOptionSpec(string longName, string shortName, string valueLabel, string description, string defaultValue, bool isFlag, bool required) {
+		self.longName = longName;
+		self.shortName = shortName;
+		self.valueLabel = valueLabel;
+		self.description = description;
+		self.defaultValue = defaultValue;
+		self.isFlag = isFlag;
+		self.required = required;
+	}
+
+	public bool matches(string token) {
+		if (token.equals(self.longName)) { return true; }
+		return !self.shortName.isEmpty() && token.equals(self.shortName);
+	}
+
+	public string signature() {
+		string names = self.shortName.isEmpty() ? self.longName : f"{self.shortName}, {self.longName}";
+		if (self.isFlag) { return names; }
+		string label = self.valueLabel.isEmpty() ? "VALUE" : self.valueLabel;
+		return f"{names} <{label}>";
+	}
+}
+
+class CLIPositionalSpec {
+	public string name;
+	public string description;
+	public bool required;
+
+	public CLIPositionalSpec(string name, string description, bool required) {
+		self.name = name;
+		self.description = description;
+		self.required = required;
+	}
+
+	public string tokenLabel() { return self.required ? f"<{self.name}>" : f"[{self.name}]"; }
+}
+
+class CLIParsed {
+	public bool helpRequested;
+	public string help;
+	public string command;
+	public CLIParsed? subcommand;
+	public Vector<string> positionals;
+	public Vector<string> optionNames;
+	public Vector<string> optionValues;
+	public Vector<string> errors;
+
+	public CLIParsed() {
+		self.helpRequested = false;
+		self.help = "";
+		self.command = "";
+		self.subcommand = null;
+		self.positionals = [];
+		self.optionNames = [];
+		self.optionValues = [];
+		self.errors = [];
+	}
+
+	public bool ok() { return self.errors.len == 0; }
+
+	public string errorMessage() { return self.errors.join("\n"); }
+
+	public void addOption(string canonicalLongName, string value) {
+		self.optionNames.push(canonicalLongName);
+		self.optionValues.push(value);
+	}
+
+	private int lastIndex(string name) {
+		string key = name.startsWith("-") ? name : f"--{name}";
+		for (int i = self.optionNames.len - 1; i >= 0; i--) {
+			if (self.optionNames.get(i).equals(key) || self.optionNames.get(i).equals(name)) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	public bool has(string name) { return self.lastIndex(name) >= 0; }
+
+	public bool flag(string name) {
+		int idx = self.lastIndex(name);
+		return idx >= 0 && self.optionValues.get(idx).equals("true");
+	}
+
+	public string option(string name, string fallback = "") {
+		int idx = self.lastIndex(name);
+		return idx < 0 ? fallback : self.optionValues.get(idx);
+	}
+
+	public Vector<string> values(string name) {
+		string key = name.startsWith("-") ? name : f"--{name}";
+		Vector<string> result = [];
+		for (int i = 0; i < self.optionNames.len; i++) {
+			if (self.optionNames.get(i).equals(key) || self.optionNames.get(i).equals(name)) {
+				result.push(self.optionValues.get(i));
+			}
+		}
+		return result;
+	}
+
+	public string positional(int index, string fallback = "") {
+		if (index < 0 || index >= self.positionals.len) { return fallback; }
+		return self.positionals.get(index);
+	}
+}
+
+/* Declarative CLI specification with schema-aware boolean flags, value options,
+ * positional arguments, nested subcommands, and generated --help output. */
+class CLISpec {
+	public string name;
+	public string summary;
+	public Vector<string> aliases;
+	public Vector<CLIOptionSpec> options;
+	public Vector<CLIPositionalSpec> positionals;
+	public Vector<CLISpec> subcommands;
+	public bool extraPositionals;
+
+	public CLISpec(string name, string summary = "") {
+		self.name = name == null ? "" : name;
+		self.summary = summary == null ? "" : summary;
+		self.aliases = [];
+		self.options = [];
+		self.positionals = [];
+		self.subcommands = [];
+		self.extraPositionals = false;
+	}
+
+	public CLISpec alias(string aliasName) {
+		if (aliasName != null && !aliasName.isEmpty()) { self.aliases.push(aliasName); }
+		return self;
+	}
+
+	public CLISpec flag(string longName, string description = "", string shortName = "") {
+		string normalized = longName.startsWith("-") ? longName : f"--{longName}";
+		self.options.push(CLIOptionSpec(normalized, shortName, "", description, "", true, false));
+		return self;
+	}
+
+	public CLISpec option(string longName, string valueLabel = "VALUE", string description = "", string shortName = "", string defaultValue = "", bool required = false) {
+		string normalized = longName.startsWith("-") ? longName : f"--{longName}";
+		self.options.push(CLIOptionSpec(normalized, shortName, valueLabel, description, defaultValue, false, required));
+		return self;
+	}
+
+	public CLISpec positional(string name, string description = "", bool required = false) {
+		self.positionals.push(CLIPositionalSpec(name, description, required));
+		return self;
+	}
+
+	public CLISpec allowExtraPositionals(bool allow = true) {
+		self.extraPositionals = allow;
+		return self;
+	}
+
+	public CLISpec subcommand(CLISpec spec) {
+		if (spec != null) { self.subcommands.push(spec); }
+		return self;
+	}
+
+	public bool matchesCommand(string token) {
+		if (self.name.equals(token)) { return true; }
+		for item in self.aliases {
+			if (item.equals(token)) { return true; }
+		}
+		return false;
+	}
+
+	private CLIOptionSpec? findOption(string token) {
+		for spec in self.options {
+			if (spec.matches(token)) { return spec; }
+		}
+		return null;
+	}
+
+	private CLISpec? findSubcommand(string token) {
+		for sub in self.subcommands {
+			if (sub.matchesCommand(token)) { return sub; }
+		}
+		return null;
+	}
+
+	public string helpText(string prefix = "") {
+		string fullName = prefix.isEmpty() ? self.name : f"{prefix} {self.name}";
+		Vector<string> usageParts = [f"Usage: {fullName}"];
+		if (self.options.len > 0) { usageParts.push("[options]"); }
+		if (self.subcommands.len > 0) { usageParts.push("<command>"); }
+		for pos in self.positionals { usageParts.push(pos.tokenLabel()); }
+		if (self.extraPositionals) { usageParts.push("[...]"); }
+
+		CLIHelp builder = CLIHelp();
+		builder.line(usageParts.join(" "));
+		if (!self.summary.isEmpty()) {
+			builder.blank();
+			builder.line(self.summary);
+		}
+		if (self.subcommands.len > 0) {
+			builder.section("Commands");
+			for sub in self.subcommands {
+				builder.item(sub.name, sub.summary);
+			}
+		}
+		if (self.positionals.len > 0) {
+			builder.section("Arguments");
+			for pos in self.positionals {
+				builder.item(pos.tokenLabel(), pos.description);
+			}
+		}
+		builder.section("Options");
+		for opt in self.options {
+			builder.item(opt.signature(), opt.description);
+		}
+		builder.item("-h, --help", "Show this help message");
+		return builder.render();
+	}
+
+	public CLIParsed parseArgs(CLIArgs args) {
+		if (args == null) {
+			CLIParsed failed = CLIParsed();
+			failed.errors.push("CLI arguments are null");
+			return failed;
+		}
+		return self.parseWithPrefix(args.values, "");
+	}
+
+	public CLIParsed parse(Vector<string> args) { return self.parseWithPrefix(args, ""); }
+
+	public CLIParsed parseWithPrefix(Vector<string> args, string prefix) {
+		CLIParsed parsed = CLIParsed();
+		if (args == null) {
+			parsed.errors.push("CLI arguments are null");
+			return parsed;
+		}
+		bool operandsOnly = false;
+		int index = 0;
+		while (index < args.len) {
+			string token = args.get(index);
+			if (!operandsOnly && (token.equals("--help") || token.equals("-h"))) {
+				parsed.helpRequested = true;
+				parsed.help = self.helpText(prefix);
+				return parsed;
+			}
+			if (!operandsOnly && token.equals("--")) {
+				operandsOnly = true;
+				index++;
+				continue;
+			}
+			if (!operandsOnly && token.startsWith("-") && !token.equals("-") && !CLICommandLine.isNegativeNumber(token)) {
+				int eqSplit = token.startsWith("--") ? token.find("=", 0) : -1;
+				if (eqSplit >= 0) {
+					string optName = token.substring(0, eqSplit);
+					string optVal = token.substring(eqSplit + 1, token.len() - eqSplit - 1);
+					CLIOptionSpec? spec = self.findOption(optName);
+					if (spec == null) {
+						parsed.errors.push(f"unknown option: {optName}");
+					} else if (spec.isFlag) {
+						if (optVal.equals("true") || optVal.equals("false")) {
+							parsed.addOption(spec.longName, optVal);
+						} else {
+							parsed.errors.push(f"flag {optName} does not take a value");
+						}
+					} else {
+						parsed.addOption(spec.longName, optVal);
+					}
+					index++;
+					continue;
+				}
+				CLIOptionSpec? spec = self.findOption(token);
+				if (spec == null) {
+					parsed.errors.push(f"unknown option: {token}");
+					index++;
+					continue;
+				}
+				if (spec.isFlag) {
+					parsed.addOption(spec.longName, "true");
+					index++;
+					continue;
+				}
+				if (index + 1 >= args.len) {
+					parsed.errors.push(f"option {token} requires a value");
+					index++;
+					continue;
+				}
+				parsed.addOption(spec.longName, args.get(index + 1));
+				index = index + 2;
+				continue;
+			}
+			if (!operandsOnly && self.subcommands.len > 0 && parsed.positionals.len == 0) {
+				CLISpec? sub = self.findSubcommand(token);
+				if (sub == null) {
+					parsed.errors.push(f"unknown command: {token}");
+					return parsed;
+				}
+				Vector<string> rest = args.slice(index + 1, args.len);
+				string nextPrefix = prefix.isEmpty() ? self.name : f"{prefix} {self.name}";
+				CLIParsed subParsed = sub.parseWithPrefix(rest, nextPrefix);
+				parsed.command = sub.name;
+				parsed.subcommand = subParsed;
+				if (subParsed.helpRequested) {
+					parsed.helpRequested = true;
+					parsed.help = subParsed.help;
+					return parsed;
+				}
+				for err in subParsed.errors {
+					parsed.errors.push(err);
+				}
+				return parsed;
+			}
+			parsed.positionals.push(token);
+			index++;
+		}
+		for opt in self.options {
+			if (!parsed.has(opt.longName)) {
+				if (opt.required) {
+					parsed.errors.push(f"missing required option: {opt.longName}");
+				} else if (!opt.isFlag && !opt.defaultValue.isEmpty()) {
+					parsed.addOption(opt.longName, opt.defaultValue);
+				}
+			}
+		}
+		int requiredPositionals = 0;
+		for pos in self.positionals {
+			if (pos.required) { requiredPositionals++; }
+		}
+		if (parsed.positionals.len < requiredPositionals) {
+			CLIPositionalSpec missing = self.positionals.get(parsed.positionals.len);
+			parsed.errors.push(f"missing required argument: {missing.name}");
+		} else if (!self.extraPositionals && self.subcommands.len == 0 && parsed.positionals.len > self.positionals.len) {
+			parsed.errors.push(f"unexpected argument: {parsed.positionals.get(self.positionals.len)}");
+		}
+		return parsed;
+	}
 }

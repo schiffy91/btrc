@@ -2610,7 +2610,7 @@ class ExpressionLowerer:
             and resolved_obj_type.base in {"Array", "List", "Map", "Set", "Vector"}
             and self._types.is_direct_generic_instance_reference(resolved_obj_type)
             and (node.field in ("len", "length", "size"))
-            and "len" in self._analyzed.class_table[resolved_obj_type.base].fields
+            and self._analyzed.class_table[resolved_obj_type.base].fields.get("len") is not None
         ) or (
             resolved_obj_type
             and resolved_obj_type.base in {"Bytes", "StringBuilder"}
@@ -2619,7 +2619,7 @@ class ExpressionLowerer:
             and not resolved_obj_type.generic_args
             and node.field == "length"
             and resolved_obj_type.base in self._analyzed.class_table
-            and "len" in self._analyzed.class_table[resolved_obj_type.base].fields
+            and self._analyzed.class_table[resolved_obj_type.base].fields.get("len") is not None
         ):
             if node.optional:
                 return self._lower_optional_access(

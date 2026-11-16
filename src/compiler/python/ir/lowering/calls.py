@@ -1270,6 +1270,24 @@ class CallableProvenance:
         if class_info is not None:
             if expression.field in class_info.fields or expression.field in class_info.properties:
                 return False
+            if (
+                not receiver_type.is_array
+                and receiver_type.pointer_depth <= 1
+                and class_info.fields.get("len") is not None
+                and (
+                    (
+                        receiver_type.base in {"Array", "List", "Map", "Set", "Vector"}
+                        and receiver_type.generic_args
+                        and expression.field in {"length", "size"}
+                    )
+                    or (
+                        receiver_type.base in {"Bytes", "StringBuilder"}
+                        and not receiver_type.generic_args
+                        and expression.field == "length"
+                    )
+                )
+            ):
+                return False
             method = class_info.methods.get(expression.field)
             if method is not None:
                 return method.access != "class"
@@ -1279,7 +1297,7 @@ class CallableProvenance:
         return bool(
             (receiver_type.base == "Thread" and expression.field == "join")
             or (receiver_type.base == "Mutex" and expression.field in {"get", "set", "destroy"})
-            or receiver_type.base == "string"
+            or (receiver_type.base == "string" and expression.field != "length")
         )
 
     def return_abi(self, expression: object | None) -> CallableReturnABI:

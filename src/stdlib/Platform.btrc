@@ -10,14 +10,18 @@ import Library.Strings;
 
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <stdlib.h>
+#if !defined(_WIN32)
+#include <sys/resource.h>
+#endif
 #if defined(__APPLE__)
 #include <stdint.h>
 #include <mach-o/dyld.h>
 #endif
 #if defined(_WIN32)
-extern unsigned long GetModuleFileNameA(void* module, char* buffer, unsigned long size);
+extern char* btrcWinProgramName();
 #endif
 
 class Platform {
@@ -41,6 +45,8 @@ class Platform {
 
 	class int pid() { return (int)getpid(); }
 
+	class int uid() { return (int)getuid(); }
+
 	class int euid() { return (int)geteuid(); }
 
 	class bool isRoot() {
@@ -48,6 +54,34 @@ class Platform {
          * value is only a sentinel and must never grant privileges. */
 		return !Platform.isWindows() && Platform.euid() == 0;
 	}
+
+	class string hostname() {
+#if defined(_WIN32)
+		return Environment.get("COMPUTERNAME", "");
+#else
+		char buffer[257];
+		if (gethostname(buffer, (size_t)256) != 0) { return ""; }
+		buffer[256] = '\0';
+		return Strings.copy(buffer);
+#endif
+	}
+
+	class int setUmask(int mask) { return (int)umask((mode_t)mask); }
+
+	class bool disableCoreDumps() {
+#if defined(_WIN32)
+		return true;
+#else
+		struct rlimit limit;
+		limit.rlim_cur = 0;
+		limit.rlim_max = 0;
+		return setrlimit(RLIMIT_CORE, &limit) == 0;
+#endif
+	}
+
+	class bool setEnv(string name, string value, bool overwrite = true) { return Environment.set(name, value, overwrite); }
+
+	class bool unsetEnv(string name) { return Environment.unset(name); }
 
 	/* The process working directory, or "" when it cannot be read. The
 	 * buffer doubles until getcwd fits, up to a 1 GiB bound. */
@@ -73,6 +107,10 @@ class Platform {
 			int capacity = 256;
 			int length = 0;
 			char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)capacity);
+			if (buffer == NULL) {
+				close(fd);
+				return "";
+			}
 			bool sawNul = false;
 			while (!sawNul && capacity <= 1048576) {
 				ssize_t got = read(fd, buffer + length, (size_t)(capacity - 1 - length));
@@ -92,6 +130,10 @@ class Platform {
 				if (!sawNul && length >= capacity - 1) {
 					capacity = capacity * 2;
 					buffer = (char*)__btrc_safe_realloc(buffer, (size_t)capacity);
+					if (buffer == NULL) {
+						close(fd);
+						return "";
+					}
 				}
 			}
 			close(fd);
@@ -102,8 +144,9 @@ class Platform {
 			free(buffer);
 		}
 		int exeCap = 256;
-		while (exeCap <= 1048576) {
+		while (exeCap >= 2 && exeCap <= 1048576) {
 			char* exeBuf = (char*)__btrc_safe_realloc(NULL, (size_t)exeCap);
+			if (exeBuf == NULL) { return ""; }
 			ssize_t exeLen = readlink("/proc/self/exe", exeBuf, (size_t)(exeCap - 1));
 			if (exeLen < (ssize_t)0) {
 				free(exeBuf);
@@ -122,28 +165,16 @@ class Platform {
 		(void)_NSGetExecutablePath(NULL, &size);
 		if (size == 0 || size > 1048576u) { return ""; }
 		char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)size);
+		if (buffer == NULL) { return ""; }
 		if (_NSGetExecutablePath(buffer, &size) != 0) {
 			free(buffer);
 			return "";
 		}
 		return __btrc_string_adopt(buffer);
 #elif defined(_WIN32)
-		int capacity = 260;
-		while (capacity <= 1048576) {
-			char* buffer = (char*)__btrc_safe_realloc(NULL, (size_t)capacity);
-			unsigned long len = GetModuleFileNameA(NULL, buffer, (unsigned long)capacity);
-			if (len == 0UL) {
-				free(buffer);
-				return "";
-			}
-			if (len < (unsigned long)(capacity - 1)) {
-				buffer[len] = '\0';
-				return __btrc_string_adopt(buffer);
-			}
-			free(buffer);
-			capacity = capacity * 2;
-		}
-		return "";
+		char* allocated = btrcWinProgramName();
+		if (allocated == NULL) { return ""; }
+		return __btrc_string_adopt(allocated);
 #else
 		return "";
 #endif
@@ -160,5 +191,15 @@ class Environment {
 	class bool has(string name) {
 		char* value = getenv(name);
 		return value != NULL && value[0] != '\0';
+	}
+
+	class bool set(string name, string value, bool overwrite = true) {
+		if (name == null || name.isEmpty() || name.contains("=")) { return false; }
+		return setenv(name, value == null ? "" : value, overwrite ? 1 : 0) == 0;
+	}
+
+	class bool unset(string name) {
+		if (name == null || name.isEmpty() || name.contains("=")) { return false; }
+		return unsetenv(name) == 0;
 	}
 }

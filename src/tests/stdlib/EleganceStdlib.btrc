@@ -1,0 +1,210 @@
+/* Portable standard library coverage for Testing, CLISpec, Bytes endian/hex
+ * codecs, FileSystem atomic helpers, Platform probes, Console, and OwnedBuffer. */
+
+import Library.Bytes;
+import Library.CLI;
+import Library.Console;
+import Library.FileSystem;
+import Library.OwnedBuffer;
+import Library.Platform;
+import Library.Strings;
+import Library.Testing;
+import Library.Vector;
+
+void raiseSampleFailure() { throw "boom: invalid sample input"; }
+
+void raiseContextFailure(int code) { throw f"code={code}"; }
+
+void testOwnedBufferLength() {
+	OwnedBuffer<int> buf = OwnedBuffer((size_t)4);
+	Expect.intEq((long long)buf.length, 4LL, "OwnedBuffer.length");
+	Expect.isTrue(buf.set((size_t)0, 11));
+	Expect.isTrue(buf.set((size_t)3, 44));
+	Expect.intEq((long long)(buf[0] + buf[3]), 55LL);
+
+	AtomicBuffer<int> atomicBuf = AtomicBuffer((size_t)3);
+	Expect.intEq((long long)atomicBuf.length, 3LL, "AtomicBuffer.length");
+}
+
+void testBytesEndianAndHex() {
+	Bytes packet = Bytes();
+	packet.appendU16LE((uint16_t)0x1234u);
+	packet.appendU16BE((uint16_t)0x5678u);
+	packet.appendU32LE((uint32_t)0x89ABCDEFu);
+	packet.appendU32BE((uint32_t)0x01020304u);
+	packet.appendU64LE((uint64_t)0x1122334455667788ULL);
+	packet.appendU64BE((uint64_t)0xFFEEDDCCBBAA9900ULL);
+
+	Expect.intEq((long long)packet.length, 28LL);
+	Expect.intEq((long long)packet.readU16LE(0), (long long)0x1234u);
+	Expect.intEq((long long)packet.readU16BE(2), (long long)0x5678u);
+	Expect.intEq((long long)packet.readU32LE(4), (long long)0x89ABCDEFu);
+	Expect.intEq((long long)packet.readU32BE(8), (long long)0x01020304u);
+	Expect.isTrue(packet.readU64LE(12) == (uint64_t)0x1122334455667788ULL, "readU64LE");
+	Expect.isTrue(packet.readU64BE(20) == (uint64_t)0xFFEEDDCCBBAA9900ULL, "readU64BE");
+
+	string hex = packet.toHex();
+	Expect.intEq((long long)hex.length, 56LL);
+	Expect.startsWith(hex, "34125678efcdab89");
+	Bytes? decoded = Bytes.fromHex(hex.toUpper());
+	Expect.isTrue(decoded != null, "valid hex decodes");
+	if (decoded != null) {
+		Expect.bytesEq(decoded, packet, "hex roundtrip");
+	}
+
+	Expect check = Expect();
+	check.throwsWith(packet, (Bytes b) => {
+			b.readU32LE(26);
+		}, "out of bounds");
+	Expect.isTrue(Bytes.fromHex("abc") == null, "odd hex length returns null");
+	Expect.isTrue(Bytes.fromHex("zz") == null, "invalid hex digits return null");
+}
+
+void testDeclarativeCli() {
+	Vector<string> raw = ["--dry-run", "target.txt", "--jobs", "4"];
+	CLIArgs cliArgs = CLIArgs.from(raw, "demo-tool");
+	Expect.strEq(cliArgs.program, "demo-tool");
+	Expect.intEq((long long)cliArgs.length, 4LL);
+
+	CLISpec spec = CLISpec("demo-tool", "Run declarative CLI checks");
+	spec.flag("--dry-run", "Preview changes without writing", "-n");
+	spec.option("--jobs", "COUNT", "Worker count", "-j", "1", false);
+	spec.positional("target", "Target path", true);
+
+	/* Schema-aware boolean flags never swallow a following positional argument. */
+	CLIParsed parsed = spec.parseArgs(cliArgs);
+	Expect.isTrue(parsed.ok(), parsed.errorMessage());
+	Expect.isTrue(parsed.flag("--dry-run"));
+	Expect.strEq(parsed.option("jobs"), "4");
+	Expect.intEq((long long)parsed.positionals.length, 1LL);
+	Expect.strEq(parsed.positional(0), "target.txt");
+
+	CLIParsed helpParsed = spec.parse(["--help"]);
+	Expect.isTrue(helpParsed.helpRequested);
+	Expect.contains(helpParsed.help, "Usage: demo-tool [options] <target>");
+	Expect.contains(helpParsed.help, "-n, --dry-run");
+
+	CLIParsed badParsed = spec.parse(["--unknown"]);
+	Expect.isFalse(badParsed.ok());
+	Expect.contains(badParsed.errorMessage(), "unknown option: --unknown");
+
+	CLISpec root = CLISpec("ctl", "Top-level controller");
+	root.flag("--verbose", "Verbose output", "-v");
+	CLISpec deploy = CLISpec("deploy", "Deploy host");
+	deploy.option("--host", "HOST", "Target host", "", "", true);
+	root.subcommand(deploy);
+
+	CLIParsed sub = root.parse(["-v", "deploy", "--host=box1"]);
+	Expect.isTrue(sub.ok(), sub.errorMessage());
+	Expect.isTrue(sub.flag("verbose"));
+	Expect.strEq(sub.command, "deploy");
+	Expect.isTrue(sub.subcommand != null && sub.subcommand.option("host") == "box1");
+}
+
+void testFileSystemAndTestDir() {
+	string capturedDir = "";
+	{
+		TestDir dir = TestDir("btrc-elegance-");
+		capturedDir = dir.path;
+		Expect.isTrue(FileSystem.isDir(capturedDir));
+
+		string nested = dir.mkdir("sub/nested", 0o700);
+		Expect.isTrue(FileSystem.isDir(nested));
+
+		string alpha = dir.writeFile("sub/alpha.txt", "first\n", 0o600);
+		Expect.isTrue(FileSystem.appendText(alpha, "second\n"));
+		Expect.strEq(FileSystem.readText(alpha), "first\nsecond\n");
+
+		FileStatus st = FileSystem.stat(alpha);
+		Expect.isTrue(st.exists() && st.isFile());
+		Expect.intEq(st.size, 13LL);
+		if (Platform.isUnix()) {
+			Expect.intEq((long long)st.permissions(), (long long)0o600);
+			Expect.intEq((long long)st.uid, (long long)Platform.euid());
+		}
+
+		string atomicPath = dir.join("atomic.txt");
+		Expect.isTrue(FileSystem.writeAtomic(atomicPath, "atomic-v1", 0o640));
+		Expect.isTrue(FileSystem.writeAtomic(atomicPath, "atomic-v2", 0o640));
+		Expect.strEq(FileSystem.readText(atomicPath), "atomic-v2");
+
+		Bytes bin = Bytes();
+		bin.push((uint8_t)0);
+		bin.push((uint8_t)255);
+		bin.push((uint8_t)42);
+		bin.push((uint8_t)0);
+		string binPath = dir.join("payload.bin");
+		Expect.isTrue(FileSystem.writeAtomicBytes(binPath, bin, 0o600));
+		Expect.bytesEq(FileSystem.readBytes(binPath), bin);
+
+		string copiedPath = dir.join("copied.bin");
+		Expect.isTrue(FileSystem.copyFile(binPath, copiedPath, 0o600));
+		Expect.bytesEq(FileSystem.readBytes(copiedPath), bin);
+
+		string movedPath = dir.join("moved.bin");
+		Expect.intEq((long long)FileSystem.rename(copiedPath, movedPath), 0LL);
+		Expect.isFalse(FileSystem.exists(copiedPath));
+		Expect.bytesEq(FileSystem.readBytes(movedPath), bin);
+
+		Expect.isTrue(FileSystem.removeIfExists(movedPath));
+		Expect.isTrue(FileSystem.removeIfExists(movedPath));
+	}
+	Expect.isFalse(FileSystem.exists(capturedDir), "TestDir cleans up on scope exit");
+}
+
+void testPlatformAndConsole() {
+	Expect.isTrue(Platform.pid() > 0);
+	int uid = Platform.uid();
+	Expect.isTrue(uid >= 0 || Platform.isWindows());
+	int prevMask = Platform.setUmask(0o077);
+	(void)Platform.setUmask(prevMask);
+	Expect.isTrue(Platform.disableCoreDumps());
+	(void)Platform.hostname();
+
+	string envKey = f"BTRC_ELEGANCE_ENV_{Platform.pid()}";
+	Expect.isTrue(Environment.set(envKey, "alpha"));
+	Expect.strEq(Environment.get(envKey, ""), "alpha");
+	Expect.isTrue(Platform.setEnv(envKey, "beta", false));
+	Expect.strEq(Environment.get(envKey, ""), "alpha");
+	Expect.isTrue(Platform.setEnv(envKey, "beta", true));
+	Expect.strEq(Environment.get(envKey, ""), "beta");
+	Expect.isTrue(Platform.unsetEnv(envKey));
+	Expect.isFalse(Environment.has(envKey));
+
+	Console.flush();
+	Console.flushError();
+	bool tty = Console.isTty();
+	bool errTty = Console.isErrorTty();
+	Expect.boolEq(tty, tty);
+	Expect.boolEq(errTty, errTty);
+}
+
+void testExpectHelpers() {
+	Expect check = Expect();
+	check.eq(42, 42);
+	check.ne("left", "right");
+	string? missing = null;
+	string? present = "present";
+	check.isNull(missing);
+	check.notNull(present);
+	Expect.throws(raiseSampleFailure, "invalid sample");
+	check.throwsWith(77, raiseContextFailure, "code=77");
+	Test.section("nested-section", () => {
+			Expect.notContains("clean output", "error");
+			Expect.endsWith("report.json", ".json");
+		});
+}
+
+int main(Vector<string> args) {
+	Expect.intEq((long long)args.length, 0LL);
+	Expect.isFalse(Platform.programName().isEmpty());
+
+	TestSuite suite = TestSuite("stdlib_elegance");
+	suite.add("owned_buffer_length", testOwnedBufferLength);
+	suite.add("bytes_endian_and_hex", testBytesEndianAndHex);
+	suite.add("declarative_cli", testDeclarativeCli);
+	suite.add("filesystem_and_testdir", testFileSystemAndTestDir);
+	suite.add("platform_and_console", testPlatformAndConsole);
+	suite.add("expect_helpers", testExpectHelpers);
+	return suite.run();
+}

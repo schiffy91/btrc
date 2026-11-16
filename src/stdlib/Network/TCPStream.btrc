@@ -22,6 +22,67 @@ enum TCPStreamRead {
 	TCP_STREAM_READ_FAILED = -2
 };
 
+/* Bounded poll-descriptor set for event loops multiplexing sockets, gadgets,
+ * and adapters without exposing raw struct pollfd arrays to callers. */
+class PollSet {
+	private struct pollfd slots[64];
+	private int used = 0;
+
+	public PollSet() { self.clear(); }
+
+	public void clear() {
+		memset(self.slots, 0, sizeof(self.slots));
+		self.used = 0;
+	}
+
+	public int count() { return self.used; }
+
+	public size_t length { get { return (size_t)self.used; } }
+
+	public int remaining() { return 64 - self.used; }
+
+	public struct pollfd* cursor() { return self.slots + self.used; }
+
+	public void advance(int added) {
+		if (added > 0 && self.used + added <= 64) { self.used += added; }
+	}
+
+	public bool addReadable(int descriptor) {
+		if (descriptor < 0 || self.used >= 64) { return false; }
+		self.slots[self.used].fd = descriptor;
+		self.slots[self.used].events = POLLIN;
+		self.slots[self.used].revents = 0;
+		self.used++;
+		return true;
+	}
+
+	public int wait(int timeoutMilliseconds) {
+		int ready = poll(self.slots, (nfds_t)self.used, timeoutMilliseconds);
+		if (ready < 0 && errno == EINTR) { return 0; }
+		return ready;
+	}
+
+	class bool waitReadable(int descriptor, int timeoutMilliseconds) {
+		if (descriptor < 0) { return false; }
+		struct pollfd waiting;
+		waiting.fd = descriptor;
+		waiting.events = POLLIN;
+		waiting.revents = 0;
+		int ready = poll(&waiting, (nfds_t)1, timeoutMilliseconds);
+		return ready > 0;
+	}
+}
+
+class TCPStreamPair {
+	public TCPStream first;
+	public TCPStream second;
+
+	public TCPStreamPair(TCPStream first, TCPStream second) {
+		self.first = first;
+		self.second = second;
+	}
+}
+
 class TCPStream {
 	private int descriptor = -1;
 	private IPv4Address remote;
@@ -64,6 +125,22 @@ class TCPStream {
 			throw "Cannot configure the TCP socket";
 		}
 		return TCPStream(descriptor, remote);
+	}
+
+	/* Connected local Unix stream pair, both nonblocking and close-on-exec. */
+	class TCPStreamPair localPair() {
+		int pair[2];
+		if (socketpair((int)AF_UNIX, (int)SOCK_STREAM, 0, pair) != 0) {
+			throw "Cannot create a local stream pair";
+		}
+		TCPStream first = TCPStream.adopt(pair[0], IPv4Address.loopback());
+		try {
+			TCPStream second = TCPStream.adopt(pair[1], IPv4Address.loopback());
+			return TCPStreamPair(first, second);
+		} catch (string error) {
+			first.close();
+			throw error;
+		}
 	}
 
 	/* The first IPv4 address of a host name or dotted address; null when it
@@ -188,6 +265,17 @@ class TCPStream {
 		int count = self.read(chunk, capacity, timeoutMilliseconds);
 		if (count > 0) { result.appendRaw((char*)chunk, count); }
 		return result;
+	}
+
+	/* Read up to `maximum` bytes and append them to `out`, returning the byte
+	 * count or a TCPStreamRead status value. */
+	public int readInto(Bytes out, int maximum, int timeoutMilliseconds) {
+		if (out == null || maximum <= 0) { return TCP_STREAM_READ_FAILED; }
+		unsigned char chunk[16384];
+		int capacity = maximum < 16384 ? maximum : 16384;
+		int count = self.read(chunk, capacity, timeoutMilliseconds);
+		if (count > 0) { out.appendRaw((char*)chunk, count); }
+		return count;
 	}
 
 	/* Send every byte before the deadline. False when the peer closed, time

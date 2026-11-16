@@ -2080,13 +2080,16 @@ class StatementAnalyzer:
         if cls is None or not cls.generic_params:
             return False
         if iter_type.base == "Map" and len(iter_type.generic_args) == 2:
-            return all(field in cls.fields for field in ("cap", "occupied", "keys", "values"))
+            return all(cls.fields.get(field) is not None for field in ("cap", "occupied", "keys", "values"))
         if iter_type.base == "Set" and len(iter_type.generic_args) == 1:
-            return all(field in cls.fields for field in ("cap", "occupied", "keys"))
-        if iter_type.base == "List" and len(iter_type.generic_args) == 1 and "head" in cls.fields:
+            return all(cls.fields.get(field) is not None for field in ("cap", "occupied", "keys"))
+        if iter_type.base == "List" and len(iter_type.generic_args) == 1 and cls.fields.get("head") is not None:
             node_cls = self.index.class_table.get("ListNode")
             return bool(
-                node_cls and node_cls.generic_params and "value" in node_cls.fields and "next" in node_cls.fields
+                node_cls
+                and node_cls.generic_params
+                and node_cls.fields.get("value") is not None
+                and node_cls.fields.get("next") is not None
             )
         return False
 

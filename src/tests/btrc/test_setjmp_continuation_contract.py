@@ -23,7 +23,7 @@ def test_selfhost_qualifies_try_finally_loop_continuations(
                     finallyCount++;
                 }
             }
-            assert(finallyCount == 2);
+            assert(finallyCount == 4);
             return 0;
         }
     """

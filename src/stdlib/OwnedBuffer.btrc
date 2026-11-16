@@ -169,6 +169,10 @@ class OwnedBuffer<T> {
 		OwnedBuffers.close(&storage);
 	}
 
+	public size_t length {
+		get { return self.count(); }
+	}
+
 	public void __del__() { self.close(); }
 }
 
@@ -196,6 +200,10 @@ class AtomicBuffer<T> {
 		struct OwnedBufferStorage* storage = self._storage;
 		self._storage = null;
 		OwnedBuffers.close(&storage);
+	}
+
+	public size_t length {
+		get { return self.count(); }
 	}
 
 	public void __del__() { self.close(); }

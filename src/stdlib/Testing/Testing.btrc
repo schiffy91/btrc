@@ -1,0 +1,294 @@
+/* btrc standard library: structured assertions, isolated test directories, and test suites. */
+
+import Library.Bytes;
+import Library.Console;
+import Library.FileSystem;
+import Library.Strings;
+import Library.Vector;
+
+class Expect {
+	public Expect() {}
+
+	class void fail(string message = "assertion failed") { throw message == null || message.isEmpty() ? "assertion failed" : message; }
+
+	class void isTrue(bool condition, string message = "expected condition to be true") {
+		if (!condition) {
+			Expect.fail(message);
+		}
+	}
+
+	class void isFalse(bool condition, string message = "expected condition to be false") {
+		if (condition) {
+			Expect.fail(message);
+		}
+	}
+
+	class void strEq(string actual, string expected, string message = "") {
+		if (actual != expected) {
+			string shownActual = actual == null ? "<null>" : f"\"{actual}\"";
+			string shownExpected = expected == null ? "<null>" : f"\"{expected}\"";
+			string detail = f"expected {shownExpected}, got {shownActual}";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class void strNe(string actual, string unexpected, string message = "") {
+		if (actual == unexpected) {
+			string shown = actual == null ? "<null>" : f"\"{actual}\"";
+			string detail = f"expected value different from {shown}";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class void intEq(long long actual, long long expected, string message = "") {
+		if (actual != expected) {
+			string detail = f"expected {expected}, got {actual}";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class void intNe(long long actual, long long unexpected, string message = "") {
+		if (actual == unexpected) {
+			string detail = f"expected integer different from {unexpected}";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class void boolEq(bool actual, bool expected, string message = "") {
+		if (actual != expected) {
+			string detail = f"expected {expected}, got {actual}";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class void bytesEq(Bytes actual, Bytes expected, string message = "") {
+		if (actual == null || expected == null) {
+			if (actual != expected) {
+				Expect.fail(message == null || message.isEmpty() ? "expected equal Bytes values, got null mismatch" : message);
+			}
+			return;
+		}
+		if (!actual.equals(expected)) {
+			string detail = f"expected {expected.len} bytes ({expected.toHex()}), got {actual.len} bytes ({actual.toHex()})";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class void contains(string haystack, string needle, string message = "") {
+		if (haystack == null || needle == null || !haystack.contains(needle)) {
+			string shownHaystack = haystack == null ? "<null>" : f"\"{haystack}\"";
+			string shownNeedle = needle == null ? "<null>" : f"\"{needle}\"";
+			string detail = f"expected {shownHaystack} to contain {shownNeedle}";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class void notContains(string haystack, string needle, string message = "") {
+		if (haystack != null && needle != null && haystack.contains(needle)) {
+			string detail = f"expected \"{haystack}\" not to contain \"{needle}\"";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class void startsWith(string text, string prefix, string message = "") {
+		if (text == null || prefix == null || !text.startsWith(prefix)) {
+			string shownText = text == null ? "<null>" : f"\"{text}\"";
+			string shownPrefix = prefix == null ? "<null>" : f"\"{prefix}\"";
+			string detail = f"expected {shownText} to start with {shownPrefix}";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class void endsWith(string text, string suffix, string message = "") {
+		if (text == null || suffix == null || !text.endsWith(suffix)) {
+			string shownText = text == null ? "<null>" : f"\"{text}\"";
+			string shownSuffix = suffix == null ? "<null>" : f"\"{suffix}\"";
+			string detail = f"expected {shownText} to end with {shownSuffix}";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+	}
+
+	class string throws(CFunction<void> action, string expectedSubstring = "", string message = "") {
+		bool raised = false;
+		string caught = "";
+		try {
+			action();
+		} catch (string err) {
+			raised = true;
+			caught = err;
+		}
+		if (!raised) {
+			Expect.fail(message == null || message.isEmpty() ? "expected action to throw, got normal return" : message);
+		}
+		if (expectedSubstring != null && !expectedSubstring.isEmpty() && !caught.contains(expectedSubstring)) {
+			string detail = f"expected thrown message \"{caught}\" to contain \"{expectedSubstring}\"";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+		return caught;
+	}
+
+	public void eq<T>(T actual, T expected, string message = "") {
+		if (!__btrc_eq(actual, expected)) {
+			Expect.fail(message == null || message.isEmpty() ? "expected values to be equal" : message);
+		}
+	}
+
+	public void ne<T>(T actual, T unexpected, string message = "") {
+		if (__btrc_eq(actual, unexpected)) {
+			Expect.fail(message == null || message.isEmpty() ? "expected values to differ" : message);
+		}
+	}
+
+	public void isNull<T>(T? value, string message = "expected null") {
+		if (value != null) {
+			Expect.fail(message);
+		}
+	}
+
+	public void notNull<T>(T? value, string message = "expected non-null") {
+		if (value == null) {
+			Expect.fail(message);
+		}
+	}
+
+	public string throwsWith<T>(T context, CFunction<void, T> action, string expectedSubstring = "", string message = "") {
+		bool raised = false;
+		string caught = "";
+		try {
+			action(context);
+		} catch (string err) {
+			raised = true;
+			caught = err;
+		}
+		if (!raised) {
+			Expect.fail(message == null || message.isEmpty() ? "expected action to throw, got normal return" : message);
+		}
+		if (expectedSubstring != null && !expectedSubstring.isEmpty() && !caught.contains(expectedSubstring)) {
+			string detail = f"expected thrown message \"{caught}\" to contain \"{expectedSubstring}\"";
+			Expect.fail(message == null || message.isEmpty() ? detail : f"{message}: {detail}");
+		}
+		return caught;
+	}
+}
+
+/* Scope-owned isolated temporary directory that removes its tree on drop. */
+class TestDir {
+	public string path;
+	private bool cleaned;
+
+	public TestDir(string prefix = "btrc-test-") {
+		string created = FileSystem.tempDir(prefix);
+		if (created.isEmpty()) {
+			throw f"Cannot create temporary test directory with prefix: {prefix}";
+		}
+		self.path = created;
+		self.cleaned = false;
+	}
+
+	public string join(string relative) {
+		if (relative == null || relative.isEmpty()) { return self.path; }
+		return PathTools.join(self.path, relative);
+	}
+
+	public string mkdir(string relative, int mode = 0o755) {
+		string target = self.join(relative);
+		if (FileSystem.mkdirp(target, mode) != 0) {
+			throw f"Cannot create test directory: {target}";
+		}
+		return target;
+	}
+
+	public string writeFile(string relative, string content, int mode = 0o644) {
+		string target = self.join(relative);
+		string parent = PathTools.dirname(target);
+		if (!parent.isEmpty() && FileSystem.mkdirp(parent) != 0) {
+			throw f"Cannot create parent directory for test file: {target}";
+		}
+		if (!FileSystem.writeAtomic(target, content, mode)) {
+			throw f"Cannot write test file: {target}";
+		}
+		return target;
+	}
+
+	public string writeBytes(string relative, Bytes content, int mode = 0o644) {
+		string target = self.join(relative);
+		string parent = PathTools.dirname(target);
+		if (!parent.isEmpty() && FileSystem.mkdirp(parent) != 0) {
+			throw f"Cannot create parent directory for test file: {target}";
+		}
+		if (!FileSystem.writeAtomicBytes(target, content, mode)) {
+			throw f"Cannot write binary test file: {target}";
+		}
+		return target;
+	}
+
+	public void cleanup() {
+		if (!self.cleaned && !self.path.isEmpty()) {
+			self.cleaned = true;
+			FileSystem.removeRecursive(self.path);
+		}
+	}
+
+	public void __del__() { self.cleanup(); }
+}
+
+class TestCase {
+	public string name;
+	public CFunction<void> body;
+
+	public TestCase(string name, CFunction<void> body) {
+		self.name = name;
+		self.body = body;
+	}
+}
+
+class TestSuite {
+	public string name;
+	public Vector<TestCase> cases;
+
+	public TestSuite(string name) {
+		self.name = name;
+		self.cases = [];
+	}
+
+	public TestSuite add(string name, CFunction<void> body) {
+		self.cases.push(TestCase(name, body));
+		return self;
+	}
+
+	public int run() {
+		int failures = 0;
+		for item in self.cases {
+			try {
+				item.body();
+			} catch (string err) {
+				failures = failures + 1;
+				Console.error(f"FAIL [{self.name} :: {item.name}]: {err}");
+			}
+		}
+		if (failures > 0) {
+			Console.error(f"FAILED: {self.name} ({failures} of {self.cases.len} failed)");
+			return 1;
+		}
+		Console.log(f"PASS: {self.name} ({self.cases.len} cases)");
+		return 0;
+	}
+}
+
+class Test {
+	class void section(string name, CFunction<void> body) {
+		try {
+			body();
+		} catch (string err) {
+			throw f"[{name}] {err}";
+		}
+	}
+
+	class int run(string suiteName, Vector<TestCase> cases) {
+		TestSuite suite = TestSuite(suiteName);
+		for item in cases {
+			suite.cases.push(item);
+		}
+		return suite.run();
+	}
+}

@@ -9,8 +9,8 @@ the API surface, so the layout follows a few fixed rules.
   imports only other root modules. The root set is also the legacy relaxed
   composition unit (`import Library.*`) and the prebuilt core archive, so
   nothing with a native binding, a nested source graph, or a dependency on a
-  group folder lives here; `Graph` is a folder for that reason even though it
-  holds one module today.
+  group folder lives here; `Graph` and `Testing` are folders for that reason
+  even though each holds one module today.
   The root manifest selects the private `Process` and `IO` host providers.
   Strict imports, relaxed composition and the core archive load those providers
   for the target row; root source files keep their imports within the prelude.
@@ -101,7 +101,7 @@ Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 (`Linux/`, `MacOS/`, `Unix/`), `Bluetooth` (`Linux/`, `MacOS/`, `Unix/`), `Crypto` (`Linux/`, `MacOS/`, `Unix/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`,
 `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`, `Windows/`), `HID`, `HTTP`, `Image`
 (`Linux/`, `MacOS/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`), `Network`
-(`Unix/`), `Realtime`, `Terminal` (`Unix/`, `Windows/`), `Tray` (`Linux/`, `MacOS/`), `UI`,
+(`Unix/`), `Realtime`, `Terminal` (`Unix/`, `Windows/`), `Testing`, `Tray` (`Linux/`, `MacOS/`), `UI`,
 `USB` (`Linux/`, `MacOS/`, `Unix/`).
 Each group with behavior worth explaining has its own `README.md`.
 

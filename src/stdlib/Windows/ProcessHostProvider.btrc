@@ -26,6 +26,8 @@ class ProcessHostOutcome {
 	public int code;
 	public string out;
 	public string err;
+	public Bytes outBytes;
+	public Bytes errBytes;
 	public int capturedStdoutBytes;
 	public int capturedStderrBytes;
 	public bool timedOut;
@@ -38,6 +40,8 @@ class ProcessHostOutcome {
 		self.code = 0;
 		self.out = "";
 		self.err = "";
+		self.outBytes = Bytes();
+		self.errBytes = Bytes();
 		self.capturedStdoutBytes = 0;
 		self.capturedStderrBytes = 0;
 		self.timedOut = false;
@@ -172,7 +176,7 @@ class ProcessHostProvider {
 
 	/* Launch, wait under timeoutMilliseconds (0 waits for the child and every
 	 * EOF, as on Unix) and collect. Modes are the public enum values. */
-	class ProcessHostOutcome run(string executable, Vector<string> arguments, string cwd, Vector<string> environment, Vector<string> unsetEnvironment, int timeoutMilliseconds, int maxStdoutBytes, int maxStderrBytes, string stdinData, int stdinMode, int stdoutMode, int stderrMode) {
+	class ProcessHostOutcome run(string executable, Vector<string> arguments, string cwd, Vector<string> environment, Vector<string> unsetEnvironment, int timeoutMilliseconds, int maxStdoutBytes, int maxStderrBytes, string stdinData, int stdinMode, int stdoutMode, int stderrMode, Bytes? stdinBytes = null) {
 #if !defined(__MINGW32__)
 		/* The seam is qualified on the windows-gnu rows only; the MSVC row
 		 * keeps Process's imports and refuses the launch (design, M cells). */
@@ -204,6 +208,10 @@ class ProcessHostProvider {
 		bool hasStdinData = stdinData != null && !stdinData.isEmpty();
 		options.stdin_bytes = hasStdinData ? (unsigned char*)stdinData : NULL;
 		options.stdin_size = hasStdinData ? strlen(stdinData) : (size_t)0;
+		if (stdinBytes != null && stdinBytes.len > 0) {
+			options.stdin_bytes = (unsigned char*)stdinBytes.data;
+			options.stdin_size = (size_t)stdinBytes.len;
+		}
 		options.stdin_mode = (uint32_t)stdinMode;
 		options.stdout_mode = (uint32_t)stdoutMode;
 		options.stderr_mode = (uint32_t)stderrMode;
@@ -231,6 +239,8 @@ class ProcessHostProvider {
 		Bytes errors = ProcessHostProvider.captured(owner, 2);
 		outcome.out = output.toStringLossy();
 		outcome.err = errors.toStringLossy();
+		outcome.outBytes = output;
+		outcome.errBytes = errors;
 		outcome.capturedStdoutBytes = output.len;
 		outcome.capturedStderrBytes = errors.len;
 		outcome.timedOut = result.timed_out != (uint32_t)0;

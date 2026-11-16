@@ -16,6 +16,7 @@
  * `USBGadget.supported()` false and fail to open. */
 
 import Library.Bytes;
+import Library.Network.TCPStream;
 import Library.USB.USBDescriptors;
 import Library.USB.USBVirtualDevice;
 import Library.Vector;
@@ -74,6 +75,13 @@ class USBGadget {
 	/* Fill `descriptors` with what to wait on before the next `step`; the
 	 * number filled. `capacity` must be at least 2. */
 	public int watch(struct pollfd* descriptors, int capacity) { return self.open ? self.port.watch(descriptors, capacity) : 0; }
+
+	public int watchIn(PollSet set) {
+		if (set == null || !self.open) { return 0; }
+		int added = self.port.watch(set.cursor(), set.remaining());
+		set.advance(added);
+		return added;
+	}
 
 	private void request(unsigned char* bytes) {
 		USBSetup setup = USBSetup.decode(bytes);

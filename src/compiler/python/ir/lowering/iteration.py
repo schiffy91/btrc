@@ -41,7 +41,7 @@ from src.compiler.python.syntax.ast.generated import (
     VarDeclStmt,
 )
 
-from .ownership import ManagedLocal
+from .ownership import IterationBinding, ManagedLocal
 from .types import CodegenError, CTypeLowerer
 
 if TYPE_CHECKING:
@@ -57,18 +57,6 @@ if TYPE_CHECKING:
     )
     from .session import LoweringSession
     from .storage import StorageLowerer
-
-
-@dataclass(frozen=True)
-class IterationBinding:
-    """One value produced by ``iterGet``/``iterValueAt`` per iteration."""
-
-    name: str
-    c_type: str
-    type_expr: TypeExpr | None
-    value: IRExpr
-    owned: bool
-    retain_on_bind: bool = False
 
 
 @dataclass(slots=True)
@@ -692,9 +680,9 @@ class IterationLowerer:
         if cls_info is None or not cls_info.generic_params:
             return False
         if iter_type.base == "Map" and len(iter_type.generic_args) == 2:
-            return all(field in cls_info.fields for field in ("cap", "occupied", "keys", "values"))
+            return all(cls_info.fields.get(field) is not None for field in ("cap", "occupied", "keys", "values"))
         if iter_type.base == "Set" and len(iter_type.generic_args) == 1:
-            return all(field in cls_info.fields for field in ("cap", "occupied", "keys"))
+            return all(cls_info.fields.get(field) is not None for field in ("cap", "occupied", "keys"))
         return False
 
     def _is_direct_linked_list_iterable(self, iter_type: TypeExpr) -> bool:
@@ -710,11 +698,11 @@ class IterationLowerer:
         return bool(
             cls_info
             and cls_info.generic_params
-            and "head" in cls_info.fields
+            and cls_info.fields.get("head") is not None
             and node_cls
             and node_cls.generic_params
-            and "value" in node_cls.fields
-            and "next" in node_cls.fields
+            and node_cls.fields.get("value") is not None
+            and node_cls.fields.get("next") is not None
         )
 
     def _plan_hash_table_for_in(

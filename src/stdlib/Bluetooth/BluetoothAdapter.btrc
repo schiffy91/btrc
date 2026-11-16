@@ -11,6 +11,7 @@
 
 import Library.Bluetooth.BluetoothAddress;
 import Library.Bluetooth.BluetoothPairing;
+import Library.Network.TCPStream;
 import Library.Timer;
 
 #include <poll.h>
@@ -116,6 +117,13 @@ class BluetoothAdapter {
 	/* Fill `descriptors` with what to wait on before the next `step`; the
 	 * number filled, at most 1. */
 	public int watch(struct pollfd* descriptors, int capacity) { return self.open ? self.daemon.watch(descriptors, capacity) : 0; }
+
+	public int watchIn(PollSet set) {
+		if (set == null || !self.open) { return 0; }
+		int added = self.daemon.watch(set.cursor(), set.remaining());
+		set.advance(added);
+		return added;
+	}
 
 	/* Answer the pairing requests that arrived. False when the daemon went
 	 * away; the adapter is then closed. */

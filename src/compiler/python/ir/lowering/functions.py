@@ -53,6 +53,7 @@ from src.compiler.python.ir.nodes import (
     IRParam,
     IRReturn,
     IRSizeof,
+    IRStmt,
     IRStructDef,
     IRStructField,
     IRStructForward,
@@ -82,7 +83,7 @@ from .calls import (
     DefaultArgumentLoweringContext,
     GenericDefaultHelperPlan,
 )
-from .ownership import ManagedLifetimeLowerer, OwnershipLowerer
+from .ownership import IterationBinding, ManagedLifetimeLowerer, OwnershipLowerer
 from .types import CodegenError, CTypeLowerer
 
 if TYPE_CHECKING:
@@ -8554,8 +8555,6 @@ class FunctionLowerer:
         self._normalizing_void_main = bool(name == "main" and decl.return_type.base == "void")
         try:
             if is_vector_main and vec_param is not None:
-                from .iteration import IterationBinding
-
                 param_decl = decl.params[0]
                 vec_c_type = self._types.render(vec_param)
                 vec_prefix = vec_c_type[:-1] if vec_c_type.endswith("*") else vec_c_type

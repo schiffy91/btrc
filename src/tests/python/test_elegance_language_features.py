@@ -188,10 +188,11 @@ def test_main_vector_string_args_and_program_name(
         ],
         capture_output=True,
         text=True,
+        timeout=30,
         check=False,
     )
     assert build.returncode == 0, build.stderr
-    run = subprocess.run([str(exe), "alpha", "beta"], capture_output=True, text=True, check=False)
+    run = subprocess.run([str(exe), "alpha", "beta"], capture_output=True, text=True, timeout=30, check=False)
     assert run.returncode == 0, run.stderr
 
     void_source = """
@@ -222,8 +223,9 @@ def test_main_vector_string_args_and_program_name(
         ],
         capture_output=True,
         text=True,
+        timeout=30,
         check=False,
     )
     assert build_void.returncode == 0, build_void.stderr
-    run_void = subprocess.run([str(void_exe), "only"], capture_output=True, text=True, check=False)
+    run_void = subprocess.run([str(void_exe), "only"], capture_output=True, text=True, timeout=30, check=False)
     assert run_void.returncode == 0, run_void.stderr

@@ -381,7 +381,9 @@ def test_process_capture_has_no_named_reopen_path() -> None:
     assert "F_DUPFD_CLOEXEC" in source
     assert "moveOutsideStandardStreams" in source
     assert "childSourceOutsideStandardStreams" in source
-    assert "tmpfile()" in source
+    assert "tmpfile()" not in source
+    assert "ChildProcessInput" in source
+    assert "POLLOUT" in source
     assert "mkstemp" not in source
     assert "tempPath" not in source
     assert "withRedirections" not in source

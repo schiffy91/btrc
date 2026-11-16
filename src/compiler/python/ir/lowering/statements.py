@@ -779,13 +779,11 @@ class StatementLowerer:
                     with provenance.isolated_flow():
                         provenance.restore(_edge_flow(frame.return_flows))
                         ret_val = IRVar(name=frame.return_name) if frame.has_return_slot else None
-                        ret_stmts = self._ownership.materialize_prepared_return(
-                            ret_val,
-                            lambda outer: (
-                                outer.escape_flows.append(provenance.project_goto(outer.callable_depth)),
-                                outer.return_flows.append(provenance.project_goto(outer.callable_depth)),
-                            ),
-                        )
+                        ret_stmts, outer = self._ownership.materialize_prepared_return(ret_val)
+                        if outer is not None:
+                            projected = provenance.project_goto(outer.callable_depth)
+                            outer.escape_flows.append(projected)
+                            outer.return_flows.append(projected)
                     dispatch_stmts.append(
                         IRIf(
                             condition=IRBinOp(left=IRVar(name=frame.action_name), op="==", right=IRLiteral(text="1")),

@@ -182,7 +182,7 @@ class CallableValueSemantics:
             if (
                 not receiver_type.is_array
                 and receiver_type.pointer_depth <= 1
-                and "len" in class_info.fields
+                and class_info.fields.get("len") is not None
                 and (
                     (
                         receiver_type.base in {"Array", "List", "Map", "Set", "Vector"}

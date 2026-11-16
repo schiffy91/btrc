@@ -240,11 +240,12 @@ class CallAnalyzer:
 
     def _validate_builtin_method_call(self, expression, receiver_type) -> bool:
         callee = expression.callee
-        if isinstance(callee.obj, Identifier) and callee.obj.name in self.index.rich_enum_table:
-            self._validate_rich_enum_constructor(expression)
-            return True
-        if isinstance(callee.obj, Identifier) and callee.obj.name in self.index.class_table:
-            return False
+        if isinstance(callee.obj, Identifier) and self.session.scope.lookup(callee.obj.name) is None:
+            if callee.obj.name in self.index.rich_enum_table:
+                self._validate_rich_enum_constructor(expression)
+                return True
+            if callee.obj.name in self.index.class_table:
+                return False
         receiver_type = self.types.canonical_type(receiver_type)
         if self.types.is_scalar_string_value(receiver_type):
             spec = STRING_METHODS.get(callee.field)
@@ -700,7 +701,7 @@ class CallAnalyzer:
             self.session.error(f"Enum member '{name}' is not callable", identifier.line, identifier.col)
 
     def _known_field_callable(self, callee) -> bool:
-        if isinstance(callee.obj, Identifier):
+        if isinstance(callee.obj, Identifier) and self.session.scope.lookup(callee.obj.name) is None:
             owner = callee.obj.name
             rich = self.index.rich_enum_table.get(owner)
             if rich and any(variant.name == callee.field for variant in rich.variants):

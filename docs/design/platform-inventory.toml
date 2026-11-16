@@ -1473,6 +1473,19 @@ android-x86_64 = { parity = "os-restricted", implementation = "implemented", own
 
 [[rows]]
 kind = "operation"
+id = "Library.Testing"
+group = "stdlib/Testing"
+title = "Structured test assertions, isolated TestDir, and TestSuite runner"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc assertions and suite runner plus FileSystem tempDir/removeRecursive, which build on all slices" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc assertions and suite runner plus FileSystem tempDir/removeRecursive, which build on all slices" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc assertions and suite runner plus FileSystem tempDir/removeRecursive, which build on all slices" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc assertions and suite runner plus FileSystem tempDir/removeRecursive, which build on all slices" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc assertions and suite runner plus FileSystem tempDir/removeRecursive, which build on all slices" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc assertions and suite runner plus FileSystem tempDir/removeRecursive, which build on all slices" }
+
+[[rows]]
+kind = "operation"
 id = "Library.Timer"
 group = "stdlib"
 title = "Monotonic timer and sleep"

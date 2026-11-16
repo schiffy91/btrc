@@ -544,8 +544,34 @@ class FunctionLowerer {
 		self.callableLowering.placeLifted(self.context.activeModule());
 	}
 
-	public IRNode lowerBody(Node body, Map<string, Node> variableTypes) {
+	public IRNode lowerBody(Node body, Map<string, Node> variableTypes, Node? vectorMainParam = null, Node? vectorMainType = null) {
 		CallableFlowState callableFlow = CallableFlowState();
+		if (vectorMainParam != null && vectorMainType != null) {
+			string vecPrefix = TypeIdentity.mangleGenericType("Vector", vectorMainType.genericArgs());
+			string vecCType = self.cTypes.lower(vectorMainType);
+			if (vecCType.length() < 1 || vecCType.substring(vecCType.length() - 1, 1) != "*") {
+				vecCType = vecCType + "*";
+			}
+			string argIdx = self.context.freshTemporary("__btrc_arg_i");
+			self.context.activateSourceName(vectorMainParam.name, self.lexicalBindingCName(vectorMainParam.name));
+			string argsCName = self.context.sourceCName(vectorMainParam.name);
+			Vector<IRNode> noArgs = [];
+			Vector<IRNode> declarations = [IRNode.variableDeclaration(vecCType, argsCName, IRNode.call(vecPrefix + "_new", noArgs))];
+			Vector<string> sourceNames = [vectorMainParam.name];
+			Vector<Node> types = [vectorMainType];
+			Vector<bool> owned = [true];
+			IRNode argvElem = IRNode.indexAccess(IRNode.variable("__btrc_argv"), IRNode.variable(argIdx));
+			IRNode safeArg = IRNode.ternary(IRNode.binary(argvElem, "!=", IRNode.literal("NULL")), argvElem, IRNode.literal("\"\""));
+			Vector<IRNode> pushArgs = [IRNode.variable(argsCName), safeArg];
+			Vector<IRNode> loopStmts = [IRNode.expressionStatement(IRNode.call(vecPrefix + "_push", pushArgs))];
+			IRNode init = IRNode.variableDeclaration("int", argIdx, IRNode.literal("1"));
+			IRNode cond = IRNode.binary(IRNode.variable(argIdx), "<", IRNode.variable("__btrc_argc"));
+			IRNode upd = IRNode.unary("++", IRNode.variable(argIdx), false);
+			Vector<IRNode> prologue = [IRNode.forStatement(init, cond, upd, IRNode.block(loopStmts))];
+			IRNode loweredMain = self.statements.lowerBlockWithBindings(body, variableTypes, declarations, sourceNames, types, owned, callableFlow, null, prologue);
+			self.materializePendingCallables();
+			return loweredMain;
+		}
 		IRNode lowered = self.statements.lowerBlock(body, variableTypes, callableFlow);
 		self.materializePendingCallables();
 		return lowered;
@@ -571,34 +597,6 @@ class FunctionLowerer {
 		self.context.currentReturnType = previousReturn;
 		self.context.currentReturnOwned = previousReturnOwned;
 		self.gpuPipeline.finishCpuFallback(plan, body, module);
-	}
-
-	public IRNode lowerVectorMainBody(Node body, Node paramDecl, Node vecType, Map<string, Node> variableTypes) {
-		CallableFlowState callableFlow = CallableFlowState();
-		string vecPrefix = TypeIdentity.mangleGenericType("Vector", vecType.genericArgs());
-		string vecCType = self.cTypes.lower(vecType);
-		if (vecCType.length() < 1 || vecCType.substring(vecCType.length() - 1, 1) != "*") {
-			vecCType = vecCType + "*";
-		}
-		string argIdx = self.context.freshTemporary("__btrc_arg_i");
-		self.context.activateSourceName(paramDecl.name, self.lexicalBindingCName(paramDecl.name));
-		string argsCName = self.context.sourceCName(paramDecl.name);
-		Vector<IRNode> noArgs = [];
-		Vector<IRNode> declarations = [IRNode.variableDeclaration(vecCType, argsCName, IRNode.call(vecPrefix + "_new", noArgs))];
-		Vector<string> sourceNames = [paramDecl.name];
-		Vector<Node> types = [vecType];
-		Vector<bool> owned = [true];
-		IRNode argvElem = IRNode.indexAccess(IRNode.variable("__btrc_argv"), IRNode.variable(argIdx));
-		IRNode safeArg = IRNode.ternary(IRNode.binary(argvElem, "!=", IRNode.literal("NULL")), argvElem, IRNode.literal("\"\""));
-		Vector<IRNode> pushArgs = [IRNode.variable(argsCName), safeArg];
-		Vector<IRNode> loopStmts = [IRNode.expressionStatement(IRNode.call(vecPrefix + "_push", pushArgs))];
-		IRNode init = IRNode.variableDeclaration("int", argIdx, IRNode.literal("1"));
-		IRNode cond = IRNode.binary(IRNode.variable(argIdx), "<", IRNode.variable("__btrc_argc"));
-		IRNode upd = IRNode.unary("++", IRNode.variable(argIdx), false);
-		Vector<IRNode> prologue = [IRNode.forStatement(init, cond, upd, IRNode.block(loopStmts))];
-		IRNode lowered = self.statements.lowerBlockWithBindings(body, variableTypes, declarations, sourceNames, types, owned, callableFlow, null, prologue);
-		self.materializePendingCallables();
-		return lowered;
 	}
 
 	public IRFunction lowerFunction(Node d) {
@@ -656,7 +654,7 @@ class FunctionLowerer {
 			if (isVectorMain && vecParamType != null) {
 				Vector<Node> noParams = [];
 				Vector<string> sourceBindings = self.replaceSourceLexicalParameters(noParams);
-				IRNode b = self.lowerVectorMainBody(d.bodyNode, d.params().get(0), vecParamType, varTypes);
+				IRNode b = self.lowerBody(d.bodyNode, varTypes, d.params().get(0), vecParamType);
 				fn.body = b;
 				self.context.restoreSourceBindings(sourceBindings);
 			} else {

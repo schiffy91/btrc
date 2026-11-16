@@ -78,6 +78,114 @@ class Bytes {
 		self.len++;
 	}
 
+	public void push(int b) { self.append(b); }
+
+	public int readU16LE(int offset) {
+		if (offset < 0 || offset > self.len - 2) { throw "Bytes readU16LE out of bounds"; }
+		return self.get(offset) | (self.get(offset + 1) << 8);
+	}
+
+	public int readU16BE(int offset) {
+		if (offset < 0 || offset > self.len - 2) { throw "Bytes readU16BE out of bounds"; }
+		return (self.get(offset) << 8) | self.get(offset + 1);
+	}
+
+	public unsigned int readU32LE(int offset) {
+		if (offset < 0 || offset > self.len - 4) { throw "Bytes readU32LE out of bounds"; }
+		return (unsigned int)self.get(offset) | ((unsigned int)self.get(offset + 1) << 8) | ((unsigned int)self.get(offset + 2) << 16) | ((unsigned int)self.get(offset + 3) << 24);
+	}
+
+	public unsigned int readU32BE(int offset) {
+		if (offset < 0 || offset > self.len - 4) { throw "Bytes readU32BE out of bounds"; }
+		return ((unsigned int)self.get(offset) << 24) | ((unsigned int)self.get(offset + 1) << 16) | ((unsigned int)self.get(offset + 2) << 8) | (unsigned int)self.get(offset + 3);
+	}
+
+	public unsigned long long readU64LE(int offset) {
+		if (offset < 0 || offset > self.len - 8) { throw "Bytes readU64LE out of bounds"; }
+		unsigned long long value = 0ULL;
+		for (int i = 0; i < 8; i++) {
+			value = value | ((unsigned long long)self.get(offset + i) << (i * 8));
+		}
+		return value;
+	}
+
+	public unsigned long long readU64BE(int offset) {
+		if (offset < 0 || offset > self.len - 8) { throw "Bytes readU64BE out of bounds"; }
+		unsigned long long value = 0ULL;
+		for (int i = 0; i < 8; i++) {
+			value = (value << 8) | (unsigned long long)self.get(offset + i);
+		}
+		return value;
+	}
+
+	public void appendU16LE(int value) {
+		self.append(value & 255);
+		self.append((value >> 8) & 255);
+	}
+
+	public void appendU16BE(int value) {
+		self.append((value >> 8) & 255);
+		self.append(value & 255);
+	}
+
+	public void appendU32LE(unsigned int value) {
+		self.append((int)(value & 255U));
+		self.append((int)((value >> 8) & 255U));
+		self.append((int)((value >> 16) & 255U));
+		self.append((int)((value >> 24) & 255U));
+	}
+
+	public void appendU32BE(unsigned int value) {
+		self.append((int)((value >> 24) & 255U));
+		self.append((int)((value >> 16) & 255U));
+		self.append((int)((value >> 8) & 255U));
+		self.append((int)(value & 255U));
+	}
+
+	public void appendU64LE(unsigned long long value) {
+		for (int i = 0; i < 8; i++) {
+			self.append((int)((value >> (i * 8)) & 255ULL));
+		}
+	}
+
+	public void appendU64BE(unsigned long long value) {
+		for (int i = 7; i >= 0; i--) {
+			self.append((int)((value >> (i * 8)) & 255ULL));
+		}
+	}
+
+	/* Lowercase hexadecimal representation of all `len` bytes. */
+	public string toHex() {
+		string digits = "0123456789abcdef";
+		Bytes out = Bytes();
+		for (int i = 0; i < self.len; i++) {
+			int b = self.get(i);
+			out.append((int)digits[(b >> 4) & 15]);
+			out.append((int)digits[b & 15]);
+		}
+		return out.toString();
+	}
+
+	class int hexValue(char ch) {
+		if (ch >= '0' && ch <= '9') { return (int)ch - (int)'0'; }
+		if (ch >= 'a' && ch <= 'f') { return (int)ch - (int)'a' + 10; }
+		if (ch >= 'A' && ch <= 'F') { return (int)ch - (int)'A' + 10; }
+		return -1;
+	}
+
+	/* Decode an even-length hexadecimal string into Bytes, or null when malformed. */
+	class Bytes? fromHex(string hex) {
+		if (hex == null || (hex.length() % 2) != 0) { return null; }
+		Bytes out = Bytes();
+		for (int i = 0; i < hex.length(); i += 2) {
+			int hi = Bytes.hexValue(hex[i]);
+			int lo = Bytes.hexValue(hex[i + 1]);
+			if (hi < 0 || lo < 0) { return null; }
+			out.append((hi << 4) | lo);
+		}
+		return out;
+	}
+
 	/* Append all bytes from another Bytes (memcpy — binary-safe). */
 	public void appendBytes(Bytes other) {
 		if (other == null || other.len == 0) { return; }

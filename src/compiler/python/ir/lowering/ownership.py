@@ -36,6 +36,7 @@ from src.compiler.python.ir.nodes import (
     IRParam,
     IRReturn,
     IRSizeof,
+    IRStatementSequence,
     IRStmt,
     IRStmtExpr,
     IRStructField,
@@ -93,6 +94,18 @@ BUILTIN_COLLECTION_LAYOUTS = {
 }
 STRING_RUNTIME_NAME = "__btrc_managed_string"
 MUTEX_RUNTIME_NAME = "__btrc_managed_mutex"
+
+
+@dataclass(frozen=True)
+class IterationBinding:
+    """One value bound into an iteration or synthetic entry scope."""
+
+    name: str
+    c_type: str
+    type_expr: TypeExpr | None
+    value: IRExpr
+    owned: bool
+    retain_on_bind: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -2114,6 +2127,73 @@ class OwnershipLowerer:
     def managed_scope_depth(self) -> int:
         return len(self._managed_vars_stack)
 
+    @property
+    def cleanup_scope_depth(self) -> int:
+        return self._cleanup_scope.depth
+
+    def is_managed_type(self, type_expr: TypeExpr | None) -> bool:
+        return self._values.is_managed(type_expr)
+
+    @contextmanager
+    def finally_return_slot_guard(self, plan):
+        """Guard a finally block's intercepted return slot with managed/exception cleanup."""
+        guard_return = bool(
+            plan.jump_frame is not None
+            and plan.jump_frame.has_return_slot
+            and (plan.return_slot_managed or plan.return_slot_is_thread)
+        )
+        marker: str | None = None
+        reg_stmts: list[IRStmt] = []
+        if guard_return and plan.jump_frame is not None:
+            marker = self._cleanup_scope.push()
+            self.push_managed_scope()
+            if plan.return_slot_managed and self._session.current_return_type is not None:
+                return_type = self._session.current_return_type
+                runtime_type = self._values.runtime_name(return_type)
+                self.register_synthetic_managed_slot(
+                    plan.jump_frame.return_name,
+                    runtime_type,
+                    return_type,
+                    cycle_seed=self._cycles.type_may_cycle(return_type),
+                )
+                if self._cleanup_scope.exception_cleanup_active():
+                    scratch = [*plan.statements]
+                    reg_start = len(scratch)
+                    recipe = self._lifetime.register_named_cleanup(plan.jump_frame.return_name, runtime_type, scratch)
+                    self.record_cleanup_registration(recipe)
+                    reg_stmts = scratch[reg_start:]
+            else:
+                self.register_synthetic_thread_slot(plan.jump_frame.return_name)
+                if self._cleanup_scope.exception_cleanup_active():
+                    self._session.require_helper("__btrc_thread_free")
+                    scratch = [*plan.statements]
+                    reg_start = len(scratch)
+                    recipe = self._lifetime.register_direct_cleanup(
+                        plan.jump_frame.return_name, "__btrc_thread_free", scratch
+                    )
+                    self.record_cleanup_registration(recipe)
+                    reg_stmts = scratch[reg_start:]
+        try:
+            yield
+        finally:
+            if guard_return:
+                self.pop_managed_scope()
+                if plan.finally_body is not None:
+                    falls_through = IRStatementSequence(plan.finally_body.stmts).may_fall_through()
+                    plan.finally_falls_through = falls_through
+                    marker_active = self._cleanup_scope.is_active(marker)
+                    marker_referenced = falls_through or IRStatementSequence(
+                        plan.finally_body.stmts
+                    ).references_variable(marker or "")
+                    if marker_active and marker_referenced:
+                        plan.statements.extend(self._cleanup_scope.entry(marker))
+                    plan.statements.extend(reg_stmts)
+                    if falls_through and marker_active:
+                        plan.return_cleanup_exit = tuple(self._cleanup_scope.exit(marker))
+                self._cleanup_scope.pop()
+            elif plan.finally_body is not None:
+                plan.finally_falls_through = IRStatementSequence(plan.finally_body.stmts).may_fall_through()
+
     def managed_scope(self, position: int) -> list[ManagedLocal]:
         return self._managed_vars_stack[position]
 
@@ -2601,25 +2681,25 @@ class OwnershipLowerer:
     def materialize_prepared_return(
         self,
         value: IRExpr | None,
-        provenance_escape_recorder=None,
-    ) -> list[IRStmt]:
+    ) -> tuple[list[IRStmt], TryJumpFrame | None]:
         """Return an already-prepared owned return slot after a finally block."""
         if self._session.try_jump_stack and self._session.try_jump_stack[-1].intercept_return:
             outer = self._session.try_jump_stack[-1]
-            if provenance_escape_recorder is not None:
-                provenance_escape_recorder(outer)
-            return self.materialize_intercepted_return(
-                outer,
-                ReturnPlan(
-                    source=object() if value is not None else None,
-                    return_type=self._session.current_return_type,
-                    return_c_type=self._session.current_return_c_type,
-                    returned_local=None,
+            return (
+                self.materialize_intercepted_return(
+                    outer,
+                    ReturnPlan(
+                        source=object() if value is not None else None,
+                        return_type=self._session.current_return_type,
+                        return_c_type=self._session.current_return_c_type,
+                        returned_local=None,
+                    ),
+                    value,
+                    None,
+                    effective_type=self._session.current_return_type,
+                    owned=True,
                 ),
-                value,
-                None,
-                effective_type=self._session.current_return_type,
-                owned=True,
+                outer,
             )
         if value is None:
             void_return_value = (
@@ -2632,12 +2712,15 @@ class OwnershipLowerer:
                 )
                 else None
             )
-            return [
-                *self._lifetime.release_scope(self.get_all_managed_vars()),
-                *self._emit_return_try_pop(),
-                *self._emit_return_cleanup_discard(),
-                IRReturn(value=void_return_value),
-            ]
+            return (
+                [
+                    *self._lifetime.release_scope(self.get_all_managed_vars()),
+                    *self._emit_return_try_pop(),
+                    *self._emit_return_cleanup_discard(),
+                    IRReturn(value=void_return_value),
+                ],
+                None,
+            )
         return_type = self._session.current_return_type
         return_c_type = self._session.current_return_c_type
         managed_return = self._values.is_managed(return_type) and self._session.current_return_owned
@@ -2645,7 +2728,7 @@ class OwnershipLowerer:
         try_pop = self._emit_return_try_pop()
         cleanup_discard = self._emit_return_cleanup_discard()
         if not release_stmts and (not try_pop) and (not cleanup_discard):
-            return [IRReturn(value=self._maybe_launder_return(value))]
+            return ([IRReturn(value=self._maybe_launder_return(value))], None)
         temporary = IRVarDecl(
             c_type=CType(text=return_c_type),
             name=self._session.fresh_temp("__btrc_ret"),
@@ -2658,7 +2741,10 @@ class OwnershipLowerer:
             runtime_type = self._values.runtime_name(return_type)
             self._lifetime.register_named_cleanup(temporary.name, runtime_type, prefix)
             cleanup_discard = self._emit_return_cleanup_discard()
-        return [*prefix, *release_stmts, *try_pop, *cleanup_discard, IRReturn(value=self._maybe_launder_return(result))]
+        return (
+            [*prefix, *release_stmts, *try_pop, *cleanup_discard, IRReturn(value=self._maybe_launder_return(result))],
+            None,
+        )
 
     def _emit_return_try_pop(self) -> list[IRStmt]:
         """Discard cleanups and pop try levels bypassed by a return."""
