@@ -1091,7 +1091,7 @@ def test_a_compiler_pull_request_runs_the_full_main_matrix(tmp_path: Path) -> No
     assert tier == "main"
     for workflow in CORE_WORKFLOWS:
         assert _plan(tmp_path, workflow, tier) == TIERS.plan(workflow, "main"), workflow
-    assert len(TIERS.plan("ci.yml", "main")["matrix"]["tests"]["include"]) == 13
+    assert len(TIERS.plan("ci.yml", "main")["matrix"]["tests"]["include"]) == 7
 
 
 def test_a_plain_pull_request_plans_from_its_changed_paths(tmp_path: Path) -> None:
@@ -1200,16 +1200,23 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
         "corpus-python",
         "corpus-btrc",
         "bootstrap",
-        *(f"c11-{cc}-{opt}" for cc in ("gcc", "clang") for opt in ("O0", "O1", "O2", "O3")),
+        "c11-gcc",
+        "c11-clang",
     ]
     for _, target in shards:
         rule = target.split()[0]
         assert f"\n{rule}:" in makefile, target
-    assert all(
-        f"C11_CC={shard.split('-')[1]} C11_OPT={shard.split('-')[2]}" in target
-        for shard, target in shards
-        if shard.startswith("c11-")
-    )
+    # One row per C compiler: its -O0 and -O2 cells run in sequence and share their generated C.
+    assert [target for shard, target in shards if shard.startswith("c11-")] == [
+        f"test-c11-compiler C11_CC={cc}" for cc in ("gcc", "clang")
+    ]
+    # -O1 and -O3 are nightly: the extended tier adds them, and a release runs every row.
+    nightly = [f"c11-{cc}-nightly" for cc in ("gcc", "clang")]
+    for tier in ("extended", "release"):
+        added = [row for row in _tier_shards("ci.yml", tier) if row not in shards]
+        assert added == [
+            (f"c11-{cc}-nightly", f"test-c11-compiler C11_CC={cc} C11_SET=nightly") for cc in ("gcc", "clang")
+        ]
     # Every shard restores the run's image and compiler and runs one make
     # target with the budgets the container needs: a helper driver is still
     # built against a cold cache, and the corpus's heaviest program does not
@@ -1221,10 +1228,9 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
     # software Vulkan, as `make linux-ci` does, so the GUI and adapter tests run.
     assert "btrc-devcontainer:latest tools/virtual-display.sh make NIX=" in _code(job)
     assert "tools/virtual-display.sh make NIX=" in (REPO / "tools/linux-ci.sh").read_text(encoding="utf-8")
-    # Every tier's rows are rows of this list: the extended and release tiers
-    # add none on Linux.
+    # Every tier's rows are rows of this list; only the nightly C11 rows are added to it.
     for tier in TIERS.scheduled_tiers():
-        assert {name for name, _ in _tier_shards("ci.yml", tier)} <= {name for name, _ in shards}, tier
+        assert {name for name, _ in _tier_shards("ci.yml", tier)} <= {*(name for name, _ in shards), *nightly}, tier
 
 
 PREPARED_JOBS = ("tests", "bench", "native-gui", "linux-gui", "linux-e40")
@@ -1344,14 +1350,18 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
     extended = _tier_shards("macos.yml", "extended")
     assert [shard for shard, _ in extended if shard not in dict(shards)] == ["c11-clang-O1", "c11-clang-O3"]
     shards = extended
-    # The shards reuse Linux CI's Makefile targets. Only the bootstrap row
-    # differs: test_bootstrap.py compiles with `cc`, which is GCC in the dev
-    # shell, not through default_c_compiler(), so the macOS row names clang.
+    # The shards reuse Linux CI's Makefile targets. The bootstrap row differs:
+    # test_bootstrap.py compiles with `cc`, which is GCC in the dev shell, not
+    # through default_c_compiler(), so the macOS row names clang. The C11 rows
+    # differ too: macOS keeps one row per cell, where a Linux row is one C
+    # compiler's cells in sequence.
     targets = dict(shards)
     for shard, target in targets.items():
         assert f"\n{target.split()[0]}:" in makefile, target
         if shard == "bootstrap":
             assert target == f"{linux[shard]} BTRC_CC=clang"
+        elif shard.startswith("c11-"):
+            assert target == f"test-c11-one C11_CC=clang C11_OPT={shard.rsplit('-', 1)[1]}", shard
         else:
             assert target == linux[shard], shard
     # The unit shard is where src/tests/debug runs, so it alone needs lldb.
@@ -2062,7 +2072,7 @@ def test_windows_daemon_corpus_runs_both_frontends_with_build_receipts() -> None
 
 
 def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
-    """CL-UIA-11: the GUI and audio suites under X11 and Wayland, on every push."""
+    """CL-UIA-11: the GUI and audio suites under X11 on every push, and under report-only Wayland nightly."""
 
     job = _parsed("ci.yml")["jobs"]["linux-gui"]
     assert job["name"] == "linux-gui (${{ matrix.cell }})"
@@ -2075,16 +2085,22 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
             "cell": f"{session}-{index}",
             "session": session,
             "index": str(index),
-            "count": "8",
+            "count": "4",
             "report_only": report_only,
         }
         for session, report_only in (("x11", "false"), ("wayland", "true"))
-        for index in range(8)
+        for index in range(4)
     ]
     assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
-    for tier in ("main", "extended", "release", "native-gui"):
+    gating = [row for row in rows if row["session"] == "x11"]
+    assert TIERS.plan("ci.yml", "main")["matrix"]["linux-gui"]["include"] == gating
+    for tier in ("extended", "release", "native-gui"):
         plan = TIERS.plan("ci.yml", tier)
         assert plan["matrix"]["linux-gui"]["include"] == rows, tier
+    # A pull request or lane that touches a GUI path runs the gating session, never the report-only one.
+    for tier in ("pr", "lane"):
+        touched = TIERS.plan("ci.yml", tier, ["src/stdlib/Audio/Linux/Alsa.btrc"])
+        assert touched["matrix"]["linux-gui"]["include"] == gating, tier
     assert "linux-gui" not in TIERS.plan("ci.yml", "docs")["jobs"]
     assert "linux-gui" not in TIERS.plan("ci.yml", "pr", ["src/stdlib/GUI/MacOS/Window.btrc"])["jobs"]
     assert "linux-gui" in TIERS.plan("ci.yml", "pr", ["src/stdlib/Audio/Linux/Alsa.btrc"])["jobs"]
@@ -2104,7 +2120,7 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
         assert (
             'podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 '
             f"BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION={row['session']} "
-            f"GUI_PARTITION={row['index']} GUI_PARTITIONS=8 test-shard-gui"
+            f"GUI_PARTITION={row['index']} GUI_PARTITIONS=4 test-shard-gui"
         ) in commands
     steps = job["steps"]
     evidence, junit, skips = steps[-3:]
@@ -2253,10 +2269,13 @@ def test_linux_e40_has_serial_cells_and_complete_artifacts() -> None:
     assert len(rows) == 8
     assert all(row["report_only"] == ("true" if row["session"] == "wayland" else "false") for row in rows)
     assert {(row["session"], row["frontend"], row["variant"], row["cell"]) for row in rows} == expected
-    for tier in ("main", "extended", "release", "native-gui"):
+    gating = [row for row in rows if row["session"] == "x11"]
+    assert TIERS.plan("ci.yml", "main")["matrix"]["linux-e40"]["include"] == gating
+    for tier in ("extended", "release", "native-gui"):
         assert TIERS.plan("ci.yml", tier)["matrix"]["linux-e40"]["include"] == rows
     for tier in ("pr", "lane"):
-        assert "linux-e40" in TIERS.plan("ci.yml", tier, ["src/stdlib/GUI/Linux/LinuxApplication.btrc"])["jobs"]
+        touched = TIERS.plan("ci.yml", tier, ["src/stdlib/GUI/Linux/LinuxApplication.btrc"])
+        assert touched["matrix"]["linux-e40"]["include"] == gating
         assert "linux-e40" not in TIERS.plan("ci.yml", tier, ["src/stdlib/GUI/MacOS/MacOSWindow.btrc"])["jobs"]
     assert "linux-e40" not in TIERS.plan("ci.yml", "docs")["jobs"]
     commands = _job_commands(job, "ci.yml", "linux-e40")
@@ -2556,7 +2575,11 @@ def test_linux_gui_union_is_required_and_keeps_wayland_report_only() -> None:
     assert "merge-multiple" not in fetch["with"]
     verify = next(step for step in job["steps"] if "tools.ui.gui_shards aggregate" in step.get("run", ""))
     assert verify["if"] == "always()"
-    assert '--count 8 --revision "$GITHUB_SHA"' in verify["run"]
+    assert '--count 4 --revision "$GITHUB_SHA"' in verify["run"]
+    # The gating session's union is checked on every push; the report-only session's with its rows, nightly.
+    assert TIERS.plan("ci.yml", "main")["matrix"]["linux-gui-coverage"]["include"] == rows[:1]
+    for tier in ("extended", "release", "native-gui"):
+        assert TIERS.plan("ci.yml", tier)["matrix"]["linux-gui-coverage"]["include"] == rows, tier
     assert "continue-on-error" not in verify
     assert job["steps"][-1]["if"] == "always()"
 
@@ -2947,7 +2970,7 @@ def test_the_owners_pass_for_one_cell_drops_that_cell_alone(tmp_path: Path) -> N
     assert [row["shard"] for row in plan["matrix"]["tests"]["include"]] == [
         row["shard"] for row in full["matrix"]["tests"]["include"] if row["shard"] != "unit"
     ]
-    assert "skip-report-ci-tests-unit" not in plan["reports"]["tests"] and len(plan["reports"]["tests"]) == 13
+    assert "skip-report-ci-tests-unit" not in plan["reports"]["tests"] and len(plan["reports"]["tests"]) == 7
     assert {name: plan[name] for name in ("tier", "jobs")} == {name: full[name] for name in ("tier", "jobs")}
     assert f"Passed locally, not run here: `{LOCAL_UNIT}`" in (tmp_path / "summary").read_text(encoding="utf-8")
     # The four required macOS E40 cells, minus the one with a local pass; Linux's pass drops nothing there.

@@ -1941,7 +1941,8 @@ make test-btrc-selfhost     # Language corpus through the self-hosted compiler (
 make bootstrap              # Prove the self-hosted compiler's byte-stable fixed point
 make test-boundaries        # Check the frozen compiler boundaries (portable records)
 make test-boundaries-observed # Require the recorded local GCC/Clang behavior envelope
-make test-c11               # Strict, warning-free C11: gcc + clang at -O0 through -O3
+make test-c11               # Strict, warning-free C11: gcc + clang at -O0 and -O2
+make test-nightly           # The nightly set: the 600-second E40 loads, and strict C11 at -O1 and -O3
 make test-c11-one           # One C11 configuration: C11_CC=gcc|clang C11_OPT=O0..O3
 make test-shard-*           # The five CI shards (unit, btrc, corpus-python,
                             #   corpus-btrc, bootstrap)

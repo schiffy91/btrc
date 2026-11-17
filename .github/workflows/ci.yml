@@ -599,10 +599,12 @@ jobs:
           retention-days: 14
 
   # The Linux GUI and audio shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
-  # `make test-shard-gui` in eight disjoint partitions per protocol, each in its own
+  # `make test-shard-gui` in four disjoint partitions per protocol, each in its own
   # tools/ui/headless-session.sh session (Xvfb, or weston's headless backend)
   # with lavapipe as the GPU adapter and the null ALSA PCM as the sound card.
-  # Unlike the native-gui job it runs on every push, and under Wayland too.
+  # Unlike the native-gui job its X11 rows run on every push; the report-only
+  # Wayland rows run nightly (the extended tier), in a release and in the
+  # native-gui dispatch.
   # Each row keeps its session's AT-SPI dump, the native-shell ledgers, the
   # shell and restore logs pytest left, and its JUnit results.
   linux-gui:
@@ -704,7 +706,7 @@ jobs:
           path: build/gui-partitions/${{ matrix.session }}
       - name: Prove the complete disjoint session coverage
         if: always()
-        run: python3 -m tools.ui.gui_shards aggregate --session ${{ matrix.session }} --count 8 --revision "$GITHUB_SHA" --input build/gui-partitions/${{ matrix.session }} --output build/gui-union-${{ matrix.session }}.json
+        run: python3 -m tools.ui.gui_shards aggregate --session ${{ matrix.session }} --count 4 --revision "$GITHUB_SHA" --input build/gui-partitions/${{ matrix.session }} --output build/gui-union-${{ matrix.session }}.json
       - name: Retain the session coverage proof
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -715,7 +717,8 @@ jobs:
           retention-days: 14
 
   # Each row runs 16 repeated bursts and one 600-second load serially.
-  # X11 gates; Wayland retains the approved carried residual.
+  # X11 gates on every push; Wayland retains the approved carried residual
+  # and runs with the other report-only Wayland rows, nightly.
   linux-e40:
     needs: [scope, prepare]
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-e40')

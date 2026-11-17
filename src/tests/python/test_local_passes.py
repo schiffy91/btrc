@@ -218,7 +218,7 @@ def test_the_tier_model_names_a_local_jobs_platform():
 
 def test_local_jobs_are_named_as_github_shows_them_and_run_through_the_clone():
     entries = LOCAL.entries()
-    assert len(entries) == len({entry.context for entry in entries}) == 32
+    assert len(entries) == len({entry.context for entry in entries}) == 22
     by_name = {entry.name: entry for entry in entries}
     unit = by_name["CI / tests (unit)"]
     assert unit.context == UNIT and unit.context.startswith(CONTEXT_PREFIX)

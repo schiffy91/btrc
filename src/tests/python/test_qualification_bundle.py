@@ -171,12 +171,31 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
         "linux-gui-coverage",
         "linux-e40",
     ]
-    assert len(ci["matrix"]["tests"]["include"]) == 13
-    assert list(_rows(ci, "linux-gui")) == [
-        f"{session}-{index}" for session in ("x11", "wayland") for index in range(8)
+    assert list(_rows(ci, "tests")) == [
+        "unit",
+        "btrc",
+        "corpus-python",
+        "corpus-btrc",
+        "bootstrap",
+        "c11-gcc",
+        "c11-clang",
     ]
-    assert list(_rows(ci, "linux-gui-coverage")) == ["x11", "wayland"]
+    # A push runs the gating X11 session; the report-only Wayland rows are nightly.
+    assert list(_rows(ci, "linux-gui")) == [f"x11-{index}" for index in range(4)]
+    assert list(_rows(ci, "linux-gui-coverage")) == ["x11"]
     assert list(_rows(ci, "linux-e40")) == [
+        f"x11-{frontend}-{variant}" for frontend in ("python", "selfhost") for variant in ("plain", "sanitized")
+    ]
+    nightly = manifest.plan("ci.yml", "extended")
+    assert [name for name in _rows(nightly, "tests") if name not in _rows(ci, "tests")] == [
+        "c11-gcc-nightly",
+        "c11-clang-nightly",
+    ]
+    assert list(_rows(nightly, "linux-gui")) == [
+        f"{session}-{index}" for session in ("x11", "wayland") for index in range(4)
+    ]
+    assert list(_rows(nightly, "linux-gui-coverage")) == ["x11", "wayland"]
+    assert list(_rows(nightly, "linux-e40")) == [
         f"{session}-{frontend}-{variant}"
         for session in ("x11", "wayland")
         for frontend in ("python", "selfhost")
@@ -467,9 +486,7 @@ def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(
     rows = list(_rows(ci, "tests"))
     heavy = "bench" in linux
     assert rows == (list(_rows(manifest.plan("ci.yml", "main"), "tests")) if heavy else ["unit"])
-    assert list(_rows(ci, "linux-gui")) == (
-        [f"{session}-{index}" for session in ("x11", "wayland") for index in range(8)] if "linux-gui" in linux else []
-    )
+    assert list(_rows(ci, "linux-gui")) == ([f"x11-{index}" for index in range(4)] if "linux-gui" in linux else [])
     plan = manifest.plan("macos.yml", "lane", changed)
     assert plan["jobs"] == macos
     assert list(_rows(plan, "native-bundle")) == (["macos-arm64"] if macos else [])
@@ -508,7 +525,7 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
     assert expected["ci.yml/linux-gui"] == [
         f"{kind}-ci-linux-gui-{session}-{index}"
         for session in ("x11", "wayland")
-        for index in range(8)
+        for index in range(4)
         for kind in ("skip-report", "junit")
     ]
     assert expected["ci.yml/linux-e40"] == [
@@ -526,7 +543,8 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
     ]
     assert "boundary-report-ci-tests-bootstrap" in expected["ci.yml/tests"]
     assert "boundary-report-macos-tests-bootstrap" in expected["macos.yml/tests"]
-    assert len([name for name in expected["ci.yml/tests"] if name.startswith("skip-report-")]) == 13
+    # Five shards and four C11 rows, each row's artifact holding its two cells' reports.
+    assert len([name for name in expected["ci.yml/tests"] if name.startswith("skip-report-")]) == 9
     assert len([name for name in expected["macos.yml/tests"] if name.startswith("skip-report-")]) == 9
     assert expected["windows.yml/windows"] == ["skip-report-windows-windows"]
     assert expected["windows.yml/bootstrap"] == ["skip-report-windows-bootstrap"]
@@ -542,7 +560,7 @@ def test_the_tiers_command_prints_one_line_of_json(tmp_path: Path, capsys: pytes
     assert code == 0 and out.count("\n") == 1
     assert json.loads(out) == _manifest().plan("ci.yml", "pr", ["src/tests/strings/Foo.btrc"])
     assert QualificationCommand().run(["tiers"]) == 0
-    assert "ci.yml main: 7 job(s), 39 matrix row(s)" in capsys.readouterr().out
+    assert "ci.yml main: 7 job(s), 16 matrix row(s)" in capsys.readouterr().out
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml"]) == 2
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml", "--tier", "nightly"]) == 2
 

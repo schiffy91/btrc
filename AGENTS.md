@@ -567,7 +567,7 @@ Not corpus (corpus_files.NON_CORPUS_DIRECTORIES):
 make build                Create bin/btrcpy wrapper script
 make test                 Run unit, LSP, debugger, and both compiler corpora
 make test-fast            Fast tier: tests needing neither btrcc nor a display, and one reference corpus pass
-make test-nightly         Nightly set: the four 600-second Linux E40 loads `make test` leaves out
+make test-nightly         Nightly set: the 600-second Linux E40 loads, and strict C11 at -O1 and -O3
 make btrcc-test           Build or reuse the suite's self-hosted compiler in its cache
 make test-unit            Run Python reference-compiler unit tests
 make test-lsp             Run editor/LSP tests
@@ -575,7 +575,7 @@ make test-debug           Run debugger/DAP tests
 make test-btrc            Run the corpus through the Python compiler
 make test-btrc-selfhost   Run the corpus through btrcc plus self-host tests
 make bootstrap            Prove the self-hosted compiler's fixed point
-make test-c11             Strict C11: gcc + clang at -O0 through -O3
+make test-c11             Strict C11: gcc + clang at -O0 and -O2 (-O1 and -O3 are in the nightly set)
 make lint                 Run generated-policy checks and the ruff linter
 make format               Format Python (ruff) and BTRC (btrc-format) sources
 make format-check         Check both formattings without modifying files

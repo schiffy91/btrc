@@ -35,6 +35,7 @@ import pytest
 from src.compiler.python import Compiler, CompilerOptions
 from src.tests.c_toolchains import configured_c_compiler
 from src.tests.c_toolchains import default_c_compiler as default_c_compiler  # re-exported for CI steps
+from src.tests.corpus_c_cache import CorpusCCache
 from src.tests.corpus_files import language_test_files
 from src.tests.native_build import NativeCorpusBuild
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
@@ -62,6 +63,11 @@ _PYTHON_COMPILER = Compiler()
 # Module-unit mode compiles every corpus program as one C unit per source
 # compilation group (each stdlib module is its own group), linked together.
 MODULE_UNITS = os.environ.get("BTRC_TEST_MODULE_UNITS") == "1"
+
+# Generated C does not depend on the C compiler or its flags, so gates that
+# differ only in those (the strict-C11 cells) share it: BTRC_TEST_CORPUS_C
+# names the directory, and without it every run transpiles for itself.
+CORPUS_C = CorpusCCache.configured()
 
 
 # The corpus limits are the shared test-process limits; the names stay here
@@ -346,19 +352,36 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
                 os.unlink(p)
 
 
-@pytest.mark.parametrize("btrc_file", get_btrc_test_files())
-def test_btrc_file(compiler, btrc_file, request, tmp_path):
-    """Run one language test through the selected compiler."""
+def _corpus_c(compiler, btrc_file, request, tmp_path):
+    """One program's generated C and warning lines through `compiler`.
+
+    A single translation unit comes from the shared generation when
+    BTRC_TEST_CORPUS_C names one that holds it, and is kept there otherwise.
+    """
     btrc_path = os.path.join(BTRC_TEST_DIR, btrc_file)
+    btrcc = request.getfixturevalue("btrcc_bin") if compiler == "btrc" else None
+    shared = None if MODULE_UNITS else CORPUS_C
+    if shared is not None:
+        kept = shared.load(compiler, btrc_file, btrcc)
+        if kept is not None:
+            return kept
     if compiler == "python" and MODULE_UNITS:
         c_source, warnings = _transpile_python_module_units(btrc_path, str(tmp_path))
     elif compiler == "python":
         c_source, warnings = _transpile_python_with_warnings(btrc_path, btrc_file, tmp_path)
     elif MODULE_UNITS:
-        btrcc = request.getfixturevalue("btrcc_bin")
         c_source, warnings = _transpile_btrc_module_units(btrcc, btrc_path, str(tmp_path))
     else:
-        btrcc = request.getfixturevalue("btrcc_bin")
         c_source, warnings = _transpile_btrc_with_warnings(btrcc, btrc_path, tmp_path)
+    if shared is not None and isinstance(c_source, str):
+        shared.store(compiler, btrc_file, c_source, warnings, btrcc)
+    return c_source, warnings
+
+
+@pytest.mark.parametrize("btrc_file", get_btrc_test_files())
+def test_btrc_file(compiler, btrc_file, request, tmp_path):
+    """Run one language test through the selected compiler."""
+    btrc_path = os.path.join(BTRC_TEST_DIR, btrc_file)
+    c_source, warnings = _corpus_c(compiler, btrc_file, request, tmp_path)
     assert warnings == expected_warnings(btrc_path), f"{compiler} warnings differ from the program's warning golden"
     _compile_run_check(c_source, btrc_path, btrc_file)

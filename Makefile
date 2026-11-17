@@ -6,7 +6,7 @@
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer linux-ci clean \
-	test-e40 test-e40-linux test-e40-macos test-shard-unit test-native-gui test-shard-gui test-shard-gui-macos test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self \
+	test-e40 test-e40-linux test-e40-macos test-shard-unit test-native-gui test-shard-gui test-shard-gui-macos test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one test-c11-compiler bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self \
 	cache cache-all cache-serve
 
 CACHE_DIR ?= $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/nix-cache
@@ -350,15 +350,21 @@ test-e40: generated-check gpu-required ## Run platform-admitted E40 qualificatio
 		--skip-report=build/skip-report-e40.json $(PYTEST_SERIAL_ARGS) -n 0
 	$(NIX) $(SKIP_GATE) build/skip-report-e40.json
 
-# The nightly set: what is required but too long for every `make test`. It is
-# a named set, not a schedule; nothing runs it on a timer. Today it holds the
-# four 600-second Linux E40 loads (both frontends, plain and sanitized), 40
-# minutes of serial wall clock that `make test` used to spend. CI's linux-e40
-# cells (`make test-e40-linux`) still run them with their evidence checks.
-test-nightly: generated-check gpu-required ## Nightly set: the 600-second E40 loads `make test` leaves out
+# The nightly set: what is required but too long for every gate. It is a named
+# set, not a schedule; nothing runs it on a timer. It holds
+#   - the four 600-second Linux E40 loads (both frontends, plain and
+#     sanitized), 40 minutes of serial wall clock that `make test` used to
+#     spend; CI's linux-e40 cells (`make test-e40-linux`) still run them with
+#     their evidence checks;
+#   - the strict-C11 cells at -O1 and -O3 with gcc and clang, which `make
+#     test-c11` used to run beside -O0 and -O2.
+# CI's nightly is the `extended` tier (ci/tiers.toml), which adds the same C11
+# cells and the report-only Wayland GUI session to what every push runs.
+test-nightly: generated-check gpu-required ## Nightly set: the 600-second E40 loads and strict C11 at -O1 and -O3
 	$(NIX) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and nightly" \
 		--skip-report=build/skip-report-nightly-e40.json $(PYTEST_SERIAL_ARGS) -n 0
 	$(NIX) $(SKIP_GATE) build/skip-report-nightly-e40.json
+	$(MAKE) --no-print-directory test-c11 C11_SET=nightly
 
 E40_FRONTEND ?= python
 E40_VARIANT ?= plain
@@ -404,15 +410,36 @@ bootstrap: generated-check ## Prove the self-hosted compiler reproduces itself b
 	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py -v --skip-report=build/skip-report-bootstrap.json $(PYTEST_SERIAL_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-bootstrap.json
 
+# The strict-C11 cells: the corpus through both compilers, compiled by one C
+# compiler at one optimisation level. Every gate runs -O0 and -O2 with gcc and
+# clang; -O1 and -O3 are in the nightly set (`make test-nightly`).
+#
+# The cells of one `test-c11` or `test-c11-compiler` run share their generated
+# C (src/tests/corpus_c_cache.py): it does not depend on the C compiler or its
+# flags, so each program is transpiled once per frontend and every further
+# cell compiles and runs what the first one generated. A cell run on its own
+# (`make test-c11-one`) shares nothing.
 C11_COMPILERS := gcc clang
-C11_LEVELS := O0 O1 O2 O3
-test-c11: generated-check gpu-required $(TEST_BTRCC_BUILD) ## Strict C11: both compilers with gcc + clang at -O0 through -O3
+C11_GATE_LEVELS := O0 O2
+C11_NIGHTLY_LEVELS := O1 O3
+# C11_SET names the levels a run covers: gate, or nightly.
+C11_SET ?= gate
+C11_LEVELS := $(if $(filter nightly,$(C11_SET)),$(C11_NIGHTLY_LEVELS),$(C11_GATE_LEVELS))
+C11_CORPUS_C_ROOT := $(abspath build/corpus-c)
+test-c11 test-c11-compiler: export C11_CORPUS_C := $(C11_CORPUS_C_ROOT)
+test-c11: generated-check gpu-required $(TEST_BTRCC_BUILD) ## Strict C11: both compilers with gcc + clang at -O0 and -O2 (-O1 and -O3 are nightly)
 	@for cc in $(C11_COMPILERS); do \
 		for opt in $(C11_LEVELS); do \
 			$(MAKE) --no-print-directory test-c11-one C11_CC=$$cc C11_OPT=$$opt || exit 1; \
 		done; \
 	done
-	@echo "All C11 compliance tests passed (gcc + clang, -O0 through -O3)."
+	@echo "All C11 compliance tests passed (gcc + clang, $(C11_LEVELS))."
+
+# One C compiler's cells in sequence, sharing their generated C: a CI row.
+test-c11-compiler: generated-check gpu-required $(TEST_BTRCC_BUILD) ## CI shard: one C compiler's strict-C11 cells (C11_CC=gcc|clang C11_SET=gate|nightly)
+	@for opt in $(C11_LEVELS); do \
+		$(MAKE) --no-print-directory test-c11-one C11_CC=$(C11_CC) C11_OPT=$$opt || exit 1; \
+	done
 
 # ─── CI shards ──────────────────────────────────────────────────────────────
 # One parallel CI job each; together they cover exactly what `test` and
@@ -511,7 +538,7 @@ C11_OPT ?= O2
 test-c11-one: generated-check gpu-required $(TEST_BTRCC_BUILD) ## One strict-C11 configuration: C11_CC=gcc|clang C11_OPT=O0..O3
 	$(NIX) bash -c '\
 		echo "=== $(C11_CC) -std=c11 -$(C11_OPT) ===" && \
-		$(SHARD_BTRCC) BTRC_CC=$(C11_CC) \
+		$(SHARD_BTRCC) BTRC_CC=$(C11_CC) $(if $(C11_CORPUS_C),BTRC_TEST_CORPUS_C="$(C11_CORPUS_C)") \
 			BTRC_CFLAGS="-std=c11 -pedantic-errors -Wall -Wextra -Werror -$(C11_OPT)" \
 			$(PYTEST) src/tests/runner.py --compilers=python,btrc \
 			--skip-report=build/skip-report-c11-$(C11_CC)-$(C11_OPT).json $(PYTEST_ARGS)'
@@ -656,7 +683,7 @@ devcontainer: ## Generate .devcontainer/ and build image (DEVCONTAINER_OUTPUT=de
 clean: ## Remove all build artifacts
 	rm -rf bin/ dist/ .btrc-cache/ .devcontainer/
 	rm -rf .pytest_cache/ .ruff_cache/ htmlcov/ .coverage .coverage.* coverage.json coverage.xml
-	rm -rf build/generated/ build/devex/vscode/ build/stdlib/ build/out/ build/lib/ build/bdist.*/ build/btrcc/ build/test-btrcc/ build/btrcc-test build/temp.*/
+	rm -rf build/generated/ build/devex/vscode/ build/stdlib/ build/out/ build/lib/ build/bdist.*/ build/btrcc/ build/test-btrcc/ build/btrcc-test build/corpus-c/ build/temp.*/
 	rm -rf btrc.egg-info/ src/btrc.egg-info/
 	find src examples tools -type d \( -name __pycache__ -o -name .pytest_cache \) -prune -exec rm -rf {} +
 	find src examples tools -type d -name '*.dSYM' -prune -exec rm -rf {} +

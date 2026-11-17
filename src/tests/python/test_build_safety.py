@@ -31,6 +31,8 @@ def _make_dry_run(*args: str) -> str:
         "PYTEST_SERIAL_ARGS",
         "PYTEST_FAST_ARGS",
         "FAST_WORKERS",
+        "C11_SET",
+        "C11_CORPUS_C",
         "UNIT_GUI_DELEGATED",
         "GUI_PYTEST_WORKERS",
         "MAKEFLAGS",
@@ -283,7 +285,7 @@ def test_sustained_loads_run_in_the_nightly_set_and_nothing_is_dropped():
 
     output = _make_dry_run("test-nightly", "NIX=").replace("\\\n", " ")
     lines = output.splitlines()
-    (run,) = [line for line in lines if "python3 -m pytest" in line]
+    (run,) = [line for line in lines if "python3 -m pytest" in line and "e40_qualification" in line]
     command = shlex.split(run)
     assert command[0] == "tools/virtual-display.sh"
     arguments = command[command.index("pytest") + 1 :]
@@ -774,14 +776,41 @@ def test_strict_c11_target_treats_extensions_as_errors():
     assert flags in MAKEFILE.read_text()
 
 
+def _c11_cells(output: str) -> list[tuple[str, str]]:
+    return re.findall(r"--skip-report=build/skip-report-c11-([a-z]+)-(O[0-3])\.json", output)
+
+
 def test_c11_gate_runs_each_ci_configuration_through_the_shard_target():
-    """make test-c11 is the eight CI c11 shards in order, not a second copy of their recipe."""
+    """make test-c11 is the CI c11 cells in order, not a second copy of their recipe."""
     output = _make_dry_run("test-c11", "NIX=")
 
     assert "make --no-print-directory test-c11-one C11_CC=$cc C11_OPT=$opt" in output
-    reports = re.findall(r"--skip-report=build/skip-report-c11-([a-z]+)-(O[0-3])\.json", output)
-    assert reports == [(cc, opt) for cc in ("gcc", "clang") for opt in ("O0", "O1", "O2", "O3")]
+    assert _c11_cells(output) == [(cc, opt) for cc in ("gcc", "clang") for opt in ("O0", "O2")]
     assert MAKEFILE.read_text().count("-std=c11 -pedantic-errors -Wall -Wextra -Werror") == 1
+
+
+def test_c11_cells_at_o1_and_o3_run_in_the_nightly_set_and_none_is_dropped():
+    gate = _c11_cells(_make_dry_run("test-c11", "NIX="))
+    nightly = _c11_cells(_make_dry_run("test-nightly", "NIX="))
+
+    assert nightly == [(cc, opt) for cc in ("gcc", "clang") for opt in ("O1", "O3")]
+    # Together they are the eight cells `make test-c11` used to run.
+    assert sorted(gate + nightly) == sorted((cc, opt) for cc in ("gcc", "clang") for opt in ("O0", "O1", "O2", "O3"))
+    # A CI row is one C compiler's cells in sequence: the gate's, or the nightly ones.
+    assert _c11_cells(_make_dry_run("test-c11-compiler", "NIX=", "C11_CC=clang")) == [("clang", "O0"), ("clang", "O2")]
+    row = _make_dry_run("test-c11-compiler", "NIX=", "C11_CC=clang", "C11_SET=nightly")
+    assert _c11_cells(row) == [("clang", "O1"), ("clang", "O3")]
+
+
+def test_c11_cells_of_one_run_share_their_generated_c():
+    shared = f'BTRC_TEST_CORPUS_C="{REPO_ROOT / "build/corpus-c"}"'
+    for target in (("test-c11",), ("test-c11-compiler", "C11_CC=gcc"), ("test-nightly",)):
+        output = _make_dry_run(*target, "NIX=").replace("\\\n", " ")
+        cells = [line for line in output.splitlines() if "BTRC_CFLAGS=" in line]
+        assert len(cells) >= 2 and all(shared in line for line in cells), target
+    # A cell run on its own, and every gate that is not a C11 cell, transpiles for itself.
+    for target in ("test-c11-one", "test-shard-corpus-python", "test-shard-corpus-btrc", "test"):
+        assert "BTRC_TEST_CORPUS_C" not in _make_dry_run(target, "NIX="), target
 
 
 def test_plain_pytest_includes_debug_adapter_tests():
