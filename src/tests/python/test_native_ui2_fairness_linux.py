@@ -295,7 +295,9 @@ def exercise_load(program, frontend, sanitized, seconds, tmp_path):
 
 
 @pytest.mark.e40_qualification
+@pytest.mark.nightly
 def test_linux_e40_sustained_load(load_program, frontend, sanitized, tmp_path):
+    """Ten minutes per frontend and variant: `make test-nightly` and CI's linux-e40 cells run it."""
     exercise_load(load_program, frontend, sanitized, 600, tmp_path)
 
 

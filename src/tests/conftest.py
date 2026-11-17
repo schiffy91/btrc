@@ -71,7 +71,7 @@ def pytest_addoption(parser):
 # sustained qualification load. Everything else is in the tier, so a new test
 # joins it without being listed anywhere.
 _SELFHOST_FIXTURES = frozenset({"immutable_btrcc", "selfhost_driver"})
-_FAST_TIER_EXCLUDED_MARKERS = ("e40_qualification", "linux_gui", "macos_gui")
+_FAST_TIER_EXCLUDED_MARKERS = ("e40_qualification", "nightly", "linux_gui", "macos_gui")
 
 
 def _in_fast_tier(item) -> bool:
@@ -101,6 +101,7 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "e40_qualification: sustained native workload; requires a serial qualification stage"
     )
+    config.addinivalue_line("markers", "nightly: required, but run by `make test-nightly` instead of `make test`")
 
 
 @pytest.hookimpl(wrapper=True)

@@ -272,6 +272,10 @@ def test_display_owner():
 @pytest.mark.e40_qualification
 def test_sustained_load():
     raise AssertionError("the fast tier ran a qualification load")
+
+@pytest.mark.nightly
+def test_nightly_set():
+    raise AssertionError("the fast tier ran a nightly test")
 """
 
 
@@ -332,7 +336,7 @@ def test_fast_tier_leaves_out_the_selfhost_compiler_displays_and_loads(tmp_path:
         "test_tiers.py::test_each_frontend[python]": "passed",
         "test_tiers.py::test_each_frontend[selfhost]": "skipped",
     }
-    assert "5 deselected" in result.stdout
+    assert "6 deselected" in result.stdout
     (skip,) = ledger["skips"]
     assert skip["nodeid"] == "test_tiers.py::test_each_frontend[selfhost]"
     assert "the fast tier never builds the self-hosted compiler" in skip["reason"]
@@ -341,4 +345,4 @@ def test_fast_tier_leaves_out_the_selfhost_compiler_displays_and_loads(tmp_path:
 def test_every_other_tier_keeps_the_whole_selection(tmp_path: Path) -> None:
     result = _run_tiered_suite(tmp_path, "--collect-only")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "8 tests collected" in result.stdout and "deselected" not in result.stdout
+    assert "9 tests collected" in result.stdout and "deselected" not in result.stdout

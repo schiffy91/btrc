@@ -1,6 +1,6 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-release-c-linux btrcc-release-c-macos btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
-        test test-fast test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
+        test test-fast test-nightly test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         skip-gate qualification-report \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -320,11 +320,24 @@ test-unit: generated-check ## Run Python reference-compiler unit tests (lexer, p
 	$(NIX) $(PYTEST) src/tests/python/ $(PYTEST_ARGS) -m "not e40_qualification"
 
 # E40 qualifying loads own one serial process. Native macOS runtime still
-# requires its explicit hosted opt-in; this target never supplies it.
-test-e40: generated-check gpu-required ## Run platform-admitted E40 qualification serially
-	$(NIX) tools/virtual-display.sh $(PYTEST) src/tests/ -m e40_qualification \
+# requires its explicit hosted opt-in; this target never supplies it. The
+# sustained 600-second Linux loads are marked `nightly` as well and run in
+# `make test-nightly`; their 10-second diagnostic form stays in the parallel
+# suite and the repeated bursts stay here.
+test-e40: generated-check gpu-required ## Run platform-admitted E40 qualification serially (bursts; the 600-second loads are nightly)
+	$(NIX) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and not nightly" \
 		--skip-report=build/skip-report-e40.json $(PYTEST_SERIAL_ARGS) -n 0
 	$(NIX) $(SKIP_GATE) build/skip-report-e40.json
+
+# The nightly set: what is required but too long for every `make test`. It is
+# a named set, not a schedule; nothing runs it on a timer. Today it holds the
+# four 600-second Linux E40 loads (both frontends, plain and sanitized), 40
+# minutes of serial wall clock that `make test` used to spend. CI's linux-e40
+# cells (`make test-e40-linux`) still run them with their evidence checks.
+test-nightly: generated-check gpu-required ## Nightly set: the 600-second E40 loads `make test` leaves out
+	$(NIX) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and nightly" \
+		--skip-report=build/skip-report-nightly-e40.json $(PYTEST_SERIAL_ARGS) -n 0
+	$(NIX) $(SKIP_GATE) build/skip-report-nightly-e40.json
 
 E40_FRONTEND ?= python
 E40_VARIANT ?= plain

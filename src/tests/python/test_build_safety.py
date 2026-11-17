@@ -191,7 +191,7 @@ def test_memory_intensive_bootstrap_runs_after_the_parallel_suite():
     assert parallel[parallel.index("-m") + 1] == "not e40_qualification"
     assert parallel[parallel.index("-n") + 1] == "8"
     assert "src/tests/" in e40
-    assert e40[e40.index("-m") + 1] == "e40_qualification"
+    assert e40[e40.index("-m") + 1] == "e40_qualification and not nightly"
     assert e40[e40.index("-n") + 1] == "0"
     assert "src/tests/btrc/test_bootstrap.py" in serial_bootstrap
     assert "src/tests/" not in serial_bootstrap
@@ -202,6 +202,52 @@ def test_memory_intensive_bootstrap_runs_after_the_parallel_suite():
     bootstrap_command = next(line for line in bootstrap.splitlines() if "python3 -m pytest" in line)
     assert "src/tests/btrc/test_bootstrap.py" in bootstrap_command
     assert " -n " not in bootstrap_command
+
+
+def _collected(*arguments: str) -> set[str]:
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", *arguments],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PYTEST_ADDOPTS": ""},
+        capture_output=True,
+        text=True,
+        timeout=TRANSPILE_TIMEOUT,
+    )
+    assert result.returncode in (0, 5), result.stdout + result.stderr
+    return {line for line in result.stdout.splitlines() if "::" in line}
+
+
+def test_sustained_loads_run_in_the_nightly_set_and_nothing_is_dropped():
+    suite = "src/tests/python/test_native_ui2_fairness_linux.py"
+    qualification = _collected(suite, "-m", "e40_qualification")
+    main_gate = _collected(suite, "-m", "e40_qualification and not nightly")
+    nightly = _collected(suite, "-m", "e40_qualification and nightly")
+    parallel = _collected(suite, "-m", "not e40_qualification")
+
+    # Four ten-minute loads leave `make test`; the bursts and the ten-second form stay.
+    assert nightly == {
+        f"{suite}::test_linux_e40_sustained_load[{frontend}-{variant}]"
+        for frontend in ("python", "selfhost")
+        for variant in ("plain", "sanitized")
+    }
+    assert len(main_gate) == 64 and all("::test_linux_e40_repeated_bursts[" in node for node in main_gate)
+    assert main_gate | nightly == qualification and not main_gate & nightly
+    assert len(parallel) == 4 and all("::test_linux_e40_diagnostic[" in node for node in parallel)
+    # Nothing else in the tree is nightly, so the two targets together run what `test-e40` ran.
+    assert _collected("src/tests/", "-m", "nightly") == nightly
+
+    output = _make_dry_run("test-nightly", "NIX=").replace("\\\n", " ")
+    lines = output.splitlines()
+    (run,) = [line for line in lines if "python3 -m pytest" in line]
+    command = shlex.split(run)
+    assert command[0] == "tools/virtual-display.sh"
+    arguments = command[command.index("pytest") + 1 :]
+    assert "src/tests/" in arguments
+    assert arguments[arguments.index("-m") + 1] == "e40_qualification and nightly"
+    assert arguments[arguments.index("-n") + 1] == "0"
+    assert "--skip-report=build/skip-report-nightly-e40.json" in arguments
+    gate = next(index for index, line in enumerate(lines) if "skip-gate build/skip-report-nightly-e40.json" in line)
+    assert gate > lines.index(run)
 
 
 def test_main_gate_runs_portable_boundaries_and_keeps_observed_proof_explicit():

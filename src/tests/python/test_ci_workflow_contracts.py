@@ -2235,7 +2235,10 @@ def test_e40_moves_from_parallel_stages_to_explicit_serial_full_test_stage() -> 
     full = makefile.split("\ntest:", 1)[1].split("\n\n", 1)[0]
     assert "$(MAKE) --no-print-directory test-e40" in full
     serial = makefile.split("\ntest-e40:", 1)[1].split("\n\n", 1)[0]
-    assert "-m e40_qualification" in serial and "$(PYTEST_SERIAL_ARGS) -n 0" in serial
+    assert '-m "e40_qualification and not nightly"' in serial and "$(PYTEST_SERIAL_ARGS) -n 0" in serial
+    nightly = makefile.split("\ntest-nightly:", 1)[1].split("\n\n", 1)[0]
+    assert '-m "e40_qualification and nightly"' in nightly and "$(PYTEST_SERIAL_ARGS) -n 0" in nightly
+    assert "BTRC_UI2_HOSTED_E40" not in nightly and "CI=true" not in nightly
     assert "BTRC_UI2_HOSTED_E40" not in serial and "CI=true" not in serial
     linux = makefile.split("\ntest-e40-linux:", 1)[1].split("\n\n", 1)[0]
     assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in linux

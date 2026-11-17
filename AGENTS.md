@@ -561,6 +561,7 @@ Not corpus (corpus_files.NON_CORPUS_DIRECTORIES):
 make build                Create bin/btrcpy wrapper script
 make test                 Run unit, LSP, debugger, and both compiler corpora
 make test-fast            Fast tier: tests needing neither btrcc nor a display, and one reference corpus pass
+make test-nightly         Nightly set: the four 600-second Linux E40 loads `make test` leaves out
 make test-unit            Run Python reference-compiler unit tests
 make test-lsp             Run editor/LSP tests
 make test-debug           Run debugger/DAP tests
